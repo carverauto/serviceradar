@@ -30,8 +30,9 @@ import (
 var errK8sPublicEndpointsRecordTooLarge = errors.New("k8s public endpoints snapshot exceeds the durable record body bound")
 
 type k8sPublicEndpointsBuiltItem struct {
-	record *edgev1.EdgeRecordV1
-	body   []byte
+	prepared edgePreparedRecord
+	record   *edgev1.EdgeRecordV1
+	body     []byte
 }
 
 type k8sPublicEndpointsEdgeQueue struct {
@@ -42,7 +43,7 @@ func (p *PushLoop) edgeK8sPublicEndpointsCapability(now time.Time) *edgev1.EdgeS
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.K8sPublicEndpointsContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.K8sPublicEndpointsContractID, now)
 }
 
 func isK8sPublicEndpointsService(svc Service) bool {
@@ -74,11 +75,7 @@ func (p *PushLoop) appendK8sPublicEndpointsBuilt(built *k8sPublicEndpointsBuiltI
 	if built == nil || built.record == nil {
 		return true
 	}
-	if _, err := p.edgeDiscoverySpool.AppendFlow(
-		edgeAdmissionFlow(built.record),
-		built.record.GetEventId(),
-		built.body,
-	); err != nil {
+	if err := built.prepared.append(p.edgeDiscoverySpool, built.record, built.body); err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to spool k8s public endpoints snapshot; will retry")
 		return false
 	}

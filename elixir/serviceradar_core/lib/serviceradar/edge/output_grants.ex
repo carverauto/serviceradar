@@ -33,6 +33,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrant
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadar.SweepJobs.ProducerAssignments
@@ -111,25 +113,25 @@ defmodule ServiceRadar.Edge.OutputGrants do
   end
 
   defp contract_grant(contract, agent_id, scope, key, now) do
-    case reconcile(agent_id, contract.contract_id, scope) do
-      {:ok, %OutputGrant{} = grant} ->
-        capability = production_capability(grant, contract, key, now)
-
-        [
-          %Monitoring.EdgeOutputGrant{
-            contract_id: contract.contract_id,
-            contract_version: contract.contract_version,
-            production_capability: EdgeSignedCapabilityV1.encode(capability)
-          }
-        ]
-
-      {:error, reason} ->
+    with {:ok, %OutputGrant{} = grant} <- reconcile(agent_id, contract.contract_id, scope),
+         capability = production_capability(grant, contract, key, now),
+         {:ok, entry} <- RecoveryAssignmentEvidence.standing(capability, key.public_key),
+         {:ok, :committed} <- RecoveryAssignments.commit_issuance([entry]) do
+      [
+        %Monitoring.EdgeOutputGrant{
+          contract_id: contract.contract_id,
+          contract_version: contract.contract_version,
+          production_capability: EdgeSignedCapabilityV1.encode(capability)
+        }
+      ]
+    else
+      failure ->
         Logger.warning(
           "Edge output grant for #{contract.contract_id} not issued to agent #{agent_id}: " <>
-            inspect(reason),
+            inspect(failure),
           agent_id: agent_id,
           contract_id: contract.contract_id,
-          reason: inspect(reason)
+          reason: inspect(failure)
         )
 
         []
@@ -284,7 +286,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
     scope_sha256 = scope_sha256(grant)
     id = Ecto.UUID.dump!(grant.id)
 
-    {:ok, %{package_id: package_id}} =
+    {:ok, %{package_id: package_id, route_profile: route, traffic_class: traffic}} =
       ContractCatalog.fetch({contract.contract_id, contract.contract_version})
 
     claims = %EdgeProductionClaimsV1{
@@ -294,8 +296,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
       registry_epoch: contract.registry_epoch,
       network_scope_id: Ecto.UUID.dump!(grant.network_scope_id),
       producer_assignment_id: id,
-      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: traffic,
+      route_profile: route,
       origin_kind: :EDGE_ORIGIN_KIND_AGENT,
       origin_principal_id: grant.agent_id,
       producer_instance_id: grant.agent_id,

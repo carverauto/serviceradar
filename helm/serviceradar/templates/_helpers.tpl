@@ -1319,6 +1319,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $ewEdgeRecordAudit := default (dict) (index $ewStreams "telemetry_edge_record_audit_v1_bulk") -}}
 {{- $ewEdgeRecordQuarantine := default (dict) (index $ewStreams "telemetry_edge_record_security_quarantine_v1_bulk") -}}
 {{- $ewEdgeRecordDeadLetter := default (dict) (index $ewStreams "telemetry_edge_record_dlq_v1_bulk") -}}
+{{- $ewEdgeRecordRecovery := default (dict) (index $ewStreams "telemetry_edge_record_recovery_v1") -}}
 {{- $ewExposureTransitions := default (dict) (index $ewStreams "exposure_transitions") -}}
 {{- $ewExposureDimensions := default (dict) (index $ewStreams "exposure_dimensions") -}}
 {{- $entries = concat $entries (list
@@ -1327,6 +1328,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
   (dict "id" "telemetry_edge_record_audit_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.maxBytes" "value" $ewEdgeRecordAudit.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.replicas" "replicaValue" $ewEdgeRecordAudit.replicas "counted" true)
   (dict "id" "telemetry_edge_record_security_quarantine_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.maxBytes" "value" $ewEdgeRecordQuarantine.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.replicas" "replicaValue" $ewEdgeRecordQuarantine.replicas "counted" true)
   (dict "id" "telemetry_edge_record_dlq_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_dlq_v1_bulk.maxBytes" "value" $ewEdgeRecordDeadLetter.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_dlq_v1_bulk.replicas" "replicaValue" $ewEdgeRecordDeadLetter.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_recovery_v1" "stream" "TELEMETRY_EDGE_RECORD_RECOVERY_V1" "source" "core.eventWriter.streams.telemetry_edge_record_recovery_v1.maxBytes" "value" $ewEdgeRecordRecovery.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_recovery_v1.replicas" "replicaValue" $ewEdgeRecordRecovery.replicas "counted" true)
   (dict "id" "exposureTransitions" "stream" "EXPOSURE_TRANSITIONS" "source" "core.eventWriter.streams.exposure_transitions.maxBytes" "value" $ewExposureTransitions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_transitions.replicas" "replicaValue" $ewExposureTransitions.replicas "counted" true)
   (dict "id" "exposureDimensions" "stream" "EXPOSURE_DIMENSIONS" "source" "core.eventWriter.streams.exposure_dimensions.maxBytes" "value" $ewExposureDimensions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_dimensions.replicas" "replicaValue" $ewExposureDimensions.replicas "counted" true)
   (dict "id" "exposureRecovery" "stream" "EXPOSURE_RECOVERY" "source" "fixed exposure recovery reservation" "value" "64Mi" "replicaSource" "fixed exposure recovery replicas" "replicaValue" 3 "counted" true)
@@ -1349,6 +1351,9 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $src = $e.source -}}
 {{- end -}}
 {{- $mb := int64 (include "serviceradar.natsSizeBytes" (dict "value" $raw "what" $src)) -}}
+{{- if and (eq $e.id "telemetry_edge_record_recovery_v1") (lt $mb 4194304) -}}
+{{- fail "core.eventWriter.streams.telemetry_edge_record_recovery_v1.maxBytes must reserve at least 4Mi" -}}
+{{- end -}}
 {{- $rraw := index $profileReplicas $e.id -}}
 {{- $rsrc := "files/jetstream-profiles.yaml replicas" -}}
 {{- if and $e.replicaSource (not (kindIs "invalid" $e.replicaValue)) (ne (toString $e.replicaValue) "") -}}

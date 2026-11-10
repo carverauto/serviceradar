@@ -65,6 +65,51 @@ defmodule ServiceRadar.Edge.SweepContractTest do
              )
   end
 
+  test "recovery production grants sign the reserved catalog lane and full-manifest ceilings" do
+    ref = {"serviceradar.edge.recovery_control", 1}
+    local = ContractBundle.local()
+    entry = Map.fetch!(local.contracts, ref)
+
+    epoch = %{
+      epoch: 1_000_004,
+      snapshot_sha256: local.snapshot_sha256,
+      contracts: %{ref => entry}
+    }
+
+    assert {:ok, contract} = OutputContract.from_epoch(epoch, ref)
+
+    grant = %ServiceRadar.Edge.OutputGrant{
+      id: "00000000-0000-7000-8000-000000000021",
+      network_scope_id: "00000000-0000-7000-8000-000000000022",
+      agent_id: "synthetic-recovery-agent",
+      contract_id: "serviceradar.edge.recovery_control",
+      run_shard: 0,
+      authority_epoch: 1
+    }
+
+    key = ServiceRadar.Edge.IssuerKey.from_seed(:binary.copy(<<0x43>>, 32))
+
+    capability =
+      ServiceRadar.Edge.OutputGrants.production_capability(
+        grant,
+        contract,
+        key,
+        ~U[2026-11-01 12:00:00Z]
+      )
+
+    assert ServiceRadar.Edge.CapabilitySigning.verify(capability, :production, key.public_key)
+    assert {:production, claims} = capability.claims
+    assert claims.route_profile == :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
+    assert claims.traffic_class == :EDGE_RECORD_TRAFFIC_CLASS_BULK
+    assert claims.package_id == "serviceradar.agent.recovery"
+    assert claims.max_projected_row_count == 8192
+    assert claims.max_projected_write_bytes == 34_603_008
+    wrong = %{entry | route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1}
+
+    assert {:error, :contract_lane} =
+             OutputContract.from_epoch(%{epoch | contracts: %{ref => wrong}}, ref)
+  end
+
   defp sweep_catalog_entry do
     {:ok, entry} = ContractCatalog.fetch(@ref)
     entry

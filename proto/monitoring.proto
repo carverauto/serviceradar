@@ -61,6 +61,12 @@ service AgentGatewayService {
   // for each spooled edge record whose production authority has lapsed, so a
   // reconnecting agent can drain its backlog.
   rpc RenewEdgeDeliveryGrants(EdgeDeliveryGrantRequest) returns (EdgeDeliveryGrantResponse) {}
+  // Recovery control is authenticated independently of the blocked delivery lane.
+  // Registration is not publication or permission to reclaim source bytes.
+  rpc RegisterEdgeRecovery(EdgeRecoveryRegistration) returns (EdgeRecoveryStatus) {}
+  rpc AuthorizeEdgeRecovery(EdgeRecoveryAuthorizationRequest) returns (EdgeRecoveryAuthorizationResponse) {}
+  rpc RenewEdgeRecoveryCopies(EdgeRecoveryCopyGrantRequest) returns (EdgeDeliveryGrantResponse) {}
+  rpc GetEdgeRecovery(EdgeRecoveryQuery) returns (EdgeRecoveryStatus) {}
 }
 
 message DeviceStatusRequest {
@@ -338,15 +344,15 @@ message AgentHelloRequest {
   optional EdgeRecordSpoolStatus edge_record_spool = 16;
 }
 
-// EdgeRecordSpoolStatus carries startup availability and live health on every
+// EdgeRecordSpoolStatus carries storage/recovery availability and live health on every
 // hello/heartbeat, independently of optional Prometheus scraping.
 message EdgeRecordSpoolStatus {
   bool available = 1;
-  string error = 2; // Why the spool could not be opened; empty when available
+  string error = 2; // Bounded storage/recovery detail; normal pending work may remain available
   bool health_available = 3; // False for older agents or a failed health read
   string health_error = 4;
   bool wedged = 5; // Allocated gaps prevent this lane from resolving
-  repeated uint64 gap_sequences = 6; // First 32 in ascending order; see gap_count
+  repeated uint64 gap_sequences = 6; // Legacy single-generation sample only; see generation_gaps
   uint64 gap_count = 7; // Total; never silently truncate diagnostics
   uint64 unresolved_count = 8; // Includes allocated gaps, not only readable records
   uint64 oldest_unresolved_age_seconds = 9;
@@ -355,6 +361,18 @@ message EdgeRecordSpoolStatus {
   uint64 bytes_used = 12; // Allocator charge including metadata and terminal evidence
   uint64 budget_bytes = 13; // Current runtime budget, including reserved headroom
   bool admission_paused = 14;
+  // At most 32 samples across the complete lane inventory. gap_count includes
+  // every omitted slot; sequence is meaningful only with this generation id.
+  repeated EdgeRecordSpoolGap generation_gaps = 15;
+  // Unsupported flat-storage bytes retained untouched and charged to the shared budget.
+  uint64 retained_legacy_bytes = 16;
+}
+
+message EdgeRecordSpoolGap {
+  bytes spool_generation_id = 1;
+  serviceradar.edge.v1.EdgeRecordRouteProfile route_profile = 2;
+  serviceradar.edge.v1.EdgeRecordTrafficClass traffic_class = 3;
+  uint64 sequence = 4;
 }
 
 // The kind of a local interface, as the agent's operating system describes it.
@@ -411,6 +429,84 @@ message AgentHelloResponse {
   int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
   bool config_outdated = 7;         // True if agent should fetch new config
   reserved 8, 9;                    // Removed: deployment identifiers (single-deployment)
+  // Zero means recovery is unavailable; agents retain all source evidence.
+  uint32 edge_recovery_protocol_version = 10;
+}
+
+// A bounded operation within a frozen generation. Bounds describe ALLOCATION,
+// not loss: only the exact manifest pages describe lost sequences. Every selected
+// sequence must occur exactly once in the loss union or the copy manifest.
+// The authenticated agent comes from mTLS, never a caller-provided principal.
+message EdgeRecoveryRegistration {
+  uint32 protocol_version = 1;
+  bytes network_scope_id = 2;
+  bytes recovery_id = 3;
+  bytes prior_spool_id = 4;
+  bytes new_spool_id = 5;
+  serviceradar.edge.v1.EdgeRecordRouteProfile route_profile = 6;
+  serviceradar.edge.v1.EdgeRecordTrafficClass traffic_class = 7;
+  uint64 source_reclaim_watermark = 8;
+  uint64 source_high_water = 9;
+  uint64 from_sequence = 10;
+  uint64 through_sequence = 11;
+  // Exact received wire bytes; aggregate/page ceilings apply before decoding.
+  repeated bytes manifest_pages = 12;
+  bytes tombstone = 13;
+  repeated EdgeRecoveryCopy copies = 14;
+}
+
+message EdgeRecoveryCopy {
+  uint64 prior_sequence = 1;
+  uint64 new_sequence = 2;
+  bytes event_id = 3;
+  bytes record_sha256 = 4;
+  bytes attribution_binding_sha256 = 5;
+}
+
+message EdgeRecoveryQuery {
+  bytes network_scope_id = 1;
+  bytes recovery_id = 2;
+}
+
+message EdgeRecoveryAuthorizationRequest {
+  EdgeRecoveryQuery recovery = 1;
+  // Exactly one registered page or tombstone, wrapped in the existing payload.
+  // A resolved payload is never accepted from an agent.
+  bytes control_payload = 2;
+  serviceradar.edge.v1.EdgeSignedCapabilityV1 production_capability = 3;
+}
+
+message EdgeRecoveryAuthorizationResponse {
+  serviceradar.edge.v1.EdgeSourceAuthorizationV1 source_authorization = 1;
+}
+
+message EdgeRecoveryCopyGrantRequest {
+  EdgeRecoveryQuery recovery = 1;
+  repeated EdgeRecoveryCopyGrantItem records = 2;
+}
+
+message EdgeRecoveryCopyGrantItem {
+  uint64 prior_sequence = 1;
+  uint64 new_sequence = 2;
+  bytes record_bytes = 3;
+}
+
+enum EdgeRecoveryState {
+  EDGE_RECOVERY_STATE_UNSPECIFIED = 0;
+  EDGE_RECOVERY_STATE_PENDING = 1;
+  EDGE_RECOVERY_STATE_BLOCKED = 2;
+  EDGE_RECOVERY_STATE_RESOLVED = 3;
+}
+
+message EdgeRecoveryStatus {
+  EdgeRecoveryState state = 1;
+  // A bounded stable reason code; no records or credentials in status text.
+  string reason = 2;
+  // Present only after consumer repair and coverage application commit.
+  serviceradar.edge.v1.RecoveryResolvedV1 resolved = 3;
+  // Existing recovery scope grammar binds recovery id, root and applied scalar.
+  // Issuer persists and returns the original result and capability on replay.
+  serviceradar.edge.v1.EdgeSignedCapabilityV1 resolution_capability = 4;
 }
 
 // CertificateRenewalRequest is sent by an authenticated agent to renew its mTLS leaf certificate.
@@ -489,6 +585,11 @@ message AgentConfigResponse {
   // appends until the spool drains below it. Zero means the sender predates the
   // setting, and the agent keeps the budget it runs with.
   uint64 edge_spool_max_bytes = 16;
+
+  // Complete public RecordTrust JSON snapshot for this authenticated agent and
+  // partition. Empty means unavailable; new record attribution must retry. The
+  // config version covers the entire document, including key status and fences.
+  bytes edge_record_trust_document = 17;
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an

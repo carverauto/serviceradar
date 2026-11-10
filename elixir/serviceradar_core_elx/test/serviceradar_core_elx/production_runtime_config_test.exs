@@ -392,6 +392,18 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert dead_letter.subject == "telemetry.edge-record-dlq.v1.bulk.>"
   end
 
+  test "prod recovery retains deferred controls without age expiry or a terminal delivery limit" do
+    recovery = Enum.find(read_prod_event_writer_streams(), &(&1.name == "EDGE_RECORD_RECOVERY"))
+
+    assert recovery.stream_name == "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+    assert recovery.subject == "telemetry.edge-record-recovery.v1"
+    assert recovery.stream_retention == "workqueue"
+    assert recovery.stream_discard == "new"
+    assert recovery.stream_max_age == 0
+    assert recovery.stream_max_bytes > 0
+    assert recovery.consumer_max_deliver == -1
+  end
+
   test "prod EventWriter Falco consumer targets the provisioned events stream" do
     falco = Enum.find(read_prod_event_writer_streams(), &(&1.name == "FALCO"))
 

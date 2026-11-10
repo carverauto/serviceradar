@@ -17,7 +17,11 @@
 package agent
 
 import (
+	"context"
+	"time"
+
 	"errors"
+	"github.com/stretchr/testify/require"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -79,7 +83,8 @@ func TestHellosRefreshSpoolHealth(t *testing.T) {
 }
 
 // The config's budget is applied once per change; zero (a core that predates
-// the setting) and a refused budget leave the running budget in place.
+// the setting) preserves the setting. A refused budget must not suppress a later
+// retry of the previous valid value, which clears the admission pause.
 func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {
 	loop := NewPushLoop(&Server{config: &ServerConfig{}}, nil, 0, logger.NewTestLogger())
 	var applied []uint64
@@ -100,8 +105,45 @@ func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {
 	refuse = false
 	loop.applyEdgeSpoolBudget(&proto.AgentConfigResponse{EdgeSpoolMaxBytes: 1 << 30})
 
-	want := []uint64{256 << 20, 1 << 30}
-	if len(applied) != len(want) || applied[0] != want[0] || applied[1] != want[1] {
+	want := []uint64{256 << 20, 1 << 30, 1 << 30}
+	if len(applied) != len(want) || applied[0] != want[0] || applied[1] != want[1] || applied[2] != want[2] {
 		t.Fatalf("applied budgets = %v, want %v", applied, want)
 	}
+}
+
+// A successful authenticated Hello is the sole source of negotiation. In
+// particular, replacing the managed connection must not reuse its prior value.
+func TestRecoveryNegotiationFollowsAuthenticatedHello(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	now := time.Now()
+	h := setupRenewalTestHarness(t, now.Add(-time.Hour), now.Add(time.Hour))
+	require.NoError(t, h.gwClient.Connect(ctx))
+	loop := &PushLoop{
+		server:        &Server{config: &ServerConfig{AgentID: "agent-synth-1"}},
+		gateway:       h.gwClient,
+		logger:        logger.NewTestLogger(),
+		configVersion: "synthetic-config",
+	}
+	require.Zero(t, loop.EdgeRecoveryProtocolVersion(), "connection without Hello")
+	for _, version := range []uint32{1, 0, 2, 1} {
+		h.gwServer.mu.Lock()
+		h.gwServer.recoveryVersion = version
+		h.gwServer.mu.Unlock()
+		require.NoError(t, loop.enrollOnce(ctx))
+		require.Equal(t, version, loop.EdgeRecoveryProtocolVersion())
+	}
+
+	require.NoError(t, h.gwClient.Disconnect())
+	require.Zero(t, loop.EdgeRecoveryProtocolVersion(), "disconnected peer")
+	require.NoError(t, h.gwClient.Connect(ctx))
+	require.Zero(t, loop.EdgeRecoveryProtocolVersion(), "new connection before Hello")
+	require.NoError(t, loop.enrollOnce(ctx))
+	require.Equal(t, uint32(1), loop.EdgeRecoveryProtocolVersion())
+
+	h.gwServer.mu.Lock()
+	h.gwServer.revokedSerials[h.initialSN] = "synthetic_revocation"
+	h.gwServer.mu.Unlock()
+	require.Error(t, loop.enrollOnce(ctx))
+	require.Zero(t, loop.EdgeRecoveryProtocolVersion(), "rejected Hello invalidates negotiation")
 }

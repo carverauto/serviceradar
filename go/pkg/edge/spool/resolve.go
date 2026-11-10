@@ -124,8 +124,11 @@ const (
 // AttributionVerifies; collapsing the two would make the verified-but-unrepresentable
 // case impossible to express.
 type AttributionVerdict struct {
-	State         AttributionState
-	Representable bool
+	// Classification is detached complete sidecar content when the owned reader verifies it.
+	Classification *edgev1.EdgeClassificationSpanV1
+	accountingKey  []byte
+	State          AttributionState
+	Representable  bool
 	// Digest is the binding digest the layer found. The spool compares it against the
 	// digest the commit evidence names, so a verifying binding that is not the one
 	// committed for this slot does not verify.
@@ -169,8 +172,11 @@ type BindingInspector interface {
 
 // SlotObservation is everything restart resolution considers for one slot.
 type SlotObservation struct {
-	Sequence uint64
-	Evidence EvidenceState
+	// RelocationInconsistent blocks sender visibility, independently of whether
+	// the surviving attribution still suffices to classify a loss.
+	RelocationInconsistent bool
+	Sequence               uint64
+	Evidence               EvidenceState
 	// Allocated: the sequence is at or below the durable sequence high-water.
 	Allocated bool
 	// CompleteRecord: a complete, checksum-valid record exists for the slot.
@@ -238,7 +244,7 @@ func ResolveSlot(o SlotObservation) SlotResolution {
 		bytesLost := o.Bytes == BytesMissing || o.Bytes == BytesCorrupt
 
 		switch {
-		case attributionValid && receiptValid && o.Bytes == BytesIntact:
+		case attributionValid && receiptValid && !o.RelocationInconsistent && o.Bytes == BytesIntact:
 			r.Outcome = OutcomeCommitted
 		case verifies && o.Attribution.Representable && bytesLost:
 			r.Outcome = OutcomeAttributedLoss

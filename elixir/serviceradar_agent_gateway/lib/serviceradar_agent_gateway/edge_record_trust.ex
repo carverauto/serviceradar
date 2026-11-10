@@ -28,8 +28,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   A fence entry names a producer's ACTIVE authority generation. A record whose epoch equals its
   entry is current; below it is stale; above it is a generation this gateway has not learned yet.
   A producer with NO entry is unavailable: this snapshot does not know its active generation, and
-  a missing entry never reads as current. Future and unavailable are both retryable and never
-  authorized. An absent SNAPSHOT is unavailable, and nothing authorizes.
+  a missing entry never reads as current. Future entries remain retryable. An unavailable entry
+  permits only audit delivery under a current, exact operation-bound rollover capability;
+  ordinary and renewal delivery remain retryable. An absent SNAPSHOT is unavailable, and nothing
+  authorizes.
 
   ## Network scope authority
 

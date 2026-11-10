@@ -1,9 +1,30 @@
 # Tasks: Add the agent spool recovery coordinator
 
+## Current implementation status (2026-11-09)
+
+The historical "Remaining as of the move" notes below describe the starting
+point. The current branch integrates bounded attributed production lanes, the
+single allocator, durable tagged mappings and issuance evidence, independent
+bindings, paired journal/coverage proofs, registered copy authority, consumer
+repair, and gateway coverage handling. Real-sender receipt-barrier/restart
+validation, retained-byte accounting and post-cleanup producer delivery passed.
+Gateway version-one advertisement and its actual Hello regression are integrated.
+Flat legacy storage is explicitly unsupported and retained, per the owner's later
+scope decision.
+
+Independent review found the specified storage vectors in the owning suites:
+all four journal-derived coarsening cases, allocated 9 / markerless 10, wrong-body
+coverage, uncommitted destination, missing ACK, copy crash barriers and physical
+reserve progress. The near-full proof is a storage test; it is not a claim of
+near-full process-level recovery. The driver and whole unit suite have passed.
+Guarded database assertions and the final integrated landing gate must finish
+before checking complete tasks below.
+
 ## 1. Moved from `unify-sweep-results-proto`
 
-Each task keeps its original text and number from `unify-sweep-results-proto`; its last line states what remained
-when it moved.
+Tasks retain their moved numbers. Notes explicitly dated 2026-11-02 describe
+the starting point; the approved bounded-generation scope below supersedes
+requirements to recover or split unsupported existing storage.
 
 - [ ] 1.1 (was `unify-sweep-results-proto` 2.4) Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives
@@ -25,21 +46,21 @@ when it moved.
   alone, since a widened span cannot show whether an omitted sequence was lost or
   preserved, nor whether the body it carries is the one the coordinator journaled. Never enumerate an outage-sized recoverable tail;
   re-enqueue it with stable semantic identity and make affected coverage partial.
-  Bind every recovery generation and manifest page immutably, SPLIT an overlarge
-  manifest across recoveries rather than coarsening proven attribution into an
-  uncertain scope (known attribution is never relabelled UNATTRIBUTABLE to shed
-  bytes), enforce page/manifest byte ceilings against EXACT RECEIVED bytes, and
-  retain both recovery
+  Bind every recovery generation and manifest page immutably. Bound new
+  attributed generations before allocation so one recovery covers the whole
+  physical source within the exact page/manifest ceilings. Retain, account and
+  report existing oversized or flat storage as unsupported; never erase proven
+  attribution to fit a budget. Retain both recovery
   journal copies until a signed, consumer-committed `RecoveryResolvedV1` (or its
   idempotent query result) is durable locally. Put every lane, quarantine,
   journal copy, segment/metadata overhead, rollover amplification, and scratch
   reservation under one atomic filesystem byte allocator with an unborrowable
   minimum-free-space floor for recovery/control and terminal evidence.
-  PARTIALLY LANDED: commit `2c816c114e` gave
+  Historical starting point (2026-11-02): commit `2c816c114e` gave
   `go/pkg/edge/spool` its first production caller, the agent's edge-record
   sender, and added the `Resolved()` watermark read. The segmented recovery,
-  rollover, and allocator obligations above are not implemented, so this task
-  stays unchecked.
+  rollover, and allocator obligations above were not implemented, so the task
+  remained unchecked at that point.
   Remaining as of the move (2026-11-02): plus prepaid terminal evidence (#6198) and
   the permanent-rejection quarantine (#6208). Segmented recovery, rollover and
   the single allocator remain (with 2.27, 2.28); follow-up.
@@ -48,30 +69,21 @@ when it moved.
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
   after PubAck but before the terminal record leaves the bytes present.
-  STATUS -- DELIBERATELY UNCHECKED. The ADMISSION-SIDE boundary MERGED
-  into `usp-01-proposal`: bytes are charged to an immutable `SlotKey{Spool, Seq}`,
-  nothing releases them except a SEALED `ReclaimAuthorization` (an opaque carrier
-  with no exported fields and deliberately NO producer, so no caller can mint one
-  today), applied monotonically per generation. `NoteGatewayResolved` was REMOVED
-  outright, so admission holds no remote-resolution state at all. Do NOT redo that
-  work. This box stays unchecked because the END-TO-END demonstration -- producing
-  the authorization and proving it across a crash -- is task 2.28, and 2.17 is not
-  a completed freeze prerequisite until then.
-  SCOPE: this task covers the ADMISSION side of that boundary only -- charging
-  bytes to an immutable slot identity, refusing to release on gateway resolution,
-  and consuming an opaque monotonic reclaim authorization it cannot construct.
-  PRODUCING that authorization, and proving it holds across a crash end to end,
-  is task 2.28. Admission MUST NOT own, store, or infer gateway resolution --
-  that lifecycle is `gwprefix`'s (task 2.16), and holding an unread copy of it
-  here is duplicate state that can only drift. It MUST NOT own spool generation
-  lifecycle (task 2.21), redundant commit evidence or restart classification
-  (task 2.23), the reserve/allocation capacity primitives (task 2.26), or
-  coverage computation (task 2.28); modelling any of them here means inventing
-  semantics for an owner that does not exist yet and then keeping two
-  definitions in agreement by hand.
-  Remaining as of the move (2026-11-02): unchanged: the admission side is merged, but
-  `go/pkg/edge/admission` has no importers and the end-to-end authorization is
-  task 2.28.
+  SUPERSEDING IMPLEMENTATION CONTRACT (2026-11-09): the unused
+  `admission.Controller` and its test-only `ReclaimAuthorization` were retired.
+  Production uses `admission.Gate` over the shared `spool.Allocator` ordinary
+  usage; it must not add a second reservation ledger or authorization producer.
+  The allocator retains generation charges until the spool's durable terminal
+  evidence and physical reclaim proof permit release. Recovery transfers source
+  charges only after complete paired coverage, retained rejection evidence, and
+  the durable reclaimed layout; destination and retained archive bytes remain
+  charged. A gateway acknowledgement alone never releases those charges.
+  Gate owns pressure and fairness only. It MUST NOT own gateway resolution,
+  generation lifecycle, restart classification, reserve capacity, or coverage.
+  Current evidence: composed sender/coordinator tests exercise the interrupted
+  receipt barrier, restart accounting and storage-owned charge transfer. The
+  complete task remains unchecked until the final integration gate executes
+  its required contracts; unit or library evidence does not substitute for them.
 - [ ] 1.3 (was `unify-sweep-results-proto` 2.20a) **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
   the KEY only; it explicitly does NOT freeze the value, because no message there
   represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
@@ -168,14 +180,11 @@ when it moved.
   degrade a span that cannot be verified to unattributable rather than dropping or
   blindly copying it.
   Remaining as of the move (2026-11-02): follow-up (needs 2.27).
-- [ ] 1.8 (was `unify-sweep-results-proto` 2.27) **Resume the saved rollover work as the agent recovery coordinator
-  (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
-  preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
-  links them, and defers every digest to `edgerecord`'s `ManifestPageDigest` /
-  `ManifestRoot`. Convert it into the agent-owned coordinator that freezes, pages,
-  hashes, and JOURNALS — never signs (no agent-signature ABI exists) and never the
-  sender. It MUST emit the frozen `classification_spans` from 1.6a, not the
-  retired `lost_ranges`/`affected` pairing.
+- [ ] 1.8 (was `unify-sweep-results-proto` 2.27) **Implement the agent-owned recovery coordinator from the frozen classification-
+  span and hash contracts (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The historical rescue
+  object could not be recovered; the implementation is reconstructed from those contracts. The coordinator freezes,
+  pages, hashes and journals; it never signs and is not the sender. It emits `classification_spans`, not the retired
+  `lost_ranges`/`affected` pairing.
   IT ALSO OWNS COARSENING, WHICH 1.6a ONLY CONSTRAINS. Merge only CONTIGUOUS LOST
   intervals whose COMPLETE oneof bodies are equal. Merging across a not-lost gap
   declares a preserved sequence lost, and because the widened span is PubAcked and
@@ -252,21 +261,22 @@ when it moved.
   consumer idempotent without freezing those is not a definition. This is
   deliberately NOT frozen in 1.6a: 1.6a freezes the SCALAR'S MEANING, this task
   owns its replay behaviour. The
-  tenant/agent namespace stays in BOTH keys; the recovery stream is shared. It
+  authenticated network-scope/agent namespace stays in BOTH keys; the recovery stream is shared. It
   SHALL NOT be keyed on a singular `lost-range`: after 1.6a the loss is the ordered
   span union and no single interval describes it. Persist chained
-  pages idempotently, validate the bounded terminal copy manifest, then in one
-  transaction persist the loss audit, mark affected attempts/ranges partial or
-  lost, fence unsafe authority, and enqueue scheduler retry intent before ACK;
-  retain durable state and alert if recovery-stream expiry approaches. After
-  commit, expose/emit a signed idempotent `RecoveryResolvedV1` bound to recovery
+  pages idempotently. Persist exact incomplete receipts durably before acknowledging
+  them. Once the bounded manifest is complete, commit loss audit, affected range
+  state, fences and scheduler retry intent together. Defer complete records while
+  repair is unavailable or blocked. The dedicated recovery WorkQueue has no age
+  expiry, unlimited redelivery and finite DiscardNew capacity; report backlog and
+  byte pressure rather than implying pending repair may expire. After commit, expose/emit a signed idempotent `RecoveryResolvedV1` bound to recovery
   ID, manifest root, and applied state; a recovery-stream PubAck alone MUST NOT
   authorize agent journal deletion. Handle the three classification spans
   distinctly: `ATTRIBUTED_ACTIVE` marks its produced range partial/lost;
   `ATTRIBUTED_PASSIVE` marks the delivery interval lost WITHOUT asserting a
   produced range; `UNATTRIBUTABLE(reason)` MUST durably record the span in the
   loss audit/quarantine store, FENCE the affected agent/scope generation, and
-  enqueue scheduler reconciliation, and MUST BLOCK `RecoveryResolvedV1` for that
+  enqueue scheduler reconciliation intent, and MUST BLOCK `RecoveryResolvedV1` for that
   recovery until those actions are durably committed. Never treat an
   unattributable span as merely uncounted, and never infer passive from record
   kind -- lost terminal/lifecycle evidence is unattributable when its attribution

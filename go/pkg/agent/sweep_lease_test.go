@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -314,7 +315,7 @@ func TestSweepLeaseStoreNewLeaseReplacesAndPersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("revoked lease survived restart: %v", heldStarts(held))
 	}
 
-	files, err := filepath.Glob(filepath.Join(dir, "*.pb"))
+	files, err := filepath.Glob(filepath.Join(dir, "*"+sweepLeaseFileSuffix))
 	if err != nil {
 		t.Fatalf("glob lease files: %v", err)
 	}
@@ -322,6 +323,63 @@ func TestSweepLeaseStoreNewLeaseReplacesAndPersistsAcrossRestart(t *testing.T) {
 	if len(files) != 0 {
 		t.Fatalf("revoked lease files remain: %v", files)
 	}
+}
+
+// A slot lease persisted before core recorded issuance evidence is never
+// resumed: recovery could not attribute the records it would spool. Its bytes
+// and executed record stay, so a later push of the same execution is not
+// re-run, and the next push installs and persists normally.
+func TestSweepLeaseStoreNeverResumesPreEvidenceLease(t *testing.T) {
+	dir := t.TempDir()
+	group := testLeaseGroup.String()
+	slot := testLeaseSlot(100)
+	executionID, err := uuid.FromBytes(slot.GetExecutionId())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := goproto.Marshal(testLeasePush(100, 300, slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, group+".pb"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executed := []byte(`{"` + executionID.String() + `":` + "9223372036854775807" + `}`)
+	if err := os.WriteFile(filepath.Join(dir, group+sweepLeaseExecutedSuffix), executed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := newSweepLeaseStore(dir)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if held := store.Get(group); held != nil || len(store.Groups()) != 0 {
+		t.Fatalf("pre-evidence lease resumed: %v groups %v", held, store.Groups())
+	}
+	assertPreEvidenceLeaseBytes := func() {
+		t.Helper()
+		kept, readErr := os.ReadFile(filepath.Join(dir, group+".pb"))
+		if readErr != nil || !bytes.Equal(kept, data) {
+			t.Fatalf("pre-evidence lease bytes changed: %v", readErr)
+		}
+	}
+	assertPreEvidenceLeaseBytes()
+	if !store.Executed(group, executionID.String()) {
+		t.Fatal("executed record of the unsupported lease was lost")
+	}
+
+	if _, err := store.Install(testLeasePush(200, 400, testLeaseSlot(200)), group); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	reopened, err := newSweepLeaseStore(dir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if held := reopened.Get(group); held == nil || !equalStarts(heldStarts(held), 200) {
+		t.Fatalf("installed lease after restart = %v, want [200]", held)
+	}
+	assertPreEvidenceLeaseBytes()
 }
 
 func TestSweepLeaseInstallRefusals(t *testing.T) {
@@ -449,7 +507,7 @@ func TestSweepLeaseAgentInstallPersistsAndAcks(t *testing.T) {
 	if err := store.MarkExecuted(group, executionID.String(), push.Slots[0].CollectionExpiresUnixNano, time.Now()); err != nil {
 		t.Fatalf("persist executed slot: %v", err)
 	}
-	for _, name := range []string{group + ".pb", group + ".executed.json"} {
+	for _, name := range []string{group + sweepLeaseFileSuffix, group + ".executed.json"} {
 		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Size() == 0 {
 			t.Fatalf("missing durable runtime file %s: %v", name, err)
 		}

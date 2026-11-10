@@ -30,7 +30,6 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -82,7 +81,7 @@ func discoveryGrant(t *testing.T, contractID string, bytesPerRow uint64, package
 	}
 }
 
-func discoveryLoop(t *testing.T, sp *spool.Spool) *PushLoop {
+func discoveryLoop(t *testing.T, sp *RecordSpool) *PushLoop {
 	t.Helper()
 	loop := &PushLoop{
 		server: &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default"}},
@@ -94,14 +93,14 @@ func discoveryLoop(t *testing.T, sp *spool.Spool) *PushLoop {
 
 func grantDiscovery(t *testing.T, loop *PushLoop) {
 	t.Helper()
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
 		discoveryGrant(t, edgerecord.NetprobeDiscoveryContractID, edgerecord.NetprobeDiscoveryProjectedWriteBytesPerRecord, "serviceradar.agent.netprobe"),
 		discoveryGrant(t, edgerecord.SyncPageContractID, edgerecord.SyncPageProjectedWriteBytesPerRecord, "serviceradar.agent.sync"),
 	}, time.Now())
 }
 
-func spooledRecords(t *testing.T, sp *spool.Spool) []*edgev1.EdgeRecordV1 {
+func spooledRecords(t *testing.T, sp *RecordSpool) []*edgev1.EdgeRecordV1 {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -220,7 +219,7 @@ func TestRefusedSpoolHoldsOneDrainAndStopsDrainingTheSource(t *testing.T) {
 	require.Equal(t, 1, calls, "the source is not drained while a drain is held")
 
 	// The grant lapses: the held drain still waits for the spool.
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, time.Now())
 	require.False(t, loop.pushDiscovery(discoveryMapperDevices, sysmonEdgeAgentID, "default", drain))
 	require.Equal(t, 1, calls)
 
@@ -343,7 +342,7 @@ func TestAnchorlessDiscoveryUpdateDropsAloneMidDrain(t *testing.T) {
 		"only the anchorless update drops; the updates after it still spool")
 }
 
-func syncTestRuntime(t *testing.T, sp *spool.Spool) (*PushLoop, *SyncRuntime) {
+func syncTestRuntime(t *testing.T, sp *RecordSpool) (*PushLoop, *SyncRuntime) {
 	t.Helper()
 	server := &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default"}}
 	runtime := &SyncRuntime{
@@ -365,7 +364,7 @@ func syncUpdate(uid, ip string) map[string]interface{} {
 	}
 }
 
-func decodeSyncPages(t *testing.T, sp *spool.Spool) []*edgev1.SyncPageBatchV1 {
+func decodeSyncPages(t *testing.T, sp *RecordSpool) []*edgev1.SyncPageBatchV1 {
 	t.Helper()
 	records := spooledRecords(t, sp)
 	pages := make([]*edgev1.SyncPageBatchV1, 0, len(records))

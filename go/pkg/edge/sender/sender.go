@@ -21,10 +21,11 @@
 // Scope, per task 0.12 of openspec/changes/unify-sweep-results-proto: one
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
 // spool record through the real composed path end to end. Before a session it
-// obtains delivery grants for records whose production authority has lapsed
-// (grants.go, M2.0g). Credit renewal and recovery/rollover remain outside this
-// sender. Optional local
-// disposition persistence advances the resolved prefix and reclaims a drained
+// obtains delivery grants for records whose production authority has lapsed.
+// Recovery destinations require operation-bound rollover grants even while the
+// original production authority is current. The coordinator owns recovery phases;
+// BeforeResolve persists control publication receipts before terminal evidence.
+// Credit renewal remains outside this sender. Optional local disposition persistence advances the resolved prefix and reclaims a drained
 // segment once every record is accepted or permanently rejected; the spool keeps
 // permanently rejected records in its bounded local quarantine. Unresolved
 // records stay on disk.
@@ -60,14 +61,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -136,9 +134,9 @@ type StreamClient interface {
 	)
 }
 
-// Config identifies one delivery lane. SpoolID is the persistent per-lane
-// UUIDv7 (see PersistentSpoolID); RouteProfile/TrafficClass select the finite
-// platform-owned lane the gateway session negotiates.
+// Config identifies one frozen generation from spool.Generation.Identity().
+// SpoolID is that generation's persistent UUIDv7; RouteProfile/TrafficClass
+// select its immutable platform-owned lane for the gateway session.
 type Config struct {
 	SpoolID               []byte
 	RouteProfile          edgev1.EdgeRecordRouteProfile
@@ -150,9 +148,16 @@ type Config struct {
 	// drained segment, quarantining its permanently rejected records first.
 	// Unresolved records stay on disk.
 	PersistAcknowledgements bool
-	// Grants, when set, obtains delivery grants for records whose production
-	// authority has lapsed before each session sends them (see grants.go).
+	// BeforeResolve durably records recovery publication evidence after strict
+	// session validation and before terminal persistence or watermark advancement.
+	// An error ends the session with that acknowledgement still replayable.
+	BeforeResolve func(*edgerecord.ValidatedAck) error
+	// Grants obtains delivery authority for lapsing production grants and for
+	// every relocated record when RequireDeliveryGrant is set (see grants.go).
 	Grants GrantRenewer
+	// RequireDeliveryGrant keeps relocated records behind their registered
+	// copy authority even while the original production grant remains current.
+	RequireDeliveryGrant bool
 }
 
 func (c Config) validate() error {
@@ -176,14 +181,25 @@ type Result struct {
 	Dispositions          []*edgev1.EdgeRecordDisposition
 	RemoteResolvedThrough uint64
 	// GrantRenewal is why delivery grants could not be obtained for this run,
-	// if they could not. The run still sends; records that needed a grant are
-	// refused by the gateway and stay unresolved for the next run.
+	// if they could not. Ordinary delivery can still send original records;
+	// RequireDeliveryGrant stops at the first record without current authority.
 	GrantRenewal error
+}
+
+// Source is one immutable generation's delivery surface. Both a legacy flat
+// spool and a retained LaneSet generation implement it. Terminal resolution stays
+// behind the storage owner's durability and recovery-hold checks.
+type Source interface {
+	ScanFrom(uint64, func(spool.Record) bool) error
+	Resolved() uint64
+	ReclaimResolved() error
+	CoverageGap(uint64) (spool.SlotResolution, bool)
+	ResolveWithEvidence(uint64, []byte) error
 }
 
 // Sender drains one agent spool over one lane session.
 type Sender struct {
-	spool  *spool.Spool
+	spool  Source
 	client StreamClient
 	cfg    Config
 	// grants holds the delivery grants obtained for unresolved records, by
@@ -192,7 +208,7 @@ type Sender struct {
 }
 
 // New builds a Sender for the given spool, client, and lane configuration.
-func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
+func New(sp Source, client StreamClient, cfg Config) (*Sender, error) {
 	if sp == nil {
 		return nil, errSpoolRequired
 	}
@@ -286,9 +302,11 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 		SentEvents:      make(map[uint64][]byte),
 	}
 
-	sent, hadUnresolved, err := s.sendUnresolved(stream, &sess, openAck)
-	if err != nil {
-		return partialSendResult(sent, sess.ResolvedThrough), err
+	sent, hadUnresolved, sendErr := s.sendUnresolved(stream, &sess, openAck)
+	// A missing copy grant stops this window without skipping its sequence.
+	// Drain any earlier sent prefix so its receipts can become durable.
+	if sendErr != nil && (len(sent) == 0 || !errors.Is(sendErr, ErrDeliveryGrantRequired)) {
+		return partialSendResult(sent, sess.ResolvedThrough), sendErr
 	}
 
 	if len(sent) == 0 {
@@ -314,7 +332,7 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 	}
 
 	finishStream(stream, cancel)
-	return result, nil
+	return result, sendErr
 }
 
 // hasUnresolved reports whether the spool holds a record no session has
@@ -405,6 +423,10 @@ func (s *Sender) sendUnresolved(
 			return false
 		}
 
+		if s.cfg.RequireDeliveryGrant && !s.holdsCurrentGrant(rec, time.Now()) {
+			sendErr = fmt.Errorf("%w: seq=%d", ErrDeliveryGrantRequired, rec.Sequence)
+			return false
+		}
 		frame := buildFrame(s.cfg.SpoolID, rec)
 		frame.DeliveryCapability = s.grantFor(rec)
 		if err := edgerecord.ValidateDeliveryFrame(frame, false); err != nil {
@@ -472,11 +494,11 @@ func (s *Sender) drainAcks(
 		if ack == nil {
 			return dispositions, fmt.Errorf("%w: expected ack, got %T", ErrUnexpectedPayload, msg.GetPayload())
 		}
-		if err := edgerecord.ValidateAck(ack, *sess, 0, 0); err != nil {
+		validated, err := edgerecord.ValidateAckEvidence(ack, *sess, 0, 0)
+		if err != nil {
 			return dispositions, s.ackError(ack, sess, err)
 		}
-
-		if err := s.persistAcknowledgement(ack, sess.ResolvedThrough); err != nil {
+		if err := s.persistAcknowledgement(validated); err != nil {
 			return dispositions, err
 		}
 
@@ -505,8 +527,17 @@ func (s *Sender) ackError(ack *edgev1.EdgeDeliveryAckV1, sess *edgerecord.Sessio
 	return fmt.Errorf("sender: ack: %w", err)
 }
 
-func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous uint64) error {
-	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= previous {
+func (s *Sender) persistAcknowledgement(validated *edgerecord.ValidatedAck) error {
+	ack, session, err := validated.Snapshot()
+	if err != nil {
+		return err
+	}
+	if s.cfg.BeforeResolve != nil {
+		if err := s.cfg.BeforeResolve(validated); err != nil {
+			return fmt.Errorf("sender: persist recovery receipt: %w", err)
+		}
+	}
+	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= session.ResolvedThrough {
 		return nil
 	}
 	evidence, err := proto.MarshalOptions{Deterministic: true}.Marshal(resolvingPrefix(ack))
@@ -553,38 +584,4 @@ func randomNonce() ([]byte, error) {
 		return nil, err
 	}
 	return b, nil
-}
-
-// PersistentSpoolID returns the durable lane spool_id stored alongside the
-// spool directory, generating and persisting a fresh UUIDv7 on first use. The
-// wire protocol requires a stable spool_id per lane across restarts (a
-// reconnect replays from its declared base under the SAME id); this file is
-// the minimum durable state needed for that, distinct from the spool's own
-// segment/watermark files.
-func PersistentSpoolID(dir string) ([]byte, error) {
-	if err := durablefs.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("sender: mkdir: %w", err)
-	}
-	path := filepath.Join(dir, "spool_id")
-
-	if b, err := os.ReadFile(path); err == nil {
-		if err := edgerecord.ValidateUUIDv7(b); err != nil {
-			return nil, fmt.Errorf("sender: stored spool id: %w", err)
-		}
-		if err := durablefs.Sync(path); err != nil {
-			return nil, fmt.Errorf("sender: sync spool id: %w", err)
-		}
-		return b, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("sender: read spool id: %w", err)
-	}
-
-	id, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		return nil, fmt.Errorf("sender: generate spool id: %w", err)
-	}
-	if err := durablefs.WriteFile(path, id, 0o600); err != nil {
-		return nil, fmt.Errorf("sender: write spool id: %w", err)
-	}
-	return id, nil
 }

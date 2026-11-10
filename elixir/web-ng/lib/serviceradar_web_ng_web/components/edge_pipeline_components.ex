@@ -46,15 +46,18 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
         "The agent's edge-record spool could not be opened" <>
           if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
 
+      "unsupported_legacy_storage" ->
+        "#{field(detail, :retained_legacy_bytes)} bytes of unsupported legacy edge storage are retained untouched. Only bounded lanes are delivered."
+
       "no_live_gateway_on_active_epoch" ->
         "Live gateway #{inspect(to_string(field(detail, :gateway_id)))} has not installed " <>
           "epoch #{field(detail, :epoch)}, so the agent's records cannot be admitted under it."
 
       "spool_wedged" ->
-        sequences = Enum.join(field(detail, :gap_sequences) || [], ", ")
+        sequences = gap_samples(detail)
 
         "Durable delivery is blocked by #{field(detail, :gap_count)} coverage gaps " <>
-          "(first sequences: #{sequences}). Recovery coverage is required. " <> spool_health(detail)
+          "(samples: #{sequences}). Recovery coverage is required. " <> spool_health(detail)
 
       "spool_backpressure" ->
         "Spool admission is paused. " <> spool_health(detail)
@@ -73,6 +76,23 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       other ->
         other
     end
+  end
+
+  @doc "Formats a bounded gap sample with its immutable generation namespace."
+  def gap_samples(detail) do
+    gaps = field(detail, :generation_gaps) || []
+
+    samples =
+      if gaps == [] do
+        Enum.map(field(detail, :gap_sequences) || [], &to_string/1)
+      else
+        Enum.map(gaps, fn gap ->
+          "#{field(gap, :spool_generation_id)} #{field(gap, :route_profile)}/#{field(gap, :traffic_class)} ##{field(gap, :sequence)}"
+        end)
+      end
+
+    remainder = max((field(detail, :gap_count) || 0) - length(samples), 0)
+    Enum.join(samples, ", ") <> if(remainder > 0, do: "; #{remainder} additional", else: "")
   end
 
   defp spool_health(detail) do

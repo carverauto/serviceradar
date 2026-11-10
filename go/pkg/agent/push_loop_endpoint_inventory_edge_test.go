@@ -55,7 +55,7 @@ func (s *stubEndpointInventoryProvider) GetStatus(context.Context) (*proto.Statu
 
 func grantEndpointInventory(t *testing.T, loop *PushLoop) {
 	t.Helper()
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 		discoveryGrant(
 			t,
 			edgerecord.EndpointInventoryContractID,

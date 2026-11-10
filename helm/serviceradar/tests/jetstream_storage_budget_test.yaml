@@ -20,6 +20,14 @@ templates:
 release:
   namespace: serviceradar-test
 tests:
+  - it: refuses a recovery reservation that cannot hold the bounded control attempts
+    set:
+      core.eventWriter.streams.telemetry_edge_record_recovery_v1.maxBytes: 3Mi
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'telemetry_edge_record_recovery_v1.maxBytes must reserve at least 4Mi'
+
   # --- max_file_store in exact bytes (D2) ------------------------------------
   - it: renders the small profile's 36G as 36000000000 bytes by default
     template: templates/nats.yaml
@@ -228,7 +236,7 @@ tests:
       - failedTemplate:
           errorPattern: 'NOTIFICATIONS: 268435456 bytes \(0\.25 GiB\) x R3, full'
       - failedTemplate:
-          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 1073741824 bytes \(1\.00 GiB\) x R3, full'
+          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 1006632960 bytes \(0\.94 GiB\) x R3, full'
       - failedTemplate:
           errorPattern: 'nats\.jetstream\.allowOvercommit=true'
 
@@ -424,7 +432,7 @@ tests:
       - failedTemplate:
           errorPattern: 'flows: 268435456 bytes \(0\.25 GiB\) x R1, spread \[nats\.jetstream\.profile=tenant-2g\]'
       - failedTemplate:
-          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 134217728 bytes \(0\.12 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
+          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 130023424 bytes \(0\.12 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
       - failedTemplate:
           errorPattern: 'TELEMETRY_EDGE_RECORD_DLQ_V1_BULK: 4194304 bytes \(0\.00 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
 

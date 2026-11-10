@@ -58,15 +58,15 @@ var fixtureHosts = []struct {
 // The harness also checks ordinary sweep results, execution progress, discovered
 // devices and device availability against Batch's independently chosen host values.
 type FixtureRecord struct {
-	// EventID is a UUIDv7 (16 bytes). Use it as BOTH the spool.Append
-	// eventID and it is embedded as EdgeRecordV1.event_id. Matches
+	// EventID is a UUIDv7 (16 bytes), embedded as EdgeRecordV1.event_id
+	// and retained by the typed append as the spool event ID. Matches
 	// event_ledger.event_id, edge_delivery_slots.event_id,
 	// edge_sweep_batch_slots.event_id, edge_sweep_projected_rows.event_id
 	// (all :uuid columns -- exactly 16 bytes).
 	EventID []byte
 
 	// RecordBytes is the exact encoded EdgeRecordV1 -- hand this directly to
-	// spool.Append(EventID, RecordBytes) as the entry body. It is also what
+	// RecordSpool.PrepareRecord/AppendPrepared unchanged. It is also what
 	// the sender embeds verbatim as EdgeDeliveryFrameV1.record_bytes
 	// (go/pkg/edge/sender/sender.go's buildFrame) after reading it back
 	// through the spool's public read path, so the stored JetStream message

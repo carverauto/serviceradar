@@ -121,7 +121,7 @@ func TestPushFlowAttribution_DrainedBatchReachesEdgeRecord(t *testing.T) {
 		}},
 	}
 	loop.SetEdgeMetricsSpool(sp)
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, time.Now())
 
 	if !loop.pushFlowAttribution() {
 		t.Fatal("pushFlowAttribution under a grant spooled nothing")

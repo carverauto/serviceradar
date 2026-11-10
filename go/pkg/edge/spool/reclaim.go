@@ -51,7 +51,7 @@ func dataBase(name string) (uint64, bool) {
 
 func (s *Spool) segmentPath() string { return filepath.Join(s.dataDir, segmentFile) }
 func (s *Spool) evidencePosition(seq uint64, state byte) int64 {
-	return evidencePosition(seq-s.baseSeq, state)
+	return int64(2*(seq-s.baseSeq-1)+uint64(state-1)) * s.evidenceEntrySize()
 }
 
 // lane.seg is either the legacy regular file or a symlink to a data directory.
@@ -161,7 +161,12 @@ func (s *Spool) ReclaimResolved() error {
 	return s.reclaimLocked()
 }
 
-func (s *Spool) reclaimLocked() error {
+// reclaimPreconditionsLocked requires s.mu. It refuses reclaim on a recovery
+// hold, a fail-stopped or closed spool, a stale layout, or a failed allocator.
+func (s *Spool) reclaimPreconditionsLocked() error {
+	if err := s.requireNoRecoveryHold(); err != nil {
+		return err
+	}
 	if s.failErr != nil {
 		return s.failErr
 	}
@@ -173,6 +178,24 @@ func (s *Spool) reclaimLocked() error {
 	}
 	if s.alloc != nil && s.alloc.Err() != nil {
 		return s.alloc.Err()
+	}
+	return nil
+}
+
+func (s *Spool) reclaimLocked() error {
+	if err := s.reclaimPreconditionsLocked(); err != nil {
+		return err
+	}
+	if s.alloc != nil {
+		s.alloc.mu.Lock()
+		// An operation retains cleanup ownership even after source release
+		// transfers destination bytes to ordinary accounting. Otherwise another
+		// free recovery slot could invoke the evicting quarantine before archive.
+		held := s.alloc.recoveryOwnerLocked(s.dir) != nil || s.alloc.heldInLaneLocked(s.dir) > 0
+		s.alloc.mu.Unlock()
+		if held {
+			return nil
+		}
 	}
 	// A previous publication may have completed before its cleanup did.
 	if err := s.cleanupReclaimed(); err != nil {
@@ -428,7 +451,7 @@ func (s *Spool) cleanupReclaimed() error {
 		cpBase, cp := dataBase(strings.TrimSuffix(e.Name(), checkpointSuffix))
 		seq, terminal := terminalSequence(e.Name())
 		remove := (data && base < s.baseSeq) || (cp && strings.HasSuffix(e.Name(), checkpointSuffix) && cpBase < s.baseSeq) ||
-			(terminal && seq <= s.baseSeq) || e.Name() == evidenceDirName(copyA) || e.Name() == evidenceDirName(copyB)
+			(terminal && seq <= s.baseSeq) || e.Name() == evidenceDirName(copyA) || e.Name() == evidenceDirName(copyB) || e.Name() == attributionFile || e.Name() == relocationFile
 		if remove {
 			if err := os.RemoveAll(filepath.Join(s.dir, e.Name())); err != nil {
 				return err

@@ -1740,6 +1740,7 @@ if config_env() == :prod do
         Config.edge_record_stream(),
         Config.edge_record_audit_stream(),
         Config.edge_record_security_quarantine_stream(),
+        Config.edge_record_recovery_stream(),
         Config.edge_record_dead_letter_stream(),
         %{
           name: "ATTRIBUTED_FLOW",

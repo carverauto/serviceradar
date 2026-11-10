@@ -420,11 +420,16 @@ func (a *Allocator) AcquireRecovery(lane string) (*RecoveryGrant, error) {
 	if len(a.active) >= a.maxActive {
 		return nil, fmt.Errorf("%w: %d active", ErrRecoveryConcurrencyExhausted, len(a.active))
 	}
+	lane = filepath.Clean(lane)
+	for g := range a.active {
+		if _, held := g.controlAllowances[lane]; held {
+			return nil, ErrOutsideLane
+		}
+	}
 	if err := a.requireBackedLocked(ErrReserveUnbacked, 0); err != nil {
 		return nil, err
 	}
-
-	g := &RecoveryGrant{alloc: a, lane: filepath.Clean(lane), laneFiles: make(map[string]uint64)}
+	g := &RecoveryGrant{alloc: a, lane: lane, laneFiles: make(map[string]uint64)}
 	a.active[g] = struct{}{}
 	return g, nil
 }
@@ -556,7 +561,10 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 type RecoveryGrant struct {
 	alloc *Allocator
 	// lane is the cleaned directory holding the destination segment and sidecar.
-	lane string
+	lane              string
+	controlLane       string
+	controlFiles      map[string]uint64
+	controlAllowances map[string]uint64
 
 	// step serializes the grant's charges, writes, destructive steps, Finish, and
 	// releases, so a destructive step can never interleave with a failing barrier
@@ -573,6 +581,9 @@ type RecoveryGrant struct {
 	// A rewritten path is counted at its last size, unlike used, which charges
 	// every write.
 	laneFiles map[string]uint64
+	// terminalAllowance is prepaid destination terminal evidence. It remains
+	// pending until source release transfers that obligation to ordinary storage.
+	terminalAllowance uint64
 	// finished seals the output: nothing more is charged.
 	finished bool
 	// sourceReleased and artifactsReleased record the two release stages; the
@@ -642,7 +653,7 @@ func (g *RecoveryGrant) FailStop(op string, err error) error {
 // Every call is charged in full, including one that replaces an earlier write
 // to the same path; see Footprint. The lane, by contrast, is charged only for
 // what a destination segment or sidecar path holds after its last write. Either
-// path must be directly in the grant's lane; one outside it is refused with
+// path must belong to the grant's known generation layout; another is refused with
 // ErrOutsideLane before anything is charged or written.
 func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) error {
 	g.step.Lock()
@@ -748,13 +759,7 @@ func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64) error {
 	if err := a.releaseOrdinaryLocked(source, sourceBytes); err != nil {
 		return err
 	}
-	if moved := g.laneHeldLocked(); moved > 0 {
-		sum, carry := bits.Add64(a.ordinary[g.lane], moved, 0)
-		if carry != 0 {
-			sum = ^uint64(0)
-		}
-		a.ordinary[g.lane] = sum
-	}
+	a.addOrdinaryLocked(g.lane, g.laneHeldLocked())
 	g.sourceReleased = true
 	g.releaseStageLocked()
 	return nil
@@ -776,6 +781,12 @@ func (g *RecoveryGrant) ReleaseArtifacts() error {
 	defer a.mu.Unlock()
 	if err := g.releasableLocked(g.artifactsReleased); err != nil {
 		return err
+	}
+	// The recovery-control generation may still await ordinary sender cleanup.
+	// Transfer its retained bytes and prepaid terminal obligation before releasing
+	// the transient journals. Source release transfers only the copy destination.
+	for owner := range g.controlAllowances {
+		a.addOrdinaryLocked(owner, g.controlHeldLocked(owner))
 	}
 	g.artifactsReleased = true
 	g.releaseStageLocked()
@@ -845,7 +856,7 @@ func (g *RecoveryGrant) charge(art Artifact, n uint64) error {
 	if err := g.healthyLocked(); err != nil {
 		return err
 	}
-	if g.finished {
+	if g.finished || (g.sourceReleased && laneArtifact(art)) {
 		return ErrRecoveryFinished
 	}
 	if art >= artifactCount {
@@ -929,11 +940,10 @@ func laneArtifact(art Artifact) bool {
 	return art == ArtifactDestinationSegment || art == ArtifactAttributionSidecar
 }
 
-// inLane refuses a destination segment or sidecar path that is not directly in
-// the grant's lane, the only directory that measuring leaves it out of and that
-// ReleaseSource moves it into.
+// inLane confines destination artifacts to the generation's known data/evidence
+// layout, whose measured bytes transfer to ordinary storage at source release.
 func (g *RecoveryGrant) inLane(art Artifact, path string) error {
-	if laneArtifact(art) && filepath.Dir(filepath.Clean(path)) != g.lane {
+	if laneArtifact(art) && !recoveryLanePath(g.lane, path) {
 		return fmt.Errorf("%w: %s %q is not in %q", ErrOutsideLane, art, path, g.lane)
 	}
 	return nil
@@ -945,7 +955,7 @@ func (g *RecoveryGrant) laneHeldLocked() uint64 {
 	if g.sourceReleased {
 		return 0
 	}
-	var held uint64
+	held := g.terminalAllowance
 	for _, n := range g.laneFiles {
 		held += n
 	}
@@ -960,10 +970,24 @@ func (a *Allocator) heldInLaneLocked(key string) uint64 {
 		if g.lane == key {
 			held += g.laneHeldLocked()
 		}
+		if _, ok := g.controlAllowances[key]; ok {
+			held += g.controlHeldLocked(key)
+		}
 	}
 	return held
 }
 
 func (g *RecoveryGrant) doneLocked() bool {
 	return g.sourceReleased && g.artifactsReleased
+}
+
+func (a *Allocator) addOrdinaryLocked(owner string, n uint64) {
+	if n == 0 {
+		return
+	}
+	sum, carry := bits.Add64(a.ordinary[owner], n, 0)
+	if carry != 0 {
+		sum = ^uint64(0)
+	}
+	a.ordinary[owner] = sum
 }

@@ -44,8 +44,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        principal with no binding, and a signed scope its binding lacks, are withheld: the binding
        may predate the assignment.
     9. AUTHORITY -- the producer fence and the production window decide publication. A producer
-       with no fence entry, or one ahead of its entry, is withheld: this gateway does not know its
-       authority is current. Current authority under a current fence publishes PRIMARY (a valid
+       ahead of its fence entry is withheld: this gateway does not know its authority is current.
+       A missing fence also withholds ordinary and renewal delivery; only a current exact
+       operation-bound rollover grant may drain that historical record to AUDIT, with no primary
+       projection. Current authority under a current fence publishes PRIMARY (a valid
        attached delivery grant only
        changes the delivery mode to renewal/rollover). Otherwise only a current delivery grant can
        authorize delivery: an expired grant under a current fence is an ordinary late drain
@@ -64,6 +66,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordValidate
+  alias ServiceRadar.Edge.RecoveryValidate
   alias ServiceRadar.Edge.SemanticValidate
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadarAgentGateway.EdgeContractRegistry
@@ -168,7 +171,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   defp validate_record(bytes) do
     case RecordValidate.validate_bytes(bytes) do
       {:ok, record} ->
-        {:ok, record}
+        with :ok <- recovery_body(record, bytes), do: {:ok, record}
 
       {:error, {:wire, reason}} when reason in @permanent_wire_reasons ->
         {:error, :permanent, {:wire, reason}, ""}
@@ -181,6 +184,45 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
           {:pause, _} -> {:error, :paused, failure, decoded_event_id(bytes)}
           _ -> {:error, :permanent, failure, decoded_event_id(bytes)}
         end
+    end
+  end
+
+  # Generic framing is deliberately payload-agnostic. Recovery is a typed
+  # ingress, so its body and signed scope must pass the shared owner as well.
+  defp recovery_body(record, raw) do
+    recovery? =
+      record.route_profile == :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 or
+        record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 or
+        record.output_contract.contract_id == "serviceradar.edge.recovery_control" or
+        match?(%{kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL}, record.source_authorization)
+
+    if recovery?, do: validate_recovery_body(record, raw), else: :ok
+  end
+
+  defp validate_recovery_body(record, raw) do
+    with :ok <-
+           (record.output_contract.contract_id == "serviceradar.edge.recovery_control" and
+              record.output_contract.contract_version == 1)
+           |> check(
+             :permanent,
+             {:recovery_control, :contract_dispatch}
+           )
+           |> with_event(record),
+         {:ok, %{bytes: body}} <- RecoveryValidate.recovery_control_body(record, record.output_contract),
+         true <- byte_size(raw) <= byte_size(body) + 16_384 do
+      :ok
+    else
+      false ->
+        {:error, :permanent, {:recovery_control, :record_overhead}, record.event_id}
+
+      {:error, _, _, _} = error ->
+        error
+
+      {:error, reason} when reason in [:not_ready, :systemic] ->
+        {:error, :paused, {:recovery_control, reason}, record.event_id}
+
+      {:error, reason} ->
+        {:error, :permanent, {:recovery_control, reason}, record.event_id}
     end
   end
 
@@ -311,14 +353,31 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     dc = frame.delivery_capability
 
     cond do
-      fence in [:future, :unavailable] ->
+      fence == :future ->
         {:error, :retryable, :fence_not_ready, ""}
 
       # A future-dated grant is never usable early, even with a current delivery grant.
       now < cap.not_before_unix_nano - tolerance ->
         {:error, :retryable, :authority_not_yet_valid, ""}
 
-      current_authority?(fence, cap, now, tolerance) ->
+      fence == :unavailable ->
+        missing_fence_delivery(record, dc, snapshot, now)
+
+      true ->
+        decide_known_fence(record, dc, fence, snapshot, now)
+    end
+  end
+
+  # Deleted assignments leave no current fence. Only operation-bound recovery
+  # authority can drain that historical record, and it cannot project current state.
+  defp missing_fence_delivery(record, %{claims: {:delivery, %{transition: {:rollover, _}}}} = dc, snapshot, now),
+    do: late_delivery(record, dc, snapshot, now, :audit)
+
+  defp missing_fence_delivery(_record, _dc, _snapshot, _now), do: {:error, :retryable, :fence_not_ready, ""}
+
+  defp decide_known_fence(record, dc, fence, snapshot, now) do
+    cond do
+      current_authority?(fence, record.production_capability, now, snapshot.clock_tolerance_nano) ->
         attached_grant(record, dc, snapshot, now)
 
       is_nil(dc) and fence == :stale ->

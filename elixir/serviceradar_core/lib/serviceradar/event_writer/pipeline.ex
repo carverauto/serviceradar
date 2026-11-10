@@ -40,6 +40,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordDeferredError
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
@@ -420,6 +421,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         %EdgeRecordRefusedError{} ->
           {:debug, "Batch holds edge records the processor refused"}
 
+        %EdgeRecordDeferredError{} ->
+          {:debug, "Recovery receipt committed; awaiting remaining work"}
+
         _other ->
           {:error, "Batch processing failed"}
       end
@@ -437,9 +441,19 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_failed(messages, _context) do
     Enum.each(messages, fn message ->
       {level, text} =
-        if EdgeRecordDeadLetter.terminal?(message),
-          do: {:debug, "Message cannot succeed on redelivery; dead-lettering it"},
-          else: {:warning, "Message failed"}
+        cond do
+          deferred?(message) ->
+            {:debug, "Recovery receipt committed; awaiting remaining work"}
+
+          recovery_message?(message) ->
+            {:warning, "Recovery delivery failed; retaining it for redelivery"}
+
+          EdgeRecordDeadLetter.terminal?(message) ->
+            {:debug, "Message cannot succeed on redelivery; dead-lettering it"}
+
+          true ->
+            {:warning, "Message failed"}
+        end
 
       Logger.log(level, text,
         subject: message.metadata[:subject],
@@ -454,6 +468,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp ack_failed_message(message) do
     cond do
+      deferred?(message) or recovery_message?(message) ->
+        ack_message(message, {:nack, backoff_ms(message)})
+
       EdgeRecordDeadLetter.applies?(message) ->
         ack_failed_edge_record(message)
 
@@ -468,6 +485,12 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         ack_message(message, :nack)
     end
   end
+
+  defp deferred?(%{status: {:failed, %EdgeRecordDeferredError{}}}), do: true
+  defp deferred?(_), do: false
+
+  defp recovery_message?(%{metadata: %{subject: "telemetry.edge-record-recovery.v1"}}), do: true
+  defp recovery_message?(_), do: false
 
   # Never +TERM an edge record: the gateway already released the agent's copy. At its threshold
   # the record is copied to the dead-letter stream, and only a stored copy lets the source go.
@@ -743,6 +766,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:events, &String.starts_with?(&1, "events.")},
       # MUST precede the generic :telemetry rule below -- both match a
       # "telemetry." prefix, and find_value/2 takes the first match.
+      {:edge_record_recovery, &(&1 == "telemetry.edge-record-recovery.v1")},
       {:edge_record, &String.starts_with?(&1, "telemetry.edge-record.")},
       {:edge_record_audit, &String.starts_with?(&1, "telemetry.edge-record-audit.")},
       {:edge_record_security_quarantine,
@@ -847,6 +871,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:edge_record_recovery), do: EdgeRecord
   defp get_processor(:edge_record), do: EdgeRecord
   defp get_processor(:edge_record_audit), do: EdgeRecord
 

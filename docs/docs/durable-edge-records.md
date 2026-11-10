@@ -68,8 +68,8 @@ RPCs](#what-stays-on-the-status-rpcs)).
 flowchart LR
   subgraph Agent["serviceradar-agent"]
     P["Producers\n(sysmon, SNMP, sweeps,\nplugins, discovery, ...)"]
-    S[("Edge-record spool\n(on disk)")]
-    TX["Sender"]
+    S[("Bounded lane generations\n(on disk)")]
+    TX["Lane senders"]
     P -->|"append under grant"| S --> TX
   end
 
@@ -82,6 +82,7 @@ flowchart LR
     AUD["..._AUDIT_V1_BULK"]
     QUA["..._SECURITY_QUARANTINE_V1_BULK"]
     DLQ["TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"]
+    REC["TELEMETRY_EDGE_RECORD_RECOVERY_V1"]
   end
 
   subgraph Core["core (EventWriter)"]
@@ -95,6 +96,8 @@ flowchart LR
   AU -->|"or, late-fenced delivery"| AUD
   AU -->|"or, compromise-revoked key"| QUA
   AU -.->|"resolved watermark"| TX
+  AU -->|"authoritative recovery control"| REC
+  REC --> EW
   PRI --> EW --> Store
   AUD --> EW
   EW -->|"projection keeps failing"| DLQ
@@ -104,8 +107,10 @@ flowchart LR
 
 ### 1. Producers append to the spool
 
-Each producer builds a typed record for its output contract and appends it to
-the agent's single spool. The spool lives in
+Each producer builds and validates a typed record for its output contract before
+admission. Its exact bytes stay fixed across retries. Records enter bounded
+generations in independent data and recovery lanes, sharing one disk budget.
+The spool lives in
 `/var/lib/serviceradar/agent/edge-records` on Linux and macOS and in
 `C:\ProgramData\ServiceRadar\data\agent\edge-records` on Windows, unless the
 agent config sets `edge_record_sender.spool_dir`.
@@ -114,7 +119,14 @@ agent config sets `edge_record_sender.spool_dir`.
   agent config (`edge_spool_max_bytes`, from the
   [edge pipeline settings](#settings)). A budget below current usage only
   refuses new appends until the spool drains under it; nothing already spooled
-  is dropped.
+  is dropped. A configured budget below the required recovery reserve is refused;
+  producer admission stays paused until a valid budget arrives. Delivery and
+  recovery continue against the retained accounting, and the agent logs the
+  refused value.
+  One active recovery reserves 47 MiB within the shared budget, plus a 1 MiB
+  physical free-space floor. These bytes cover bounded copies, both journals,
+  control attempts and retained evidence. Mandatory rejection archives remain
+  charged after recovery; when they exhaust the budget, admission stays paused.
 - **Admission marks.** Producer admission pauses once the spool's ordinary
   bytes reach 80% of the budget's ordinary ceiling and resumes only once
   reclaim brings them down to 50%. The room above the high-water mark is kept
@@ -134,23 +146,35 @@ cannot form a record is dropped once and its upload marked failed.
 
 ### 2. The sender delivers to the gateway
 
-The sender opens `EdgeRecordIngestService.Stream` to `agent-gateway` on its own
-mTLS connection, one bounded lane session per 30-second poll, asking
-for 8 MiB of byte credits and 256 frame credits. It sends the spool's
-unresolved records in sequence order.
+The sender opens `EdgeRecordIngestService.Stream` to `agent-gateway` over mTLS.
+Each configured lane has one worker, with one bounded generation session at a
+time; a stalled data session cannot prevent recovery delivery. Sessions ask
+for 8 MiB of byte credits and 256 frame credits and send unresolved records in
+sequence order within their immutable generation.
 
-The gateway authorizes every frame locally, with no core or database lookup per
-frame. It checks the exact record digest, the record's structure, the signed
+Signature and contract validation runs locally at the gateway. It checks the
+exact record digest, the record's structure, the signed
 production grant (and any source authorization or delivery grant), that the
 record's origin is the authenticated agent, the network scope, route and
 traffic class, the validity window, and the registry epoch the record names.
 It then admits the record against the exact contract entry of that signed
 epoch.
 
-The gateway publishes each authorized record to exactly one of three streams
-(the primary stream; the audit stream for a late-fenced delivery; the
-security-quarantine stream for a record signed by a compromise-revoked key),
-waits for the PubAck, and only then reports the sequence as resolved. Acks carry a
+Publication also requires a current recovery-coverage lookup from core and CNPG
+for the signed scope, authenticated agent, source generation and lane. This
+applies to every signed delivery session, including generations with no recovery.
+The first frame obtains the lookup; the session may reuse it for at most five
+seconds from the request's start. The same deadline follows queued records to
+the publisher. An unavailable or expired lookup withholds publication and closes
+the session retryably; the agent retains its records. A generation fence or
+consumer-applied coverage beyond the session's watermark also closes that source
+session, so the agent must obtain signed recovery completion before proceeding.
+
+The gateway selects an authoritative, audit or security-quarantine publication.
+Authoritative recovery controls use the dedicated recovery stream; other
+authoritative records use the primary stream. Late-fenced delivery uses audit,
+and records signed by a compromise-revoked key use security quarantine. The
+gateway waits for the PubAck before reporting the sequence as resolved. Acks carry a
 contiguous **resolved watermark**: the first sequence a session cannot resolve
 (withheld, paused or retryable) caps the lane, and the agent's next session
 replays from it. A record the gateway rejects permanently is resolved as
@@ -164,6 +188,13 @@ rejected, and the agent moves it to a local spool quarantine.
 | `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
 | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | records signed by a compromise-revoked key | logged and counted, nothing written |
 | `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` | `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>` | records whose projection kept failing | replay only |
+| `TELEMETRY_EDGE_RECORD_RECOVERY_V1` | `telemetry.edge-record-recovery.v1` | frozen recovery pages and tombstones | EventWriter recovery consumer: durable receipt and repair effects |
+
+Recovery uses a work queue with a fixed byte limit, no age expiry and `DiscardNew`. A full
+queue refuses publication, leaving the agent responsible for the record.
+Incomplete manifests may acknowledge durable individual receipts; unresolved
+mapping work is deferred until the consumer can commit its effects. Recovery
+controls do not fall into the ordinary projection dead-letter path.
 
 `pNN` is the partition derived from the record's network scope. In the
 dead-letter subject, `<contract>` is the contract id lowercased with every
@@ -171,23 +202,25 @@ character outside `[a-z0-9_-]` replaced by `_`, so `serviceradar.metrics.batch`
 version 1 dead-letters under
 `telemetry.edge-record-dlq.v1.bulk.pNN.serviceradar_metrics_batch.v1`.
 
-All four streams are file-backed, use three replicas (capped to
+All five streams are file-backed, use three replicas (capped to
 `nats.replicas`), and refuse new messages when full (`DiscardNew`) rather than
 evicting stored records. When the primary or audit stream reaches `MaxBytes`,
 JetStream refuses new publishes (`err_code` 10077) and the gateway withholds
 `EdgeDeliveryAckV1`, so the agent spool retains the record and retries once
 EventWriter drains space. The primary and audit streams keep records for 72
 hours (`MaxAge`: 24h supported outage + 24h catch-up + 24h safety margin); the
-security-quarantine and dead-letter streams have no `MaxAge` (`0`), so nothing
-ages out of them.
+security-quarantine, dead-letter and recovery streams have no `MaxAge` (`0`),
+so nothing ages out of them.
 
 EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
-for the other three. On a Helm install the chart's JetStream profile
-(`nats.jetstream.profile`) sizes the primary stream for a 6-hour EventWriter
-outage window per profile (`128 MiB` in `tenant-2g`, `1 GiB` in `small`,
-`3 GiB` in `medium`, and `8 GiB` in `large`); `small` gives the dead-letter
-stream 32 MiB, and `tenant-2g` gives the audit and security-quarantine streams
-8 MiB each and the dead-letter stream 4 MiB.
+for each of the other three ordinary streams and the recovery stream. On a Helm
+install the chart's JetStream profile (`nats.jetstream.profile`) sizes the
+primary stream for a 6-hour EventWriter outage window per profile (`124 MiB` in
+`tenant-2g`, `960 MiB` in `small`, `3 GiB` in `medium`, and `8 GiB` in
+`large`); every profile gives the recovery stream 64 MiB except `tenant-2g`,
+which gives it 4 MiB, its minimum. `small` gives the dead-letter stream 32 MiB,
+and `tenant-2g` gives the audit and security-quarantine streams 8 MiB each and
+the dead-letter stream 4 MiB.
 `core.eventWriter.streams.<stream>.maxBytes` overrides any one of them (see
 [Helm Configuration](./helm-configuration.md)).
 
@@ -268,9 +301,11 @@ carries every non-retired epoch, and the gateway verifies each epoch's
 signature before installing the registry; one epoch that fails refuses the
 whole registry member, and the gateway reports the refusal to core on its next
 refresh. A snapshot expires 30 seconds after the request that fetched it, so a
-gateway that cannot reach core stops authorizing on stale trust. Agents never
-see the registry itself, only the contract references inside their signed
-grants.
+gateway that cannot reach core stops authorizing on stale trust. Delivery can
+pause sooner: the independent recovery-coverage lookup above expires after five
+seconds and requires both core and CNPG. Retained agent records retry when that
+lookup becomes available. Agents never see the registry itself, only the
+contract references inside their signed grants.
 
 ### The issuer key
 
@@ -402,12 +437,16 @@ alone does not withhold the acknowledgement.
 
 ### Restarts
 
-- **Agent.** The spool and its persistent spool id survive a restart. Unresolved
-  records are sent again in the next session. An append interrupted by a crash,
-  power loss or disk error can leave an allocated slot that never committed. The
-  sender cannot deliver past such a slot, so the agent's lane stays wedged and
-  is reported as `spool_wedged` until recovery coverage carries the slot to the
-  gateway.
+- **Agent.** Each bounded generation keeps its own spool identity across restart.
+  Unresolved records are sent again. An interrupted append can leave an allocated
+  slot that never committed. The generation reports `spool_wedged` until recovery
+  accounts for that slot; its sequence is never reused. Recovery freezes the
+  source, journals its per-sequence evidence, copies committed records into a
+  new generation and publishes bounded loss manifests on the recovery lane.
+  Source deletion requires durable coverage and retained rejection evidence.
+  Transient proof cleanup additionally requires signed consumer completion; a
+  gateway PubAck alone cannot authorize it. Old flat storage is retained and
+  reported as unsupported, with no migration or delivery path.
 - **Gateway.** A record whose PubAck the agent never saw stays unresolved and is
   sent again. The JetStream message id is derived from the record's spool slot,
   and the EventWriter ledger treats a record it already holds as a replay.
@@ -502,11 +541,12 @@ condition.
 | `partition_not_found` | The agent's partition has no row, so core issues it no grant and leases it no sweep. Detail: `partition`. | Create that partition. Core never creates one from an agent's claim. |
 | `agent_disconnected` | No core node has seen the agent recently. | Check the agent and its connection to the gateway. |
 | `agent_upgrade_blocked` | The release rollout cannot deliver a new agent build. Detail `cause`: `rollout_paused`, `no_published_release` or `no_release_artifact` (with `release` and `platform`). | Resume the rollout or publish a release with an artifact for the platform. |
-| `spool_unavailable` | The agent reported that its spool could not be opened. Detail: `error`. | Fix the spool directory (permissions, disk). |
+| `spool_unavailable` | The agent reports a spool startup or recovery failure. Detail: `error`, plus retained health when available. | Inspect the reported failure and disk state. Preserve the spool and recovery files. |
 | `no_live_gateway_on_active_epoch` | The agent's live gateway has not reported, within the last two minutes, that it installed the active registry epoch, so the agent's records cannot be admitted under it. Detail: `epoch` and `gateway_id`. | Check that gateway's trust refresh to core; it reports a refused registry on its next refresh. |
-| `spool_wedged` | The spool holds allocated slots that never committed (an append interrupted by a crash, power loss or disk error), so the sender cannot resolve past them and every durable family on the agent is blocked. Detail: the agent's spool sample: `gap_count` (exact total), `gap_sequences` (the first 32), `unresolved_count`, `oldest_unresolved_age_seconds` with `oldest_unresolved_age_known`, `unresolved_bytes`, `bytes_used` and `budget_bytes`. | Recovery coverage is required; there is no automatic recovery yet. Do not delete spool files to clear it: that discards the records behind the gap. |
+| `spool_wedged` | A generation contains unresolved coverage gaps. `gap_count` is the total; `generation_gaps` samples up to 32 generation/lane/sequence coordinates. The sample also carries unresolved count, age (or unknown), and bytes against budget. | Check recovery progress and its refusal reason. Preserve the spool files; deleting them loses records and recovery evidence. |
+| `unsupported_legacy_storage` | `retained_legacy_bytes` reports old flat files kept untouched and charged to the shared budget. | This release does not migrate, recover or deliver those files. New data uses bounded lanes. |
 | `spool_health_unavailable` | The spool opened but the agent could not read its health. Detail: `health_error` and the rest of the sample. | Check the agent log and the spool directory. |
-| `spool_backpressure` | Producer admission is paused at the spool's high-water mark. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
+| `spool_backpressure` | Producer admission is paused by the high-water mark or a refused runtime budget. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
 | `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
 | `oversized_summary` | The gateway refused status summaries from the agent over its source limit (64 KiB for the agent capability status, 4 KiB otherwise). The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
@@ -515,7 +555,8 @@ the agent's last check-in and its live tracker entry, so they are reported for c
 samples spool health on every hello and control-stream heartbeat (about every 60
 seconds), so these conditions do not depend on Prometheus scraping the agent. A
 live sample takes precedence over the one persisted with the agent record, and the
-next healthy sample clears the condition. An agent reports at most one spool
+next healthy sample clears the condition. Unsupported retained storage is
+reported independently. An agent reports at most one active spool-health
 condition, in the order `spool_wedged`, `spool_health_unavailable`,
 `spool_backpressure`. Agents that run from a
 container image are upgraded with the image and are never reported as
@@ -551,7 +592,7 @@ An **Agent spool health** table above the contract rows lists each agent the
 tracker knows, with its lane state (`Wedged - recovery required`,
 `Admission paused`, `Health read failed`, `Unavailable`, `Ready`,
 `Health not reported` for an agent build that sends no health sample, or
-`Disconnected (last sample)`), its gaps (total and first sequences), unresolved
+`Disconnected (last sample)`), its gaps (total and generation-qualified samples), unresolved
 slots (including gaps), oldest unresolved age, and bytes charged against the
 spool budget. An age that cannot be determined, for example because a gap lost
 its timestamp, shows `unknown`, never 0. Wedged and paused agents are listed
@@ -583,7 +624,7 @@ runs on the code defaults:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `spool_max_bytes` | 1 GiB (minimum 16 MiB) | the agent spool byte budget, delivered in the agent config |
+| `spool_max_bytes` | 1 GiB (minimum 64 MiB) | the agent spool byte budget, delivered in the agent config |
 | `horizon_seconds` | 7 days | how far ahead core leases sweeps |
 | `max_horizon_seconds` | 30 days (global row only) | ceiling on any horizon |
 
@@ -621,7 +662,7 @@ Alerts in the chart's Prometheus rules:
 | `ServiceRadarAgentEdgeSpoolUnresolvedAge` | an agent spool holds an unresolved record older than 15 minutes |
 | `ServiceRadarAgentEdgeSpoolBytes` | an agent spool holds more than 1 GiB of unresolved records |
 | `ServiceRadarAgentGatewayPubAckErrors` | the gateway's edge publisher received PubAck errors |
-| `ServiceRadarEdgeRecordConsumerLag` | the `EDGE_RECORD` or audit consumer has pending messages for 10 minutes |
+| `ServiceRadarEdgeRecordConsumerLag` | the `EDGE_RECORD`, audit or recovery consumer has pending messages for 10 minutes |
 | `ServiceRadarEventWriterMessagesExpiredBeforeDelivery` | a stream discarded messages its EventWriter consumer never received |
 | `ServiceRadarEdgeRecordDeadLettered` | records were dead-lettered in the last 15 minutes |
 | `ServiceRadarEdgeRecordDeadLetterPublishFailed` | a dead-letter copy could not be stored |
@@ -685,14 +726,18 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
   agent cannot deliver: check its gateway connection and the sender log lines
   above.
 - `agent_edge_spool_admission_paused` at 1 means producers are being held at
-  the high-water mark. The spool resumes at 50% of its budget once records are
-  acknowledged.
-- `Edge spool lane wedged; recovery coverage required; all durable families are blocked`
+  the high-water mark or a configured budget was refused. Check for
+  `Refused edge spool budget from config` and correct the runtime setting. With
+  valid configuration, ordinary admission resumes at the low-water mark after
+  enough storage is reclaimed.
+- `Edge spool lane wedged; recovery coverage required; delivery cannot cross this generation gap`
   in the agent log, or `spool_wedged` in the readiness report, means an
   interrupted append left an allocated slot the lane cannot resolve past. At
   startup the agent also logs `Edge spool restart slot requires recovery coverage`
-  for each such slot (the first 32, then a total). Records keep accumulating
-  behind the gap until recovery coverage exists; see [Restarts](#restarts).
+  for each such slot (the first 32, then a total). Retained records stay on disk
+  until recovery coverage exists; see [Restarts](#restarts).
+  Gap sequences belong to their reported generation and lane; never combine
+  sequence numbers from different generations.
 - A lane stuck at one sequence is capped by the first record the gateway
   withholds. The log line `Edge record sender could not obtain delivery grants`
   means records under a lapsed grant are waiting for a delivery grant.

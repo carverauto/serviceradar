@@ -91,7 +91,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
       health_available: true,
       wedged: true,
       gap_count: 2,
-      gap_sequences: [4, 8],
+      generation_gaps: [
+        %{
+          spool_generation_id: "01988888000070008000000000000001",
+          route_profile: "DURABLE",
+          traffic_class: "BULK",
+          sequence: 1
+        },
+        %{
+          spool_generation_id: "01988888000070008000000000000002",
+          route_profile: "DURABLE",
+          traffic_class: "BULK",
+          sequence: 1
+        }
+      ],
+      retained_legacy_bytes: 192,
       unresolved_count: 9,
       oldest_unresolved_age_known: false,
       bytes_used: 4096,
@@ -104,15 +118,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     html = render_component(&EdgePipeline.panel/1, stats: stats)
 
     assert cells(html, "#cluster-edge-spools tbody td") ==
-             [agent_id, "Wedged - recovery required", "2 (first: 4, 8)", "9", "unknown", "4096 / 8192"]
+             [
+               agent_id,
+               "Wedged - recovery required",
+               "2 (01988888000070008000000000000001 DURABLE/BULK #1, 01988888000070008000000000000002 DURABLE/BULK #1)",
+               "9",
+               "unknown",
+               "4096 / 8192"
+             ]
 
     :ok =
       ServiceRadar.AgentTracker.track_agent(agent_id, %{
-        edge_record_spool: %{health | wedged: false, gap_count: 0, gap_sequences: []}
+        edge_record_spool: %{health | wedged: false, gap_count: 0, generation_gaps: []}
       })
 
     html = render_component(&EdgePipeline.panel/1, stats: EdgePipeline.stats_for_mount(true))
-    assert Enum.at(cells(html, "#cluster-edge-spools tbody td"), 1) == "Ready"
+    assert Enum.at(cells(html, "#cluster-edge-spools tbody td"), 1) == "Ready; 192 unsupported legacy bytes retained"
   end
 
   test "node snapshots are summed per contract and each durable keeps its latest sample" do

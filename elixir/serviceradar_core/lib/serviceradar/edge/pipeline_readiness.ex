@@ -26,8 +26,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       here. A disconnected agent's platform is not known, so it is reported only as
       `:agent_disconnected`.
 
-    * `:spool_unavailable` - the agent reported that its edge-record spool could not be
-      opened, so it has nowhere to put edge records. Detail: `error`.
+    * `:spool_unavailable` - spool opening failed or recovery is waiting on required
+      authority or capacity. Detail: `error`, plus `health` when the open spool was sampled
+      successfully. Unavailability alone does not imply a coverage gap.
     * `:no_live_gateway_on_active_epoch` - the agent is connected through a live
       gateway, an epoch is active, but no installation report within the
       freshness window shows that gateway holding the active epoch, so the
@@ -82,6 +83,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_disconnected
           | :agent_upgrade_blocked
           | :spool_unavailable
+          | :unsupported_legacy_storage
           | :no_live_gateway_on_active_epoch
           | :spool_wedged
           | :spool_backpressure
@@ -325,10 +327,22 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   defp spool_status_conditions(spool) do
     if (Map.get(spool, "available") || Map.get(spool, :available)) == true do
-      spool_health_conditions(spool)
+      retained =
+        if (spool_field(spool, :retained_legacy_bytes) || 0) > 0,
+          do: [%{reason: :unsupported_legacy_storage, detail: spool}],
+          else: []
+
+      retained ++ spool_health_conditions(spool)
     else
       error = Map.get(spool, "error") || Map.get(spool, :error)
-      [%{reason: :spool_unavailable, detail: %{error: present(error)}}]
+      detail = %{error: present(error)}
+
+      detail =
+        if spool_field(spool, :health_available) == true,
+          do: Map.put(detail, :health, spool),
+          else: detail
+
+      [%{reason: :spool_unavailable, detail: detail}]
     end
   end
 

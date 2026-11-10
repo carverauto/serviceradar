@@ -6,11 +6,14 @@ The agent spool detects corruption and resolves restarts totally over redundant 
 
 Split out of `unify-sweep-results-proto` on 2026-11-02, when that change's task list was reconciled against `staging`. The requirements and tasks below moved verbatim; none of them blocks shipping the durable edge pipeline or archiving `unify-sweep-results-proto`.
 
+The Why section records the state when this change was split on 2026-11-02;
+README.md records current implementation and validation status.
+
 ## What Changes
 
 - Bind recovery attribution to each record at append time and keep it readable when the record segment is corrupt.
 - Wire per-lane spool generations (`spool.LaneSet`) into the agent.
-- Resume the saved rollover work as the agent recovery coordinator, including construction-time coarsening rules.
+- Implement the bounded agent recovery coordinator from the frozen contracts, including construction-time coarsening rules.
 - Delete a source segment only behind a durable coverage proof, and implement the recovery consumer and the durable assignment mapping it needs.
 
 ## Impact

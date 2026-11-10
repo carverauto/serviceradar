@@ -49,6 +49,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
   alias ServiceRadar.Edge.SweepContract
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
@@ -109,20 +111,24 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   @doc """
   Pushes the assignment's lease if the agent is missing any of it. `checks` is the agent's
   check set for the group (`LeaseEligibility.agent_checks/3`), which the push carries.
+  `fresh: true` pushes the full window even when the agent acknowledged the delivered
+  one, so authority installed before this push is replaced rather than relied on.
   """
   @spec deliver(
           SweepProducerAssignment.t(),
           authority(),
           DateTime.t(),
           sender(),
-          [SweepPlan.check()]
+          [SweepPlan.check()],
+          keyword()
         ) :: {:ok, outcome()} | {:error, term()}
   def deliver(
         %SweepProducerAssignment{} = assignment,
         authority,
         %DateTime{} = now,
         sender,
-        checks
+        checks,
+        opts \\ []
       )
       when is_list(checks) do
     lease_id = LeasePass.lease_id(assignment)
@@ -132,7 +138,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now),
          unrun = Enum.filter(unrun, &(&1.check_set_sha256 == check_set.check_set_sha256)),
          {:ok, dropped?} <- dropped_since?(assignment, state, now) do
-      case plan(state, lease_id, dropped? or undelivered_behind?(state, unrun), unrun, now) do
+      replace? = Keyword.get(opts, :fresh, false) or dropped? or undelivered_behind?(state, unrun)
+
+      case plan(state, lease_id, replace?, unrun, now) do
         :up_to_date ->
           {:ok, :up_to_date}
 
@@ -145,6 +153,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           send_push(assignment, lease_id, push, authority, now, sender)
       end
     end
+  end
+
+  @doc """
+  Runs `fun` holding the cluster-wide lock on one agent's lease of one sweep group. Planning,
+  issuance commit, `record_push` and the send of that lease run under it, so a lease pass and a
+  control-session refresh never interleave and each reads delivery state fresh after locking.
+  Issuance is committed on its own before the send; the lock is not a database transaction.
+  """
+  @spec serialize(Ecto.UUID.t(), String.t(), (-> result)) :: result when result: term()
+  def serialize(sweep_group_id, agent_id, fun) when is_function(fun, 0) do
+    :global.trans({{__MODULE__, sweep_group_id, agent_id}, self()}, fun, [node() | Node.list()])
   end
 
   @doc """
@@ -409,7 +428,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp send_push(assignment, lease_id, push, %{key: key, contract: contract}, now, sender) do
     with {:ok, capability} <- push_capability(assignment, push, contract, key),
-         {:ok, slots} <- lease_slots(assignment, push.slots, key) do
+         {:ok, slots} <- lease_slots(assignment, push.slots, key),
+         :ok <- record_mappings(capability, slots, key) do
       payload =
         SweepLeaseV1.encode(%SweepLeaseV1{
           lease_version: if(slots == [], do: 1, else: 2),
@@ -431,6 +451,31 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         end
       end
     end
+  end
+
+  defp record_mappings(nil, [], _key), do: :ok
+
+  defp record_mappings(capability, slots, key) do
+    Enum.reduce_while(slots, :ok, fn slot, :ok ->
+      with {:ok, entries} <- RecoveryAssignmentEvidence.sweep(capability, slot, key.public_key),
+           :ok <- commit_mapping_batches(entries) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp commit_mapping_batches(entries) do
+    entries
+    |> Enum.chunk_every(4096)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case RecoveryAssignments.commit_issuance(batch) do
+        {:ok, :committed} -> {:cont, :ok}
+        {:ok, :conflicting} -> {:halt, {:error, :recovery_assignment_conflict}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp push_capability(_assignment, %{slots: []}, _contract, _key), do: {:ok, nil}
@@ -577,6 +622,15 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   defp withdraw(row, now, sender) do
+    serialize(row.sweep_group_id, row.agent_id, fn ->
+      case get_by_group_agent(row.sweep_group_id, row.agent_id) do
+        {:ok, %SweepLeaseDelivery{} = current} -> withdraw_current(current, now, sender)
+        _gone -> false
+      end
+    end)
+  end
+
+  defp withdraw_current(row, now, sender) do
     revoked_at = row.revoked_at || now
 
     payload =

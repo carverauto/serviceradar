@@ -1,0 +1,743 @@
+{
+  "description": "Synthetic inputs; SHA-256 values independently calculated from the frozen local_binding.v1 transcript. Byte fields are hexadecimal; agent is exact ASCII.",
+  "vectors": [
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "active_source_present",
+      "digest": "7395252eead7702349f6f2abd816b30f48f4917bfbd406d94d366620e8f79e61"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": null
+        }
+      },
+      "name": "active_source_absent",
+      "digest": "bfbe872f5ce0d6857930cc0707adb8329bcd6ef377728eb63e58c3f15ef0c851"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": false,
+        "range_sha256": "",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "passive_source_present",
+      "digest": "44020d141c608f2991c19dc83e1a7a6b4766ab24743260f3691a62fcb0e6ab59"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": false,
+        "range_sha256": "",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": null
+        }
+      },
+      "name": "passive_source_absent",
+      "digest": "7e5bc42edc2d443b0d45f0d201f16e32103dda50cc701b54b0e4388e63e6b071"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "000000000001700e800e0e0e0e0e0e0e",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "rebound_generation",
+      "digest": "6d6659831802a2d9493156b5891fbf75547322fb24c6292918b45ae0ee6ca9d3"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "000000000001700f800f0f0f0f0f0f0f",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_network_scope",
+      "digest": "80b90a7261f21632eb2a2823214479fa724250866d13ab534e75b15a24e2b91b"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_other",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_agent",
+      "digest": "4311792eddf8047a2ba4565cdfb10e5cb118927104aa80f309ccc884f03c947b"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 2,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "same_context_other_kind",
+      "digest": "0b8d287a68c7f76ba62b09e5fbf992f1783462f21e32ed99d288e67791ffc76b"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170108010101010101010",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "same_digest_other_production_id",
+      "digest": "55bb175b6534f78af36fae53e7174d1978750fd515c761e93745e34bdc1442df"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "00000000000170118011111111111111",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "same_digest_other_source_id",
+      "digest": "ba232d12ca0297c460a4895624dab029eadaccb11bbc748903a0b8994130ba4e"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 2,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_route",
+      "digest": "fa7786ec33d6f52ff2d7d40401c9fd1dc21f20b22e6acb69032721a22b13a791"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 2,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_class",
+      "digest": "6cbdec76ff719d89f7a6dfa7034d41fd3c812d0610ed410551a0d76370aecdb2"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 10,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_sequence",
+      "digest": "3f939de29eed26b91f47c472a5833f74d09605ca02f8690d3d1a54e59855108a"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170128012121212121212",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_event",
+      "digest": "aaa124edb8343c887d9abb81811c9c3092348eea07ea98d067e8174a309efb0b"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "1313131313131313131313131313131313131313131313131313131313131313"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "other_record",
+      "digest": "05e97ee8e4a30dfbf6cb08959a3421aa22d5a16c34220fbdfd6cbd2229f50dd5"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 0,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "partial_source_missing_kind",
+      "error": "local_binding"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "partial_source_missing_context_id",
+      "error": "local_binding"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "partial_source_missing_source_scope_id",
+      "error": "local_binding"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": ""
+          }
+        }
+      },
+      "name": "partial_source_missing_source_scope_sha256",
+      "error": "local_binding"
+    },
+    {
+      "version": 2,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "unsupported_version",
+      "error": "local_binding_version"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "",
+        "sequence": 9,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "invalid_generation",
+      "error": "local_binding"
+    },
+    {
+      "version": 1,
+      "coordinates": {
+        "network_scope_id": "00000000000170018001010101010101",
+        "authenticated_agent_id": "agent_synthetic",
+        "lane_route_profile": 1,
+        "lane_traffic_class": 1,
+        "spool_generation_id": "00000000000170028002020202020202",
+        "sequence": 0,
+        "event_id": "00000000000170038003030303030303",
+        "record_sha256": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "attribution": {
+        "active": true,
+        "range_sha256": "0505050505050505050505050505050505050505050505050505050505050505",
+        "identity": {
+          "contract_bundle_sha256": "0606060606060606060606060606060606060606060606060606060606060606",
+          "producer_assignment_id": "00000000000170078007070707070707",
+          "run_id": "00000000000170088008080808080808",
+          "run_shard": 2,
+          "authority_epoch": 3,
+          "production_scope_id": "00000000000170098009090909090909",
+          "scope_sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "source": {
+            "kind": 1,
+            "context_id": "000000000001700b800b0b0b0b0b0b0b",
+            "source_scope_id": "000000000001700c800c0c0c0c0c0c0c",
+            "source_scope_sha256": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        }
+      },
+      "name": "zero_sequence",
+      "error": "local_binding"
+    }
+  ]
+}

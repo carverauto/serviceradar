@@ -169,7 +169,17 @@
           "projection_revision": 1
         }
       ]
+    },
+    {
+      "contract_id": "serviceradar.edge.recovery_control",
+      "contract_version": 1,
+      "history": [
+        {
+          "projection_revision": 1,
+          "contract_bundle_sha256": "f084db085172c4145e6930651fd6450d28a03a4df82a4517f2c91564e1ce09c5"
+        }
+      ]
     }
   ],
-  "registry_snapshot_sha256": "c9f178df7527e798185baf21bc84df9db9213f110d6b7672b5845e5f34b6bc01"
+  "registry_snapshot_sha256": "49bef6541c041addc494cb25e121e5656da04f71753be585508548e592a5f2e2"
 }

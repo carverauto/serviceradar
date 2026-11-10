@@ -4,6 +4,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.PipelineSetting
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
+  alias Serviceradar.Edge.V1.EdgeAttributedActiveV1
+  alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
+  alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
+  alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
   alias ServiceRadar.Infrastructure.Agent
@@ -115,6 +121,178 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     refute_receive {:pushed, _, _, _, _}, 50
   end
 
+  test "a new control session gets the full window even when core holds a matching ack", ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET enabled = true WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(group.id)
+      ]
+    )
+
+    now = DateTime.utc_now()
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, _}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: row.delivered_payload_sha256,
+               installed: true
+             })
+
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    test_pid = self()
+
+    session = fn agent_id, group_id, payload ->
+      lease = SweepLeaseV1.decode(payload)
+
+      mapped? =
+        Enum.all?(lease.slots, fn slot ->
+          {:ok, entries} =
+            RecoveryAssignmentEvidence.sweep(lease.production_capability, slot, @key.public_key)
+
+          Enum.all?(entries, fn entry ->
+            %{rows: [[count]]} =
+              ServiceRadar.Repo.query!(
+                "SELECT count(*) FROM platform.edge_recovery_assignment_issuances WHERE mapping_key = $1::jsonb AND mapping_value = $2::jsonb",
+                [entry.key, entry.value]
+              )
+
+            count == 1
+          end)
+        end)
+
+      send(test_pid, {:session_push, agent_id, group_id, lease, mapped?})
+      :ok
+    end
+
+    later = DateTime.shift(now, second: 1)
+
+    assert {:error, :lease_authority_unavailable} = LeasePass.refresh_agent(ctx.agent, nil, later)
+
+    closed = fn _agent_id, _group_id, _payload -> {:error, :control_session_unavailable} end
+
+    assert {:error, {:lease_refresh_incomplete, 1}} =
+             LeasePass.refresh_agent(ctx.agent, %{ctx.delivery | sender: closed}, later)
+
+    assert {:ok, %{pushed: 1, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, %{ctx.delivery | sender: session}, later)
+
+    assert_receive {:session_push, agent_id, group_id, lease, true}
+    assert {agent_id, group_id} == {ctx.agent, group.id}
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    assert lease.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+    assert lease.lease_id == first.lease_id
+    assert lease.slots != []
+
+    assert MapSet.new(lease.slots, & &1.execution_id) ==
+             MapSet.new(unrun!(assignment!(group, ctx.agent), later), &Ecto.UUID.dump!(&1.id))
+  end
+
+  test "a refresh leaves the group's other agents, their slots and their deliveries alone", ctx do
+    horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.11")
+    group = leased_group!(ctx, agent_ids: [ctx.agent, peer])
+    enable!(group)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 2} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assert_receive {:pushed, _, _, _, _}
+    peer_assignment = assignment!(group, peer)
+    peer_slots = unrun!(peer_assignment, now)
+    assert peer_slots != []
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET agent_ids = $1 WHERE id = $2::uuid",
+      [[ctx.agent], Ecto.UUID.dump!(group.id)]
+    )
+
+    assert {:ok, %{pushed: 1, revoked: 0, withdrawn: 0, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, now)
+
+    assert_receive {:pushed, agent_id, _, _, _}
+    assert agent_id == ctx.agent
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    assert assignment!(group, peer).state == :active
+    assert assignment!(group, peer).authority_epoch == peer_assignment.authority_epoch
+    assert MapSet.new(unrun!(peer_assignment, now), & &1.id) == MapSet.new(peer_slots, & &1.id)
+    assert {:ok, rows} = LeaseDelivery.list_for_group(group.id)
+    assert Enum.any?(rows, &(&1.agent_id == peer and is_nil(&1.revoked_at)))
+  end
+
+  test "a pass started from a group read before an update removed the agent leaves it revoked",
+       ctx do
+    horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.13")
+    stale = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(stale, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assignment = assignment!(stale, ctx.agent)
+
+    assert {:ok, _updated} =
+             stale
+             |> Ash.Changeset.for_update(:update, %{agent_ids: [peer]}, actor: ctx.admin)
+             |> Ash.update()
+
+    revoked = assignment!(stale, ctx.agent)
+    assert revoked.state == :revoked
+    issuances = issuance_count(assignment)
+
+    assert %{errors: 0} = LeasePass.reconcile_group(stale, now, ctx.delivery)
+
+    current = assignment!(stale, ctx.agent)
+    assert current.state == :revoked
+    assert current.authority_epoch == revoked.authority_epoch
+    assert unrun!(current, now) == []
+    assert issuance_count(assignment) == issuances
+    agent = ctx.agent
+    refute_receive {:pushed, ^agent, _, %{revoked: false}, _}, 50
+  end
+
+  test "a refresh queued behind a send does not revive an agent revoked while it waited",
+       ctx do
+    assert_queued_run_keeps_revocation(ctx, fn _group, delivery ->
+      assert {:ok, %{pushed: 0, errors: 0}} = LeasePass.refresh_agent(ctx.agent, delivery)
+    end)
+  end
+
+  test "a pass queued behind a send does not revive an agent revoked after it read the group",
+       ctx do
+    assert_queued_run_keeps_revocation(ctx, fn group, delivery ->
+      assert %{pushed: 0, errors: 0} =
+               LeasePass.reconcile_group(group, DateTime.utc_now(), delivery)
+    end)
+  end
+
+  test "two refreshes of one agent never send its lease at the same time", ctx do
+    assert_serialized_sends(ctx, fn _group, delivery, now ->
+      [
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, DateTime.shift(now, second: 1)) end
+      ]
+    end)
+  end
+
+  test "a refresh and a lease pass never send one agent's lease at the same time", ctx do
+    assert_serialized_sends(ctx, fn group, delivery, now ->
+      [
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+        fn -> LeasePass.reconcile_group(group, now, delivery) end
+      ]
+    end)
+  end
+
   test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
        ctx do
     horizon!(ctx, 7_200)
@@ -176,6 +354,54 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert tail.window_end_unix_nano ==
              List.last(tail.slots).slot_start_unix_nano + 1_000
+  end
+
+  test "lease sender sees original mapping evidence, and a damaged original blocks redelivery",
+       ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+    test_pid = self()
+
+    sender = fn _agent, _group, payload ->
+      lease = SweepLeaseV1.decode(payload)
+
+      for slot <- lease.slots do
+        {:ok, entries} =
+          RecoveryAssignmentEvidence.sweep(lease.production_capability, slot, @key.public_key)
+
+        for entry <- entries do
+          assert %{rows: [[1]]} =
+                   ServiceRadar.Repo.query!(
+                     "SELECT count(*) FROM platform.edge_recovery_assignment_candidates c JOIN platform.edge_recovery_assignment_issuances i ON i.id = c.issuance_id WHERE i.mapping_key = $1::jsonb AND i.mapping_value = $2::jsonb",
+                     [entry.key, entry.value]
+                   )
+        end
+      end
+
+      send(test_pid, {:mapped_lease, lease})
+      :ok
+    end
+
+    delivery = %{ctx.delivery | sender: sender}
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, delivery)
+    assert_receive {:mapped_lease, lease}
+
+    {:ok, [entry | _]} =
+      RecoveryAssignmentEvidence.sweep(
+        lease.production_capability,
+        hd(lease.slots),
+        @key.public_key
+      )
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!(
+               "UPDATE platform.edge_recovery_assignment_issuances SET evidence = '{}' WHERE mapping_key = $1::jsonb",
+               [entry.key]
+             )
+
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, delivery)
+    refute_receive {:mapped_lease, _}
   end
 
   test "a refused shrink is retried out to the window the agent already holds", ctx do
@@ -697,7 +923,31 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert_receive {:pushed, _, _, first, _}
     assert {:ok, [_row]} = LeaseDelivery.list_for_group(group.id)
 
+    [slot | _] = first.slots
+    [source | _] = slot.source_authorizations
+    {:production, production} = first.production_capability.claims
+    span = historical_span(production, source)
+
+    assert {:found, original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
+
+    assert original["execution_id"] == Base.encode16(slot.execution_id, case: :lower)
+
+    assert original["plan"]["id"] ==
+             Base.encode16(slot.plan_header.execution_plan_id, case: :lower)
+
+    assert original["range"]["sha256"] == Base.encode16(source.scope_sha256, case: :lower)
     assert :ok = Ash.destroy(group, actor: ctx.admin)
+    assert {:ok, []} = ProducerAssignments.list_for_group(group.id)
+
+    assert %{rows: [[0]]} =
+             ServiceRadar.Repo.query!(
+               "SELECT count(*) FROM platform.sweep_execution_slots WHERE id = $1",
+               [slot.execution_id]
+             )
+
+    assert {:found, ^original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
 
     group_id = group.id
     assert {:ok, %{withdrawn: withdrawn}} = LeasePass.run(now, ctx.delivery)
@@ -721,6 +971,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              })
 
     assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
+
+    assert {:found, ^original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
   end
 
   test "an agent the group stops leasing to gets a revocation and loses its delivery", ctx do
@@ -906,7 +1159,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert fenced.authority_epoch == before.authority_epoch + 1
 
     assert %{dropped: ^count, scheduled: ^count, pushed: 1, errors: 0} =
-             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+             LeasePass.reconcile_group(stored, now, ctx.delivery)
 
     assert_receive {:pushed, _, _, resent, _}
     new = unrun!(fenced, now)
@@ -980,7 +1233,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     count = length(old_kept)
 
     assert %{dropped: ^count, scheduled: ^count, pushed: 1, withdrawn: 1, errors: 0} =
-             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+             LeasePass.reconcile_group(stored, now, ctx.delivery)
 
     assert_receive {:pushed, first_agent, _, first_msg, _}
     assert_receive {:pushed, second_agent, _, second_msg, _}
@@ -1001,6 +1254,35 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   # The group row is created disabled, so it schedules no Oban worker and the test can run
   # async; the pass is handed the enabled struct, which is what it evaluates.
+  # Construct the historical lookup from the authority actually delivered before
+  # deletion, independently of the current assignment/slot tables.
+  defp historical_span(production, source) do
+    %EdgeClassificationSpanV1{
+      from_sequence: 1,
+      through_sequence: 1,
+      classification:
+        {:attributed_active,
+         %EdgeAttributedActiveV1{
+           range_sha256: source.scope_sha256,
+           identity: %EdgeAttributedSpanIdentityV1{
+             producer_assignment_id: production.producer_assignment_id,
+             run_id: production.run_id,
+             run_shard: production.run_shard,
+             authority_epoch: production.authority_epoch,
+             production_scope_id: production.scope_id,
+             scope_sha256: production.scope_sha256,
+             contract_bundle_sha256: production.contract_bundle_sha256,
+             source: %EdgeSourceSpanIdentityV1{
+               kind: source.kind,
+               context_id: source.context_id,
+               source_scope_id: source.scope_id,
+               source_scope_sha256: source.scope_sha256
+             }
+           }
+         }}
+    }
+  end
+
   defp leased_group!(ctx, overrides \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
 
@@ -1021,6 +1303,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              )
              |> Ash.create()
 
+    enable!(group)
     %{group | enabled: true}
   end
 
@@ -1103,6 +1386,151 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              LeaseEligibility.agent_checks(group, nil, ["sweep_lease_plan_checks:v1"])
 
     checks
+  end
+
+  # Both runs push this agent's lease through a sender that takes 200 ms. Under the delivery
+  # lock one send finishes before the next starts, and the delivery row records the payload
+  # that was sent last.
+  defp assert_serialized_sends(ctx, runs) do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    enable!(group)
+    now = DateTime.utc_now()
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, nil)
+    test_pid = self()
+
+    slow = fn _agent_id, _group_id, payload ->
+      send(test_pid, {:send, :started, self()})
+      Process.sleep(200)
+      send(test_pid, {:send, :finished, self(), payload})
+      :ok
+    end
+
+    group
+    |> runs.(%{ctx.delivery | sender: slow}, now)
+    |> Enum.map(&Task.async/1)
+    |> Task.await_many(10_000)
+
+    assert [
+             {:started, first},
+             {:finished, first, _},
+             {:started, second},
+             {:finished, second, last}
+           ] =
+             Enum.map(1..4, fn _ -> next_send_event() end)
+
+    refute first == second
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    assert row.delivered_payload_sha256 == digest(last)
+  end
+
+  # A real send holds the agent's delivery lock while `queued` reads the group and then waits
+  # on that lock. A group update removes the agent meanwhile, revoking it in the update's own
+  # transaction. Once the lock is released, the queued run must leave the revocation, its epoch
+  # and its dropped slots as they are, mint no issuance for the agent and send nothing.
+  defp assert_queued_run_keeps_revocation(ctx, queued) do
+    horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.12")
+    group = leased_group!(ctx)
+    enable!(group)
+    now = DateTime.utc_now()
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, nil)
+    assignment = assignment!(group, ctx.agent)
+    test_pid = self()
+
+    holder = fn _agent_id, _group_id, _payload ->
+      send(test_pid, {:holding, self()})
+
+      receive do
+        :release -> :ok
+      end
+    end
+
+    holding =
+      Task.async(fn ->
+        LeasePass.reconcile_group(group, DateTime.utc_now(), %{ctx.delivery | sender: holder})
+      end)
+
+    assert_receive {:holding, holder_pid}, 5_000
+
+    try do
+      late = fn agent_id, group_id, _payload ->
+        send(test_pid, {:late_push, agent_id, group_id})
+        :ok
+      end
+
+      waiting = Task.async(fn -> queued.(group, %{ctx.delivery | sender: late}) end)
+      await_delivery_lock_wait(waiting.pid, System.monotonic_time(:millisecond) + 5_000)
+
+      assert {:ok, _updated} =
+               group
+               |> Ash.Changeset.for_update(:update, %{agent_ids: [peer]}, actor: ctx.admin)
+               |> Ash.update()
+
+      revoked = assignment!(group, ctx.agent)
+      assert revoked.state == :revoked
+      issuances = issuance_count(assignment)
+
+      send(holder_pid, :release)
+      Task.await(holding, 10_000)
+      Task.await(waiting, 10_000)
+
+      refute_receive {:late_push, _, _}, 50
+      current = assignment!(group, ctx.agent)
+      assert current.state == :revoked
+      assert current.authority_epoch == revoked.authority_epoch
+      assert unrun!(current, now) == []
+      assert issuance_count(assignment) == issuances
+    after
+      send(holder_pid, :release)
+    end
+  end
+
+  defp await_delivery_lock_wait(pid, deadline) do
+    {:current_stacktrace, stack} = Process.info(pid, :current_stacktrace)
+
+    cond do
+      Enum.any?(stack, &match?({:global, _, _, _}, &1)) ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("the queued run never waited on the agent's delivery lock")
+
+      true ->
+        receive do
+        after
+          5 -> await_delivery_lock_wait(pid, deadline)
+        end
+    end
+  end
+
+  # Issuance recorded for any slot the fixture assignment has had, across all of its epochs.
+  defp issuance_count(assignment) do
+    %{rows: [[count]]} =
+      ServiceRadar.Repo.query!(
+        "SELECT count(*) FROM platform.edge_recovery_assignment_issuances WHERE " <>
+          "mapping_value->>'execution_id' IN (SELECT replace(id::text, '-', '') FROM " <>
+          "platform.sweep_execution_slots WHERE producer_assignment_id = $1::uuid)",
+        [Ecto.UUID.dump!(assignment.id)]
+      )
+
+    count
+  end
+
+  defp next_send_event do
+    receive do
+      {:send, :started, pid} -> {:started, pid}
+      {:send, :finished, pid, payload} -> {:finished, pid, payload}
+    after
+      5_000 -> flunk("a lease send did not happen")
+    end
+  end
+
+  defp enable!(group) do
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET enabled = true WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(group.id)]
+    )
   end
 
   defp assignment!(group, agent_id) do

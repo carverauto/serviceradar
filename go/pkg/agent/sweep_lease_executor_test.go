@@ -34,7 +34,6 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
@@ -212,7 +211,7 @@ type leaseExecutorFixture struct {
 	multi    *MultiSweepService
 	runner   *recordingLeaseRunner
 	executor *sweepLeaseExecutor
-	spool    *spool.Spool
+	spool    *RecordSpool
 	group    string
 }
 
@@ -228,7 +227,7 @@ func (r *recordingLeaseRunner) RunSweepGroupLease(
 	groupID string,
 	_ *edgev1.SweepLeaseV1,
 	slot *edgev1.SweepLeaseSlotV1,
-	_ *spool.Spool,
+	_ *RecordSpool,
 	_ bool,
 	_ sweepSlotClaim,
 ) error {
@@ -285,7 +284,7 @@ func newLeaseExecutorFixture(t *testing.T) *leaseExecutorFixture {
 
 	runner := &recordingLeaseRunner{MultiSweepService: multi}
 	executor := newSweepLeaseExecutor(store, func() sweepLeaseRunner { return runner }, nil, logger.NewTestLogger())
-	sp, err := spool.Open(t.TempDir())
+	sp, err := openTestRecordSpool(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	executor.edgeSpool = sp
@@ -467,6 +466,7 @@ func TestSweepLeaseExecutorRefusedFirstRecordLeavesSlotRunnable(t *testing.T) {
 	fixture.multi.groupOrder = []string{fixture.group}
 	fixture.install(t, lease)
 	sp, freeSpool := fullEdgeSweepSpool(t)
+	installTestSweep(t, sp, lease)
 	fixture.executor.edgeSpool = sp
 	fixture.executor.runnerFor = func() sweepLeaseRunner { return fixture.multi }
 	executionID := uuid.UUID(slot.ExecutionId).String()
@@ -838,6 +838,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 	// the scanner has returned and released its own run lock.
 	lease.ProductionCapability.GetProduction().MaxProjectedRowCount = 16
 	lease.ProductionCapability.GetProduction().MaxProjectedWriteBytes = 16 * sweepProjectedRowBytes
+	installTestSweep(t, sp, lease)
 	sw := &snapshotBlockingSweeper{
 		sameSecondSweeper: newSameSecondSweeper(),
 		snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
@@ -911,7 +912,7 @@ type queuedLeaseRunner struct {
 	returned chan error
 }
 
-func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
+func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *RecordSpool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	close(r.entered)
 	err := r.MultiSweepService.RunSweepGroupLease(ctx, group, lease, slot, sp, icmpUnavailable, claim)
 	r.returned <- err

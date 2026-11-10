@@ -56,7 +56,7 @@ func (p *PushLoop) edgeOtlpRelayTarget(now time.Time) (edgeMetricsAppender, *edg
 	if p == nil || p.edgeMetricsSpool == nil {
 		return nil, nil
 	}
-	cap := p.edgeOutputGrants.current(edgerecord.OtlpRelayContractID, now)
+	cap := p.currentEdgeOutputGrant(edgerecord.OtlpRelayContractID, now)
 	if cap == nil {
 		return nil, nil
 	}
@@ -278,6 +278,9 @@ func (p *otlpRelayPump) appendEdgeRelayParts(
 	spoolApp edgeMetricsAppender,
 	parts []edgeMetricsBuilt,
 ) ([]edgeMetricsBuilt, error) {
+	if err := prepareMetricParts(spoolApp, parts); err != nil {
+		return parts, err
+	}
 	for i, part := range parts {
 		rows := int(part.record.GetProjectedRowCount())
 		body, err := edgerecord.CanonicalRecordBytes(part.record)
@@ -285,7 +288,7 @@ func (p *otlpRelayPump) appendEdgeRelayParts(
 			p.recordEdgeDrop(edgeDropRefused, rows, err)
 			continue
 		}
-		if err := appendEdgeMetricsRecord(spoolApp, part.record, body); err != nil {
+		if err := parts[i].prepared.append(spoolApp, part.record, body); err != nil {
 			if permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength) {
 				p.recordEdgeDrop(sweepPermanentDropReason(err), rows, err)
 				continue

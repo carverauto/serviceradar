@@ -1138,6 +1138,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
+  @doc "Sends one encoded `SweepLeaseV1` to exactly the control session `pid`."
+  @spec push_sweep_lease_to_session(pid(), String.t(), binary()) :: :ok | {:error, term()}
+  def push_sweep_lease_to_session(pid, sweep_group_id, payload)
+      when is_pid(pid) and is_binary(sweep_group_id) and is_binary(payload) do
+    call_exact_control_session(
+      pid,
+      {:push_sweep_lease, sweep_group_id, payload},
+      @sweep_lease_send_timeout
+    )
+  end
+
   defp require_sweep_lease_capability(metadata) do
     if @sweep_lease_capability in capabilities_from_metadata(metadata),
       do: :ok,
@@ -1211,8 +1222,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, {:control_session_exit, call_exit_reason(reason)}}
   end
 
-  defp call_exact_control_session(pid, request) do
-    GenServer.call(pid, request, @send_timeout)
+  defp call_exact_control_session(pid, request, timeout \\ @send_timeout) do
+    GenServer.call(pid, request, timeout)
   catch
     :exit, {:noproc, _} ->
       {:error, :control_session_unavailable}

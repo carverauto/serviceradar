@@ -28,7 +28,6 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
@@ -45,10 +44,13 @@ var (
 	errSyncFinalPageEmpty = errors.New("sync run-final page forms no edge record")
 )
 
-// SetEdgeSyncSpool connects the sync producer to the sender's one open
-// spool and the push loop's output grants. Call before Start; without a spool
+// SetEdgeSyncSpool connects the sync producer to the shared bounded lane
+// owner and the push loop's output grants. Call before Start; without a spool
 // no sync run starts.
-func (p *PushLoop) SetEdgeSyncSpool(sp *spool.Spool) {
+func (p *PushLoop) SetEdgeSyncSpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
 	if p.syncRuntime == nil {
 		return
 	}
@@ -61,7 +63,7 @@ func (p *PushLoop) SetEdgeSyncSpool(sp *spool.Spool) {
 }
 
 func (r *SyncRuntime) syncCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
-	if r == nil || r.edgeSpool == nil || r.edgeGrants == nil {
+	if r == nil || !r.edgeSpool.Ready() || r.edgeGrants == nil {
 		return nil
 	}
 	return r.edgeGrants.current(edgerecord.SyncPageContractID, now)
@@ -110,10 +112,14 @@ func (r *SyncRuntime) spoolSyncUpdates(
 		return 0, err
 	}
 
+	var prepared []edgePreparedRecord
+	if err := prepareRecordParts(r.edgeSpool, records, bodies, &prepared); err != nil {
+		return 0, err
+	}
 	appended := 0
 	var appendErr error
 	for i, record := range records {
-		if _, err := r.edgeSpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), bodies[i]); err != nil {
+		if err := prepared[i].append(r.edgeSpool, record, bodies[i]); err != nil {
 			appendErr = fmt.Errorf("spool sync page chunk %d: %w", i, err)
 			break
 		}

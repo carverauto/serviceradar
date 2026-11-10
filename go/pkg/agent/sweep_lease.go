@@ -167,7 +167,16 @@ type sweepLeaseStore struct {
 	refusals map[string]map[string]sweepLeaseRefusalRecord
 }
 
-const sweepLeaseExecutedSuffix = ".executed.json"
+const (
+	sweepLeaseExecutedSuffix = ".executed.json"
+	// sweepLeaseFileSuffix names a lease installed by this agent version, whose
+	// pushes come from a core that records issuance evidence before sending
+	// (core and gateway roll out first). A lease file with only the older ".pb"
+	// suffix was installed without that evidence, so its slots cannot be
+	// attributed by recovery. It is never loaded or run, and its bytes stay on
+	// disk untouched.
+	sweepLeaseFileSuffix = ".issued.pb"
+)
 
 func defaultSweepLeaseDir() string {
 	runtimeRoot := os.Getenv("SERVICERADAR_AGENT_RUNTIME_ROOT")
@@ -179,9 +188,11 @@ func defaultSweepLeaseDir() string {
 }
 
 // newSweepLeaseStore opens dir and reloads every installed lease in it. A
-// file that no longer decodes is skipped (core re-pushes the group's full
-// window once the agent's report stops covering it); the first such failure
-// is returned alongside the usable store.
+// file that no longer decodes is skipped; the first such failure is returned
+// alongside the usable store. A pre-evidence lease file is left in place and
+// not loaded, so its group runs on its local ticker until core's next push
+// installs a lease. Core pushes each group's full window to every new control
+// session, so that push does not wait for the next tail.
 func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	if err := durablefs.MkdirAll(dir, sweepLeaseDirMode); err != nil {
 		return nil, fmt.Errorf("create sweep lease dir: %w", err)
@@ -249,11 +260,11 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 			continue
 		}
 
-		if !strings.HasSuffix(name, ".pb") {
+		if !strings.HasSuffix(name, sweepLeaseFileSuffix) {
 			continue
 		}
 
-		groupID := strings.TrimSuffix(name, ".pb")
+		groupID := strings.TrimSuffix(name, sweepLeaseFileSuffix)
 
 		data, readErr := os.ReadFile(filepath.Join(dir, name))
 		if readErr != nil {
@@ -468,7 +479,7 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 }
 
 func (s *sweepLeaseStore) path(groupID string) string {
-	return filepath.Join(s.dir, groupID+".pb")
+	return filepath.Join(s.dir, groupID+sweepLeaseFileSuffix)
 }
 
 // validateSweepLease is the install gate: the structural contract of

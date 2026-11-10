@@ -30,6 +30,7 @@ import (
 var errEndpointInventoryRecordTooLarge = errors.New("endpoint inventory scan exceeds the durable record body bound")
 
 type endpointInventoryBuiltItem struct {
+	prepared    edgePreparedRecord
 	record      *edgev1.EdgeRecordV1
 	body        []byte
 	payloadHash [32]byte
@@ -56,7 +57,7 @@ func (p *PushLoop) edgeEndpointInventoryCapability(now time.Time) *edgev1.EdgeSi
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.EndpointInventoryContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.EndpointInventoryContractID, now)
 }
 
 func (p *PushLoop) flushEndpointInventoryEdge(now time.Time) bool {
@@ -137,11 +138,7 @@ func (p *PushLoop) emitEndpointInventoryEdgeStatus(
 }
 
 func (p *PushLoop) appendEndpointInventoryBuilt(built *endpointInventoryBuiltItem, now time.Time) bool {
-	if _, err := p.edgeDiscoverySpool.AppendFlow(
-		edgeAdmissionFlow(built.record),
-		built.record.GetEventId(),
-		built.body,
-	); err != nil {
+	if err := built.prepared.append(p.edgeDiscoverySpool, built.record, built.body); err != nil {
 		if permanentSpoolRefusal(err) {
 			p.dropEdgeTelemetry(edgeProducerEndpointInventory, edgeDropRefused, 1)
 			p.endpointInventoryEdge.built = nil

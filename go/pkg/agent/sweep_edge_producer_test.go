@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -42,7 +41,7 @@ var errTestScannerInterrupted = errors.New("scanner interrupted")
 // All addresses and identity material are synthetic. The scanner boundary is
 // replaced so this exercises actual batching, authority binding and fsynced
 // spool publication without depending on external hosts or raw-socket access.
-func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool) {
+func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *RecordSpool) {
 	t.Helper()
 	now := time.Now()
 	lease := buildExecutableLease(t, now.Add(-time.Minute), now.Add(-time.Second), nil).lease
@@ -82,9 +81,10 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	sourceClaims.OriginKind = c.OriginKind
 	sourceClaims.RouteProfile = c.RouteProfile
 	sourceClaims.TrafficClass = c.TrafficClass
-	sp, err := spool.Open(t.TempDir())
+	sp, err := openTestRecordSpool(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
+	installTestSweep(t, sp, lease)
 	return cfg, lease, slot, sp
 }
 
@@ -208,6 +208,7 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutResultsOutput(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 4, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claims := 0
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claims++; return nil }}))
 	require.Equal(t, 1, claims)
 	records, err := sp.Unresolved()
@@ -264,6 +265,7 @@ func TestEdgeSweepKeepsUnleasedExecutionsOnResultsPath(t *testing.T) {
 	ctx := context.Background()
 
 	runUnleasedCycle(t, svc, scanner, "queued")
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{}))
 
 	queued, err := svc.GetSweepResults(ctx, "")
@@ -288,10 +290,12 @@ func TestEdgeSweepFailedLeaseKeepsLeasedCycleOffResultsPath(t *testing.T) {
 	ctx := context.Background()
 
 	runUnleasedCycle(t, svc, scanner, "queued")
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{}))
 	leasedAgain := proto.Clone(slot).(*edgev1.SweepLeaseSlotV1)
 	leasedAgain.ExecutionId = newUUIDBytes()
 	scanner.results = []models.Result{{Target: models.Target{Host: "not-an-address", Mode: models.ModeICMP}}}
+	installTestSweep(t, sp, lease)
 	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, leasedAgain, sp, false, sweepSlotClaim{}), "edge sweep result address")
 
 	queued, err := svc.GetSweepResults(ctx, "")
@@ -313,6 +317,7 @@ func TestEdgeSweepRefusesSignedModeTheScannerWouldRemap(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults(), effective: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
 	var refusal *sweepSlotRefusal
 	require.ErrorAs(t, err, &refusal)
@@ -347,6 +352,7 @@ func TestEdgeSweepRunsCarriedIPv6SYNWhenThePlannedScannerCanSendIt(t *testing.T)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: results}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claims := 0
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claims++; return nil }}))
 	require.Equal(t, 1, claims)
 	plan := sweeper.RunSpec{
@@ -369,6 +375,7 @@ func TestEdgeSweepRefusesUnavailableICMPBeforeClaim(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, true, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
 	var refusal *sweepSlotRefusal
 	require.ErrorAs(t, err, &refusal)
@@ -386,6 +393,7 @@ func TestEdgeSweepRefusesACheckSetTheScannerCannotExpress(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
 	var refusal *sweepSlotRefusal
 	require.ErrorAs(t, err, &refusal)
@@ -400,6 +408,7 @@ func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:4], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
+	installTestSweep(t, sp, lease)
 	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claimed = true; return nil }}), "scanner interrupted")
 	require.False(t, claimed)
 	records, err := sp.Unresolved()
@@ -417,6 +426,7 @@ func TestEdgeSweepRunsThePlanWhenTheConfigDiffers(t *testing.T) {
 	cfg.Ports = []int{8443}
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{}))
 	require.Equal(t, []sweeper.RunSpec{{
 		Networks: []string{"192.0.2.0/30"},
@@ -444,6 +454,7 @@ func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
 	released := false
+	installTestSweep(t, sp, lease)
 	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{
 		claim:   func() error { claimed = true; return nil },
 		release: func() error { released = true; return nil },
@@ -478,6 +489,7 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 	secondSource.Capability.GetSource().ScopeSha256 = second.RangeSha256
 	secondSource.Capability.GetSource().TargetRangeSha256 = second.RangeSha256
 	slot.SourceAuthorizations = append(slot.SourceAuthorizations, secondSource)
+	installTestSweep(t, sp, lease)
 	producer, err := newSweepEdgeProducer(lease, slot, sp, time.Now())
 	require.NoError(t, err)
 	for _, result := range edgeSweepResults() {
@@ -505,16 +517,16 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 // fullEdgeSweepSpool returns a spool that shares one allocator with a filler lane
 // that has taken every ordinary byte, so the spool's next append is refused, and
 // a release func that returns the filler's bytes to the allocator.
-func fullEdgeSweepSpool(t *testing.T) (*spool.Spool, func()) {
+func fullEdgeSweepSpool(t *testing.T) (*RecordSpool, func()) {
 	t.Helper()
-	footprint := spool.Footprint{DestinationSegment: 1024, AttributionSidecar: 64, JournalCopy: 64, ManifestPages: 64, Mapping: 64, FilesystemMetadata: 64}
+	footprint := spool.DefaultRecoveryFootprint()
 	perRecovery, err := footprint.PerRecovery()
 	require.NoError(t, err)
 	const minFree = 4096
 	alloc, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: perRecovery + minFree + 64<<10, Recovery: footprint, MaxConcurrentRecoveries: 1, MinFree: minFree})
 	require.NoError(t, err)
 
-	sp, err := spool.Open(t.TempDir(), spool.WithAllocator(alloc))
+	sp, err := OpenRecordSpool(t.TempDir(), alloc)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	fillerDir := t.TempDir()
@@ -541,6 +553,7 @@ func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
 	cfg, lease, slot, baseline := edgeSweepFixture(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	installTestSweep(t, baseline, lease)
 	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, baseline, false, sweepSlotClaim{}))
 	want, err := baseline.Unresolved()
 	require.NoError(t, err)
@@ -553,6 +566,7 @@ func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
 	}()
 	scanner = &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc = &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	installTestSweep(t, sp, lease)
 	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{}))
 	got, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -566,6 +580,7 @@ func TestEdgeSweepAdmissionWaitEndsWhenTheScanCancels(t *testing.T) {
 	scanner := &scanCancelSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	done := make(chan error, 1)
+	installTestSweep(t, sp, lease)
 	go func() {
 		done <- svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{})
 	}()
@@ -611,6 +626,7 @@ func TestEdgeSweepAdmissionWaitEndsWithTheRun(t *testing.T) {
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{})
 	require.ErrorIs(t, err, spool.ErrAdmissionRefused)
 	records, readErr := sp.Unresolved()
@@ -631,6 +647,7 @@ func TestEdgeSweepAdmissionWaitEndsAtCollectionExpiry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	start := time.Now()
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{})
 	elapsed := time.Since(start)
 	require.NoError(t, ctx.Err())
@@ -652,6 +669,7 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	start := time.Now()
+	installTestSweep(t, sp, lease)
 	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{
 		claim: func() error {
 			claims++
@@ -664,10 +682,10 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 	t.Logf("closed-spool append returned in %s with %d claim(s) and %d release(s): %v", elapsed, claims, releases, err)
-	require.ErrorIs(t, err, os.ErrClosed)
+	require.ErrorIs(t, err, spool.ErrLaneSetClosed)
 	require.NotErrorIs(t, err, spool.ErrAdmissionRefused)
-	require.Equal(t, 1, claims)
-	require.Zero(t, releases, "a non-admission append error keeps the slot claim")
+	require.Zero(t, claims, "closed storage is refused before claiming the slot")
+	require.Zero(t, releases)
 	require.Less(t, elapsed, sweepAdmissionInitialBackoff, "a non-admission append error must not enter the backoff")
 }
 

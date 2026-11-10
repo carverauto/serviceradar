@@ -60,9 +60,11 @@ _HARNESS_SRCS = [
     "natsproxy_selfcheck_test.go",
     "releases.go",
     "vertical_slice_test.go",
+    "spool_fixture_test.go",
 ]
 
 _HARNESS_DEPS = [
+    "//go/pkg/agent",
     "//go/pkg/edge/edgerecord",
     "//go/pkg/edge/projection",
     "//go/pkg/edge/spool",

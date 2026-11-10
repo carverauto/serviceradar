@@ -327,6 +327,18 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # map without that key raises KeyError inside a function contracted to return
   # `{:error, reason}`. Matching the struct makes an unrecognised body the same typed
   # refusal as an unset oneof, which is what it is: a classification no consumer can act on.
+  @doc "Validates an attributed span for a recovery assignment lookup, independently of its interval."
+  @spec attributed_span(term()) :: :ok | {:error, error()}
+  def attributed_span(%EdgeClassificationSpanV1{classification: {kind, _}} = span)
+      when kind in [:attributed_active, :attributed_passive] do
+    with :ok <- check(WireShape.wire_shaped?(span), :manifest_span_body),
+         :ok <- check(no_unknown_fields?(span), :unknown_fields) do
+      span_body(span)
+    end
+  end
+
+  def attributed_span(_), do: {:error, :manifest_span_body}
+
   defp span_body(%{classification: {:attributed_active, %EdgeAttributedActiveV1{} = b}}) do
     with :ok <- identity(b.identity) do
       # range_sha256 is REQUIRED on ACTIVE and absent on PASSIVE.
@@ -460,11 +472,27 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec recovery_control(term(), term(), policy()) :: :ok | {:error, atom()}
   def recovery_control(record, expected_contract, policy) do
     with :ok <- record_signed(record, policy),
+         {:ok, _} <- recovery_control_body(record, expected_contract),
+         do: :ok
+  end
+
+  @doc """
+  Validates the recovery contract, lane, actual decoded body and source-scope join.
+
+  Returns the exact decompressed payload bytes for immutable receipt comparison.
+  This does not verify signatures or current trust: authenticated EventWriter
+  transport uses it after gateway authorization; `recovery_control/3` composes it
+  after the signed boundary. Both paths use the same body and scope rules.
+  """
+  def recovery_control_body(record, expected_contract) do
+    with :ok <- SemanticValidate.validate_record(record),
          :ok <- contract_dispatch(record, expected_contract),
          :ok <- recovery_lane(record),
-         {:ok, payload} <- inner_control_payload(record),
-         {:ok, {rid, scope}} <- control_body(payload) do
-      signed_scope_fixes_operation(record, rid, scope)
+         {:ok, bytes} <- inner_bytes(record),
+         {:ok, payload} <- decode_control_payload(bytes),
+         {:ok, {rid, scope}} <- control_body(payload),
+         :ok <- signed_scope_fixes_operation(record, rid, scope) do
+      {:ok, %{payload: payload, bytes: bytes}}
     end
   end
 
@@ -481,20 +509,32 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   def record_signed(record, policy) do
     tolerance = Map.get(policy, :clock_tolerance_nano, 0)
 
-    with :ok <- check(is_function(Map.get(policy, :trust), 3), :trust_missing),
-         :ok <- check(Map.get(policy, :trust_policy_epoch, 0) != 0, :trust_epoch_unset),
-         :ok <-
+    with :ok <-
            check(
              is_integer(tolerance) and tolerance >= 0 and tolerance <= @max_clock_tolerance_nano,
              :clock_tolerance
            ),
+         :ok <- record_historical(record, policy),
+         :ok <- production_current(record.production_capability, policy, tolerance) do
+      fence_relation(record, policy)
+    end
+  end
+
+  @doc """
+  Verifies retained record authority without granting fresh production rights.
+  Current retained key policy still applies to both signatures; a compromise
+  revocation or unavailable key refuses. Delivery freshness and fences are checked
+  separately when a rollover delivery capability is used.
+  """
+  @spec record_historical(term(), policy()) :: :ok | {:error, atom()}
+  def record_historical(record, policy) do
+    with :ok <- check(is_function(Map.get(policy, :trust), 3), :trust_missing),
+         :ok <- check(Map.get(policy, :trust_policy_epoch, 0) != 0, :trust_epoch_unset),
          :ok <- SemanticValidate.validate_record(record),
          {:ok, production_status} <-
            verify_capability(record.production_capability, :production, policy),
-         {:ok, worst} <- verify_source_authority(record, policy, production_status),
-         :ok <- check(worst != :historically_revoked, :key_historically_revoked),
-         :ok <- production_current(record.production_capability, policy, tolerance) do
-      fence_relation(record, policy)
+         {:ok, worst} <- verify_source_authority(record, policy, production_status) do
+      check(worst == :valid, :key_historically_revoked)
     end
   end
 
@@ -514,6 +554,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   """
   @spec control_body(term()) :: {:ok, {binary(), binary()}} | {:error, error()}
   def control_body(payload)
+
+  def control_body(%EdgeRecoveryControlPayloadV1{__unknown_fields__: fields})
+      when fields not in [nil, []],
+      do: {:error, :unknown_fields}
 
   def control_body(%EdgeRecoveryControlPayloadV1{body: {:tombstone, t}}) do
     with :ok <- check(no_unknown_fields?(t), :unknown_fields),
@@ -723,9 +767,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp contract_dispatch(_record, nil), do: {:error, :contract_dispatch}
+  @doc "Checks a structurally validated record against its caller-selected contract."
+  @spec contract_dispatch(struct(), map() | nil) :: :ok | {:error, :contract_dispatch}
+  def contract_dispatch(_record, nil), do: {:error, :contract_dispatch}
 
-  defp contract_dispatch(record, expected) do
+  def contract_dispatch(record, expected) do
     c = record.output_contract
 
     check(
@@ -757,14 +803,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp inner_control_payload(record) do
-    with {:ok, bytes} <- inner_bytes(record) do
-      try do
-        {:ok, EdgeRecoveryControlPayloadV1.decode(bytes)}
-      rescue
-        _ -> {:error, :payload_decode}
-      end
-    end
+  defp decode_control_payload(bytes) do
+    {:ok, EdgeRecoveryControlPayloadV1.decode(bytes)}
+  rescue
+    _ -> {:error, :payload_decode}
   end
 
   # Go's `innerPayload`: the carried bytes for an uncompressed record, the validated

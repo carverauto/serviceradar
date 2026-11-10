@@ -132,6 +132,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     AgentCertificateRevocation.confirm_successor_hello(identity)
 
+    # Feature support assumes the core-first rollout; each recovery RPC still
+    # requires current authority and retries when core is unavailable.
     %Monitoring.AgentHelloResponse{
       accepted: true,
       agent_id: agent_id,
@@ -139,7 +141,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       gateway_id: gateway_id(),
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
-      config_outdated: config_outdated
+      config_outdated: config_outdated,
+      edge_recovery_protocol_version: 1
     }
   end
 
@@ -240,6 +243,42 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_edge_identity!(stream)
 
     case EdgeDeliveryGrants.renew(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  def register_edge_recovery(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryControl.register(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  def get_edge_recovery(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryControl.get(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  def authorize_edge_recovery(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryControl.authorize(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  def renew_edge_recovery_copies(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryCopyGrants.renew(request, identity) do
       {:ok, response} -> response
       {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
     end
@@ -1187,24 +1226,37 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Startup availability and live health of the edge-record spool. An agent that predates the default-on
   # sender reports nothing, which core shows as agent_upgrade_pending; a spool that did not
   # open is spool_unavailable (ServiceRadar.Edge.PipelineReadiness).
-  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}),
-    do:
-      Map.take(spool, [
-        :available,
-        :error,
-        :health_available,
-        :health_error,
-        :wedged,
-        :gap_sequences,
-        :gap_count,
-        :unresolved_count,
-        :oldest_unresolved_age_seconds,
-        :oldest_unresolved_age_known,
-        :unresolved_bytes,
-        :bytes_used,
-        :budget_bytes,
-        :admission_paused
-      ])
+  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}) do
+    spool
+    |> Map.take([
+      :available,
+      :error,
+      :health_available,
+      :health_error,
+      :wedged,
+      :gap_sequences,
+      :gap_count,
+      :unresolved_count,
+      :oldest_unresolved_age_seconds,
+      :oldest_unresolved_age_known,
+      :unresolved_bytes,
+      :bytes_used,
+      :budget_bytes,
+      :admission_paused,
+      :retained_legacy_bytes
+    ])
+    |> Map.put(
+      :generation_gaps,
+      Enum.map(spool.generation_gaps, fn gap ->
+        %{
+          spool_generation_id: Base.encode16(gap.spool_generation_id, case: :lower),
+          route_profile: gap.route_profile,
+          traffic_class: gap.traffic_class,
+          sequence: gap.sequence
+        }
+      end)
+    )
+  end
 
   defp edge_record_spool(_request), do: nil
 

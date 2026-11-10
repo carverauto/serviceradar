@@ -158,7 +158,7 @@ tests:
           content: {name: SERVICERADAR_JS_SCAN_RESULTS_REPLICAS, value: "1"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "1006632960"}
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "1"}

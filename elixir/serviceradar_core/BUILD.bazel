@@ -20,6 +20,87 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 package(default_visibility = ["//visibility:public"])
 
 ash_schema(
+    name = "recovery_effect_schema",
+    outs = [
+        "generated_recovery_effect/span.json",
+        "generated_recovery_effect/transition.json",
+        "generated_recovery_effect/range.json",
+        "generated_recovery_effect/fence.json",
+        "generated_recovery_effect/retry.json",
+        "generated_recovery_effect/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:recovery_effect_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_recovery_effect_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.edge_recovery_loss_spans/20261109190000.json": ":generated_recovery_effect/span.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_loss_transitions/20261109190000.json": ":generated_recovery_effect/transition.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_range_losses/20261109190000.json": ":generated_recovery_effect/range.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_generation_fences/20261109190000.json": ":generated_recovery_effect/fence.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_retry_intents/20261109190000.json": ":generated_recovery_effect/retry.json",
+        "priv/repo/migrations/20261109190000_add_edge_recovery_effects.exs": ":generated_recovery_effect/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "recovery_assignment_schema",
+    outs = [
+        "generated_recovery_assignment/key.json",
+        "generated_recovery_assignment/issuance.json",
+        "generated_recovery_assignment/candidate.json",
+        "generated_recovery_assignment/resolution.json",
+        "generated_recovery_assignment/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:recovery_assignment_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_recovery_assignment_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.edge_recovery_assignment_keys/20261109180000.json": ":generated_recovery_assignment/key.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_assignment_issuances/20261109180000.json": ":generated_recovery_assignment/issuance.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_assignment_candidates/20261109180000.json": ":generated_recovery_assignment/candidate.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_assignment_resolutions/20261109180000.json": ":generated_recovery_assignment/resolution.json",
+        "priv/repo/migrations/20261109180000_add_edge_recovery_assignments.exs": ":generated_recovery_assignment/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "recovery_operation_schema",
+    outs = [
+        "generated_recovery_operation/registration.json",
+        "generated_recovery_operation/page.json",
+        "generated_recovery_operation/generation.json",
+        "generated_recovery_operation/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:recovery_operation_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_recovery_operation_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.edge_recovery_registrations/20261109170000.json": ":generated_recovery_operation/registration.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_generations/20261109170000.json": ":generated_recovery_operation/generation.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_received_pages/20261109170000.json": ":generated_recovery_operation/page.json",
+        "priv/repo/migrations/20261109170000_add_edge_recovery_operations.exs": ":generated_recovery_operation/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
     name = "managed_component_permissions_schema",
     outs = [
         "generated_managed_component_permissions/component.json",

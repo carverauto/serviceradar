@@ -48,4 +48,30 @@ defmodule ServiceRadar.Edge.PipelineSettingsTest do
     assert %{horizon_seconds: 25 * @day} ==
              [agent] |> PipelineSettings.combine() |> Map.take([:horizon_seconds])
   end
+
+  test "operator budgets leave room for recovery, while existing smaller settings are not clamped" do
+    refused =
+      Ash.Changeset.for_create(PipelineSetting, :upsert, %{
+        scope: :agent,
+        scope_key: "agent-demo",
+        spool_max_bytes: 63 * @mib
+      })
+
+    refute refused.valid?
+    assert Enum.any?(refused.errors, &(&1.field == :spool_max_bytes))
+
+    accepted =
+      Ash.Changeset.for_create(PipelineSetting, :upsert, %{
+        scope: :agent,
+        scope_key: "agent-demo",
+        spool_max_bytes: 64 * @mib
+      })
+
+    assert accepted.valid?
+
+    assert %{spool_max_bytes: 16 * @mib} ==
+             [row(:agent, spool_max_bytes: 16 * @mib)]
+             |> PipelineSettings.combine()
+             |> Map.take([:spool_max_bytes])
+  end
 end

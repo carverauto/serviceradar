@@ -23,7 +23,7 @@ import (
 )
 
 // edgeSpoolRuntime is what the push loop reports and applies about the agent's
-// one edge-record spool: startup availability and live health carried in every
+// edge-record lanes: startup availability and live health carried in every
 // hello, and the byte budget core delivers in the agent config.
 type edgeSpoolRuntime struct {
 	mu            sync.Mutex
@@ -69,7 +69,8 @@ func (p *PushLoop) edgeSpoolStatus() *proto.EdgeRecordSpoolStatus {
 
 // applyEdgeSpoolBudget applies the config's spool budget when it changed. Zero
 // means the core predates the setting, so the agent keeps the budget it has.
-// A refused budget is logged and retried on the next config that carries one.
+// A refused budget pauses admission and is retried on the next nonzero config,
+// including a correction back to the previously applied value.
 func (p *PushLoop) applyEdgeSpoolBudget(configResp *proto.AgentConfigResponse) {
 	budget := configResp.GetEdgeSpoolMaxBytes()
 
@@ -79,6 +80,7 @@ func (p *PushLoop) applyEdgeSpoolBudget(configResp *proto.AgentConfigResponse) {
 		return
 	}
 	if err := p.edgeSpool.applyBudget(budget); err != nil {
+		p.edgeSpool.appliedBudget = 0
 		p.logger.Warn().Err(err).Uint64("spool_max_bytes", budget).Msg("Refused edge spool budget from config")
 		return
 	}

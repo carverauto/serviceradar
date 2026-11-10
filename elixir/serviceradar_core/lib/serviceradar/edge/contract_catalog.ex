@@ -31,6 +31,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   alias ServiceRadar.Edge.Projectors.MapperTopology
   alias ServiceRadar.Edge.Projectors.NetprobeDiscovery
   alias ServiceRadar.Edge.Projectors.OtlpRelay
+  alias ServiceRadar.Edge.Projectors.RecoveryControl
   alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
   alias ServiceRadar.Edge.Projectors.SweepObservation
   alias ServiceRadar.Edge.Projectors.SyncPage
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
   alias ServiceRadar.Edge.Projectors.WasmPluginResult
   alias ServiceRadar.Edge.Projectors.WorkloadIdentity
+  alias ServiceRadar.Edge.RecoveryProjectionCost
 
   @type ref :: {String.t(), pos_integer()}
   @type entry :: %{
@@ -56,8 +58,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
           optional(:package_id) => String.t()
         }
 
-  # Every contract this release registers rides the durable bulk lane, partitioned by network
-  # scope, under cost model 1.
+  # Durable bulk is the default; recovery explicitly reserves its control route.
+  # Both use cost model 1 and the network-scope partition rule.
   @durable_bulk %{
     route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
     traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
@@ -66,6 +68,18 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   }
 
   @entries [
+    %{
+      ref: {"serviceradar.edge.recovery_control", 1},
+      payload: Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1,
+      projection_revision: 1,
+      authority: :standing_grant,
+      projector: RecoveryControl,
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1,
+      max_projected_rows: RecoveryProjectionCost.max_rows(),
+      write_bytes_per_row: 32_768,
+      max_projected_write_bytes: RecoveryProjectionCost.max_bytes(),
+      package_id: "serviceradar.agent.recovery"
+    },
     %{
       ref: {"serviceradar.sweep.observation", 1},
       payload: Serviceradar.Edge.V1.SweepObservationBatchV1,

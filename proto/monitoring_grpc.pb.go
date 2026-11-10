@@ -227,6 +227,10 @@ const (
 	AgentGatewayService_RenewCertificate_FullMethodName                = "/monitoring.AgentGatewayService/RenewCertificate"
 	AgentGatewayService_GetCertificatePolicy_FullMethodName            = "/monitoring.AgentGatewayService/GetCertificatePolicy"
 	AgentGatewayService_RenewEdgeDeliveryGrants_FullMethodName         = "/monitoring.AgentGatewayService/RenewEdgeDeliveryGrants"
+	AgentGatewayService_RegisterEdgeRecovery_FullMethodName            = "/monitoring.AgentGatewayService/RegisterEdgeRecovery"
+	AgentGatewayService_AuthorizeEdgeRecovery_FullMethodName           = "/monitoring.AgentGatewayService/AuthorizeEdgeRecovery"
+	AgentGatewayService_RenewEdgeRecoveryCopies_FullMethodName         = "/monitoring.AgentGatewayService/RenewEdgeRecoveryCopies"
+	AgentGatewayService_GetEdgeRecovery_FullMethodName                 = "/monitoring.AgentGatewayService/GetEdgeRecovery"
 )
 
 // AgentGatewayServiceClient is the client API for AgentGatewayService service.
@@ -265,6 +269,12 @@ type AgentGatewayServiceClient interface {
 	// for each spooled edge record whose production authority has lapsed, so a
 	// reconnecting agent can drain its backlog.
 	RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error)
+	// Recovery control is authenticated independently of the blocked delivery lane.
+	// Registration is not publication or permission to reclaim source bytes.
+	RegisterEdgeRecovery(ctx context.Context, in *EdgeRecoveryRegistration, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error)
+	AuthorizeEdgeRecovery(ctx context.Context, in *EdgeRecoveryAuthorizationRequest, opts ...grpc.CallOption) (*EdgeRecoveryAuthorizationResponse, error)
+	RenewEdgeRecoveryCopies(ctx context.Context, in *EdgeRecoveryCopyGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error)
+	GetEdgeRecovery(ctx context.Context, in *EdgeRecoveryQuery, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error)
 }
 
 type agentGatewayServiceClient struct {
@@ -400,6 +410,46 @@ func (c *agentGatewayServiceClient) RenewEdgeDeliveryGrants(ctx context.Context,
 	return out, nil
 }
 
+func (c *agentGatewayServiceClient) RegisterEdgeRecovery(ctx context.Context, in *EdgeRecoveryRegistration, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeRecoveryStatus)
+	err := c.cc.Invoke(ctx, AgentGatewayService_RegisterEdgeRecovery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentGatewayServiceClient) AuthorizeEdgeRecovery(ctx context.Context, in *EdgeRecoveryAuthorizationRequest, opts ...grpc.CallOption) (*EdgeRecoveryAuthorizationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeRecoveryAuthorizationResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_AuthorizeEdgeRecovery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentGatewayServiceClient) RenewEdgeRecoveryCopies(ctx context.Context, in *EdgeRecoveryCopyGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeDeliveryGrantResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_RenewEdgeRecoveryCopies_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentGatewayServiceClient) GetEdgeRecovery(ctx context.Context, in *EdgeRecoveryQuery, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeRecoveryStatus)
+	err := c.cc.Invoke(ctx, AgentGatewayService_GetEdgeRecovery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentGatewayServiceServer is the server API for AgentGatewayService service.
 // All implementations must embed UnimplementedAgentGatewayServiceServer
 // for forward compatibility.
@@ -436,6 +486,12 @@ type AgentGatewayServiceServer interface {
 	// for each spooled edge record whose production authority has lapsed, so a
 	// reconnecting agent can drain its backlog.
 	RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error)
+	// Recovery control is authenticated independently of the blocked delivery lane.
+	// Registration is not publication or permission to reclaim source bytes.
+	RegisterEdgeRecovery(context.Context, *EdgeRecoveryRegistration) (*EdgeRecoveryStatus, error)
+	AuthorizeEdgeRecovery(context.Context, *EdgeRecoveryAuthorizationRequest) (*EdgeRecoveryAuthorizationResponse, error)
+	RenewEdgeRecoveryCopies(context.Context, *EdgeRecoveryCopyGrantRequest) (*EdgeDeliveryGrantResponse, error)
+	GetEdgeRecovery(context.Context, *EdgeRecoveryQuery) (*EdgeRecoveryStatus, error)
 	mustEmbedUnimplementedAgentGatewayServiceServer()
 }
 
@@ -478,6 +534,18 @@ func (UnimplementedAgentGatewayServiceServer) GetCertificatePolicy(context.Conte
 }
 func (UnimplementedAgentGatewayServiceServer) RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenewEdgeDeliveryGrants not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) RegisterEdgeRecovery(context.Context, *EdgeRecoveryRegistration) (*EdgeRecoveryStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterEdgeRecovery not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) AuthorizeEdgeRecovery(context.Context, *EdgeRecoveryAuthorizationRequest) (*EdgeRecoveryAuthorizationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthorizeEdgeRecovery not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) RenewEdgeRecoveryCopies(context.Context, *EdgeRecoveryCopyGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenewEdgeRecoveryCopies not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) GetEdgeRecovery(context.Context, *EdgeRecoveryQuery) (*EdgeRecoveryStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEdgeRecovery not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
 func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
@@ -669,6 +737,78 @@ func _AgentGatewayService_RenewEdgeDeliveryGrants_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentGatewayService_RegisterEdgeRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeRecoveryRegistration)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).RegisterEdgeRecovery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_RegisterEdgeRecovery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).RegisterEdgeRecovery(ctx, req.(*EdgeRecoveryRegistration))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentGatewayService_AuthorizeEdgeRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeRecoveryAuthorizationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).AuthorizeEdgeRecovery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_AuthorizeEdgeRecovery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).AuthorizeEdgeRecovery(ctx, req.(*EdgeRecoveryAuthorizationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentGatewayService_RenewEdgeRecoveryCopies_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeRecoveryCopyGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).RenewEdgeRecoveryCopies(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_RenewEdgeRecoveryCopies_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).RenewEdgeRecoveryCopies(ctx, req.(*EdgeRecoveryCopyGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentGatewayService_GetEdgeRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeRecoveryQuery)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).GetEdgeRecovery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_GetEdgeRecovery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).GetEdgeRecovery(ctx, req.(*EdgeRecoveryQuery))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -707,6 +847,22 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RenewEdgeDeliveryGrants",
 			Handler:    _AgentGatewayService_RenewEdgeDeliveryGrants_Handler,
+		},
+		{
+			MethodName: "RegisterEdgeRecovery",
+			Handler:    _AgentGatewayService_RegisterEdgeRecovery_Handler,
+		},
+		{
+			MethodName: "AuthorizeEdgeRecovery",
+			Handler:    _AgentGatewayService_AuthorizeEdgeRecovery_Handler,
+		},
+		{
+			MethodName: "RenewEdgeRecoveryCopies",
+			Handler:    _AgentGatewayService_RenewEdgeRecoveryCopies_Handler,
+		},
+		{
+			MethodName: "GetEdgeRecovery",
+			Handler:    _AgentGatewayService_GetEdgeRecovery_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

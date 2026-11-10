@@ -26,7 +26,6 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 )
 
 // Plugin signals and native add-on telemetry share one standing-grant
@@ -60,10 +59,13 @@ func (p *PushLoop) dropEdgeTelemetry(producer edgeProducer, reason edgeDropReaso
 		Msg("Dropped telemetry bound for the edge spool")
 }
 
-// SetEdgeTelemetrySpool connects telemetry producers to the sender's one open
-// spool. Call before Start; with a nil spool telemetry is held as it is
+// SetEdgeTelemetrySpool connects telemetry producers to the shared bounded lane
+// owner. Call before Start; with a nil spool telemetry is held as it is
 // without a grant.
-func (p *PushLoop) SetEdgeTelemetrySpool(sp *spool.Spool) {
+func (p *PushLoop) SetEdgeTelemetrySpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
 	if sp == nil {
 		p.edgeTelemetrySpool = nil
 		return
@@ -77,7 +79,7 @@ func (p *PushLoop) edgeTelemetryCapability(now time.Time) *edgev1.EdgeSignedCapa
 	if p == nil || p.edgeTelemetrySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.TelemetryBatchContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.TelemetryBatchContractID, now)
 }
 
 // telemetryEdgeItem is one drained telemetry batch awaiting the spool.
@@ -95,10 +97,11 @@ func (item telemetryEdgeItem) records() int {
 // the spool has admitted every part, so a retry appends the same records
 // under their original event ids.
 type telemetryBuiltItem struct {
-	item    telemetryEdgeItem
-	records []*edgev1.EdgeRecordV1
-	bodies  [][]byte
-	next    int
+	prepared []edgePreparedRecord
+	item     telemetryEdgeItem
+	records  []*edgev1.EdgeRecordV1
+	bodies   [][]byte
+	next     int
 }
 
 // telemetryEdgeQueue is one producer's bounded retry queue. Only the push
@@ -190,9 +193,13 @@ func (p *PushLoop) spoolTelemetry(
 }
 
 func (p *PushLoop) appendTelemetryBuilt(producer edgeProducer, built *telemetryBuiltItem) bool {
+	if err := prepareRecordParts(p.edgeTelemetrySpool, built.records, built.bodies, &built.prepared); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining pending records")
+		return false
+	}
 	for built.next < len(built.records) {
 		record := built.records[built.next]
-		if _, err := p.edgeTelemetrySpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
+		if err := built.prepared[built.next].append(p.edgeTelemetrySpool, record, built.bodies[built.next]); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to spool telemetry batch part; will retry")
 			return false
 		}

@@ -192,10 +192,14 @@ type Receipt struct {
 // frozen identity; a Generation exposes only reads and reclamation, which stay
 // available after it closes.
 type Generation struct {
-	id     GenerationIdentity
-	dir    string
-	spool  *Spool
-	closed atomic.Bool
+	lifecycle       sync.Mutex
+	recoveryID      []byte
+	recoveryAttempt uint32
+	shut            bool
+	id              GenerationIdentity
+	dir             string
+	spool           *Spool
+	closed          atomic.Bool
 }
 
 // Identity returns the generation's frozen identity.
@@ -211,19 +215,27 @@ func (g *Generation) NextSequence() uint64 { return g.spool.NextSequence() }
 func (g *Generation) Resolved() uint64 { return g.spool.Resolved() }
 
 // Resolve advances the generation's own reclamation watermark; see Spool.Resolve.
-func (g *Generation) Resolve(through uint64) error { return g.spool.Resolve(through) }
+func (g *Generation) Resolve(through uint64) error {
+	return g.withOpen(func(s *Spool) error { return s.Resolve(through) })
+}
 
 // ScanFrom streams the generation's unresolved records; see Spool.ScanFrom.
 func (g *Generation) ScanFrom(after uint64, visit func(Record) bool) error {
-	return g.spool.ScanFrom(after, visit)
+	return g.withOpen(func(s *Spool) error { return s.ScanFrom(after, visit) })
 }
 
 // Unresolved returns the generation's unresolved records; see Spool.Unresolved.
-func (g *Generation) Unresolved() ([]Record, error) { return g.spool.Unresolved() }
+func (g *Generation) Unresolved() ([]Record, error) {
+	var records []Record
+	err := g.ScanFrom(0, func(r Record) bool { records = append(records, r); return true })
+	return records, err
+}
 
 // markClosed marks the generation closed and releases its segment: a closed
 // generation never appends again, and its reads open their own handles.
 func (g *Generation) markClosed() error {
+	g.lifecycle.Lock()
+	defer g.lifecycle.Unlock()
 	g.closed.Store(true)
 	return g.spool.Close()
 }
@@ -234,20 +246,24 @@ type lane struct {
 	key LaneKey
 	dir string
 
-	mu              sync.Mutex
-	open            *Generation
-	retained        []*Generation // closed-but-unreclaimed, ordinal order
-	nextOrdinal     uint64
-	rotationPending bool
-	shut            bool
+	mu                   sync.Mutex
+	open                 *Generation
+	retained             []*Generation // closed sources and dedicated recovery destinations
+	recoveryDestinations map[recoveryDestinationKey]*Generation
+	nextOrdinal          uint64
+	rotationPending      bool
+	shut                 bool
 }
 
 // LaneSet is the agent's spool: one open generation per lane under one
 // authenticated session identity. It is safe for concurrent use.
 type LaneSet struct {
-	root     string
-	session  Identity
-	taxonomy *fairsched.LaneTaxonomy
+	root              string
+	sessionMu         sync.RWMutex // namespace replacement vs append/rotation
+	session           Identity
+	taxonomy          *fairsched.LaneTaxonomy
+	generationOptions func(GenerationIdentity, string) ([]Option, error)
+	allocator         *Allocator
 
 	mu     sync.Mutex // guards lanes and closed; never held across I/O on a lane
 	lanes  map[LaneKey]*lane
@@ -258,6 +274,27 @@ type LaneSet struct {
 	// of fsynced commits. It carries limits only: bounds STATE is always
 	// rebuilt from the commit evidence on open. Nil in production.
 	testSegBounds *segmentLimits
+}
+
+// LaneOption configures all generations opened by a LaneSet.
+type LaneOption func(*LaneSet)
+
+// WithLaneAllocator gives generation publication the same owner used by every
+// configured spool, so ordinary metadata is admitted before it touches disk.
+func WithLaneAllocator(allocator *Allocator) LaneOption {
+	return func(ls *LaneSet) { ls.allocator = allocator }
+}
+
+// WithGenerationOptions configures each new or recovered generation before its
+// spool reads commit evidence. configure receives a copy of the frozen identity
+// and its published directory, including for closed generations and generations
+// enrolled under an older session identity. Return existing spool options to
+// share one allocator and admission policy while binding inspection to that
+// generation. An error refuses the open; it never falls back to an unconfigured
+// spool. configure may run concurrently for different lanes and must not call
+// back into the LaneSet or acquire resources needing separate cleanup.
+func WithGenerationOptions(configure func(GenerationIdentity, string) ([]Option, error)) LaneOption {
+	return func(ls *LaneSet) { ls.generationOptions = configure }
 }
 
 // OpenLanes opens (creating if needed) the lane set rooted at root for the given
@@ -275,10 +312,39 @@ type LaneSet struct {
 //
 // Recovery fails the whole set closed when any generation on any lane cannot be
 // trusted, including a corrupt retained segment; per-lane quarantine is task 2.27.
-func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) (*LaneSet, error) {
+func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
 	if err := session.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSessionIdentity, err)
 	}
+	return openLanesInventory(root, session, taxonomy, options...)
+}
+
+// OpenRetainedLanes opens the same storage inventory before authenticated
+// configuration arrives. Existing generations can drain under their frozen
+// identities, but append and rotation remain unavailable until ActivateSession.
+func OpenRetainedLanes(root string, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
+	return openLanesInventory(root, Identity{}, taxonomy, options...)
+}
+
+// ActivateSession installs the authenticated namespace without reopening storage
+// or charging another allocator. Existing generation identities never change;
+// an append under a new namespace requires ordinary lane rotation first.
+func (ls *LaneSet) ActivateSession(session Identity) error {
+	if err := session.validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrSessionIdentity, err)
+	}
+	ls.sessionMu.Lock()
+	defer ls.sessionMu.Unlock()
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	if ls.closed {
+		return ErrLaneSetClosed
+	}
+	ls.session = session.clone()
+	return nil
+}
+
+func openLanesInventory(root string, session Identity, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
 	if taxonomy == nil || taxonomy.Len() == 0 {
 		return nil, fmt.Errorf("%w: taxonomy is required", fairsched.ErrTaxonomyInvalid)
 	}
@@ -294,6 +360,9 @@ func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) 
 		session:  session.clone(),
 		taxonomy: taxonomy,
 		lanes:    make(map[LaneKey]*lane),
+	}
+	for _, option := range options {
+		option(ls)
 	}
 
 	entries, err := os.ReadDir(root)
@@ -337,6 +406,12 @@ func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte)
 // An empty Bindings declares no binding; such appends each open their own
 // rotation run.
 func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, body []byte, b Bindings) (Receipt, error) {
+	return ls.appendWithAttribution("", key, presented, eventID, body, b, nil)
+}
+
+func (ls *LaneSet) appendWithAttribution(flow string, key LaneKey, presented Identity, eventID, body []byte, b Bindings, attribution *pendingAttribution) (Receipt, error) {
+	ls.sessionMu.RLock()
+	defer ls.sessionMu.RUnlock()
 	if !key.Valid() {
 		return Receipt{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -347,6 +422,15 @@ func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, 
 		return Receipt{}, fmt.Errorf("%w: %w: got %d", ErrPermanent, ErrEventIDLength, len(eventID))
 	}
 
+	if attribution != nil {
+		if attribution.validated != nil {
+			if err := attribution.validated.CheckRecord(appendCoordinates(key, presented, eventID, body)); err != nil {
+				return Receipt{}, errors.Join(ErrPermanent, err)
+			}
+		} else if attribution.source == nil || !attribution.source.valid || attribution.source.generation.Lane != key || !attribution.source.generation.Identity.equal(presented) {
+			return Receipt{}, ErrAttributionRequired
+		}
+	}
 	l, err := ls.lane(key)
 	if err != nil {
 		return Receipt{}, err
@@ -371,7 +455,7 @@ func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, 
 		return Receipt{}, fmt.Errorf("%w: lane %s open generation is frozen under another identity", ErrRotationRequired, key)
 	}
 
-	r, err := l.open.spool.Commit(eventID, body, b)
+	r, err := l.open.spool.commit(flow, eventID, body, b, attribution)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -408,6 +492,11 @@ func (ls *LaneSet) RequireRotation(key LaneKey) error {
 // The close marker is durable before the successor exists, so a crash between
 // the two leaves the lane with no open generation and the next append opens one.
 func (ls *LaneSet) Rotate(key LaneKey) (GenerationIdentity, error) {
+	ls.sessionMu.RLock()
+	defer ls.sessionMu.RUnlock()
+	if len(ls.session.NetworkScopeID) == 0 {
+		return GenerationIdentity{}, ErrLaneNotReady
+	}
 	if !key.Valid() {
 		return GenerationIdentity{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -426,7 +515,7 @@ func (ls *LaneSet) Rotate(key LaneKey) (GenerationIdentity, error) {
 			return GenerationIdentity{}, err
 		}
 		g := l.open
-		l.retained = append(l.retained, g)
+		l.retain(g)
 		l.open = nil
 		l.rotationPending = false
 		if err := g.markClosed(); err != nil {
@@ -464,6 +553,15 @@ func (ls *LaneSet) Generations(key LaneKey) []*Generation {
 	if l.open != nil {
 		out = append(out, l.open)
 	}
+	slices.SortFunc(out, func(a, b *Generation) int {
+		if a.id.Ordinal < b.id.Ordinal {
+			return -1
+		}
+		if a.id.Ordinal > b.id.Ordinal {
+			return 1
+		}
+		return 0
+	})
 	return out
 }
 
@@ -510,7 +608,10 @@ func (ls *LaneSet) closeAll() error {
 		l.mu.Lock()
 		l.shut = true
 		if l.open != nil {
-			errs = append(errs, l.open.spool.Close())
+			errs = append(errs, l.open.shutdown())
+		}
+		for _, g := range l.retained {
+			errs = append(errs, g.shutdown())
 		}
 		l.mu.Unlock()
 	}
@@ -519,6 +620,9 @@ func (ls *LaneSet) closeAll() error {
 
 // authorize enforces the single-scope authenticated-agent invariant.
 func (ls *LaneSet) authorize(presented Identity) error {
+	if len(ls.session.NetworkScopeID) == 0 {
+		return ErrLaneNotReady
+	}
 	if !bytes.Equal(presented.NetworkScopeID, ls.session.NetworkScopeID) {
 		return ErrScopeUnauthorized
 	}
@@ -557,9 +661,18 @@ func (ls *LaneSet) existingLane(key LaneKey) *lane {
 // openGeneration creates the lane's next generation under the session identity
 // and makes it the open one. The caller holds l.mu.
 func (ls *LaneSet) openGeneration(l *lane) error {
+	g, err := ls.createGeneration(l, nil, 0, nil)
+	if err != nil {
+		return err
+	}
+	l.open = g
+	return nil
+}
+
+func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32, reservation *generationReservation) (generation *Generation, err error) {
 	spoolID, err := edgerecord.NewUUIDv7()
 	if err != nil {
-		return fmt.Errorf("spool: generate spool id: %w", err)
+		return nil, fmt.Errorf("spool: generate spool id: %w", err)
 	}
 	id := GenerationIdentity{
 		Lane:     l.key,
@@ -568,63 +681,151 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 		Identity: ls.session.clone(),
 	}
 
-	if err := durablefs.MkdirAll(l.dir, dirPerm); err != nil {
-		return fmt.Errorf("spool: mkdir lane: %w", err)
+	if reservation != nil {
+		id.Identity = reservation.source.Identity.clone()
 	}
-	if err := fsyncDir(ls.root); err != nil {
-		return err
-	}
-
 	name := generationDirName(id.Ordinal, id.SpoolID)
+	if len(recoveryID) != 0 {
+		name += recoveryDestinationSuffix
+	}
 	tmp := filepath.Join(l.dir, tmpPrefix+name)
 	final := filepath.Join(l.dir, name)
+	if reservation == nil && ls.allocator != nil {
+		// Two directory allocations and the bounded identity/format files may each
+		// consume a filesystem block. Keep their barrier headroom in flight until
+		// the published spool has measured its actual file bytes.
+		const metadataAdmission = 4*4096 + recoveryGenerationFixedBytes
+		if err = ls.allocator.admit(final, metadataAdmission); err != nil {
+			return nil, err
+		}
+		defer func() {
+			err = ls.allocator.settleGenerationMetadata(final, tmp, metadataAdmission, err)
+		}()
+	}
+	if reservation != nil {
+		if err = reservation.prepare(final, id, recoveryID, attempt); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err != nil {
+				l.shut = true
+				err = reservation.fail(err)
+			}
+		}()
+	}
+	if err := durablefs.MkdirAll(l.dir, dirPerm); err != nil {
+		return nil, fmt.Errorf("spool: mkdir lane: %w", err)
+	}
+	if err := fsyncDir(ls.root); err != nil {
+		return nil, err
+	}
+
 	if err := os.Mkdir(tmp, dirPerm); err != nil {
-		return fmt.Errorf("spool: mkdir generation: %w", err)
+		return nil, fmt.Errorf("spool: mkdir generation: %w", err)
 	}
 	identityPath := filepath.Join(tmp, identityFile)
 	if err := os.WriteFile(identityPath, encodeIdentity(id), filePerm); err != nil {
-		return fmt.Errorf("spool: write generation identity: %w", err)
+		return nil, fmt.Errorf("spool: write generation identity: %w", err)
 	}
 	if err := fsyncFile(identityPath); err != nil {
-		return err
+		return nil, err
+	}
+	if len(recoveryID) != 0 {
+		if err := writeRecoveryDestination(tmp, id, recoveryID, attempt); err != nil {
+			return nil, err
+		}
+	}
+	if reservation != nil {
+		if err = durablefs.WriteFile(filepath.Join(tmp, evidenceFormatFile), []byte(evidenceFormatV2), filePerm); err != nil {
+			return nil, err
+		}
+		if err = durablefs.WriteFile(filepath.Join(tmp, recoverySourceFile), reservation.sourceBytes, filePerm); err != nil {
+			return nil, err
+		}
 	}
 	if err := fsyncDir(tmp); err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.Rename(tmp, final); err != nil {
-		return fmt.Errorf("spool: publish generation: %w", err)
+		return nil, fmt.Errorf("spool: publish generation: %w", err)
 	}
 	// Published: the ordinal is spent whether or not the generation opens, so a
 	// retry can never publish a second generation under the same ordinal.
 	l.nextOrdinal++
-	sp, err := ls.openPublished(l.dir, final)
+	if reservation != nil {
+		if err = fsyncDir(l.dir); err != nil {
+			return nil, err
+		}
+		if err = reservation.land(); err != nil {
+			return nil, err
+		}
+	}
+	sp, err := ls.openPublished(l.dir, final, id)
 	if err != nil {
 		// It holds no record. Close it so a retry's successor is the lane's only
 		// open generation; if even that fails, recovery fails stop on two open
 		// generations rather than guessing.
 		_ = writeClosedMarker(final)
-		return err
+		if len(recoveryID) != 0 {
+			// Published operation identity may survive this failure. Require
+			// inventory recovery before another attempt can claim the same key.
+			l.shut = true
+		}
+		return nil, err
 	}
-	l.open = &Generation{id: id, dir: final, spool: sp}
-	return nil
+	if reservation != nil && (sp.alloc != reservation.grant.alloc || sp.attributionIdentity == nil) {
+		_ = sp.Close()
+		return nil, ErrAttributionRequired
+	}
+	return &Generation{id: id, dir: final, spool: sp, recoveryID: bytes.Clone(recoveryID), recoveryAttempt: attempt}, nil
+}
+
+// settleGenerationMetadata replaces publication headroom with the bytes that
+// actually landed, including a failed temporary generation. A measurement error
+// retains the conservative charge and stops admission.
+func (a *Allocator) settleGenerationMetadata(final, tmp string, admitted uint64, outcome error) error {
+	measured, err := regularFileBytes(final)
+	if errors.Is(err, os.ErrNotExist) {
+		measured, err = regularFileBytes(tmp)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
+	if err == nil {
+		a.ChargeMeasured(final, measured)
+	}
+	outcome = errors.Join(outcome, err)
+	a.settle(admitted, outcome)
+	return outcome
 }
 
 // openPublished makes a just-published generation's directory entry durable and
 // opens its segment.
-func (ls *LaneSet) openPublished(laneDir, dir string) (*Spool, error) {
+func (ls *LaneSet) openPublished(laneDir, dir string, id GenerationIdentity) (*Spool, error) {
 	if err := fsyncDir(laneDir); err != nil {
 		return nil, err
 	}
-	return ls.openSpool(dir)
+	return ls.openSpool(dir, id)
 }
 
-// openSpool opens the spool at dir, applying the test rotation limits when a
-// test set them. Limits only: the bounds state always comes from the commit
-// evidence the open rebuilds.
-func (ls *LaneSet) openSpool(dir string) (*Spool, error) {
-	sp, err := Open(dir)
+// openSpool configures the generation before restart classification reads its
+// bindings. Rotation bounds are rebuilt from evidence, even with test limits.
+func (ls *LaneSet) openSpool(dir string, id GenerationIdentity) (*Spool, error) {
+	var options []Option
+	if ls.generationOptions != nil {
+		var err error
+		options, err = ls.generationOptions(id.clone(), dir)
+		if err != nil {
+			return nil, fmt.Errorf("spool: configure generation %q: %w", dir, err)
+		}
+	}
+	sp, err := Open(dir, options...)
 	if err != nil {
 		return nil, err
+	}
+	if ls.allocator != nil && sp.alloc != ls.allocator {
+		_ = sp.Close()
+		return nil, fmt.Errorf("%w: generation factory changed shared allocator", ErrInvalidAllocatorConfig)
 	}
 	if ls.testSegBounds != nil {
 		sp.segBounds.limits = *ls.testSegBounds
@@ -676,9 +877,20 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 	}
 
 	// ReadDir sorts by name and names lead with the zero-padded ordinal.
+	seenRecovery := make(map[recoveryDestinationKey]bool)
 	for _, g := range gens {
 		if g.id.Ordinal >= l.nextOrdinal {
 			l.nextOrdinal = g.id.Ordinal + 1
+		}
+		if len(g.recoveryID) != 0 {
+			key := recoveryDestinationKey{string(g.recoveryID), g.recoveryAttempt}
+			if seenRecovery[key] {
+				closeGens()
+				return nil, fmt.Errorf("%w: duplicate recovery destination", ErrCorruptGeneration)
+			}
+			seenRecovery[key] = true
+			l.retain(g)
+			continue
 		}
 		if !g.Closed() {
 			if l.open != nil {
@@ -694,7 +906,7 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 			closeGens()
 			return nil, fmt.Errorf("%w: lane %s has a closed generation after its open one", ErrCorruptGeneration, key)
 		}
-		l.retained = append(l.retained, g)
+		l.retain(g)
 	}
 
 	return l, nil
@@ -702,7 +914,8 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 
 func (ls *LaneSet) recoverGeneration(l *lane, e os.DirEntry) (*Generation, error) {
 	name := e.Name()
-	ordinal, spoolID, ok := parseGenerationDir(name)
+	recoveryDestination := strings.HasSuffix(name, recoveryDestinationSuffix)
+	ordinal, spoolID, ok := parseGenerationDir(strings.TrimSuffix(name, recoveryDestinationSuffix))
 	if !ok || !e.IsDir() {
 		return nil, fmt.Errorf("%w: lane %s: unrecognized entry %q", ErrCorruptGeneration, l.key, name)
 	}
@@ -724,11 +937,23 @@ func (ls *LaneSet) recoverGeneration(l *lane, e os.DirEntry) (*Generation, error
 	if err != nil {
 		return nil, err
 	}
-	sp, err := ls.openSpool(dir)
+	recoveryID, attempt, err := readRecoveryDestination(dir, id)
+	if err == nil && recoveryDestination != (len(recoveryID) != 0) {
+		err = fmt.Errorf("%w: recovery destination marker does not match directory", ErrCorruptGeneration)
+	}
 	if err != nil {
 		return nil, err
 	}
-	g := &Generation{id: id, dir: dir, spool: sp}
+	if recoveryDestination {
+		if _, err := readRecoverySource(dir, id, recoveryID); err != nil {
+			return nil, fmt.Errorf("%w: recovery source intent: %w", ErrCorruptGeneration, err)
+		}
+	}
+	sp, err := ls.openSpool(dir, id)
+	if err != nil {
+		return nil, err
+	}
+	g := &Generation{id: id, dir: dir, spool: sp, recoveryID: recoveryID, recoveryAttempt: attempt}
 	if closed {
 		if err := g.markClosed(); err != nil {
 			return nil, err

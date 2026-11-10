@@ -67,7 +67,7 @@ func TestValidateMetricBatchRecord(t *testing.T) {
 	}
 
 	sweep := metricBatchRecord(t, 3, 3)
-	sweep.OutputContract.ContractId = "serviceradar.sweep.observation"
+	sweep.OutputContract.ContractId = SweepObservationContractID
 	sweep.ProductionCapability = productionCap(t, sweep)
 	reseal(sweep)
 

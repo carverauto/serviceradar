@@ -733,6 +733,8 @@ core:
       scan_results: {}
       trivy_reports: {}
       notifications: {}
+      # Reserved recovery WorkQueue; profile default 64Mi (tenant-2g: 4Mi minimum).
+      telemetry_edge_record_recovery_v1: {}
       exposure_transitions: {}
       exposure_dimensions: {}
       flows: {}

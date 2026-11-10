@@ -92,8 +92,8 @@ func (g *edgeOutputGrants) current(contractID string, now time.Time) *edgev1.Edg
 
 // validateEdgeOutputGrant is the intake gate of one standing grant: a structurally
 // valid production capability whose claims name the entry's contract, this agent
-// as origin and producer, and the durable bulk lane, and that has not expired.
-// Signatures are verified by the gateway, as for sweep leases.
+// as origin and producer, the registered lane, and an unexpired window.
+// The typed record constructor verifies signatures before durable append.
 func validateEdgeOutputGrant(agentID string, entry *proto.EdgeOutputGrant, nowUnixNano int64) (*edgev1.EdgeSignedCapabilityV1, error) {
 	var capability edgev1.EdgeSignedCapabilityV1
 	if err := gproto.Unmarshal(entry.GetProductionCapability(), &capability); err != nil {
@@ -104,6 +104,10 @@ func validateEdgeOutputGrant(agentID string, entry *proto.EdgeOutputGrant, nowUn
 	}
 
 	claims := capability.GetProduction()
+	route, traffic := edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK
+	if entry.GetContractId() == "serviceradar.edge.recovery_control" && entry.GetContractVersion() == 1 {
+		route = edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
+	}
 	var reason string
 	switch {
 	case claims.GetContractId() != entry.GetContractId() || claims.GetContractVersion() != entry.GetContractVersion():
@@ -112,9 +116,8 @@ func validateEdgeOutputGrant(agentID string, entry *proto.EdgeOutputGrant, nowUn
 		reason = "claims name another agent"
 	case claims.GetOriginKind() != edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT:
 		reason = "origin is not an agent"
-	case claims.GetRouteProfile() != edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1 ||
-		claims.GetTrafficClass() != edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK:
-		reason = "lane is not durable bulk"
+	case claims.GetRouteProfile() != route || claims.GetTrafficClass() != traffic:
+		reason = "lane does not match the registered contract"
 	case nowUnixNano >= capability.GetExpiresAtUnixNano():
 		reason = "grant window has ended"
 	default:
@@ -128,14 +131,7 @@ func validateEdgeOutputGrant(agentID string, entry *proto.EdgeOutputGrant, nowUn
 func (p *PushLoop) applyEdgeOutputGrants(configResp *proto.AgentConfigResponse) {
 	// Without an agent identity no grant can name this agent, so every entry is
 	// refused and any installed grant is withdrawn.
-	var agentID string
-	if p.server != nil {
-		p.server.mu.RLock()
-		if p.server.config != nil {
-			agentID = p.server.config.AgentID
-		}
-		p.server.mu.RUnlock()
-	}
+	agentID := p.edgeAuthenticatedAgentID()
 
 	for _, err := range p.edgeOutputGrants.replace(agentID, configResp.GetEdgeOutputGrants(), time.Now()) {
 		p.logger.Warn().Err(err).Msg("Refused edge output grant")

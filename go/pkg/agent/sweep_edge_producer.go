@@ -70,9 +70,14 @@ const (
 	sweepAdmissionMaxBackoff     = 5 * time.Second
 )
 
-// SetEdgeSweepSpool connects leased sweep producers to the sender's one open
-// spool. Call before Start; a nil spool keeps the legacy result path.
-func (p *PushLoop) SetEdgeSweepSpool(sp *spool.Spool) { p.edgeSweepSpool = sp }
+// SetEdgeSweepSpool connects leased sweep producers to the shared bounded lane
+// owner. Call before Start; a nil spool keeps the legacy result path.
+func (p *PushLoop) SetEdgeSweepSpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
+	p.edgeSweepSpool = sp
+}
 
 // sweepSlotClaim consumes a leased slot durably before a record of its run can
 // land in the spool, and release gives the slot back after that record was
@@ -89,7 +94,7 @@ type sweepSlotClaim struct {
 // with different bytes under the same execution and batch sequence. A run that
 // never gets a record admitted does not consume the slot. icmpUnavailable is
 // the startup socket probe: a carried ICMP check is refused before claim.
-func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
+func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *RecordSpool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	s.mu.RLock()
 	svc := s.groups[groupID]
 	s.mu.RUnlock()
@@ -99,7 +104,10 @@ func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID stri
 	return svc.runLeaseToSpool(ctx, lease, slot, sp, icmpUnavailable, claim)
 }
 
-func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
+func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *RecordSpool, icmpUnavailable bool, claim sweepSlotClaim) error {
+	if !sp.Ready() {
+		return edgerecord.ErrTrustMissing
+	}
 	runner, ok := s.sweeper.(interface {
 		RunPlannedWithObserver(context.Context, string, sweeper.RunSpec, func(context.Context, *models.Result) error) error
 		EffectivePlannedSweepModes(string, sweeper.RunSpec) ([]models.SweepMode, error)
@@ -231,7 +239,7 @@ type sweepEdgeProducer struct {
 	mu         sync.Mutex
 	lease      *edgev1.SweepLeaseV1
 	slot       *edgev1.SweepLeaseSlotV1
-	spool      *spool.Spool
+	spool      *RecordSpool
 	checks     map[sweepCheck]uint32
 	modeBits   uint32
 	ranges     []sweepRangeBuilder
@@ -322,7 +330,7 @@ func plannedSweepMode(mode edgev1.SweepMode) (models.SweepMode, uint32) {
 	}
 }
 
-func newSweepEdgeProducer(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, now time.Time) (*sweepEdgeProducer, error) {
+func newSweepEdgeProducer(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *RecordSpool, now time.Time) (*sweepEdgeProducer, error) {
 	plan, err := sweepPlanChecks(lease, slot)
 	if err != nil {
 		return nil, err
@@ -545,7 +553,11 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 	if err != nil {
 		return err
 	}
-	return p.appendWithBackpressure(scanCtx, edgeAdmissionFlow(record), record.GetEventId(), body)
+	prepared, err := p.spool.PrepareRecord(body)
+	if err != nil {
+		return err
+	}
+	return p.appendWithBackpressure(scanCtx, edgeAdmissionFlow(record), prepared)
 }
 
 // appendClaimed appends body. Until a record of this run is in the spool, each
@@ -553,9 +565,9 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 // and an admission refusal, which writes nothing, releases that claim. A run
 // whose records are all refused therefore leaves its slot runnable, including
 // when the agent stops while the producer waits for admission.
-func (p *sweepEdgeProducer) appendClaimed(flow string, eventID, body []byte) error {
+func (p *sweepEdgeProducer) appendClaimed(flow string, prepared *spool.AttributedAppend) error {
 	if p.admitted {
-		_, err := p.spool.AppendFlow(flow, eventID, body)
+		_, err := p.spool.AppendPrepared(flow, prepared)
 		return err
 	}
 	if p.claim.claim != nil {
@@ -563,7 +575,7 @@ func (p *sweepEdgeProducer) appendClaimed(flow string, eventID, body []byte) err
 			return fmt.Errorf("persist sweep slot start: %w", err)
 		}
 	}
-	_, err := p.spool.AppendFlow(flow, eventID, body)
+	_, err := p.spool.AppendPrepared(flow, prepared)
 	switch {
 	case err == nil:
 		p.admitted = true
@@ -579,10 +591,10 @@ func (p *sweepEdgeProducer) appendClaimed(flow string, eventID, body []byte) err
 // appendWithBackpressure appends body, waiting out admission refusals until the
 // spool has room or either the run context or the scan context ends. Any other
 // append error is returned at once.
-func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow string, eventID, body []byte) error {
+func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow string, prepared *spool.AttributedAppend) error {
 	backoff := sweepAdmissionInitialBackoff
 	for {
-		err := p.appendClaimed(flow, eventID, body)
+		err := p.appendClaimed(flow, prepared)
 		if !errors.Is(err, spool.ErrAdmissionRefused) {
 			return err
 		}

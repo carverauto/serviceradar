@@ -82,7 +82,7 @@ type senderGuardLogger struct {
 func (l *senderGuardLogger) Error() *zerolog.Event { return l.output.Error() }
 
 func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
-	sp, err := spool.Open(t.TempDir())
+	sp, _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: t.TempDir()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,14 +128,14 @@ func TestOpenEdgeRecordSpoolReportsADirectoryItCannotCreate(t *testing.T) {
 // the spool holds refuses new appends without dropping anything, and raising it
 // admits again.
 func TestEdgeSpoolBudgetFromConfigAppliesAtAdmission(t *testing.T) {
-	sp, _, budget := openTestEdgeSpool(t, 4<<20)
+	sp, gate, budget := openTestEdgeSpool(t, 2<<20)
 	defer func() { _ = sp.Close() }()
 
 	if _, err := sp.Append(make([]byte, 16), make([]byte, 1<<20)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sp.Append(append(make([]byte, 15), 1), make([]byte, 1<<20)); !errors.Is(err, spool.ErrAdmissionRefused) {
-		t.Fatalf("append past the 4 MiB budget = %v, want byte-budget refusal", err)
+		t.Fatalf("append past the ordinary byte budget = %v, want byte-budget refusal", err)
 	}
 	records, err := sp.Unresolved()
 	if err != nil {
@@ -150,6 +150,26 @@ func TestEdgeSpoolBudgetFromConfigAppliesAtAdmission(t *testing.T) {
 	if _, err := sp.Append(append(make([]byte, 15), 1), make([]byte, 1<<20)); err != nil {
 		t.Fatalf("append after the budget was raised = %v, want admitted", err)
 	}
+	// A configured budget below recovery's floor must stop new producer work,
+	// rather than keep admitting against the previous larger capacity.
+	if err := budget.Apply(16 << 20); !errors.Is(err, spool.ErrInvalidAllocatorConfig) {
+		t.Fatalf("undersized budget = %v, want configuration refusal", err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 2), []byte("synthetic pending record")); !errors.Is(err, spool.ErrAdmissionPaused) {
+		t.Fatalf("append after refused budget = %v, want admission paused", err)
+	}
+	if !gate.BulkPaused() {
+		t.Fatal("refused configured budget was not visible as paused")
+	}
+	if got, err := sp.Unresolved(); err != nil || len(got) != 2 {
+		t.Fatalf("refused budget changed retained records: %d, %v", len(got), err)
+	}
+	if err := budget.Apply(defaultEdgeSpoolMaxBytes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 2), []byte("synthetic pending record")); err != nil {
+		t.Fatalf("append after valid budget restored = %v", err)
+	}
 }
 
 // openTestEdgeSpool opens the agent spool in a temporary directory and applies
@@ -161,10 +181,39 @@ func openTestEdgeSpool(t *testing.T, maxBytes uint64) (*spool.Spool, *admission.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.Apply(maxBytes); err != nil {
+	reserve, err := spool.DefaultRecoveryFootprint().PerRecovery()
+	if err != nil {
 		t.Fatal(err)
 	}
-	return sp, gate, budget
+	if err := budget.Apply(reserve + (1 << 20) + maxBytes); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sp.Close() })
+	raw, err := spool.Open(t.TempDir(), spool.WithAllocator(budget.allocator), spool.WithAdmissionGate(func(flow string, cost uint64) bool { return gate.AdmitFlow(flow, cost, time.Now()) == admission.Admit }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw, gate, budget
+}
+
+// Recovery admission must inspect the spool's actual filesystem on each call.
+// A missing directory is a deterministic probe failure without filling a disk.
+func TestEdgeSpoolRecoveryFailsClosedWhenFilesystemCannotBeProbed(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}}
+	sp, _, budget, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := budget.allocator.AcquireRecovery(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovery on missing filesystem path = %v, want probe failure", err)
+	}
 }
 
 // Producer admission pauses at the spool's high water, before the allocator's
@@ -291,56 +340,245 @@ func TestEdgeSpoolBurstDefersToASteadyFlowBetweenWatermarks(t *testing.T) {
 	}
 }
 
-func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirIsCreatable(t *testing.T) {
-	sp, err := spool.Open(t.TempDir())
+func TestSenderPreservesGenerationNamespacesAndContinuesPastACoverageGap(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, key := testTransportLanes(t, dir)
+	firstRecord := spooledEdgeRecord(t, time.Now().Add(-time.Hour))
+	firstReceipt, err := lanes.Append(key, identity, firstRecord.eventID, firstRecord.body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = sp.Close() }()
-	blocker := filepath.Join(t.TempDir(), "not-a-directory")
-	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+	if _, err := lanes.Rotate(key); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(blocker, "spool")
-	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
-		GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
-		Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
-	}}
-	ctx, cancel := context.WithCancel(context.Background())
+	gapRecord := spooledEdgeRecord(t, time.Now().Add(-time.Hour))
+	first, err := lanes.Append(key, identity, gapRecord.eventID, gapRecord.body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := lanes.Generations(key)[1]
+	if _, err := lanes.Rotate(key); err != nil {
+		t.Fatal(err)
+	}
+	lastRecord := spooledEdgeRecord(t, time.Now().Add(-time.Hour))
+	last, err := lanes.Append(key, identity, lastRecord.eventID, lastRecord.body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(filepath.Join(closed.Directory(), "lane.seg"), 0); err != nil {
+		t.Fatal(err)
+	}
+	store, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	health := edgeSpoolStatusSampler(store, budget)()
+	if !health.HealthAvailable || health.UnresolvedCount != 3 || health.GapCount != 1 || len(health.GapSequences) != 0 || len(health.GenerationGaps) != 1 {
+		t.Fatalf("aggregate health = %v", health)
+	}
+	gap := health.GenerationGaps[0]
+	if !bytes.Equal(gap.SpoolGenerationId, first.Generation.SpoolID) || gap.Sequence != 1 || gap.RouteProfile != key.RouteProfile || gap.TrafficClass != key.TrafficClass {
+		t.Fatalf("qualified gap = %v", gap)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSender()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var runner *edgeLaneSender
+	for _, candidate := range runners {
+		if candidate.lane == key {
+			runner = candidate
+		}
+	}
+	if runner == nil {
+		t.Fatal("missing bulk lane worker")
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := runner.RunOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requests, frames := gateway.snapshot()
+	if len(frames) != 2 || len(requests) != 2 {
+		t.Fatalf("requests=%d frames=%d", len(requests), len(frames))
+	}
+	if !bytes.Equal(requests[0].spoolID, firstReceipt.Generation.SpoolID) || !bytes.Equal(requests[1].spoolID, last.Generation.SpoolID) {
+		t.Fatal("delivery rebound a generation identity")
+	}
+	if !bytes.Equal(frames[0].RecordBytes, firstRecord.body) || !bytes.Equal(frames[1].RecordBytes, lastRecord.body) {
+		t.Fatal("delivery rewrote retained bytes")
+	}
+}
+
+func TestRecoveryLaneDeliveryProgressesWhileBulkSessionStalls(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, bulk := testTransportLanes(t, dir)
+	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
+	bulkRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	controlRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	for _, item := range []struct {
+		lane   spool.LaneKey
+		record spooledRecord
+	}{{bulk, bulkRecord}, {recovery, controlRecord}} {
+		if _, err := lanes.Append(item.lane, identity, item.record.eventID, item.record.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	gateway.mu.Lock()
+	gateway.blockedBulk = make(chan struct{})
+	blocked := gateway.blockedBulk
+	gateway.mu.Unlock()
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir, GatewayAddr: address, Security: &models.SecurityConfig{Mode: models.SecurityModeNone}, PollInterval: agent.Duration(10 * time.Millisecond)}}
+	store, _, _, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	done := make(chan struct{})
-	go func() {
-		runEdgeRecordSender(ctx, cfg, sp, logger.NewTestLogger())
-		close(done)
-	}()
-
+	go func() { defer close(done); runEdgeRecordSender(ctx, cfg, store, logger.NewTestLogger()) }()
+	defer func() { cancel(); <-done }()
 	select {
-	case <-done:
-		t.Fatal("sender stopped after its first setup failure")
-	case <-time.After(200 * time.Millisecond):
+	case <-blocked:
+	case <-ctx.Done():
+		t.Fatal("bulk session never opened")
 	}
-	idPath := filepath.Join(dir, "spool_id")
-	if _, err := os.Stat(idPath); err == nil {
-		t.Fatal("setup succeeded while the spool directory could not be created")
+	control := store.Lanes().Generations(recovery)[0]
+	for control.Resolved() != 1 {
+		select {
+		case <-ctx.Done():
+			t.Fatal("stalled bulk prevented recovery lane resolution")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
-	if err := os.Remove(blocker); err != nil {
+	_, frames := gateway.snapshot()
+	if len(frames) != 1 || !bytes.Equal(frames[0].RecordBytes, controlRecord.body) {
+		t.Fatalf("delivered frames = %v, want only exact recovery bytes", frames)
+	}
+	if store.Lanes().Generations(bulk)[0].Resolved() != 0 {
+		t.Fatal("stalled bulk unexpectedly resolved")
+	}
+}
+
+// A lane whose only generation still holds unresolved records is sent on the
+// next poll: after a poll leaves the cursor on that generation without
+// resolving it, the following poll wraps back to it rather than ending at the
+// cursor. A drained lane still ends the poll with nothing unresolved.
+func TestLaneSenderRevisitsItsOnlyGenerationOnConsecutivePolls(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, bulk := testTransportLanes(t, dir)
+	record := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	if _, err := lanes.Append(bulk, identity, record.eventID, record.body); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(idPath); err == nil {
-			break
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}}
+	store, _, _, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	senders, closeAll, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll()
+	var laneSender *edgeLaneSender
+	for _, candidate := range senders {
+		if candidate.lane == bulk {
+			laneSender = candidate
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("sender never retried setup after the spool directory became creatable")
-		}
-		time.Sleep(50 * time.Millisecond)
+	}
+	if laneSender == nil {
+		t.Fatal("no sender for the bulk lane")
 	}
 
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("sender did not stop after cancellation")
+	interrupted, interrupt := context.WithCancel(ctx)
+	interrupt()
+	if _, err := laneSender.RunOnce(interrupted); err == nil || errors.Is(err, sender.ErrNoUnresolvedRecords) {
+		t.Fatalf("interrupted poll = %v, want a delivery error that leaves the record unresolved", err)
+	}
+	if _, frames := gateway.snapshot(); len(frames) != 0 {
+		t.Fatalf("interrupted poll delivered %d frames", len(frames))
+	}
+
+	if _, err := laneSender.RunOnce(ctx); err != nil {
+		t.Fatalf("next poll: %v", err)
+	}
+	if _, frames := gateway.snapshot(); len(frames) != 1 || !bytes.Equal(frames[0].RecordBytes, record.body) {
+		t.Fatalf("next poll delivered %d frames, want the unresolved record", len(frames))
+	}
+	if _, err := laneSender.RunOnce(ctx); !errors.Is(err, sender.ErrNoUnresolvedRecords) {
+		t.Fatalf("drained poll = %v, want no unresolved records", err)
+	}
+}
+
+func TestUnsupportedLegacyStorageIsRetainedAccountedAndNeverDelivered(t *testing.T) {
+	dir := t.TempDir()
+	old := []byte("synthetic unsupported legacy bytes")
+	path := filepath.Join(dir, "lane.seg")
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, bytes.Repeat([]byte("x"), 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "legacy-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	store, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	linkInfo, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(len(old)) + uint64(linkInfo.Size())
+	status := edgeSpoolStatusSampler(store, budget)()
+	if !status.HealthAvailable || status.RetainedLegacyBytes != want || status.BytesUsed != want || status.UnresolvedCount != 0 {
+		t.Fatalf("retained status = %v", status)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSender()
+	for _, runner := range runners {
+		if _, err := runner.RunOnce(context.Background()); !errors.Is(err, sender.ErrNoUnresolvedRecords) {
+			t.Fatalf("legacy delivery: %v", err)
+		}
+	}
+	requests, frames := gateway.snapshot()
+	if len(requests) != 0 || len(frames) != 0 {
+		t.Fatal("legacy bytes entered delivery")
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, old) {
+		t.Fatalf("legacy bytes changed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "spool_id")); !os.IsNotExist(err) {
+		t.Fatalf("created legacy identity: %v", err)
 	}
 }
 
@@ -506,27 +744,25 @@ func TestFailedSenderRunLogsThePermanentPrefix(t *testing.T) {
 
 func TestSenderStartupReportsAmbiguousSlot(t *testing.T) {
 	dir := t.TempDir()
-	sp, err := spool.Open(dir)
+	lanes, identity, key := testTransportLanes(t, dir)
+	if _, err := lanes.Append(key, identity, make([]byte, 16), []byte("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	generation := lanes.Generations(key)[0]
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(filepath.Join(generation.Directory(), "lane.seg"), 0); err != nil {
+		t.Fatal(err)
+	}
+	store, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sp.Append(make([]byte, 16), []byte("synthetic")); err != nil {
-		t.Fatal(err)
-	}
-	if err := sp.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(filepath.Join(dir, "lane.seg"), 0); err != nil {
-		t.Fatal(err)
-	}
-	sp, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = sp.Close() }()
+	defer func() { _ = store.Close() }()
 	var output bytes.Buffer
 	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
-	runEdgeRecordSender(context.Background(), &agent.ServerConfig{}, sp, log)
+	runEdgeRecordSender(context.Background(), &agent.ServerConfig{}, store, log)
 	var found bool
 	dec := json.NewDecoder(&output)
 	for dec.More() {
@@ -542,9 +778,9 @@ func TestSenderStartupReportsAmbiguousSlot(t *testing.T) {
 		t.Fatal("startup did not report the ambiguous allocated slot")
 	}
 	// The same reopened spool reports the wedge through the runtime status path.
-	status := edgeSpoolStatusSampler(sp, budget)()
+	status := edgeSpoolStatusSampler(store, budget)()
 	if !status.GetWedged() || status.GetGapCount() != 1 || status.GetUnresolvedCount() != 1 ||
-		len(status.GetGapSequences()) != 1 || status.GetGapSequences()[0] != 1 || status.GetOldestUnresolvedAgeKnown() {
+		len(status.GetGenerationGaps()) != 1 || status.GetGenerationGaps()[0].Sequence != 1 || status.GetOldestUnresolvedAgeKnown() {
 		t.Fatalf("reopened spool status = %v", status)
 	}
 }
@@ -556,7 +792,7 @@ func TestSpoolRestartLogsBoundedSampleAndRemainder(t *testing.T) {
 	}
 	var output bytes.Buffer
 	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
-	logEdgeSpoolRestart(resolution, log)
+	logEdgeSpoolRestart(resolution, spool.GenerationIdentity{}, log)
 	dec := json.NewDecoder(&output)
 	slots, total, extra := 0, 0, 0
 	for dec.More() {
@@ -580,24 +816,84 @@ func TestSpoolRestartLogsBoundedSampleAndRemainder(t *testing.T) {
 }
 
 func TestSpoolStatusSamplesLiveUsageAndBudget(t *testing.T) {
-	sp, _, budget := openTestEdgeSpool(t, 4<<20)
-	defer func() { _ = sp.Close() }()
-	sample := edgeSpoolStatusSampler(sp, budget)
-	before := sample()
-	if _, err := sp.Append(make([]byte, 16), []byte("synthetic")); err != nil {
+	dir := t.TempDir()
+	commitSpool(t, dir, []spooledRecord{{eventID: make([]byte, 16), body: []byte("synthetic")}})
+	store, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.Apply(8 << 20); err != nil {
+	defer func() { _ = store.Close() }()
+	sample := edgeSpoolStatusSampler(store, budget)
+	before := sample()
+	if err := budget.Apply(defaultEdgeSpoolMaxBytes / 2); err != nil {
 		t.Fatal(err)
 	}
 	after := sample()
-	if !after.GetHealthAvailable() || after.GetUnresolvedCount() != 1 || after.GetBytesUsed() <= before.GetBytesUsed() || after.GetBudgetBytes() != 8<<20 {
+	if !after.HealthAvailable || after.UnresolvedCount != 1 || after.UnresolvedBytes != uint64(len("synthetic")) || after.BytesUsed != before.BytesUsed || after.BudgetBytes != defaultEdgeSpoolMaxBytes/2 {
 		t.Fatalf("before=%v after=%v", before, after)
 	}
-	if err := sp.Close(); err != nil {
+}
+
+func TestRecoverySuspendsAndJoinsAnInflightSourceSession(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, key := testTransportLanes(t, dir)
+	record := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	if _, err := lanes.Append(key, identity, record.eventID, record.body); err != nil {
 		t.Fatal(err)
 	}
-	if status := sample(); status.GetHealthAvailable() || status.GetHealthError() == "" {
-		t.Fatalf("closed health = %v", status)
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	gateway.mu.Lock()
+	gateway.blockedBulk = make(chan struct{})
+	opened := gateway.blockedBulk
+	gateway.mu.Unlock()
+	store, _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	workers, closeWorkers, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeWorkers()
+	var worker *edgeLaneSender
+	for _, candidate := range workers {
+		if candidate.lane == key {
+			worker = candidate
+		}
+	}
+	if worker == nil {
+		t.Fatal("bulk worker absent")
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = worker.RunOnce(ctx) }()
+	select {
+	case <-opened:
+	case <-ctx.Done():
+		t.Fatal("source stream never became in flight")
+	}
+	generation := store.Lanes().Generations(key)[0]
+	stopCtx, stopCancel := context.WithTimeout(ctx, time.Second)
+	defer stopCancel()
+	resume, err := worker.sessions.suspend(stopCtx, generation)
+	if err != nil {
+		t.Fatal("source did not cancel and join", err)
+	}
+	defer resume()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("canceled source worker did not finish")
+	}
+	if _, err = worker.runSource(ctx, agent.RecordSpoolSource{Identity: generation.Identity(), Source: generation}); !errors.Is(err, agent.ErrRecoveryPending) {
+		t.Fatal("new source session entered while frozen", err)
+	}
+	if generation.Resolved() != 0 {
+		t.Fatal("canceled stream resolved the frozen source")
 	}
 }

@@ -72,6 +72,27 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
     end
   end
 
+  test "an expired publication deadline releases new credit but preserves an unresolved retry" do
+    p = pool(1, 100)
+    key = k(1)
+    expired = System.monotonic_time(:millisecond) - 1
+
+    assert {:error, :admission_expired} = PublisherPool.admit(p, key, 50, 60_000, expired)
+    assert %{outstanding_frames: 0, available_bytes: 100} = PublisherPool.capacity(p)
+
+    assert {:ok, first} = PublisherPool.admit(p, key, 50, 60_000)
+    assert :ok = PublisherPool.attempt_failed(p, first)
+
+    assert {:error, :admission_expired} = PublisherPool.admit(p, key, 50, 60_000, expired)
+    assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+    assert %{reservations: [%{key: ^key, attempt: nil}]} = PublisherPool.ledger(p)
+
+    current = System.monotonic_time(:millisecond) + 5_000
+    assert {:ok, retry} = PublisherPool.admit(p, key, 50, 60_000, current)
+    assert :ok = PublisherPool.settle(p, retry, :primary_publication)
+    assert %{outstanding_frames: 0, available_bytes: 100} = PublisherPool.capacity(p)
+  end
+
   describe "an admission the caller never received is revoked" do
     setup do
       with_call_timeout(50)

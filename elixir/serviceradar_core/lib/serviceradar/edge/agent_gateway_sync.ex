@@ -46,6 +46,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AgentAssignment
+  alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
@@ -182,7 +183,30 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
   @spec record_sweep_lease_ack(String.t(), map()) :: :ok | {:error, term()}
   def record_sweep_lease_ack(agent_id, ack) when is_binary(agent_id) and is_map(ack) do
-    ServiceRadar.SweepJobs.LeaseDelivery.record_ack(agent_id, ack)
+    LeaseDelivery.record_ack(agent_id, ack)
+  end
+
+  @doc """
+  Pushes a newly registered control session fresh sweep leases
+  (`ServiceRadar.SweepJobs.LeasePass.refresh_agent/3`). The leases go to `session`
+  directly, because the cluster registry may not show the registration yet.
+  """
+  @spec refresh_sweep_leases(String.t(), pid()) :: :ok | {:error, term()}
+  def refresh_sweep_leases(agent_id, session) when is_binary(agent_id) and is_pid(session) do
+    sender = fn _agent_id, group_id, payload ->
+      ServiceRadar.Edge.AgentCommandBus.push_sweep_lease_to_session(session, group_id, payload)
+    end
+
+    delivery =
+      case LeaseDelivery.authority() do
+        nil -> nil
+        authority -> %{authority: authority, sender: sender}
+      end
+
+    case ServiceRadar.SweepJobs.LeasePass.refresh_agent(agent_id, delivery) do
+      {:ok, _summary} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

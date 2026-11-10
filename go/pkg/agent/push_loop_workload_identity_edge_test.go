@@ -27,7 +27,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -45,7 +44,7 @@ func workloadIdentityGrant(t *testing.T, maxRows uint32) *proto.EdgeOutputGrant 
 	})
 }
 
-func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto.EdgeOutputGrant) (*PushLoop, string) {
+func newWorkloadIdentityTestLoop(t *testing.T, sp *RecordSpool, grants ...*proto.EdgeOutputGrant) (*PushLoop, string) {
 	t.Helper()
 	configDir := t.TempDir()
 	srv := &Server{
@@ -63,7 +62,7 @@ func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto
 	}
 	loop.SetEdgeDiscoverySpool(sp)
 	if len(grants) > 0 {
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now())
+		installTestEdgeGrants(t, loop, sysmonEdgeAgentID, grants, time.Now())
 	}
 	return loop, configDir
 }
@@ -214,7 +213,7 @@ func TestWorkloadIdentityWithoutGrantLeavesTheSnapshotOnDisk(t *testing.T) {
 	require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
 	require.Contains(t, metrics.String(), `agent_edge_record_grant_holds_total{producer="workload_identity"} 1`)
 
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{workloadIdentityGrant(t, 10_000)}, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{workloadIdentityGrant(t, 10_000)}, time.Now())
 	require.True(t, loop.pushWorkloadIdentity())
 	require.Len(t, spooledRecords(t, sp), 1)
 }
@@ -253,7 +252,7 @@ func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutReadingNewerFile(t *t
 	// read until a grant is held again.
 	accepting := openTestEdgeSpool(t)
 	loop.SetEdgeDiscoverySpool(accepting)
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, time.Now())
 
 	require.True(t, loop.pushWorkloadIdentity())
 	records := spooledRecords(t, accepting)
@@ -263,7 +262,7 @@ func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutReadingNewerFile(t *t
 	require.False(t, loop.pushWorkloadIdentity())
 	require.Len(t, spooledRecords(t, accepting), 1)
 
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, time.Now())
 	require.True(t, loop.pushWorkloadIdentity())
 	records = spooledRecords(t, accepting)
 	require.Len(t, records, 2)

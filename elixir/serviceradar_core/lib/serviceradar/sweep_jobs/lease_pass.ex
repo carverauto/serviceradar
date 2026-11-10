@@ -52,6 +52,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.Edge.PipelineSettings
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseAgents
   alias ServiceRadar.SweepJobs.LeaseDelivery
@@ -81,7 +82,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
           errors: non_neg_integer()
         }
 
-  @type delivery :: %{authority: LeaseDelivery.authority(), sender: LeaseDelivery.sender()}
+  @type delivery :: %{
+          required(:authority) => LeaseDelivery.authority(),
+          required(:sender) => LeaseDelivery.sender(),
+          optional(:refresh) => String.t()
+        }
 
   @doc "The most slots one pass mints for one assignment."
   @spec max_new_slots_per_assignment() :: pos_integer()
@@ -104,6 +109,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   Runs the pass over one sweep group. With a `delivery` context (the issuer authority and a
   sender, see `delivery_context/0`) it also pushes each agent the lease it is missing and
   withdraws the lease from agents the group no longer leases to; without one it only plans.
+  `group` only names the group: the pass decides from the row as committed.
   """
   @spec reconcile_group(SweepGroup.t(), DateTime.t(), delivery() | nil) :: summary()
   def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now(), delivery \\ nil) do
@@ -112,15 +118,36 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   # A group whose planning hit any error keeps its closed slots unmarked this pass:
   # a horizon that was not refilled would make an offline slot look exhausted.
+  #
+  # Selection and revocation run in one short transaction holding the group row, the row a
+  # group update locks while it revokes. Each leased agent is then planned under its delivery
+  # lock in a second such transaction, and delivered after it commits.
   defp plan_group(%SweepGroup{} = group, now, delivery) do
     summary =
-      case load_profile(group.profile_id) do
-        {:ok, profile} ->
-          lease_or_revoke(group, profile, now, delivery)
+      case select_group(group, now) do
+        {:ok, :gone} ->
+          empty()
 
-        {:error, reason} ->
+        {:ok, {:leased, current, leased, revoked}} ->
+          keep = Enum.map(leased, & &1.agent_id)
+
+          Enum.reduce(
+            leased,
+            add(count_revoked(revoked, current), withdraw(current, keep, now, delivery)),
+            fn agent, acc ->
+              add(acc, lease_agent(current.id, agent.agent_id, now, delivery))
+            end
+          )
+
+        {:ok, {:ineligible, current, revoked}} ->
+          add(count_revoked(revoked, current), withdraw(current, [], now, delivery))
+
+        {:error, {:profile, reason}} ->
           Logger.warning("Sweep lease pass: profile of group #{group.id}: #{inspect(reason)}")
           %{empty() | groups: 1, errors: 1}
+
+        {:error, reason} ->
+          skip_group(group, reason)
       end
 
     mark_failed(summary, group)
@@ -130,10 +157,111 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       mark_failed(%{empty() | groups: 1, errors: 1}, group)
   end
 
+  defp select_group(group, now) do
+    Repo.transaction(fn ->
+      case selection(group, now) do
+        {:error, reason} -> Repo.rollback(reason)
+        selected -> selected
+      end
+    end)
+  end
+
+  defp selection(group, now) do
+    with {:ok, %SweepGroup{} = current} <- locked_group(group.id),
+         {:ok, profile} <- group_profile(current) do
+      case LeaseEligibility.evaluate_group(current, profile) do
+        {:ok, inputs} ->
+          with {:ok, leased} <- leased_agents(current, profile, inputs, now) do
+            keep = Enum.map(leased, & &1.agent_id)
+            {:leased, current, leased, ProducerAssignments.revoke_all_except(current.id, keep)}
+          end
+
+        {:error, _reason} ->
+          {:ineligible, current, ProducerAssignments.revoke_all_except(current.id, [])}
+      end
+    else
+      {:ok, nil} -> :gone
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The group row as committed, read under `FOR UPDATE`. Every lease decision is made from it
+  # rather than from the struct the caller read earlier.
+  defp locked_group(group_id) do
+    SweepGroup
+    |> Ash.Query.filter(id == ^group_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(actor: actor())
+  end
+
+  defp group_profile(group) do
+    case load_profile(group.profile_id) do
+      {:ok, profile} -> {:ok, profile}
+      {:error, reason} -> {:error, {:profile, reason}}
+    end
+  end
+
+  defp leased_agents(group, profile, inputs, now) do
+    with {:ok, candidates} <- LeaseAgents.candidates(group) do
+      candidates
+      |> Enum.reduce_while({:ok, []}, fn candidate, {:ok, acc} ->
+        case leased_agent(group, profile, inputs, candidate, now) do
+          {:leased, agent} -> {:cont, {:ok, [agent | acc]}}
+          :not_leased -> {:cont, {:ok, acc}}
+          {:failed, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:ok, leased} -> {:ok, Enum.reverse(leased)}
+        error -> error
+      end
+    end
+  end
+
   defp mark_failed(%{errors: 0} = summary, _group), do: summary
 
   defp mark_failed(summary, group),
     do: %{summary | failed_groups: MapSet.put(summary.failed_groups, group.id)}
+
+  @doc """
+  Pushes `agent_id` a fresh full window of every group it holds an active assignment in, using
+  `delivery`'s authority and sender. Only this agent is evaluated, planned and delivered: no
+  other agent's assignment, slots or delivery is touched and nothing is withdrawn, so
+  `delivery`'s sender may be the agent's own control session. An agent the group no longer
+  leases to is left for the next pass to revoke. A new control session calls this: the agent
+  cannot run authority it cached before core recorded issuance evidence, so an acknowledged
+  delivery must not leave it waiting for the next tail.
+
+  The refresh succeeds only when every group planned cleanly and every push reached the session.
+  Without lease authority (`nil`), or when any group or push failed, it returns an error so the
+  caller retries rather than leaving the acknowledged window unpushed.
+  """
+  @spec refresh_agent(String.t(), delivery() | nil, DateTime.t()) ::
+          {:ok, summary()} | {:error, term()}
+  def refresh_agent(agent_id, delivery, now \\ DateTime.utc_now())
+
+  def refresh_agent(agent_id, nil, _now) when is_binary(agent_id),
+    do: {:error, :lease_authority_unavailable}
+
+  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now)
+      when is_binary(agent_id) do
+    delivery = Map.put(delivery, :refresh, agent_id)
+
+    with {:ok, assignments} <-
+           SweepProducerAssignment
+           |> Ash.Query.for_read(:active_for_agent, %{agent_id: agent_id}, actor: actor())
+           |> Ash.read(actor: actor()) do
+      summary =
+        Enum.reduce(assignments, empty(), fn assignment, acc ->
+          add(acc, lease_agent(assignment.sweep_group_id, agent_id, now, delivery))
+        end)
+
+      case Map.delete(summary, :failed_groups) do
+        %{errors: 0} = summary -> {:ok, summary}
+        %{errors: errors} -> {:error, {:lease_refresh_incomplete, errors}}
+      end
+    end
+  end
 
   @doc """
   The delivery context of a pass: the issuer authority (`LeaseDelivery.authority/0`) and the
@@ -231,38 +359,6 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp lease_group(group, profile, inputs, now, delivery) do
-    case LeaseAgents.candidates(group) do
-      {:ok, candidates} -> lease_candidates(group, profile, inputs, candidates, now, delivery)
-      {:error, reason} -> skip_group(group, reason)
-    end
-  end
-
-  defp lease_candidates(group, profile, inputs, candidates, now, delivery) do
-    candidates
-    |> Enum.reduce_while([], fn candidate, acc ->
-      case leased_agent(group, profile, inputs, candidate, now) do
-        {:leased, agent} -> {:cont, [agent | acc]}
-        :not_leased -> {:cont, acc}
-        {:failed, reason} -> {:halt, {:failed, reason}}
-      end
-    end)
-    |> case do
-      {:failed, reason} ->
-        skip_group(group, reason)
-
-      leased ->
-        leased = Enum.reverse(leased)
-        keep = Enum.map(leased, & &1.agent_id)
-        revoked = ProducerAssignments.revoke_all_except(group.id, keep)
-        withdrawn = withdraw(group, keep, now, delivery)
-
-        Enum.reduce(leased, add(count_revoked(revoked, group), withdrawn), fn agent, acc ->
-          add(acc, lease_agent(group, agent, now, delivery))
-        end)
-    end
-  end
-
   defp skip_group(group, reason) do
     Logger.warning("Sweep lease pass: agents of group #{group.id}: #{inspect(reason)}")
     %{empty() | groups: 1, errors: 1}
@@ -316,39 +412,110 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp lease_agent(group, agent, now, delivery) do
-    with {:ok, assignment} <- ProducerAssignments.ensure(group.id, agent.agent_id, agent.scope_id),
-         {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
-      assignment
-      |> sync_slots(agent.inputs, agent.slots, unrun)
-      |> add(deliver(assignment, agent.inputs.checks, now, delivery))
-    else
-      {:error, reason} ->
-        Logger.warning(
-          "Sweep lease pass: lease of group #{group.id} on #{agent.agent_id}: #{inspect(reason)}"
-        )
+  # The pass and a refresh plan and deliver one agent's lease under the same cluster-wide
+  # delivery lock, so neither reads delivery state, commits issuance or sends while the other
+  # is mid-way. Under that lock a short transaction holds the group row while it decides from
+  # the current group, profile, candidate and settings and assigns and plans the agent, so a
+  # group update's revocation either commits first and the agent is skipped, or commits after
+  # and fences the epoch planned here. Delivery runs after that transaction commits.
+  defp lease_agent(group_id, agent_id, now, delivery) do
+    LeaseDelivery.serialize(group_id, agent_id, fn ->
+      case plan_agent(group_id, agent_id, now, mode(delivery)) do
+        {:ok, {assignment, agent, planned}} ->
+          add(planned, deliver(assignment, agent.inputs.checks, now, delivery))
 
-        %{empty() | errors: 1}
+        {:ok, :not_selected} ->
+          empty()
+
+        {:error, reason} ->
+          lease_failed(group_id, agent_id, reason)
+      end
+    end)
+  end
+
+  defp mode(%{refresh: _}), do: :refresh
+  defp mode(_delivery), do: :pass
+
+  defp plan_agent(group_id, agent_id, now, mode) do
+    Repo.transaction(fn ->
+      with {:ok, group, agent} <- selected_agent(group_id, agent_id, now),
+           {:ok, assignment} <- assignment_for(group, agent, mode),
+           {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
+        {assignment, agent, sync_slots(assignment, agent.inputs, agent.slots, unrun)}
+      else
+        :not_selected -> :not_selected
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp selected_agent(group_id, agent_id, now) do
+    with {:ok, %SweepGroup{} = group} <- locked_group(group_id),
+         {:ok, profile} <- load_profile(group.profile_id),
+         {:ok, inputs} <- eligible(group, profile),
+         {:ok, candidates} <- LeaseAgents.candidates(group),
+         %{} = candidate <- Enum.find(candidates, &(&1.agent_id == agent_id)),
+         {:leased, agent} <- leased_agent(group, profile, inputs, candidate, now) do
+      {:ok, group, agent}
+    else
+      {:failed, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+      _gone_ineligible_or_not_leased -> :not_selected
     end
   end
 
-  defp lease_or_revoke(group, profile, now, delivery) do
+  defp eligible(group, profile) do
     case LeaseEligibility.evaluate_group(group, profile) do
-      {:ok, inputs} ->
-        lease_group(group, profile, inputs, now, delivery)
-
-      {:error, _reason} ->
-        revoked = count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
-        add(revoked, withdraw(group, [], now, delivery))
+      {:ok, inputs} -> {:ok, inputs}
+      {:error, _reason} -> :not_selected
     end
+  end
+
+  # A pass assigns a selected agent, reactivating it if it was revoked. A refresh only renews
+  # an assignment that is still active in the agent's scope; it never creates or reactivates.
+  defp assignment_for(group, agent, :pass),
+    do: ProducerAssignments.ensure(group.id, agent.agent_id, agent.scope_id)
+
+  defp assignment_for(group, agent, :refresh) do
+    case ProducerAssignments.get(group.id, agent.agent_id) do
+      {:ok, %SweepProducerAssignment{state: :active, network_scope_id: scope} = assignment}
+      when scope == agent.scope_id ->
+        {:ok, assignment}
+
+      {:ok, _not_active} ->
+        :not_selected
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp lease_failed(group_id, agent_id, reason) do
+    Logger.warning(
+      "Sweep lease pass: lease of group #{group_id} on #{agent_id}: #{inspect(reason)}"
+    )
+
+    %{empty() | errors: 1}
   end
 
   defp deliver(_assignment, _checks, _now, nil), do: empty()
 
-  defp deliver(assignment, checks, now, %{authority: authority, sender: sender}) do
-    case LeaseDelivery.deliver(assignment, authority, now, sender, checks) do
+  defp deliver(assignment, checks, now, %{refresh: _} = delivery),
+    do: push(assignment, checks, now, delivery, fresh: true)
+
+  defp deliver(assignment, checks, now, delivery), do: push(assignment, checks, now, delivery, [])
+
+  defp push(assignment, checks, now, %{authority: authority, sender: sender} = delivery, opts) do
+    case LeaseDelivery.deliver(assignment, authority, now, sender, checks, opts) do
       {:ok, :pushed} ->
         %{empty() | pushed: 1}
+
+      {:ok, {:not_delivered, reason}} when is_map_key(delivery, :refresh) ->
+        Logger.warning(
+          "Sweep lease refresh: sending the lease of #{assignment.id}: #{inspect(reason)}"
+        )
+
+        %{empty() | errors: 1}
 
       {:ok, _not_pushed} ->
         empty()

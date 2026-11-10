@@ -28,6 +28,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   @max_awx_command_result_payload_bytes 3 * 1024 * 1024
   @config_push_retry_initial_ms 100
   @config_push_retry_max_ms 5_000
+  @sweep_lease_refresh_retry_initial_ms 500
+  @sweep_lease_refresh_retry_max_ms 60_000
   @config_push_chunks_capability "config_push_chunks"
   @sweep_lease_capability "sweep_lease_v1"
   # grpc-go's default client receive limit, which agents keep.
@@ -111,7 +113,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        pending_config_version: nil,
        pending_config_acknowledged: false,
        pending_config_persisted: false,
-       config_push_sync: nil
+       config_push_sync: nil,
+       sweep_lease_refresh: nil
      }}
   end
 
@@ -308,10 +311,23 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       %{agent_id: agent_id, partition_id: partition_id, config_version: config_version} = state
 
       Task.start(fn -> push_current_config(session, agent_id, partition_id, config_version) end)
+      {:noreply, start_sweep_lease_refresh(state)}
+    else
+      {:noreply, state}
     end
-
-    {:noreply, state}
   end
+
+  @impl true
+  def handle_info({:retry_sweep_lease_refresh, attempt}, %{sweep_lease_refresh: {:waiting, attempt}} = state),
+    do: {:noreply, run_sweep_lease_refresh(state, attempt)}
+
+  def handle_info({:retry_sweep_lease_refresh, _attempt}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info({:sweep_lease_refresh_result, attempt, result}, %{sweep_lease_refresh: {:running, attempt}} = state),
+    do: {:noreply, sweep_lease_refreshed(state, attempt, result)}
+
+  def handle_info({:sweep_lease_refresh_result, _attempt, _result}, state), do: {:noreply, state}
 
   @impl true
   def handle_info({:retry_config_push_sync, version, attempt}, state) do
@@ -1265,6 +1281,43 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       :not_modified -> :ok
       {:error, _reason} -> :ok
     end
+  end
+
+  # One successful refresh per session: a repeated registration finds it running, waiting or
+  # done. A failed attempt is retried with backoff until it succeeds or the session ends.
+  defp start_sweep_lease_refresh(%{sweep_lease_refresh: nil} = state) do
+    if @sweep_lease_capability in state.capabilities,
+      do: run_sweep_lease_refresh(state, 0),
+      else: state
+  end
+
+  defp start_sweep_lease_refresh(state), do: state
+
+  defp run_sweep_lease_refresh(state, attempt) do
+    session = self()
+    agent_id = state.agent_id
+
+    Task.start(fn ->
+      send(session, {:sweep_lease_refresh_result, attempt, refresh_sweep_leases(agent_id, session)})
+    end)
+
+    %{state | sweep_lease_refresh: {:running, attempt}}
+  end
+
+  defp refresh_sweep_leases(agent_id, session) do
+    ConfigSyncForwarder.refresh_sweep_leases(agent_id, session)
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp sweep_lease_refreshed(state, _attempt, :ok), do: %{state | sweep_lease_refresh: :done}
+
+  defp sweep_lease_refreshed(state, attempt, _error) do
+    next_attempt = attempt + 1
+    multiplier = Integer.pow(2, min(attempt, 10))
+    delay = min(@sweep_lease_refresh_retry_initial_ms * multiplier, @sweep_lease_refresh_retry_max_ms)
+    Process.send_after(self(), {:retry_sweep_lease_refresh, next_attempt}, delay)
+    %{state | sweep_lease_refresh: {:waiting, next_attempt}}
   end
 
   defp deliver_config_push(session, agent_id, config) do

@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.RecordTrust
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -144,6 +146,73 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
              OutputGrants.get(ctx.agent, @contract)
   end
 
+  test "the delivered grant has historical negative evidence before config returns, and damaged evidence withholds reissue",
+       ctx do
+    [delivered] =
+      OutputGrants.config_grants(
+        ctx.agent,
+        ctx.partition.slug,
+        DateTime.utc_now(),
+        authority(ctx)
+      )
+
+    capability = EdgeSignedCapabilityV1.decode(delivered.production_capability)
+    {:production, claims} = capability.claims
+    {:ok, entry} = RecoveryAssignmentEvidence.standing(capability, ctx.key.public_key)
+
+    span = %Serviceradar.Edge.V1.EdgeClassificationSpanV1{
+      from_sequence: 1,
+      through_sequence: 1,
+      classification:
+        {:attributed_passive,
+         %Serviceradar.Edge.V1.EdgeAttributedPassiveV1{
+           identity: %Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1{
+             producer_assignment_id: claims.producer_assignment_id,
+             run_id: claims.run_id,
+             run_shard: claims.run_shard,
+             authority_epoch: claims.authority_epoch,
+             production_scope_id: claims.scope_id,
+             scope_sha256: claims.scope_sha256,
+             contract_bundle_sha256: claims.contract_bundle_sha256
+           }
+         }}
+    }
+
+    assert {:not_scheduled, %{"reason" => "standing_output_grant"}} =
+             RecoveryAssignments.lookup(claims.network_scope_id, ctx.agent, span)
+
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
+
+    assert {:not_scheduled, _} =
+             RecoveryAssignments.lookup(claims.network_scope_id, ctx.agent, span)
+
+    # Reissue establishes a different epoch; damage only that test-owned original.
+    assert [_] =
+             OutputGrants.config_grants(
+               ctx.agent,
+               ctx.partition.slug,
+               DateTime.utc_now(),
+               authority(ctx)
+             )
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!(
+               "UPDATE platform.edge_recovery_assignment_issuances SET evidence = '{}' WHERE mapping_key -> 'trust_namespace' = $1::jsonb AND mapping_key != $2::jsonb",
+               [entry.key["trust_namespace"], entry.key]
+             )
+
+    assert [] =
+             OutputGrants.config_grants(
+               ctx.agent,
+               ctx.partition.slug,
+               DateTime.utc_now(),
+               authority(ctx)
+             )
+
+    assert {:not_scheduled, _} =
+             RecoveryAssignments.lookup(claims.network_scope_id, ctx.agent, span)
+  end
+
   test "an agent whose partition has no row gets no grant, and core creates no partition", ctx do
     slug = "missing-#{System.unique_integer([:positive])}"
 
@@ -221,6 +290,33 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert {:ok, revoked} = RecordTrust.snapshot(ctx.key)
     fence = Enum.find(revoked["fences"], &(&1["producer_assignment_id"] == encoded_grant))
     assert fence["authority_epoch"] == 2
+  end
+
+  test "agent trust excludes other agents and partitions while retaining its revoked fence",
+       ctx do
+    {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id)
+
+    {:ok, _other_agent} =
+      OutputGrants.reconcile("other-#{ctx.agent}", @contract, ctx.partition.id)
+
+    {:ok, _other_scope} =
+      OutputGrants.reconcile(ctx.agent, "synthetic.other.contract", Ash.UUID.generate())
+
+    assert {:ok, document} = RecordTrust.agent_snapshot(ctx.agent, ctx.partition.slug, ctx.key)
+    encoded_grant = grant.id |> Ecto.UUID.dump!() |> Base.encode64()
+
+    assert [%{"producer_assignment_id" => ^encoded_grant, "authority_epoch" => 1}] =
+             document["fences"]
+
+    assert [%{"agent_id" => agent_id}] = document["scopes"]
+    assert agent_id == ctx.agent
+    assert document["keys"] == [IssuerKey.trust_entry(ctx.key)]
+
+    grant |> Ash.Changeset.for_update(:revoke, %{}, actor: ctx.actor) |> Ash.update!()
+    assert {:ok, revoked} = RecordTrust.agent_snapshot(ctx.agent, ctx.partition.slug, ctx.key)
+
+    assert [%{"producer_assignment_id" => ^encoded_grant, "authority_epoch" => 2}] =
+             revoked["fences"]
   end
 
   defp register_agent!(ctx) do

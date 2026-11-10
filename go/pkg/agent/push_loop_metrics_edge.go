@@ -204,13 +204,17 @@ func (p *PushLoop) holdForGrant(producer edgeProducer) {
 // edgeMetricsAppender is the spool surface a metrics producer writes. flow is
 // the record's admission flow (edgeAdmissionFlow).
 type edgeMetricsAppender interface {
-	AppendFlow(flow string, eventID, body []byte) (uint64, error)
+	PrepareRecord(raw []byte) (*spool.AttributedAppend, error)
+	AppendPrepared(flow string, prepared *spool.AttributedAppend) (spool.Receipt, error)
 }
 
 // SetEdgeMetricsSpool connects metric, flow-attribution, and OTLP relay
-// producers to the sender's one open spool. Call before Start; with a nil
+// producers to the shared attributed lane owner. Call before Start; with a nil
 // spool those producers hold their data as they do without a grant.
-func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
+func (p *PushLoop) SetEdgeMetricsSpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
 	if sp == nil {
 		p.edgeMetricsSpool = nil
 		return
@@ -224,7 +228,7 @@ func (p *PushLoop) edgeMetricsCapability(now time.Time) *edgev1.EdgeSignedCapabi
 	if p.edgeMetricsSpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.MetricsBatchContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.MetricsBatchContractID, now)
 }
 
 // edgeMetricsProducer is one metric producer on the edge-record path: its drop
@@ -288,8 +292,9 @@ func buildSweepSummaryMetricBatch(payloads []map[string]any, ctx metricEnvelopeC
 // edgeMetricsBuilt is one metrics batch record ready to spool. Its event id is
 // fixed when it is built, so a retried part is appended under the same id.
 type edgeMetricsBuilt struct {
-	record  *edgev1.EdgeRecordV1
-	payload []byte
+	prepared edgePreparedRecord
+	record   *edgev1.EdgeRecordV1
+	payload  []byte
 }
 
 // edgeMetricsQueued is one entry of a producer's retry queue.
@@ -439,13 +444,17 @@ func appendEdgeMetricsParts[T any](
 	pending int,
 ) (int, []edgeMetricsBuilt) {
 	admitted := 0
+	if err := prepareMetricParts(p.edgeMetricsSpool, parts); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining metrics")
+		return 0, parts
+	}
 	for i, part := range parts {
 		body, err := edgerecord.CanonicalRecordBytes(part.record)
 		if err != nil {
 			p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 			continue
 		}
-		if _, err := p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
+		if err := parts[i].prepared.append(p.edgeMetricsSpool, part.record, body); err != nil {
 			if permanentSpoolRefusal(err) {
 				p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 				continue

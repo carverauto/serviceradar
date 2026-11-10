@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -84,7 +83,7 @@ func (p *PushLoop) edgeFlowAttributionTarget(now time.Time) (edgeMetricsAppender
 	if p == nil || p.edgeMetricsSpool == nil {
 		return nil, nil
 	}
-	cap := p.edgeOutputGrants.current(edgerecord.FlowAttributionContractID, now)
+	cap := p.currentEdgeOutputGrant(edgerecord.FlowAttributionContractID, now)
 	if cap == nil {
 		return nil, nil
 	}
@@ -249,7 +248,7 @@ func (p *PushLoop) pushFlowAttributionEdge(
 			continue
 		}
 
-		if err := appendEdgeMetricsRecord(spoolApp, cached.built.record, body); err != nil {
+		if err := cached.built.prepared.append(spoolApp, cached.built.record, body); err != nil {
 			if permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength) {
 				p.flowAttributionDelivery.clearEdgePending()
 				if !p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount) {
@@ -300,29 +299,4 @@ func (p *PushLoop) pushFlowAttributionEdge(
 	}
 
 	return sentAny
-}
-
-// appendEdgeMetricsRecord writes one canonical record through AppendFlow,
-// keyed by the record's admission flow.
-func appendEdgeMetricsRecord(spoolApp edgeMetricsAppender, record *edgev1.EdgeRecordV1, body []byte) error {
-	_, err := spoolApp.AppendFlow(edgeRecordAdmissionFlow(record), record.GetEventId(), body)
-	return err
-}
-
-// edgeRecordAdmissionFlow matches edgeAdmissionFlow: length-prefixed identity
-// fields, then the run shard, origin kind, and traffic class.
-func edgeRecordAdmissionFlow(record *edgev1.EdgeRecordV1) string {
-	c := record.GetProducerContext()
-	var key []byte
-	for _, part := range [][]byte{
-		record.GetNetworkScopeId(), c.GetOriginPrincipalId(), c.GetProducerAssignmentId(), c.GetRunId(),
-		[]byte(record.GetOutputContract().GetContractId()),
-	} {
-		key = binary.AppendUvarint(key, uint64(len(part)))
-		key = append(key, part...)
-	}
-	key = binary.AppendUvarint(key, uint64(c.GetRunShard()))
-	key = binary.AppendUvarint(key, uint64(c.GetOriginKind()))
-	key = binary.AppendUvarint(key, uint64(record.GetTrafficClass()))
-	return string(key)
 }
