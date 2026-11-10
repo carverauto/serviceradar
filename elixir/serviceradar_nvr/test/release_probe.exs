@@ -1,4 +1,5 @@
 alias ServiceRadarNVR.Capacity
+alias ServiceRadarNVR.Reads
 alias ServiceRadarRecording.Inbox
 alias ServiceRadarRecording.Spool
 alias ServiceRadarRecording.Storage
@@ -388,6 +389,108 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     replacement = wait.(wait, 100)
     :ok = ServiceRadarNVR.stop(replacement)
+
+  "read_admission" ->
+    {:ok, _} = Storage.initialize(root, id)
+    parent = self()
+
+    # Exercise the read executor's admission/lifetime contract with held work;
+    # public discovery/media calls below must compete for these same slots.
+    start_read = fn tag ->
+      caller =
+        spawn(fn ->
+          result =
+            Reads.run(fn ->
+              send(parent, {:read_entered, tag, self()})
+
+              receive do
+                :release -> {:ok, tag}
+              end
+            end)
+
+          send(parent, {:read_result, tag, result})
+        end)
+
+      receive do
+        {:read_entered, ^tag, task} -> {caller, task}
+      after
+        5_000 -> raise "read was not admitted"
+      end
+    end
+
+    await_result = fn tag, expected ->
+      receive do
+        {:read_result, ^tag, ^expected} -> :ok
+      after
+        13_000 -> raise "missing read result for #{tag}"
+      end
+    end
+
+    wait_readable = fn wait, remaining ->
+      if remaining == 0, do: raise("read capacity was not released")
+
+      case ServiceRadarNVR.list_blocks() do
+        {:ok, []} ->
+          :ok
+
+        {:error, _} ->
+          Process.sleep(10)
+          wait.(wait, remaining - 1)
+      end
+    end
+
+    held = for tag <- 1..4, do: {tag, start_read.(tag)}
+    digest = String.duplicate("0", 64)
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.list_blocks()
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.sealed_block(digest)
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.block_descriptor(digest)
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.read_block(digest, digest, :init)
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.read_block(digest, digest, {:fragment, 0})
+    {:error, :invalid_descriptor_digest} = ServiceRadarNVR.read_block(digest, nil, :init)
+    {:error, :invalid_media_selector} = ServiceRadarNVR.read_block(digest, digest, :media)
+
+    # Saturation does not consume a writer reservation or block its admission.
+    {:ok, writer, _} = ServiceRadarNVR.start_recording(identity, clock)
+    [{1, {_caller, killed}} | rest] = held
+    Process.exit(killed, :kill)
+    :ok = await_result.(1, {:error, :nvr_read_unavailable})
+
+    for {tag, {_caller, task}} <- rest do
+      send(task, :release)
+      :ok = await_result.(tag, {:ok, tag})
+    end
+
+    :ok = wait_readable.(wait_readable, 100)
+
+    {_caller, task} = start_read.(:restart)
+    task_monitor = Process.monitor(task)
+    Process.exit(Process.whereis(ServiceRadarNVR.ReadTasks), :kill)
+    :ok = await_result.(:restart, {:error, :nvr_read_unavailable})
+
+    receive do
+      {:DOWN, ^task_monitor, :process, ^task, _} -> :ok
+    after
+      3_000 -> raise "read supervisor restart left old work alive"
+    end
+
+    :ok = wait_readable.(wait_readable, 100)
+    true = Process.alive?(writer)
+    {:ok, %{reservations: 1}} = ServiceRadarNVR.capacity()
+    :ok = ServiceRadarNVR.stop(writer)
+
+    {_caller, _task} = start_read.(:deadline)
+    {orphan_caller, orphan_task} = start_read.(:orphan)
+    orphan_monitor = Process.monitor(orphan_task)
+    Process.exit(orphan_caller, :kill)
+    :ok = await_result.(:deadline, {:error, :nvr_read_timeout})
+
+    receive do
+      {:DOWN, ^orphan_monitor, :process, ^orphan_task, {:shutdown, :nvr_read_timeout}} -> :ok
+    after
+      3_000 -> raise "caller loss left read work alive beyond its deadline"
+    end
+
+    :ok = wait_readable.(wait_readable, 100)
 
   "pressure" ->
     {:ok, _} = Storage.initialize(root, id)

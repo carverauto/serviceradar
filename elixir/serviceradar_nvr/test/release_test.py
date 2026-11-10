@@ -276,6 +276,10 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("capacity")
         self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
 
+    def test_reads_refuse_overload_expire_and_restart_without_stopping_recording(self):
+        self.run_probe("read_admission")
+        self.assertEqual({p.name for p in self.spool.iterdir()}, {".storage-id"})
+
     def test_physical_free_reserve_refuses_without_creating_media(self):
         disk = os.statvfs(self.spool)
         self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = str(disk.f_bavail * disk.f_frsize + 1024**3)

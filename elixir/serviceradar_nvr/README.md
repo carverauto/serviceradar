@@ -61,8 +61,8 @@ AVC track and one sample description; unsupported or malformed initialization
 returns `:invalid_initialization`. Block inspection also checks the journal,
 initialization and fragment digests, whole-block seal, identity-derived directory
 name and exact file lengths under
-the runtime's block limits. Inspection runs in the caller, outside serialized
-capacity admission. It never truncates, seals, repairs or deletes anything.
+the runtime's block limits. Inspection uses the bounded read pool, outside
+serialized recording capacity admission. It never truncates, seals, repairs or deletes anything.
 Unsealed blocks, uncommitted tails and corrupt evidence return errors and remain
 on disk for separate reconciliation. Existing explicit `Spool.recover/4` still
 requires expected identity and exclusive ownership before repairing tails.
@@ -94,14 +94,36 @@ Every request re-verifies the complete sealed block under the existing 16 MiB /
 8 fragment limit, compares its descriptor digest, then rechecks storage identity
 and the selected bytes' hash. Initialization output is at most 1 MiB and fragment
 output at most 4 MiB. Corrupt or unsealed evidence is refused without repair.
-I/O runs in the caller, outside the capacity admission GenServer.
+I/O runs in the bounded read pool, outside the recording capacity admission GenServer.
 
 This is a trusted same-VM primitive, with no network endpoint. The digest is a
 content binding, not playback permission or an assignment lease. Full-block
 verification on every read is finite but is not a playback throughput claim.
-Authenticated owner-aware delivery, aggregate reader budgets, deadlines and seek
+Authenticated owner-aware delivery, downstream buffering budgets and seek
 cancellation remain work for the remote playback protocol. No cache or catalog
 is created by these reads.
+
+## Read admission and lifetime
+
+Inventory, sealed-block inspection, descriptor generation and media reads share
+four supervised task slots per replica. A full pool returns
+`:nvr_read_capacity`; media work is not queued. An unavailable/restarting pool or
+failed task returns `:nvr_read_unavailable`. Invalid media selectors and descriptor
+digest syntax are refused before requesting a slot.
+
+Each admitted task has a ten-second deadline and returns `:nvr_read_timeout` on
+expiry. The deadline belongs to the worker, so a dead caller cannot leave an
+unbounded orphan: its task may finish or occupy its slot until the original
+deadline. Late replies are discarded through a caller-owned process alias.
+These are admitted-work limits, not a network request deadline or a throughput
+qualification; they do not preempt kernel I/O already in progress.
+
+Read slots are independent of recording reservations. Restarting the read
+supervisor retires its admitted tasks without retiring recording workers; losing
+storage/capacity accounting still retires both. No read repairs or deletes media.
+Returned binaries become the caller's responsibility. The pool does not bound
+buffers retained by consumers, shared caches or network egress, and supplies no
+playback authorization or per-viewer fairness. Those remain remote protocol work.
 
 ## Explicit interrupted-block recovery
 
@@ -149,6 +171,7 @@ authorization and automatic assignment reconciliation remain pending.
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
 | Local block | 16 MiB / 8 fragments | rotate at a complete fragment boundary; no eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
+| Read work | 4 tasks per replica / 10 seconds each | no media-work queue; separate from writers |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
 | Kubernetes | 2 CPU / 1 GiB memory per replica | configurable container limits |
 
