@@ -13,11 +13,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentRegistryProxy
-  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
 
   require Logger
 
@@ -925,51 +925,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp core_call(mod, fun, args, timeout \\ 5_000) do
-    nodes = core_nodes()
-
-    if nodes == [] do
-      {:error, :core_unavailable}
-    else
-      try_core_nodes(nodes, mod, fun, args, timeout)
+    case CoreNodeForwarder.call_unwrap(
+           mod,
+           fun,
+           args,
+           timeout: timeout,
+           badrpc_error: :core_unavailable
+         ) do
+      {:error, :peer_too_old} -> {:error, :core_unavailable}
+      result -> result
     end
-  end
-
-  defp try_core_nodes([], _mod, _fun, _args, _timeout), do: {:error, :core_unavailable}
-
-  defp try_core_nodes([node | rest], mod, fun, args, timeout) do
-    case :rpc.call(node, mod, fun, args, timeout) do
-      {:badrpc, reason} ->
-        Logger.debug("Core RPC failed on #{node}: #{inspect(reason)}")
-        try_core_nodes(rest, mod, fun, args, timeout)
-
-      result ->
-        result
-    end
-  end
-
-  defp core_nodes do
-    remote_nodes = Node.list()
-    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
-    if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
-  end
-
-  defp named_core_nodes(nodes) do
-    Enum.filter(nodes, &core_node?/1)
-  end
-
-  defp core_node?(node) when is_atom(node) do
-    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
-  end
-
-  defp core_node?(_node), do: false
-
-  defp core_node_basename do
-    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(
-        :serviceradar_agent_gateway,
-        :cluster_core_node_basename,
-        "serviceradar_core"
-      )
   end
 
   defp require_sweep_lease_capability(state) do

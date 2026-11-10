@@ -100,6 +100,9 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
       {:ok, %{} = config} ->
         {:ok, AgentConfigGenerator.to_proto_response(config)}
 
+      {:error, :peer_too_old} = error ->
+        error
+
       {:error, reason} ->
         Logger.warning("Failed to fetch agent config from core: agent_id=#{agent_id} #{inspect(reason)}")
 
@@ -148,6 +151,9 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     case rpc(:refresh_sweep_leases, [agent_id, session], @config_rpc_timeout) do
       :ok ->
         :ok
+
+      {:error, :peer_too_old} = error ->
+        error
 
       {:error, reason} ->
         Logger.warning("Failed to refresh sweep leases from core: agent_id=#{agent_id} #{inspect(reason)}")
@@ -217,6 +223,9 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
       {:ok, _result} ->
         :ok
 
+      {:error, :peer_too_old} = error ->
+        error
+
       {:error, reason} ->
         Logger.warning("Failed to sync agent config state to core: #{function} #{inspect(reason)}")
 
@@ -237,13 +246,6 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   end
 
   defp default_rpc(function, args, timeout) do
-    node = CoreNodeForwarder.select_core_node("agent config sync")
-
-    case :rpc.call(node, ServiceRadar.Edge.AgentGatewaySync, function, args, timeout) do
-      {:badrpc, reason} -> {:error, reason}
-      result -> result
-    end
-  rescue
-    ArgumentError -> {:error, :core_unavailable}
+    CoreNodeForwarder.call_unwrap(ServiceRadar.Edge.AgentGatewaySync, function, args, timeout: timeout)
   end
 end

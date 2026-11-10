@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.CertificateIssuanceAudit
   alias ServiceRadar.Edge.DirectLeafEligibility
@@ -132,17 +133,28 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
       predecessor_revocation_reason: "direct leaf identity rotated"
     ]
 
-    case rpc_call.(
+    case ClusterRPC.call(
            gateway_node,
            @gateway_cert_issuer,
            :issue_agent_bundle,
            [component_id, partition_id, :addon, issuer_opts],
-           timeout
+           timeout: timeout,
+           rpc_call: rpc_call
          ) do
-      {:ok, bundle} when is_map(bundle) -> {:ok, CertificateIssuanceAudit.publish(bundle)}
-      {:error, reason} -> {:error, {:gateway_identity_issue_failed, reason}}
-      {:badrpc, reason} -> {:error, {:gateway_identity_issue_unreachable, reason}}
-      other -> {:error, {:invalid_gateway_identity_response, other}}
+      {:ok, {:ok, bundle}} when is_map(bundle) ->
+        {:ok, CertificateIssuanceAudit.publish(bundle)}
+
+      {:ok, {:error, reason}} ->
+        {:error, {:gateway_identity_issue_failed, reason}}
+
+      {:ok, other} ->
+        {:error, {:invalid_gateway_identity_response, other}}
+
+      {:error, {:badrpc, reason}} ->
+        {:error, {:gateway_identity_issue_unreachable, reason}}
+
+      {:error, reason} ->
+        {:error, {:gateway_identity_issue_unreachable, reason}}
     end
   end
 
@@ -221,16 +233,18 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
        when not is_binary(fingerprint), do: :skip
 
   defp revoke_fingerprint(rpc_call, gateway_node, fingerprint, reason, timeout) do
-    case rpc_call.(
+    case ClusterRPC.call(
            gateway_node,
            @gateway_revocation,
            :revoke_fingerprint,
            [fingerprint, [reason: reason]],
-           timeout
+           timeout: timeout,
+           rpc_call: rpc_call
          ) do
-      :ok -> :ok
-      {:badrpc, reason} -> {:error, {:fingerprint, reason}}
-      other -> {:error, {:fingerprint, other}}
+      {:ok, :ok} -> :ok
+      {:ok, other} -> {:error, {:fingerprint, other}}
+      {:error, {:badrpc, reason}} -> {:error, {:fingerprint, reason}}
+      {:error, reason} -> {:error, {:fingerprint, reason}}
     end
   end
 
@@ -238,16 +252,18 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
        when not is_binary(component_id), do: :skip
 
   defp revoke_component(rpc_call, gateway_node, component_id, reason, timeout) do
-    case rpc_call.(
+    case ClusterRPC.call(
            gateway_node,
            @gateway_revocation,
            :revoke_component_id,
            [component_id, [reason: reason]],
-           timeout
+           timeout: timeout,
+           rpc_call: rpc_call
          ) do
-      :ok -> :ok
-      {:badrpc, reason} -> {:error, {:component_id, reason}}
-      other -> {:error, {:component_id, other}}
+      {:ok, :ok} -> :ok
+      {:ok, other} -> {:error, {:component_id, other}}
+      {:error, {:badrpc, reason}} -> {:error, {:component_id, reason}}
+      {:error, reason} -> {:error, {:component_id, reason}}
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedCertificateLifecycle, as: Lifecycle
   alias ServiceRadar.Edge.ManagedComponentRegistration
@@ -180,20 +181,17 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
 
   defp nats_rpc(action, args) do
     manager = ServiceRadar.NATS.ManagedCertificateAuthorization
+    module = if action == :bootstrap, do: ServiceRadar.NATS.ManagedCertificateConfiguration, else: manager
 
-    case Enum.find([Node.self() | Node.list()], fn node ->
-           is_pid(:rpc.call(node, Process, :whereis, [manager], 2_000))
-         end) do
-      nil ->
-        {:error, :core_unavailable}
+    nodes = fn ->
+      Enum.filter([Node.self() | Node.list()], fn node ->
+        is_pid(:rpc.call(node, Process, :whereis, [manager], 2_000))
+      end)
+    end
 
-      node ->
-        module = if action == :bootstrap, do: ServiceRadar.NATS.ManagedCertificateConfiguration, else: manager
-
-        case :rpc.call(node, module, action, args, 10_000) do
-          {:badrpc, _} -> {:error, :core_unavailable}
-          result -> result
-        end
+    case ClusterRPC.call(nodes, module, action, args, timeout: 10_000) do
+      {:ok, result} -> result
+      {:error, _reason} -> {:error, :core_unavailable}
     end
   end
 end

@@ -115,6 +115,9 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
           {:ok, results} ->
             {:ok, Map.new(results, &{&1.sequence, &1})}
 
+          {:error, :peer_too_old} ->
+            {:error, :unavailable, "edge delivery grants are unavailable"}
+
           {:error, reason} ->
             Logger.warning("Edge delivery grants unavailable from core: #{inspect(reason)}")
             {:error, :unavailable, "edge delivery grants are unavailable"}
@@ -131,14 +134,7 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
   end
 
   defp rpc_core(agent_id, items) do
-    core = CoreNodeForwarder.select_core_node("edge delivery grants")
-
-    case :rpc.call(core, DeliveryGrants, :issue, [agent_id, items], @rpc_timeout_ms) do
-      {:badrpc, reason} -> {:error, reason}
-      result -> result
-    end
-  rescue
-    ArgumentError -> {:error, :core_unavailable}
+    CoreNodeForwarder.call_unwrap(DeliveryGrants, :issue, [agent_id, items], timeout: @rpc_timeout_ms)
   end
 
   defp result({:refused, sequence, reason}, _issued),

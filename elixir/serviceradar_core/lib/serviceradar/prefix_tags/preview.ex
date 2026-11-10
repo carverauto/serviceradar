@@ -1,6 +1,7 @@
 defmodule ServiceRadar.PrefixTags.Preview do
   @moduledoc "IP previews served by the node that owns ingestion snapshots. Callers authorize access."
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.ProcessRegistry
@@ -11,15 +12,11 @@ defmodule ServiceRadar.PrefixTags.Preview do
     if ExternalSources.enabled?() do
       local_lookup(ip)
     else
-      case ProcessRegistry.core_node() do
-        nil ->
-          {:error, @unavailable}
-
-        core ->
-          case :rpc.call(core, __MODULE__, :local_lookup, [ip], 5_000) do
-            {:ok, matches} when is_list(matches) -> {:ok, matches}
-            _ -> {:error, @unavailable}
-          end
+      case ClusterRPC.call_unwrap(&ProcessRegistry.core_nodes/0, __MODULE__, :local_lookup, [ip],
+             timeout: 5_000
+           ) do
+        {:ok, matches} when is_list(matches) -> {:ok, matches}
+        _ -> {:error, @unavailable}
       end
     end
   end

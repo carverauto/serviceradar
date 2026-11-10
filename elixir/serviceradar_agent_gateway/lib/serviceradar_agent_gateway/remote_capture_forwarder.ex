@@ -8,6 +8,7 @@ defmodule ServiceRadarAgentGateway.RemoteCaptureForwarder do
   pcapng block.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.RemoteCaptureIngress
 
@@ -37,12 +38,15 @@ defmodule ServiceRadarAgentGateway.RemoteCaptureForwarder do
   end
 
   defp do_open_session(request, metadata, opts, remaining_attempts) do
+    module = ingress_module(opts)
+    args = [request, metadata]
+
     result =
       rpc_module(opts).call(
         core_node(opts),
-        ingress_module(opts),
+        module,
         :open_session,
-        [request, metadata],
+        args,
         timeout(opts)
       )
 
@@ -55,8 +59,11 @@ defmodule ServiceRadarAgentGateway.RemoteCaptureForwarder do
         _ = ensure_core_connected(core_node(opts), opts)
         do_open_session(request, metadata, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} ->
-        Logger.error("Failed to open remote capture on core-elx ingress: #{inspect(reason)}")
+      {:badrpc, reason} = badrpc ->
+        if !ClusterRPC.peer_too_old?(badrpc, module, :open_session, args) do
+          Logger.error("Failed to open remote capture on core-elx ingress: #{inspect(reason)}")
+        end
+
         {:error, :core_unavailable}
 
       {:ok, ingress_pid} when is_pid(ingress_pid) ->

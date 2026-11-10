@@ -34,6 +34,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.ProcessRegistry
 
   require Logger
@@ -142,23 +143,35 @@ defmodule ServiceRadar.AgentRegistry do
     if ProcessRegistry.registry_present?() do
       apply(ProcessRegistry, fun, args)
     else
-      case ProcessRegistry.core_node() do
-        nil ->
+      case ClusterRPC.call(
+             &ProcessRegistry.core_nodes/0,
+             ProcessRegistry,
+             fun,
+             args,
+             timeout: 5_000,
+             rpc_call: &:erpc.call/5,
+             unavailable_error: :no_registry_member
+           ) do
+        {:ok, result} ->
+          result
+
+        {:error, :peer_too_old} ->
+          default
+
+        {:error, :no_registry_member} ->
           Logger.warning(
             "[AgentRegistry] No registry member reachable for #{fun}/#{length(args)}"
           )
 
           default
 
-        node ->
-          case :erpc.call(node, ProcessRegistry, fun, args, 5_000) do
-            {:badrpc, reason} ->
-              Logger.warning("[AgentRegistry] Registry RPC #{fun} failed: #{inspect(reason)}")
-              default
+        {:error, {:badrpc, reason}} ->
+          Logger.warning("[AgentRegistry] Registry RPC #{fun} failed: #{inspect(reason)}")
+          default
 
-            result ->
-              result
-          end
+        {:error, reason} ->
+          Logger.warning("[AgentRegistry] Registry RPC #{fun} failed: #{inspect(reason)}")
+          default
       end
     end
   rescue

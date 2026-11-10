@@ -15,13 +15,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryRPC do
   end
 
   defp remote(module, function, args, timeout_ms) do
-    node = CoreNodeForwarder.select_core_node("edge recovery")
-
-    case :rpc.call(node, module, function, args, timeout_ms) do
-      {:badrpc, _} -> {:error, :core_unavailable}
+    case CoreNodeForwarder.call_unwrap(
+           module,
+           function,
+           args,
+           timeout: timeout_ms,
+           badrpc_error: :core_unavailable
+         ) do
+      {:error, :peer_too_old} -> {:error, :core_unavailable}
       result -> result
     end
-  rescue
-    ArgumentError -> {:error, :core_unavailable}
   end
 end

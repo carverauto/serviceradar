@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.NatsLeafCertificateIssuer do
   Core never holds the CA key: it asks any live agent-gateway node over ERTS RPC.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Edge.CertificateIssuanceAudit
 
   require Logger
@@ -97,25 +98,36 @@ defmodule ServiceRadar.Edge.NatsLeafCertificateIssuer do
         extra_opts
       )
 
-    case rpc_call.(
+    case ClusterRPC.call(
            node,
            @gateway_cert_issuer,
            :issue_agent_bundle,
            [component_id, partition_id, component_type, issuer_opts],
-           @rpc_timeout
+           timeout: @rpc_timeout,
+           rpc_call: rpc_call
          ) do
       {:ok, %{certificate_pem: _, private_key_pem: _, ca_chain_pem: _} = bundle} ->
         {:ok, CertificateIssuanceAudit.publish(bundle)}
 
-      {:error, reason} ->
+      {:ok, {:ok, %{certificate_pem: _, private_key_pem: _, ca_chain_pem: _} = bundle}} ->
+        {:ok, CertificateIssuanceAudit.publish(bundle)}
+
+      {:ok, {:error, reason}} ->
         {:error, {:leaf_certificate_issue_failed, reason}}
 
-      {:badrpc, reason} ->
+      {:ok, other} ->
+        {:error, {:leaf_certificate_issue_failed, other}}
+
+      {:error, :peer_too_old} ->
+        {:error, :gateway_unavailable}
+
+      {:error, {:badrpc, reason}} ->
         Logger.warning("[NatsLeafCertificateIssuer] gateway RPC failed: #{inspect(reason)}")
         {:error, :gateway_unavailable}
 
-      other ->
-        {:error, {:leaf_certificate_issue_failed, other}}
+      {:error, reason} ->
+        Logger.warning("[NatsLeafCertificateIssuer] gateway RPC failed: #{inspect(reason)}")
+        {:error, :gateway_unavailable}
     end
   end
 

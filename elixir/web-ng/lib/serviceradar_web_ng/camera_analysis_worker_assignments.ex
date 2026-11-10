@@ -4,26 +4,28 @@ defmodule ServiceRadarWebNG.CameraAnalysisWorkerAssignments do
   owned by `core-elx`.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
+
   @default_rpc_timeout 3_000
 
   def assignment_snapshot(opts \\ []) do
     module = remote_manager_module()
     timeout = Keyword.get(opts, :rpc_timeout, @default_rpc_timeout)
 
-    case core_elx_node(module, timeout) do
-      nil ->
-        %{}
-
-      node ->
-        case :rpc.call(node, module, :worker_assignment_snapshot, [], timeout) do
-          snapshot when is_map(snapshot) -> snapshot
-          _other -> %{}
-        end
+    case ClusterRPC.call(
+           fn -> core_elx_nodes(module, timeout) end,
+           module,
+           :worker_assignment_snapshot,
+           [],
+           timeout: timeout
+         ) do
+      {:ok, snapshot} when is_map(snapshot) -> snapshot
+      _other -> %{}
     end
   end
 
-  defp core_elx_node(module, timeout) do
-    Enum.find(rpc_nodes(), fn node ->
+  defp core_elx_nodes(module, timeout) do
+    Enum.filter(rpc_nodes(), fn node ->
       case :rpc.call(node, Process, :whereis, [module], timeout) do
         pid when is_pid(pid) -> true
         _other -> false

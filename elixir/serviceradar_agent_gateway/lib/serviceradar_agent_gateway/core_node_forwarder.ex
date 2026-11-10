@@ -1,9 +1,24 @@
 defmodule ServiceRadarAgentGateway.CoreNodeForwarder do
   @moduledoc false
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadarAgentGateway.ClusterProcessLocator
 
   require Logger
+
+  def call(module, function, args, opts \\ []) do
+    ClusterRPC.call(&core_nodes/0, module, function, args, put_core_defaults(opts))
+  end
+
+  def call_unwrap(module, function, args, opts \\ []) do
+    ClusterRPC.call_unwrap(&core_nodes/0, module, function, args, put_core_defaults(opts))
+  end
+
+  def core_nodes do
+    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
+    named = Enum.filter(Node.list(), &core_node?/1)
+    Enum.uniq(coordinators ++ named)
+  end
 
   def resolve_core_node(service_label, resolver) when is_function(resolver, 0) do
     case resolver.() do
@@ -40,14 +55,18 @@ defmodule ServiceRadarAgentGateway.CoreNodeForwarder do
   end
 
   def select_core_node(ingress_label) do
-    ServiceRadar.ClusterHealth
-    |> ClusterProcessLocator.nodes()
-    |> List.first()
-    |> Kernel.||(Enum.find(Node.list(), &core_node?/1))
-    |> case do
-      nil -> raise ArgumentError, "no core-elx node available for #{ingress_label}"
-      node -> node
+    case core_nodes() do
+      [node | _] -> node
+      [] -> raise ArgumentError, "no core-elx node available for #{ingress_label}"
     end
+  end
+
+  defp put_core_defaults(timeout) when is_integer(timeout) or timeout == :infinity do
+    [timeout: timeout, unavailable_error: :core_unavailable]
+  end
+
+  defp put_core_defaults(opts) when is_list(opts) do
+    Keyword.put_new(opts, :unavailable_error, :core_unavailable)
   end
 
   defp core_node?(node) when is_atom(node) do
