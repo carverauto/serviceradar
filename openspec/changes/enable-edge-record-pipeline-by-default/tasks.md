@@ -136,7 +136,8 @@
     `health_check_response/0`: withheld/dead-lettered awaiting-roll-forward
     counts summed over every connected node's `PipelineStats.snapshot/0`
     (with an explicit `error` naming nodes that did not answer), the
-    non-retired epochs grouped by state, the transition's blockers described
+    verified non-retired epochs (`ContractRegistry.view/0`) grouped by state,
+    with signature-refused rows named in `epochs.error`, the transition's blockers described
     cluster-wide, and the issuer-key presence. `overflow` is nil (unknown),
     not zero, until 1.4's dead-letter move (off limits) adds its counter. Pinned by
     `cluster_health_edge_pipeline_test.exs` (pure mapping unit tests).

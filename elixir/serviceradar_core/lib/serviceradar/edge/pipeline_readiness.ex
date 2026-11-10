@@ -62,7 +62,6 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.ContractRegistry
-  alias ServiceRadar.Edge.ContractRegistryNode
   alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -152,8 +151,8 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   end
 
   # What each gateway holds right now: the epochs of its installation report, when the report
-  # is fresh by the transition's window. Only a node that runs a core node's registry process
-  # stores the reports, so another node (web-ng) reads them from a connected one.
+  # is fresh by the transition's window, read from the coordinator, whose table is the one the
+  # transition decides activation from.
   defp gateway_epochs({:ok, _active}, now) do
     with {:ok, reports} <- registry_gateway_reports() do
       {:ok,
@@ -166,26 +165,20 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   defp gateway_epochs(_no_active_epoch, _now), do: {:ok, %{}}
 
   defp registry_gateway_reports do
-    if Process.whereis(ContractRegistryNode) do
-      {:ok, ContractRegistry.gateway_reports()}
-    else
-      remote_gateway_reports(Node.list())
-    end
-  end
+    nodes = [node() | Node.list()]
 
-  defp remote_gateway_reports(nodes) do
     nodes
-    |> Enum.zip(:erpc.multicall(nodes, :erlang, :whereis, [ContractRegistryNode], @rpc_timeout_ms))
+    |> Enum.zip(:erpc.multicall(nodes, :erlang, :whereis, [ContractRegistryTransition], @rpc_timeout_ms))
     |> Enum.find_value({:error, :gateway_reports_unavailable}, fn
-      {node, {:ok, pid}} when is_pid(pid) -> remote_reports(node)
-      _not_a_registry_node -> nil
+      {node, {:ok, pid}} when is_pid(pid) -> transition_reports(node)
+      _not_the_coordinator -> nil
     end)
   end
 
-  defp remote_reports(node) do
+  defp transition_reports(node) do
     case :erpc.multicall([node], ContractRegistry, :gateway_reports, [], @rpc_timeout_ms) do
       [{:ok, reports}] when is_list(reports) -> {:ok, reports}
-      _unreachable -> nil
+      _unreachable -> {:error, :gateway_reports_unavailable}
     end
   end
 

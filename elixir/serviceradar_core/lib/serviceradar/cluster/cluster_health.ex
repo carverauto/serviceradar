@@ -32,14 +32,12 @@ defmodule ServiceRadar.ClusterHealth do
 
   use GenServer
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.NodeMemory
-  alias ServiceRadar.Edge.ContractRegistryEpoch
+  alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.PipelineStats
 
-  require Ash.Query
   require Logger
 
   @health_check_interval to_timeout(second: 30)
@@ -279,7 +277,7 @@ defmodule ServiceRadar.ClusterHealth do
     edge_pipeline_status(
       pipeline_snapshots(),
       ContractRegistryTransition.status(),
-      read_pipeline_epochs(),
+      ContractRegistry.view(),
       IssuerKey.configured()
     )
   rescue
@@ -291,8 +289,10 @@ defmodule ServiceRadar.ClusterHealth do
   `snapshots` pairs each connected node with its `:erpc` answer to
   `PipelineStats.snapshot/0` (gateways count spool refusals, EventWriter
   cores count dead letters), `transition` is this node's
-  `ContractRegistryTransition.status/0`, `epochs` the non-retired epoch rows,
-  and `key` the `IssuerKey.configured/0` result.
+  `ContractRegistryTransition.status/0`, `epochs` the verified
+  `ContractRegistry.view/0` (a refused row is named in `epochs.error`, never
+  listed as active, candidate or draining), and `key` the
+  `IssuerKey.configured/0` result.
 
   `awaiting_roll_forward.overflow` is nil, unknown: no overflow counter
   exists yet, and an unknown loss must not read as zero.
@@ -300,7 +300,7 @@ defmodule ServiceRadar.ClusterHealth do
   @spec edge_pipeline_status(
           [{node(), term()}],
           map() | nil,
-          {:ok, [map()]} | {:error, term()},
+          {:ok, ContractRegistry.view()} | {:error, term()},
           {:ok, map()} | {:error, term()}
         ) :: map()
   def edge_pipeline_status(snapshots, transition_status, epochs_result, key_result) do
@@ -318,22 +318,23 @@ defmodule ServiceRadar.ClusterHealth do
     Enum.zip(nodes, :erpc.multicall(nodes, PipelineStats, :snapshot, [], @event_writer_rpc_timeout))
   end
 
-  defp read_pipeline_epochs do
-    ContractRegistryEpoch
-    |> Ash.Query.filter(state != :retired)
-    |> Ash.Query.sort(epoch: :asc)
-    |> Ash.read(actor: SystemActor.system(:cluster_health))
-  end
-
-  defp pipeline_epochs({:ok, rows}) do
-    by_state = Enum.group_by(rows, & &1.state)
+  defp pipeline_epochs({:ok, %{epochs: epochs, invalid: invalid}}) do
+    by_state = Enum.group_by(epochs, & &1.state)
 
     %{
       active: epoch_number(by_state, :active),
       candidate: epoch_number(by_state, :candidate),
-      draining: by_state |> Map.get(:draining, []) |> Enum.map(& &1.epoch),
-      error: nil
+      draining: by_state |> Map.get(:draining, []) |> Enum.map(& &1.epoch) |> Enum.sort(),
+      error: refused_epochs(invalid)
     }
+  end
+
+  defp refused_epochs([]), do: nil
+
+  defp refused_epochs(invalid) do
+    Enum.map_join(invalid, "; ", fn %{epoch: epoch, state: state, reason: reason} ->
+      "#{state} epoch #{epoch} refused: #{reason}"
+    end)
   end
 
   defp pipeline_epochs({:error, reason}),

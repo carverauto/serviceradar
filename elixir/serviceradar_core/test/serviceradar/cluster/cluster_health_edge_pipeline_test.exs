@@ -25,13 +25,16 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
     )
   end
 
-  defp epochs do
+  defp epochs(invalid \\ []) do
     {:ok,
-     [
-       %{epoch: 1_000_001, state: :draining},
-       %{epoch: 1_000_002, state: :active},
-       %{epoch: 1_000_003, state: :candidate}
-     ]}
+     %{
+       epochs: [
+         %{epoch: 1_000_001, state: :draining},
+         %{epoch: 1_000_002, state: :active},
+         %{epoch: 1_000_003, state: :candidate}
+       ],
+       invalid: invalid
+     }}
   end
 
   test "a waiting candidate names the epoch and each component not holding it" do
@@ -137,7 +140,7 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
       ClusterHealth.edge_pipeline_status(
         [{:core@a, {:ok, {:error, :unavailable}}}],
         transition,
-        {:ok, []},
+        {:ok, %{epochs: [], invalid: []}},
         {:error, :no_key}
       )
 
@@ -184,5 +187,21 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
 
     assert section.epochs.active == nil
     assert section.epochs.error =~ "econnrefused"
+  end
+
+  test "a refused epoch row is named in the error and never listed as active" do
+    view =
+      {:ok,
+       %{
+         epochs: [%{epoch: 1_000_001, state: :draining}],
+         invalid: [%{epoch: 1_000_002, state: :active, reason: :registry_epoch_signature_invalid}]
+       }}
+
+    epochs = ClusterHealth.edge_pipeline_status(snapshot(), nil, view, {:ok, %{}}).epochs
+
+    assert epochs.active == nil
+    assert epochs.draining == [1_000_001]
+    assert epochs.error =~ "1000002"
+    assert epochs.error =~ "registry_epoch_signature_invalid"
   end
 end
