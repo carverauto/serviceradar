@@ -53,6 +53,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordRetentionNatsTest do
     end
   end
 
+  defmodule NoopStreamHealth do
+    @moduledoc false
+    # The stream health event writes to the database; this suite is database-free.
+    def consumer_setup_failed(_stream, _reason, _attempt), do: :ok
+    def consumer_setup_recovered(_stream, _attempts), do: :ok
+  end
+
   test "retention cannot change in place to or from workqueue, so upgrades cut over",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
@@ -282,6 +289,92 @@ defmodule ServiceRadar.EventWriter.EdgeRecordRetentionNatsTest do
     end)
   end
 
+  # The upgrade path an existing install takes: the reconciler's own periodic
+  # tick, not a direct call, finds the legacy Limits stream, seals it, keeps it
+  # sealed (and its records stored) while the owning durable is behind, and only
+  # deletes and recreates it as WorkQueue once that durable has written every
+  # record. The drain is stepped by timer messages, so the reconciler still
+  # answers status calls while the stream is sealed.
+  test "the reconcile tick holds a behind stream sealed, then cuts it over once drained",
+       ctx do
+    previous_health = Application.get_env(:serviceradar_core, :event_writer_stream_health)
+    Application.put_env(:serviceradar_core, :event_writer_stream_health, NoopStreamHealth)
+
+    on_exit(fn ->
+      if previous_health,
+        do: Application.put_env(:serviceradar_core, :event_writer_stream_health, previous_health),
+        else: Application.delete_env(:serviceradar_core, :event_writer_stream_health)
+    end)
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      config = config(port)
+
+      legacy = %{
+        production_shape()
+        | stream_replicas: 1,
+          stream_max_bytes: 16_777_216,
+          stream_retention: "limits",
+          stream_max_age: 86_400_000_000_000
+      }
+
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, legacy)
+
+      for n <- 1..3 do
+        assert %{"stream" => @stream, "seq" => ^n} = publish!(conn, "synthetic-tick-#{n}")
+      end
+
+      target = %{production_shape() | stream_replicas: 1, stream_max_bytes: 16_777_216}
+
+      reconciler =
+        start_supervised!(
+          {ConsumerReconciler,
+           name: :edge_retention_reconciler,
+           config: %{config | streams: [target], ownership_reconcile_interval_ms: 200}}
+        )
+
+      # Nothing has consumed the three records: the tick seals and waits.
+      await_stream(conn, &match?(%{"config" => %{"sealed" => true}}, &1))
+      assert %{"error" => _} = publish!(conn, "synthetic-tick-sealed")
+
+      # Several drain polls later the stream is still sealed, still Limits,
+      # still holds every record, and the reconciler still serves its mailbox.
+      Process.sleep(2_500)
+
+      assert %{
+               "config" => %{"retention" => "limits", "sealed" => true},
+               "state" => %{"messages" => 3}
+             } = api(conn, "STREAM.INFO.#{@stream}", "")
+
+      assert %{running: true, connected: true} = ConsumerReconciler.status(reconciler)
+
+      # The owning durable writes the backlog; the next poll cuts over.
+      producer = start_supervised!({Producer, %{config | streams: [legacy]}})
+      start_supervised!({AckSink, {producer, self()}})
+
+      for n <- 1..3, do: assert_receive({:acked, ^n}, 10_000)
+
+      await_stream(
+        conn,
+        &match?(
+          %{
+            "config" => %{"retention" => "workqueue", "max_age" => 0, "sealed" => false},
+            "state" => %{"messages" => 0}
+          },
+          &1
+        )
+      )
+
+      stop_supervised!(AckSink)
+      stop_supervised!(Producer)
+
+      assert %{"consumers" => [only]} =
+               api(conn, "CONSUMER.NAMES.#{@stream}", Jason.encode!(%{}))
+
+      assert only == durable(config)
+      assert %{"stream" => @stream, "seq" => 1} = publish!(conn, "synthetic-tick-after")
+    end)
+  end
+
   test "reconciling twice keeps exactly one owning durable", ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       config = config(port)
@@ -383,6 +476,24 @@ defmodule ServiceRadar.EventWriter.EdgeRecordRetentionNatsTest do
       )
 
     Jason.decode!(body)
+  end
+
+  defp await_stream(conn, matches?, attempts \\ 150) do
+    info = api(conn, "STREAM.INFO.#{@stream}", "")
+
+    cond do
+      matches?.(info) ->
+        info
+
+      attempts == 0 ->
+        flunk(
+          "stream never reached the expected state: #{inspect(Map.take(info, ["config", "state", "error"]))}"
+        )
+
+      true ->
+        Process.sleep(100)
+        await_stream(conn, matches?, attempts - 1)
+    end
   end
 
   defp await_settled(conn, durable_name, attempts \\ 100) do
