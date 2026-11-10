@@ -281,7 +281,15 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
                  LeasePass.reconcile_group(group, now)
       end)
 
-    assert log =~ "Sweep lease pass: profile of group #{group.id}"
+    warning =
+      log
+      |> String.split("\n")
+      |> Enum.find(&(&1 =~ "[warning] Sweep lease pass:" and &1 =~ "group #{group.id}"))
+
+    assert warning, "expected a lease-pass warning naming group #{group.id}"
+    assert warning =~ "ServiceRadar.SweepJobs.SweepProfile"
+    assert warning =~ "cannot load"
+    assert warning =~ "field :banner_grab"
     refute log =~ "Sweep lease pass failed for group #{group.id}"
 
     epoch = assignment.authority_epoch
