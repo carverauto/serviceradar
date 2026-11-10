@@ -291,7 +291,10 @@ installs a lease.
 
 That push does not wait for the next tail. When an agent advertising
 `sweep_lease_v1` registers a new control session, the gateway asks core
-asynchronously (`AgentGatewaySync.refresh_sweep_leases/2`) to refresh it.
+(`AgentGatewaySync.start_sweep_lease_refresh/3`) to refresh it. That call only
+starts the refresh: core runs it under `ServiceRadar.SweepJobs.LeaseRefresh`
+with no caller deadline, because reissuing the full window takes as long as the
+lease horizon needs, and sends the result to the session as a message.
 `LeasePass.refresh_agent/3` evaluates, plans and delivers only that agent in
 each group it holds an active assignment in, through the full-window path, even
 when core holds a matching acknowledgement. No other agent's assignment, slots or
@@ -307,8 +310,10 @@ node; revocation sends take it too. Under the lock they read the delivery row
 fresh, commit issuance, `record_push` and send, so two refreshes, or a refresh
 and a pass, never interleave and the last recorded push is the last one sent.
 Issuance is committed by itself before the send; the lock is not a database
-transaction around the network call. A refresh whose gateway call timed out may
-still be running in core; its retry waits on the lock instead of overlapping it.
+transaction around the network call. The session monitors the refresh process
+on core, so it does not ask again while a refresh is still running, and a refresh
+that ends without a result is retried; when the session ends, core stops its
+refresh.
 
 Revocation by a group update does not take the delivery lock; it runs inside
 the update's own transaction on the `sweep_groups` row. Lease decisions
