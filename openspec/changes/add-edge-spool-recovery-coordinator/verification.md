@@ -1,7 +1,20 @@
 # Recovery verification evidence
 
-This is checkpoint evidence, not a claim that every remaining contract is complete.
-Guarded database execution and the final integrated gate are still required.
+## Current verification status
+
+- Newest completed checkpoint: full `make test` at
+  `87b5a849e1aef445ff9749f6c9d9b6ddab72b9b5` passed 525 targets with two named
+  Swift platform skips (BuildBuddy `87ec63b1-b4b4-48b5-9f87-124a97c91767`). It
+  predates the lease-delivery lock and the narrowed refresh.
+- Pending: guarded database execution (recovery assignments, authorization, copy
+  grants, operations, effects, EventWriter `edge_record_recovery_db` and
+  `lease_delivery_db`), the real process `vertical_slice_test`, and final-head CI.
+  They stay pending until those results exist on the final published head.
+
+## Historical checkpoints
+
+The entries below describe evidence and limitations at their recorded checkpoints.
+Their pending statements are historical; the current status above is authoritative.
 
 
 - Lane option regressions failed against the old opener in BuildBuddy
@@ -79,8 +92,8 @@ Guarded database execution and the final integrated gate are still required.
   `2c111c22b3` and `b19c604964`. The follow-up
   `7b125216-1720-49eb-9260-65c91a95540b` passed 12 of 13 targets, including
   spool, agent, Cluster UI and WebNG quality. Core-Elx quality found one runtime
-  configuration test exceeding its assertion limit; a focused recovery-configuration
-  test is being separated before this checkpoint can be called fully green.
+  configuration test exceeding its assertion limit; that checkpoint was not fully
+  green; later quality and whole-suite results are recorded below.
 
 - Independent lane workers passed cmd agent, agent and sender targets in
   `66c5eced-b589-4842-9c57-aeb456c52412`; the peer's sequential-worker

@@ -141,9 +141,10 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   @doc """
   Pushes `agent_id` a fresh full window of every group it holds an active assignment in, using
-  `delivery`'s authority and sender. Each group is planned exactly as a pass plans it, but only
-  this agent's lease is delivered and nothing is withdrawn, so `delivery`'s sender may be the
-  agent's own control session. A new control session calls this: the agent cannot run authority
+  `delivery`'s authority and sender. Only this agent is evaluated, planned and delivered: no
+  other agent's assignment, slots or delivery is touched and nothing is withdrawn, so
+  `delivery`'s sender may be the agent's own control session. An agent the group no longer
+  leases to is left for the next pass to revoke. A new control session calls this: the agent cannot run authority
   it cached before core recorded issuance evidence, so an acknowledged delivery must not leave
   it waiting for the next tail.
 
@@ -169,7 +170,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
          group_ids = Enum.map(assignments, & &1.sweep_group_id),
          {:ok, groups} <-
            SweepGroup |> Ash.Query.filter(id in ^group_ids) |> Ash.read(actor: actor()) do
-      summary = Enum.reduce(groups, empty(), &add(&2, plan_group(&1, now, delivery)))
+      summary = Enum.reduce(groups, empty(), &add(&2, refresh_group(&1, agent_id, now, delivery)))
 
       case Map.delete(summary, :failed_groups) do
         %{errors: 0} = summary -> {:ok, summary}
@@ -359,7 +360,43 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
+  defp refresh_group(group, agent_id, now, delivery) do
+    with {:ok, profile} <- load_profile(group.profile_id),
+         {:ok, candidates} <- LeaseAgents.candidates(group) do
+      candidate = Enum.find(candidates, &(&1.agent_id == agent_id))
+      refresh_candidate(group, profile, candidate, now, delivery)
+    else
+      {:error, reason} -> refresh_failed(group, agent_id, reason)
+    end
+  end
+
+  defp refresh_candidate(_group, _profile, nil, _now, _delivery), do: empty()
+
+  defp refresh_candidate(group, profile, candidate, now, delivery) do
+    with {:ok, inputs} <- LeaseEligibility.evaluate_group(group, profile),
+         {:leased, agent} <- leased_agent(group, profile, inputs, candidate, now) do
+      lease_agent(group, agent, now, delivery)
+    else
+      {:failed, reason} -> refresh_failed(group, candidate.agent_id, reason)
+      _ineligible_or_not_leased -> empty()
+    end
+  end
+
+  defp refresh_failed(group, agent_id, reason) do
+    Logger.warning("Sweep lease refresh: group #{group.id} on #{agent_id}: #{inspect(reason)}")
+
+    %{empty() | errors: 1}
+  end
+
+  # The pass and a refresh plan and deliver one agent's lease under the same cluster-wide lock,
+  # so neither reads delivery state, commits issuance or sends while the other is mid-way.
   defp lease_agent(group, agent, now, delivery) do
+    LeaseDelivery.serialize(group.id, agent.agent_id, fn ->
+      plan_and_deliver(group, agent, now, delivery)
+    end)
+  end
+
+  defp plan_and_deliver(group, agent, now, delivery) do
     with {:ok, assignment} <- ProducerAssignments.ensure(group.id, agent.agent_id, agent.scope_id),
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
       assignment
@@ -388,10 +425,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp deliver(_assignment, _checks, _now, nil), do: empty()
 
-  defp deliver(%{agent_id: agent_id} = assignment, checks, now, %{refresh: agent_id} = delivery),
+  defp deliver(assignment, checks, now, %{refresh: _} = delivery),
     do: push(assignment, checks, now, delivery, fresh: true)
-
-  defp deliver(_assignment, _checks, _now, %{refresh: _}), do: empty()
 
   defp deliver(assignment, checks, now, delivery), do: push(assignment, checks, now, delivery, [])
 
@@ -420,8 +455,6 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   defp withdraw(_group, _keep, _now, nil), do: empty()
-
-  defp withdraw(_group, _keep, _now, %{refresh: _}), do: empty()
 
   defp withdraw(group, keep, now, %{sender: sender}) do
     case LeaseDelivery.withdraw_except(group.id, keep, now, sender) do

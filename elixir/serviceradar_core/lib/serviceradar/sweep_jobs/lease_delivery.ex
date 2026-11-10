@@ -156,6 +156,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   @doc """
+  Runs `fun` holding the cluster-wide lock on one agent's lease of one sweep group. Planning,
+  issuance commit, `record_push` and the send of that lease run under it, so a lease pass and a
+  control-session refresh never interleave and each reads delivery state fresh after locking.
+  Issuance is committed on its own before the send; the lock is not a database transaction.
+  """
+  @spec serialize(Ecto.UUID.t(), String.t(), (-> result)) :: result when result: term()
+  def serialize(sweep_group_id, agent_id, fun) when is_function(fun, 0) do
+    :global.trans({{__MODULE__, sweep_group_id, agent_id}, self()}, fun, [node() | Node.list()])
+  end
+
+  @doc """
   Withdraws the group's lease from every agent with a delivery that is not in `keep`. A row is
   removed once the agent acknowledges installing the revocation; otherwise the next pass retries.
   Returns how many were withdrawn.
@@ -611,6 +622,15 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   defp withdraw(row, now, sender) do
+    serialize(row.sweep_group_id, row.agent_id, fn ->
+      case get_by_group_agent(row.sweep_group_id, row.agent_id) do
+        {:ok, %SweepLeaseDelivery{} = current} -> withdraw_current(current, now, sender)
+        _gone -> false
+      end
+    end)
+  end
+
+  defp withdraw_current(row, now, sender) do
     revoked_at = row.revoked_at || now
 
     payload =

@@ -6,48 +6,41 @@ contracts, not the existence of a helper or an old moved-task checkmark.
 
 ## Current pickup
 
-The implementation is complete and entering its final validation gate.
-Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce928393877f`
-with all 20 CI checks passing. Its gate records the user-approved remote-test
-exception; live-product validation was not performed.
+Bounded recovery is implemented in PR [#6469](https://github.com/carverauto/serviceradar/pull/6469).
+The final validation and landing gate is still open. Visibility PR
+[#6447](https://github.com/carverauto/serviceradar/pull/6447) merged as
+`d54cbc508a76ba99b673015d3006ce928393877f`; its approved remote-test exception
+does not waive this change's database or process-integration contracts.
 
-The bounded production coordinator is integrated. It inventories retained recovery
-storage before admission and delivery, cancels and joins each source session
-before freeze, journals immutable transport attempts, requires exact copy grants,
-and validates signed consumer completion before cleanup. Actual sender tests
-cover interrupted receipt writes, restart accounting and delivery of a new record
-after recovery. The integrated Go and process-harness selfchecks passed all 16
-targets; standalone Go vet also passed. The final activated tree passed all 523
-runnable unit targets, with two Swift platform skips.
+The newest completed checkpoint is a full `make test` at
+`87b5a849e1aef445ff9749f6c9d9b6ddab72b9b5`: 525 targets passed with two Swift
+platform skips (BuildBuddy invocation `87ec63b1-b4b4-48b5-9f87-124a97c91767`).
+It predates the lease-delivery lock and the narrowed refresh, so it is not
+final-head evidence. Require `BazelCI Core Integration` to execute the guarded
+database contracts and the real process vertical on the final published head.
+Unit loading and harness selfchecks do not satisfy those checks.
 
-Remaining work, in dependency order:
+After the final gate passes, reconcile the task checklist with its actual test
+results, land PR #6469, and record the merge commit. Deploy capable core before
+gateway and agent. Record deployment before opening the separate OpenSpec archive
+PR; merge alone does not authorize archiving.
 
-1. Reconcile task completion with the remaining database-backed CI evidence. Core must deploy before
-   gateway/agent; downstream availability remains a retryable RPC condition,
-   not a feature-version toggle.
-   Require `BazelCI Core Integration` to execute the boxed database contracts and
-   the process vertical slice; unit loading is not database execution.
-2. Land through no-mistakes with reviewer Grok, verify exact-head CI, and record
-   the PR and merge commit. The active gate publishes PR #6469; guarded database
-   contracts and the vertical slice must still pass `BazelCI Core Integration`
-   on its final published head.
-
-Pre-evidence sweep leases persisted before core recorded issuance evidence are
-never resumed into bounded storage and stay on disk unchanged. Each new control
-session receives a fresh full lease from core and retries a failed refresh with
-bounded backoff until it succeeds or the session ends. The guarded
-`lease_delivery_db` coverage for this still has to run in `BazelCI Core
-Integration`; see the admission boundary in
+The owner approved automatic recovery only for new bounded attributed generations.
+Existing unsupported flat or oversized storage remains intact, charged and reported.
+No legacy drain, migration, copy-only recovery or invented historical identity is
+in scope. Pre-evidence persisted sweep leases are not resumed into bounded storage
+and stay on disk unchanged. Each new control session requests a fresh full lease
+for its own agent only, retried with bounded backoff until it succeeds or the
+session ends; it serializes with the lease pass on a cluster-wide per-lease lock.
+Their guarded database coverage (`lease_delivery_db`) must execute in the
+integration gate; see the admission boundary in
 [design.md](design.md#admission-boundary-for-pre-evidence-lease-authority).
 
-The storage near-full proof covers 2,049 synthetic records across nine damaged
-generations. It is separate from the composed driver tests; no near-full live
-product deployment validation is claimed. Decisions are consolidated in
-[choices.md](choices.md), and run evidence is in [verification.md](verification.md).
-
-The owner excluded legacy compatibility on 2026-11-09. Preserve and account old
-flat files as unsupported retained storage; do not implement migration, legacy
-draining or a copy-only recovery protocol. See [legacy-recovery-decision.md](legacy-recovery-decision.md).
+The near-full storage proof uses 2,049 synthetic records across nine damaged
+generations. It is separate from composed driver tests and the real process
+vertical; it does not establish near-full live-product deployment behavior.
+See [choices.md](choices.md), [verification.md](verification.md), and
+[legacy-recovery-decision.md](legacy-recovery-decision.md).
 
 ## Dependency order
 

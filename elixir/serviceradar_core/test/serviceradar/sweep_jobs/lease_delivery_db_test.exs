@@ -196,6 +196,57 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              MapSet.new(unrun!(assignment!(group, ctx.agent), later), &Ecto.UUID.dump!(&1.id))
   end
 
+  test "a refresh leaves the group's other agents, their slots and their deliveries alone", ctx do
+    horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.11")
+    group = leased_group!(ctx, agent_ids: [ctx.agent, peer])
+    enable!(group)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 2} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assert_receive {:pushed, _, _, _, _}
+    peer_assignment = assignment!(group, peer)
+    peer_slots = unrun!(peer_assignment, now)
+    assert peer_slots != []
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET agent_ids = $1 WHERE id = $2::uuid",
+      [[ctx.agent], Ecto.UUID.dump!(group.id)]
+    )
+
+    assert {:ok, %{pushed: 1, revoked: 0, withdrawn: 0, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, now)
+
+    assert_receive {:pushed, agent_id, _, _, _}
+    assert agent_id == ctx.agent
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    assert assignment!(group, peer).state == :active
+    assert assignment!(group, peer).authority_epoch == peer_assignment.authority_epoch
+    assert MapSet.new(unrun!(peer_assignment, now), & &1.id) == MapSet.new(peer_slots, & &1.id)
+    assert {:ok, rows} = LeaseDelivery.list_for_group(group.id)
+    assert Enum.any?(rows, &(&1.agent_id == peer and is_nil(&1.revoked_at)))
+  end
+
+  test "two refreshes of one agent never send its lease at the same time", ctx do
+    assert_serialized_sends(ctx, fn _group, delivery, now ->
+      [
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, DateTime.shift(now, second: 1)) end
+      ]
+    end)
+  end
+
+  test "a refresh and a lease pass never send one agent's lease at the same time", ctx do
+    assert_serialized_sends(ctx, fn group, delivery, now ->
+      [
+        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+        fn -> LeasePass.reconcile_group(group, now, delivery) end
+      ]
+    end)
+  end
+
   test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
        ctx do
     horizon!(ctx, 7_200)
@@ -1288,6 +1339,58 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              LeaseEligibility.agent_checks(group, nil, ["sweep_lease_plan_checks:v1"])
 
     checks
+  end
+
+  # Both runs push this agent's lease through a sender that takes 200 ms. Under the delivery
+  # lock one send finishes before the next starts, and the delivery row records the payload
+  # that was sent last.
+  defp assert_serialized_sends(ctx, runs) do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    enable!(group)
+    now = DateTime.utc_now()
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, nil)
+    test_pid = self()
+
+    slow = fn _agent_id, _group_id, payload ->
+      send(test_pid, {:send, :started, self()})
+      Process.sleep(200)
+      send(test_pid, {:send, :finished, self(), payload})
+      :ok
+    end
+
+    group
+    |> runs.(%{ctx.delivery | sender: slow}, now)
+    |> Enum.map(&Task.async/1)
+    |> Task.await_many(10_000)
+
+    assert [
+             {:started, first},
+             {:finished, first, _},
+             {:started, second},
+             {:finished, second, last}
+           ] =
+             Enum.map(1..4, fn _ -> next_send_event() end)
+
+    refute first == second
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    assert row.delivered_payload_sha256 == digest(last)
+  end
+
+  defp next_send_event do
+    receive do
+      {:send, :started, pid} -> {:started, pid}
+      {:send, :finished, pid, payload} -> {:finished, pid, payload}
+    after
+      5_000 -> flunk("a lease send did not happen")
+    end
+  end
+
+  defp enable!(group) do
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET enabled = true WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(group.id)]
+    )
   end
 
   defp assignment!(group, agent_id) do

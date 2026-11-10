@@ -115,15 +115,10 @@ selects EXACTLY ONE operand per source, always one and never neither, so the ope
 question this paragraph once described -- "which one, if either" -- is settled for
 this payload and only the kind-alone shortcut remains wrong.
 
-Both matrices are now DEFINED, and their implementation states still differ. The MTR
-matrix's per-variant dispatch is the correct shape and is IMPLEMENTED. The
-`SweepObservationBatchV1` matrix is FROZEN by task 1.3 in `freeze-edge-record-v1-abi`
--- the source selects both the authorization kind and WHICH body field the signed
-context operand is compared against, and `source_run_id` is REQUIRED on exactly the
-sources that select it and FORBIDDEN otherwise -- but it is NOT YET IMPLEMENTED: the
-current join compares the signed context to `execution_id` for every source and never
-reads `source_run_id`. Task 1.3 owns that rewrite. DEFINED and IMPLEMENTED are not the
-same state and SHALL NOT be described as one.
+The frozen SweepObservationBatchV1 source matrix selects the signed context
+operand and source_run_id disposition. Go joinSweepAuthority and Elixir
+SweepCorrelate/SweepMatrix enforce this selection; recovery attribution invokes
+the existing validators rather than inventing another correlation rule.
 
 Recovery attribution therefore SHALL obtain any source/execution correlation it
 needs from the DURABLE ASSIGNMENT MAPPING, not by equating record fields.
@@ -347,15 +342,17 @@ proof that the loss was reportable.
 
 ### Requirement: Recovery bounds hold for a whole generation
 Recovery sizing SHALL be bounded for an entire recovery GENERATION, not only per
-segment. Implementations SHALL either emit one bounded recovery manifest per
-corrupt segment, or enforce a cumulative per-generation manifest budget; per
-segment bounds alone do not prove a multi-segment recovery fits.
+segment. New attributed generations SHALL enforce cumulative recovery bounds before
+sequence allocation so one operation covers the complete physical generation.
+Known attribution SHALL NOT be downgraded to UNATTRIBUTABLE for sizing.
+Existing flat or oversized storage that cannot satisfy these bounds SHALL
+remain intact, accounted and reported as unsupported. The agent SHALL NOT
+migrate, drain or partition that storage into recovery operations.
 
 Known attribution SHALL NEVER be downgraded to `UNATTRIBUTABLE` because coarsening
 or sizing failed. `UNATTRIBUTABLE` states that provenance could not be proven; using
 it to shed bytes would forge that claim and silently discard evidence the spool
-actually holds. Where bounds cannot be met with attribution retained, the recovery
-SHALL be split across manifests rather than degraded.
+actually holds.
 
 Manifest byte ceilings SHALL be enforced against the EXACT RECEIVED page bytes. A
 validator that re-marshals a decoded page measures its own canonical encoding, so
@@ -369,13 +366,15 @@ filesystem metadata overhead. Reserving for "one corrupt segment" understates ev
 other artifact recovery must durably write.
 
 #### Scenario: Generation budget is enforced
-- **WHEN** several segments in one generation are corrupt
-- **THEN** either each SHALL produce its own bounded manifest, or a cumulative
-  generation budget SHALL bound the total
+- **WHEN** an append would take a new attributed generation past its cumulative
+  recovery bound
+- **THEN** the generation SHALL rotate, or the append SHALL be refused, before a
+  sequence is allocated
 
 #### Scenario: Sizing pressure never forges unattributable
 - **WHEN** coarsening or sizing cannot fit a manifest with attribution retained
-- **THEN** the recovery SHALL be split
+- **THEN** the source SHALL be retained and reported as unsupported when it cannot
+  meet the bounded-generation contract
 - **AND** known attribution SHALL NOT be relabelled `UNATTRIBUTABLE`
 
 #### Scenario: Byte ceiling measures received bytes
@@ -425,7 +424,8 @@ evidence rather than by the mere existence of a PubAcked widened span.
 
 Where a span cannot be coarsened without merging spans whose COMPLETE
 CLASSIFICATION BODIES differ in any member, OR without crossing a not-lost gap, the
-manifest SHALL retain the separate intervals or split the recovery, never invent
+manifest SHALL retain the separate intervals within the admitted bounds; otherwise
+it SHALL refuse recovery and retain the source, never invent
 coverage and never relabel proven attribution as unattributable.
 
 #### Scenario: Adjacent intervals with equal complete bodies merge

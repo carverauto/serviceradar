@@ -291,12 +291,23 @@ installs a lease.
 That push does not wait for the next tail. When an agent advertising
 `sweep_lease_v1` registers a new control session, the gateway asks core
 asynchronously (`AgentGatewaySync.refresh_sweep_leases/2`) to refresh it.
-`LeasePass.refresh_agent/3` plans each group the agent holds an active
-assignment in exactly as a lease pass does, then delivers only that agent's
-lease through the full-window path, even when core holds a matching acknowledgement.
-It sends to the registering session's pid, because the cluster registry can lag
-the registration, and withdraws nothing. The window holds only future scheduled
-slots, and each push records its issuance evidence before it is sent.
+`LeasePass.refresh_agent/3` evaluates, plans and delivers only that agent in
+each group it holds an active assignment in, through the full-window path, even
+when core holds a matching acknowledgement. No other agent's assignment, slots or
+delivery is touched, and nothing is revoked or withdrawn; an agent the group no
+longer leases to is left for the next lease pass. It sends to the registering
+session's pid, because the cluster registry can lag the registration. The window
+holds only future scheduled slots, and each push records its issuance evidence
+before it is sent.
+
+The lease pass and a refresh plan and deliver one agent's lease of one group
+under the same cluster-wide `:global.trans` lock, taken across every connected
+node; revocation sends take it too. Under the lock they read the delivery row
+fresh, commit issuance, `record_push` and send, so two refreshes, or a refresh
+and a pass, never interleave and the last recorded push is the last one sent.
+Issuance is committed by itself before the send; the lock is not a database
+transaction around the network call. A refresh whose gateway call timed out may
+still be running in core; its retry waits on the lock instead of overlapping it.
 
 A refresh succeeds only when every group planned cleanly and every push reached
 the session. Missing lease authority, a planning or delivery error, or an
@@ -305,8 +316,7 @@ attempt at a time, retries a failed attempt with backoff from 500 ms up to 60 s
 until one succeeds or the session ends, and does not refresh again after a
 success, even if the agent registers again on the same session. A missed
 refresh therefore cannot leave an acknowledged window unpushed until the next
-control session. No
-issuance row is backfilled, no old authority is replayed, and no spooled record
+control session. No issuance row is backfilled, no old authority is replayed, and no spooled record
 or retained byte is touched. Because a lease file written by the new agent is
 trusted as evidence-backed, core must upgrade before agents, which the rollout
 order already requires.

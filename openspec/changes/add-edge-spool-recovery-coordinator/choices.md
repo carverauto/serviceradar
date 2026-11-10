@@ -76,6 +76,12 @@ issuance evidence is never loaded, and its file stays on disk unchanged. Each
 new control session instead gets a fresh, evidence-backed full window. The
 session retries that refresh with bounded backoff until it succeeds or the
 session ends, so one failed attempt cannot strand an acknowledged window.
+A refresh evaluates and plans only its own agent; it never revokes, re-plans or
+withdraws another agent, which stays the lease pass's job. The pass and refreshes
+serialize one agent's lease of one group on a cluster-wide `:global.trans` lock
+across connected nodes, not a node-local one, because core runs on several nodes.
+The lock covers the fresh delivery read, the separately committed issuance,
+`record_push` and the send; it does not wrap them in a database transaction.
 
 ### One owner accounts for every retained byte
 
