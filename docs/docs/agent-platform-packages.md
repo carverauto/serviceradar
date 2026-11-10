@@ -17,6 +17,42 @@ managed-updater layout and is not advertised as a selectable managed runtime.
 Native add-ons have their own supported platform lists; an ARM64 agent package
 does not imply every add-on supports that host.
 
+## Verify a downloaded package
+
+Releases published after v1.5.2 include a SHA256 checksum for every installer.
+Each `.deb`, `.rpm`, `.pkg`, `.msi` and agent runtime `.tar.gz` has a sidecar
+asset named `<package name>.sha256`, and one `SHA256SUMS` asset lists them all.
+The release job computes these from the files it uploads.
+
+Download the sidecar into the same directory as the package and check it:
+
+```console
+sha256sum -c serviceradar-agent_<version>_arm64.deb.sha256
+```
+
+On macOS, use `shasum -a 256 -c` with the same file. To check several
+downloads at once, use the release-wide list:
+
+```console
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+On Windows, compare the digest in the sidecar with the output of:
+
+```console
+Get-FileHash .\serviceradar-agent_<version>_windows_amd64.msi -Algorithm SHA256
+```
+
+The `serviceradar-ansible` agent role does this by itself when it discovers a
+release: it finds the sidecar and gives its URL to `get_url` as the package
+checksum. For v1.5.2 and earlier releases, which have no sidecar, pin the
+package with `serviceradar_agent_package_url`,
+`serviceradar_agent_package_sha256` and `serviceradar_version`.
+
+A checksum shows that the download matches what the release job uploaded. The
+checksum files are not signed, so they do not replace the signature checks
+below for macOS.
+
 ## Install on a Raspberry Pi
 
 Use a 64-bit operating system. On Debian-based distributions, check userspace

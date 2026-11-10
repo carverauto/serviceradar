@@ -124,6 +124,9 @@ Before the GitHub release becomes public, verify that it contains:
 
 - all expected `.deb` and `.rpm` packages
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
+- `SHA256SUMS`, and one `<asset name>.sha256` sidecar for every `.deb`, `.rpm`,
+  `.pkg`, `.msi` and agent runtime `.tar.gz` (see
+  [Release Checksums](#release-checksums))
 - `serviceradar-agent-release-manifest.json`
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-native-addon-index.json`
@@ -134,6 +137,52 @@ Before the GitHub release becomes public, verify that it contains:
   job succeeds. If that job fails, is cancelled, or is skipped, publication
   proceeds without the macOS installer; the other required assets still gate
   finalization.
+
+### Release Checksums
+
+`//build/release:publish_packages` writes the checksum files in the same
+process that uploads the packages. It hashes each file from the path it is
+about to upload: the Bazel outputs for Linux packages and runtime archives, and
+the handoff files for the macOS and Windows installers, after their bytes have
+been checked against their provenance. Nothing is downloaded again to compute a
+checksum.
+
+| Asset | Contents |
+| --- | --- |
+| `<asset name>.sha256` | One `sha256sum` line, `<hex digest>  <asset name>`, for one `.deb`, `.rpm`, `.pkg`, `.msi` or agent runtime `.tar.gz` |
+| `SHA256SUMS` | The same line for every one of those files and for each installer's `.provenance.json`, sorted by name |
+
+The sidecar name is a contract with installers that discover a release. The
+`serviceradar-ansible` agent role looks for an asset named exactly
+`<package name>.sha256` and passes its URL to `get_url` as
+`checksum: sha256:<url>`. `get_url` accepts `sha256sum` lines and selects the
+one whose filename equals the last path segment of the package URL, so the
+filename inside the sidecar must stay the published asset name.
+
+The publisher refuses to continue in three places:
+
+1. Before the draft release is created or changed, it hashes every file in
+   the upload plan a second time and requires a matching `SHA256SUMS` line,
+   plus a matching sidecar for each installable. A file type with no checksum
+   rule is refused, so a new kind of asset cannot be added without one.
+2. After the uploads, it reads the release back and requires each planned file
+   to be stored exactly once. Where GitHub reports a digest of the stored
+   bytes, that digest must equal the local one.
+3. The `Verify uploaded release assets via GitHub API` step requires
+   `SHA256SUMS` and a non-empty sidecar for every installable on the draft.
+
+A failure in any of them leaves the release as a draft.
+
+`serviceradar-agent-release-manifest.json` and its `.sig` are not listed in
+`SHA256SUMS`. The manifest is written after the runtime archives are uploaded,
+carries their SHA256 digests, and is signed with the agent release key. The
+catalog indexes and security bundles are attached by other workflows and have
+no checksum files.
+
+The checksum files are not signed. They detect corruption and a package that
+was replaced without its sidecar; they do not authenticate the release against
+someone who can replace both. Container images remain the only artifacts signed
+with the Cosign release key in `docs/cosign.pub`.
 
 The image workflow verifies every repository declared in
 `docker/images/image_inventory.bzl`. The current contract covers 16 image

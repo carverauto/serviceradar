@@ -172,6 +172,7 @@ type publishContext struct {
 	client         *githubClient
 	packages       []uploadAsset
 	runtimes       []managedAgentRuntime
+	checksums      *releaseChecksums
 }
 
 func main() {
@@ -194,6 +195,7 @@ func run() error {
 	if err := prepareReleaseArtifacts(ctx); err != nil {
 		return err
 	}
+	defer func() { _ = os.RemoveAll(ctx.checksums.dir) }()
 
 	rel, err := ensureReleaseForPublish(ctx)
 	if err != nil {
@@ -206,6 +208,10 @@ func run() error {
 	}
 
 	if err := uploadManagedAgentArtifacts(ctx, rel, existingAssets); err != nil {
+		return err
+	}
+
+	if err := uploadChecksumArtifacts(ctx, rel, existingAssets); err != nil {
 		return err
 	}
 
@@ -366,6 +372,40 @@ func uploadPackageArtifacts(ctx *publishContext, rel *release, existingAssets ma
 		}
 	}
 	return nil
+}
+
+// checksummedAssets is every file that exists before the release is touched:
+// packages, installers, their provenance, and the managed runtime archives. The
+// agent release manifest is not among them. It records where the runtimes were
+// uploaded, so it is written afterwards, and it carries its own signature.
+func checksummedAssets(ctx *publishContext) []uploadAsset {
+	assets := append([]uploadAsset(nil), ctx.packages...)
+	for _, runtime := range ctx.runtimes {
+		assets = append(assets, uploadAsset{
+			sourcePath: runtime.path,
+			uploadName: linuxAgentRuntimeUploadName(ctx.releaseVersion, runtime.arch),
+		})
+	}
+	return assets
+}
+
+func uploadChecksumArtifacts(ctx *publishContext, rel *release, existingAssets map[string]releaseAsset) error {
+	for _, asset := range ctx.checksums.assets {
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.overwriteAssets && rel.Draft); err != nil {
+			return fmt.Errorf("failed to upload checksum %q: %w", asset.uploadName, err)
+		}
+	}
+	if ctx.config.dryRun {
+		return nil
+	}
+	stored, err := ctx.client.getReleaseByTag(rel.TagName)
+	if err != nil {
+		return err
+	}
+	if stored == nil {
+		return fmt.Errorf("%w: release %q not found after upload", errChecksumCoverage, rel.TagName)
+	}
+	return verifyPublishedChecksums(stored, append(checksummedAssets(ctx), ctx.checksums.assets...))
 }
 
 func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAssets map[string]releaseAsset) error {

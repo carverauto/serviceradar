@@ -1046,6 +1046,7 @@ jobs:
             "serviceradar-agent_${VERSION}_linux_arm64.tar.gz"
             "serviceradar-agent-release-manifest.json"
             "serviceradar-agent-release-manifest.sig"
+            "SHA256SUMS"
           )
           if [[ "${MACOS_RESULT}" == "success" ]]; then
             required_assets+=(
@@ -1069,7 +1070,23 @@ jobs:
               exit 1
             fi
           done
-          echo "Verified required platform packages, runtimes, and signed agent manifest."
+          # The publisher refuses to upload an installable without its checksum and
+          # compares the stored digests itself. This reads the draft once more, so a
+          # sidecar deleted or never stored still stops the release before finalize.
+          # Security bundles are attached by other workflows and are not matched here.
+          unchecked=$(jq -r '
+            [.assets[]? | select(.size > 0) | .name] as $names
+            | $names[]
+            | select(test("^serviceradar-.*\\.(deb|rpm|pkg|msi)$")
+                     or test("^serviceradar-agent_.*_linux_[a-z0-9]+\\.tar\\.gz$"))
+            | select(. as $name | ($names | index($name + ".sha256")) == null)
+          ' <<<"${response}")
+          if [[ -n "${unchecked}" ]]; then
+            echo "Release assets published without a .sha256 sidecar:" >&2
+            echo "${unchecked}" >&2
+            exit 1
+          fi
+          echo "Verified required platform packages, runtimes, checksums, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
   image-security-dispatch:
