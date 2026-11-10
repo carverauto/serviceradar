@@ -106,12 +106,15 @@ Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core. The grants match the columns compiled subqueries read,
 except `location` on `ip_geo_enrichment_cache`, `sources` on
 `ip_threat_intel_cache`, `indicator` on
-`threat_intel_indicator_members_catalog`, and `threat_intel_indicators`.
-`indicator` is the members view's indicator text, granted for readability and
-not read by SRQL. The other three stay granted and unread;
+`threat_intel_indicator_members_catalog`, `threat_intel_indicators`, and
+`device_inventory_aliases_catalog`. `indicator` is the members view's
+indicator text, granted for readability and not read by SRQL. The cache
+columns and `threat_intel_indicators` stay granted and unread;
 `threat_intel_indicators` is also off the allowlist, because the StarRocks 4.1
-JDBC catalog cannot read geography, `text[]`, or `cidr`. Telemetry hypertables
-and `network_credential_secrets` are never granted.
+JDBC catalog cannot read geography, `text[]`, or `cidr`. The aliases view stays
+granted and allowlisted but SRQL no longer joins it: web-ng resolves a device's
+event aliases on CNPG and passes them to SRQL as exact keys. Telemetry
+hypertables and `network_credential_secrets` are never granted.
 
 Core migration `20260918120000_create_starrocks_catalog_reader_role` creates the
 role and issues the grants, but only where the migrating connection holds
