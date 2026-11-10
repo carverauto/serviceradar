@@ -432,7 +432,7 @@ tests:
       - failedTemplate:
           errorPattern: 'flows: 268435456 bytes \(0\.25 GiB\) x R1, spread \[nats\.jetstream\.profile=tenant-2g\]'
       - failedTemplate:
-          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 130023424 bytes \(0\.12 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
+          errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 29360128 bytes \(0\.03 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
       - failedTemplate:
           errorPattern: 'TELEMETRY_EDGE_RECORD_DLQ_V1_BULK: 4194304 bytes \(0\.00 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
 

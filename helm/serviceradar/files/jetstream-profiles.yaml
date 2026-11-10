@@ -33,16 +33,10 @@
 #   small     1        25.46875                            28.50
 #   medium    3        57.8125 + 28/3 + 12 = 79.15         79.16
 #   medium    1        77.8125                             79.16
-#   large     3        286.3125 + 128/3 + 64 = 392.98      395.81
-#   large     1        382.3125                            395.81
+#   large     3        279.3125 + 128/3 + 64 = 385.98      395.81
+#   large     1        375.3125                            395.81
 #   tenant-2g 3        1.14453125 + 0.1875 + 0.25 = 1.58   1.58
 #
-# TELEMETRY_EDGE_RECORD_V1_BULK uses DiscardNew (refusing new publishes at
-# MaxBytes so the gateway withholds EdgeDeliveryAckV1 and the agent spool
-# retains the record) and is sized per profile for a 6-hour EventWriter outage
-# window before backpressure reaches the agent spool: 124 MiB in tenant-2g
-# (~20 MiB/h), 960 MiB in small (~160 MiB/h), 3 GiB in medium (~512 MiB/h), and
-# 8 GiB in large (~1.3 GiB/h).
 # The edge-record audit and security-quarantine streams are reserved at R3 in
 # every profile (64 MiB each; 8 MiB in tenant-2g), like the primary
 # TELEMETRY_EDGE_RECORD_V1_BULK stream, and so is EventWriter's edge-record
@@ -111,13 +105,13 @@ profiles:
     persistenceSize: 100Gi
     sizes:
       datasvcKV: 1Gi
-      datasvcObjects: 6Gi
+      datasvcObjects: 8Gi
       events: 8Gi
       flows: 32Gi
       plugins: 4Gi
       arancini: 12Gi
       metrics: 2Gi
-      telemetry_edge_record_v1_bulk: 3Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
@@ -136,13 +130,13 @@ profiles:
       aranciniFallback: 1Gi
     singleServerSizes:
       datasvcKV: 1Gi
-      datasvcObjects: 6Gi
+      datasvcObjects: 8Gi
       events: 8Gi
       flows: 24Gi
       plugins: 4Gi
       arancini: 12Gi
       metrics: 2Gi
-      telemetry_edge_record_v1_bulk: 3Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
@@ -170,7 +164,7 @@ profiles:
       plugins: 8Gi
       arancini: 64Gi
       metrics: 8Gi
-      telemetry_edge_record_v1_bulk: 8Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
@@ -195,7 +189,7 @@ profiles:
       plugins: 8Gi
       arancini: 64Gi
       metrics: 8Gi
-      telemetry_edge_record_v1_bulk: 8Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
@@ -220,10 +214,10 @@ profiles:
   # dead-letter streams and EXPOSURE_RECOVERY at R3 (full on every server),
   # flows and the remaining EventWriter streams at R1 (spread). Every fallback
   # stays at or below its collector size.
-  #   full   = 32 + 288 + 256 + 128 + 128 + 64 + 32 + 32 + 124 + 4 + 8 + 8 + 4
+  #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 28 + 4 + 8 + 8 + 4
   #            + 64 MiB = 1172 MiB (KV, objects, events, plugins,
   #            ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS,
-  #            TELEMETRY_EDGE_RECORD_V1_BULK 124 MiB plus recovery 4 MiB, its audit and
+  #            TELEMETRY_EDGE_RECORD_V1_BULK 28 MiB plus recovery 4 MiB, its audit and
   #            security-quarantine streams 8 MiB each, its dead-letter stream
   #            4 MiB, and the fixed 64 MiB EXPOSURE_RECOVERY reservation)
   #   spread = 256 + 32 + 32 + 32 + 32 + 32 + 32 + 64 + 64 MiB = 576 MiB,
@@ -237,13 +231,13 @@ profiles:
     persistenceSize: 3Gi
     sizes:
       datasvcKV: 32Mi
-      datasvcObjects: 288Mi
+      datasvcObjects: 384Mi
       events: 256Mi
       flows: 256Mi
       plugins: 128Mi
       arancini: 128Mi
       metrics: 64Mi
-      telemetry_edge_record_v1_bulk: 124Mi
+      telemetry_edge_record_v1_bulk: 28Mi
       telemetry_edge_record_audit_v1_bulk: 8Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 8Mi
       telemetry_edge_record_dlq_v1_bulk: 4Mi

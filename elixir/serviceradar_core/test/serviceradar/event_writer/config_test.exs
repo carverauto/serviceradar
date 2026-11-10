@@ -747,14 +747,14 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute String.starts_with?(scan.subject, "metrics.")
     end
 
-    test "routes edge records through an R3 stream with DiscardNew and 72h MaxAge" do
+    test "routes edge records through an R3 stream with DiscardOld and 24h MaxAge" do
       edge = Config.edge_record_stream()
 
       assert edge.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
       assert edge.subject == "telemetry.edge-record.v1.bulk.>"
       assert edge.stream_replicas == 3
-      assert edge.stream_discard == "new"
-      assert edge.stream_max_age == 259_200_000_000_000
+      assert edge.stream_discard == "old"
+      assert edge.stream_max_age == 86_400_000_000_000
     end
 
     test "routes audited edge records through their own R3 stream" do
@@ -763,8 +763,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert audit.stream_name == "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK"
       assert audit.subject == "telemetry.edge-record-audit.v1.bulk.>"
       assert audit.stream_replicas == 3
-      assert audit.stream_discard == "new"
-      assert audit.stream_max_age == 259_200_000_000_000
+      assert audit.stream_discard == "old"
+      assert audit.stream_max_age == 86_400_000_000_000
     end
 
     # A dead-letter stream that aged or evicted records would delete the only copy of a resolved
@@ -787,7 +787,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                Config.edge_record_stream().stream_max_age
 
       assert Config.edge_record_dead_letter_stream().stream_duplicate_window ==
-               259_200_000_000_000
+               86_400_000_000_000
     end
 
     test "routes MTR trace results to the Mtr processor from a dedicated stream" do
