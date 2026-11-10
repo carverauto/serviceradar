@@ -4,45 +4,40 @@ Read [design.md](design.md), approved on 2026-11-09, then the authoritative
 [tasks.md](tasks.md) and both delta specs. Task checkboxes record complete
 contracts, not the existence of a helper or an old moved-task checkmark.
 
-## Current pickup
+## Implementation and deployment status
 
-Bounded recovery is implemented in PR [#6469](https://github.com/carverauto/serviceradar/pull/6469).
-The final validation and landing gate is still open. Visibility PR
-[#6447](https://github.com/carverauto/serviceradar/pull/6447) merged as
-`d54cbc508a76ba99b673015d3006ce928393877f`; its approved remote-test exception
-does not waive this change's database or process-integration contracts.
+Bounded recovery merged in [PR #6469](https://github.com/carverauto/serviceradar/pull/6469)
+as `161843f1ca2a4017437f36041674354db9491cd0` on 2026-11-10 at 08:17:16 UTC.
+All 21 reported checks passed for published head
+`7c46cbc8a7bb16a2fa647838355f26acf86a5141`. The guarded database contracts and
+real process vertical executed; [verification.md](verification.md) records each
+workflow's tested merge, results and limitations. Tasks 1.1-1.10 and 2.1 are complete.
+Visibility [PR #6447](https://github.com/carverauto/serviceradar/pull/6447) previously
+merged as `d54cbc508a76ba99b673015d3006ce928393877f`.
 
-The newest completed checkpoint is a full `make test` at
-`87b5a849e1aef445ff9749f6c9d9b6ddab72b9b5`: 525 targets passed with two Swift
-platform skips (BuildBuddy invocation `87ec63b1-b4b4-48b5-9f87-124a97c91767`).
-It predates the lease-delivery lock and the narrowed refresh, so it is not
-final-head evidence. Require `BazelCI Core Integration` to execute the guarded
-database contracts and the real process vertical on the final published head.
-Unit loading and harness selfchecks do not satisfy those checks.
-
-After the final gate passes, reconcile the task checklist with its actual test
-results, land PR #6469, and record the merge commit. Deploy capable core before
-gateway and agent. Record deployment before opening the separate OpenSpec archive
-PR; merge alone does not authorize archiving.
+Deployment has not been authorized or verified. Deploy capable core before gateway
+and agent when authorized. Keep this change active until deployment is recorded;
+OpenSpec Stage 3 then requires a separate archive PR. Merge and CI success alone
+do not establish deployment.
 
 The owner approved automatic recovery only for new bounded attributed generations.
 Existing unsupported flat or oversized storage remains intact, charged and reported.
 No legacy drain, migration, copy-only recovery or invented historical identity is
 in scope. Pre-evidence persisted sweep leases are not resumed into bounded storage
 and stay on disk unchanged. Each new control session requests a fresh full lease
-for its own agent only, retried with bounded backoff until it succeeds or the
-session ends; it serializes with the lease pass on a cluster-wide per-lease lock.
-Their guarded database coverage (`lease_delivery_db`) must execute in the
-integration gate; see the admission boundary in
-[design.md](design.md#admission-boundary-for-pre-evidence-lease-authority).
+for its own agent's existing active assignments, retrying with bounded backoff.
+Delivery serializes with the lease pass under the cluster-wide per-lease lock;
+planning decisions use short transactions that lock and re-read the group row.
+Both lease-delivery and lease-pass database contracts executed in the final gate.
+See the [admission boundary](design.md#admission-boundary-for-pre-evidence-lease-authority).
 
 The near-full storage proof uses 2,049 synthetic records across nine damaged
-generations. It is separate from composed driver tests and the real process
-vertical; it does not establish near-full live-product deployment behavior.
-See [choices.md](choices.md), [verification.md](verification.md), and
-[legacy-recovery-decision.md](legacy-recovery-decision.md).
+generations. Synthetic storage and composed coordinator tests establish crash
+recovery separately from the real process vertical, which passed A-H without
+damaged-spool injection. No near-full live-product validation is claimed.
+See [choices.md](choices.md) and [legacy-recovery-decision.md](legacy-recovery-decision.md).
 
-## Dependency order
+## Implementation dependency record
 
 | Pass | Contract | Depends on |
 | --- | --- | --- |
@@ -55,7 +50,7 @@ See [choices.md](choices.md), [verification.md](verification.md), and
 | G | Consumer repair transaction, signed completion, gateway prefix integration | B, E, F |
 | H | Negotiated runtime activation, crash matrix, full validation and landing | All preceding passes |
 
-Independent passes use isolated worktrees; shared API changes are integrated
+Independent passes used isolated worktrees; shared API changes were integrated
 before dependent implementations. The Go gateway-prefix package is a comparison
 oracle. The live gateway prefix owner is Elixir `ServiceRadar.Edge.ResolvedPrefix`.
 
@@ -66,8 +61,8 @@ oracle. The live gateway prefix owner is Elixir `ServiceRadar.Edge.ResolvedPrefi
   from the frozen contract instead of repeating the search.
 - Production lanes and reserve checks use the shared allocator. Integrated cleanup
   preserves rejection/control archives and releases capacity only after its durable
-  completion proof. Composed driver and storage full-floor tests passed; guarded
-  consumer database execution remains required.
+  completion proof. Composed driver, storage full-floor and guarded
+  consumer database checks passed; their distinct evidence is in verification.md.
 - Assignment/grant current-state rows are not historical recovery mappings;
   scheduler deletion and mutable epochs must not remove their authority evidence.
 - All four coarsening vectors start from journaled per-sequence evidence. Coverage
@@ -76,8 +71,6 @@ oracle. The live gateway prefix owner is Elixir `ServiceRadar.Edge.ResolvedPrefi
 - All fixtures are synthetic. Bazel tests run with `--config=remote`; standalone
   Go vet is also required. No weakened checks, direct staging pushes, or Helm-only
   configuration.
-
-Update this pickup and the choices ledger after each verified commit checkpoint.
 
 ## Verification
 
