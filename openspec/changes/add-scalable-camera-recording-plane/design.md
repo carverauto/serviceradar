@@ -177,6 +177,13 @@ host is not protection against losing that host's storage. A block still in the
 open spool remains provisional in either mode. Retention and accepted holds
 must be enforceable by the selected backend; unsupported guarantees are refused.
 
+[Local publication](local-publication.md) defines the local-only implementation
+contract: durable publication before catalog availability, recovery with original
+authority and preservation history, and acknowledged holds serialized against
+deletion. Local receipts do not substitute for S3 archive proofs. A retained
+volume alone cannot restore missing control-plane authority or prove the absence
+of holds. These are prerequisites for implementation, not shipped guarantees.
+
 At high water stop new admission or apply an explicitly selected recording
 policy, with gap accounting. At the hard reserve boundary stop affected capture
 and preserve journaled/unarchived or protected bytes. Never silently overwrite
