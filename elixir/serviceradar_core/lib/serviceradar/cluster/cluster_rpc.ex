@@ -37,25 +37,38 @@ defmodule ServiceRadar.Cluster.ClusterRPC do
       when is_atom(module) and is_atom(function) and is_list(args) do
     opts = normalize_opts(opts)
     timeout = Keyword.get(opts, :timeout, @default_timeout_ms)
-    undef_wait_ms = undef_wait_ms(opts)
-    undef_poll_ms = undef_poll_ms(opts)
     rpc_call = Keyword.get(opts, :rpc_call, &:rpc.call/5)
     unavailable_error = Keyword.get(opts, :unavailable_error, :node_unavailable)
     badrpc_error = Keyword.get(opts, :badrpc_error)
-    deadline = System.monotonic_time(:millisecond) + undef_wait_ms
 
-    attempt_call(
-      nodes_or_resolver,
-      module,
-      function,
-      args,
-      timeout,
-      rpc_call,
-      unavailable_error,
-      badrpc_error,
-      undef_poll_ms,
-      deadline
+    await_capable_peer(
+      fn ->
+        attempt_call(
+          nodes_or_resolver,
+          module,
+          function,
+          args,
+          timeout,
+          rpc_call,
+          unavailable_error,
+          badrpc_error
+        )
+      end,
+      opts
     )
+  end
+
+  @doc """
+  Runs `attempt` until it returns something other than `:peer_too_old`, polling
+  every `:undef_poll_ms` for at most `:undef_wait_ms`. Returns
+  `{:error, :peer_too_old}` when the bound expires.
+  """
+  @spec await_capable_peer((-> result), timeout() | keyword()) :: result | {:error, :peer_too_old}
+        when result: term()
+  def await_capable_peer(attempt, opts \\ []) when is_function(attempt, 0) do
+    opts = normalize_opts(opts)
+    deadline = System.monotonic_time(:millisecond) + undef_wait_ms(opts)
+    await_loop(attempt, undef_poll_ms(opts), deadline)
   end
 
   @doc """
@@ -108,9 +121,7 @@ defmodule ServiceRadar.Cluster.ClusterRPC do
          timeout,
          rpc_call,
          unavailable_error,
-         badrpc_error,
-         undef_poll_ms,
-         deadline
+         badrpc_error
        ) do
     case resolve_nodes(nodes_or_resolver) do
       [] ->
@@ -118,64 +129,42 @@ defmodule ServiceRadar.Cluster.ClusterRPC do
 
       nodes ->
         case call_candidates(nodes, module, function, args, timeout, rpc_call) do
-          {:ok, result} ->
-            {:ok, result}
-
-          {:peer_too_old, _last_badrpc} ->
-            remaining_ms = deadline - System.monotonic_time(:millisecond)
-
-            if remaining_ms > 0 do
-              Process.sleep(min(undef_poll_ms, remaining_ms))
-
-              attempt_call(
-                nodes_or_resolver,
-                module,
-                function,
-                args,
-                timeout,
-                rpc_call,
-                unavailable_error,
-                badrpc_error,
-                undef_poll_ms,
-                deadline
-              )
-            else
-              {:error, :peer_too_old}
-            end
-
-          {:badrpc, reason} ->
-            if is_nil(badrpc_error) do
-              {:error, {:badrpc, reason}}
-            else
-              {:error, badrpc_error}
-            end
+          {:ok, result} -> {:ok, result}
+          :peer_too_old -> :peer_too_old
+          {:badrpc, reason} when is_nil(badrpc_error) -> {:error, {:badrpc, reason}}
+          {:badrpc, _reason} -> {:error, badrpc_error}
         end
     end
   end
 
+  defp await_loop(attempt, undef_poll_ms, deadline) do
+    case attempt.() do
+      :peer_too_old ->
+        remaining_ms = deadline - System.monotonic_time(:millisecond)
+
+        if remaining_ms > 0 do
+          Process.sleep(min(undef_poll_ms, remaining_ms))
+          await_loop(attempt, undef_poll_ms, deadline)
+        else
+          {:error, :peer_too_old}
+        end
+
+      result ->
+        result
+    end
+  end
+
   defp call_candidates(nodes, module, function, args, timeout, rpc_call) do
-    Enum.reduce_while(nodes, {:badrpc, :nodedown}, fn node, acc ->
+    Enum.reduce_while(nodes, :peer_too_old, fn node, acc ->
       result = invoke_rpc(rpc_call, node, module, function, args, timeout)
 
       cond do
-        peer_too_old?(result, module, function, args) ->
-          {:cont, mark_peer_too_old(acc)}
-
-        match?({:badrpc, _reason}, result) ->
-          {:cont, keep_badrpc(acc, result)}
-
-        true ->
-          {:halt, {:ok, result}}
+        peer_too_old?(result, module, function, args) -> {:cont, acc}
+        match?({:badrpc, _reason}, result) -> {:cont, result}
+        true -> {:halt, {:ok, result}}
       end
     end)
   end
-
-  defp mark_peer_too_old({:peer_too_old, last_badrpc}), do: {:peer_too_old, last_badrpc}
-  defp mark_peer_too_old({:badrpc, reason}), do: {:peer_too_old, reason}
-
-  defp keep_badrpc({:peer_too_old, _last_badrpc}, {:badrpc, reason}), do: {:peer_too_old, reason}
-
-  defp keep_badrpc(_acc, {:badrpc, reason}), do: {:badrpc, reason}
 
   defp invoke_rpc(rpc_call, node, module, function, args, timeout) do
     rpc_call.(node, module, function, args, timeout)

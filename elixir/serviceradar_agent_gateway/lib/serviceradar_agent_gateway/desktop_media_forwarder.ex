@@ -6,7 +6,6 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   owns the viewer/media ingress boundary that browser delivery attaches to.
   """
 
-  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.DesktopMediaIngress
 
@@ -37,13 +36,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
     module = ingress_module(opts)
     args = [frame, session]
 
-    case rpc_module(opts).call(
-           core_node(opts),
-           module,
-           :forward_frame,
-           args,
-           timeout(opts)
-         ) do
+    case call_core(opts, module, :forward_frame, args) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
         Logger.warning(
           "Desktop media frame forward hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})"
@@ -52,11 +45,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
         _ = ensure_core_connected(core_node(opts), opts)
         do_forward_frame(frame, session, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} = badrpc ->
-        if !ClusterRPC.peer_too_old?(badrpc, module, :forward_frame, args) do
-          Logger.error("Failed to forward desktop media frame to core-elx ingress: #{inspect(reason)}")
-        end
+      {:badrpc, :peer_too_old} ->
+        {:error, :core_unavailable}
 
+      {:badrpc, reason} ->
+        Logger.error("Failed to forward desktop media frame to core-elx ingress: #{inspect(reason)}")
         {:error, :core_unavailable}
 
       {:ok, %Desktopmedia.DesktopMediaAck{} = ack} ->
@@ -74,13 +67,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
     module = ingress_module(opts)
     args = [desktop_session_id]
 
-    case rpc_module(opts).call(
-           core_node(opts),
-           module,
-           :close_session,
-           args,
-           timeout(opts)
-         ) do
+    case call_core(opts, module, :close_session, args) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
         Logger.warning(
           "Desktop media close hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})"
@@ -89,11 +76,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
         _ = ensure_core_connected(core_node(opts), opts)
         do_close_session(desktop_session_id, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} = badrpc ->
-        if !ClusterRPC.peer_too_old?(badrpc, module, :close_session, args) do
-          Logger.error("Failed to close desktop media ingress on core-elx: #{inspect(reason)}")
-        end
+      {:badrpc, :peer_too_old} ->
+        {:error, :core_unavailable}
 
+      {:badrpc, reason} ->
+        Logger.error("Failed to close desktop media ingress on core-elx: #{inspect(reason)}")
         {:error, :core_unavailable}
 
       :ok ->
@@ -129,6 +116,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
       other ->
         raise ArgumentError, "invalid core node for desktop media forwarder: #{inspect(other)}"
     end
+  end
+
+  defp call_core(opts, module, function, args) do
+    rpc = rpc_module(opts)
+    CoreNodeForwarder.call_core(&rpc.call/5, core_node(opts), module, function, args, timeout(opts))
   end
 
   defp resolve_core_node(opts) do

@@ -120,4 +120,43 @@ defmodule ServiceRadar.Cluster.ClusterRPCTest do
                undef_wait_ms: 0
              )
   end
+
+  test "reports a capable peer's failure instead of :peer_too_old when another peer is old" do
+    rpc_call = fn
+      :core_old@host, Mod, :new_fun, [:arg], _timeout ->
+        {:badrpc, {:EXIT, {:undef, [{Mod, :new_fun, [:arg], []}]}}}
+
+      :core_new@host, Mod, :new_fun, [:arg], _timeout ->
+        {:badrpc, :timeout}
+    end
+
+    for nodes <- [[:core_old@host, :core_new@host], [:core_new@host, :core_old@host]] do
+      started = System.monotonic_time(:millisecond)
+
+      assert {:error, {:badrpc, :timeout}} =
+               ClusterRPC.call(nodes, Mod, :new_fun, [:arg],
+                 rpc_call: rpc_call,
+                 undef_wait_ms: 5_000
+               )
+
+      assert System.monotonic_time(:millisecond) - started < 1_000
+    end
+  end
+
+  test "await_capable_peer re-runs the attempt until it stops returning :peer_too_old" do
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    attempt = fn ->
+      case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
+        n when n < 2 -> :peer_too_old
+        _n -> :done
+      end
+    end
+
+    assert :done = ClusterRPC.await_capable_peer(attempt, undef_wait_ms: 500, undef_poll_ms: 5)
+    assert Agent.get(attempts, & &1) == 3
+
+    assert {:error, :peer_too_old} =
+             ClusterRPC.await_capable_peer(fn -> :peer_too_old end, undef_wait_ms: 20)
+  end
 end
