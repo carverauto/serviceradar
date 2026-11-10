@@ -14,7 +14,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Analytics.StarRocks.NodeMemory
   alias ServiceRadar.Cluster.ClusterStatus
+  alias ServiceRadar.ClusterHealth
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: IngestionRuntimeMetrics
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards.SystemReports
@@ -77,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         )
         |> assign(:ingestion_stats, ingestion_stats_for_mount(connected?))
         |> assign(:edge_pipeline_stats, EdgePipeline.stats_for_mount(connected?))
+        |> assign(:starrocks_memory, starrocks_memory_for_mount(connected?))
         |> assign(:events, [])
 
       {:ok, socket}
@@ -117,7 +120,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())
      |> assign(:ingestion_stats, load_ingestion_stats())
-     |> assign(:edge_pipeline_stats, EdgePipeline.load())}
+     |> assign(:edge_pipeline_stats, EdgePipeline.load())
+     |> assign(:starrocks_memory, load_starrocks_memory())}
   end
 
   def handle_info({:node_up, node}, socket) do
@@ -126,6 +130,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_status, load_cluster_status())
+     |> assign(:starrocks_memory, load_starrocks_memory())
      |> assign(
        :cluster_health,
        build_cluster_health(socket.assigns.gateways, socket.assigns.agent_count)
@@ -142,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_status, load_cluster_status())
+     |> assign(:starrocks_memory, load_starrocks_memory())
      |> assign(:gateways_cache, gateways_cache)
      |> assign(:gateways, gateways)
      |> assign(:cluster_health, build_cluster_health(gateways, socket.assigns.agent_count))
@@ -273,7 +279,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())
      |> assign(:ingestion_stats, load_ingestion_stats())
-     |> assign(:edge_pipeline_stats, EdgePipeline.load())}
+     |> assign(:edge_pipeline_stats, EdgePipeline.load())
+     |> assign(:starrocks_memory, load_starrocks_memory())}
   end
 
   @impl true
@@ -448,6 +455,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
         <!-- Core Admission Lanes -->
         <.ingestion_lanes_panel ingestion_stats={@ingestion_stats} />
+
+        <!-- StarRocks Node Memory -->
+        <.starrocks_memory_panel starrocks_memory={@starrocks_memory} />
 
         <!-- Oban Queue Status -->
         <.ui_panel>
@@ -1426,6 +1436,223 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp format_ingestion_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_ingestion_bytes(_), do: "0 B"
+
+  @doc false
+  attr(:starrocks_memory, :map, required: true)
+
+  def starrocks_memory_panel(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div>
+          <div class="text-sm font-semibold">StarRocks Memory Headroom</div>
+          <p class="text-xs text-sr-muted">
+            Per-node process limit, memory reserve outside StarRocks (warns below 2.5 GiB), and converged runtime memory keys
+          </p>
+        </div>
+        <.ui_badge variant={starrocks_memory_badge_variant(@starrocks_memory[:status])} size="xs">
+          {starrocks_memory_status_label(@starrocks_memory[:status])}
+        </.ui_badge>
+      </:header>
+
+      <div
+        :if={@starrocks_memory[:status] in [nil, :not_running]}
+        id="cluster-starrocks-memory-unavailable"
+        class="py-6 text-center text-sm text-sr-muted"
+      >
+        No core coordinator is reporting StarRocks warehouse memory health.
+      </div>
+
+      <div
+        :if={@starrocks_memory[:status] == :pending}
+        id="cluster-starrocks-memory-pending"
+        class="py-6 text-center text-sm text-sr-muted"
+      >
+        Waiting for the first StarRocks warehouse memory check.
+      </div>
+
+      <div
+        :if={@starrocks_memory[:status] == :error}
+        id="cluster-starrocks-memory-error"
+        class="rounded border border-error/40 bg-error/10 px-3 py-2 text-xs text-error"
+      >
+        StarRocks warehouse memory could not be checked: {@starrocks_memory[:error]}
+      </div>
+
+      <div
+        :if={Map.get(@starrocks_memory, :warnings, []) != []}
+        id="cluster-starrocks-memory-warnings"
+        class="mb-4 space-y-1 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+      >
+        <div :for={warning <- Map.get(@starrocks_memory, :warnings, [])} class="font-medium">
+          {warning}
+        </div>
+      </div>
+
+      <div
+        :if={Map.get(@starrocks_memory, :nodes, []) != []}
+        id="cluster-starrocks-memory-table"
+        class="sr-ui-table-shell"
+      >
+        <table class={ui_table_class(size: "sm")}>
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
+              <th>Node</th>
+              <th>Detected Memory</th>
+              <th>Process Limit</th>
+              <th>Reserve</th>
+              <th>Memory Keys</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={node <- Map.get(@starrocks_memory, :nodes, [])}
+              id={"cluster-starrocks-node-#{node.id}"}
+              class="align-top"
+            >
+              <td>
+                <div class="font-mono text-xs font-medium">{node.host}</div>
+                <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-sr-muted">
+                  <span>{starrocks_node_kind_label(node[:kind])} #{node.id}</span>
+                  <.ui_badge variant={if node[:alive], do: "success", else: "error"} size="xs">
+                    {if node[:alive], do: "Alive", else: "Down"}
+                  </.ui_badge>
+                </div>
+              </td>
+              <td class="font-mono text-xs">
+                {format_starrocks_gib(node[:detected_memory_bytes])}
+              </td>
+              <td class="font-mono text-xs">
+                <div>{format_starrocks_gib(node[:process_limit_bytes])}</div>
+                <div :if={present_text(node[:mem_limit])} class="text-[11px] text-sr-muted">
+                  mem_limit {node.mem_limit}
+                </div>
+              </td>
+              <td>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class={
+                    if node[:reserve] == :low,
+                      do: "font-mono text-xs font-semibold text-warning",
+                      else: "font-mono text-xs"
+                  }>
+                    {format_starrocks_gib(node[:reserve_bytes])}
+                  </span>
+                  <.ui_badge variant={starrocks_reserve_badge_variant(node[:reserve])} size="xs">
+                    {starrocks_reserve_label(node[:reserve])}
+                  </.ui_badge>
+                </div>
+              </td>
+              <td>
+                <div class="space-y-1">
+                  <div
+                    :for={setting <- Map.get(node, :settings, [])}
+                    class="flex flex-wrap items-center gap-1.5 text-xs"
+                  >
+                    <span class="font-mono">{setting.name}</span>
+                    <span class="font-mono text-sr-muted">
+                      {format_starrocks_setting_value(setting)}
+                    </span>
+                    <.ui_badge variant={starrocks_setting_badge_variant(setting[:state])} size="xs">
+                      {starrocks_setting_state_label(setting[:state])}
+                    </.ui_badge>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  @doc false
+  def starrocks_memory_for_mount(true), do: load_starrocks_memory()
+  def starrocks_memory_for_mount(false), do: unavailable_starrocks_memory()
+
+  @doc false
+  def unavailable_starrocks_memory, do: %{status: :not_running, nodes: [], warnings: []}
+
+  defp load_starrocks_memory do
+    [Node.self() | Node.list()]
+    |> Enum.uniq()
+    |> Enum.flat_map(&fetch_starrocks_memory_candidates/1)
+    |> Enum.max_by(&starrocks_memory_rank/1, fn -> unavailable_starrocks_memory() end)
+  end
+
+  defp fetch_starrocks_memory_candidates(node) do
+    Enum.filter(
+      [fetch_node_memory_health(node), fetch_cluster_health_starrocks_memory(node)],
+      &match?(%{status: status} when status != :not_running, &1)
+    )
+  end
+
+  defp fetch_node_memory_health(node) do
+    case :rpc.call(node, NodeMemory, :health, [], 1_500) do
+      %{status: _} = memory -> memory
+      _ -> nil
+    end
+  end
+
+  defp fetch_cluster_health_starrocks_memory(node) do
+    case :rpc.call(node, ClusterHealth, :get_health, [], 1_500) do
+      %{starrocks_memory: %{status: _} = memory} -> memory
+      _ -> nil
+    end
+  end
+
+  defp starrocks_memory_rank(%{status: :warning}), do: 4
+  defp starrocks_memory_rank(%{status: :error}), do: 3
+  defp starrocks_memory_rank(%{status: :ok}), do: 2
+  defp starrocks_memory_rank(%{status: :pending}), do: 1
+  defp starrocks_memory_rank(_), do: 0
+
+  defp starrocks_memory_badge_variant(:ok), do: "success"
+  defp starrocks_memory_badge_variant(:warning), do: "warning"
+  defp starrocks_memory_badge_variant(:error), do: "error"
+  defp starrocks_memory_badge_variant(:pending), do: "info"
+  defp starrocks_memory_badge_variant(_), do: "ghost"
+
+  defp starrocks_memory_status_label(:ok), do: "Healthy"
+  defp starrocks_memory_status_label(:warning), do: "Warning"
+  defp starrocks_memory_status_label(:error), do: "Error"
+  defp starrocks_memory_status_label(:pending), do: "Pending"
+  defp starrocks_memory_status_label(_), do: "Unavailable"
+
+  defp starrocks_node_kind_label(:backend), do: "Backend"
+  defp starrocks_node_kind_label(:compute_node), do: "Compute node"
+  defp starrocks_node_kind_label(_), do: "Node"
+
+  defp starrocks_reserve_badge_variant(:low), do: "warning"
+  defp starrocks_reserve_badge_variant(:ok), do: "success"
+  defp starrocks_reserve_badge_variant(_), do: "ghost"
+
+  defp starrocks_reserve_label(:low), do: "Low (< 2.5 GiB)"
+  defp starrocks_reserve_label(:ok), do: "OK"
+  defp starrocks_reserve_label(_), do: "Unknown"
+
+  defp starrocks_setting_badge_variant(:converged), do: "success"
+  defp starrocks_setting_badge_variant(:applied), do: "success"
+  defp starrocks_setting_badge_variant(:restart_required), do: "warning"
+  defp starrocks_setting_badge_variant(:failed), do: "error"
+  defp starrocks_setting_badge_variant(_), do: "ghost"
+
+  defp starrocks_setting_state_label(state) when is_atom(state), do: Atom.to_string(state)
+  defp starrocks_setting_state_label(_), do: "unknown"
+
+  defp format_starrocks_setting_value(%{state: state, live: live, target: target})
+       when state in [:restart_required, :failed] and is_binary(live) and live != target do
+    "#{live} (target #{target})"
+  end
+
+  defp format_starrocks_setting_value(%{target: target}) when is_binary(target), do: target
+  defp format_starrocks_setting_value(_), do: "—"
+
+  defp format_starrocks_gib(bytes) when is_integer(bytes) and bytes >= 0 do
+    "#{:erlang.float_to_binary(bytes / 1_073_741_824, decimals: 1)} GiB"
+  end
+
+  defp format_starrocks_gib(_), do: "Unknown"
 
   defp schedule_refresh do
     Process.send_after(self(), :refresh, @refresh_interval)
