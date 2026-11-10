@@ -255,7 +255,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     # OTP debug events let the test pause the real task while it waits for its
     # reservation call. No fake filesystem, clock or production injection hook.
-    pause = fn operation ->
+    pause = fn operation, hold ->
       hook = fn
         _, {:in, {:"$gen_call", {caller, _}, _}}, _ ->
           if caller in Task.Supervisor.children(ServiceRadarNVR.PublicationTasks) do
@@ -264,7 +264,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
             receive do
               {:publication_paused, ^caller} -> :done
             after
-              5_000 -> raise "publication pause handshake failed"
+              10_000 -> raise "publication pause handshake failed"
             end
           else
             :waiting
@@ -279,7 +279,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
       receive do
         {:publication_waiting, task} ->
-          true = :erlang.suspend_process(task)
+          hold.(task)
           send(Capacity, {:publication_paused, task})
           {caller, task}
       after
@@ -287,7 +287,8 @@ case System.fetch_env!("NVR_TEST_MODE") do
       end
     end
 
-    {publisher, task} = pause.(fn -> ServiceRadarNVR.prepare_publication(block_id, reference) end)
+    suspend = fn task -> true = :erlang.suspend_process(task) end
+    {publisher, task} = pause.(fn -> ServiceRadarNVR.prepare_publication(block_id, reference) end, suspend)
     {:ok, %{publication_operations: 1, publication_write_reserved_bytes: pending}} = ServiceRadarNVR.capacity()
     true = pending > 0
     {:ok, %{publication_reserved_bytes: total}} = ServiceRadarNVR.capacity()
@@ -350,8 +351,20 @@ case System.fetch_env!("NVR_TEST_MODE") do
       end
     end
 
+    # A reservation reply delayed past GenServer's default call timeout is
+    # bounded by the task deadline, not a shorter internal timer.
+    delay = fn _task -> Process.sleep(6_000) end
+    {slow_caller, _slow_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end, delay)
+
+    receive do
+      {:publication_finished, ^slow_caller, {:ok, ^ack}} -> :ok
+      {:publication_finished, ^slow_caller, other} -> raise "delayed reservation failed: #{inspect(other)}"
+    after
+      30_000 -> raise "delayed reservation did not finish"
+    end
+
     # Failure of the independent publication supervisor must not retire capture.
-    {failed_caller, failed_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    {failed_caller, failed_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end, suspend)
     task_monitor = Process.monitor(failed_task)
     Process.exit(Process.whereis(ServiceRadarNVR.PublicationTasks), :kill)
 
@@ -384,7 +397,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     File.write!(System.fetch_env!("NVR_TEST_RECEIPT"), Jason.encode!(paths))
 
     # Caller loss does not remove the task deadline or free its admission slot.
-    {orphan, abandoned} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    {orphan, abandoned} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end, suspend)
     monitor = Process.monitor(abandoned)
     Process.exit(orphan, :kill)
     {:error, :nvr_publication_capacity} = ServiceRadarNVR.prepare_publication(block_id, reference)
@@ -398,7 +411,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     :ok = wait.(wait, 100)
     {:ok, ^intent} = ServiceRadarNVR.publication_intent(block_id)
     {:ok, ^ack} = ServiceRadarNVR.publication_acknowledgement(block_id)
-    {_caller, retiring_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    {_caller, retiring_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end, suspend)
     retiring_monitor = Process.monitor(retiring_task)
     Process.exit(Process.whereis(Capacity), :kill)
 

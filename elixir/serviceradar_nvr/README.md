@@ -120,7 +120,9 @@ Before writing, the task asks the capacity owner to check fresh inventory and
 free space. New bytes must fit alongside full active media reservations, the
 configured physical floor and all other publication allowances. The write spends
 its own missing-record allowance; its complete byte count remains reserved until
-the task exits, even when inventory already sees the file. This conservative
+the task exits, even when inventory already sees the file. Write guards keep both
+that allowance and the pending bytes until fresh inventory after task exit; a
+failed inventory keeps the previous floor. This conservative
 accounting may refuse admission early. Exact retries need no additional bytes.
 Recovery remains exclusive with both recording and publication.
 

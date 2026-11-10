@@ -150,10 +150,9 @@ defmodule ServiceRadarNVR.Capacity do
   def handle_call({:publication_write, kind, additional}, {owner, _}, %{publication: %{pid: owner} = publication} = state) do
     with {:ok, usage} <- measure(state.storage, state),
          :ok <- publication_capacity(usage, kind, additional) do
-      # Keep the complete pending write charged until the task has exited, even
-      # when inventory already sees the new file and drops its missing slot.
-      spent = if additional > 0, do: Publication.max_bytes(kind), else: 0
-      floor = usage.publication_reserved_bytes - spent + additional
+      # Write guards keep the missing record's allowance and the complete
+      # pending write until the task exits and fresh inventory releases them.
+      floor = usage.publication_reserved_bytes + additional
       publication = %{publication | reserved_bytes: additional}
       {:reply, :ok, %{state | publication: publication, publication_floor: floor, probe: nil}}
     else
@@ -247,7 +246,7 @@ defmodule ServiceRadarNVR.Capacity do
     try do
       result =
         with {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
-             :ok <- GenServer.call(owner, {:publication_write, kind, additional}),
+             :ok <- GenServer.call(owner, {:publication_write, kind, additional}, :infinity),
              :ok <- Publication.persist(storage, block_id, kind, bytes) do
           {:ok, bytes}
         end
