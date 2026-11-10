@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.AgentTracker
+  alias ServiceRadar.Analytics.StarRocks.NodeMemory
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadarWebNG.AccountsFixtures
 
@@ -314,5 +315,62 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     assert has_element?(view, "#cluster-ingestion-lane-status", "3 / 32")
     assert has_element?(view, "#cluster-ingestion-lane-status", "8.0 KiB / 32.0 MiB")
     assert has_element?(view, "#cluster-ingestion-lane-sync", "1")
+  end
+
+  test "disconnected mount skips NodeMemory while connected mount renders StarRocks reserve and restart_required keys",
+       %{conn: conn} do
+    if Process.whereis(NodeMemory) do
+      stop_supervised!(NodeMemory)
+    end
+
+    query = fn
+      "SHOW BACKENDS" ->
+        {:ok, %{columns: ["BackendId", "IP", "Alive", "MemLimit"], rows: []}}
+
+      "SHOW COMPUTE NODES" ->
+        {:ok,
+         %{
+           columns: ["ComputeNodeId", "IP", "Alive", "MemLimit"],
+           rows: [
+             ["101", "cn-0.example.com", "true", "8.100GB"],
+             ["102", "cn-1.example.com", "true", "6.300GB"]
+           ]
+         }}
+
+      "SELECT BE_ID, NAME, VALUE, MUTABLE FROM information_schema.be_configs" <> _ ->
+        {:ok,
+         %{
+           columns: ["BE_ID", "NAME", "VALUE", "MUTABLE"],
+           rows: [
+             [101, "mem_limit", "90%", 0],
+             [101, "datacache_mem_size", "10%", 1],
+             [101, "update_memory_limit_percent", "60", 0],
+             [101, "lake_metadata_cache_limit", "536870912", 1],
+             [102, "mem_limit", "70%", 0],
+             [102, "datacache_mem_size", "10%", 1],
+             [102, "update_memory_limit_percent", "30", 1],
+             [102, "lake_metadata_cache_limit", "536870912", 1]
+           ]
+         }}
+
+      "UPDATE information_schema.be_configs" <> _ ->
+        {:ok, %{columns: [], rows: []}}
+    end
+
+    pid = start_supervised!({NodeMemory, query: query, initial_delay_ms: 60_000, interval_ms: 60_000})
+    send(pid, :converge)
+    _ = :sys.get_state(pid)
+
+    disconnected_conn = get(conn, ~p"/settings/cluster")
+    disconnected_html = html_response(disconnected_conn, 200)
+    assert disconnected_html =~ "cluster-starrocks-memory-unavailable"
+    refute disconnected_html =~ "cluster-starrocks-memory-table"
+
+    {:ok, view, _connected_html} = live(conn, ~p"/settings/cluster")
+    assert has_element?(view, "#cluster-starrocks-memory-warnings")
+    assert has_element?(view, "#cluster-starrocks-memory-table")
+    assert has_element?(view, "#cluster-starrocks-node-101", "1.9 GiB")
+    assert has_element?(view, "#cluster-starrocks-node-101", "restart_required")
+    assert has_element?(view, "#cluster-starrocks-node-102", "3.7 GiB")
   end
 end

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Analytics.StarRocks.NodeMemory
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadarWebNGWeb.Settings.ClusterLive.Index, as: ClusterLive
 
@@ -11,6 +12,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
   setup do
     if Process.whereis(RuntimeMetrics) do
       stop_supervised!(RuntimeMetrics)
+    end
+
+    if Process.whereis(NodeMemory) do
+      stop_supervised!(NodeMemory)
     end
 
     :ok
@@ -177,5 +182,86 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
     assert html =~ "60 / 96"
     assert html =~ "6.0 KiB / 192.0 KiB"
     refute html =~ "60 / 32"
+  end
+
+  test "disconnected mount returns not_running StarRocks memory without reading NodeMemory" do
+    pid =
+      start_supervised!({NodeMemory, query: synthetic_warehouse_query(), initial_delay_ms: 60_000, interval_ms: 60_000})
+
+    send(pid, :converge)
+    _ = :sys.get_state(pid)
+    assert NodeMemory.health().status == :warning
+
+    memory = ClusterLive.starrocks_memory_for_mount(false)
+    assert memory.status == :not_running
+
+    html = render_component(&ClusterLive.starrocks_memory_panel/1, starrocks_memory: memory)
+    assert html =~ "cluster-starrocks-memory-unavailable"
+    refute html =~ "cluster-starrocks-memory-table"
+  end
+
+  test "connected mount renders per-node StarRocks reserve, warning state, and restart_required keys" do
+    pid =
+      start_supervised!({NodeMemory, query: synthetic_warehouse_query(), initial_delay_ms: 60_000, interval_ms: 60_000})
+
+    send(pid, :converge)
+    _ = :sys.get_state(pid)
+
+    memory = ClusterLive.starrocks_memory_for_mount(true)
+    assert memory.status == :warning
+
+    html = render_component(&ClusterLive.starrocks_memory_panel/1, starrocks_memory: memory)
+
+    assert html =~ "StarRocks Memory Headroom"
+    assert html =~ "cluster-starrocks-memory-warnings"
+    assert html =~ "cluster-starrocks-memory-table"
+
+    doc = LazyHTML.from_fragment(html)
+
+    node_101 = doc |> LazyHTML.query("#cluster-starrocks-node-101") |> LazyHTML.to_html()
+    assert node_101 =~ "cn-0.example.com"
+    assert node_101 =~ "8.1 GiB"
+    assert node_101 =~ "1.9 GiB"
+    assert node_101 =~ "Low (&lt; 2.5 GiB)"
+    assert node_101 =~ "update_memory_limit_percent"
+    assert node_101 =~ "60 (target 30)"
+    assert node_101 =~ "restart_required"
+
+    node_102 = doc |> LazyHTML.query("#cluster-starrocks-node-102") |> LazyHTML.to_html()
+    assert node_102 =~ "cn-1.example.com"
+    assert node_102 =~ "6.3 GiB"
+    assert node_102 =~ "3.7 GiB"
+  end
+
+  defp synthetic_warehouse_query do
+    compute_nodes = [
+      ["101", "cn-0.example.com", "true", "8.100GB"],
+      ["102", "cn-1.example.com", "true", "6.300GB"]
+    ]
+
+    configs = [
+      [101, "mem_limit", "90%", 0],
+      [101, "datacache_mem_size", "10%", 1],
+      [101, "update_memory_limit_percent", "60", 0],
+      [101, "lake_metadata_cache_limit", "536870912", 1],
+      [102, "mem_limit", "70%", 0],
+      [102, "datacache_mem_size", "10%", 1],
+      [102, "update_memory_limit_percent", "30", 1],
+      [102, "lake_metadata_cache_limit", "536870912", 1]
+    ]
+
+    fn
+      "SHOW BACKENDS" ->
+        {:ok, %{columns: ["BackendId", "IP", "Alive", "MemLimit"], rows: []}}
+
+      "SHOW COMPUTE NODES" ->
+        {:ok, %{columns: ["ComputeNodeId", "IP", "Alive", "MemLimit"], rows: compute_nodes}}
+
+      "SELECT BE_ID, NAME, VALUE, MUTABLE FROM information_schema.be_configs" <> _ ->
+        {:ok, %{columns: ["BE_ID", "NAME", "VALUE", "MUTABLE"], rows: configs}}
+
+      "UPDATE information_schema.be_configs" <> _ ->
+        {:ok, %{columns: [], rows: []}}
+    end
   end
 end
