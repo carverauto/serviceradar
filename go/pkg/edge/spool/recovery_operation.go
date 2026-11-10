@@ -199,19 +199,20 @@ func (o *RecoveryOperation) checkPublicationBody(index int, r *edgev1.EdgeRecord
 		return ErrRecoveryPlan
 	}
 	wrapper := &edgev1.EdgeRecoveryControlPayloadV1{}
-	if index < len(o.manifest.Pages) {
+	switch {
+	case index < len(o.manifest.Pages):
 		page := new(edgev1.EdgeLossManifestPageV1)
 		if err := proto.Unmarshal(o.manifest.Pages[index], page); err != nil {
 			return err
 		}
 		wrapper.Body = &edgev1.EdgeRecoveryControlPayloadV1_ManifestPage{ManifestPage: page}
-	} else if index == len(o.manifest.Pages) {
+	case index == len(o.manifest.Pages):
 		tomb := new(edgev1.SpoolLossTombstoneV1)
 		if err := proto.Unmarshal(o.manifest.Tombstone, tomb); err != nil {
 			return err
 		}
 		wrapper.Body = &edgev1.EdgeRecoveryControlPayloadV1_Tombstone{Tombstone: tomb}
-	} else {
+	default:
 		return ErrRecoveryPlan
 	}
 	expected, err := proto.MarshalOptions{Deterministic: true}.Marshal(wrapper)

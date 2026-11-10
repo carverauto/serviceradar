@@ -17,7 +17,7 @@ defmodule ServiceRadar.RecoveryAssignmentFixtures do
   def fixture(kind \\ :sweep) do
     key = IssuerKey.from_seed(:binary.copy(<<0x63>>, 32))
     scope = uuid()
-    agent = "agent-#{System.unique_integer([:positive])}.example.com"
+    agent = "agent-#{System.unique_integer([:positive])}"
 
     production = %EdgeProductionClaimsV1{
       contract_id:

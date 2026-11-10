@@ -44,6 +44,7 @@ func recoveryOperationAllocator(t *testing.T) *Allocator {
 }
 
 func newRecoveryFixture(t *testing.T, copies int) *recoveryFixture {
+	t.Helper()
 	return newRecoveryFixtureWithTerminal(t, copies, nil)
 }
 
@@ -63,7 +64,7 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 
 func newRecoveryFixtureBeforeFreeze(t *testing.T, copies int, terminal func(*Generation, AttributedAppend)) *recoveryFixture {
 	t.Helper()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	root := t.TempDir()
 	a := recoveryOperationAllocator(t)
 	lanes := openAttributedLanes(t, root, identity, a, nil)
@@ -136,6 +137,7 @@ func newRecoveryFixtureBeforeFreeze(t *testing.T, copies int, terminal func(*Gen
 }
 
 func recoveryControlInputs(t *testing.T, f *recoveryFixture) []AttributedAppend {
+	t.Helper()
 	return recoveryControlInputsAtEpoch(t, f, 0)
 }
 
@@ -147,7 +149,7 @@ func recoveryControlInputsAtEpoch(t *testing.T, f *recoveryFixture, epochDelta u
 	}
 	result := make([]AttributedAppend, len(manifest.Pages)+1)
 	for i := range result {
-		result[i], _, _ = attributionAppendMutated(t, "control", func(r *edgev1.EdgeRecordV1) {
+		result[i], _, _ = attributionAppendMutated(t, fixtureKindControl, func(r *edgev1.EdgeRecordV1) {
 			wrapper := &edgev1.EdgeRecoveryControlPayloadV1{}
 			var scope []byte
 			if i < len(manifest.Pages) {

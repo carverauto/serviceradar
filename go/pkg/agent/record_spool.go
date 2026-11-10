@@ -101,6 +101,8 @@ func retainedStorageBytes(root string) (uint64, error) {
 	return storedTreeBytes(root, map[string]bool{filepath.Join(root, "lanes"): true, filepath.Join(root, "recoveries"): true})
 }
 
+var errStorageRootNotDirectory = errors.New("edge storage root must be a directory")
+
 func storedTreeBytes(root string, excluded map[string]bool) (uint64, error) {
 	var total uint64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -111,7 +113,7 @@ func storedTreeBytes(root string, excluded map[string]bool) (uint64, error) {
 			return walkErr
 		}
 		if path == root && !entry.IsDir() {
-			return errors.New("edge storage root must be a directory")
+			return errStorageRootNotDirectory
 		}
 		if excluded[path] {
 			return filepath.SkipDir

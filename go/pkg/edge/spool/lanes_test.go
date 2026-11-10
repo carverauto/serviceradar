@@ -207,6 +207,8 @@ func TestLaneGenerationAllocatorProtectsPhysicalReserve(t *testing.T) {
 	}
 }
 
+var errSyntheticBindingStore = errors.New("synthetic unavailable binding store")
+
 func TestLaneGenerationConfigurationFailureRetainsRecords(t *testing.T) {
 	root := t.TempDir()
 	ls := openLanes(t, root, sessionA)
@@ -214,7 +216,7 @@ func TestLaneGenerationConfigurationFailureRetainsRecords(t *testing.T) {
 	if err := ls.Close(); err != nil {
 		t.Fatal(err)
 	}
-	failure := errors.New("synthetic unavailable binding store")
+	failure := errSyntheticBindingStore
 	option := WithGenerationOptions(func(GenerationIdentity, string) ([]Option, error) { return nil, failure })
 	if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t), option); !errors.Is(err, failure) {
 		t.Fatalf("restart ignored generation configuration failure: %v", err)

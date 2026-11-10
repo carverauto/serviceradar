@@ -60,7 +60,7 @@ func closedRecoverySource(t *testing.T, ls *LaneSet, key LaneKey, identity Ident
 
 func TestRecoveryDestinationRemainsSeparateAcrossRestart(t *testing.T) {
 	root := t.TempDir()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	allocator := recoveryOperationAllocator(t)
 	ls := openAttributedLanes(t, root, identity, allocator, nil)
 	source := closedRecoverySource(t, ls, key, identity, input)
@@ -135,7 +135,7 @@ func TestRecoveryDestinationRemainsSeparateAcrossRestart(t *testing.T) {
 }
 
 func TestClosedGenerationDrainsWithTerminalEvidence(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	root := t.TempDir()
 	allocator := attributionAllocator(t)
 	ls := openAttributedLanes(t, root, identity, allocator, nil)
@@ -193,11 +193,13 @@ func TestClosedGenerationDrainsWithTerminalEvidence(t *testing.T) {
 	}
 }
 
+var errSyntheticDestinationConfig = errors.New("synthetic destination configuration failure")
+
 func TestPublishedRecoveryDestinationFailureRequiresInventory(t *testing.T) {
 	root := t.TempDir()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	allocator := recoveryOperationAllocator(t)
-	failed := errors.New("synthetic destination configuration failure")
+	failed := errSyntheticDestinationConfig
 	failDestination := false
 	ls, err := OpenLanes(root, identity, deploymentTaxonomy(t), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
 		if failDestination {
@@ -289,7 +291,7 @@ func TestRetainedInventoryDrainsBeforeAuthenticatedActivation(t *testing.T) {
 
 func TestRecoveryGenerationReservesBeforePhysicalMetadata(t *testing.T) {
 	root := t.TempDir()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	measure := func() (uint64, error) {
 		var total uint64
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -368,7 +370,7 @@ func TestRecoveryGenerationReservesBeforePhysicalMetadata(t *testing.T) {
 
 func TestRecoveryDestinationPreservesSourceBeforeFreezeWithoutCurrentSession(t *testing.T) {
 	root := t.TempDir()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	allocator := recoveryOperationAllocator(t)
 	ls := openAttributedLanes(t, root, identity, allocator, nil)
 	source := closedRecoverySource(t, ls, key, identity, input)
@@ -440,7 +442,7 @@ func TestRecoveryDestinationPreservesSourceBeforeFreezeWithoutCurrentSession(t *
 
 func TestOrdinaryGenerationMetadataCannotConsumePhysicalRecoveryFloor(t *testing.T) {
 	root := t.TempDir()
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	var free uint64
 	allocator, err := NewAllocator(AllocatorConfig{Capacity: 128 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: DefaultRecoveryFootprint(), FreeBytes: func() (uint64, error) { return free, nil }})
 	if err != nil {
@@ -452,7 +454,7 @@ func TestOrdinaryGenerationMetadataCannotConsumePhysicalRecoveryFloor(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lanes.Close()
+	defer func() { _ = lanes.Close() }()
 	free = allocator.Usage().Floor
 	before := allocator.Usage()
 	if _, err := lanes.AppendAttributed(key, identity, input); !errors.Is(err, ErrAdmissionRefused) {
@@ -491,7 +493,7 @@ func TestOrdinaryGenerationMetadataCannotConsumePhysicalRecoveryFloor(t *testing
 }
 
 func TestLaneAllocatorRejectsFactoryOwnerSubstitution(t *testing.T) {
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	owner, substitute := recoveryOperationAllocator(t), recoveryOperationAllocator(t)
 	lanes, err := OpenLanes(t.TempDir(), identity, deploymentTaxonomy(t), WithLaneAllocator(owner), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
 		return []Option{WithAttribution(id), WithAllocator(substitute)}, nil
@@ -499,7 +501,7 @@ func TestLaneAllocatorRejectsFactoryOwnerSubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lanes.Close()
+	defer func() { _ = lanes.Close() }()
 	if _, err := lanes.AppendAttributed(key, identity, input); !errors.Is(err, ErrInvalidAllocatorConfig) {
 		t.Fatalf("factory replaced byte owner: %v", err)
 	}

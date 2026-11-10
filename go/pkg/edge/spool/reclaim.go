@@ -161,7 +161,9 @@ func (s *Spool) ReclaimResolved() error {
 	return s.reclaimLocked()
 }
 
-func (s *Spool) reclaimLocked() error {
+// reclaimPreconditionsLocked requires s.mu. It refuses reclaim on a recovery
+// hold, a fail-stopped or closed spool, a stale layout, or a failed allocator.
+func (s *Spool) reclaimPreconditionsLocked() error {
 	if err := s.requireNoRecoveryHold(); err != nil {
 		return err
 	}
@@ -176,6 +178,13 @@ func (s *Spool) reclaimLocked() error {
 	}
 	if s.alloc != nil && s.alloc.Err() != nil {
 		return s.alloc.Err()
+	}
+	return nil
+}
+
+func (s *Spool) reclaimLocked() error {
+	if err := s.reclaimPreconditionsLocked(); err != nil {
+		return err
 	}
 	if s.alloc != nil {
 		s.alloc.mu.Lock()

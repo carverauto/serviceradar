@@ -32,13 +32,13 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 )
 
-func openTestRecordSpool(t *testing.T, dir string, opts ...spool.Option) (*RecordSpool, error) {
+func openTestRecordSpool(t *testing.T, dir string) (*RecordSpool, error) {
 	t.Helper()
 	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
 	if err != nil {
 		return nil, err
 	}
-	return OpenRecordSpool(dir, allocator, opts...)
+	return OpenRecordSpool(dir, allocator)
 }
 
 // Test readers preserve each stored record; assertions needing a sequence use
@@ -115,8 +115,9 @@ func installTestEdgeGrants(t *testing.T, p *PushLoop, agent string, entries []*p
 
 func soleTestGeneration(t *testing.T, s *RecordSpool) *spool.Generation {
 	t.Helper()
-	var found []*spool.Generation
-	for _, key := range s.lanes.Lanes() {
+	keys := s.lanes.Lanes()
+	found := make([]*spool.Generation, 0, len(keys))
+	for _, key := range keys {
 		found = append(found, s.lanes.Generations(key)...)
 	}
 	require.Len(t, found, 1)

@@ -237,7 +237,7 @@ func (s *Spool) readSidecar(name string, magic uint32, seq uint64) ([]byte, Attr
 	if err != nil {
 		return nil, AttributionNotVerifying, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	b := make([]byte, sidecarSlotSize)
 	n, err := f.ReadAt(b, int64(seq-s.baseSeq-1)*sidecarSlotSize)
 	if err != nil && !errors.Is(err, io.EOF) {

@@ -22,6 +22,12 @@ import (
 
 var ErrRecoveryPending = errors.New("edge recovery pending")
 
+var errCopyAuthorityUnavailable = errors.New("copy authority unavailable")
+
+// recoveryStageCompleted names the stage reported once a bounded operation's
+// signed completion has been recorded and its cleanup finished.
+const recoveryStageCompleted = "completed"
+
 // RecoveryCoordinator advances one bounded operation. Startup restoration must
 // finish before senders run. Each Step examines at most one generation or one
 // bounded operation, independently of whether any record is sender-visible.
@@ -261,7 +267,7 @@ func (c *RecoveryCoordinator) advance(ctx context.Context, run *recoveryRun) (st
 		if err := c.finishCompletion(run); err != nil {
 			return "cleanup", err
 		}
-		return "completed", nil
+		return recoveryStageCompleted, nil
 	}
 	if err := c.openOperation(ctx, run); err != nil {
 		return "freeze", err
@@ -359,7 +365,7 @@ func (c *RecoveryCoordinator) completeConsumer(ctx context.Context, run *recover
 		return "cleanup", err
 	}
 	c.setOperation(nil)
-	return "completed", nil
+	return recoveryStageCompleted, nil
 }
 
 func (c *RecoveryCoordinator) validateResolution(identity spool.GenerationIdentity, resolved *edgev1.RecoveryResolvedV1, capability *edgev1.EdgeSignedCapabilityV1) (*edgerecord.ValidatedRecoveryResolution, error) {

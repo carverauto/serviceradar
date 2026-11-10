@@ -246,7 +246,7 @@ func TestRecoveryCoordinatorRetainsOrphanInventoryAndBlocksAdmission(t *testing.
 	require.NoError(t, os.WriteFile(path, data, 0600))
 	store, err := openTestRecordSpool(t, root)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	recoveryFixturePolicy(t, store)
 	before := store.allocator.Usage()
 	c := NewRecoveryCoordinator(store, &recoveryGatewayFixture{t: t}, nil)
@@ -263,7 +263,7 @@ func TestRecoveryCoordinatorRetainsOrphanInventoryAndBlocksAdmission(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, data, retained)
 	_, err = store.PrepareRecord(nil)
-	require.True(t, errors.Is(err, spool.ErrAdmissionPaused))
+	require.ErrorIs(t, err, spool.ErrAdmissionPaused)
 }
 
 func (f *recoveryGatewayFixture) RenewEdgeRecoveryCopies(_ context.Context, request *proto.EdgeRecoveryCopyGrantRequest, _ ...grpc.CallOption) (*proto.EdgeDeliveryGrantResponse, error) {
@@ -405,7 +405,7 @@ func recoveryGapFixture(t *testing.T, copies int) (*RecordSpool, *RecoveryCoordi
 
 func TestRecoveryCoordinatorReauthorizesImmutablePagesWithinAttemptBound(t *testing.T) {
 	store, c, gateway, _, _ := recoveryGapFixture(t, 0)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	driveRecoveryTo(t, c, "publish")
 	run := c.operation()
 	first, err := run.op.PublicationProgress()
@@ -494,7 +494,7 @@ func TestRecoveryCoordinatorRetainsControlUntilReceiptBarrierRecovers(t *testing
 	health, err := run.handles.Source.Health(time.Now())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), health.GapCount)
-	require.EqualValues(t, 1, store.allocator.Usage().ActiveRecoveries)
+	require.Equal(t, 1, store.allocator.Usage().ActiveRecoveries)
 	require.NoError(t, os.Remove(obstacle))
 	retainedBytes := func() uint64 {
 		var total uint64
@@ -535,7 +535,7 @@ func TestRecoveryCoordinatorRetainsControlUntilReceiptBarrierRecovers(t *testing
 	restored := store.allocator.Usage()
 	require.Equal(t, before.RecoveryReserve, restored.RecoveryReserve)
 	require.Equal(t, before.Floor, restored.Floor)
-	require.EqualValues(t, 1, restored.ActiveRecoveries)
+	require.Equal(t, 1, restored.ActiveRecoveries)
 	require.Equal(t, physical, retainedBytes(), "inventory changed retained evidence before replay")
 	require.GreaterOrEqual(t, restored.RecoveryUsed, physical, "restored grant omitted retained recovery bytes")
 	require.Zero(t, store.recoveryInventoryBytes, "temporary inventory ownership was not transferred")

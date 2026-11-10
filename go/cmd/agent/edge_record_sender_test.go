@@ -445,7 +445,7 @@ func TestRecoveryLaneDeliveryProgressesWhileBulkSessionStalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	done := make(chan struct{})
 	go func() { defer close(done); runEdgeRecordSender(ctx, cfg, store, logger.NewTestLogger()) }()
@@ -491,7 +491,7 @@ func TestUnsupportedLegacyStorageIsRetainedAccountedAndNeverDelivered(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	linkInfo, err := os.Lstat(link)
 	if err != nil {
 		t.Fatal(err)
@@ -701,7 +701,7 @@ func TestSenderStartupReportsAmbiguousSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	var output bytes.Buffer
 	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
 	runEdgeRecordSender(context.Background(), &agent.ServerConfig{}, store, log)
@@ -764,7 +764,7 @@ func TestSpoolStatusSamplesLiveUsageAndBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	sample := edgeSpoolStatusSampler(store, budget)
 	before := sample()
 	if err := budget.Apply(defaultEdgeSpoolMaxBytes / 2); err != nil {
@@ -795,7 +795,7 @@ func TestRecoverySuspendsAndJoinsAnInflightSourceSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	workers, closeWorkers, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())

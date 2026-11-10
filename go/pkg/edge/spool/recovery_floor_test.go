@@ -20,6 +20,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+var errNoAllocatedBlocks = errors.New("filesystem does not expose allocated blocks")
+
 func recoveryPhysicalBytes(root string) (uint64, error) {
 	var total uint64
 	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
@@ -32,7 +34,7 @@ func recoveryPhysicalBytes(root string) (uint64, error) {
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok || stat.Blocks < 0 {
-			return fmt.Errorf("filesystem does not expose allocated blocks")
+			return errNoAllocatedBlocks
 		}
 		total += uint64(stat.Blocks) * 512
 		return nil
@@ -42,7 +44,7 @@ func recoveryPhysicalBytes(root string) (uint64, error) {
 
 func largeRecoveryInput(t *testing.T) (AttributedAppend, LaneKey, Identity) {
 	t.Helper()
-	return attributionAppendMutated(t, "metrics", func(r *edgev1.EdgeRecordV1) {
+	return attributionAppendMutated(t, fixtureKindMetrics, func(r *edgev1.EdgeRecordV1) {
 		var batch metricpb.MetricBatch
 		if err := proto.Unmarshal(r.Payload, &batch); err != nil {
 			t.Fatal(err)
@@ -87,6 +89,7 @@ func TestRecoveryRetainsAllRejectedBytesAndReportsCapacity(t *testing.T) {
 	runBoundedRecoveryAtFloor(t, true)
 }
 func runBoundedRecoveryAtFloor(t *testing.T, allRejected bool) {
+	t.Helper()
 	root := t.TempDir()
 	input, key, identity := largeRecoveryInput(t)
 	var physicalLimit uint64
@@ -110,30 +113,7 @@ func runBoundedRecoveryAtFloor(t *testing.T, allRejected bool) {
 			t.Error(err)
 		}
 	})
-	// This exceeds two maximum operation intervals. Physical byte bounds must
-	// rotate it into independently recoverable generations, even for one key.
-	for i := 0; i < 2049; i++ {
-		_, err = lanes.AppendAttributed(key, identity, input)
-		if errors.Is(err, ErrRotationRequired) {
-			if _, err = lanes.Rotate(key); err != nil {
-				t.Fatal(err)
-			}
-			_, err = lanes.AppendAttributed(key, identity, input)
-		}
-		if err != nil {
-			t.Fatal("populate bounded source", i, err)
-		}
-	}
-	active, _ := lanes.OpenGeneration(key)
-	active.spool.beforeBarrier = func(at barrier) error {
-		if at == barrierRecord {
-			return syscall.EIO
-		}
-		return nil
-	}
-	if _, err = lanes.AppendAttributed(key, identity, input); !errors.Is(err, syscall.EIO) {
-		t.Fatal("active source crash not reached", err)
-	}
+	populateCrashedBoundedSource(t, lanes, key, identity, input)
 	if err = lanes.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -142,55 +122,19 @@ func runBoundedRecoveryAtFloor(t *testing.T, allRejected bool) {
 		t.Fatal(err)
 	}
 	lanes = openAttributedLanes(t, filepath.Join(root, "lanes"), identity, allocator, nil)
-	active, _ = lanes.OpenGeneration(key)
+	active, _ := lanes.OpenGeneration(key)
 	if active.Closed() {
 		t.Fatal("fixture preclosed ambiguous source")
 	}
-	var sources []*Generation
-	var after uint64
-	for {
-		page := lanes.GenerationsPage(key, after, 2)
-		if len(page) == 0 {
-			break
-		}
-		for _, g := range page {
-			after = g.Identity().Ordinal
-			if g.NextSequence() > 1 {
-				sources = append(sources, g)
-			}
-		}
-	}
+	sources := populatedGenerations(lanes, key)
 	if len(sources) < 3 {
 		t.Fatal("large source was not physically bounded", len(sources))
 	}
 	// Recover the still-active ambiguous generation first at the exact floor.
 	sources = append([]*Generation{active}, sources[:len(sources)-1]...)
 	for _, source := range sources {
-		if source == active {
-			continue
-		}
-		path := source.spool.segmentPath()
-		file, err := os.OpenFile(path, os.O_RDWR, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		info, err := file.Stat()
-		if err != nil {
-			t.Fatal(err)
-		}
-		var last [1]byte
-		if _, err = file.ReadAt(last[:], info.Size()-1); err != nil {
-			t.Fatal(err)
-		}
-		last[0] ^= 1
-		if _, err = file.WriteAt(last[:], info.Size()-1); err != nil {
-			t.Fatal(err)
-		}
-		if err = file.Sync(); err != nil {
-			t.Fatal(err)
-		}
-		if err = file.Close(); err != nil {
-			t.Fatal(err)
+		if source != active {
+			flipSegmentTail(t, source)
 		}
 	}
 	if allRejected {
@@ -214,69 +158,19 @@ func runBoundedRecoveryAtFloor(t *testing.T, allRejected bool) {
 	if err = allocator.admit(filler, 1); !errors.Is(err, ErrAdmissionRefused) {
 		t.Fatal("ordinary producer borrowed recovery floor", err)
 	}
+	floor := boundedFloorRun{root: root, lanes: lanes, allocator: allocator, input: input, filler: filler, sources: sources, allRejected: allRejected}
 	previous := initial
 	for index, source := range sources {
 		t.Run(fmt.Sprintf("generation_%d", index), func(t *testing.T) {
-			f := freezeDamagedGeneration(t, lanes, source, allocator, input, filepath.Join(root, fmt.Sprintf("operation-%d", index)), recoveryUUID(byte(90+index)))
-			publications := prepareRecoveryPublications(t, f)
-			for seq := uint64(1); seq < f.plan.Last; seq++ {
-				if _, err := f.operation.Copy(seq); err != nil {
-					t.Fatal("copy at physical floor", seq, err)
-				}
-			}
-			if err := f.operation.ReclaimSource(); err == nil {
-				t.Fatal("source released before authoritative coverage")
-			}
-			acknowledgeRecoveryPublications(t, f, publications)
-			if _, err := f.operation.SealCoverage(); err != nil {
-				t.Fatal(err)
-			}
-			if err := f.operation.ArchiveTerminalEvidence(); err != nil {
-				t.Fatal(err)
-			}
-			if err := f.operation.ReclaimSource(); err != nil {
-				t.Fatal(err)
-			}
-			if allocator.Usage().ActiveRecoveries != 1 {
-				t.Fatal("source transfer dropped original grant")
-			}
-			terminal := mixedRecoveryTerminal(t, f.destination, input, int(f.plan.Last-1), allRejected)
-			if err := f.destination.ResolveWithEvidence(f.plan.Last-1, terminal); err != nil {
-				t.Fatal(err)
-			}
-			if err := f.operation.FinishCleanup(recoveryResolutionEvidence(t, f, nil), []*Generation{f.control}); err != nil {
-				t.Fatal("complete at physical floor", err)
-			}
-			if allocator.Usage().ActiveRecoveries != 0 {
-				t.Fatal("completed operation blocks next source")
-			}
-			measured, err := recoveryPhysicalBytes(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if allRejected {
-				for _, name := range []string{recoveryArchiveFile, "destination.archive"} {
-					raw, err := os.ReadFile(filepath.Join(f.dir, name))
-					if err != nil || bytes.Count(raw, input.Body) != int(f.plan.Last-1) {
-						t.Fatal("mandatory rejected body lost", name, err)
-					}
-				}
-				if allocator.Usage().OrdinaryUsed <= allocator.Usage().OrdinaryCeiling {
-					t.Fatal("rejection archives were not retained and charged")
-				}
-				if err = allocator.admit(filler, 1); !errors.Is(err, ErrAdmissionRefused) {
-					t.Fatal("retained evidence capacity was not surfaced", err)
-				}
-				if _, _, err = lanes.BeginRecoveryDestination(sources[1], recoveryUUID(120), 0, allocator); !errors.Is(err, ErrReserveUnbacked) {
-					t.Fatal("next recovery ignored physical retained evidence", err)
-				}
+			measured, retained := floor.recoverGeneration(t, index, source)
+			if retained {
 				t.Logf("retained rejection archives: ordinary=%d ceiling=%d; physical before=%d after=%d", allocator.Usage().OrdinaryUsed, allocator.Usage().OrdinaryCeiling, previous, measured)
 				return
 			}
 			if measured >= previous {
 				t.Fatalf("accepted-copy cleanup did not return physical blocks: before=%d after=%d", previous, measured)
 			}
-			t.Logf("returned %d allocated bytes; source slots=%d", previous-measured, f.plan.Last)
+			t.Logf("returned %d allocated bytes; source slots=%d", previous-measured, floor.lastSlots)
 			previous = measured
 		})
 		if t.Failed() || allRejected {
@@ -286,4 +180,155 @@ func runBoundedRecoveryAtFloor(t *testing.T, allRejected bool) {
 	if !t.Failed() && !allRejected && previous >= initial {
 		t.Fatal("full-spool recovery made no physical progress")
 	}
+}
+
+// populateCrashedBoundedSource appends past two maximum operation intervals,
+// then crashes the active generation's next append at its record barrier.
+func populateCrashedBoundedSource(t *testing.T, lanes *LaneSet, key LaneKey, identity Identity, input AttributedAppend) {
+	t.Helper()
+	// This exceeds two maximum operation intervals. Physical byte bounds must
+	// rotate it into independently recoverable generations, even for one key.
+	for i := 0; i < 2049; i++ {
+		_, err := lanes.AppendAttributed(key, identity, input)
+		if errors.Is(err, ErrRotationRequired) {
+			if _, err = lanes.Rotate(key); err != nil {
+				t.Fatal(err)
+			}
+			_, err = lanes.AppendAttributed(key, identity, input)
+		}
+		if err != nil {
+			t.Fatal("populate bounded source", i, err)
+		}
+	}
+	active, _ := lanes.OpenGeneration(key)
+	active.spool.beforeBarrier = func(at barrier) error {
+		if at == barrierRecord {
+			return syscall.EIO
+		}
+		return nil
+	}
+	if _, err := lanes.AppendAttributed(key, identity, input); !errors.Is(err, syscall.EIO) {
+		t.Fatal("active source crash not reached", err)
+	}
+}
+
+// populatedGenerations pages every generation of key that holds a sequence.
+func populatedGenerations(lanes *LaneSet, key LaneKey) []*Generation {
+	var sources []*Generation
+	var after uint64
+	for {
+		page := lanes.GenerationsPage(key, after, 2)
+		if len(page) == 0 {
+			return sources
+		}
+		for _, g := range page {
+			after = g.Identity().Ordinal
+			if g.NextSequence() > 1 {
+				sources = append(sources, g)
+			}
+		}
+	}
+}
+
+// flipSegmentTail damages the final byte of a closed generation's segment.
+func flipSegmentTail(t *testing.T, source *Generation) {
+	t.Helper()
+	file, err := os.OpenFile(source.spool.segmentPath(), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last [1]byte
+	if _, err = file.ReadAt(last[:], info.Size()-1); err != nil {
+		t.Fatal(err)
+	}
+	last[0] ^= 1
+	if _, err = file.WriteAt(last[:], info.Size()-1); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type boundedFloorRun struct {
+	root        string
+	lanes       *LaneSet
+	allocator   *Allocator
+	input       AttributedAppend
+	filler      string
+	sources     []*Generation
+	allRejected bool
+	lastSlots   uint64
+}
+
+// recoverGeneration runs one bounded operation at the physical floor and
+// returns the measured physical bytes afterward, and whether the all-rejected
+// run retained its mandatory archives.
+func (r *boundedFloorRun) recoverGeneration(t *testing.T, index int, source *Generation) (uint64, bool) {
+	t.Helper()
+	lanes, allocator, input, allRejected := r.lanes, r.allocator, r.input, r.allRejected
+	f := freezeDamagedGeneration(t, lanes, source, allocator, input, filepath.Join(r.root, fmt.Sprintf("operation-%d", index)), recoveryUUID(byte(90+index)))
+	r.lastSlots = f.plan.Last
+	publications := prepareRecoveryPublications(t, f)
+	for seq := uint64(1); seq < f.plan.Last; seq++ {
+		if _, err := f.operation.Copy(seq); err != nil {
+			t.Fatal("copy at physical floor", seq, err)
+		}
+	}
+	if err := f.operation.ReclaimSource(); err == nil {
+		t.Fatal("source released before authoritative coverage")
+	}
+	acknowledgeRecoveryPublications(t, f, publications)
+	if _, err := f.operation.SealCoverage(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.operation.ArchiveTerminalEvidence(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.operation.ReclaimSource(); err != nil {
+		t.Fatal(err)
+	}
+	if allocator.Usage().ActiveRecoveries != 1 {
+		t.Fatal("source transfer dropped original grant")
+	}
+	terminal := mixedRecoveryTerminal(t, f.destination, input, int(f.plan.Last-1), allRejected)
+	if err := f.destination.ResolveWithEvidence(f.plan.Last-1, terminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.operation.FinishCleanup(recoveryResolutionEvidence(t, f, nil), []*Generation{f.control}); err != nil {
+		t.Fatal("complete at physical floor", err)
+	}
+	if allocator.Usage().ActiveRecoveries != 0 {
+		t.Fatal("completed operation blocks next source")
+	}
+	measured, err := recoveryPhysicalBytes(r.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allRejected {
+		return measured, false
+	}
+	for _, name := range []string{recoveryArchiveFile, "destination.archive"} {
+		raw, err := os.ReadFile(filepath.Join(f.dir, name))
+		if err != nil || bytes.Count(raw, input.Body) != int(f.plan.Last-1) {
+			t.Fatal("mandatory rejected body lost", name, err)
+		}
+	}
+	if allocator.Usage().OrdinaryUsed <= allocator.Usage().OrdinaryCeiling {
+		t.Fatal("rejection archives were not retained and charged")
+	}
+	if err = allocator.admit(r.filler, 1); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatal("retained evidence capacity was not surfaced", err)
+	}
+	if _, _, err = lanes.BeginRecoveryDestination(r.sources[1], recoveryUUID(120), 0, allocator); !errors.Is(err, ErrReserveUnbacked) {
+		t.Fatal("next recovery ignored physical retained evidence", err)
+	}
+	return measured, true
 }

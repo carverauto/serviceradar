@@ -96,7 +96,7 @@ defmodule ServiceRadar.Edge.RecoveryCopyGrantsDbTest do
     r = EdgeRecordV1.decode(File.read!(@fixture))
     key = IssuerKey.from_seed(:binary.copy(<<0x54>>, 32))
     scope = uuid()
-    agent = "recovery-copy-#{System.unique_integer([:positive])}.example.com"
+    agent = "recovery-copy-#{System.unique_integer([:positive])}"
 
     contract = %{
       r.output_contract

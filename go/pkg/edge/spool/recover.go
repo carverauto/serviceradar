@@ -154,21 +154,7 @@ func (s *Spool) recover() error {
 	// extent now covers are not the slot's, so they are missing, not corrupt. A copy is
 	// marked committed only once the record is durable, so a slot any valid copy shows
 	// committed did land and lost its bytes afterwards: that is not a torn tail.
-	limit := s.segSize
-	above := highWater
-	for i := len(pending) - 1; i >= 0; i-- {
-		obs := &pending[i]
-		if obs.Sequence > highWater {
-			continue
-		}
-		for ; above > obs.Sequence; above-- {
-			limit = min(limit, extents[above-s.baseSeq-1].start)
-		}
-		if ext := extents[obs.Sequence-s.baseSeq-1]; ext.end > limit {
-			obs.InTornTail = !ext.committed
-			obs.Bytes = BytesMissing
-		}
-	}
+	markTornTail(pending, extents, s.baseSeq, highWater, s.segSize)
 
 	res := Resolution{HighWater: highWater}
 	for _, obs := range pending {
@@ -188,6 +174,27 @@ func (s *Spool) recover() error {
 	// above the high-water, so it is never compared against a lost generation.
 	s.nextGen = max(s.nextGen, maxGen+1)
 	return nil
+}
+
+// markTornTail walks pending slots from the highest down, tightening the placement
+// limit by every later slot's start, and marks a slot whose extent runs past that
+// limit as missing bytes (torn tail unless a valid copy recorded the commit).
+func markTornTail(pending []SlotObservation, extents []slotExtent, baseSeq, highWater uint64, segSize int64) {
+	limit := segSize
+	above := highWater
+	for i := len(pending) - 1; i >= 0; i-- {
+		obs := &pending[i]
+		if obs.Sequence > highWater {
+			continue
+		}
+		for ; above > obs.Sequence; above-- {
+			limit = min(limit, extents[above-baseSeq-1].start)
+		}
+		if ext := extents[obs.Sequence-baseSeq-1]; ext.end > limit {
+			obs.InTornTail = !ext.committed
+			obs.Bytes = BytesMissing
+		}
+	}
 }
 
 // slotExtent is where a slot's record was placed and where its declared length ends.

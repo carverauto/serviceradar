@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,22 +31,25 @@ import (
 )
 
 // productionGrantSwitch hands the fake gateway's GetConfig a mutable set of
-// production grants, so a test can start grantless and grant mid-run.
+// production grants and the trust document that verifies them, so a test can
+// start grantless and grant mid-run.
 type productionGrantSwitch struct {
 	mu     sync.Mutex
 	grants []*proto.EdgeOutputGrant
+	trust  []byte
 }
 
-func (s *productionGrantSwitch) set(grants []*proto.EdgeOutputGrant) {
+func (s *productionGrantSwitch) set(grants []*proto.EdgeOutputGrant, trust []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.grants = grants
+	s.trust = trust
 }
 
-func (s *productionGrantSwitch) get() []*proto.EdgeOutputGrant {
+func (s *productionGrantSwitch) get() ([]*proto.EdgeOutputGrant, []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]*proto.EdgeOutputGrant(nil), s.grants...)
+	return append([]*proto.EdgeOutputGrant(nil), s.grants...), append([]byte(nil), s.trust...)
 }
 
 // liveGrantScopeIDs returns synthetic canonical UUIDs for the minted
@@ -58,11 +62,13 @@ func liveGrantScopeIDs() (networkScope, assignment uuid.UUID) {
 		uuid.MustParse("66666666-7777-4888-8999-000000000000")
 }
 
-// mintMetricsProductionGrant builds a structurally valid metrics production
-// grant for agentID. The agent never verifies capability signatures (the
-// gateway does), so an ephemeral key stands in for core's issuer; the
-// wilful fields mirror metricsGrantRows in go/pkg/agent.
-func mintMetricsProductionGrant(t *testing.T, agentID string) *proto.EdgeOutputGrant {
+// mintMetricsProductionGrant builds a signed metrics production grant for
+// agentID and the edge-record trust document core would send beside it. The
+// agent admits a record to its spool only after verifying the record's
+// production capability against that trust document, so an ephemeral key
+// stands in for core's issuer in both; the wilful fields mirror
+// metricsGrantRows in go/pkg/agent.
+func mintMetricsProductionGrant(t *testing.T, agentID string) (*proto.EdgeOutputGrant, []byte) {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -91,11 +97,20 @@ func mintMetricsProductionGrant(t *testing.T, agentID string) *proto.EdgeOutputG
 	edgerecord.SignCapability(capability, key)
 	encoded, err := gproto.Marshal(capability)
 	require.NoError(t, err)
+	claims := capability.GetProduction()
+	trust, err := json.Marshal(map[string]any{
+		"keys": []map[string]any{{"issuer_id": capability.IssuerId, "issuer_key_id": capability.IssuerKeyId,
+			"public_key": []byte(key.Public().(ed25519.PublicKey)), "purposes": []string{"production"}, "status": "valid"}},
+		"scopes": []map[string]any{{"agent_id": agentID, "network_scope_ids": [][]byte{claims.NetworkScopeId}}},
+		"fences": []map[string]any{{"network_scope_id": claims.NetworkScopeId, "producer_assignment_id": claims.ProducerAssignmentId,
+			"run_shard": claims.RunShard, "authority_epoch": claims.AuthorityEpoch}},
+	})
+	require.NoError(t, err)
 	return &proto.EdgeOutputGrant{
 		ContractId:           edgerecord.MetricsBatchContractID,
 		ContractVersion:      edgerecord.MetricsBatchContractVersion,
 		ProductionCapability: encoded,
-	}
+	}, trust
 }
 
 // metricsFrames returns the delivered frames whose record carries the metrics
@@ -251,8 +266,8 @@ func TestRunningAgentDeliversProducerRecordsWithAGrant(t *testing.T) {
 	grants := &productionGrantSwitch{}
 	gw, addr := listenSpoolHelloGateway(t, true, 0)
 	gw.productionGrants = grants
-	grant := mintMetricsProductionGrant(t, agentID)
-	grants.set([]*proto.EdgeOutputGrant{grant})
+	grant, trust := mintMetricsProductionGrant(t, agentID)
+	grants.set([]*proto.EdgeOutputGrant{grant}, trust)
 
 	logs, url := runSpoolAgentFull(t, addr, agentID,
 		fmt.Sprintf(`{"spool_dir": %q, "poll_interval": "1s"}`, filepath.Join(t.TempDir(), "spool")),
@@ -287,8 +302,8 @@ func TestRunningAgentWithoutASenderBlockDeliversFromTheDefaultSpool(t *testing.T
 	grants := &productionGrantSwitch{}
 	gw, addr := listenSpoolHelloGateway(t, true, budget)
 	gw.productionGrants = grants
-	grant := mintMetricsProductionGrant(t, agentID)
-	grants.set([]*proto.EdgeOutputGrant{grant})
+	grant, trust := mintMetricsProductionGrant(t, agentID)
+	grants.set([]*proto.EdgeOutputGrant{grant}, trust)
 
 	logs, url := runSpoolAgentFull(t, addr, agentID, "null", "3s", scopedSysmonJSON)
 

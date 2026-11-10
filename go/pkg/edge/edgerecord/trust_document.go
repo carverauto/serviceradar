@@ -99,7 +99,7 @@ func ParseTrustDocument(raw, authenticatedAgent []byte, epoch uint64) (*TrustSna
 	}
 	var doc trustDocument
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTrustDocument, err)
+		return nil, fmt.Errorf("%w: %w", ErrTrustDocument, err)
 	}
 	if doc.ClockToleranceNano < 0 || doc.ClockToleranceNano > MaxClockToleranceNano || len(doc.Keys) == 0 || len(doc.Keys) > maxTrustKeys || len(doc.Fences) > maxTrustFences || len(doc.Scopes) > 1 {
 		return nil, ErrTrustDocument
@@ -137,6 +137,15 @@ func (s *TrustSnapshot) readScopes(bindings []trustDocumentScope) error {
 	return nil
 }
 
+// Trust-document wire tokens for a key's status and its permitted purposes.
+const (
+	trustKeyStatusValid               = "valid"
+	trustKeyStatusHistoricallyRevoked = "historically_revoked"
+	trustPurposeProduction            = "production"
+	trustPurposeSource                = "source"
+	trustPurposeDelivery              = "delivery"
+)
+
 func (s *TrustSnapshot) readKey(key trustDocumentKey) error {
 	id := snapshotKeyID{string(key.IssuerID), string(key.KeyID)}
 	if len(key.IssuerID) == 0 || len(key.KeyID) == 0 || len(key.Public) != ed25519.PublicKeySize || len(key.Purposes) == 0 || len(key.Purposes) > 3 {
@@ -147,9 +156,9 @@ func (s *TrustSnapshot) readKey(key trustDocumentKey) error {
 	}
 	parsed := snapshotKey{public: bytes.Clone(key.Public), purposes: make(map[edgev1.EdgeCapabilityPurpose]bool)}
 	switch key.Status {
-	case "", "valid":
+	case "", trustKeyStatusValid:
 		parsed.status = KeyValid
-	case "historically_revoked":
+	case trustKeyStatusHistoricallyRevoked:
 		parsed.status = KeyHistoricallyRevoked
 	default:
 		return ErrTrustDocument
@@ -157,11 +166,11 @@ func (s *TrustSnapshot) readKey(key trustDocumentKey) error {
 	for _, purpose := range key.Purposes {
 		var value edgev1.EdgeCapabilityPurpose
 		switch purpose {
-		case "production":
+		case trustPurposeProduction:
 			value = edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_PRODUCTION
-		case "source":
+		case trustPurposeSource:
 			value = edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_SOURCE
-		case "delivery":
+		case trustPurposeDelivery:
 			value = edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_DELIVERY
 		default:
 			return ErrTrustDocument

@@ -43,8 +43,9 @@ type spoolHelloGateway struct {
 
 	budget uint64
 
-	// productionGrants optionally serves production grants in GetConfig. Nil
-	// keeps the gateway grantless, preserving existing tests' behavior.
+	// productionGrants optionally serves production grants and their trust
+	// document in GetConfig. Nil keeps the gateway grantless, preserving
+	// existing tests' behavior.
 	productionGrants *productionGrantSwitch
 
 	helloMu sync.Mutex
@@ -65,7 +66,7 @@ func (g *spoolHelloGateway) GetConfig(context.Context, *proto.AgentConfigRequest
 	g.helloMu.Unlock()
 	resp := &proto.AgentConfigResponse{ConfigVersion: "spool-budget-v1", EdgeSpoolMaxBytes: g.budget}
 	if g.productionGrants != nil {
-		resp.EdgeOutputGrants = g.productionGrants.get()
+		resp.EdgeOutputGrants, resp.EdgeRecordTrustDocument = g.productionGrants.get()
 	}
 	return resp, nil
 }

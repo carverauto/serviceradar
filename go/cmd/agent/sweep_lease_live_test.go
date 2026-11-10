@@ -955,6 +955,7 @@ func startSweepExecAgent(t *testing.T, ctx context.Context, binary, root, spoolD
 }
 
 func icmpGroupConfig(t *testing.T, group string, lease *edgev1.SweepLeaseV1) *proto.AgentConfigResponse {
+	t.Helper()
 	body := fmt.Sprintf(`{"sweep":{"config_hash":"live-icmp","groups":[{
 		"id": %q,
 		"sweep_group_id": %q,

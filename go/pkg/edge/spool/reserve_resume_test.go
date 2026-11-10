@@ -50,7 +50,8 @@ func TestResumeRecoveryMeasuresBeforeBackingCheck(t *testing.T) {
 }
 
 func TestResumeRecoveryFailureLeavesLedgerUnchanged(t *testing.T) {
-	for _, kind := range []string{"unbacked", "duplicate", "over budget", "missing", "outside lane", "symlink"} {
+	const kindMissing = "missing"
+	for _, kind := range []string{"unbacked", "duplicate", "over budget", kindMissing, "outside lane", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			lane := t.TempDir()
 			path := filepath.Join(lane, "lane.seg")
@@ -70,7 +71,7 @@ func TestResumeRecoveryFailureLeavesLedgerUnchanged(t *testing.T) {
 				if err := os.WriteFile(path, make([]byte, 65), 0600); err != nil {
 					t.Fatal(err)
 				}
-			case "missing":
+			case kindMissing:
 				entries[0].Path = filepath.Join(lane, "absent")
 			case "outside lane":
 				entries[0].Path = filepath.Join(t.TempDir(), "other")
@@ -202,7 +203,7 @@ func TestRecoveryAppendRejectsForeignOwnerAndPaths(t *testing.T) {
 }
 
 func TestInterruptedControlAppendReconstructsUnderSameReserve(t *testing.T) {
-	input, key, id := attributionAppend(t, "control")
+	input, key, id := attributionAppend(t, fixtureKindControl)
 	root := t.TempDir()
 	firstAllocator := attributionAllocator(t)
 	lanes := openAttributedLanes(t, root, id, firstAllocator, func(s *Spool) {
@@ -242,9 +243,10 @@ func TestInterruptedControlAppendReconstructsUnderSameReserve(t *testing.T) {
 	if _, err = interrupted.CommittedAttribution(1); err == nil {
 		t.Fatal("incomplete control became sender-visible")
 	}
-	var inventory []RecoveryArtifact
+	paths := []string{filepath.Join(interrupted.dir, segmentFile), filepath.Join(interrupted.dir, attributionFile), interrupted.spool.evidencePath(copyA), interrupted.spool.evidencePath(copyB)}
+	inventory := make([]RecoveryArtifact, 0, len(paths))
 	retained := map[string][]byte{}
-	for _, path := range []string{filepath.Join(interrupted.dir, segmentFile), filepath.Join(interrupted.dir, attributionFile), interrupted.spool.evidencePath(copyA), interrupted.spool.evidencePath(copyB)} {
+	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -315,6 +317,8 @@ func TestCoordinatorFootprintBoundsConfiguration(t *testing.T) {
 				small.Mapping = 1
 			case ArtifactFilesystemMetadata:
 				small.FilesystemMetadata = 1
+			case ArtifactJournalB, artifactCount:
+				t.Fatalf("artifact %v has no footprint field under test", art)
 			}
 			if err := small.ValidateCoordinator(); !errors.Is(err, ErrInvalidAllocatorConfig) {
 				t.Fatalf("incomplete footprint accepted: %v", err)

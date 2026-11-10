@@ -115,15 +115,8 @@ func validateRecoveryPlan(p RecoveryPlan) error {
 		uint64(len(p.Slots)) != p.Last-p.First+1 {
 		return fmt.Errorf("%w: selected allocated interval", ErrRecoveryPlan)
 	}
-	for _, id := range [][]byte{p.RecoveryID, p.Source.SpoolID, p.NewSpoolID} {
-		if edgerecord.ValidateUUIDv7(id) != nil {
-			return fmt.Errorf("%w: generation or recovery id", ErrRecoveryPlan)
-		}
-	}
-	if bytes.Equal(p.Source.SpoolID, p.NewSpoolID) || p.Source.Ordinal == 0 || !p.Source.Lane.Valid() ||
-		edgerecord.ValidateCanonicalUUID(p.Source.Identity.NetworkScopeID) != nil ||
-		edgerecord.ValidateAuthenticatedPrincipal(p.Source.Identity.AgentID) != nil {
-		return fmt.Errorf("%w: frozen identity", ErrRecoveryPlan)
+	if err := validateRecoveryPlanIdentity(p); err != nil {
+		return err
 	}
 	destinations := make(map[uint64]bool)
 	losses := 0
@@ -151,6 +144,22 @@ func validateRecoveryPlan(p RecoveryPlan) error {
 	}
 	if losses == 0 {
 		return ErrRecoveryNoLoss
+	}
+	return nil
+}
+
+// validateRecoveryPlanIdentity checks the recovery and generation ids and the
+// frozen source identity.
+func validateRecoveryPlanIdentity(p RecoveryPlan) error {
+	for _, id := range [][]byte{p.RecoveryID, p.Source.SpoolID, p.NewSpoolID} {
+		if edgerecord.ValidateUUIDv7(id) != nil {
+			return fmt.Errorf("%w: generation or recovery id", ErrRecoveryPlan)
+		}
+	}
+	if bytes.Equal(p.Source.SpoolID, p.NewSpoolID) || p.Source.Ordinal == 0 || !p.Source.Lane.Valid() ||
+		edgerecord.ValidateCanonicalUUID(p.Source.Identity.NetworkScopeID) != nil ||
+		edgerecord.ValidateAuthenticatedPrincipal(p.Source.Identity.AgentID) != nil {
+		return fmt.Errorf("%w: frozen identity", ErrRecoveryPlan)
 	}
 	return nil
 }

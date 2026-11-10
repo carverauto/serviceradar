@@ -580,8 +580,8 @@ func TestEdgeSweepAdmissionWaitEndsWhenTheScanCancels(t *testing.T) {
 	scanner := &scanCancelSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	done := make(chan error, 1)
+	installTestSweep(t, sp, lease)
 	go func() {
-		installTestSweep(t, sp, lease)
 		done <- svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{})
 	}()
 	select {

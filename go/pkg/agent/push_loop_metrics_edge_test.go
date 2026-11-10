@@ -168,9 +168,9 @@ func sysmonEdgeLoop(t *testing.T, sp *RecordSpool) (*PushLoop, *fakeSysmonCollec
 	return loop, collector
 }
 
-func openTestEdgeSpool(t *testing.T, opts ...spool.Option) *RecordSpool {
+func openTestEdgeSpool(t *testing.T) *RecordSpool {
 	t.Helper()
-	sp, err := openTestRecordSpool(t, t.TempDir(), opts...)
+	sp, err := openTestRecordSpool(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	return sp

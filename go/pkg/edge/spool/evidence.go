@@ -189,7 +189,7 @@ func decodeEvidenceVersion(buf []byte, c int, seq uint64, state, version byte) (
 	if version == evidenceVersion2 {
 		copy(e.relocationSHA256[:], buf[148:180])
 	}
-	if (e.flags & ^byte(flagReceiptBinding|flagAttributionBinding|flagRelocationBinding)) != 0 ||
+	if (e.flags & ^(flagReceiptBinding|flagAttributionBinding|flagRelocationBinding)) != 0 ||
 		(version == evidenceVersion && e.flags&flagRelocationBinding != 0) ||
 		(e.flags&flagRelocationBinding == 0 && e.relocationSHA256 != [32]byte{}) {
 		return evidenceEntry{}, entryCorrupt

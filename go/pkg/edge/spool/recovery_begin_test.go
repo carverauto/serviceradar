@@ -135,10 +135,10 @@ func TestBeginRecoveryExcludesResolutionUntilDurableHold(t *testing.T) {
 }
 
 func TestBeginRecoveryDoesNotInventLossForHealthySource(t *testing.T) {
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	allocator := recoveryOperationAllocator(t)
 	lanes := openAttributedLanes(t, t.TempDir(), identity, allocator, nil)
-	defer lanes.Close()
+	defer func() { _ = lanes.Close() }()
 	source := closedRecoverySource(t, lanes, key, identity, input)
 	destination, grant, err := lanes.BeginRecoveryDestination(source, recoveryUUID(91), 0, allocator)
 	if err != nil {
@@ -157,7 +157,7 @@ func TestBeginRecoveryDoesNotInventLossForHealthySource(t *testing.T) {
 }
 
 func TestRecoveryResumesAfterDestinationPublishedBeforeSourceClose(t *testing.T) {
-	input, key, identity := attributionAppend(t, "metrics")
+	input, key, identity := attributionAppend(t, fixtureKindMetrics)
 	root := t.TempDir()
 	allocator := recoveryOperationAllocator(t)
 	lanes := openAttributedLanes(t, root, identity, allocator, nil)

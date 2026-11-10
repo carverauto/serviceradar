@@ -208,7 +208,8 @@ func TestJournalBoundsAndPageChain(t *testing.T) {
 }
 
 func TestJournalRepairRequiresOneUnambiguousCopy(t *testing.T) {
-	for _, damage := range []string{"missing", "torn", "checksum", "unsupported", "both torn", "divergent"} {
+	const damageMissing = "missing"
+	for _, damage := range []string{damageMissing, "torn", "checksum", "unsupported", "both torn", "divergent"} {
 		t.Run(damage, func(t *testing.T) {
 			dir, _ := reopenedRecoveryJournal(t, recoveryPlan(recoveryLoss(1, recoveryMissing)))
 			aPath, bPath := filepath.Join(dir, recoveryCopyA), filepath.Join(dir, recoveryCopyB)
@@ -219,7 +220,7 @@ func TestJournalRepairRequiresOneUnambiguousCopy(t *testing.T) {
 			bad := append([]byte(nil), intact...)
 			repairable := true
 			switch damage {
-			case "missing":
+			case damageMissing:
 				if err := os.Remove(bPath); err != nil {
 					t.Fatal(err)
 				}
@@ -244,7 +245,7 @@ func TestJournalRepairRequiresOneUnambiguousCopy(t *testing.T) {
 				}
 				repairable = false
 			}
-			if damage != "missing" {
+			if damage != damageMissing {
 				if err := os.WriteFile(bPath, bad, 0600); err != nil {
 					t.Fatal(err)
 				}

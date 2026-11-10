@@ -134,7 +134,6 @@ func newEdgeRecordSenders(
 	sp *agent.RecordSpool,
 	log logger.Logger,
 ) ([]*edgeLaneSender, func(), error) {
-
 	securityProvider, err := srgrpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build edge record sender security provider: %w", err)

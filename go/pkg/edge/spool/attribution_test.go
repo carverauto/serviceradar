@@ -42,17 +42,25 @@ func (k attributionTrust) ResolveKey(_, _ []byte, evidence edgerecord.KeyEvidenc
 	return edgerecord.KeyResolution{Status: edgerecord.KeyValid, Public: ed25519.PublicKey(k), TrustPolicyEpoch: evidence.TrustPolicyEpoch, Purpose: evidence.Purpose}
 }
 
+// Fixture kinds select the signed record family attributionAppend builds.
+const (
+	fixtureKindSweep   = "sweep"
+	fixtureKindControl = "control"
+	fixtureKindMetrics = "metrics"
+)
+
 func attributionAppend(t *testing.T, kind string) (AttributedAppend, LaneKey, Identity) {
+	t.Helper()
 	return attributionAppendMutated(t, kind, nil)
 }
 
 func attributionAppendMutated(t *testing.T, kind string, mutateRecord func(*edgev1.EdgeRecordV1)) (AttributedAppend, LaneKey, Identity) {
 	t.Helper()
 	name := "sweep_join_positive_scheduled_sweep.bin"
-	if kind == "control" {
+	if kind == fixtureKindControl {
 		name = "version_tombstone_scope_ok.bin"
 	}
-	if kind == "metrics" {
+	if kind == fixtureKindMetrics {
 		name = "record_no_source.bin"
 	}
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "proto", "edge", "v1", "testdata", name))
@@ -63,7 +71,7 @@ func attributionAppendMutated(t *testing.T, kind string, mutateRecord func(*edge
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kind == "metrics" {
+	if kind == fixtureKindMetrics {
 		payload, err := proto.Marshal(&metricpb.MetricBatch{SchemaVersion: "serviceradar.metric.v1", IngestIdentity: &metricpb.IngestIdentity{Source: "sysmon-metrics"}, Metrics: []*metricpb.Metric{{Name: "cpu.usage_percent", MetricType: "sysmon.cpu"}}})
 		if err != nil {
 			t.Fatal(err)
@@ -98,11 +106,11 @@ func attributionAppendMutated(t *testing.T, kind string, mutateRecord func(*edge
 	policy := edgerecord.AuthorizationPolicy{Trust: attributionTrust(public), TrustPolicyEpoch: 1, NowUnixNano: int64(millis) * 1_000_000, ActiveFence: edgerecord.ResolvedFence(r.ProducerContext.GetAuthorityEpoch())}
 	var validated edgerecord.ValidatedAttribution
 	switch kind {
-	case "sweep":
+	case fixtureKindSweep:
 		validated, err = edgerecord.SweepRecoveryAttribution(raw, r.OutputContract, policy)
-	case "control":
+	case fixtureKindControl:
 		validated, err = edgerecord.ControlRecoveryAttribution(raw, r.OutputContract, policy)
-	case "metrics":
+	case fixtureKindMetrics:
 		validated, err = edgerecord.MetricRecoveryAttribution(raw, policy)
 	}
 	if err != nil {
@@ -139,7 +147,7 @@ func openAttributedLanes(t *testing.T, root string, identity Identity, allocator
 }
 
 func TestAttributedAppendRejectsMismatchBeforeAllocation(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	root := t.TempDir()
 	ls := openAttributedLanes(t, root, identity, nil, nil)
 	changed := input
@@ -169,7 +177,7 @@ func TestAttributedAppendRejectsMismatchBeforeAllocation(t *testing.T) {
 }
 
 func TestAttributionSurvivesRecordCorruption(t *testing.T) {
-	for _, kind := range []string{"sweep", "control", "metrics"} {
+	for _, kind := range []string{fixtureKindSweep, fixtureKindControl, fixtureKindMetrics} {
 		t.Run(kind, func(t *testing.T) {
 			input, lane, identity := attributionAppend(t, kind)
 			root := t.TempDir()
@@ -215,7 +223,7 @@ func TestAttributionSurvivesRecordCorruption(t *testing.T) {
 func TestLaterBindingDamageNeverBecomesWrongAuthority(t *testing.T) {
 	for _, damage := range []string{"checksum", "unsupported_version", "scope_substitution"} {
 		t.Run(damage, func(t *testing.T) {
-			input, lane, identity := attributionAppend(t, "sweep")
+			input, lane, identity := attributionAppend(t, fixtureKindSweep)
 			root := t.TempDir()
 			ls := openAttributedLanes(t, root, identity, nil, nil)
 			if _, err := ls.AppendAttributed(lane, identity, input); err != nil {
@@ -280,7 +288,7 @@ func TestLaterBindingDamageNeverBecomesWrongAuthority(t *testing.T) {
 func TestSidecarReadErrorDoesNotBecomeLossClassification(t *testing.T) {
 	for _, name := range []string{attributionFile, relocationFile} {
 		t.Run(name, func(t *testing.T) {
-			input, lane, identity := attributionAppend(t, "sweep")
+			input, lane, identity := attributionAppend(t, fixtureKindSweep)
 			ls := openAttributedLanes(t, t.TempDir(), identity, nil, nil)
 			if _, err := ls.AppendAttributed(lane, identity, input); err != nil {
 				t.Fatal(err)
@@ -307,7 +315,7 @@ func TestSidecarReadErrorDoesNotBecomeLossClassification(t *testing.T) {
 func TestAttributionBarrierWithholdsReceiptAndRestartClassifies(t *testing.T) {
 	for _, stop := range []barrier{barrierPrepareA, barrierPrepareB, barrierRecord, barrierAttribution, barrierAttributionDir, barrierCommitA, barrierCommitB} {
 		t.Run(string(rune('a'+stop)), func(t *testing.T) {
-			input, lane, identity := attributionAppend(t, "sweep")
+			input, lane, identity := attributionAppend(t, fixtureKindSweep)
 			root := t.TempDir()
 			ls := openAttributedLanes(t, root, identity, nil, func(s *Spool) {
 				s.beforeBarrier = func(at barrier) error {
@@ -350,7 +358,7 @@ func TestAttributionBarrierWithholdsReceiptAndRestartClassifies(t *testing.T) {
 }
 
 func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	root := t.TempDir()
 	allocator := attributionAllocator(t)
 	ls := openAttributedLanes(t, root, identity, allocator, nil)
@@ -443,7 +451,7 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 }
 
 func TestAttributedReclaimPreservesAccountingAndSequence(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	root := t.TempDir()
 	allocator := attributionAllocator(t)
 	ls := openAttributedLanes(t, root, identity, allocator, nil)
@@ -495,7 +503,7 @@ func TestAttributedReclaimPreservesAccountingAndSequence(t *testing.T) {
 func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 	for name, stop := range map[string]barrier{"mapping": barrierRelocation, "mapping_directory": barrierRelocationDir, "commit_a": barrierCommitA, "commit_b": barrierCommitB} {
 		t.Run(name, func(t *testing.T) {
-			input, lane, identity := attributionAppend(t, "sweep")
+			input, lane, identity := attributionAppend(t, fixtureKindSweep)
 			root := t.TempDir()
 			allocator := attributionAllocator(t)
 			ls := openAttributedLanes(t, root, identity, allocator, nil)
@@ -550,7 +558,7 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 func TestAttributionAccountingSurvivesRestart(t *testing.T) {
 	for _, limit := range []string{"keys", "runs"} {
 		t.Run(limit, func(t *testing.T) {
-			input, lane, identity := attributionAppend(t, "sweep")
+			input, lane, identity := attributionAppend(t, fixtureKindSweep)
 			root := t.TempDir()
 			configure := func(s *Spool) {
 				s.segBounds.limits = segmentLimits{maxKeys: 8, maxRuns: 8, maxManifestBytes: 1 << 20}
@@ -577,7 +585,7 @@ func TestAttributionAccountingSurvivesRestart(t *testing.T) {
 			if len(g.spool.segBounds.keys) != 1 || g.spool.segBounds.runs != 1 {
 				t.Fatalf("wrong accounting: %+v", g.spool.segBounds)
 			}
-			changed, _, _ := attributionAppendMutated(t, "sweep", func(r *edgev1.EdgeRecordV1) {
+			changed, _, _ := attributionAppendMutated(t, fixtureKindSweep, func(r *edgev1.EdgeRecordV1) {
 				r.ProducerContext.ScopeId = testScope(0x44)
 				r.ProductionCapability.GetProduction().ScopeId = bytes.Clone(r.ProducerContext.ScopeId)
 			})
@@ -592,7 +600,7 @@ func TestAttributionAccountingSurvivesRestart(t *testing.T) {
 }
 
 func TestLegacyGenerationDrainsWithoutInventedAttribution(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	root := t.TempDir()
 	legacy := openLanesWith(t, root, identity, deploymentTaxonomy(t))
 	receipt, err := legacy.Append(lane, identity, input.EventID, input.Body)
@@ -646,7 +654,7 @@ func attributionAllocator(t *testing.T) *Allocator {
 // The reserve bounds complete relocation, including storage evidence and both
 // sidecars, even when a large generation contains only one attribution key.
 func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
-	input, lane, identity := attributionAppendMutated(t, "metrics", func(r *edgev1.EdgeRecordV1) {
+	input, lane, identity := attributionAppendMutated(t, fixtureKindMetrics, func(r *edgev1.EdgeRecordV1) {
 		var batch metricpb.MetricBatch
 		if err := proto.Unmarshal(r.Payload, &batch); err != nil {
 			t.Fatal(err)
@@ -732,7 +740,7 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 }
 
 func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
+	input, lane, identity := attributionAppend(t, fixtureKindSweep)
 	for _, invalid := range []string{"missing allocator", "record exceeds empty generation"} {
 		t.Run(invalid, func(t *testing.T) {
 			root := t.TempDir()
@@ -772,7 +780,7 @@ func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
 }
 
 func TestRecoveryControlsShareGrantAndRestoreOwnership(t *testing.T) {
-	input, controlKey, identity := attributionAppend(t, "control")
+	input, controlKey, identity := attributionAppend(t, fixtureKindControl)
 	root := t.TempDir()
 	allocator := attributionAllocator(t)
 	lanes := openAttributedLanes(t, root, identity, allocator, nil)
@@ -824,9 +832,10 @@ func TestRecoveryControlsShareGrantAndRestoreOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh := attributionAllocator(t)
-	inventory := []RecoveryArtifact{}
+	paths := []string{filepath.Join(control.dir, segmentFile), filepath.Join(control.dir, attributionFile), control.spool.evidencePath(copyA), control.spool.evidencePath(copyB)}
+	inventory := make([]RecoveryArtifact, 0, len(paths))
 	var held uint64 = terminalEvidenceAllowance
-	for _, path := range []string{filepath.Join(control.dir, segmentFile), filepath.Join(control.dir, attributionFile), control.spool.evidencePath(copyA), control.spool.evidencePath(copyB)} {
+	for _, path := range paths {
 		inventory = append(inventory, RecoveryArtifact{ArtifactManifestPages, path})
 		info, err := os.Stat(path)
 		if err != nil {

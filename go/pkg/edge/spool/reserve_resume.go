@@ -150,7 +150,7 @@ func (g *RecoveryGrant) restoreArtifacts(artifacts []RecoveryArtifact, controlSe
 		if err != nil {
 			return err
 		}
-		if info.Size() < 0 || (!info.Mode().IsRegular() && !(entry.Artifact == ArtifactFilesystemMetadata && info.IsDir())) {
+		if info.Size() < 0 || (!info.Mode().IsRegular() && (entry.Artifact != ArtifactFilesystemMetadata || !info.IsDir())) {
 			return fmt.Errorf("%w: retained artifact is not a regular file or metadata directory", ErrInvalidAllocatorConfig)
 		}
 		n := uint64(info.Size())

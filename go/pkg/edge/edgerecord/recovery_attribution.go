@@ -62,6 +62,10 @@ func (v ValidatedAttribution) CheckRecord(c LocalBindingCoordinates) error {
 	return nil
 }
 
+// SweepObservationContractID is the leased sweep contract, the only production
+// contract whose records assert a produced target range.
+const SweepObservationContractID = "serviceradar.sweep.observation"
+
 // RecordRecoveryAttribution dispatches registered production contracts through
 // their existing typed validators. Only the leased sweep contract asserts a
 // produced range; standing-grant contracts remain passive regardless of payload
@@ -79,7 +83,7 @@ func RecordRecoveryAttribution(raw []byte, expected *edgev1.EdgeOutputContractRe
 		return ValidatedAttribution{}, ErrContractDispatch
 	}
 	switch r.GetOutputContract().GetContractId() {
-	case "serviceradar.sweep.observation":
+	case SweepObservationContractID:
 		return SweepRecoveryAttribution(raw, expected, policy)
 	case "serviceradar.edge.recovery_control":
 		return ControlRecoveryAttribution(raw, expected, policy)

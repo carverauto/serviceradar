@@ -838,9 +838,11 @@ func TestRunOnceReportsCoverageGap(t *testing.T) {
 	}
 }
 
+var errSyntheticRecoveryJournal = errors.New("synthetic recovery journal EIO")
+
 // Recovery receipts must survive before the sender can suppress their replay.
 func TestRecoveryReceiptBarrierPrecedesTerminalPersistence(t *testing.T) {
-	journalErr := errors.New("synthetic recovery journal EIO")
+	journalErr := errSyntheticRecoveryJournal
 	for _, tc := range []struct {
 		name         string
 		kind         edgev1.EdgeRecordDispositionKind

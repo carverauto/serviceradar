@@ -21,6 +21,9 @@ import (
 )
 
 const recoveryArchiveFile = "terminal.archive"
+
+// destinationArchiveFile is the archive name of the recovery destination generation.
+const destinationArchiveFile = "destination.archive"
 const recoveryArchiveMagic = "SRRARCH1"
 
 type recoveryArchiveDescriptor struct {
@@ -155,14 +158,32 @@ func (o *RecoveryOperation) archiveEntries() ([]recoveryArchiveEntry, error) {
 	return collectRecoveryArchive(s, o.grant.alloc.budgets[ArtifactMapping], false)
 }
 
-// collectRecoveryArchive requires s.mu and a sealed or recovery-held generation.
-// forceAll preserves ambiguous superseded controls without manufacturing terminal
-// dispositions; all their original allocation, record and binding bytes survive.
-func collectRecoveryArchive(s *Spool, maxBytes uint64, forceAll bool) ([]recoveryArchiveEntry, error) {
-	if s.nextSeq-1-s.baseSeq > edgerecord.MaxRecoverySlots {
-		return nil, ErrRecoverySplitRequired
+// recordArchiveDispositions marks permanently rejected sequences and reports
+// whether any disposition is not a recognized terminal kind, which forces the
+// full segment into the archive.
+func recordArchiveDispositions(ack *edgev1.EdgeDeliveryAckV1, rejected map[uint64]bool) bool {
+	fullSegment := false
+	for _, d := range ack.Dispositions {
+		switch d.GetKind() {
+		case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT:
+			rejected[d.GetSequence()] = true
+		case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE:
+		case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE:
+			fullSegment = true
+		default:
+			fullSegment = true
+		}
+		if len(d.ProtoReflect().GetUnknown()) != 0 {
+			fullSegment = true
+		}
 	}
-	directory, err := os.Open(s.dir)
+	return fullSegment
+}
+
+// listRecoveryArchiveDir reads a bounded, name-sorted listing of a generation
+// directory, refusing one too large to archive in a single recovery.
+func listRecoveryArchiveDir(dir string) ([]os.DirEntry, error) {
+	directory, err := os.Open(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +199,20 @@ func collectRecoveryArchive(s *Spool, maxBytes uint64, forceAll bool) ([]recover
 		return nil, ErrRecoverySplitRequired
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
+	return files, nil
+}
+
+// collectRecoveryArchive requires s.mu and a sealed or recovery-held generation.
+// forceAll preserves ambiguous superseded controls without manufacturing terminal
+// dispositions; all their original allocation, record and binding bytes survive.
+func collectRecoveryArchive(s *Spool, maxBytes uint64, forceAll bool) ([]recoveryArchiveEntry, error) {
+	if s.nextSeq-1-s.baseSeq > edgerecord.MaxRecoverySlots {
+		return nil, ErrRecoverySplitRequired
+	}
+	files, err := listRecoveryArchiveDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
 	var entries []recoveryArchiveEntry
 	rejected := map[uint64]bool{}
 	fullSegment := forceAll
@@ -212,17 +247,8 @@ func collectRecoveryArchive(s *Spool, maxBytes uint64, forceAll bool) ([]recover
 			fullSegment = true
 			continue
 		}
-		for _, d := range ack.Dispositions {
-			switch d.GetKind() {
-			case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT:
-				rejected[d.GetSequence()] = true
-			case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE:
-			default:
-				fullSegment = true
-			}
-			if len(d.ProtoReflect().GetUnknown()) != 0 {
-				fullSegment = true
-			}
+		if recordArchiveDispositions(ack, rejected) {
+			fullSegment = true
 		}
 	}
 	if len(entries) == 0 && !forceAll {
@@ -338,7 +364,7 @@ func (w recoveryArchiveWriter) write(descriptor recoveryArchiveDescriptor, produ
 	prior, err := os.Open(temp)
 	size := int64(0)
 	if err == nil {
-		defer prior.Close()
+		defer func() { _ = prior.Close() }()
 		info, e := prior.Stat()
 		if e != nil {
 			return e
@@ -399,7 +425,7 @@ func verifyRecoveryArchive(path string, d recoveryArchiveDescriptor, frozen [32]
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		return err

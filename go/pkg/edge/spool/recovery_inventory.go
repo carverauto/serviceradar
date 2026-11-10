@@ -107,23 +107,24 @@ func InventoryRecoveryStorage(dir string, handles RecoveryCompletionGenerations)
 		inventory.completion = completion
 		inventory.completed, err = completion.Completed()
 		if err != nil {
-			if !errors.Is(err, ErrRecoveryJournalIncomplete) && !errors.Is(err, ErrRecoveryJournalCorrupt) && !errors.Is(err, ErrRecoveryJournalConflict) {
+			if !isRecoveryCompletionStateErr(err) {
 				return nil, err
 			}
 			inventory.completionErr = err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		if !errors.Is(err, ErrRecoveryJournalIncomplete) && !errors.Is(err, ErrRecoveryJournalCorrupt) && !errors.Is(err, ErrRecoveryJournalConflict) {
+		if !isRecoveryCompletionStateErr(err) {
 			return nil, err
 		}
 		inventory.completionErr = err
 	}
 	entries, err := recoveryPhaseEntries(dir)
-	if errors.Is(err, os.ErrNotExist) {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
 		inventory.absentDirectory = true
-	} else if err != nil {
+	case err != nil:
 		return nil, err
-	} else {
+	default:
 		inventory.artifacts = append(inventory.artifacts, RecoveryArtifact{ArtifactFilesystemMetadata, dir})
 	}
 	for _, entry := range entries {
@@ -157,6 +158,12 @@ func InventoryRecoveryStorage(dir string, handles RecoveryCompletionGenerations)
 	return inventory, nil
 }
 
+// isRecoveryCompletionStateErr reports whether a completion read failed on journal
+// state the inventory records rather than on an I/O error it must return.
+func isRecoveryCompletionStateErr(err error) bool {
+	return errors.Is(err, ErrRecoveryJournalIncomplete) || errors.Is(err, ErrRecoveryJournalCorrupt) || errors.Is(err, ErrRecoveryJournalConflict)
+}
+
 func recoveryStoredArtifact(name string) (Artifact, error) {
 	name = strings.TrimSuffix(name, ".tmp")
 	switch name {
@@ -164,7 +171,7 @@ func recoveryStoredArtifact(name string) (Artifact, error) {
 		return ArtifactJournalA, nil
 	case recoveryCopyB:
 		return ArtifactJournalB, nil
-	case recoveryArchiveFile, "destination.archive", "completion-a", "completion-b", "completed-a", "completed-b":
+	case recoveryArchiveFile, destinationArchiveFile, "completion-a", "completion-b", "completed-a", "completed-b":
 		return ArtifactMapping, nil
 	case "control-000.archive", "control-001.archive":
 		return ArtifactManifestPages, nil

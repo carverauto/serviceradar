@@ -267,7 +267,7 @@ func (d *RecoveryDelivery) RenewDeliveryGrants(ctx context.Context, spoolID []by
 		}
 	}
 	if len(granted) == 0 {
-		return nil, errors.Join(ErrRecoveryPending, errors.New("copy authority unavailable"))
+		return nil, errors.Join(ErrRecoveryPending, errCopyAuthorityUnavailable)
 	}
 	return granted, nil
 }

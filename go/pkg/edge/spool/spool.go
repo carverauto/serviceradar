@@ -458,17 +458,25 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 	return s.commit("", eventID, body, b, nil)
 }
 
-func (s *Spool) commit(flow string, eventID, body []byte, b Bindings, attribution *pendingAttribution) (CommitReceipt, error) {
+// validateCommitInput checks the caller's arguments before any lock is taken.
+func validateCommitInput(eventID, body []byte, b Bindings) error {
 	if len(eventID) != 16 {
-		return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
+		return fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
 	}
 	if len(body) > maxBodyLen {
-		return CommitReceipt{}, fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(body))
+		return fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(body))
 	}
 	for _, d := range [][]byte{b.ReceiptSHA256, b.AttributionSHA256} {
 		if d != nil && len(d) != sha256.Size {
-			return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrBindingDigestLength, len(d))
+			return fmt.Errorf("%w: got %d", ErrBindingDigestLength, len(d))
 		}
+	}
+	return nil
+}
+
+func (s *Spool) commit(flow string, eventID, body []byte, b Bindings, attribution *pendingAttribution) (CommitReceipt, error) {
+	if err := validateCommitInput(eventID, body, b); err != nil {
+		return CommitReceipt{}, err
 	}
 
 	s.mu.Lock()

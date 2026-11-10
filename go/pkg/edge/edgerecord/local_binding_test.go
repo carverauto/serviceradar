@@ -136,15 +136,16 @@ func bindingCoordinates(r *edgev1.EdgeRecordV1, raw []byte) LocalBindingCoordina
 }
 
 func TestValidatedAttributionJoinsBeforeBinding(t *testing.T) {
-	for _, contract := range []string{"sweep", "control", "metrics"} {
+	const sweep, control, metrics = "sweep", "control", "metrics"
+	for _, contract := range []string{sweep, control, metrics} {
 		t.Run(contract, func(t *testing.T) {
 			var r *edgev1.EdgeRecordV1
 			var err error
-			if contract == "metrics" {
+			if contract == metrics {
 				r = metricBatchRecord(t, 1, 1)
 			} else {
 				name := "sweep_join_positive_scheduled_sweep.bin"
-				if contract == "control" {
+				if contract == control {
 					name = "version_tombstone_scope_ok.bin"
 				}
 				r, err = DecodeRecord(bindingFixture(t, name))
@@ -155,18 +156,18 @@ func TestValidatedAttributionJoinsBeforeBinding(t *testing.T) {
 			raw, policy := signBindingRecord(t, r)
 			var validated ValidatedAttribution
 			switch contract {
-			case "sweep":
+			case sweep:
 				validated, err = SweepRecoveryAttribution(raw, r.OutputContract, policy)
-			case "control":
+			case control:
 				validated, err = ControlRecoveryAttribution(raw, r.OutputContract, policy)
-			case "metrics":
+			case metrics:
 				validated, err = MetricRecoveryAttribution(raw, policy)
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			a := validated.Attribution()
-			if a.Active != (contract == "sweep") || (a.Identity.Source != nil) != (contract != "metrics") {
+			if a.Active != (contract == sweep) || (a.Identity.Source != nil) != (contract != metrics) {
 				t.Fatalf("wrong classification: %+v", a)
 			}
 			c := bindingCoordinates(r, raw)
@@ -272,7 +273,7 @@ func TestRegisteredAttributionUsesContractAuthorityAndBodyValidator(t *testing.T
 				t.Fatal(err)
 			}
 			a := validated.Attribution()
-			active := r.OutputContract.ContractId == "serviceradar.sweep.observation"
+			active := r.OutputContract.ContractId == SweepObservationContractID
 			if a.Active != active || (!active && (a.Identity.Source != nil || len(a.RangeSHA256) != 0)) {
 				t.Fatalf("contract authority changed: %+v", a)
 			}

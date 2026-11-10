@@ -83,12 +83,13 @@ func (s *Spool) prepareAttribution(seq uint64, eventID, body []byte, p *pendingA
 	var a edgerecord.RecoveryAttribution
 	var digest []byte
 	var err error
-	if p.validated != nil {
+	switch {
+	case p.validated != nil:
 		a = p.validated.Attribution()
 		digest, err = p.validated.Bind(c, a)
-	} else if p.frozen != nil {
+	case p.frozen != nil:
 		a, digest, err = p.frozen.bind(c, eventID, body)
-	} else if p.source != nil && p.source.valid {
+	case p.source != nil && p.source.valid:
 		source := p.source
 		if !source.generation.Identity.equal(s.attributionIdentity.Identity) || source.generation.Lane != s.attributionIdentity.Lane ||
 			!bytes.Equal(source.record.EventID, eventID) || !bytes.Equal(source.entry.coordinates.RecordSHA256, hash[:]) {
@@ -96,7 +97,7 @@ func (s *Spool) prepareAttribution(seq uint64, eventID, body []byte, p *pendingA
 		}
 		a = source.Attribution()
 		digest, err = edgerecord.LocalBindingDigest(edgerecord.LocalBindingVersion, c, a)
-	} else {
+	default:
 		return ErrAttributionRequired
 	}
 	if err != nil {
@@ -335,6 +336,52 @@ type attributionObservation struct {
 	highWater, resolved uint64
 }
 
+// loadObservedIdentity reads the on-disk generation identity and evidence format
+// into a fresh observation view. The identity must be the attributed one, and a
+// present format file must name evidence format v2.
+func (s *Spool) loadObservedIdentity() (GenerationIdentity, error) {
+	raw, err := os.ReadFile(filepath.Join(s.dir, identityFile))
+	if err != nil {
+		return GenerationIdentity{}, err
+	}
+	id, err := decodeIdentity(raw)
+	if err != nil || !bytes.Equal(encodeIdentity(id), encodeIdentity(*s.attributionIdentity)) {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	format, err := os.ReadFile(filepath.Join(s.dir, evidenceFormatFile))
+	if err == nil {
+		if string(format) != evidenceFormatV2 {
+			return GenerationIdentity{}, ErrCorruptGeneration
+		}
+		s.evidenceVersion = evidenceVersion2
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return GenerationIdentity{}, err
+	}
+	return id, nil
+}
+
+// inspectObservedAttribution reads the attribution entry for a slot with valid
+// evidence and, when its attribution verifies, the relocation mapping it binds.
+func (s *Spool) inspectObservedAttribution(seq uint64, verifies bool, valid []evidenceEntry) (attributionEntry, *relocationMapping, []byte, error) {
+	var entry attributionEntry
+	if len(valid) == 0 {
+		return entry, nil, nil, nil
+	}
+	event, hash := agreedIdentity(valid)
+	entry, _, err := s.inspectAttribution(SlotEvidence{Sequence: seq, EventID: event, RecordSHA256: hash})
+	if err != nil {
+		return entry, nil, nil, err
+	}
+	if !verifies {
+		return entry, nil, nil, nil
+	}
+	mapping, digest, _, err := s.inspectRelocation(entry, valid)
+	if err != nil {
+		return entry, nil, nil, err
+	}
+	return entry, mapping, digest, nil
+}
+
 func (s *Spool) observeAttribution(seq uint64) (attributionObservation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -343,21 +390,8 @@ func (s *Spool) observeAttribution(seq uint64) (attributionObservation, error) {
 		return out, ErrAttributionRequired
 	}
 	fresh := &Spool{dir: s.dir, dataDir: s.dir, attributionIdentity: s.attributionIdentity, bindings: s.bindings, evidenceVersion: evidenceVersion}
-	raw, err := os.ReadFile(filepath.Join(s.dir, identityFile))
+	id, err := fresh.loadObservedIdentity()
 	if err != nil {
-		return out, err
-	}
-	id, err := decodeIdentity(raw)
-	if err != nil || !bytes.Equal(encodeIdentity(id), encodeIdentity(*s.attributionIdentity)) {
-		return out, ErrCorruptGeneration
-	}
-	format, err := os.ReadFile(filepath.Join(s.dir, evidenceFormatFile))
-	if err == nil {
-		if string(format) != evidenceFormatV2 {
-			return out, ErrCorruptGeneration
-		}
-		fresh.evidenceVersion = evidenceVersion2
-	} else if !errors.Is(err, os.ErrNotExist) {
 		return out, err
 	}
 	if err = fresh.loadLayout(); err != nil {
@@ -371,7 +405,7 @@ func (s *Spool) observeAttribution(seq uint64) (attributionObservation, error) {
 		return out, err
 	}
 	fresh.seg = f
-	defer fresh.closeFiles()
+	defer func() { _ = fresh.closeFiles() }()
 	readers, high, err := fresh.evidenceReaders(seq)
 	if err != nil {
 		return out, err
@@ -413,21 +447,9 @@ func (s *Spool) observeAttribution(seq uint64) (attributionObservation, error) {
 	if prior, ok := s.restart.Slot(seq); ok && prior.Coverage.Reason == edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL && obs.Attribution.State == AttributionAbsent && obs.Evidence != EvidenceCommitted {
 		obs.InTornTail = true
 	}
-	var entry attributionEntry
-	var mapping *relocationMapping
-	var digest []byte
-	if len(valid) > 0 {
-		event, hash := agreedIdentity(valid)
-		entry, _, err = fresh.inspectAttribution(SlotEvidence{Sequence: seq, EventID: event, RecordSHA256: hash})
-		if err != nil {
-			return out, err
-		}
-		if obs.Attribution.State == AttributionVerifies {
-			mapping, digest, _, err = fresh.inspectRelocation(entry, valid)
-			if err != nil {
-				return out, err
-			}
-		}
+	entry, mapping, digest, err := fresh.inspectObservedAttribution(seq, obs.Attribution.State == AttributionVerifies, valid)
+	if err != nil {
+		return out, err
 	}
 	var record Record
 	if ResolveSlot(obs).Outcome == OutcomeCommitted {

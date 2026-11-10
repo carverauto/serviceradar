@@ -20,21 +20,27 @@ const recoveryPhaseMagic = "SRRCPHS1"
 const recoveryPhaseOverhead = 8 + 32 + 32 + 4 + 32
 const maxRecoveryPhases = 64
 
+// Phase keys shared by the completion and coverage owners.
+const (
+	recoveryPhaseCompleted = "completed"
+	recoveryPhaseCoverage  = "coverage"
+)
+
 // Phase records are immutable pairs, independently bound to the complete freeze
 // journal and a typed step name. A later record never replaces or proves an
 // earlier barrier. Only the operation owner writes the private step names.
 func encodeRecoveryPhase(frozen [32]byte, key string, payload []byte) ([]byte, error) {
-	if !validRecoveryPhaseKey(key) && key != "completion" && key != "completed" {
+	if !validRecoveryPhaseKey(key) && key != "completion" && key != recoveryPhaseCompleted {
 		return nil, ErrRecoveryPlan
 	}
 	limit := maxRecoveryMetadataPhaseBytes
-	if key == "completion" || key == "completed" {
+	if key == "completion" || key == recoveryPhaseCompleted {
 		limit = maxRecoveryCompletionBytes
 	}
 	if strings.HasPrefix(key, "publications-") {
 		limit = maxRecoveryPublicationBundleBytes
 	}
-	if key == "coverage" {
+	if key == recoveryPhaseCoverage {
 		limit = maxRecoveryCoverageBytes
 	}
 	if len(payload) > limit {
@@ -74,7 +80,7 @@ func readRecoveryPhaseCopy(path string, frozen [32]byte, key string) recoveryJou
 	if err != nil {
 		return recoveryJournalCopy{err: err}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(f, MaxRecoveryPhaseBytes+1))
 	if err != nil {
 		return recoveryJournalCopy{err: err}
@@ -131,7 +137,7 @@ func recoveryPhaseEntries(dir string) ([]os.DirEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	entries, err := f.ReadDir(2*maxRecoveryPhases + 9)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
@@ -254,7 +260,7 @@ func RepairRecoveryPhases(dir string, grant *RecoveryGrant) error {
 
 func validRecoveryPhaseKey(key string) bool {
 	switch key {
-	case "coverage", "archive", "delete", "reclaimed", "resolved":
+	case recoveryPhaseCoverage, "archive", "delete", "reclaimed", "resolved":
 		return true
 	}
 	offset := 4
@@ -304,7 +310,7 @@ func repairRecoveryPhase(dir, key string, frozen [32]byte, grant *RecoveryGrant)
 }
 
 func recoveryPhaseArtifact(key string, copy int) Artifact {
-	if key == "coverage" {
+	if key == recoveryPhaseCoverage {
 		return ArtifactMapping
 	}
 	return recoveryJournalArtifact(copy)

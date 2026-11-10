@@ -110,7 +110,13 @@ func TestRecoveryCopyResumesFrozenAllocationAfterEveryBarrier(t *testing.T) {
 }
 
 func TestRecoveryCopyRefusesConflictingTailWithoutChangingEvidence(t *testing.T) {
-	for _, conflict := range []string{"counter", "offset", "prior_counter", "prior_offset", "record_prefix", "missing_hold", "missing_source_hold"} {
+	const (
+		counter, offset                = "counter", "offset"
+		priorCounter, priorOffset      = "prior_counter", "prior_offset"
+		recordPrefix                   = "record_prefix"
+		missingHold, missingSourceHold = "missing_hold", "missing_source_hold"
+	)
+	for _, conflict := range []string{counter, offset, priorCounter, priorOffset, recordPrefix, missingHold, missingSourceHold} {
 		t.Run(conflict, func(t *testing.T) {
 			f := newRecoveryFixture(t, 2)
 			if _, err := f.operation.Copy(1); err != nil {
@@ -127,13 +133,13 @@ func TestRecoveryCopyRefusesConflictingTailWithoutChangingEvidence(t *testing.T)
 			}
 			restartRecoveryCopy(t, f)
 			path := f.destination.spool.evidencePath(0)
-			if conflict == "record_prefix" {
+			if conflict == recordPrefix {
 				path = f.destination.spool.segmentPath()
 			}
-			if conflict == "missing_hold" {
+			if conflict == missingHold {
 				path = f.destination.spool.recoveryHoldPath()
 			}
-			if conflict == "missing_source_hold" {
+			if conflict == missingSourceHold {
 				path = f.source.spool.recoverySourceHoldPath()
 			}
 			raw, err := os.ReadFile(path)
@@ -141,9 +147,9 @@ func TestRecoveryCopyRefusesConflictingTailWithoutChangingEvidence(t *testing.T)
 				t.Fatal(err)
 			}
 			switch conflict {
-			case "counter", "offset", "prior_counter", "prior_offset":
+			case counter, offset, priorCounter, priorOffset:
 				seq, state := uint64(2), statePrepared
-				if conflict == "prior_counter" || conflict == "prior_offset" {
+				if conflict == priorCounter || conflict == priorOffset {
 					seq, state = 1, stateCommitted
 				}
 				pos := f.destination.spool.evidencePosition(seq, state)
@@ -151,20 +157,20 @@ func TestRecoveryCopyRefusesConflictingTailWithoutChangingEvidence(t *testing.T)
 				if status != entryValid {
 					t.Fatal("fixture lacks prepared evidence")
 				}
-				if conflict == "counter" || conflict == "prior_counter" {
+				if conflict == counter || conflict == priorCounter {
 					entry.generation++
 				} else {
 					entry.recordOffset++
 				}
 				copy(raw[pos:], entry.encode())
-			case "record_prefix":
+			case recordPrefix:
 				raw[len(raw)-1] ^= 1
-			case "missing_hold", "missing_source_hold":
+			case missingHold, missingSourceHold:
 				if err = os.Remove(path); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if conflict != "missing_hold" && conflict != "missing_source_hold" {
+			if conflict != missingHold && conflict != missingSourceHold {
 				if err = os.WriteFile(path, raw, filePerm); err != nil {
 					t.Fatal(err)
 				}
@@ -176,7 +182,7 @@ func TestRecoveryCopyRefusesConflictingTailWithoutChangingEvidence(t *testing.T)
 			if f.allocator.Usage() != before {
 				t.Fatal("refusal consumed reserve")
 			}
-			if conflict != "missing_hold" && conflict != "missing_source_hold" {
+			if conflict != missingHold && conflict != missingSourceHold {
 				after, err := os.ReadFile(path)
 				if err != nil || !bytes.Equal(raw, after) {
 					t.Fatal("conflicting evidence overwritten", err)

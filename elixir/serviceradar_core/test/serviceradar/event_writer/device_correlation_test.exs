@@ -270,7 +270,15 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
       send(task.pid, :run)
       result = Task.await(task, 10_000)
       delivered = :trace.delivered(session, :all)
-      assert_receive {:trace_delivered, :all, ^delivered}, 1_000
+
+      # The runtime always answers :trace.delivered/2 once every trace message
+      # emitted so far has reached this process. Under a loaded async suite that
+      # can exceed any fixed window, so wait for the reply itself; the ExUnit
+      # per-test timeout still bounds the wait.
+      receive do
+        {:trace_delivered, :all, ^delivered} -> :ok
+      end
+
       {result, collect_database_calls([])}
     after
       :trace.session_destroy(session)

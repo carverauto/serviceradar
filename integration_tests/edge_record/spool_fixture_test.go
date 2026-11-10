@@ -77,10 +77,12 @@ func appendFixtureStorage(storage *agent.RecordSpool, body []byte, trust *edgere
 func (h *harness) appendAgentSpool(t *testing.T, fixture *FixtureRecord) spool.Receipt {
 	t.Helper()
 	// Fetch the actual persisted authority/fences from the isolated core release.
-	// The fixture's partition UUID is also its network scope UUID.
+	// The fixture's partition UUID is also its network scope UUID; the agent
+	// snapshot is keyed by that partition's slug, as the config generator keys it.
 	expr := fmt.Sprintf(`
  scope = Base.decode64!(%q) |> Ecto.UUID.load!()
- {:ok, trust} = ServiceRadar.Edge.RecordTrust.agent_snapshot(%q, scope)
+ partition = ServiceRadar.Repo.get!(ServiceRadar.Infrastructure.Partition, scope)
+ {:ok, trust} = ServiceRadar.Edge.RecordTrust.agent_snapshot(%q, partition.slug)
  IO.puts("FIXTURE_TRUST:" <> Base.encode64(Jason.encode!(trust)))
  `, base64.StdEncoding.EncodeToString(fixture.NetworkScopeID), h.certSet.AgentComponentID)
 	out, err := h.coreProc.RPC(expr, rpcTimeout)

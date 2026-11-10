@@ -235,10 +235,10 @@ func decodeRecoveryJournal(raw []byte) (frozenRecoveryRecord, error) {
 		return reopenedRecoveryJournal, ErrRecoveryJournalCorrupt
 	}
 	if err := decodeRecoveryJSON(raw[recoveryJournalHeader:end], &reopenedRecoveryJournal); err != nil {
-		return reopenedRecoveryJournal, fmt.Errorf("%w: %v", ErrRecoveryJournalCorrupt, err)
+		return reopenedRecoveryJournal, fmt.Errorf("%w: %s", ErrRecoveryJournalCorrupt, err.Error())
 	}
 	if err := validateRecoveryPlan(reopenedRecoveryJournal.Plan); err != nil {
-		return reopenedRecoveryJournal, fmt.Errorf("%w: %v", ErrRecoveryJournalCorrupt, err)
+		return reopenedRecoveryJournal, fmt.Errorf("%w: %s", ErrRecoveryJournalCorrupt, err.Error())
 	}
 	manifest, err := constructRecoveryManifest(reopenedRecoveryJournal.Plan)
 	if err != nil || !equalRecoveryManifest(manifest, reopenedRecoveryJournal.Manifest) {

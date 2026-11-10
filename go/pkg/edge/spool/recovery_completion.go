@@ -132,7 +132,7 @@ func (o *RecoveryOperation) prepareCompletion(handles RecoveryCompletionGenerati
 		if err = g.SealRecoveryDestination(); err != nil {
 			return nil, err
 		}
-		name, artifact, full := "destination.archive", ArtifactMapping, false
+		name, artifact, full := destinationArchiveFile, ArtifactMapping, false
 		if i > 0 {
 			name = fmt.Sprintf("control-%03d.archive", g.RecoveryAttempt())
 			artifact = ArtifactManifestPages
@@ -303,7 +303,7 @@ func readStandaloneCompletion(dir, key string, copyIndex int) ([]byte, [32]byte,
 // selects between divergent valid copies or treats a read I/O failure as a torn
 // write. Restored evidence still requires current receipt validation to finish.
 func RepairRecoveryCompletion(dir string, grant *RecoveryGrant) (*RecoveryCompletion, error) {
-	for _, key := range []string{"completion", "completed"} {
+	for _, key := range []string{"completion", recoveryPhaseCompleted} {
 		a, _, aErr := readStandaloneCompletion(dir, key, 0)
 		b, _, bErr := readStandaloneCompletion(dir, key, 1)
 		if aErr == nil && bErr == nil {
@@ -312,7 +312,7 @@ func RepairRecoveryCompletion(dir string, grant *RecoveryGrant) (*RecoveryComple
 			}
 			continue
 		}
-		if key == "completed" && errors.Is(aErr, os.ErrNotExist) && errors.Is(bErr, os.ErrNotExist) {
+		if key == recoveryPhaseCompleted && errors.Is(aErr, os.ErrNotExist) && errors.Is(bErr, os.ErrNotExist) {
 			continue
 		}
 		valid, damaged, damagedErr := a, 1, bErr
@@ -372,6 +372,33 @@ func (c *RecoveryCompletion) validateReceipt(validated *edgerecord.ValidatedReco
 	return nil
 }
 
+// verifySourceReclaimed checks that the source generation still matches its
+// durable reclaim checkpoint and that the source terminal archive is intact.
+func (c *RecoveryCompletion) verifySourceReclaimed(source *Generation) error {
+	var sourceIntent recoveryDeleteIntent
+	if err := decodeRecoveryJSON(c.record.SourceCheckpoint, &sourceIntent); err != nil {
+		return err
+	}
+	sourceProof, err := os.ReadFile(filepath.Join(source.dir, dataName(sourceIntent.HighWater)+checkpointSuffix))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(sourceProof, recoveryCheckpoint(sourceIntent, c.record.SourceCheckpoint)) {
+		return ErrRecoveryCoverage
+	}
+	if err = source.withOpen(func(s *Spool) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.baseSeq != sourceIntent.HighWater || s.nextSeq-1 != sourceIntent.HighWater {
+			return ErrRecoveryCoverage
+		}
+		return s.requireCurrentLayout()
+	}); err != nil {
+		return err
+	}
+	return verifyRecoveryArchive(filepath.Join(c.dir, recoveryArchiveFile), c.record.SourceArchive, c.frozen)
+}
+
 // Finish revalidates all compact commitments before retrying cleanup. The carrier
 // must come from the caller's current retained trust policy, never cached trust
 // at the time RecordResolution originally persisted the receipt.
@@ -400,28 +427,7 @@ func (c *RecoveryCompletion) Finish(grant *RecoveryGrant, handles RecoveryComple
 	if grant == nil || handles.Destination == nil || handles.Destination.dir != grant.lane {
 		return ErrOutsideLane
 	}
-	var sourceIntent recoveryDeleteIntent
-	if err := decodeRecoveryJSON(c.record.SourceCheckpoint, &sourceIntent); err != nil {
-		return err
-	}
-	sourceProof, err := os.ReadFile(filepath.Join(handles.Source.dir, dataName(sourceIntent.HighWater)+checkpointSuffix))
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(sourceProof, recoveryCheckpoint(sourceIntent, c.record.SourceCheckpoint)) {
-		return ErrRecoveryCoverage
-	}
-	if err = handles.Source.withOpen(func(s *Spool) error {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.baseSeq != sourceIntent.HighWater || s.nextSeq-1 != sourceIntent.HighWater {
-			return ErrRecoveryCoverage
-		}
-		return s.requireCurrentLayout()
-	}); err != nil {
-		return err
-	}
-	if err = verifyRecoveryArchive(filepath.Join(c.dir, recoveryArchiveFile), c.record.SourceArchive, c.frozen); err != nil {
+	if err = c.verifySourceReclaimed(handles.Source); err != nil {
 		return err
 	}
 	for i, target := range c.record.Targets {
@@ -429,7 +435,7 @@ func (c *RecoveryCompletion) Finish(grant *RecoveryGrant, handles RecoveryComple
 		if g == nil || g.spool.alloc != grant.alloc || !g.Closed() || !bytes.Equal(encodeIdentity(g.id), encodeIdentity(target.Identity)) {
 			return ErrRecoveryPlan
 		}
-		if target.Archive != "destination.archive" && target.Archive != fmt.Sprintf("control-%03d.archive", g.RecoveryAttempt()) {
+		if target.Archive != destinationArchiveFile && target.Archive != fmt.Sprintf("control-%03d.archive", g.RecoveryAttempt()) {
 			return ErrRecoveryPlan
 		}
 		if err = verifyRecoveryArchive(filepath.Join(c.dir, target.Archive), target.Descriptor, c.frozen); err != nil {
@@ -452,10 +458,10 @@ func (c *RecoveryCompletion) Finish(grant *RecoveryGrant, handles RecoveryComple
 		return err
 	}
 	digest := sha256.Sum256(c.raw)
-	if err = writeCompletionPair(c.dir, "completed", c.frozen, digest[:], grant); err != nil {
+	if err = writeCompletionPair(c.dir, recoveryPhaseCompleted, c.frozen, digest[:], grant); err != nil {
 		return err
 	}
-	if _, err = readCompletionPair(c.dir, "completed", c.frozen); err != nil {
+	if _, err = readCompletionPair(c.dir, recoveryPhaseCompleted, c.frozen); err != nil {
 		return err
 	}
 	return grant.completeCleanup(c.dir, append([]*Generation{handles.Source}, generations...))
@@ -464,7 +470,7 @@ func (c *RecoveryCompletion) Finish(grant *RecoveryGrant, handles RecoveryComple
 // Completed reports paired completion of physical cleanup and transient GC.
 // It is inventory state only; Finish still requires current receipt validation.
 func (c *RecoveryCompletion) Completed() (bool, error) {
-	raw, err := readCompletionPair(c.dir, "completed", c.frozen)
+	raw, err := readCompletionPair(c.dir, recoveryPhaseCompleted, c.frozen)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
