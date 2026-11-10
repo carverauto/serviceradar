@@ -80,6 +80,29 @@ acknowledge delivery or drain a durable outbox. No automatic scan or capture
 restart runs at boot; publication, assignment reconciliation and unresolved/gap
 state remain follow-up work.
 
+## Descriptor-bound local media reads
+
+`ServiceRadarNVR.read_block(block_id, descriptor_sha256, selector)` returns
+`{:ok, bytes}` for `:init` or `{:fragment, sequence}`. The expected digest is the
+lowercase hexadecimal SHA-256 of the canonical JSON from `block_descriptor/1`.
+It binds each read to that descriptor's identity, clock, format and media map.
+A different digest returns `:descriptor_digest_mismatch`; malformed digests and
+selectors are refused before media I/O. A missing fragment returns `:not_readable`.
+Paths, arbitrary byte ranges and whole-block media reads are not accepted.
+
+Every request re-verifies the complete sealed block under the existing 16 MiB /
+8 fragment limit, compares its descriptor digest, then rechecks storage identity
+and the selected bytes' hash. Initialization output is at most 1 MiB and fragment
+output at most 4 MiB. Corrupt or unsealed evidence is refused without repair.
+I/O runs in the caller, outside the capacity admission GenServer.
+
+This is a trusted same-VM primitive, with no network endpoint. The digest is a
+content binding, not playback permission or an assignment lease. Full-block
+verification on every read is finite but is not a playback throughput claim.
+Authenticated owner-aware delivery, aggregate reader budgets, deadlines and seek
+cancellation remain work for the remote playback protocol. No cache or catalog
+is created by these reads.
+
 ## Explicit interrupted-block recovery
 
 After retiring the previous writer and establishing exclusive volume attachment,

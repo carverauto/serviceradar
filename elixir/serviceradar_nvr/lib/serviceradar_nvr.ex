@@ -63,11 +63,32 @@ defmodule ServiceRadarNVR do
   publication authority nor playback access. Inspection does not mutate disk.
   """
   def block_descriptor(block_id) do
-    with {:ok, snapshot} <- sealed_block(block_id),
-         {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format) do
-      Descriptor.encode(descriptor)
+    with {:ok, snapshot} <- sealed_block(block_id) do
+      encode_descriptor(snapshot)
     end
   end
+
+  @doc """
+  Read verified initialization bytes or one fragment bound to a descriptor digest.
+
+  `descriptor_sha256` is the lowercase hexadecimal SHA-256 of `block_descriptor/1`
+  JSON. Select `:init` or `{:fragment, sequence}`; paths and arbitrary ranges are
+  not accepted. Each call verifies the entire sealed block before comparing the
+  descriptor digest, then rechecks the selected bytes. The runtime bounds output
+  to 1 MiB for initialization or 4 MiB for a fragment.
+
+  This trusted same-VM API runs I/O in the caller. It supplies neither playback
+  authorization nor aggregate reader admission, cancellation or remote transport.
+  """
+  def read_block(block_id, descriptor_sha256, :init) do
+    read_verified(block_id, descriptor_sha256, &Spool.read_init/1)
+  end
+
+  def read_block(block_id, descriptor_sha256, {:fragment, sequence}) when is_integer(sequence) and sequence >= 0 do
+    read_verified(block_id, descriptor_sha256, &Spool.read_fragment(&1, sequence))
+  end
+
+  def read_block(_block_id, _descriptor_sha256, _selector), do: {:error, :invalid_media_selector}
 
   @doc """
   Recover and seal one retained block using its expected identity (including clock).
@@ -81,6 +102,28 @@ defmodule ServiceRadarNVR do
   def recover_block(block_id, expected_identity) do
     with {:ok, snapshot} <- ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity) do
       with_format(snapshot)
+    end
+  end
+
+  defp read_verified(block_id, expected_digest, read)
+       when is_binary(expected_digest) and byte_size(expected_digest) == 64 do
+    if Regex.match?(~r/\A[0-9a-f]{64}\z/, expected_digest) do
+      with {:ok, snapshot} <- sealed_block(block_id),
+           {:ok, descriptor} <- encode_descriptor(snapshot),
+           digest = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower),
+           true <- digest == expected_digest || {:error, :descriptor_digest_mismatch} do
+        read.(snapshot)
+      end
+    else
+      {:error, :invalid_descriptor_digest}
+    end
+  end
+
+  defp read_verified(_block_id, _expected_digest, _read), do: {:error, :invalid_descriptor_digest}
+
+  defp encode_descriptor(snapshot) do
+    with {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format) do
+      Descriptor.encode(descriptor)
     end
   end
 

@@ -147,6 +147,16 @@ must establish prior writer retirement and exclusive attachment; this operation
 does not supply distributed fencing, automatic reconciliation, durable gap state
 or publication authority. Tasks 3.2 and 3.3 remain open.
 
+Descriptor-bound local read checkpoint for 3.3/3.7: the trusted same-VM
+`ServiceRadarNVR.read_block/3` API accepts a block ID, canonical descriptor SHA-256
+and an initialization/fragment selector. It verifies the sealed retained block,
+compares the descriptor digest and rechecks the selected bytes under existing
+runtime bounds. The shipped-release restart/recovery tests reconstruct and decode
+media through this API and refuse mismatched digests, invalid selectors and
+unsealed/corrupt evidence without repair. This is not authenticated remote
+playback, catalog publication or aggregate reader admission. Tasks 3.3 and 3.7
+remain open.
+
 Portable metadata checkpoint for 2.1/3.3: `serviceradar_recording_metadata`
 owns the unchanged canonical v1 descriptor and archive-manifest contract shared
 by Core and NVR, without Core, database or media-pipeline dependencies. The
