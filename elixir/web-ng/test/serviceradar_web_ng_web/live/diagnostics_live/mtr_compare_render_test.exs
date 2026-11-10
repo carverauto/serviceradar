@@ -52,6 +52,37 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareRenderTest do
     assert metric_delta(document) == "-"
   end
 
+  test "same-hours preset produces equal-duration windows just after midnight UTC" do
+    for now <- [~U[2026-05-07 00:00:00Z], ~U[2026-05-07 00:00:11Z]] do
+      state =
+        MtrCompare.window_state_from_params(
+          %{"preset" => "today_vs_yesterday_elapsed"},
+          now
+        )
+
+      assert state.window_a.start == ~U[2026-05-07 00:00:00Z]
+      assert state.window_a.end == ~U[2026-05-07 00:01:00Z]
+      assert state.window_b.start == ~U[2026-05-06 00:00:00Z]
+      assert state.window_b.end == ~U[2026-05-06 00:01:00Z]
+
+      assert DateTime.diff(state.window_a.end, state.window_a.start, :second) ==
+               DateTime.diff(state.window_b.end, state.window_b.start, :second)
+    end
+  end
+
+  test "today-versus-yesterday preset keeps a non-empty today window at midnight UTC" do
+    state =
+      MtrCompare.window_state_from_params(
+        %{"preset" => "today_vs_yesterday"},
+        ~U[2026-05-07 00:00:00Z]
+      )
+
+    assert state.window_a.start == ~U[2026-05-07 00:00:00Z]
+    assert state.window_a.end == ~U[2026-05-07 00:01:00Z]
+    assert state.window_b.start == ~U[2026-05-06 00:00:00Z]
+    assert state.window_b.end == ~U[2026-05-07 00:00:00Z]
+  end
+
   defp render_comparison(opts) do
     window_a = %{label: "Window A", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
     window_b = %{label: "Window B", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}
