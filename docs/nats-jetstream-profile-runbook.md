@@ -233,7 +233,7 @@ serviceradar-control repository):
 `tenant-2g` is sized for three NATS servers and the replica counts
 `values-tenant.yaml` sets (KV, objects, `events`, plugins, `ARANCINI_CAUSAL`,
 `metrics`, `scan_results`, `NOTIFICATIONS`, `TELEMETRY_EDGE_RECORD_V1_BULK` at
-32 MiB, its audit and security-quarantine streams at 8 MiB each, its
+128 MiB, its audit and security-quarantine streams at 8 MiB each, its
 dead-letter stream at 4 MiB, and the fixed 64 MiB `EXPOSURE_RECOVERY`
 reservation at R3; `flows` and the remaining EventWriter and exposure streams
 at R1). Full reservations are 1172 MiB, spread is 576 MiB, and the most loaded

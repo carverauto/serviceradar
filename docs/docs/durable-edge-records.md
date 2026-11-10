@@ -171,24 +171,25 @@ character outside `[a-z0-9_-]` replaced by `_`, so `serviceradar.metrics.batch`
 version 1 dead-letters under
 `telemetry.edge-record-dlq.v1.bulk.pNN.serviceradar_metrics_batch.v1`.
 
-All four streams are file-backed and use three replicas (capped to
-`nats.replicas`). The primary and audit streams keep records for 24 hours
-(`MaxAge`) and discard the oldest when they reach their byte limit, so
-EventWriter must keep up with them. The gateway has already acknowledged those
-records to the agent, so a record that ages or is discarded out of either
-stream before EventWriter reads it is never projected or recorded in the
-ledger, and the agent no longer holds a copy. The security-quarantine and
-dead-letter streams have no `MaxAge` and refuse new messages when full
-(`DiscardNew`), so nothing ages out of them; a refused quarantine publish
-leaves the sequence unresolved and the agent keeps the bytes.
+All four streams are file-backed, use three replicas (capped to
+`nats.replicas`), and refuse new messages when full (`DiscardNew`) rather than
+evicting stored records. When the primary or audit stream reaches `MaxBytes`,
+JetStream refuses new publishes (`err_code` 10077) and the gateway withholds
+`EdgeDeliveryAckV1`, so the agent spool retains the record and retries once
+EventWriter drains space. The primary and audit streams keep records for 72
+hours (`MaxAge`: 24h supported outage + 24h catch-up + 24h safety margin); the
+security-quarantine and dead-letter streams have no `MaxAge` (`0`), so nothing
+ages out of them.
 
 EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
 for the other three. On a Helm install the chart's JetStream profile
-(`nats.jetstream.profile`) sets the sizes, and they differ by profile: the
-`small` profile gives the dead-letter stream 32 MiB, and `tenant-2g` gives the
-primary stream 32 MiB, the audit and security-quarantine streams 8 MiB each and
-the dead-letter stream 4 MiB. `core.eventWriter.streams.<stream>.maxBytes`
-overrides any one of them (see [Helm Configuration](./helm-configuration.md)).
+(`nats.jetstream.profile`) sizes the primary stream for a 6-hour EventWriter
+outage window per profile (`128 MiB` in `tenant-2g`, `1 GiB` in `small`,
+`3 GiB` in `medium`, and `8 GiB` in `large`); `small` gives the dead-letter
+stream 32 MiB, and `tenant-2g` gives the audit and security-quarantine streams
+8 MiB each and the dead-letter stream 4 MiB.
+`core.eventWriter.streams.<stream>.maxBytes` overrides any one of them (see
+[Helm Configuration](./helm-configuration.md)).
 
 ### 4. EventWriter projects the record
 
