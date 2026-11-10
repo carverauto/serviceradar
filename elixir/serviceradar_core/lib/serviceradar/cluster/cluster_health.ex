@@ -315,7 +315,11 @@ defmodule ServiceRadar.ClusterHealth do
 
   defp pipeline_snapshots do
     nodes = [node() | Node.list()]
-    Enum.zip(nodes, :erpc.multicall(nodes, PipelineStats, :snapshot, [], @event_writer_rpc_timeout))
+
+    Enum.zip(
+      nodes,
+      :erpc.multicall(nodes, PipelineStats, :snapshot, [], @event_writer_rpc_timeout)
+    )
   end
 
   defp pipeline_epochs({:ok, %{epochs: epochs, invalid: invalid}}) do

@@ -116,7 +116,11 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
            ]
 
     assert roll_forward.dead_lettered_by_contract == [
-             %{contract: "serviceradar.metrics.batch/1", reason: "awaiting_roll_forward", count: 9}
+             %{
+               contract: "serviceradar.metrics.batch/1",
+               reason: "awaiting_roll_forward",
+               count: 9
+             }
            ]
 
     assert roll_forward.nodes == ["core@a", "core@b", "gateway@a"]

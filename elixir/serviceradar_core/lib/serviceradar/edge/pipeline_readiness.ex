@@ -168,7 +168,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
     nodes = [node() | Node.list()]
 
     nodes
-    |> Enum.zip(:erpc.multicall(nodes, :erlang, :whereis, [ContractRegistryTransition], @rpc_timeout_ms))
+    |> Enum.zip(
+      :erpc.multicall(nodes, :erlang, :whereis, [ContractRegistryTransition], @rpc_timeout_ms)
+    )
     |> Enum.find_value({:error, :gateway_reports_unavailable}, fn
       {node, {:ok, pid}} when is_pid(pid) -> transition_reports(node)
       _not_the_coordinator -> nil
