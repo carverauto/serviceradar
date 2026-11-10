@@ -68,6 +68,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       # Scheduled trigger to execute due polling schedules
       trigger :execute_schedules do
         queue :service_checks
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_execution
         scheduler_cron "* * * * *"

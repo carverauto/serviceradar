@@ -45,6 +45,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     triggers do
       trigger :run_hostname_rdns do
         queue :maintenance
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due
         worker_read_action :read

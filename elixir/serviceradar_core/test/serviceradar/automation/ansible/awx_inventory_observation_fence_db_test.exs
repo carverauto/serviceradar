@@ -214,7 +214,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
           result = Task.await(second, 5_000)
 
           if second_generation == 10 do
-            assert {:error, {:stale_awx_membership_generation, _, 10, 20}} = result
+            # Superseded by the committed generation 20: settled, never applied.
+            assert :ok = result
           else
             assert {:error, {:conflicting_awx_inventory_observation, _, 20}} = result
           end

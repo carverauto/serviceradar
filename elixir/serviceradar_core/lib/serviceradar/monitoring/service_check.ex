@@ -82,6 +82,8 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       # Scheduled trigger to execute due checks
       trigger :execute_due_checks do
         queue :service_checks
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_check
         scheduler_cron "* * * * *"

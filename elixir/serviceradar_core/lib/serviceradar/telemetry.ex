@@ -551,6 +551,11 @@ defmodule ServiceRadar.Telemetry do
         tags: [:deleted_reason],
         description: "Sweep seeds soft-deleted when they released their address"
       ),
+      counter("serviceradar.inventory.awx_observation.superseded.count",
+        tags: [:source, :source_instance],
+        description:
+          "AWX inventory observations acknowledged unapplied because a newer one was recorded"
+      ),
       counter("serviceradar.inventory.source_succession.merged.count",
         tags: [:identifier_type],
         description: "Records merged into the record holding their source's current id"

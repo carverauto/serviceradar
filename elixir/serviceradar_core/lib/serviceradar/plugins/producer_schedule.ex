@@ -63,6 +63,8 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
     triggers do
       trigger :dispatch_due_producer_schedules do
         queue :integrations
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_dispatch
         scheduler_cron "* * * * *"

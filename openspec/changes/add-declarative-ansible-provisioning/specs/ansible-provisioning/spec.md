@@ -53,6 +53,19 @@ ServiceRadar SHALL track the latest accepted AWX controller observation separate
 - **THEN** controller serialization SHALL reject the stale or conflicting observation before it changes device or membership state
 - **AND** partial and complete-empty observations SHALL participate in the same durable ordering
 
+#### Scenario: An observation older than the recorded generation is superseded
+- **WHEN** a plugin result carries only AWX observations whose generation is older than their controller's recorded generation
+- **THEN** ServiceRadar SHALL acknowledge the result as superseded without applying any of its device, membership, or watermark state
+- **AND** it SHALL log each superseded observation once and count it, and SHALL NOT fail the result into redelivery
+
+#### Scenario: A same-generation conflict is not superseded
+- **WHEN** an observation reuses the recorded generation with different content
+- **THEN** ServiceRadar SHALL fail the result and SHALL NOT acknowledge it as superseded
+
+#### Scenario: A superseded observation shares its result with one that was not ruled on
+- **WHEN** a plugin result carries a superseded AWX observation beside another AWX observation that is not superseded, or beside a discovery envelope the observation ordering does not rule on
+- **THEN** ServiceRadar SHALL fail the result so that the other observation or envelope is never acknowledged unapplied
+
 #### Scenario: Membership reconciliation fails after device updates
 - **WHEN** any step in a controller observation's reconciliation fails
 - **THEN** its device updates, membership updates, and watermark advancement SHALL roll back together

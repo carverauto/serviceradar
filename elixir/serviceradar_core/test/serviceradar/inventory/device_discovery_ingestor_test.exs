@@ -593,6 +593,93 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     assert_receive :empty_membership_sync
   end
 
+  describe "an AWX observation older than the controller's recorded generation" do
+    @controller_id "11111111-2222-4333-8444-555555555555"
+    @superseded {:stale_awx_membership_generation, @controller_id, 10, 20}
+
+    setup do
+      event = [:serviceradar, :inventory, :awx_observation, :superseded]
+      handler = "awx-observation-superseded-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          event,
+          fn ^event, measurements, metadata, _config ->
+            send(parent, {:superseded, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+    end
+
+    test "is acknowledged and counted once instead of failing into redelivery" do
+      parent = self()
+
+      assert :ok =
+               DeviceDiscoveryIngestor.ingest(
+                 %{"device_discovery" => [versioned_awx_envelope()]},
+                 %{},
+                 actor: :actor,
+                 membership_transaction: fn [%{controller_id: @controller_id}], _ingest ->
+                   {:ok, {:superseded, [@superseded]}}
+                 end,
+                 emit_state_events: fn _events -> send(parent, :unexpected_state_events) end,
+                 retire_absent: fn _controller_id -> send(parent, :unexpected_retirement) end
+               )
+
+      assert_receive {:superseded, %{count: 1},
+                      %{
+                        source: "awx",
+                        source_instance: @controller_id,
+                        source_generation: 10,
+                        recorded_generation: 20
+                      }}
+
+      refute_received {:superseded, _measurements, _metadata}
+      refute_received :unexpected_state_events
+      refute_received :unexpected_retirement
+    end
+
+    test "still fails when its payload carries another envelope that was not ruled on" do
+      other_source = %{
+        "schema" => "serviceradar.device_discovery.v1",
+        "source" => "synthetic-inventory",
+        "devices" => [%{"device_id" => "synthetic:host:1", "hostname" => "host02.example.com"}]
+      }
+
+      assert {:error, @superseded} =
+               DeviceDiscoveryIngestor.ingest(
+                 %{"device_discovery" => [versioned_awx_envelope(), other_source]},
+                 %{},
+                 actor: :actor,
+                 membership_transaction: fn [_aggregate], _ingest ->
+                   {:ok, {:superseded, [@superseded]}}
+                 end
+               )
+
+      refute_received {:superseded, _measurements, _metadata}
+    end
+
+    defp versioned_awx_envelope do
+      %{
+        "schema" => "serviceradar.device_discovery.v1",
+        "source" => "awx",
+        "observed_at" => "2031-01-02T03:04:15.000000Z",
+        "collection_id" => "synthetic-observation-10",
+        "metadata" => %{
+          "controller_id" => @controller_id,
+          "source_generation" => 10,
+          "source_fingerprint" => "sha256:" <> String.duplicate("1", 64),
+          "complete" => true
+        },
+        "devices" => []
+      }
+    end
+  end
+
   describe "proxmox canonical identity metadata passthrough" do
     alias ServiceRadar.Inventory.IdentityReconciler
     alias ServiceRadar.Inventory.Sync.Normalize
