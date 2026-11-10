@@ -123,8 +123,8 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 Web-ng can receive canonical local-publication intents on a separate private
 HTTPS listener. It is disabled by default and is outside the public API and
-browser router. The explicit NVR sender is described below; automatic retry
-scheduling and reconciliation remain pending.
+browser router. Explicit and opt-in automatic NVR delivery are described below;
+assignment and local-copy catalog reconciliation remain pending.
 
 Set `SERVICERADAR_NVR_PUBLICATION_ENABLED=true`,
 `SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE` and
@@ -222,10 +222,54 @@ Inspect or retry the same retained operation; do not create a new operation ID.
 An inner local read/publication task may finish under its own existing deadline
 after the delivery task expires. No network task survives the delivery deadline.
 The receipt proves intent acceptance only, not playable availability, qualified
-storage, a second media copy or deletion permission. This API does not yet scan
-pending intents, schedule retries, receive assignments or publish a local-copy
-catalog. Synthetic release tests exercise the sender over real TLS against a
+storage, a second media copy or deletion permission. This API does not receive
+assignments or publish a local-copy catalog. Synthetic release tests exercise the sender over real TLS against a
 protocol fixture; the receiver's own database tests cover Core commit semantics.
+
+## Automatic pending intent delivery
+
+After installing the sender configuration above, opt in with
+`SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY=true`. It defaults to `false`; other
+values, or enabling it without storage and delivery configuration, fail startup
+with `:invalid_nvr_auto_delivery_config`. This flag does not provision storage,
+create publication authority or start capture. Helm and Compose do not enable it
+by default.
+
+The supervised coordinator visits one entry from `publication_page(cursor, 1)`
+per step. It shares the single delivery slot and thirty-second worker deadline
+with explicit calls, including the scan itself. Pending entries use the existing
+verified sender. Matching retained acknowledgements are skipped; unprepared or
+unresolved entries remain unchanged for reconciliation. Explicit delivery still
+contacts the receiver even if an acknowledgement exists locally.
+
+A completed page advances the cursor even when its delivery fails, so a rejected
+intent does not pin later work. The last page wraps to nil; a scan error, unknown
+worker outcome or coordinator restart also starts again from nil. The original
+intent and operation ID remain the retry authority. An admitted worker may finish
+after coordinator loss under its own deadline. The replacement coordinator backs
+off if that slot is still occupied and never queues another worker. Losing the
+coordinator does not restart earlier recording/capacity workers.
+
+Steps normally wait 1,000-1,249 ms. Consecutive scan, admission or delivery failures
+double that base, capped at 48 seconds, with up to 25 percent jitter; the maximum
+wait is 59,999 ms. Any completed non-error classification resets the failure
+streak. Permanent HTTP rejections are not retried within a delivery operation,
+but remain pending for a later scan. This allows recovery after authority or
+configuration is repaired without replacing the retained operation.
+
+`ServiceRadarNVR.publication_delivery_status/0` returns `{:ok, status}` with
+`cursor`, `active?`, `last_result`, `failures`, `steps`, `delivered` and `delay_ms`.
+`steps` counts completed workers, including failures; rejected admissions do not
+increment it. `delay_ms` is the last scheduled delay, not a countdown. Counters
+and cursors reset on restart; this status contains no intent, token or certificate
+bytes. Disabled or restarting coordinators return `:nvr_scheduler_unavailable`.
+
+Each verified page inventories up to 4,096 directories and rehashes the selected
+media; pending delivery verifies it again. This conservative first scheduler has
+not qualified large-backlog catch-up throughput. Even without errors, a full
+4,096-entry cycle takes over an hour at this cadence. A block that cannot pass
+verification remains unresolved; no background repair or destructive cleanup is
+implied. Publication acceptance is still not playable local-copy availability.
 
 ## Qualification before rollout
 

@@ -9,7 +9,8 @@ defmodule ServiceRadarNVR.Config do
     :health_port,
     :max_spool_bytes,
     :reserve_bytes,
-    :delivery
+    :delivery,
+    :auto_delivery
   ]
 
   def load(env) do
@@ -19,7 +20,8 @@ defmodule ServiceRadarNVR.Config do
          {:ok, spool} <- integer(env, "SERVICERADAR_NVR_MAX_SPOOL_BYTES", 1_073_741_824, 1_099_511_627_776),
          {:ok, reserve} <- integer(env, "SERVICERADAR_NVR_RESERVE_BYTES", 67_108_864, 1_125_899_906_842_624),
          {:ok, root, id} <- storage(env),
-         {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env) do
+         {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
+         {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{
         root: root,
         storage_id: id,
@@ -28,10 +30,19 @@ defmodule ServiceRadarNVR.Config do
         health_port: port,
         max_spool_bytes: spool,
         reserve_bytes: reserve,
-        delivery: delivery
+        delivery: delivery,
+        auto_delivery: auto_delivery
       }
 
       {:ok, config}
+    end
+  end
+
+  defp auto_delivery(env, root, delivery) do
+    case Map.get(env, "SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY", "false") do
+      "false" -> {:ok, false}
+      "true" when not is_nil(root) and not is_nil(delivery) -> {:ok, true}
+      _ -> {:error, :invalid_nvr_auto_delivery_config}
     end
   end
 

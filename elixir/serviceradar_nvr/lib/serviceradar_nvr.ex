@@ -112,6 +112,9 @@ defmodule ServiceRadarNVR do
   """
   def prepare_publication(block_id, reference), do: ServiceRadarNVR.Capacity.prepare_publication(block_id, reference)
 
+  @doc "Observe automatic publication progress; unavailable when disabled or restarting."
+  def publication_delivery_status, do: ServiceRadarNVR.PublicationScheduler.status()
+
   @doc "Deliver one retained intent to the installed Core receiver and persist its acknowledgement."
   def deliver_publication(block_id), do: ServiceRadarNVR.Delivery.run(block_id)
 

@@ -76,8 +76,8 @@ endpoint. Descriptor inspection itself does not persist a sidecar.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not
-acknowledge delivery or drain a durable outbox. No automatic scan or capture
-restart runs at boot; publication, assignment reconciliation and unresolved/gap
+acknowledge delivery or drain a durable outbox. Opt-in publication scheduling is
+described below. Capture restart, assignment reconciliation and unresolved/gap
 state remain follow-up work.
 
 ## Durable local publication intent
@@ -87,7 +87,7 @@ same-VM code may call `ServiceRadarNVR.prepare_publication(block_id, reference)`
 The reference has canonical UUIDs `:operation_id` and `:recording_block_id`, plus
 `:descriptor_sha256` from that frozen descriptor. These values correlate the
 future catalog operation; accepting their syntax does not verify Core authority.
-There is no network endpoint or automatic publisher.
+There is no network endpoint or automatic creation of publication authority.
 
 Preparation verifies the complete sealed media and reconstructs its canonical
 descriptor before comparing the expected digest. It exclusively creates a private
@@ -127,8 +127,8 @@ accounting may refuse admission early. Exact retries need no additional bytes.
 Recovery remains exclusive with both recording and publication.
 
 Broader control reserves for holds/disposition, authenticated authority delivery,
-qualified local-copy catalog registration, durable delivery scheduling and
-preservation/disposition state remain open under the
+qualified local-copy catalog registration and preservation/disposition state
+remain open under the
 [local publication contract](../../openspec/changes/add-scalable-camera-recording-plane/local-publication.md).
 No recording is advertised or media deleted by either API.
 
@@ -157,8 +157,30 @@ bypass authenticated delivery; conflicts and partial records remain untouched.
 
 Delivery is disabled unless both installed configuration and token files are
 supplied. See [configuration, retry policy and limitations](../../docs/nvr-runtime.md#explicit-nvr-publication-delivery).
-This is an explicit trusted same-VM call, not a pending-work scheduler or a
-local-copy catalog. It neither advertises availability nor authorizes deletion.
+This is a trusted same-VM call. It neither advertises availability nor authorizes
+deletion.
+
+### Scheduling pending intents
+
+Set `SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY=true` to walk retained recovery
+pages at boot and deliver pending intents. The default is `false`; enabling it
+requires configured storage and both sender files. Each step visits one block in
+the existing single delivery slot, including its thirty-second deadline. Failed
+items remain on disk while the cursor advances to later work. The scan wraps and
+restarts from nil after coordinator or VM loss. Matching retained acknowledgements
+are skipped; unprepared and unresolved records remain untouched.
+
+`ServiceRadarNVR.publication_delivery_status/0` reports the current cursor, active
+worker flag, last outcome, consecutive failures, completed steps, successful
+deliveries and next delay. These are volatile observations, not durable receipts.
+When disabled or restarting it returns `{:error, :nvr_scheduler_unavailable}`.
+The coordinator performs no file or network I/O and cannot queue extra workers.
+
+Normal steps wait 1-1.25 seconds, with jittered exponential backoff after delivery,
+scan or admission failures, capped below sixty seconds. See the
+[runtime details and scan limits](../../docs/nvr-runtime.md#automatic-pending-intent-delivery).
+Automatic delivery neither prepares new intents nor completes the local-copy
+catalog, advertises playback, restarts cameras or deletes media.
 
 ### Retaining an intent acknowledgement
 
@@ -219,8 +241,8 @@ This is an observation scan, not a stable snapshot or a durable delivery queue.
 Concurrent publication may change previously read entries, and new blocks that
 sort before the cursor appear only on a new scan from nil. Preserve unresolved
 work and rescan; advancing a cursor acknowledges nothing. A trusted coordinator
-may explicitly deliver a pending intent with `deliver_publication/1`. Automatic
-scheduling and Core catalog completion remain separate work.
+may explicitly deliver a pending intent with `deliver_publication/1`, or enable
+the scheduler above. Core catalog completion remains separate work.
 
 ## Descriptor-bound local media reads
 

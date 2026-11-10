@@ -21,9 +21,11 @@ defmodule ServiceRadarNVR.Application do
         {Task.Supervisor, name: ServiceRadarNVR.ReadTasks, max_children: 4},
         Supervisor.child_spec({Task.Supervisor, name: ServiceRadarNVR.DeliveryTasks, max_children: 1},
           id: ServiceRadarNVR.DeliveryTasks
-        ),
-        {Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}
+        )
       ]
+
+      scheduler = if config.auto_delivery, do: [{ServiceRadarNVR.PublicationScheduler, []}], else: []
+      children = children ++ scheduler ++ [{Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}]
 
       # Losing identity or reservation accounting retires every dependent writer
       # before replacement accounting can admit work against the retained files.
