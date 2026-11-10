@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.EventsData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
@@ -502,7 +503,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 </div>
                 <.link
                   navigate={
-                    ObservabilityPaths.path("events", q: "in:events device_uid:#{@device_uid}")
+                    ObservabilityPaths.path(
+                      "events",
+                      q: EventsData.device_events_query(@device_uid, identifiers: [])
+                    )
                   }
                   class="text-xs text-sr-brand hover:underline"
                 >
