@@ -503,13 +503,14 @@ condition.
 | `agent_disconnected` | No core node has seen the agent recently. | Check the agent and its connection to the gateway. |
 | `agent_upgrade_blocked` | The release rollout cannot deliver a new agent build. Detail `cause`: `rollout_paused`, `no_published_release` or `no_release_artifact` (with `release` and `platform`). | Resume the rollout or publish a release with an artifact for the platform. |
 | `spool_unavailable` | The agent reported that its spool could not be opened. Detail: `error`. | Fix the spool directory (permissions, disk). |
+| `no_live_gateway_on_active_epoch` | The agent's live gateway has not reported, within the last two minutes, that it installed the active registry epoch, so the agent's records cannot be admitted under it. Detail: `epoch` and `gateway_id`. | Check that gateway's trust refresh to core; it reports a refused registry on its next refresh. |
 | `spool_wedged` | The spool holds allocated slots that never committed (an append interrupted by a crash, power loss or disk error), so the sender cannot resolve past them and every durable family on the agent is blocked. Detail: the agent's spool sample: `gap_count` (exact total), `gap_sequences` (the first 32), `unresolved_count`, `oldest_unresolved_age_seconds` with `oldest_unresolved_age_known`, `unresolved_bytes`, `bytes_used` and `budget_bytes`. | Recovery coverage is required; there is no automatic recovery yet. Do not delete spool files to clear it: that discards the records behind the gap. |
 | `spool_health_unavailable` | The spool opened but the agent could not read its health. Detail: `health_error` and the rest of the sample. | Check the agent log and the spool directory. |
 | `spool_backpressure` | Producer admission is paused at the spool's high-water mark. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
 | `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
 | `oversized_summary` | The gateway refused status summaries from the agent over its source limit (64 KiB for the agent capability status, 4 KiB otherwise). The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
-The spool conditions, `agent_upgrade_pending` and `oversized_summary` come from
+The spool conditions, `no_live_gateway_on_active_epoch`, `agent_upgrade_pending` and `oversized_summary` come from
 the agent's last check-in and its live tracker entry, so they are reported for connected agents only. The agent
 samples spool health on every hello and control-stream heartbeat (about every 60
 seconds), so these conditions do not depend on Prometheus scraping the agent. A
@@ -561,6 +562,16 @@ with the candidate's epoch and each blocker: a core node running another
 catalog, a gateway that has not reported or has not installed the candidate,
 or a node that did not answer. If the coordinator could not evaluate the
 transition, the notice shows the error instead.
+
+Core's health response reports pipeline state in its `edge_pipeline`
+section: the active, candidate and draining epochs (an epoch row that fails
+signature verification is named in `epochs.error`, never listed), the
+transition's outcome and blockers, whether the issuer key is present, and the
+`awaiting_roll_forward` counts summed over every connected node (records
+gateways withheld for any retryable reason, not only roll-forward, and records dead-lettered with reason
+`awaiting_roll_forward`, per contract). A node that did not answer is named in
+`awaiting_roll_forward.error` rather than counted as zero, and `overflow` is
+`null` because no overflow counter exists yet.
 
 ### Settings
 
