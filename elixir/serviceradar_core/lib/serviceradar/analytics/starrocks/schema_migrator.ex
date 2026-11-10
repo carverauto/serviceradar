@@ -162,11 +162,16 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp memory_exhausted?(reason) when is_list(reason), do: Enum.any?(reason, &memory_exhausted?/1)
   defp memory_exhausted?(_reason), do: false
 
+  @doc "The ledger table recording applied StarRocks schema versions."
+  @spec ledger_table() :: String.t()
+  def ledger_table, do: @ledger
+
   @doc """
   Applies every pending migration and returns the versions it applied.
 
-  `:query`, `:try_lock`, `:migrations` and `:database` are injectable so the
-  ordering, adoption and failure behaviour can be tested without a warehouse.
+  `:query`, `:try_lock`, `:migrations`, `:database`, `:replication_num` and
+  `:create_database` are injectable so the ordering, adoption, failure and
+  database-scoped fixture behaviour can be tested without a full cluster.
   `:try_lock` runs the function it is given under the migration lock and
   returns its result, or returns `:busy` without waiting when another replica
   holds the lock.
@@ -180,13 +185,14 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         state = %{
           query: query,
           database: database,
+          create_database?: Keyword.get(opts, :create_database, true),
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
           retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
           workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1)
         }
 
-        with {:ok, replication_num} <- replication_num(query) do
+        with {:ok, replication_num} <- replication_num(query, opts) do
           try_lock = Keyword.get(opts, :try_lock, &try_advisory_lock/1)
           state = Map.put(state, :replication_num, replication_num)
 
@@ -332,6 +338,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # compute nodes and no backends; object storage owns durability there and the
   # pinned value is accepted as is. Either way nothing can be created until one
   # node is alive, so that is also the readiness check.
+  defp replication_num(query, opts) do
+    case Keyword.fetch(opts, :replication_num) do
+      {:ok, count} when is_integer(count) and count > 0 -> {:ok, count}
+      :error -> replication_num(query)
+    end
+  end
+
   defp replication_num(query) do
     backends = alive(query, "SHOW BACKENDS")
     compute_nodes = alive(query, "SHOW COMPUTE NODES")
@@ -387,21 +400,28 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  defp ensure_ledger(%{query: query, database: database, replication_num: replication_num}) do
-    statements = [
-      "CREATE DATABASE IF NOT EXISTS #{database}",
-      """
-      CREATE TABLE IF NOT EXISTS #{database}.#{@ledger} (
-        version INT NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        checksum VARCHAR(64) NOT NULL,
-        applied_at DATETIME NOT NULL
-      )
-      PRIMARY KEY (version)
-      DISTRIBUTED BY HASH(version) BUCKETS 1
-      PROPERTIES ("replication_num" = "#{replication_num}")
-      """
-    ]
+  defp ensure_ledger(%{
+         query: query,
+         database: database,
+         replication_num: replication_num,
+         create_database?: create_database?
+       }) do
+    ledger_sql = """
+    CREATE TABLE IF NOT EXISTS #{database}.#{@ledger} (
+      version INT NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      checksum VARCHAR(64) NOT NULL,
+      applied_at DATETIME NOT NULL
+    )
+    PRIMARY KEY (version)
+    DISTRIBUTED BY HASH(version) BUCKETS 1
+    PROPERTIES ("replication_num" = "#{replication_num}")
+    """
+
+    statements =
+      if create_database?,
+        do: ["CREATE DATABASE IF NOT EXISTS #{database}", ledger_sql],
+        else: [ledger_sql]
 
     Enum.reduce_while(statements, :ok, fn sql, :ok ->
       case query.(sql) do
@@ -438,20 +458,31 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   end
 
   defp execute(state, statement) do
-    with :error <- Schema.add_column(statement),
-         :error <- Schema.modify_column(statement),
-         :error <- Schema.redistribute(statement) do
-      run_statement(state, statement)
+    if not state.create_database? and create_database?(statement) do
+      :ok
     else
-      {:ok, {table, column}} ->
-        add_column(state, statement, table, column)
+      with :error <- Schema.add_column(statement),
+           :error <- Schema.modify_column(statement),
+           :error <- Schema.redistribute(statement) do
+        run_statement(state, statement)
+      else
+        {:ok, {table, column}} ->
+          add_column(state, statement, table, column)
 
-      {:ok, {table, buckets, kind}} when is_integer(buckets) ->
-        redistribute(state, statement, table, buckets, kind)
+        {:ok, {table, buckets, kind}} when is_integer(buckets) ->
+          redistribute(state, statement, table, buckets, kind)
 
-      {:ok, {table, column, type}} ->
-        modify_column(state, statement, table, column, type)
+        {:ok, {table, column, type}} ->
+          modify_column(state, statement, table, column, type)
+      end
     end
+  end
+
+  defp create_database?(statement) do
+    statement
+    |> String.trim_leading()
+    |> String.upcase()
+    |> String.starts_with?("CREATE DATABASE")
   end
 
   # A new default bucket count is metadata and takes effect at once, but
@@ -608,6 +639,14 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   end
 
   defp to_integer(value) when is_integer(value), do: value
+  defp to_integer(nil), do: nil
+
+  defp to_integer(value) do
+    case Integer.parse(to_string(value)) do
+      {integer, _} -> integer
+      :error -> nil
+    end
+  end
 
   # StarRocks 4.x reports DATA_SIZE in bytes; 3.5 reports text such as
   # "157MB" or "156.9MB". Anything else is unknown, and an unknown size is
@@ -634,15 +673,6 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp parse_number(text) do
     {number, ""} = Float.parse(text)
     number
-  end
-
-  defp to_integer(nil), do: nil
-
-  defp to_integer(value) do
-    case Integer.parse(to_string(value)) do
-      {integer, _} -> integer
-      :error -> nil
-    end
   end
 
   defp modify_column(state, statement, table, column, type) do
@@ -712,11 +742,15 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # mid-change there: an ALTER sent then is refused.
   defp await_alter(state, table), do: poll_alter(state, table, :own, :column)
 
-  # Before an ALTER, waits out any change still running on the table -- one a
-  # runner that lost the lock, or died, left behind. How that one ended is not
-  # this runner's concern: a cancelled change left the column as it was, and
-  # the probe that follows sees what a finished one did.
-  defp await_quiet(state, table), do: poll_alter(state, table, :previous, :column)
+  # Before an ALTER, waits out any column change or optimize job still running
+  # on the table -- one a runner that lost the lock, or died, left behind. How
+  # that one ended is not this runner's concern: a cancelled change left the
+  # table as it was, and the probe that follows sees what a finished one did.
+  defp await_quiet(state, table) do
+    with :ok <- poll_alter(state, table, :previous, :column) do
+      poll_alter(state, table, :previous, :optimize)
+    end
+  end
 
   # Column changes and optimize jobs are listed apart (SHOW ALTER TABLE COLUMN
   # and SHOW ALTER TABLE OPTIMIZE) with the same State semantics.
