@@ -108,7 +108,7 @@ and
 [36f56b1b](https://carverauto.buildbuddy.io/invocation/36f56b1b-1d45-4eb2-8d17-2c4ee9807a6c)
 stopped on the README merge conflict before any test body. Descriptor encoding is
 `elixir/serviceradar_recording_metadata/test/manifest_test.exs`
-on `//elixir/serviceradar_core_elx:unit_tests`. The synthetic provider target is
+on `//elixir/serviceradar_recording_metadata:unit_tests`. The synthetic provider target is
 `//elixir/serviceradar_core_elx:provider_probe_test`, and the chart floor target
 is `//helm/serviceradar:migrations_expected_version_test`. Non-database `make test`
 [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958)
