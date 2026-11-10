@@ -224,6 +224,19 @@ This is not authenticated remote delivery, qualified local-copy registration,
 playback availability or permission to compact intent/preservation history.
 Tasks 3.2 and 3.3 remain open.
 
+Publication headroom checkpoint for 3.2/3.3: recording admission and rotation
+reserve the bounded intent and acknowledgement sizes independently of media for
+each new block and each missing retained record. Inventory reconstructs those
+allowances after restart, and write guards keep publication headroom after a
+worker exits. Idle publication spends only its own missing-record allowance;
+other pending records remain reserved, exact retries allocate nothing and
+partial records remain unresolved. Shipped-release coverage proves admission
+refusal before metadata space is consumed and reuse of unused allowances after
+publication. This is byte accounting, not filesystem preallocation or storage
+qualification. Concurrent publication, broader hold/disposition reserves,
+authenticated delivery and continuous capture remain open; tasks 3.2 and 3.3 are
+not complete.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

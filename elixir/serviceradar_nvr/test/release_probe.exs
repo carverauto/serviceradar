@@ -88,14 +88,17 @@ case System.fetch_env!("NVR_TEST_MODE") do
       ServiceRadarNVR.capacity()
 
     true = retained > 0
-    roomy = %{usage | available_bytes: usage.reserve_bytes + block}
-    :ok = Capacity.admission(%{roomy | max_spool_bytes: retained + block})
-    {:error, :nvr_spool_budget_exhausted} = Capacity.admission(%{roomy | max_spool_bytes: retained + block - 1})
+    66_048 = usage.publication_reserved_bytes
+    66_048 = usage.publication_block_bytes
+    needed = block + 2 * 66_048
+    roomy = %{usage | available_bytes: usage.reserve_bytes + needed}
+    :ok = Capacity.admission(%{roomy | max_spool_bytes: retained + needed})
+    {:error, :nvr_spool_budget_exhausted} = Capacity.admission(%{roomy | max_spool_bytes: retained + needed - 1})
     {:error, :nvr_spool_budget_exhausted} = Capacity.admission(%{roomy | max_spool_bytes: block})
 
     # Admitted exactly at the physical boundary, the worker may write its whole
-    # block and stops only once the configured floor itself is breached.
-    floor = usage.reserve_bytes
+    # block while leaving both blocks' publication records and the physical floor.
+    floor = usage.reserve_bytes + 2 * 66_048
     {:error, :nvr_storage_pressure} = Capacity.admission(%{roomy | available_bytes: floor + block - 1})
 
     for written <- [0, 1, div(block, 2), block] do
@@ -104,6 +107,18 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     {:error, :nvr_storage_pressure} = Capacity.writable(floor - 1, floor)
     {:error, :nvr_storage_pressure} = Capacity.writable(0, floor)
+
+  "publication_headroom" ->
+    {:ok, %{publication_reserved_bytes: 66_048}} = ServiceRadarNVR.capacity()
+
+    {:error, :nvr_spool_budget_exhausted} =
+      ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-next-camera"}, clock)
+
+  "publication_headroom_released" ->
+    {:ok, %{publication_reserved_bytes: 0}} = ServiceRadarNVR.capacity()
+    {:ok, worker, _} = ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-next-camera"}, clock)
+    {:ok, %{publication_reserved_bytes: 66_048}} = ServiceRadarNVR.capacity()
+    :ok = ServiceRadarNVR.stop(worker)
 
   mode
   when mode in [
@@ -150,7 +165,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
         {:ok, ^bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
         {:ok, ^bytes} = ServiceRadarNVR.publication_intent(block_id)
         ^bytes = File.read!(path)
-        {:ok, %{used_bytes: after_bytes}} = ServiceRadarNVR.capacity()
+        {:ok, %{used_bytes: after_bytes, publication_reserved_bytes: 512}} = ServiceRadarNVR.capacity()
         true = after_bytes == before_bytes + byte_size(bytes)
 
         for key <- [:operation_id, :recording_block_id] do
@@ -203,7 +218,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
         {:ok, %{used_bytes: before_bytes}} = ServiceRadarNVR.capacity()
         {:ok, ^bytes} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
         {:ok, ^bytes} = ServiceRadarNVR.publication_acknowledgement(block_id)
-        {:ok, %{used_bytes: after_bytes}} = ServiceRadarNVR.capacity()
+        {:ok, %{used_bytes: after_bytes, publication_reserved_bytes: 0}} = ServiceRadarNVR.capacity()
         true = after_bytes == before_bytes + byte_size(bytes)
 
       "publication_ack_retry" ->
@@ -342,6 +357,9 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     {:error, :recording_closed} = Inbox.usable(inbox)
 
+    {:ok, %{reservations: 0, publication_reserved_bytes: pending}} = ServiceRadarNVR.capacity()
+    true = pending == length(blocks) * 66_048
+
     File.write!(
       System.fetch_env!("NVR_TEST_RECEIPT"),
       Jason.encode!(%{block_bytes: block_bytes, blocks: Enum.map(blocks, &Map.take(&1, [:directory, :identity]))})
@@ -351,6 +369,8 @@ case System.fetch_env!("NVR_TEST_MODE") do
     # Restarted discovery has no notification, receipt file or expected identity.
     {:ok, block_ids} = ServiceRadarNVR.list_blocks()
     false = block_ids == []
+    {:ok, %{publication_reserved_bytes: pending}} = ServiceRadarNVR.capacity()
+    true = pending == length(block_ids) * 66_048
     {:error, :invalid_block_id} = ServiceRadarNVR.sealed_block("../outside")
 
     blocks =

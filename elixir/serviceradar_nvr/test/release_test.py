@@ -69,7 +69,7 @@ class NVRReleaseTest(unittest.TestCase):
         source = self.make_media()
         self.run_probe("record")
         receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
-        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512)
         self.run_probe("recover")
         expected = self.decode(source)
         self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
@@ -121,6 +121,13 @@ class NVRReleaseTest(unittest.TestCase):
 
     def test_publication_records_require_space_before_creating_metadata(self):
         block = self.record_publication_block()
+        retained = sum(p.stat().st_size for p in block.iterdir())
+        block_bytes = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())["block_bytes"]
+        # Keep room for the retained block's two bounded metadata records and
+        # the next block's records, independently of its media reservation.
+        capture_budget = retained + block_bytes + 2 * (65536 + 512) - 1
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(capture_budget)
+        self.run_probe("publication_headroom")
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
         self.run_probe("publication_budget")
         self.assertFalse((block / "publication.json").exists())
@@ -139,6 +146,14 @@ class NVRReleaseTest(unittest.TestCase):
         self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = "1125899906842624"
         self.run_probe("publication_ack_pressure")
         self.assertFalse((block / "publication-ack.json").exists())
+
+        # The acknowledgement can spend its own reserved slot. Once both
+        # immutable records exist, unused headroom is available to capture.
+        del self.env["SERVICERADAR_NVR_RESERVE_BYTES"]
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()) + 512)
+        self.run_probe("publication_ack_store")
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(capture_budget)
+        self.run_probe("publication_headroom_released")
 
     def record_publication_block(self):
         self.make_media()
@@ -279,7 +294,7 @@ class NVRReleaseTest(unittest.TestCase):
         self.spool = self.root / "limited-spool"
         self.spool.mkdir(mode=0o700)
         self.env["SERVICERADAR_NVR_SPOOL_ROOT"] = str(self.spool)
-        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512)
         self.run_probe("rotation_budget")
         self.assertEqual(len(list(self.spool.iterdir())), 2)
         Path(self.env["NVR_TEST_RECEIPT"]).unlink()

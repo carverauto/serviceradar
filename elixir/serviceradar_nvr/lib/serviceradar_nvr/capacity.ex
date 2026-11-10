@@ -29,7 +29,7 @@ defmodule ServiceRadarNVR.Capacity do
   @impl true
   def init(config) do
     {:ok, bytes} = Spool.reservation_bytes(@limits)
-    {:ok, %{config: config, storage: nil, reservations: %{}, block_bytes: bytes, probe: nil}}
+    {:ok, %{config: config, storage: nil, reservations: %{}, block_bytes: bytes, publication_floor: 0, probe: nil}}
   end
 
   @impl true
@@ -39,7 +39,15 @@ defmodule ServiceRadarNVR.Capacity do
          :ok <- admission(usage) do
       token = Process.monitor(owner)
       reservations = Map.put(state.reservations, token, owner)
-      {:reply, {:ok, token, storage, @limits}, %{state | storage: storage, reservations: reservations, probe: nil}}
+
+      {:reply, {:ok, token, storage, @limits},
+       %{
+         state
+         | storage: storage,
+           reservations: reservations,
+           publication_floor: usage.publication_reserved_bytes + usage.publication_block_bytes,
+           probe: nil
+       }}
     else
       {:error, _} = error -> {:reply, error, state}
     end
@@ -55,20 +63,22 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   def handle_call({:next_block, token}, {owner, _}, state) do
-    result =
-      with true <- Map.get(state.reservations, token) == owner || {:error, :nvr_reservation_lost},
-           {:ok, storage} <- storage(state),
-           {:ok, usage} <- measure(storage, state) do
-        # Replace this worker's reservation atomically; the sealed block remains
-        # in the fresh inventory. No unreserved writer can slip between blocks.
-        admission(%{
-          usage
-          | reservations: usage.reservations - 1,
-            reserved_bytes: usage.reserved_bytes - state.block_bytes
-        })
-      end
-
-    {:reply, result, %{state | probe: nil}}
+    # Replace this worker's reservation atomically; the sealed block and its
+    # missing publication records remain charged in the fresh inventory.
+    with true <- Map.get(state.reservations, token) == owner || {:error, :nvr_reservation_lost},
+         {:ok, storage} <- storage(state),
+         {:ok, usage} <- measure(storage, state),
+         :ok <-
+           admission(%{
+             usage
+             | reservations: usage.reservations - 1,
+               reserved_bytes: usage.reserved_bytes - state.block_bytes,
+               publication_reserved_bytes: usage.publication_reserved_bytes - usage.publication_block_bytes
+           }) do
+      {:reply, :ok, %{state | publication_floor: usage.publication_reserved_bytes, probe: nil}}
+    else
+      {:error, _} = error -> {:reply, error, %{state | probe: nil}}
+    end
   end
 
   def handle_call(:status, _from, state) do
@@ -118,7 +128,7 @@ defmodule ServiceRadarNVR.Capacity do
         result =
           with {:ok, usage} <- measure(storage, state),
                {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
-               :ok <- publication_capacity(usage, additional),
+               :ok <- publication_capacity(usage, kind, additional),
                :ok <- Publication.persist(storage, block_id, kind, bytes) do
             {:ok, bytes}
           end
@@ -137,6 +147,8 @@ defmodule ServiceRadarNVR.Capacity do
         do: Map.delete(state.reservations, token),
         else: state.reservations
 
+    # The worker may have created a block since the last inventory. Keep its
+    # publication headroom until the next admission rebuilds it from disk.
     {:noreply, %{state | reservations: reservations, probe: nil}}
   end
 
@@ -155,6 +167,9 @@ defmodule ServiceRadarNVR.Capacity do
          max_blocks: inventory.max_blocks,
          reservations: map_size(state.reservations),
          reserved_bytes: map_size(state.reservations) * state.block_bytes,
+         publication_reserved_bytes:
+           inventory.publication_reserved_bytes + map_size(state.reservations) * Publication.pending_bytes([]),
+         publication_block_bytes: Publication.pending_bytes([]),
          available_bytes: free,
          max_spool_bytes: state.config.max_spool_bytes,
          reserve_bytes: state.config.reserve_bytes,
@@ -166,31 +181,37 @@ defmodule ServiceRadarNVR.Capacity do
   # Existing exact retries only sync retained evidence and need no new budget.
   # No writer is admitted during this operation, so it cannot spend a recording
   # reservation or race a new reservation while committing the metadata.
-  defp publication_capacity(_usage, 0), do: :ok
+  defp publication_capacity(_usage, _kind, 0), do: :ok
 
-  defp publication_capacity(usage, bytes) do
+  defp publication_capacity(usage, kind, bytes) do
+    # Spend only this absent record's allowance; preserve all other slots. A
+    # retained partial record cannot reach this path because prepare refuses it.
+    needed = bytes + usage.publication_reserved_bytes - Publication.max_bytes(kind)
+
     cond do
-      usage.used_bytes + bytes > usage.max_spool_bytes -> {:error, :nvr_spool_budget_exhausted}
-      usage.available_bytes < usage.reserve_bytes + bytes -> {:error, :nvr_storage_pressure}
+      usage.used_bytes + needed > usage.max_spool_bytes -> {:error, :nvr_spool_budget_exhausted}
+      usage.available_bytes < usage.reserve_bytes + needed -> {:error, :nvr_storage_pressure}
       true -> :ok
     end
   end
 
   @doc """
-  Admission charges retained bytes, every full active reservation and the new
-  block against the logical budget, and requires the physical floor plus all of
-  those reservations to be free. Full reservations stay charged even as they are
-  written, deliberately under-admitting instead of measuring each active tail.
+  Admission charges retained bytes, missing publication records, every full
+  active reservation and the new block with its publication allowance. The
+  physical floor plus these reservations must be free. Full active reservations
+  stay charged even as they are written, conservatively under-admitting.
   """
   def admission(usage) do
+    needed = usage.reserved_bytes + usage.block_bytes + usage.publication_reserved_bytes + usage.publication_block_bytes
+
     cond do
       usage.blocks + usage.reservations + 1 > usage.max_blocks ->
         {:error, :nvr_inventory_limit}
 
-      usage.used_bytes + usage.reserved_bytes + usage.block_bytes > usage.max_spool_bytes ->
+      usage.used_bytes + needed > usage.max_spool_bytes ->
         {:error, :nvr_spool_budget_exhausted}
 
-      usage.available_bytes < usage.reserve_bytes + usage.reserved_bytes + usage.block_bytes ->
+      usage.available_bytes < usage.reserve_bytes + needed ->
         {:error, :nvr_storage_pressure}
 
       true ->
@@ -198,7 +219,7 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  @doc "Admitted workers may consume their reserved space and stop only at the physical floor."
+  @doc "Admitted workers may consume reserved media space, but must preserve the supplied free-space floor."
   def writable(available_bytes, reserve_bytes) when available_bytes >= reserve_bytes, do: :ok
   def writable(_available_bytes, _reserve_bytes), do: {:error, :nvr_storage_pressure}
 
@@ -213,7 +234,7 @@ defmodule ServiceRadarNVR.Capacity do
         result =
           with :ok <- Storage.verify(state.storage),
                {:ok, free} <- Disk.available_bytes(state.storage.root),
-               do: writable(free, state.config.reserve_bytes)
+               do: writable(free, state.config.reserve_bytes + state.publication_floor)
 
         {result, %{state | probe: {now, result}}}
     end

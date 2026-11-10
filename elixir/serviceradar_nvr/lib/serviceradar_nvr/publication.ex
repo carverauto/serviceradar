@@ -14,6 +14,17 @@ defmodule ServiceRadarNVR.Publication do
   alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent
 
+  # Existing records are immutable, including partial writes. Their retained
+  # bytes are charged by inventory; only absent records need future headroom.
+  def pending_bytes(files) do
+    Enum.reduce([:intent, :acknowledgement], 0, fn kind, bytes ->
+      if filename(kind) in files, do: bytes, else: bytes + max_bytes(kind)
+    end)
+  end
+
+  def max_bytes(:intent), do: 65_536
+  def max_bytes(:acknowledgement), do: 512
+
   def prepare(storage, block_id, kind, payload, limits) do
     with {:ok, bytes} <- encode(storage, block_id, kind, payload, limits),
          {:ok, additional} <- existing(storage, block_id, kind, bytes) do
@@ -145,8 +156,6 @@ defmodule ServiceRadarNVR.Publication do
   defp path(storage, block_id, kind), do: Path.join([storage.root, block_id, filename(kind)])
   defp filename(:intent), do: "publication.json"
   defp filename(:acknowledgement), do: "publication-ack.json"
-  defp max_bytes(:intent), do: 65_536
-  defp max_bytes(:acknowledgement), do: 512
   defp invalid_record(:intent), do: :invalid_publication_intent
   defp invalid_record(:acknowledgement), do: :invalid_publication_acknowledgement
 
