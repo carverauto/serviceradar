@@ -75,6 +75,23 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
         self.assertEqual(self.decode(self.env["NVR_TEST_MP4"]), expected)
 
+    def test_publication_allows_capture_rotation_and_expires_after_caller_loss(self):
+        block = self.record_publication_block()
+        self.env["NVR_TEST_BLOCK_ID"] = block.name
+        self.env["NVR_TEST_H264"] = str(self.root / "concurrent.h264")
+        source = self.make_media(510)
+        self.run_probe("publication_concurrent")
+        paths = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
+        self.assertEqual(len(paths), 3)
+        decoded = []
+        for index, directory in enumerate(paths):
+            directory = Path(directory)
+            output = self.root / f"concurrent-{index}.mp4"
+            output.write_bytes((directory / "init.mp4").read_bytes() +
+                               (directory / "media.m4s").read_bytes())
+            decoded.append(self.decode(output))
+        self.assertEqual(b"".join(decoded), self.decode(source))
+
     def test_publication_intent_survives_restart_and_preserves_conflicts(self):
         block = self.record_publication_block()
         descriptor = Path(self.env["NVR_TEST_MP4"] + ".0.json").read_bytes()

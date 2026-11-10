@@ -98,13 +98,15 @@ defmodule ServiceRadarNVR do
   def read_block(_block_id, _descriptor_sha256, _selector), do: {:error, :invalid_media_selector}
 
   @doc """
-  Persist one immutable local publication intent while recording workers are idle.
+  Persist one immutable local publication intent without blocking recording workers.
 
   The reference contains canonical UUIDs `:operation_id` and `:recording_block_id`
   plus `:descriptor_sha256` from Core's frozen descriptor. The trusted caller
   must establish that original authority first; these identifiers are correlation,
   not locally verifiable authority or catalog acknowledgement. Exact retries sync
   the same record, while conflicts and incomplete files remain untouched.
+  One supervised publication task runs at a time with a thirty-second deadline,
+  including after caller loss. Saturation returns `:nvr_publication_capacity`.
   A timeout is an unknown outcome: inspect or retry the same operation.
   """
   def prepare_publication(block_id, reference), do: ServiceRadarNVR.Capacity.prepare_publication(block_id, reference)
@@ -119,7 +121,7 @@ defmodule ServiceRadarNVR do
   end
 
   @doc """
-  Retain a trusted Core intent acknowledgement while local writers are idle.
+  Retain a trusted Core intent acknowledgement while local writers may be active.
 
   The canonical response must bind the exact verified local intent. The intent
   is synced before the acknowledgement; retries sync the same bytes. Both files
@@ -140,7 +142,7 @@ defmodule ServiceRadarNVR do
   @doc """
   Recover and seal one retained block using its expected identity (including clock).
 
-  Refuses while any local recording has a reservation. The provisioned volume
+  Refuses while any local recording or publication operation is active. The provisioned volume
   must already have exclusive attachment and the previous writer must be retired;
   this local guard does not fence another replica. No capture or publication starts.
   Includes `init_format` as in `sealed_block/1`. Format decoding follows repair

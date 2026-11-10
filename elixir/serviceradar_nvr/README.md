@@ -107,14 +107,24 @@ sync a recovered file; retry preparation to obtain a durable-write acknowledgeme
 after a previously unknown outcome. Inspection grants neither historical
 authority nor catalog availability, holds, deletion or playback permission.
 
-Preparation is serialized by capacity accounting and refuses while any recording
-reservation exists. New bytes must fit the spool budget and leave the configured
-physical free-space floor and other blocks' publication allowances intact;
-retained intent bytes count toward future admission. The write spends only its
-own missing record's allowance, releasing the unused portion. Exact retries
-require no additional byte budget. This explicit idle
-operation is a recovery checkpoint, not publication concurrent with continuous
-capture. Broader control reserves for holds/disposition, authenticated authority delivery,
+Preparation and acknowledgement share one supervised publication task, with no
+waiting queue. Saturation returns `:nvr_publication_capacity`. Verification and
+file/directory syncs run outside the capacity owner, so admitted recording, new
+recording admission and rotation can continue. The task has a thirty-second
+deadline that survives caller loss. A timeout or task failure is an unknown
+outcome: inspect or retry the same immutable operation. Only task exit releases
+its slot and pending-write reservation. A publication supervisor restart retires
+its tasks without stopping recording; loss of capacity accounting retires both.
+
+Before writing, the task asks the capacity owner to check fresh inventory and
+free space. New bytes must fit alongside full active media reservations, the
+configured physical floor and all other publication allowances. The write spends
+its own missing-record allowance; its complete byte count remains reserved until
+the task exits, even when inventory already sees the file. This conservative
+accounting may refuse admission early. Exact retries need no additional bytes.
+Recovery remains exclusive with both recording and publication.
+
+Broader control reserves for holds/disposition, authenticated authority delivery,
 qualified local-copy catalog registration, durable delivery scheduling and
 preservation/disposition state remain open under the
 [local publication contract](../../openspec/changes/add-scalable-camera-recording-plane/local-publication.md).
@@ -143,11 +153,10 @@ creating and syncing `publication-ack.json` and its directory. Both records are
 retained. An exact retry syncs the same bytes without replacing either file.
 Partial, conflicting, aliased or oversized records remain unresolved and intact.
 
-Acknowledgements are bounded to 512 bytes. The write uses the same idle-writer,
+Acknowledgements are bounded to 512 bytes. The write uses the same bounded task,
 logical-budget and physical-free-space checks as intent preparation. Existing
 exact retries need no additional byte budget; a timeout leaves an unknown outcome
-that callers resolve by inspecting or retrying the same response. Publication
-during continuous capture remains open.
+that callers resolve by inspecting or retrying the same response.
 
 `ServiceRadarNVR.publication_acknowledgement(block_id)` reads through the bounded
 read pool and reverifies the original intent and media. It does not sync a
@@ -211,7 +220,7 @@ includes the original source, profile, recorder epoch, block sequence and clock
 provenance. A directory name alone is insufficient. This is an explicit operation;
 startup does not repair blocks or resume capture.
 
-Recovery refuses while any local writer holds a reservation. The capacity owner
+Recovery refuses while any local writer holds a reservation or a publication task is active. The capacity owner
 serializes the entire bounded repair against new admission, checks the retained
 inventory and physical free-space floor, and verifies the configured storage
 identity. It does not need capacity for a new media block. This local exclusion
@@ -271,8 +280,10 @@ after inventorying the sealed block. There is no release/reacquire gap, and
 other active reservations remain charged.
 `ServiceRadarNVR.capacity/0` returns a read-only observation of usage, full active
 media `reserved_bytes`, `publication_reserved_bytes` (missing retained records
-plus a full allowance per active reservation), `publication_block_bytes` (66,048)
-and available space. It is not a promise to a future caller. Reducing the spool
+plus a full allowance per active recording and any pending publication write),
+`publication_write_reserved_bytes` (the pending write alone),
+`publication_operations` (zero or one), `publication_block_bytes` (66,048) and
+available space. It is not a promise to a future caller. Reducing the spool
 budget below retained bytes plus these allowances refuses new capture; it does
 not delete evidence or invalidate exact publication retries.
 
@@ -281,7 +292,8 @@ the optional `publication.json` and `publication-ack.json`. Unknown entries,
 aliases and unreadable inventory refuse admission and
 remain intact. Admission conservatively counts active bytes both as inventory
 and as full reservations. It can refuse early; it cannot spend that slack on a
-second worker. Losing the capacity owner retires dependent workers before the
+second worker. Losing the capacity owner retires publication tasks and recording
+workers before the
 replacement owner accepts reservations. Restart inventories the retained volume.
 
 Linux hosts need GNU coreutils `/usr/bin/stat` and `/usr/bin/timeout`, supplied by
@@ -292,7 +304,8 @@ second. Admission requires the floor plus every full reservation, including the
 new block and missing publication records, to be available. After admission a
 worker may consume reserved media space; write guards preserve the configured
 floor plus publication headroom. This headroom stays charged when a worker exits,
-then is rebuilt from inventory at the next successful admission/rotation. This
+then is rebuilt from inventory at successful admission/rotation or after a
+publication task exits. This
 can temporarily over-reserve, but never releases pending metadata space just
 because a writer stopped. A failed probe or a breached floor terminates the affected worker on its
 next write guard and retains provisional media. Idle workers still have their finite
@@ -323,7 +336,9 @@ bounded worker admission and retirement, spool budget, free-space floor and
 inventory refusal, records synthetic H264, restarts the release, recovers the
 journals and compares decoded frames, including across multiple blocks and after
 refusing a successor block. It also prepares, restarts, re-reads and retries
-publication intent and acknowledgement, and refuses conflicting, corrupt,
+publication intent and acknowledgement, exercises capture/rotation during a
+stalled publication, deadline cleanup after caller loss and supervisor failure
+isolation, and refuses conflicting, corrupt,
 aliased or over-budget records. Admission and rotation retain missing-record
 allowances after worker exit and release restart, and unused allowances become
 available to capture only after the immutable records exist.

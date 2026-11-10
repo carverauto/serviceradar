@@ -149,9 +149,10 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
         false = File.exists?(path)
 
-        # A real writer reservation prevents a mutation from blocking capture.
+        # Publication of a sealed block is allowed while another recording is active.
         {:ok, worker, _} = ServiceRadarNVR.start_recording(%{identity | block_sequence: 1}, clock)
-        {:error, :nvr_recordings_active} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        {:ok, bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        true = Process.alive?(worker)
         monitor = Process.monitor(worker)
         :ok = ServiceRadarNVR.stop(worker)
 
@@ -161,7 +162,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
           5_000 -> raise "writer did not stop"
         end
 
-        {:ok, bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        {:ok, ^bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
         {:ok, ^bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
         {:ok, ^bytes} = ServiceRadarNVR.publication_intent(block_id)
         ^bytes = File.read!(path)
@@ -239,6 +240,172 @@ case System.fetch_env!("NVR_TEST_MODE") do
       "publication_ack_pressure" ->
         {:error, :nvr_storage_pressure} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
         false = File.exists?(path)
+    end
+
+  "publication_concurrent" ->
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+
+    reference = %{
+      operation_id: "00000000-0000-4000-8000-000000000021",
+      recording_block_id: "00000000-0000-4000-8000-000000000022",
+      descriptor_sha256: System.fetch_env!("NVR_TEST_DESCRIPTOR_SHA256")
+    }
+
+    parent = self()
+
+    # OTP debug events let the test pause the real task while it waits for its
+    # reservation call. No fake filesystem, clock or production injection hook.
+    pause = fn operation ->
+      hook = fn
+        _, {:in, {:"$gen_call", {caller, _}, _}}, _ ->
+          if caller in Task.Supervisor.children(ServiceRadarNVR.PublicationTasks) do
+            send(parent, {:publication_waiting, caller})
+
+            receive do
+              {:publication_paused, ^caller} -> :done
+            after
+              5_000 -> raise "publication pause handshake failed"
+            end
+          else
+            :waiting
+          end
+
+        state, _, _ ->
+          state
+      end
+
+      :ok = :sys.install(Capacity, {hook, :waiting})
+      caller = spawn(fn -> send(parent, {:publication_finished, self(), operation.()}) end)
+
+      receive do
+        {:publication_waiting, task} ->
+          true = :erlang.suspend_process(task)
+          send(Capacity, {:publication_paused, task})
+          {caller, task}
+      after
+        5_000 -> raise "publication did not reach reservation"
+      end
+    end
+
+    {publisher, task} = pause.(fn -> ServiceRadarNVR.prepare_publication(block_id, reference) end)
+    {:ok, %{publication_operations: 1, publication_write_reserved_bytes: pending}} = ServiceRadarNVR.capacity()
+    true = pending > 0
+    {:ok, %{publication_reserved_bytes: total}} = ServiceRadarNVR.capacity()
+    true = total == 66_048 + pending
+    {:error, :nvr_publication_capacity} = ServiceRadarNVR.prepare_publication(block_id, reference)
+    {:error, :nvr_publication_capacity} = ServiceRadarNVR.recover_block(block_id, identity)
+    false = File.exists?(Path.join([root, block_id, "publication.json"]))
+
+    # A stalled metadata write must not block admission, frame checks or rotation.
+    {:ok, worker, inbox} = ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-concurrent"}, clock)
+    aud = <<0, 0, 0, 1, 9>>
+    [<<>> | units] = :binary.split(File.read!(System.fetch_env!("NVR_TEST_H264")), aud, [:global])
+    510 = length(units)
+
+    for {payload, index} <- Enum.with_index(units) do
+      sequence = index + 1
+
+      :ok =
+        Inbox.offer(inbox, %{
+          payload: aud <> payload,
+          pts: 90_000 + index * 6_000,
+          dts: 90_000 + index * 6_000,
+          sequence: sequence,
+          codec: "h264",
+          payload_format: "annexb",
+          media_ingest_id: inbox.media_ingest_id
+        })
+
+      %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+    end
+
+    %{block_sequence: 1} = ServiceRadarNVR.status(worker)
+    {:ok, %{publication_operations: 1, publication_write_reserved_bytes: ^pending}} = ServiceRadarNVR.capacity()
+    true = :erlang.resume_process(task)
+
+    intent =
+      receive do
+        {:publication_finished, ^publisher, {:ok, bytes}} -> bytes
+      after
+        5_000 -> raise "publication did not finish"
+      end
+
+    {:ok, ack} = ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement.encode(intent)
+    {:ok, ^ack} = ServiceRadarNVR.acknowledge_publication(block_id, ack)
+    {:ok, %{publication_operations: 0, publication_write_reserved_bytes: 0}} = ServiceRadarNVR.capacity()
+    # The task's DOWN may reach the observer before the capacity owner.
+    wait = fn wait, attempts ->
+      if attempts == 0, do: raise("publication capacity did not recover")
+
+      case ServiceRadarNVR.acknowledge_publication(block_id, ack) do
+        {:ok, ^ack} ->
+          :ok
+
+        {:error, reason} when reason in [:nvr_publication_capacity, :nvr_publication_unavailable] ->
+          Process.sleep(10)
+          wait.(wait, attempts - 1)
+
+        other ->
+          raise "unexpected publication recovery: #{inspect(other)}"
+      end
+    end
+
+    # Failure of the independent publication supervisor must not retire capture.
+    {failed_caller, failed_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    task_monitor = Process.monitor(failed_task)
+    Process.exit(Process.whereis(ServiceRadarNVR.PublicationTasks), :kill)
+
+    receive do
+      {:DOWN, ^task_monitor, :process, ^failed_task, _} -> :ok
+    after
+      5_000 -> raise "publication supervisor left its task alive"
+    end
+
+    receive do
+      {:publication_finished, ^failed_caller, {:error, :nvr_publication_unavailable}} -> :ok
+    after
+      5_000 -> raise "publication failure was not returned"
+    end
+
+    %{last_sequence: 510, block_sequence: 1} = ServiceRadarNVR.status(worker)
+    :ok = wait.(wait, 100)
+    :ok = Inbox.finish(inbox)
+
+    collect = fn collect, paths ->
+      receive do
+        {:nvr_block_sealed, ^worker, %{snapshot: snapshot}} -> collect.(collect, [snapshot.directory | paths])
+        {:nvr_recording, ^worker, {:ok, %{snapshot: snapshot}}} -> Enum.reverse([snapshot.directory | paths])
+      after
+        5_000 -> raise "concurrent recording failed to seal"
+      end
+    end
+
+    [_, _, _] = paths = collect.(collect, [])
+    File.write!(System.fetch_env!("NVR_TEST_RECEIPT"), Jason.encode!(paths))
+
+    # Caller loss does not remove the task deadline or free its admission slot.
+    {orphan, abandoned} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    monitor = Process.monitor(abandoned)
+    Process.exit(orphan, :kill)
+    {:error, :nvr_publication_capacity} = ServiceRadarNVR.prepare_publication(block_id, reference)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^abandoned, {:shutdown, :nvr_publication_timeout}} -> :ok
+    after
+      32_000 -> raise "abandoned publication survived its deadline"
+    end
+
+    :ok = wait.(wait, 100)
+    {:ok, ^intent} = ServiceRadarNVR.publication_intent(block_id)
+    {:ok, ^ack} = ServiceRadarNVR.publication_acknowledgement(block_id)
+    {_caller, retiring_task} = pause.(fn -> ServiceRadarNVR.acknowledge_publication(block_id, ack) end)
+    retiring_monitor = Process.monitor(retiring_task)
+    Process.exit(Process.whereis(Capacity), :kill)
+
+    receive do
+      {:DOWN, ^retiring_monitor, :process, ^retiring_task, _} -> :ok
+    after
+      5_000 -> raise "lost capacity accounting left publication work alive"
     end
 
   "publication_storage_binding" ->

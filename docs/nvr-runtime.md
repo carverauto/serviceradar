@@ -40,7 +40,11 @@ The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. Capture admission also reserves 64 KiB for each missing
 publication intent and 512 bytes for each missing acknowledgement, including
 retained blocks discovered after restart. Publication spends its own allowance
-while preserving the others. These logical byte reservations do not preallocate
+while preserving the others. A single supervised publication task performs media
+verification and syncs outside capacity accounting, so capture and rotation can
+continue. Its pending bytes stay reserved until task exit, with a thirty-second
+deadline even if the caller disappears. Saturation refuses new publication work;
+recovery remains exclusive. These logical byte reservations do not preallocate
 filesystem blocks or replace filesystem/recovery overhead sizing.
 `nvr.maxSpoolBytes` defaults to 1 GiB and `nvr.reserveBytes` to
 64 MiB. These integer byte settings configure admission, not PVC size: choose
