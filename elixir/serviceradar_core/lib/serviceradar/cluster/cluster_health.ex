@@ -19,10 +19,18 @@ defmodule ServiceRadar.ClusterHealth do
   - Gateway registry count
   - Agent registry count
   - EventWriter status (enabled, running, healthy)
+  - StarRocks node memory (`ServiceRadar.Analytics.StarRocks.NodeMemory.health/0`):
+    each warehouse node's process limit, the reserve it leaves under the
+    memory the node detects, and the memory settings core holds it to. Its
+    `status` is `:warning` when a reserve is below
+    `NodeMemory.reserve_warning_bytes/0` or a setting could not be applied.
+    That does not degrade the cluster status: the warehouse still answers.
   - Last check timestamp
   """
 
   use GenServer
+
+  alias ServiceRadar.Analytics.StarRocks.NodeMemory
 
   require Logger
 
@@ -36,6 +44,7 @@ defmodule ServiceRadar.ClusterHealth do
     :gateway_count,
     :agent_count,
     :event_writer,
+    :starrocks_memory,
     :status
   ]
 
@@ -163,12 +172,15 @@ defmodule ServiceRadar.ClusterHealth do
       }
     }
 
-    if health.event_writer do
-      Map.put(base_response, :event_writer, format_event_writer_status(health.event_writer))
-    else
-      base_response
-    end
+    base_response
+    |> put_event_writer(health.event_writer)
+    |> Map.put(:starrocks_memory, health.starrocks_memory)
   end
+
+  defp put_event_writer(response, nil), do: response
+
+  defp put_event_writer(response, event_writer),
+    do: Map.put(response, :event_writer, format_event_writer_status(event_writer))
 
   # Private functions
 
@@ -189,6 +201,7 @@ defmodule ServiceRadar.ClusterHealth do
       gateway_count: gateway_count,
       agent_count: agent_count,
       event_writer: event_writer,
+      starrocks_memory: NodeMemory.health(),
       status: status
     }
   end
