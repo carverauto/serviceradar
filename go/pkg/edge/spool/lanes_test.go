@@ -209,6 +209,8 @@ func TestLaneGenerationAllocatorProtectsPhysicalReserve(t *testing.T) {
 
 var errSyntheticBindingStore = errors.New("synthetic unavailable binding store")
 
+var errSyntheticGenerationFactory = errors.New("synthetic generation factory failure")
+
 func TestLaneGenerationConfigurationFailureRetainsRecords(t *testing.T) {
 	root := t.TempDir()
 	ls := openLanes(t, root, sessionA)
@@ -880,7 +882,6 @@ func TestClosedGenerationsHoldNoSegmentDescriptor(t *testing.T) {
 // successor is the lane's only open generation and recovery still succeeds.
 func TestFailureAfterPublishingGenerationClosesIt(t *testing.T) {
 	root := t.TempDir()
-	errFactory := errors.New("synthetic generation factory failure")
 	published := false
 	factory := WithGenerationOptions(func(id GenerationIdentity, dir string) ([]Option, error) {
 		if id.Lane != bulkLane || id.Ordinal != 2 || published {
@@ -897,7 +898,7 @@ func TestFailureAfterPublishingGenerationClosesIt(t *testing.T) {
 			t.Errorf("factory identity %+v at %s does not match the published generation", id, dir)
 		}
 		published = true
-		return nil, errFactory
+		return nil, errSyntheticGenerationFactory
 	})
 	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t), factory)
 	if err != nil {
@@ -905,7 +906,7 @@ func TestFailureAfterPublishingGenerationClosesIt(t *testing.T) {
 	}
 	mustLaneAppend(t, ls, bulkLane, sessionA, 1, "bulk-1")
 
-	if _, err := ls.Rotate(bulkLane); !errors.Is(err, errFactory) {
+	if _, err := ls.Rotate(bulkLane); !errors.Is(err, errSyntheticGenerationFactory) {
 		t.Fatalf("Rotate = %v, want the published generation's open failure", err)
 	}
 	if !published {

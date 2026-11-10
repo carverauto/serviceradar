@@ -15,6 +15,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordRecoveryDbTest do
   alias ServiceRadar.Edge.RecoveryReceivedPage
   alias ServiceRadar.Edge.RecoveryValidate
   alias ServiceRadar.Edge.SemanticDigest
+  alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
+  alias Serviceradar.Edge.V1.EdgeDeliveryRenewalV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
   alias Serviceradar.Edge.V1.EdgeProducerContext
@@ -55,10 +57,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordRecoveryDbTest do
 
     assert {:ok, :inserted} = EdgeRecord.ingest(page.bytes, page.headers)
     assert length(receipts(ctx, plan)) == 1
-    refute operation(ctx, plan).applied
+    assert operation(ctx, plan).effects_state == :pending
     assert {:ok, {:deferred, :blocked}} = EdgeRecord.ingest(tombstone.bytes, tombstone.headers)
     assert operation(ctx, plan).tombstone_received
-    refute operation(ctx, plan).applied
+    assert operation(ctx, plan).effects_state == :blocked
     assert ledger_count(tombstone.record) == 1
 
     assert {:ok, true} =
@@ -70,7 +72,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordRecoveryDbTest do
 
     assert {:ok, :committed} = RecoveryAssignments.repair(original.id)
     assert {:ok, :replay} = EdgeRecord.ingest(tombstone.bytes, tombstone.headers)
-    assert operation(ctx, plan).applied
+    assert operation(ctx, plan).effects_state == :applied
     assert {:ok, :replay} = EdgeRecord.ingest(tombstone.bytes, tombstone.headers)
     assert ledger_count(tombstone.record) == 1
   end
@@ -278,7 +280,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordRecoveryDbTest do
       PublicationIdentity.transport_provenance(%{
         edge: slot,
         delivery_mode: mode,
-        delivery_proof: nil,
+        delivery_proof: delivery_proof(record, sha, slot, mode, ctx.key, nanos),
         record_sha256: sha,
         route_map_version: 1
       })
@@ -292,6 +294,32 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordRecoveryDbTest do
         "Sr-Edge-Transport-Provenance" => provenance
       }
     }
+  end
+
+  # Every non-FRESH mode carries the digest of a signed DELIVERY renewal bound to this exact
+  # record and slot, the same claim shape `DeliveryGrants` issues.
+  defp delivery_proof(record, sha, slot, mode, key, nanos) do
+    if mode == PublicationIdentity.mode_fresh() do
+      nil
+    else
+      claims = %EdgeDeliveryClaimsV1{
+        event_id: record.event_id,
+        record_sha256: sha,
+        spool_id: slot.spool_id,
+        sequence: slot.sequence,
+        transition:
+          {:renewal,
+           %EdgeDeliveryRenewalV1{
+             renewed_not_before_unix_nano: nanos - 1_000_000_000,
+             renewed_expires_unix_nano: nanos + 60_000_000_000
+           }}
+      }
+
+      {:ok, proof} =
+        PublicationIdentity.delivery_proof_digest(sign(:delivery, claims, key, nanos), mode)
+
+      proof
+    end
   end
 
   defp sign(kind, claims, key, nanos),
