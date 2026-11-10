@@ -71,6 +71,12 @@ measured and reported as unsupported retained storage. There is no legacy drain,
 migration, copy-only protocol or inferred historical identity. This preserves
 bytes without claiming that the old gap is repaired.
 
+The same boundary applies to sweep leases. A lease cached before core recorded
+issuance evidence is never loaded, and its file stays on disk unchanged. Each
+new control session instead gets a fresh, evidence-backed full window. The
+session retries that refresh with bounded backoff until it succeeds or the
+session ends, so one failed attempt cannot strand an acknowledged window.
+
 ### One owner accounts for every retained byte
 
 **Verdict: sound; high confidence.**

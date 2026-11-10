@@ -174,6 +174,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     later = DateTime.shift(now, second: 1)
 
+    assert {:error, :lease_authority_unavailable} = LeasePass.refresh_agent(ctx.agent, nil, later)
+
+    closed = fn _agent_id, _group_id, _payload -> {:error, :control_session_unavailable} end
+
+    assert {:error, {:lease_refresh_incomplete, 1}} =
+             LeasePass.refresh_agent(ctx.agent, %{ctx.delivery | sender: closed}, later)
+
     assert {:ok, %{pushed: 1, errors: 0}} =
              LeasePass.refresh_agent(ctx.agent, %{ctx.delivery | sender: session}, later)
 

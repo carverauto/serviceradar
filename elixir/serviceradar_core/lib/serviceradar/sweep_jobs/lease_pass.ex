@@ -146,9 +146,19 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   agent's own control session. A new control session calls this: the agent cannot run authority
   it cached before core recorded issuance evidence, so an acknowledged delivery must not leave
   it waiting for the next tail.
+
+  The refresh succeeds only when every group planned cleanly and every push reached the session.
+  Without lease authority (`nil`), or when any group or push failed, it returns an error so the
+  caller retries rather than leaving the acknowledged window unpushed.
   """
-  @spec refresh_agent(String.t(), delivery(), DateTime.t()) :: {:ok, summary()} | {:error, term()}
-  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now \\ DateTime.utc_now())
+  @spec refresh_agent(String.t(), delivery() | nil, DateTime.t()) ::
+          {:ok, summary()} | {:error, term()}
+  def refresh_agent(agent_id, delivery, now \\ DateTime.utc_now())
+
+  def refresh_agent(agent_id, nil, _now) when is_binary(agent_id),
+    do: {:error, :lease_authority_unavailable}
+
+  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now)
       when is_binary(agent_id) do
     delivery = Map.put(delivery, :refresh, agent_id)
 
@@ -160,7 +170,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
          {:ok, groups} <-
            SweepGroup |> Ash.Query.filter(id in ^group_ids) |> Ash.read(actor: actor()) do
       summary = Enum.reduce(groups, empty(), &add(&2, plan_group(&1, now, delivery)))
-      {:ok, Map.delete(summary, :failed_groups)}
+
+      case Map.delete(summary, :failed_groups) do
+        %{errors: 0} = summary -> {:ok, summary}
+        %{errors: errors} -> {:error, {:lease_refresh_incomplete, errors}}
+      end
     end
   end
 
@@ -381,10 +395,17 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp deliver(assignment, checks, now, delivery), do: push(assignment, checks, now, delivery, [])
 
-  defp push(assignment, checks, now, %{authority: authority, sender: sender}, opts) do
+  defp push(assignment, checks, now, %{authority: authority, sender: sender} = delivery, opts) do
     case LeaseDelivery.deliver(assignment, authority, now, sender, checks, opts) do
       {:ok, :pushed} ->
         %{empty() | pushed: 1}
+
+      {:ok, {:not_delivered, reason}} when is_map_key(delivery, :refresh) ->
+        Logger.warning(
+          "Sweep lease refresh: sending the lease of #{assignment.id}: #{inspect(reason)}"
+        )
+
+        %{empty() | errors: 1}
 
       {:ok, _not_pushed} ->
         empty()

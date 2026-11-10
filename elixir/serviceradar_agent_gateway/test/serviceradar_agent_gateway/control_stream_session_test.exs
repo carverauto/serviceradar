@@ -580,16 +580,21 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       }}
     end
 
-    test "a sweep lease agent asks core once for fresh leases addressed to this session" do
+    test "a failed lease refresh is retried until core succeeds, and a later registration does not repeat it" do
       ensure_process_registry!()
 
       agent_id = "agent-lease-refresh-#{System.unique_integer([:positive])}"
       test_pid = self()
+      {:ok, outcomes} = Agent.start_link(fn -> [{:error, :core_unavailable}] end)
 
       config_sync_rpc = fn
         :refresh_sweep_leases, args ->
           send(test_pid, {:lease_refresh, args})
-          :ok
+
+          Agent.get_and_update(outcomes, fn
+            [] -> {:ok, []}
+            [next | rest] -> {next, rest}
+          end)
 
         _function, _args ->
           :ok
@@ -598,7 +603,41 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       pid = start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
 
       assert_receive {:lease_refresh, [^agent_id, ^pid]}
-      refute_receive {:lease_refresh, _args}, 100
+      assert_receive {:lease_refresh, [^agent_id, ^pid]}, 2_000
+
+      assert :ok =
+               ControlStreamSession.register(
+                 pid,
+                 agent_id,
+                 "partition-a",
+                 ["sweep_lease_v1"],
+                 identity_context(agent_id, "partition-a"),
+                 nil
+               )
+
+      refute_receive {:lease_refresh, _args}, 1_500
+    end
+
+    test "a lease refresh still failing when the session closes is not retried" do
+      ensure_process_registry!()
+
+      agent_id = "agent-lease-refresh-closed-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      config_sync_rpc = fn
+        :refresh_sweep_leases, args ->
+          send(test_pid, {:lease_refresh, args})
+          {:error, :core_unavailable}
+
+        _function, _args ->
+          :ok
+      end
+
+      pid = start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
+
+      assert_receive {:lease_refresh, [^agent_id, ^pid]}
+      :ok = stop_supervised!(ControlStreamSession)
+      refute_receive {:lease_refresh, _args}, 1_500
     end
 
     test "an agent without sweep leases is not refreshed" do
