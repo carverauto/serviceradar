@@ -71,15 +71,22 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert replacement.recorder_epoch > ctx.claim.recorder_epoch
 
     assert {:ok, ack} = LocalPublicationIntents.accept(bytes, ctx.opts)
-    assert ack.id == operation
-    assert ack.recording_block_id == frozen.id
-    assert ack.storage_id == ctx.claim.storage_id
-    assert ack.intent_sha256 == digest(bytes)
-    assert ack.descriptor_sha256 == frozen.descriptor_sha256
+
+    assert Jason.decode!(ack) == %{
+             "version" => 1,
+             "kind" => "intent_accepted",
+             "operation_id" => operation,
+             "intent_sha256" => digest(bytes)
+           }
+
     assert {:ok, persisted} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
-    assert persisted.inserted_at == ack.inserted_at
-    assert {:ok, retry} = LocalPublicationIntents.accept(bytes, ctx.opts)
-    assert retry.id == ack.id and retry.inserted_at == ack.inserted_at
+    assert persisted.recording_block_id == frozen.id
+    assert persisted.storage_id == ctx.claim.storage_id
+    assert persisted.intent_sha256 == digest(bytes)
+    assert persisted.descriptor_sha256 == frozen.descriptor_sha256
+    assert {:ok, ^ack} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert {:ok, retry} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    assert retry.inserted_at == persisted.inserted_at
     assert {:error, _} = LocalPublicationIntents.accept(bytes, actor: %{role: :viewer})
 
     assert {:error, :local_publication_intent_conflict} =
@@ -129,17 +136,20 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert [{:error, :local_publication_intent_conflict}] =
              Enum.filter(results, &match?({:error, _}, &1))
 
-    winning_bytes = Enum.find(bytes, &(Jason.decode!(&1)["operation_id"] == winner.id))
+    operation = Jason.decode!(winner)["operation_id"]
+    winning_bytes = Enum.find(bytes, &(Jason.decode!(&1)["operation_id"] == operation))
+    assert {:ok, persisted} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
 
     retries =
       for _ <- 1..2,
           do: Task.async(fn -> LocalPublicationIntents.accept(winning_bytes, ctx.opts) end)
 
     for task <- retries do
-      assert {:ok, receipt} = Task.await(task, 10_000)
-      assert receipt.id == winner.id
-      assert receipt.inserted_at == winner.inserted_at
+      assert {:ok, ^winner} = Task.await(task, 10_000)
     end
+
+    assert {:ok, retry} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    assert retry.inserted_at == persisted.inserted_at
   end
 
   test "freeze is immutable, identity-bound and survives recorder replacement", ctx do

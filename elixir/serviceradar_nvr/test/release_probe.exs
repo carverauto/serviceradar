@@ -184,6 +184,48 @@ case System.fetch_env!("NVR_TEST_MODE") do
         {:error, _} = ServiceRadarNVR.prepare_publication(block_id, reference)
     end
 
+  mode
+  when mode in [
+         "publication_ack_store",
+         "publication_ack_retry",
+         "publication_ack_error",
+         "publication_ack_input_error",
+         "publication_ack_budget",
+         "publication_ack_pressure"
+       ] ->
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+    bytes = File.read!(System.fetch_env!("NVR_TEST_ACK"))
+    path = Path.join([root, block_id, "publication-ack.json"])
+
+    case mode do
+      "publication_ack_store" ->
+        {:error, :enoent} = ServiceRadarNVR.publication_acknowledgement(block_id)
+        {:ok, %{used_bytes: before_bytes}} = ServiceRadarNVR.capacity()
+        {:ok, ^bytes} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+        {:ok, ^bytes} = ServiceRadarNVR.publication_acknowledgement(block_id)
+        {:ok, %{used_bytes: after_bytes}} = ServiceRadarNVR.capacity()
+        true = after_bytes == before_bytes + byte_size(bytes)
+
+      "publication_ack_retry" ->
+        {:ok, ^bytes} = ServiceRadarNVR.publication_acknowledgement(block_id)
+        {:ok, ^bytes} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+
+      "publication_ack_error" ->
+        {:error, _} = ServiceRadarNVR.publication_acknowledgement(block_id)
+        {:error, _} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+
+      "publication_ack_input_error" ->
+        {:error, :invalid_publication_acknowledgement} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+
+      "publication_ack_budget" ->
+        {:error, :nvr_spool_budget_exhausted} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+        false = File.exists?(path)
+
+      "publication_ack_pressure" ->
+        {:error, :nvr_storage_pressure} = ServiceRadarNVR.acknowledge_publication(block_id, bytes)
+        false = File.exists?(path)
+    end
+
   "publication_storage_binding" ->
     # Preparation is the first API call in this VM: it must retain the opened
     # handle even on an exact retry, rather than silently reopening replacement.

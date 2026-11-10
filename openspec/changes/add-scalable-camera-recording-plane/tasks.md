@@ -207,8 +207,22 @@ the original acknowledgement; conflicting operations and authority substitutions
 are refused, including after recorder replacement. The serial CNPG integration
 owner exercises persistence, authorization, competing operations and retries.
 This is intent acceptance only, not qualified local-copy registration or playback
-availability. Authenticated delivery, local acknowledgement persistence, storage
+availability. Authenticated delivery, storage
 qualification and the remaining publication/disposition lifecycle are still open.
+
+Local acknowledgement checkpoint for 3.2/3.3: Core returns canonical
+`intent_accepted` bytes only after its immutable acceptance row commits. The
+response binds the operation UUID and digest of the complete intent. Trusted
+same-VM NVR callers can persist it as `publication-ack.json` after reverifying the
+intent/media and syncing the original intent. Both files survive restart and
+remain retained; exact retries sync the same bytes, while incomplete, conflicting
+or aliased records remain unresolved. New bytes are capacity-accounted while
+writers are idle. Bounded inspection reverifies the intent/media without writing.
+The release test owns restart, corruption, preservation and capacity behavior;
+Core integration owns committed acknowledgement emission and stable retries.
+This is not authenticated remote delivery, qualified local-copy registration,
+playback availability or permission to compact intent/preservation history.
+Tasks 3.2 and 3.3 remain open.
 
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
