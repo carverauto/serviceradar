@@ -3139,7 +3139,8 @@ sweep:
 # flowCollector.enabled refuses to render without it. Each dataset is written
 # only to the store it is read from: nothing is shadowed into CNPG.
 # For flow routing and delivery, see docs/docs/netflow.md#flow-cutover-and-delivery.
-# Lab clusters use the shared-nothing profile in k8s/starrocks/.
+# k8s/starrocks/README.md is the supported StarRocks operator install, with
+# shared-nothing (values-cluster.yaml) and shared-data (values-cluster-shared-data.yaml) profiles.
 analytics:
   starrocks:
     enabled: false
