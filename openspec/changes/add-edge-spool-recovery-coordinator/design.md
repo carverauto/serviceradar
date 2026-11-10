@@ -273,8 +273,9 @@ behavioral and crash evidence proves their complete contract.
 
 The product owner approved Decisions 1-5 on 2026-11-09, including consumer-committed
 gateway prefix application, source deletion versus journal-GC gates, immutable
-completion replay, and gateway/core-first capability rollout. The implementation
-checklist remains open until each complete contract is demonstrated.
+completion replay, and gateway/core-first capability rollout. Each implementation
+task stayed open until its complete contract was demonstrated; [tasks.md](tasks.md)
+and [verification.md](verification.md) record completion.
 
 ### Admission boundary for pre-evidence lease authority
 
