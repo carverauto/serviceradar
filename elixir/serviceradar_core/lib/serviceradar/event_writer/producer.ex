@@ -561,24 +561,40 @@ defmodule ServiceRadar.EventWriter.Producer do
       log_consumer_setup_failure(:best_effort, config, stream, reason)
     end)
 
-    Enum.each(failures, fn {stream, {:error, reason}} ->
+    {not_ready_failures, hard_failures} =
+      Enum.split_with(failures, fn {_stream, {:error, reason}} ->
+        ConsumerSetup.not_ready_reason?(reason)
+      end)
+
+    startup_bound_ms = Config.startup_wait_bound_ms(config)
+
+    Enum.each(hard_failures, fn {stream, {:error, reason}} ->
       log_consumer_setup_failure(:required, config, stream, reason)
     end)
+
+    if startup_bound_ms <= 0 do
+      Enum.each(not_ready_failures, fn {stream, {:error, reason}} ->
+        log_consumer_setup_failure(:required, config, stream, reason)
+      end)
+    end
 
     required_ok? =
       Enum.any?(results, fn {stream, result} ->
         match?({:ok, _}, result) and not Map.get(stream, :best_effort, false)
       end)
 
+    waiting_for_ready? = not_ready_failures != []
+
     cond do
       expected_count == 0 ->
         ConsumerSetup.close(conn)
         {:error, :no_streams_configured}
 
-      failures != [] and not required_ok? ->
-        # No required consumer came up, which points at the connection or the
-        # server rather than one stream: close the connection so leaked inbox
-        # subscriptions cannot duplicate replies, and reconnect.
+      failures != [] and not required_ok? and not waiting_for_ready? ->
+        # No required consumer came up and none is merely waiting on stream or
+        # durable creation, which points at the connection or the server rather
+        # than one stream: close the connection so leaked inbox subscriptions
+        # cannot duplicate replies, and reconnect.
         Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
         ConsumerSetup.close(conn)
 
@@ -587,9 +603,10 @@ defmodule ServiceRadar.EventWriter.Producer do
           Enum.map(failures, fn {stream, {:error, reason}} -> {stream, reason} end)}}
 
       true ->
-        # Some required consumers came up. Keep them running and hand the
-        # failed streams back to the producer, which retries each on its own:
-        # one durable that is not ready must not stop unrelated ingestion.
+        # Either at least one required consumer came up, or the connection is
+        # healthy and the remaining streams are waiting for ConsumerReconciler
+        # to create their stream and durable in order. Keep the connection open
+        # and retry each pending stream on its own.
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)
         sid_to_pull = Map.new(consumers, fn c -> {c.sid, c.pull_subject} end)
 
@@ -629,6 +646,8 @@ defmodule ServiceRadar.EventWriter.Producer do
   # the reconciler's (see `ServiceRadar.EventWriter.StreamHealth`).
   @doc false
   def track_failed_streams(state, failed) do
+    now_ms = System.monotonic_time(:millisecond)
+    startup_bound_ms = Config.startup_wait_bound_ms(state.config)
     failed_names = MapSet.new(failed, fn {stream, _reason} -> Map.fetch!(stream, :name) end)
 
     state =
@@ -640,8 +659,18 @@ defmodule ServiceRadar.EventWriter.Producer do
     Enum.reduce(failed, state, fn {stream, reason}, acc ->
       name = Map.fetch!(stream, :name)
       {acc, attempt} = record_stream_failed(acc, name, reason)
-      schedule_consumer_retry(acc.conn, name, attempt)
-      entry = %{stream: stream, attempt: attempt, reason: reason}
+      error_logged? = not ConsumerSetup.not_ready_reason?(reason) or startup_bound_ms <= 0
+
+      entry = %{
+        stream: stream,
+        attempt: attempt,
+        reason: reason,
+        waiting_since_ms: now_ms,
+        error_logged?: error_logged?
+      }
+
+      delay = consumer_retry_delay(acc.config, entry, now_ms)
+      schedule_consumer_retry(acc.conn, name, delay)
       %{acc | failed_streams: Map.put(acc.failed_streams, name, entry)}
     end)
   end
@@ -701,23 +730,79 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         state = record_stream_recovered(state, name)
         failed_streams = Map.delete(state.failed_streams, name)
-        add_consumer(%{state | failed_streams: failed_streams}, consumer)
+
+        state
+        |> Map.put(:failed_streams, failed_streams)
+        |> add_consumer(consumer)
+        |> request_pull_messages()
 
       {:error, reason} ->
+        now_ms = System.monotonic_time(:millisecond)
         {state, next} = record_stream_failed(state, name, reason)
+        entry = next_failed_entry(entry, next, reason, now_ms)
+        delay = consumer_retry_delay(state.config, entry, now_ms)
+        entry = maybe_log_consumer_retry_failure(state.config, name, entry, delay, now_ms)
 
-        Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
-          consumer: name,
-          attempt: next,
-          retry_in_ms: ConsumerSetup.retry_delay(next),
-          reason: inspect(reason)
-        )
-
-        schedule_consumer_retry(state.conn, name, next)
-        entry = %{entry | attempt: next, reason: reason}
+        schedule_consumer_retry(state.conn, name, delay)
         %{state | failed_streams: Map.put(state.failed_streams, name, entry)}
     end
   end
+
+  defp next_failed_entry(entry, next_attempt, reason, now_ms) do
+    entry
+    |> Map.put(:attempt, next_attempt)
+    |> Map.put(:reason, reason)
+    |> Map.put_new(:waiting_since_ms, now_ms)
+    |> Map.put_new(:error_logged?, false)
+  end
+
+  defp consumer_retry_delay(config, entry, now_ms) do
+    attempt = Map.get(entry, :attempt, 1)
+    waiting_since_ms = Map.get(entry, :waiting_since_ms, now_ms)
+    bound_ms = Config.startup_wait_bound_ms(config)
+    remaining_ms = bound_ms - max(now_ms - waiting_since_ms, 0)
+
+    if ConsumerSetup.not_ready_reason?(Map.get(entry, :reason)) and remaining_ms > 0 do
+      case Config.startup_retry_delay_ms(config) do
+        override when is_integer(override) and override > 0 ->
+          max(min(override, remaining_ms), 1)
+
+        _ ->
+          ConsumerSetup.startup_retry_delay(attempt, remaining_ms)
+      end
+    else
+      ConsumerSetup.retry_delay(attempt)
+    end
+  end
+
+  defp maybe_log_consumer_retry_failure(config, name, entry, delay, now_ms) do
+    reason = Map.get(entry, :reason)
+    waiting_since_ms = Map.get(entry, :waiting_since_ms, now_ms)
+    bound_ms = Config.startup_wait_bound_ms(config)
+    within_startup_bound? = now_ms - waiting_since_ms < bound_ms
+
+    cond do
+      ConsumerSetup.not_ready_reason?(reason) and within_startup_bound? ->
+        entry
+
+      not Map.get(entry, :error_logged?, false) ->
+        log_consumer_setup_failure(:required, config, entry.stream, unwrap_stream_reason(reason))
+        Map.put(entry, :error_logged?, true)
+
+      true ->
+        Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
+          consumer: name,
+          attempt: entry.attempt,
+          retry_in_ms: delay,
+          reason: inspect(reason)
+        )
+
+        entry
+    end
+  end
+
+  defp unwrap_stream_reason({_stream_name, reason}), do: reason
+  defp unwrap_stream_reason(reason), do: reason
 
   defp add_consumer(%{consumer_context: context} = state, consumer) do
     context = %{
@@ -736,11 +821,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     }
   end
 
-  defp schedule_consumer_retry(conn, name, attempt) do
+  defp schedule_consumer_retry(conn, name, delay) when is_integer(delay) and delay > 0 do
     Process.send_after(
       self(),
       {:retry_consumer, conn, name},
-      ConsumerSetup.retry_delay(attempt)
+      delay
     )
   end
 
@@ -786,7 +871,9 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp request_pull_messages(%{connected: false} = state), do: state
-  defp request_pull_messages(%{demand: demand} = state) when demand <= 0, do: state
+
+  defp request_pull_messages(%{demand: demand} = state)
+       when not is_integer(demand) or demand <= 0, do: state
 
   defp request_pull_messages(%{consumer_context: %{consumers: consumers}} = state) do
     budget =

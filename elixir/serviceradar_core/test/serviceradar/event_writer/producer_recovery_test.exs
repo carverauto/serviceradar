@@ -39,8 +39,15 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       :atomics.put(mode, 1, if(Keyword.get(opts, :deny, false), do: 0, else: 1))
       owner = Keyword.fetch!(opts, :owner)
       durables = :ets.new(:broker_durables, [:public, :set])
-      :ets.insert(durables, Keyword.get(opts, :durables, []))
-      acceptor = spawn_link(fn -> accept(listener, {mode, durables}, owner) end)
+      streams = :ets.new(:broker_streams, [:public, :set])
+      initial_durables = Keyword.get(opts, :durables, [])
+      :ets.insert(durables, initial_durables)
+
+      for {_durable, filter} <- initial_durables do
+        :ets.insert(streams, {"TEST_EVENTS", [filter]})
+      end
+
+      acceptor = spawn_link(fn -> accept(listener, {mode, streams, durables}, owner) end)
       {:ok, %{listener: listener, port: port, mode: mode, acceptor: acceptor}}
     end
 
@@ -118,7 +125,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       end
     end
 
-    defp respond(socket, subject, reply, payload, {mode, durables}, owner, subscriptions) do
+    defp respond(socket, subject, reply, payload, {mode, streams, durables}, owner, subscriptions) do
       if String.starts_with?(subject, "$JS.API."), do: send(owner, {:js_api, subject})
 
       cond do
@@ -158,12 +165,44 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
               String.ends_with?(subject, ".STREAM.NAMES") ->
                 %{"streams" => []}
 
+              String.contains?(subject, [".STREAM.CREATE.", ".STREAM.UPDATE."]) ->
+                stream = subject |> String.split(".") |> List.last()
+                decoded = Jason.decode!(payload)
+                new_subjects = Map.get(decoded, "subjects", [])
+
+                subjects =
+                  case :ets.lookup(streams, stream) do
+                    [{^stream, existing}] -> Enum.uniq(existing ++ new_subjects)
+                    [] -> new_subjects
+                  end
+
+                :ets.insert(streams, {stream, subjects})
+                %{"config" => decoded |> Map.put("name", stream) |> Map.put("subjects", subjects)}
+
               String.contains?(subject, ".STREAM.INFO.") ->
-                %{"error" => %{"code" => 404, "err_code" => 10_059}}
+                stream = subject |> String.split(".") |> List.last()
+
+                case :ets.lookup(streams, stream) do
+                  [{^stream, subjects}] ->
+                    %{"config" => %{"name" => stream, "subjects" => subjects}}
+
+                  [] ->
+                    %{"error" => %{"code" => 404, "err_code" => 10_059}}
+                end
 
               String.contains?(subject, ".CONSUMER.DURABLE.CREATE.") ->
-                %{"config" => config} = Jason.decode!(payload)
-                :ets.insert(durables, {config["durable_name"], config["filter_subject"]})
+                %{"config" => config} = decoded = Jason.decode!(payload)
+                stream = decoded["stream_name"] || subject |> String.split(".") |> Enum.at(-2)
+                filter = config["filter_subject"]
+
+                existing_subjects =
+                  case :ets.lookup(streams, stream) do
+                    [{^stream, subjects}] -> Enum.uniq(subjects ++ [filter])
+                    [] -> [filter]
+                  end
+
+                :ets.insert(streams, {stream, existing_subjects})
+                :ets.insert(durables, {config["durable_name"], filter})
                 %{"config" => config}
 
               String.contains?(subject, ".CONSUMER.INFO.") ->
@@ -216,10 +255,16 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       id,
       [
         [:serviceradar, :event_writer, :connection_failed],
-        [:serviceradar, :event_writer, :connected]
+        [:serviceradar, :event_writer, :connected],
+        [:serviceradar, :event_writer, :consumer_bind, :failed],
+        [:serviceradar, :event_writer, :consumer_bind, :recovered]
       ],
-      fn event, measurements, metadata, _ ->
-        send(owner, {:connection, List.last(event), measurements, metadata})
+      fn
+        [:serviceradar, :event_writer, :consumer_bind, status], measurements, metadata, _ ->
+          send(owner, {:bind, status, measurements, metadata})
+
+        event, measurements, metadata, _ ->
+          send(owner, {:connection, List.last(event), measurements, metadata})
       end,
       nil
     )
@@ -284,16 +329,19 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
          [[ServiceRadar.EventWriter.Supervisor], [strategy: :one_for_one]]}
     })
 
-    # No durable exists yet, so the workers cannot bind and wait.
-    assert_receive {:connection, :connection_failed, _, %{producer: @worker}}, 3_000
+    # No stream or durable exists yet, so the workers connect and wait on the
+    # same connection without tearing it down.
+    assert_receive {:connection, :connected, _, %{producer: @worker}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: @flow}}, 3_000
+    assert_receive {:bind, :failed, _, %{producer: @worker}}, 3_000
     assert {:error, {:producer_not_ready, _}} = Health.check()
 
     start_supervised!(CoordinatorSupervisor)
     assert_receive {:js_api, "$JS.API.CONSUMER.DURABLE.CREATE." <> _}, 3_000
 
     # The bind is retried on the producers' own backoff, not by the reconciler.
-    assert_receive {:connection, :connected, _, %{producer: @worker}}, 15_000
-    assert_receive {:connection, :connected, _, %{producer: @flow}}, 15_000
+    assert_receive {:bind, :recovered, _, %{producer: @worker}}, 15_000
+    assert_receive {:bind, :recovered, _, %{producer: @flow}}, 15_000
     assert eventually(fn -> Health.check() == :ok end, 5_000)
 
     # Restart only the worker tree, as on a replica whose workers crashed.

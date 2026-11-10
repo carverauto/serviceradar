@@ -133,6 +133,7 @@ defmodule ServiceRadar.EventWriter.Config do
   }
 
   @default_ownership_reconcile_interval_ms 300_000
+  @default_startup_wait_bound_ms 60_000
 
   # See coordinator_stream?/1 for why each stays on the coordinator.
   @coordinator_streams ~w(ANALYTICS_PREDICTIONS BMP_CAUSAL ARANCINI_CAUSAL SIEM_CAUSAL K8S_INVENTORY TRIVY)
@@ -181,6 +182,8 @@ defmodule ServiceRadar.EventWriter.Config do
     :pull_expires_ns,
     :ownership_reconcile_interval_ms,
     :ownership_grace_period_ms,
+    :startup_wait_bound_ms,
+    :startup_retry_delay_ms,
     workers: 1,
     retired_consumers: []
   ]
@@ -202,6 +205,8 @@ defmodule ServiceRadar.EventWriter.Config do
           pull_expires_ns: non_neg_integer() | nil,
           ownership_reconcile_interval_ms: pos_integer() | nil,
           ownership_grace_period_ms: non_neg_integer() | nil,
+          startup_wait_bound_ms: non_neg_integer() | nil,
+          startup_retry_delay_ms: pos_integer() | nil,
           workers: pos_integer(),
           retired_consumers: [%{stream_name: String.t(), consumer_name: String.t()}]
         }
@@ -293,6 +298,8 @@ defmodule ServiceRadar.EventWriter.Config do
       pull_expires_ns: 0,
       ownership_reconcile_interval_ms: load_ownership_reconcile_interval_ms(config),
       ownership_grace_period_ms: load_ownership_grace_period_ms(config),
+      startup_wait_bound_ms: load_startup_wait_bound_ms(config),
+      startup_retry_delay_ms: load_startup_retry_delay_ms(config),
       workers: worker_count(),
       retired_consumers: @retired_consumers
     }
@@ -879,6 +886,46 @@ defmodule ServiceRadar.EventWriter.Config do
       default
     )
   end
+
+  @doc "How long startup waits for a stream and durable to appear before logging an error."
+  @spec startup_wait_bound_ms(t() | nil) :: non_neg_integer()
+  def startup_wait_bound_ms(%__MODULE__{startup_wait_bound_ms: bound})
+      when is_integer(bound) and bound >= 0, do: bound
+
+  def startup_wait_bound_ms(_config) do
+    :serviceradar_core
+    |> Application.get_env(ServiceRadar.EventWriter, [])
+    |> load_startup_wait_bound_ms()
+  end
+
+  @doc "Optional override for the startup readiness retry interval, in milliseconds."
+  @spec startup_retry_delay_ms(t() | nil) :: pos_integer() | nil
+  def startup_retry_delay_ms(%__MODULE__{startup_retry_delay_ms: delay})
+      when is_integer(delay) and delay > 0, do: delay
+
+  def startup_retry_delay_ms(_config) do
+    :serviceradar_core
+    |> Application.get_env(ServiceRadar.EventWriter, [])
+    |> load_startup_retry_delay_ms()
+  end
+
+  defp load_startup_wait_bound_ms(config) when is_list(config) do
+    case Keyword.get(config, :startup_wait_bound_ms) do
+      bound when is_integer(bound) and bound >= 0 -> bound
+      _ -> @default_startup_wait_bound_ms
+    end
+  end
+
+  defp load_startup_wait_bound_ms(_config), do: @default_startup_wait_bound_ms
+
+  defp load_startup_retry_delay_ms(config) when is_list(config) do
+    case Keyword.get(config, :startup_retry_delay_ms) do
+      delay when is_integer(delay) and delay > 0 -> delay
+      _ -> nil
+    end
+  end
+
+  defp load_startup_retry_delay_ms(_config), do: nil
 
   @doc """
   Checks if the EventWriter is enabled.
