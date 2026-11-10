@@ -11,13 +11,12 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   ## Retention Horizon
 
   The retention horizon (`retention_horizon_seconds/1`) is derived from the
-  maximum of four protocol and broker limits rather than a guessed constant:
+  maximum of three protocol and broker limits rather than a guessed constant
+  (the edge-record source streams have no `MaxAge`, so they add no component):
 
-    1. The edge-record stream `MaxAge` (`EventWriter.Config.edge_record_stream/0`
-       and `EventWriter.Config.edge_record_audit_stream/0`).
-    2. The dead-letter stream's retention (`EventWriter.Config.edge_record_dead_letter_stream/0`).
-    3. Standing output grant validity (`OutputGrants.max_lifetime_seconds/0`).
-    4. The agent spool's retry horizon: the longer of standing-grant validity
+    1. The dead-letter stream's retention (`EventWriter.Config.edge_record_dead_letter_stream/0`).
+    2. Standing output grant validity (`OutputGrants.max_lifetime_seconds/0`).
+    3. The agent spool's retry horizon: the longer of standing-grant validity
        or the sweep lease horizon ceiling (`PipelineSettings.default_max_horizon_seconds/0`
        or any higher ceiling configured in `platform.edge_pipeline_settings`)
        plus `ContractRegistry`'s 3600s lease margin and `DeliveryGrants.ttl_seconds/0`.

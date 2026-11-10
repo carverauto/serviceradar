@@ -67,16 +67,25 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
   defp seal_drain_delete(request, stream_name, durable, current, stored, timeout) do
     sealed = Map.put(current, "sealed", true)
 
-    with :ok <-
-           JetstreamConsumer.update_stream_if_changed(
-             request,
-             stream_name,
-             current,
-             sealed,
-             stored,
-             nil
-           ),
-         :drained <- await_drained(request, stream_name, durable, timeout),
+    case JetstreamConsumer.update_stream_if_changed(
+           request,
+           stream_name,
+           current,
+           sealed,
+           stored,
+           nil
+         ) do
+      :ok ->
+        drain_delete(request, stream_name, durable, sealed, stored, timeout)
+
+      {:error, _reason} = error ->
+        log_abort(stream_name, durable, error)
+        error
+    end
+  end
+
+  defp drain_delete(request, stream_name, durable, sealed, stored, timeout) do
+    with :drained <- await_drained(request, stream_name, durable, timeout),
          :ok <- JetstreamConsumer.delete_stream(request, stream_name, nil) do
       Logger.info("Cut over edge-record stream to WorkQueue retention",
         stream: stream_name,
@@ -85,20 +94,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
 
       :cut_over
     else
-      {:error, :drain_timeout} = error ->
-        unseal(request, stream_name, sealed, stored)
-        log_abort(stream_name, durable, error)
-        error
-
-      {:error, :drain_waiting_for_consumer} = error ->
-        unseal(request, stream_name, sealed, stored)
-        log_abort(stream_name, durable, error)
-        error
-
       {:error, _reason} = error ->
-        # Every abort path unseals: a failed seal update or delete must not
-        # leave the stream sealed with publishers refused and no cutover
-        # running to finish the job.
         unseal(request, stream_name, sealed, stored)
         log_abort(stream_name, durable, error)
         error
@@ -148,7 +144,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
         :drained
 
       {:ok, _info} ->
-        sleep_or_timeout(deadline, fn -> poll_drained(request, stream_name, durable, deadline) end)
+        retry_drained(request, stream_name, durable, deadline)
 
       :absent ->
         # No durable yet: only safe when nothing is stored. Anything stored
@@ -157,20 +153,20 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
           {:ok, _config, 0} -> :drained
           {:ok, _, _} -> {:error, :drain_waiting_for_consumer}
           :absent -> {:error, :stream_vanished}
-          {:error, _reason} = error -> error
+          {:error, _reason} -> retry_drained(request, stream_name, durable, deadline)
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, _reason} ->
+        retry_drained(request, stream_name, durable, deadline)
     end
   end
 
-  defp sleep_or_timeout(deadline, retry) do
+  defp retry_drained(request, stream_name, durable, deadline) do
     if System.monotonic_time(:millisecond) + @drain_poll_ms >= deadline do
       {:error, :drain_timeout}
     else
       Process.sleep(@drain_poll_ms)
-      retry.()
+      poll_drained(request, stream_name, durable, deadline)
     end
   end
 end

@@ -958,7 +958,11 @@ defmodule ServiceRadar.EventWriter.Config do
   `ServiceRadar.EventWriter.Processors.EdgeRecord` runs one real,
   all-or-nothing CNPG transaction per record -- a redelivered message must
   never be folded into another record's batch outcome. The gateway has already
-  acknowledged a stored record to its agent, so a failed projection is retried
+  acknowledged a stored record to its agent, so the stream uses `DiscardNew`:
+  when `MaxBytes` is reached, NATS refuses new publishes (`err_code` 10077)
+  rather than evicting records the gateway already acknowledged, and the gateway
+  withholds `EdgeDeliveryAckV1` so the agent spool keeps the record and retries.
+  A failed projection is retried
   without a delivery limit (`consumer_max_deliver: -1`), with backoff, until its
   `dead_letter_after_deliveries`-th delivery fails too. That delivery copies the
   record to the dead-letter stream (`edge_record_dead_letter_stream/0`) and is

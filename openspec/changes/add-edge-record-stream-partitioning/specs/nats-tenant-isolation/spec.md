@@ -328,29 +328,41 @@ itself.
 
 ### Requirement: Edge-record stream retention upgrades through a drain-barrier cutover
 
-The upgrade SHALL cut existing installs over to new `WorkQueue` streams behind
-a drain barrier, with no dual-write and no lost records (the broker refuses
-`Limits` to `WorkQueue` retention changes in place). The barrier SHALL seal
-the old authority (gateways publish only to the new stream), keep the old
-stream's sole durable draining to empty, then delete the old stream. The new
-stream SHALL carry the same `MaxBytes`, replicas, and `DiscardNew` refusal.
-The cutover SHALL NOT delete the old stream while any delivery is pending or
-in flight.
+The upgrade SHALL cut existing installs over to `WorkQueue` retention behind a
+drain barrier, with no dual-write and no lost records. Because the broker
+refuses `Limits` to `WorkQueue` retention changes in place, the barrier SHALL
+seal the existing stream in place (publishes are refused with a retryable
+error and stay in agent spool), keep its sole owning durable draining to
+empty, delete the drained stream, and recreate it under the same name and
+subjects with the production `WorkQueue` shape. No second stream SHALL exist
+at any point. The recreated stream SHALL carry the same `MaxBytes`, replicas,
+and `DiscardNew` refusal. The cutover SHALL NOT delete the stream while any
+delivery is pending or in flight, and any abort after sealing SHALL unseal the
+stream.
 
 #### Scenario: Cutover on a caught-up stream loses no records
 
 - **GIVEN** a `Limits` source stream whose durable is caught up
 - **WHEN** the cutover runs
 - **THEN** every record written before the cutover SHALL already be in the database
-- **AND** the new stream SHALL report `WorkQueue` while the old stream drains
-  to empty and is deleted
+- **AND** the stream SHALL be deleted only after it drains to empty
+- **AND** the recreated stream SHALL report `WorkQueue` retention, no `MaxAge`,
+  and not sealed
 
 #### Scenario: Cutover waits for a behind consumer
 
 - **GIVEN** a source stream whose durable has pending deliveries
-- **WHEN** the cutover runs
-- **THEN** it SHALL NOT seal the old authority or delete the old stream
-- **AND** it SHALL raise an alert and retry on the next reconcile pass
+- **WHEN** the cutover runs and the durable does not drain before the deadline
+- **THEN** it SHALL NOT delete the stream
+- **AND** it SHALL unseal the stream, log the abort, and retry on the next
+  reconcile pass
+
+#### Scenario: Cutover error after sealing
+
+- **GIVEN** a sealed source stream mid-cutover
+- **WHEN** a stream or consumer info request fails
+- **THEN** the cutover SHALL keep polling until the drain deadline
+- **AND** any abort, including a failed delete, SHALL unseal the stream
 
 ### Requirement: Backlog pressure alerts before refusal
 

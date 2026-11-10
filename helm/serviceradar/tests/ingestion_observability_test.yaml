@@ -62,13 +62,13 @@ tests:
           path: spec.groups[0].rules
           content:
             alert: ServiceRadarEdgeRecordBacklogPressure
-            expr: max by (subject_class) (serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="sr-test", subject_class=~"edge_record|edge_record_audit"}) > 0.8
+            expr: max by (namespace, stream, durable, subject_class) (serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="sr-test", subject_class=~"edge_record|edge_record_audit"}) > 0.8
             for: 5m
             labels:
               severity: critical
             annotations:
               summary: "ServiceRadar edge-record backlog is nearly full"
-              description: "The {{ $labels.subject_class }} edge-record source stream is above 80% of its MaxBytes in namespace sr-test. The streams hold only unwritten records, so the owning durable is stuck; DiscardNew refuses new records when full, which leaves those agent spool sequences unresolved. Fix the consumer before the backlog fills."
+              description: "Edge-record source stream {{ $labels.stream }} (durable {{ $labels.durable }}) is above 80% of its MaxBytes in namespace sr-test, holding {{ with printf \"serviceradar_event_writer_consumer_stream_bytes_value{namespace=%q, stream=%q, durable=%q}\" $labels.namespace $labels.stream $labels.durable | query }}{{ . | first | value | humanize1024 }}B{{ end }} with the oldest unacknowledged record {{ with printf \"serviceradar_event_writer_consumer_stream_first_message_age_seconds{namespace=%q, stream=%q, durable=%q}\" $labels.namespace $labels.stream $labels.durable | query }}{{ . | first | value | humanizeDuration }}{{ end }} old. The streams hold only unwritten records, so the owning durable is stuck; DiscardNew refuses new records when full, which leaves those agent spool sequences unresolved. Fix the consumer before the backlog fills."
 
   - it: alerts on dead-lettered edge records and pages when a dead-letter cannot be stored
     template: templates/serviceradar-prometheus-rules.yaml
