@@ -138,6 +138,8 @@ defmodule ServiceRadar.Monitoring.Alert do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do
         queue :alerts
+        scheduler_priority 0
+        worker_priority 0
         extra_args &AshObanQueueResolver.job_meta/1
         read_action :pending
         scheduler_cron "*/5 * * * *"
@@ -166,6 +168,8 @@ defmodule ServiceRadar.Monitoring.Alert do
       # delivery-retention workers under `ServiceRadar.Notifications`).
       trigger :send_notifications do
         queue :notifications
+        scheduler_priority 0
+        worker_priority 0
         extra_args &AshObanQueueResolver.job_meta/1
         read_action :needs_notification
         scheduler_cron "* * * * *"

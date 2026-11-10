@@ -88,6 +88,8 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       # Scheduled trigger for expiring packages with expired tokens
       trigger :expire_packages do
         queue :onboarding
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :needs_expiration
         scheduler_cron "0 * * * *"

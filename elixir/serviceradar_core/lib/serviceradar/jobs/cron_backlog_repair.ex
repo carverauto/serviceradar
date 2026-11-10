@@ -12,12 +12,15 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
   than a couple of seconds ahead of now. A `scheduled` tick that is already due
   is left alone: Oban's stager can overwrite a cancel of a due row.
 
-  **Starved schedulers.** Oban fetches by priority before age. AshOban enqueues its
-  schedulers at priority 3, so a queue that always has priority-0 work available
-  never fetches them, and because each scheduler is unique over its incomplete
-  states the starved job also blocks every later cron insert. Nothing fails and
-  nothing is retried; the schedule simply stops. A periodic job left `available`
-  or `scheduled` past `starvation_threshold_minutes/0` is raised to priority 0,
+  **Starved schedulers.** Oban fetches by priority before age, so a queue that
+  always has priority-0 work available never fetches a lower-priority job, and a
+  scheduler that is unique over its incomplete states then also blocks every
+  later cron insert. Nothing fails and nothing is retried; the schedule simply
+  stops. Every AshOban trigger and scheduled action declares priority 0, so none
+  is enqueued into that state; this repair covers a row enqueued at AshOban's
+  default priority by an earlier release and still pending at upgrade. A
+  periodic job left `available` or `scheduled` past
+  `starvation_threshold_minutes/0` is raised to priority 0,
   which puts it in plain arrival order with the rest of the queue. A row is not
   raised while another row of the same worker, queue, and args is `executing`,
   because uniqueness is enforced at insert and a second already-available row

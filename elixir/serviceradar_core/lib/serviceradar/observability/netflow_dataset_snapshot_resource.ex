@@ -42,6 +42,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
           schedule :prune_inactive, "37 * * * *" do
             action :prune_inactive
             queue :maintenance
+            priority 0
             max_attempts 3
             worker_module_name unquote(prune_worker)
           end

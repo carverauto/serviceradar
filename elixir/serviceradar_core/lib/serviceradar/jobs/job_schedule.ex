@@ -53,6 +53,13 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     triggers do
       trigger :identity_reconciliation do
         queue :maintenance
+        # AshOban defaults these to 3 and 2. Oban fetches by priority before age,
+        # so in a queue that holds priority-0 work the scheduler and worker are
+        # not fetched while any of that work is available: the schedule runs
+        # only when something raises it. Priority 0 puts them in arrival order.
+        # Every AshOban trigger and scheduled action sets it for the same reason.
+        scheduler_priority 0
+        worker_priority 0
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :identity_reconciliation
         scheduler_cron @identity_reconciliation_cron
