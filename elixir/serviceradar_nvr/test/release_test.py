@@ -75,6 +75,71 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
         self.assertEqual(self.decode(self.env["NVR_TEST_MP4"]), expected)
 
+    def test_publication_intent_survives_restart_and_preserves_conflicts(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        # Existing descriptor export verifies media; Python independently hashes its wire bytes.
+        self.run_probe("discover_rotation")
+        descriptor_path = Path(self.env["NVR_TEST_MP4"] + ".0.json")
+        descriptor = descriptor_path.read_bytes()
+        self.env["NVR_TEST_DESCRIPTOR_SHA256"] = hashlib.sha256(descriptor).hexdigest()
+        self.run_probe("publication_prepare")
+        intent = block / "publication.json"
+        original = intent.read_bytes()
+        document = json.loads(original)
+        self.assertEqual(set(document), {"version", "storage_id", "block_id", "operation_id",
+                                         "recording_block_id", "descriptor_sha256", "descriptor"})
+        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["storage_id"], self.env["SERVICERADAR_NVR_STORAGE_ID"])
+        self.assertEqual(document["block_id"], block.name)
+        self.assertEqual(document["operation_id"], "00000000-0000-4000-8000-000000000021")
+        self.assertEqual(document["recording_block_id"], "00000000-0000-4000-8000-000000000022")
+        self.assertEqual(document["descriptor_sha256"], hashlib.sha256(descriptor).hexdigest())
+        self.assertEqual(document["descriptor"], json.loads(descriptor))
+        self.assertEqual(original, json.dumps(document, sort_keys=True, separators=(",", ":")).encode())
+        self.assertLessEqual(len(original), 65536)
+        self.assertEqual(intent.stat().st_mode & 0o777, 0o600)
+        inode, mtime = intent.stat().st_ino, intent.stat().st_mtime_ns
+        # Restart with no room for another byte: exact retry must still succeed.
+        used = sum(p.stat().st_size for p in block.iterdir())
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(used)
+        self.run_probe("publication_retry")
+        self.assertEqual((intent.stat().st_ino, intent.stat().st_mtime_ns), (inode, mtime))
+        self.assertEqual(intent.read_bytes(), original)
+        self.env["NVR_TEST_BLOCK_ID"] = block.name
+        self.run_probe("publication_storage_binding")
+
+        for damaged in [original[:17], original + b" ", b"x" * 65537,
+                        json.dumps(document | {"storage_id": "00000000-0000-4000-8000-000000000099"},
+                                   sort_keys=True, separators=(",", ":")).encode()]:
+            intent.write_bytes(damaged)
+            self.run_probe("publication_error")
+            self.assertEqual(intent.read_bytes(), damaged)
+        intent.write_bytes(original)
+        media = block / "media.m4s"
+        damaged_media = bytearray(media.read_bytes())
+        damaged_media[-1] ^= 1
+        media.write_bytes(damaged_media)
+        self.run_probe("publication_error")
+        self.assertEqual(intent.read_bytes(), original)
+        self.assertEqual(media.read_bytes(), damaged_media)
+
+    def test_publication_intent_requires_space_before_creating_metadata(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        self.run_probe("discover_rotation")
+        descriptor = Path(self.env["NVR_TEST_MP4"] + ".0.json").read_bytes()
+        self.env["NVR_TEST_DESCRIPTOR_SHA256"] = hashlib.sha256(descriptor).hexdigest()
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
+        self.run_probe("publication_budget")
+        self.assertFalse((block / "publication.json").exists())
+        del self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"]
+        self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = "1125899906842624"
+        self.run_probe("publication_pressure")
+        self.assertFalse((block / "publication.json").exists())
+
     def make_media(self, frames=75):
         source = self.env["NVR_TEST_H264"]
         subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i",
