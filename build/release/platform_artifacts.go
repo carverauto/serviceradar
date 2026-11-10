@@ -125,6 +125,10 @@ func prepareReleaseChecksums(ctx *publishContext) error {
 	if err != nil {
 		return err
 	}
+	if err := signReleaseChecksums(checksums, ctx.config.checksumsSigner, ctx.config.dryRun); err != nil {
+		_ = os.RemoveAll(checksums.dir)
+		return err
+	}
 	if err := requireChecksumCoverage(append(assets, checksums.assets...)); err != nil {
 		_ = os.RemoveAll(checksums.dir)
 		return err

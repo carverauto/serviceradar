@@ -27,7 +27,24 @@ func syntheticChecksumPlan(t *testing.T, names ...string) []uploadAsset {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(checksums.dir) })
+	if err := signReleaseChecksums(checksums, syntheticSigner(t, signerCopiesPayload), false); err != nil {
+		t.Fatal(err)
+	}
 	return append(assets, checksums.assets...)
+}
+
+// signerCopiesPayload stands in for the signing command. Its bundle is derived
+// from the bytes of the file it was handed, so a test can tell which file that
+// was.
+const signerCopiesPayload = `printf 'synthetic bundle over: ' > "$2" && cat "$1" >> "$2"`
+
+func syntheticSigner(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "signer.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func planAsset(t *testing.T, plan []uploadAsset, name string) uploadAsset {
@@ -72,7 +89,7 @@ func TestReleaseChecksumFilesUseSha256sumFormat(t *testing.T) {
 	}
 	sort.Strings(names)
 	wantNames := []string{
-		checksumManifestAssetName,
+		checksumManifestAssetName, checksumSignatureAssetName,
 		deb, deb + ".sha256",
 		runtime, runtime + ".sha256",
 		msi, msi + ".sha256",
@@ -113,6 +130,16 @@ func TestReleaseRefusesAnAssetWithoutItsChecksum(t *testing.T) {
 		},
 		"SHA256SUMS missing": func(_ *testing.T, plan []uploadAsset) []uploadAsset {
 			return withoutAsset(plan, checksumManifestAssetName)
+		},
+		"SHA256SUMS signature missing": func(_ *testing.T, plan []uploadAsset) []uploadAsset {
+			return withoutAsset(plan, checksumSignatureAssetName)
+		},
+		"SHA256SUMS signature empty": func(t *testing.T, plan []uploadAsset) []uploadAsset {
+			t.Helper()
+			if err := os.Truncate(planAsset(t, plan, checksumSignatureAssetName).sourcePath, 0); err != nil {
+				t.Fatal(err)
+			}
+			return plan
 		},
 		"package changed after hashing": func(t *testing.T, plan []uploadAsset) []uploadAsset {
 			t.Helper()
@@ -178,9 +205,92 @@ func TestReleaseRefusesAnAssetWithoutItsChecksum(t *testing.T) {
 	}
 }
 
-// The publisher's own preflight must reach the guard: a release whose inputs
-// are all valid gets a sidecar for every installable before anything uploads.
+// The signature must cover the SHA256SUMS file that is uploaded, and a release
+// that cannot be signed must stop before it plans any upload.
+func TestSHA256SUMSIsSignedAsUploaded(t *testing.T) {
+	build := func(t *testing.T) (*releaseChecksums, uploadAsset) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "serviceradar-agent_2.3.4_amd64.deb")
+		if err := os.WriteFile(path, []byte("synthetic package"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		checksums, err := buildReleaseChecksums([]uploadAsset{{sourcePath: path, uploadName: filepath.Base(path)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(checksums.dir) })
+		return checksums, planAsset(t, checksums.assets, checksumManifestAssetName)
+	}
+
+	t.Run("signer receives the uploaded file and no other credentials", func(t *testing.T) {
+		checksums, manifest := build(t)
+		t.Setenv(releasePrivateKeyEnv, "synthetic agent key")
+		t.Setenv("GH_TOKEN", "synthetic release token")
+		signer := syntheticSigner(t, `[ -z "${`+releasePrivateKeyEnv+`:-}${GH_TOKEN:-}" ] || exit 4
+`+signerCopiesPayload)
+		if err := signReleaseChecksums(checksums, signer, false); err != nil {
+			t.Fatal(err)
+		}
+		uploaded, err := os.ReadFile(manifest.sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bundle, err := os.ReadFile(planAsset(t, checksums.assets, checksumSignatureAssetName).sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(bundle) != "synthetic bundle over: "+string(uploaded) {
+			t.Fatalf("bundle %q was not produced from the uploaded %s %q", bundle, checksumManifestAssetName, uploaded)
+		}
+	})
+
+	for name, signer := range map[string]func(*testing.T) string{
+		"no signer configured": func(*testing.T) string { return "" },
+		"relative signer path": func(*testing.T) string { return "sign-release-checksums.sh" },
+		"signer fails": func(t *testing.T) string {
+			t.Helper()
+			return syntheticSigner(t, "exit 3")
+		},
+		"signer rewrites SHA256SUMS": func(t *testing.T) string {
+			t.Helper()
+			return syntheticSigner(t, `echo tampered >> "$1" && echo bundle > "$2"`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			checksums, _ := build(t)
+			err := signReleaseChecksums(checksums, signer(t), false)
+			if !errors.Is(err, errChecksumCoverage) {
+				t.Fatalf("unsigned %s accepted: error=%v", checksumManifestAssetName, err)
+			}
+			for _, asset := range checksums.assets {
+				if asset.uploadName == checksumSignatureAssetName {
+					t.Fatalf("a signature was planned after the signer was refused")
+				}
+			}
+		})
+	}
+
+	t.Run("dry run needs no signer", func(t *testing.T) {
+		checksums, _ := build(t)
+		if err := signReleaseChecksums(checksums, "", true); err != nil {
+			t.Fatalf("dry run refused without signing credentials: %v", err)
+		}
+		planAsset(t, checksums.assets, checksumSignatureAssetName)
+	})
+}
+
+// The publisher's own preflight must reach the signer and the guard: a release
+// whose inputs are all valid gets a sidecar for every installable and a signed
+// SHA256SUMS before anything uploads, and none of it without a signer.
 func TestPreflightPlansAChecksumForEveryInstallable(t *testing.T) {
+	unsigned := syntheticPackagePreflight(t, []string{
+		"serviceradar-agent__amd64.deb", "serviceradar-agent__arm64.deb",
+		"serviceradar-agent-2.3.4-1.x86_64.rpm", "serviceradar-agent-2.3.4-1.aarch64.rpm",
+	}, "none")
+	if err := prepareReleaseChecksums(unsigned); !errors.Is(err, errChecksumCoverage) || unsigned.checksums != nil {
+		t.Fatalf("preflight without a signer planned checksums: error=%v", err)
+	}
+
 	ctx := syntheticPackagePreflight(t, []string{
 		"serviceradar-agent__amd64.deb", "serviceradar-agent__arm64.deb",
 		"serviceradar-agent-2.3.4-1.x86_64.rpm", "serviceradar-agent-2.3.4-1.aarch64.rpm",
@@ -197,6 +307,7 @@ func TestPreflightPlansAChecksumForEveryInstallable(t *testing.T) {
 		}
 		ctx.runtimes = append(ctx.runtimes, managedAgentRuntime{arch: arch, path: path})
 	}
+	ctx.config.checksumsSigner = syntheticSigner(t, signerCopiesPayload)
 	if err := prepareReleaseChecksums(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -217,11 +328,11 @@ func TestPreflightPlansAChecksumForEveryInstallable(t *testing.T) {
 			t.Errorf("no %s.sha256 planned", name)
 		}
 	}
-	if !planned[checksumManifestAssetName] {
-		t.Errorf("no %s planned", checksumManifestAssetName)
+	if !planned[checksumManifestAssetName] || !planned[checksumSignatureAssetName] {
+		t.Errorf("no signed %s planned", checksumManifestAssetName)
 	}
-	if len(planned) != 10 {
-		t.Errorf("planned %d checksum files, want 9 sidecars and %s", len(planned), checksumManifestAssetName)
+	if len(planned) != 11 {
+		t.Errorf("planned %d checksum files, want 9 sidecars, %s and its signature", len(planned), checksumManifestAssetName)
 	}
 }
 

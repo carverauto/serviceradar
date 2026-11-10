@@ -124,7 +124,8 @@ Before the GitHub release becomes public, verify that it contains:
 
 - all expected `.deb` and `.rpm` packages
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
-- `SHA256SUMS`, and one `<asset name>.sha256` sidecar for every `.deb`, `.rpm`,
+- `SHA256SUMS`, its signature `SHA256SUMS.sigstore.json`, and one
+  `<asset name>.sha256` sidecar for every `.deb`, `.rpm`,
   `.pkg`, `.msi` and agent runtime `.tar.gz` (see
   [Release Checksums](#release-checksums))
 - `serviceradar-agent-release-manifest.json`
@@ -151,6 +152,7 @@ checksum.
 | --- | --- |
 | `<asset name>.sha256` | One `sha256sum` line, `<hex digest>  <asset name>`, for one `.deb`, `.rpm`, `.pkg`, `.msi` or agent runtime `.tar.gz` |
 | `SHA256SUMS` | The same line for every one of those files and for each installer's `.provenance.json`, sorted by name |
+| `SHA256SUMS.sigstore.json` | Sigstore bundle with the Cosign release key's signature over `SHA256SUMS` |
 
 The sidecar name is a contract with installers that discover a release. The
 `serviceradar-ansible` agent role looks for an asset named exactly
@@ -161,15 +163,18 @@ filename inside the sidecar must stay the published asset name.
 
 The publisher refuses to continue in three places:
 
-1. Before the draft release is created or changed, it hashes every file in
-   the upload plan a second time and requires a matching `SHA256SUMS` line,
-   plus a matching sidecar for each installable. A file type with no checksum
-   rule is refused, so a new kind of asset cannot be added without one.
+1. Before the draft release is created or changed, it signs `SHA256SUMS`,
+   hashes every file in the upload plan a second time and requires a matching
+   `SHA256SUMS` line, plus a matching sidecar for each installable. A file
+   type with no checksum rule is refused, so a new kind of asset cannot be
+   added without one. A missing or empty signature bundle, a signer that
+   fails, and a signer that changes `SHA256SUMS` are refused too.
 2. After the uploads, it reads the release back and requires each planned file
    to be stored exactly once. Where GitHub reports a digest of the stored
    bytes, that digest must equal the local one.
 3. The `Verify uploaded release assets via GitHub API` step requires
-   `SHA256SUMS` and a non-empty sidecar for every installable on the draft.
+   `SHA256SUMS`, `SHA256SUMS.sigstore.json` and a non-empty sidecar for every
+   installable on the draft.
 
 A failure in any of them leaves the release as a draft.
 
@@ -179,10 +184,47 @@ carries their SHA256 digests, and is signed with the agent release key. The
 catalog indexes and security bundles are attached by other workflows and have
 no checksum files.
 
-The checksum files are not signed. They detect corruption and a package that
-was replaced without its sidecar; they do not authenticate the release against
-someone who can replace both. Container images remain the only artifacts signed
-with the Cosign release key in `docs/cosign.pub`.
+#### Checksum signature
+
+`SHA256SUMS` is signed with the same Cosign release key as the container
+images (`hashivault://cosign-release` in OpenBao Transit; public half in
+`docs/cosign.pub`). No other key or secret is involved.
+
+The publisher is given `--checksums_signer scripts/sign-release-checksums.sh`.
+After it has written `SHA256SUMS`, it runs that script on the file it will
+upload. The script:
+
+1. Logs in to OpenBao with `scripts/ci/prepare-openbao-cosign-env.sh`. The
+   login is inside the script because the publisher is started by `bazel run`
+   and the 20-minute token would expire while the packages build.
+2. Signs the file with `cosign sign-blob` through `cosign_sign_blob_to_files`
+   and writes the bundle. The transparency-log setting is the one the image,
+   native add-on and Wasm plugin signers use: `COSIGN_TLOG_UPLOAD`, which
+   defaults to `true`, so the signature is recorded in Rekor and the bundle
+   carries the log entry.
+3. Verifies the bundle with `cosign verify-blob` and the committed
+   `docs/cosign.pub`, then unsets the OpenBao token.
+
+A release whose `SHA256SUMS` cannot be signed and verified uploads nothing. A
+dry run (`dry_run: true`) does not call the signer and needs no signing
+credentials; it plans a placeholder in place of the bundle.
+
+Each run signs again, and the bundle bytes differ between runs. A retry of a
+draft therefore replaces `SHA256SUMS.sigstore.json`, which requires
+`overwrite_assets` to stay `true` (the default).
+
+To verify a published release:
+
+```bash
+cosign verify-blob \
+  --key https://raw.githubusercontent.com/carverauto/serviceradar/staging/docs/cosign.pub \
+  --bundle SHA256SUMS.sigstore.json \
+  SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+The sidecars are not signed separately. Their lines also appear in the signed
+`SHA256SUMS`.
 
 The image workflow verifies every repository declared in
 `docker/images/image_inventory.bzl`. The current contract covers 16 image

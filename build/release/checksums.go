@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,6 +15,10 @@ const (
 	// checksumManifestAssetName lists every file in the checksum plan in
 	// sha256sum(1) format, so one download verifies a whole release.
 	checksumManifestAssetName = "SHA256SUMS"
+	// checksumSignatureAssetName is the Sigstore bundle holding the release
+	// key's signature over the exact SHA256SUMS bytes that are uploaded.
+	checksumSignatureAssetName = checksumManifestAssetName + ".sigstore.json"
+	dryRunChecksumSignature    = "dry-run-signature\n"
 	// checksumSidecarSuffix names the per-installable sidecar. Installers that
 	// discover a release look for exactly "<asset name>.sha256".
 	checksumSidecarSuffix = ".sha256"
@@ -49,7 +55,56 @@ func hasAnySuffix(name string, suffixes ...string) bool {
 }
 
 func isChecksumAsset(name string) bool {
-	return name == checksumManifestAssetName || strings.HasSuffix(name, checksumSidecarSuffix)
+	return name == checksumManifestAssetName || name == checksumSignatureAssetName ||
+		strings.HasSuffix(name, checksumSidecarSuffix)
+}
+
+// signReleaseChecksums has the signer command sign the SHA256SUMS file that
+// will be uploaded and adds the bundle it writes to the checksum assets. The
+// command receives the SHA256SUMS path and the bundle output path. A dry run
+// needs no signing credentials and plans a placeholder instead.
+func signReleaseChecksums(checksums *releaseChecksums, signer string, dryRun bool) error {
+	var manifest uploadAsset
+	for _, asset := range checksums.assets {
+		if asset.uploadName == checksumManifestAssetName {
+			manifest = asset
+		}
+	}
+	if manifest.sourcePath == "" {
+		return fmt.Errorf("%w: no %s to sign", errChecksumCoverage, checksumManifestAssetName)
+	}
+	bundlePath := filepath.Join(checksums.dir, checksumSignatureAssetName)
+	bundle := uploadAsset{sourcePath: bundlePath, uploadName: checksumSignatureAssetName}
+	if dryRun {
+		if err := os.WriteFile(bundlePath, []byte(dryRunChecksumSignature), 0o644); err != nil {
+			return err
+		}
+		checksums.assets = append(checksums.assets, bundle)
+		return nil
+	}
+	if !filepath.IsAbs(signer) {
+		return fmt.Errorf("%w: --checksums_signer must be an absolute path to the command that signs %s", errChecksumCoverage, checksumManifestAssetName)
+	}
+	before, err := fileSHA256(manifest.sourcePath)
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(context.Background(), signer, manifest.sourcePath, bundlePath)
+	command.Env = signerEnvironment(os.Environ())
+	command.Stdout = os.Stderr
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("%w: signing %s failed: %w", errChecksumCoverage, checksumManifestAssetName, err)
+	}
+	after, err := fileSHA256(manifest.sourcePath)
+	if err != nil {
+		return err
+	}
+	if before != after {
+		return fmt.Errorf("%w: the signer changed %s", errChecksumCoverage, checksumManifestAssetName)
+	}
+	checksums.assets = append(checksums.assets, bundle)
+	return nil
 }
 
 // checksumLine is one sha256sum(1) text-mode line. Ansible get_url accepts a
@@ -110,6 +165,21 @@ func writeChecksumFile(dir, name, content string) (uploadAsset, error) {
 	return uploadAsset{sourcePath: path, uploadName: name}, nil
 }
 
+// signerEnvironment is the publisher's environment without the credentials
+// the signer has no use for: the agent manifest key and the release API tokens.
+func signerEnvironment(environment []string) []string {
+	kept := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case releasePrivateKeyEnv, releasePrivateKeyFileEnv, "FORGEJO_TOKEN", "GITEA_TOKEN", "GITHUB_TOKEN", "GH_TOKEN":
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
+}
+
 // requireChecksumCoverage refuses an upload plan in which a file would be
 // published without its checksum. It reads the plan as it will be uploaded
 // and hashes every file again, so it does not depend on how the checksum
@@ -130,6 +200,13 @@ func requireChecksumCoverage(plan []uploadAsset) error {
 	if err != nil {
 		return err
 	}
+	signature, ok := byName[checksumSignatureAssetName]
+	if !ok {
+		return fmt.Errorf("%w: %s would be published without %s", errChecksumCoverage, checksumManifestAssetName, checksumSignatureAssetName)
+	}
+	if info, err := os.Stat(signature.sourcePath); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("%w: %s is missing or empty", errChecksumCoverage, checksumSignatureAssetName)
+	}
 	listed := make(map[string]bool)
 	for _, line := range strings.SplitAfter(string(manifest), "\n") {
 		if line != "" {
@@ -141,11 +218,14 @@ func requireChecksumCoverage(plan []uploadAsset) error {
 	for _, asset := range plan {
 		name := asset.uploadName
 		if isChecksumAsset(name) {
+			if !strings.HasSuffix(name, checksumSidecarSuffix) {
+				continue
+			}
 			target := strings.TrimSuffix(name, checksumSidecarSuffix)
-			if name != checksumManifestAssetName && !isInstallable(target) {
+			if !isInstallable(target) {
 				return fmt.Errorf("%w: sidecar %q does not belong to an installable asset", errChecksumCoverage, name)
 			}
-			if _, ok := byName[target]; name != checksumManifestAssetName && !ok {
+			if _, ok := byName[target]; !ok {
 				return fmt.Errorf("%w: sidecar %q has no asset %q", errChecksumCoverage, name, target)
 			}
 			continue

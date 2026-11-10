@@ -49,9 +49,23 @@ checksum. For v1.5.2 and earlier releases, which have no sidecar, pin the
 package with `serviceradar_agent_package_url`,
 `serviceradar_agent_package_sha256` and `serviceradar_version`.
 
-A checksum shows that the download matches what the release job uploaded. The
-checksum files are not signed, so they do not replace the signature checks
-below for macOS.
+A checksum alone shows that the download matches the file beside it on the
+release page. To confirm that the checksums come from the ServiceRadar release
+job, verify the signature on `SHA256SUMS` first. It is signed with the same
+Cosign key as the container images. Download `SHA256SUMS`,
+`SHA256SUMS.sigstore.json` and
+[`cosign.pub`](https://github.com/carverauto/serviceradar/blob/staging/docs/cosign.pub),
+then run [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+3.0 or later:
+
+```console
+cosign verify-blob --key cosign.pub --bundle SHA256SUMS.sigstore.json SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+The first command must print `Verified OK`. The second checks every package in
+the current directory against the signed list. The `.sha256` sidecars carry the
+same lines and are not signed separately.
 
 ## Install on a Raspberry Pi
 
