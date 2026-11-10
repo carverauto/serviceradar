@@ -119,6 +119,55 @@ a JSON `SERVICERADAR_NVR_STORAGE_IDS` map; the application requires an exact mem
 entry and refuses simultaneous scalar/map configuration. Neither setting holds
 camera or provider credentials. Health probes listen on port 8095 by default.
 
+## Private publication receiver
+
+Web-ng can receive canonical local-publication intents on a separate private
+HTTPS listener. It is disabled by default and is outside the public API and
+browser router. This checkpoint supplies only the receiving half; NVR outbound
+delivery, retry scheduling and automated reconciliation remain pending.
+
+Set `SERVICERADAR_NVR_PUBLICATION_ENABLED=true`,
+`SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE` and
+`SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE` in the receiving web-ng process.
+`SERVICERADAR_NVR_PUBLICATION_PORT` defaults to 4003. No Helm Service or ingress
+exposes this port automatically. Restrict network access to recorder workloads.
+
+The JSON installation file has exactly four fields: `cert_file`, `key_file`,
+`ca_file` (absolute paths to server certificate, private key and client trust CA),
+and `clients`. The latter maps lowercase SHA-256 fingerprints of client DER
+certificates to their canonical storage UUIDs. It accepts 1 through 64 bindings;
+certificate rotation may bind old and new fingerprints to the same original
+storage lifetime. Each replica retains its own storage UUID. Installation files
+are bounded to 32 KiB and are read on listener startup; restart to apply changes.
+The separate token file contains a dedicated 32 through 512 byte printable ASCII
+bearer token, with no newline. These are ServiceRadar workload credentials,
+provisioned as infrastructure secrets, not camera/device credentials.
+
+Send one `POST /v1/local-publication-intents` request with mutual TLS,
+`Authorization: Bearer <token>` and `Content-Type: application/json`. The body is
+at most 64 KiB of exact canonical intent bytes. The receiver derives the system
+actor and storage binding from its installation, then checks the original frozen
+Core block authority. A 200 response contains the canonical `intent_accepted`
+acknowledgement only after the immutable receipt commits. An exact retry returns
+the same acknowledgement, including after listener restart or a lost response.
+The client must retain the original operation and intent bytes when an outcome
+is unknown. This receipt does not establish playable availability, storage
+qualification, archive success or permission to delete media.
+
+Invalid authentication returns 401; a storage-binding mismatch returns 403;
+malformed intents return 400; oversized bodies return 413; a missing original
+block returns 404; unfrozen/conflicting authority returns 409. Other acceptance
+errors return 503. A transport failure can hide a successful commit, so reconcile
+by retrying the original operation rather than inventing a replacement.
+
+The listener permits four concurrent connection handlers, one request per HTTP/1
+connection, and no HTTP/2. Body reads have a five-second read timeout. Once the
+request reaches the plug, an absolute ten-second deadline terminates its handler,
+including blocked database work. TLS handshakes and header parsing precede this
+deadline and retain the server's transport timeouts. Saturated connections can be
+refused; the future sender must use bounded retries. No background acceptance
+worker survives a timed-out handler.
+
 ## Qualification before rollout
 
 Use synthetic footage to verify that a committed spool and its journal recover

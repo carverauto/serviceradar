@@ -204,4 +204,44 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     assert %{rows: [[0]]} =
              Repo.query!("SELECT count(*) FROM platform.camera_sources WHERE id = $1", [id])
   end
+
+  def local_intent(block, operation) do
+    descriptor = recording_descriptor(block)
+    {:ok, encoded} = ServiceRadarRecordingMetadata.Descriptor.encode(descriptor)
+
+    {:ok, bytes} =
+      ServiceRadarRecordingMetadata.LocalPublicationIntent.encode(descriptor, block.storage_id, %{
+        operation_id: operation,
+        recording_block_id: block.id,
+        descriptor_sha256: digest(encoded)
+      })
+
+    bytes
+  end
+
+  # Invented metadata owns the DB authority contract; the worker keeper freezes
+  # real synthetic media through Packaging and Spool.
+  def recording_descriptor(block) do
+    %{
+      "version" => 1,
+      "identity" => ServiceRadar.Camera.RecordingBlock.identity(block),
+      "format" => %{"codec" => "avc1.42c00a", "timescale" => 90_000},
+      "init" => %{"length" => 1, "sha256" => digest("i")},
+      "media" => %{"length" => 3, "sha256" => digest("abc")},
+      "fragments" => [
+        %{
+          "sequence" => 0,
+          "offset" => 0,
+          "length" => 3,
+          "start_ns" => 0,
+          "duration_ns" => 1_000_000_000,
+          "sha256" => digest("abc"),
+          "tail_duration_source" => nil,
+          "motion" => "unknown"
+        }
+      ]
+    }
+  end
+
+  defp digest(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 end

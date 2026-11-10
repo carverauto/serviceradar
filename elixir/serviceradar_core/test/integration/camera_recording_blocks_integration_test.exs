@@ -43,9 +43,9 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
   test "local intent acknowledgement binds frozen history without granting availability", ctx do
     operation = Ecto.UUID.generate()
-    bytes = local_intent(ctx.block, operation)
+    bytes = Fixtures.local_intent(ctx.block, operation)
     assert {:error, :recording_block_unfrozen} = LocalPublicationIntents.accept(bytes, ctx.opts)
-    assert {:ok, frozen} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, frozen} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:error, _} = LocalPublicationIntents.accept(bytes, actor: %{role: :viewer})
 
     for altered <- [
@@ -53,7 +53,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
           %{ctx.block | clock: Map.put(@clock, "clock_epoch", "substituted-clock")}
         ] do
       assert {:error, :local_publication_authority_mismatch} =
-               LocalPublicationIntents.accept(local_intent(altered, operation), ctx.opts)
+               LocalPublicationIntents.accept(Fixtures.local_intent(altered, operation), ctx.opts)
     end
 
     assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
@@ -91,7 +91,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
     assert {:error, :local_publication_intent_conflict} =
              LocalPublicationIntents.accept(
-               local_intent(ctx.block, Ecto.UUID.generate()),
+               Fixtures.local_intent(ctx.block, Ecto.UUID.generate()),
                ctx.opts
              )
 
@@ -105,10 +105,16 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
              RecorderOwnership.reserve_block(ctx.owner, replacement, @clock, ctx.opts)
 
     assert {:ok, other} =
-             RecordingBlocks.freeze(ctx.owner, replacement, other, descriptor(other), ctx.opts)
+             RecordingBlocks.freeze(
+               ctx.owner,
+               replacement,
+               other,
+               Fixtures.recording_descriptor(other),
+               ctx.opts
+             )
 
     assert {:error, :local_publication_intent_conflict} =
-             LocalPublicationIntents.accept(local_intent(other, operation), ctx.opts)
+             LocalPublicationIntents.accept(Fixtures.local_intent(other, operation), ctx.opts)
 
     assert {:ok, unchanged} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
     assert unchanged.recording_block_id == frozen.id
@@ -116,8 +122,8 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
   test "competing local operations retain one acknowledgement and exact concurrent retries converge",
        ctx do
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
-    bytes = for _ <- 1..2, do: local_intent(ctx.block, Ecto.UUID.generate())
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
+    bytes = for _ <- 1..2, do: Fixtures.local_intent(ctx.block, Ecto.UUID.generate())
     parent = self()
 
     tasks =
@@ -153,7 +159,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   end
 
   test "freeze is immutable, identity-bound and survives recorder replacement", ctx do
-    descriptor = descriptor(ctx.block)
+    descriptor = Fixtures.recording_descriptor(ctx.block)
     assert {:error, :recording_block_unfrozen} = upload(ctx)
     wrong_identity = put_in(descriptor["identity"]["clock"]["clock_epoch"], "substituted-clock")
     assert {:error, :recording_block_mismatch} = freeze(ctx, wrong_identity)
@@ -189,7 +195,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
                ctx.owner,
                replacement,
                unfrozen,
-               descriptor(unfrozen),
+               Fixtures.recording_descriptor(unfrozen),
                ctx.opts
              )
 
@@ -208,7 +214,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
   test "independent upload claimants admit one winner and stale generations cannot publish",
        ctx do
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     parent = self()
 
     tasks =
@@ -239,7 +245,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   test "upload expiry rolls back nested renewal and an executed write after recorder release",
        ctx do
     binding = register_binding(ctx)
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
     assert {:ok, lease} = upload(ctx, 2_000)
 
@@ -270,7 +276,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
   test "a retained operation deadline rolls back an executed write despite a renewed lease",
        ctx do
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:ok, lease} = upload(ctx)
     deadline = DateTime.add(lease.database_now, 2_000, :millisecond)
     assert {:ok, _} = RecordingBlocks.renew_upload(lease, 30_000, ctx.opts)
@@ -339,7 +345,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   test "binding requires exact authority and cannot replace the retained destination", ctx do
     first = register_binding(ctx)
     second = register_binding(ctx)
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:ok, lease} = upload(ctx)
 
     assert {:error, :archive_binding_mismatch} =
@@ -384,7 +390,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
   test "competing destinations serialize under one current upload handle", ctx do
     bindings = [register_binding(ctx), register_binding(ctx)]
-    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:ok, lease} = upload(ctx)
     parent = self()
 
@@ -404,20 +410,6 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, persisted} = Ash.get(RecordingBlock, lease.id, ctx.opts)
     assert persisted.archive_binding_id == winner.archive_binding_id
     assert persisted.descriptor_sha256 == lease.descriptor_sha256
-  end
-
-  defp local_intent(block, operation) do
-    descriptor = descriptor(block)
-    {:ok, encoded} = ServiceRadarRecordingMetadata.Descriptor.encode(descriptor)
-
-    {:ok, bytes} =
-      ServiceRadarRecordingMetadata.LocalPublicationIntent.encode(descriptor, block.storage_id, %{
-        operation_id: operation,
-        recording_block_id: block.id,
-        descriptor_sha256: digest(encoded)
-      })
-
-    bytes
   end
 
   defp bind(ctx, lease, binding),
@@ -459,30 +451,6 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
         fn _ -> Source.update_source(ctx.source, %{display_name: "upload fenced"}, ctx.opts) end,
         ctx.opts
       )
-
-  # Invented metadata owns the DB authority contract; the worker keeper freezes
-  # real synthetic media through Packaging and Spool.
-  defp descriptor(block) do
-    %{
-      "version" => 1,
-      "identity" => RecordingBlock.identity(block),
-      "format" => %{"codec" => "avc1.42c00a", "timescale" => 90_000},
-      "init" => %{"length" => 1, "sha256" => digest("i")},
-      "media" => %{"length" => 3, "sha256" => digest("abc")},
-      "fragments" => [
-        %{
-          "sequence" => 0,
-          "offset" => 0,
-          "length" => 3,
-          "start_ns" => 0,
-          "duration_ns" => 1_000_000_000,
-          "sha256" => digest("abc"),
-          "tail_duration_source" => nil,
-          "motion" => "unknown"
-        }
-      ]
-    }
-  end
 
   defp digest(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 end
