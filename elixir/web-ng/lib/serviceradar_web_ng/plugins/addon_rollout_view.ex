@@ -64,6 +64,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "rollback_recovery_unverified" => "rollback recovery is unverified",
     "waiting_for_fresh_candidate_health" => "waiting for a fresh healthy report",
     "fleet_already_on_candidate" => "fleet is already on this candidate",
+    "no_eligible_targets" => "no targeted agent can run this candidate right now",
+    "every_target_canceled" => "every targeted agent was withdrawn before it ran the candidate",
+    "agent_updater_outdated" =>
+      "the ServiceRadar agent package on this host is too old to install systemd add-ons; upgrade the package on the host (agent self-update does not replace its updater)",
     "operator_canceled" => "canceled by an operator"
   }
 
@@ -206,6 +210,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
             "Update blocked",
             "We could not confirm this agent recovered on #{current} after #{attempted} failed.",
             :review_rollout
+          )
+
+        {:action_required, "agent_updater_outdated"} ->
+          action(
+            "Agent package outdated",
+            "Upgrade the ServiceRadar agent package on this host. Its privileged updater is too old to install systemd add-ons, and agent self-update does not replace it. Until then this agent is skipped and stays on #{current}.",
+            if(field(row, :rollout_id), do: :review_rollout)
           )
 
         {:action_required, reason} when reason in ["rollout_failed", "rollout_target_incompatible"] ->
@@ -411,6 +422,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
 
       ctx.blocked_reason == "fleet_already_on_candidate" ->
         "Every targeted agent is already on #{candidate}, so this rollout has nothing left to do."
+
+      ctx.blocked_reason == "no_eligible_targets" ->
+        "No targeted agent can run #{candidate} right now, so this rollout ended without changing anything. Each skipped agent lists its reason below. An automatic update starts again once an agent becomes eligible."
 
       ctx.blocked_reason == "operator_canceled" ->
         "An operator canceled this rollout."

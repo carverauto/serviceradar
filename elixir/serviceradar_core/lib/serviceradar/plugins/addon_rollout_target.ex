@@ -1,6 +1,11 @@
 defmodule ServiceRadar.Plugins.AddonRolloutTarget do
   @moduledoc """
-  Snapshotted per-agent target and health evidence for a fleet rollout.
+  Per-agent target and health evidence for a fleet rollout.
+
+  The set of targets is fixed when the rollout is created. `classification` and
+  `reason_code` start as the verdict at that moment and are replaced when the
+  coordinator excludes the target because its agent can no longer run the
+  candidate.
 
   Its `artifact_kind` matches its rollout's. A `:native_addon` target points at
   an add-on assignment (`assignment_id`) and records add-on package ids; a

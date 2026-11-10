@@ -7,6 +7,13 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   version can pass the gate. A failed target has its override removed before the
   rollout is stopped.
 
+  A target's classification is taken when the rollout is created, but it is not
+  trusted after that. Before a batch launches, and when a launched target fails,
+  the agent's current compatibility is read again through
+  `AddonRolloutEligibility.classify_target/3`, the rule a new rollout uses. An
+  agent that can no longer run the candidate is excluded with that rule's reason
+  instead of being sent a package it cannot install.
+
   The state machine here is artifact-agnostic. Where packages, sources, overrides
   and health evidence live is the `ServiceRadar.Plugins.RolloutArtifact`
   implementation's concern, resolved from each rollout or source. So is the
@@ -216,6 +223,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          {:ok, targets, finished} <- finish_rolling_back(rollout, targets, actor, now),
          {:ok, rollout, targets, evaluated} <-
            evaluate_targets(rollout, targets, packages, actor, now),
+         {:ok, targets} <- exclude_incompatible(rollout, targets, packages, actor, now),
          {:ok, next, advanced} <- finish_or_advance(rollout, targets, actor, now) do
       {:ok, next, finished ++ evaluated ++ advanced}
     end
@@ -1026,6 +1034,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     evaluating = Enum.filter(targets, &(&1.state in @active_target_states))
     evidence = artifact.load_evidence(evaluating, rollout, actor)
 
+    with {:ok, agents} <- load_agents(evaluating, actor) do
+      evaluate_targets(rollout, targets, packages, evidence, agents, actor, now)
+    end
+  end
+
+  defp evaluate_targets(rollout, targets, packages, evidence, agents, actor, now) do
+    artifact = RolloutArtifact.implementation(rollout)
+
     targets
     |> Enum.reduce_while({:ok, rollout, [], []}, fn target, {:ok, rollout, acc, notifications} ->
       result =
@@ -1038,6 +1054,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                 rollout,
                 target,
                 Map.get(evidence, artifact.evidence_key(target)),
+                Map.get(agents, target.agent_uid),
                 Map.fetch!(packages, to_string(artifact.candidate_package_id(target))),
                 actor,
                 now
@@ -1078,12 +1095,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp evaluate_candidate_target(rollout, target, evidence, candidate, actor, now) do
+  defp evaluate_candidate_target(rollout, target, evidence, agent, candidate, actor, now) do
     artifact = RolloutArtifact.implementation(rollout)
 
     cond do
       failure = artifact.candidate_failure(evidence, candidate, target.override_applied_at) ->
-        fail_and_rollback_target(rollout, target, failure, actor, now)
+        fail_candidate_target(rollout, target, agent, candidate, failure, actor, now)
 
       artifact.candidate_ready?(evidence, candidate, target.override_applied_at) ->
         evaluate_soak(
@@ -1096,9 +1113,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         )
 
       deadline_elapsed?(target.deadline_at, now) ->
-        fail_and_rollback_target(
+        fail_candidate_target(
           rollout,
           target,
+          agent,
+          candidate,
           {"candidate_health_timeout", "candidate never reported healthy before deadline"},
           actor,
           now
@@ -1106,6 +1125,110 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
       true ->
         {:ok, target}
+    end
+  end
+
+  # A failure says something about the candidate only when the agent could have
+  # run it. An agent that now reports it cannot -- its package-installed updater
+  # is too old for a systemd add-on, say -- fails every version the same way, so
+  # its failure is the host's. Counting it against the candidate paused a whole
+  # profile on its last good version for a cause no package could fix. The
+  # target is excluded under the compatibility reason and keeps the error the
+  # agent reported; the rollout goes on to the agents that can run the candidate.
+  defp fail_candidate_target(rollout, target, agent, candidate, failure, actor, now) do
+    case Eligibility.classify_target(candidate, agent, now) do
+      {:incompatible, reason} ->
+        {_candidate_reason, detail} = failure
+        artifact = RolloutArtifact.implementation(rollout)
+
+        with {:ok, notifications} <- artifact.clear_override(target, actor),
+             {:ok, excluded} <-
+               exclude_incompatible_target(rollout, target, reason, detail, actor, now) do
+          {:ok, excluded, rollout, notifications}
+        end
+
+      _compatible ->
+        fail_and_rollback_target(rollout, target, failure, actor, now)
+    end
+  end
+
+  # Runs before every launch decision, so a resume, a canary rotation and the
+  # next batch of a running rollout all ask the same question of the targets
+  # they are about to start. It loops because excluding a target can bring one
+  # the batch had no room for into the launch, and because a batch that is
+  # excluded whole hands the launch to the next one.
+  defp exclude_incompatible(rollout, targets, packages, actor, now) do
+    case incompatible_launch_targets(rollout, targets, packages, actor, now) do
+      {:ok, []} ->
+        {:ok, targets}
+
+      {:ok, verdicts} ->
+        with {:ok, targets} <- exclude_launch_targets(rollout, targets, verdicts, actor, now) do
+          exclude_incompatible(rollout, targets, packages, actor, now)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Only a verdict of :incompatible excludes. An agent that is merely not
+  # reporting at this moment still launches and is held to the health deadline,
+  # as before.
+  defp incompatible_launch_targets(rollout, targets, packages, actor, now) do
+    candidate = Map.get(packages, to_string(candidate_package_id(rollout)))
+
+    if next_step(rollout, targets) == :launch and not is_nil(candidate) do
+      launching = rollout |> next_launch_targets(targets) |> Enum.reject(&is_nil(member_id(&1)))
+
+      with {:ok, agents} <- load_agents(launching, actor) do
+        verdicts =
+          Enum.flat_map(launching, fn target ->
+            agent = Map.get(agents, target.agent_uid)
+
+            case Eligibility.classify_target(candidate, agent, now) do
+              {:incompatible, reason} -> [{target, reason}]
+              _launchable -> []
+            end
+          end)
+
+        {:ok, verdicts}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
+  defp exclude_launch_targets(rollout, targets, verdicts, actor, now) do
+    Enum.reduce_while(verdicts, {:ok, targets}, fn {target, reason}, {:ok, targets} ->
+      case exclude_incompatible_target(rollout, target, reason, nil, actor, now) do
+        {:ok, excluded} -> {:cont, {:ok, replace_target(targets, excluded)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp replace_target(targets, updated) do
+    Enum.map(targets, fn target ->
+      if target.id == updated.id, do: updated, else: target
+    end)
+  end
+
+  # The classification and reason are the agent's current ones, which is what
+  # the fleet row and the rollout evidence table show. A target that was never
+  # launched has no attempt to preserve; one that failed keeps the reported
+  # error in `error`.
+  defp exclude_incompatible_target(rollout, target, reason, error, actor, now) do
+    attrs = %{
+      state: :excluded,
+      classification: :incompatible,
+      reason_code: reason,
+      completed_at: now
+    }
+
+    with {:ok, excluded} <- transition_target(target, with_error(attrs, error), actor) do
+      emit(:target_excluded, rollout, %{target_id: excluded.id, reason_code: reason})
+      {:ok, excluded}
     end
   end
 
@@ -1145,6 +1268,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp with_reason(attrs, nil), do: attrs
   defp with_reason(attrs, reason), do: Map.put(attrs, :reason_code, reason)
+
+  defp with_error(attrs, nil), do: attrs
+  defp with_error(attrs, error), do: Map.put(attrs, :error, error)
 
   defp fail_and_rollback_target(rollout, target, {reason, error_detail}, actor, now) do
     artifact = RolloutArtifact.implementation(rollout)
@@ -1218,8 +1344,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         with {:ok, notifications} <- finish_failed_rollout(rollout, targets, terminal, actor, now),
              do: {:ok, :advanced, notifications}
 
-      :cancel_unproven ->
-        with {:ok, notifications} <- cancel_unproven_rollout(rollout, targets, actor, now),
+      {:cancel_unproven, reason} ->
+        with {:ok, notifications} <- cancel_unproven(rollout, targets, reason, actor, now),
              do: {:ok, :advanced, notifications}
 
       :launch ->
@@ -1257,11 +1383,18 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       Enum.any?(targets, &(&1.state == :pending)) ->
         :launch
 
+      # No target is left to run the candidate and none ran it healthy. Nothing
+      # proved it, so promoting would move the source to a candidate no agent
+      # has run. A target that tried and was rolled back makes that a failure,
+      # even inside the tolerated count: tolerance forgives a failure beside a
+      # success, it does not stand in for one.
+      unproven?(targets) and Enum.any?(targets, &(&1.state == :rolled_back)) ->
+        {:finish, :failed}
+
       # Every target was canceled (its member disabled, retracted or deleted)
-      # or excluded before any of them ran the candidate. Nothing proved it, so
-      # promoting would move the source to a candidate no agent has run.
-      every_target_canceled?(targets) ->
-        :cancel_unproven
+      # or excluded before any of them ran the candidate.
+      unproven?(targets) ->
+        {:cancel_unproven, unproven_reason(targets)}
 
       Enum.all?(targets, fn target ->
         target.state in [:succeeded, :promoted, :rolled_back, :excluded, :canceled]
@@ -1275,20 +1408,30 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   # A source with no targets at all still promotes: it has nothing to verify,
   # and create_rollout_with_targets/10 explains why that is intended.
-  defp every_target_canceled?(targets) do
-    Enum.any?(targets, &(&1.state == :canceled)) and
-      Enum.all?(targets, &(&1.state in [:canceled, :excluded]))
+  defp unproven?(targets) do
+    targets != [] and Enum.all?(targets, &(&1.state in [:canceled, :excluded, :rolled_back]))
   end
 
-  defp cancel_unproven_rollout(rollout, targets, actor, now) do
-    details = %{reason: "every_target_canceled", target_count: length(targets)}
+  # "no_eligible_targets" is the reason create_rollout_with_targets/10 refuses a
+  # rollout for, reached here because the targets stopped being eligible after
+  # the rollout was created. The rollout ends canceled, not failed: the candidate
+  # was never tried, so it is not blocked for the source, and the next reconcile
+  # starts it again once an agent can take it.
+  defp unproven_reason(targets) do
+    if Enum.any?(targets, &(&1.state == :canceled)),
+      do: "every_target_canceled",
+      else: "no_eligible_targets"
+  end
+
+  defp cancel_unproven(rollout, targets, reason, actor, now) do
+    details = %{reason: reason, target_count: length(targets)}
 
     with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
          :ok <- mark_targets_canceled(targets, actor, now),
          {:ok, updated} <-
            update_rollout(
              rollout,
-             %{state: :canceled, canceled_at: now, blocked_reason: "every_target_canceled"},
+             %{state: :canceled, canceled_at: now, blocked_reason: reason},
              actor
            ) do
       audit(:cancel, updated, details)
@@ -1300,13 +1443,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp launch_next_batch(rollout, targets, actor, now) do
     artifact = RolloutArtifact.implementation(rollout)
     policy = artifact.normalize_policy(rollout.policy)
-    next_batch = targets |> Enum.filter(&(&1.state == :pending)) |> Enum.min_by(& &1.batch_index)
-
-    selected =
-      targets
-      |> Enum.filter(&(&1.state == :pending and &1.batch_index == next_batch.batch_index))
-      |> Enum.sort_by(& &1.agent_uid)
-      |> Enum.take(policy["max_parallel"])
+    [next_batch | _] = selected = next_launch_targets(rollout, targets)
 
     selected
     |> Enum.reduce_while({:ok, []}, fn target, {:ok, notifications} ->
@@ -1343,6 +1480,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       {:error, reason} ->
         {:error, {:pause_rollout, reason}}
     end
+  end
+
+  # The targets the next launch starts: the lowest pending batch, up to the
+  # policy's parallelism.
+  defp next_launch_targets(rollout, targets) do
+    policy = RolloutArtifact.implementation(rollout).normalize_policy(rollout.policy)
+    pending = Enum.filter(targets, &(&1.state == :pending))
+    next_batch = Enum.min_by(pending, & &1.batch_index)
+
+    pending
+    |> Enum.filter(&(&1.batch_index == next_batch.batch_index))
+    |> Enum.sort_by(& &1.agent_uid)
+    |> Enum.take(policy["max_parallel"])
   end
 
   # apply_override/4 locks the member before the target moves: a retraction

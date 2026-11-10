@@ -21,6 +21,7 @@
 - [x] 3.3 Advance targets through canary and bounded batches with persisted pause, resume, cancel, and deadline semantics
 - [x] 3.4 Promote the candidate into each authoritative source only after its required target snapshot passes; preserve dynamic-profile behavior for agents joining after promotion
 - [x] 3.5 Keep profile reconciliation from deleting or overwriting active rollout overrides and preserve direct-assignment precedence
+- [x] 3.6 Re-evaluate agent compatibility with the creation-time rules before every batch launch (including resume and canary rotation), exclude targets that are no longer compatible, and end a rollout no target can run as `canceled` with `no_eligible_targets` instead of promoting an unproven candidate
 
 ## 4. Health gates and rollback
 
@@ -28,6 +29,7 @@
 - [x] 4.2 Require post-advance, fresh candidate-version evidence for gate evaluation and enforce configured soak, timeout, and failure tolerance
 - [x] 4.3 Roll a failed target back to its prior package and params, verify recovery from fresh evidence, and pause before advancing another batch
 - [x] 4.4 Add whole-rollout rollback and prevent a failed track candidate from immediately retriggering
+- [x] 4.4a Exclude, rather than roll back and pause on, a failed target whose agent the compatibility rules now report incompatible
 - [x] 4.5 Emit rollout transition metrics and health events with rollout/source/target IDs and stable reason codes
 
 ## 5. Truthful fleet health semantics

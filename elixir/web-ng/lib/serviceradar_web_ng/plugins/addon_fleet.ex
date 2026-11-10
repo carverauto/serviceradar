@@ -855,7 +855,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         id: target.rollout_id,
         state: target.state,
         classification: target.classification,
-        reason_code: (rollout && rollout.blocked_reason) || target.reason_code,
+        reason_code: target_reason_code(target, rollout),
         rollout_state: rollout && rollout.state,
         candidate_version: rollout && rollout.candidate_package && rollout.candidate_package.version,
         previous_version: rollout && rollout.previous_package && rollout.previous_package.version,
@@ -866,6 +866,18 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     end)
   rescue
     _ -> %{}
+  end
+
+  # The rollout's blocked reason describes the rollout: the canary that failed,
+  # say. An incompatible target was skipped for a reason of its own, and that is
+  # the one its row has to show, or an agent that was never sent the candidate
+  # reads as the one that failed to install it.
+  defp target_reason_code(target, rollout) do
+    if target.classification == :incompatible and is_binary(target.reason_code) do
+      target.reason_code
+    else
+      (rollout && rollout.blocked_reason) || target.reason_code
+    end
   end
 
   defp rollout_for(nil, _rollout_index), do: nil
