@@ -117,8 +117,6 @@ defmodule ServiceRadar.ClusterHealth do
       {:node_down, node}
     )
 
-    # Public API
-
     new_state = perform_health_check()
     {:noreply, new_state}
   end
@@ -133,6 +131,8 @@ defmodule ServiceRadar.ClusterHealth do
     state = perform_health_check()
     {:reply, state, state}
   end
+
+  # Public API
 
   @doc """
   Get current cluster health status.
