@@ -323,11 +323,43 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   def handle_info({:retry_sweep_lease_refresh, _attempt}, state), do: {:noreply, state}
 
+  # Core started the refresh. Watching it is how a refresh that ends without a result (it
+  # crashed, or its node went down) is noticed; a result that already arrived left this state.
   @impl true
-  def handle_info({:sweep_lease_refresh_result, attempt, result}, %{sweep_lease_refresh: {:running, attempt}} = state),
-    do: {:noreply, sweep_lease_refreshed(state, attempt, result)}
+  def handle_info(
+        {:sweep_lease_refresh_started, attempt, refresh},
+        %{sweep_lease_refresh: {:running, attempt, nil}} = state
+      )
+      when is_pid(refresh) do
+    {:noreply, %{state | sweep_lease_refresh: {:running, attempt, Process.monitor(refresh)}}}
+  end
+
+  def handle_info({:sweep_lease_refresh_started, _attempt, _refresh}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info(
+        {:sweep_lease_refresh_result, attempt, result},
+        %{sweep_lease_refresh: {:running, attempt, monitor}} = state
+      ) do
+    if monitor, do: Process.demonitor(monitor, [:flush])
+    {:noreply, sweep_lease_refreshed(state, attempt, result)}
+  end
 
   def handle_info({:sweep_lease_refresh_result, _attempt, _result}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info(
+        {:DOWN, monitor, :process, _refresh, reason},
+        %{sweep_lease_refresh: {:running, attempt, monitor}} = state
+      )
+      when is_reference(monitor) do
+    Logger.warning(
+      "Sweep lease refresh ended on core without a result; retrying",
+      [agent_id: safe_log_identifier(state.agent_id)] ++ SafeFailureEvidence.log_metadata(reason)
+    )
+
+    {:noreply, sweep_lease_refreshed(state, attempt, {:error, :refresh_ended})}
+  end
 
   @impl true
   def handle_info({:retry_config_push_sync, version, attempt}, state) do
@@ -1258,19 +1290,27 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp start_sweep_lease_refresh(state), do: state
 
+  # Only starting the refresh is a call to core, made outside the session so the round trip
+  # never blocks the stream. The refresh itself reissues every unrun slot of the agent's
+  # leases and has no fixed duration: core runs it as its own process and sends this session
+  # `{:sweep_lease_refresh_result, attempt, result}`. A start that fails is reported the same
+  # way, so one handler decides between done and retry.
   defp run_sweep_lease_refresh(state, attempt) do
     session = self()
     agent_id = state.agent_id
 
     Task.start(fn ->
-      send(session, {:sweep_lease_refresh_result, attempt, refresh_sweep_leases(agent_id, session)})
+      case start_refresh_on_core(agent_id, session, attempt) do
+        {:ok, refresh} -> send(session, {:sweep_lease_refresh_started, attempt, refresh})
+        {:error, _reason} = error -> send(session, {:sweep_lease_refresh_result, attempt, error})
+      end
     end)
 
-    %{state | sweep_lease_refresh: {:running, attempt}}
+    %{state | sweep_lease_refresh: {:running, attempt, nil}}
   end
 
-  defp refresh_sweep_leases(agent_id, session) do
-    ConfigSyncForwarder.refresh_sweep_leases(agent_id, session)
+  defp start_refresh_on_core(agent_id, session, attempt) do
+    ConfigSyncForwarder.start_sweep_lease_refresh(agent_id, session, attempt)
   catch
     kind, reason -> {:error, {kind, reason}}
   end

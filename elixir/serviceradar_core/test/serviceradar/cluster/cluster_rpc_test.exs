@@ -12,14 +12,14 @@ defmodule ServiceRadar.Cluster.ClusterRPCTest do
        {:EXIT,
         {:undef,
          [
-           {AgentGatewaySync, :refresh_sweep_leases, ["agent-1", self()], []}
+           {AgentGatewaySync, :start_sweep_lease_refresh, ["agent-1", self(), 0], []}
          ]}}}
 
     rpc_call = fn
-      :core_old@host, AgentGatewaySync, :refresh_sweep_leases, ["agent-1", _], _timeout ->
+      :core_old@host, AgentGatewaySync, :start_sweep_lease_refresh, ["agent-1", _, 0], _timeout ->
         undef_exit
 
-      :core_new@host, AgentGatewaySync, :refresh_sweep_leases, ["agent-1", _], _timeout ->
+      :core_new@host, AgentGatewaySync, :start_sweep_lease_refresh, ["agent-1", _, 0], _timeout ->
         :ok
     end
 
@@ -29,8 +29,8 @@ defmodule ServiceRadar.Cluster.ClusterRPCTest do
                  ClusterRPC.call_unwrap(
                    [:core_old@host, :core_new@host],
                    AgentGatewaySync,
-                   :refresh_sweep_leases,
-                   ["agent-1", self()],
+                   :start_sweep_lease_refresh,
+                   ["agent-1", self(), 0],
                    rpc_call: rpc_call,
                    undef_wait_ms: 0
                  )

@@ -47,6 +47,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.LeaseDelivery
+  alias ServiceRadar.SweepJobs.LeaseRefresh
   alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
@@ -187,12 +188,26 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @doc """
-  Pushes a newly registered control session fresh sweep leases
-  (`ServiceRadar.SweepJobs.LeasePass.refresh_agent/3`). The leases go to `session`
-  directly, because the cluster registry may not show the registration yet.
+  Starts pushing a newly registered control session fresh sweep leases
+  (`ServiceRadar.SweepJobs.LeasePass.refresh_agent/3`) and returns the pid doing it. The
+  leases go to `session` directly, because the cluster registry may not show the
+  registration yet.
+
+  The refresh reissues every unrun slot the agent holds, so it runs for as long as the lease
+  horizon needs and never inside this call. `session` receives
+  `{:sweep_lease_refresh_result, attempt, result}` when it ends
+  (`ServiceRadar.SweepJobs.LeaseRefresh`).
   """
-  @spec refresh_sweep_leases(String.t(), pid()) :: :ok | {:error, term()}
-  def refresh_sweep_leases(agent_id, session) when is_binary(agent_id) and is_pid(session) do
+  @spec start_sweep_lease_refresh(String.t(), pid(), non_neg_integer()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_sweep_lease_refresh(agent_id, session, attempt)
+      when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 do
+    LeaseRefresh.start(agent_id, session, attempt, fn ->
+      refresh_sweep_leases(agent_id, session)
+    end)
+  end
+
+  defp refresh_sweep_leases(agent_id, session) do
     sender = fn _agent_id, group_id, payload ->
       ServiceRadar.Edge.AgentCommandBus.push_sweep_lease_to_session(session, group_id, payload)
     end
