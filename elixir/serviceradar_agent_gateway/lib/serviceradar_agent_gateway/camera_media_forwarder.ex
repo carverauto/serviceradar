@@ -17,7 +17,6 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   counters alone are insufficient because they advance before core forwarding.
   """
 
-  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.CameraMediaIngress
 
@@ -37,18 +36,18 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
     module = ingress_module(opts)
     args = [request]
 
-    case rpc_module(opts).call(core_node(opts), module, :open_relay_session, args, timeout(opts)) do
+    case call_core(opts, module, :open_relay_session, args) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
         Logger.warning("Camera relay open hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})")
 
         _ = ensure_core_connected(core_node(opts), opts)
         do_open_relay_session(request, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} = badrpc ->
-        if !ClusterRPC.peer_too_old?(badrpc, module, :open_relay_session, args) do
-          Logger.error("Failed to open camera relay session on core-elx ingress: #{inspect(reason)}")
-        end
+      {:badrpc, :peer_too_old} ->
+        {:error, :core_unavailable}
 
+      {:badrpc, reason} ->
+        Logger.error("Failed to open camera relay session on core-elx ingress: #{inspect(reason)}")
         {:error, :core_unavailable}
 
       {:ok, %Camera.OpenRelaySessionResponse{} = response, metadata} ->
@@ -145,6 +144,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
       other ->
         raise ArgumentError, "invalid core node for camera media forwarder: #{inspect(other)}"
     end
+  end
+
+  defp call_core(opts, module, function, args) do
+    rpc = rpc_module(opts)
+    CoreNodeForwarder.call_core(&rpc.call/5, core_node(opts), module, function, args, timeout(opts))
   end
 
   defp resolve_core_node(opts) do

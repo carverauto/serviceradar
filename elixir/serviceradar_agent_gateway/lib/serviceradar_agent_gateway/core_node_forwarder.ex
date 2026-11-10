@@ -14,6 +14,27 @@ defmodule ServiceRadarAgentGateway.CoreNodeForwarder do
     ClusterRPC.call_unwrap(&core_nodes/0, module, function, args, put_core_defaults(opts))
   end
 
+  def call_core(rpc_call, core_node, module, function, args, timeout) when is_function(rpc_call, 5) do
+    result = rpc_call.(core_node, module, function, args, timeout)
+
+    if ClusterRPC.peer_too_old?(result, module, function, args) do
+      case ClusterRPC.call(
+             fn -> Enum.uniq([core_node | core_nodes()]) end,
+             module,
+             function,
+             args,
+             timeout: timeout,
+             rpc_call: rpc_call
+           ) do
+        {:ok, capable_result} -> capable_result
+        {:error, {:badrpc, reason}} -> {:badrpc, reason}
+        {:error, :peer_too_old} -> {:badrpc, :peer_too_old}
+      end
+    else
+      result
+    end
+  end
+
   def core_nodes do
     coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
     named = Enum.filter(Node.list(), &core_node?/1)

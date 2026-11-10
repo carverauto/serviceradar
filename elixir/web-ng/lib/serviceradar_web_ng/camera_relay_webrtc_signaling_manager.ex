@@ -50,7 +50,10 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
 
     case RelayHosts.host_node(relay_session_id) do
       nil ->
-        scan_for_relay_host(module, function, args, timeout)
+        case ClusterRPC.await_capable_peer(fn -> scan_for_relay_host(module, function, args, timeout) end) do
+          {:error, :peer_too_old} -> unavailable(:peer_too_old)
+          result -> result
+        end
 
       host ->
         case ClusterRPC.call(host, module, function, args, timeout: timeout) do
@@ -73,14 +76,11 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
   defp call_relay_host([node | rest], module, function, args, timeout, last_result) do
     case :rpc.call(node, module, function, args, timeout) do
       {:badrpc, reason} = badrpc ->
-        fallback =
-          if ClusterRPC.peer_too_old?(badrpc, module, function, args) do
-            unavailable(:peer_too_old)
-          else
-            unavailable(reason)
-          end
-
-        call_relay_host(rest, module, function, args, timeout, fallback)
+        if ClusterRPC.peer_too_old?(badrpc, module, function, args) do
+          call_relay_host(rest, module, function, args, timeout, keep_unavailable(last_result))
+        else
+          call_relay_host(rest, module, function, args, timeout, unavailable(reason))
+        end
 
       {:error, reason} = not_hosted when reason in @not_hosted ->
         call_relay_host(rest, module, function, args, timeout, keep_absent(last_result, not_hosted))
@@ -89,6 +89,9 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
         result
     end
   end
+
+  defp keep_unavailable({:error, reason} = unavailable) when is_binary(reason), do: unavailable
+  defp keep_unavailable(_last_result), do: :peer_too_old
 
   defp keep_absent(nil, not_hosted), do: not_hosted
 

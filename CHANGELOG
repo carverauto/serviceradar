@@ -132,6 +132,10 @@ adds the standalone NVR recording service, disabled by default.
 - Topology projects CONTAINS edges from virtualization inventory (#6454).
 - The MTR daily comparison stays aligned just after midnight UTC (#6476).
 - Agent release imports and publishing run in the background (#6409).
+- Cross-node calls between agent-gateway, core and web-ng survive a
+  rolling upgrade. When a peer still running the previous release lacks
+  the called function, the caller tries the other peers and waits briefly
+  for a capable one instead of failing or logging an error.
 
 # ServiceRadar v1.5.1
 
