@@ -146,7 +146,7 @@ starrocksCnSpec:
             topologyKey: kubernetes.io/hostname
             labelSelector:
               matchLabels:
-                app.starrocks.io/component: cn
+                app.kubernetes.io/component: cn
   # Memory: the 10Gi limit minus a fixed 3 GiB reserve (README.md, "Memory
   # sizing"), written as the percentage 70% so core can derive the reserve
   # it reports. The CN detects its 10 GiB cgroup limit and caps its process

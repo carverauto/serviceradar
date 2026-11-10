@@ -1,3 +1,5 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
 filegroup(
     name = "cluster_files",
     srcs = [
@@ -8,4 +10,12 @@ filegroup(
         "values-cluster-shared-data.yaml",
     ],
     visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "values_cluster_contract_test",
+    size = "small",
+    srcs = ["values_cluster_contract_test.py"],
+    data = [":cluster_files"],
+    deps = ["@pyyaml//:yaml"],
 )

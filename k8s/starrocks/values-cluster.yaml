@@ -112,7 +112,7 @@ starrocksFESpec:
             topologyKey: kubernetes.io/hostname
             labelSelector:
               matchLabels:
-                app.starrocks.io/component: fe
+                app.kubernetes.io/component: fe
   # enable_online_optimize_table: StarRocks 4.1.6 made online optimize opt-in
   # (default false). A bucket rewrite (ALTER TABLE ... DISTRIBUTED BY ...
   # BUCKETS n) that runs while EventWriter keeps loading needs the online
@@ -185,7 +185,7 @@ starrocksBeSpec:
             topologyKey: kubernetes.io/hostname
             labelSelector:
               matchLabels:
-                app.starrocks.io/component: be
+                app.kubernetes.io/component: be
   # Memory: the memory limit minus a fixed 3 GiB reserve (README.md, "Memory
   # sizing"). 10Gi - 3 GiB = 7 GiB, written as the percentage 70% so core can
   # derive the reserve it reports. StarRocks then caps its process at 90% of
