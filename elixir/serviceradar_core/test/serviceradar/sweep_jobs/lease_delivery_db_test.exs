@@ -229,6 +229,37 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert Enum.any?(rows, &(&1.agent_id == peer and is_nil(&1.revoked_at)))
   end
 
+  test "a pass started from a group read before an update removed the agent leaves it revoked",
+       ctx do
+    horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.13")
+    stale = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(stale, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assignment = assignment!(stale, ctx.agent)
+
+    assert {:ok, _updated} =
+             stale
+             |> Ash.Changeset.for_update(:update, %{agent_ids: [peer]}, actor: ctx.admin)
+             |> Ash.update()
+
+    revoked = assignment!(stale, ctx.agent)
+    assert revoked.state == :revoked
+    issuances = issuance_count(assignment)
+
+    assert %{errors: 0} = LeasePass.reconcile_group(stale, now, ctx.delivery)
+
+    current = assignment!(stale, ctx.agent)
+    assert current.state == :revoked
+    assert current.authority_epoch == revoked.authority_epoch
+    assert unrun!(current, now) == []
+    assert issuance_count(assignment) == issuances
+    agent = ctx.agent
+    refute_receive {:pushed, ^agent, _, %{revoked: false}, _}, 50
+  end
+
   test "a refresh queued behind a send does not revive an agent revoked while it waited",
        ctx do
     assert_queued_run_keeps_revocation(ctx, fn _group, delivery ->
@@ -1128,7 +1159,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert fenced.authority_epoch == before.authority_epoch + 1
 
     assert %{dropped: ^count, scheduled: ^count, pushed: 1, errors: 0} =
-             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+             LeasePass.reconcile_group(stored, now, ctx.delivery)
 
     assert_receive {:pushed, _, _, resent, _}
     new = unrun!(fenced, now)
@@ -1202,7 +1233,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     count = length(old_kept)
 
     assert %{dropped: ^count, scheduled: ^count, pushed: 1, withdrawn: 1, errors: 0} =
-             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+             LeasePass.reconcile_group(stored, now, ctx.delivery)
 
     assert_receive {:pushed, first_agent, _, first_msg, _}
     assert_receive {:pushed, second_agent, _, second_msg, _}
@@ -1272,6 +1303,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              )
              |> Ash.create()
 
+    enable!(group)
     %{group | enabled: true}
   end
 

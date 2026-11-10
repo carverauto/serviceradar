@@ -16,6 +16,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.SweepJobs.LeaseSchedule
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
 
   # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on
   # ports 22 and 443. Not computed by SweepCompiler.
@@ -101,8 +102,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     LeasePass.reconcile_group(group, now)
     assignment = assignment!(group, ctx.agent)
 
-    assert %{revoked: 1} =
-             LeasePass.reconcile_group(%{group | target_query: "in:devices"}, now)
+    set_group!(group, "target_query = $2", ["in:devices"])
+    assert %{revoked: 1} = LeasePass.reconcile_group(group, now)
 
     assert %{state: :revoked} = assignment!(group, ctx.agent)
     assert [] == unrun!(assignment, now)
@@ -193,11 +194,11 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     assert range_cidrs(before) == [["192.0.2.0/28", "198.51.100.7/32"]]
 
-    changed = %{group | static_targets: ["203.0.113.129", "203.0.113.0/25"]}
+    set_group!(group, "static_targets = $2", [["203.0.113.129", "203.0.113.0/25"]])
     count = length(before)
 
     assert %{dropped: ^count, scheduled: ^count, errors: 0} =
-             LeasePass.reconcile_group(changed, now)
+             LeasePass.reconcile_group(group, now)
 
     kept = assignment!(group, ctx.agent)
     slots = unrun!(kept, now)
@@ -208,8 +209,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert range_cidrs(slots) == [["203.0.113.0/25", "203.0.113.129/32"]]
     assert Enum.all?(slots, &(&1.lease_id == LeasePass.lease_id(kept)))
 
-    equivalent = %{changed | static_targets: ["203.0.113.129/32", "203.0.113.1/25"]}
-    assert %{dropped: 0, scheduled: 0, errors: 0} = LeasePass.reconcile_group(equivalent, now)
+    set_group!(group, "static_targets = $2", [["203.0.113.129/32", "203.0.113.1/25"]])
+    assert %{dropped: 0, scheduled: 0, errors: 0} = LeasePass.reconcile_group(group, now)
     assert ids(unrun!(kept, now)) == ids(slots)
   end
 
@@ -226,11 +227,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     now = DateTime.utc_now()
 
-    assert %{scheduled: scheduled, errors: 0} =
-             LeasePass.reconcile_group(
-               %{group | static_targets: ["198.51.100.0/24", "198.51.100.5/32"]},
-               now
-             )
+    set_group!(group, "static_targets = $2", [["198.51.100.0/24", "198.51.100.5/32"]])
+    assert %{scheduled: scheduled, errors: 0} = LeasePass.reconcile_group(group, now)
 
     assert scheduled > 0
     assignment = assignment!(group, ctx.agent)
@@ -253,23 +251,34 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
            end)
   end
 
-  test "a missing profile is no profile, and an unreadable profile leaves the lease untouched",
-       ctx do
+  test "an unreadable profile leaves the lease untouched", ctx do
     horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
-    assert %{leases: 1, errors: 0} =
-             LeasePass.reconcile_group(%{group | profile_id: Ash.UUID.generate()}, now)
+    assert {:ok, profile} =
+             SweepProfile
+             |> Ash.Changeset.for_create(:create, %{name: "Lease profile #{ctx.suffix}"},
+               actor: ctx.admin
+             )
+             |> Ash.create()
+
+    set_group!(group, "profile_id = $2::uuid", [Ecto.UUID.dump!(profile.id)])
+    assert %{leases: 1, errors: 0} = LeasePass.reconcile_group(group, now)
 
     assignment = assignment!(group, ctx.agent)
     before = unrun!(assignment, now)
     assert before != []
 
+    Repo.query!(
+      "UPDATE platform.sweep_profiles SET banner_grab = '\"unreadable\"'::jsonb WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(profile.id)]
+    )
+
     log =
       ExUnit.CaptureLog.capture_log(fn ->
         assert %{groups: 1, errors: 1, leases: 0, revoked: 0, scheduled: 0, dropped: 0} =
-                 LeasePass.reconcile_group(%{group | profile_id: %{}}, now)
+                 LeasePass.reconcile_group(group, now)
       end)
 
     assert log =~ "Sweep lease pass: profile of group #{group.id}"
@@ -293,7 +302,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     LeasePass.reconcile_group(group, now)
     assert starts(unrun!(assignment, now)) == expected_starts({:interval, 900}, now, 3_600)
 
-    LeasePass.reconcile_group(%{group | interval: "30m"}, now)
+    set_group!(group, "interval = $2", ["30m"])
+    LeasePass.reconcile_group(group, now)
     assert starts(unrun!(assignment, now)) == expected_starts({:interval, 1_800}, now, 3_600)
   end
 
@@ -301,11 +311,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     horizon!(ctx, 3_600)
     group = leased_group!(ctx)
 
-    assert %{leases: 0} =
-             LeasePass.reconcile_group(
-               %{group | schedule_type: :cron, cron_expression: "* * * * *"},
-               DateTime.utc_now()
-             )
+    set_group!(group, "schedule_type = $2, cron_expression = $3", ["cron", "* * * * *"])
+    assert %{leases: 0} = LeasePass.reconcile_group(group, DateTime.utc_now())
 
     assert {:ok, nil} = ProducerAssignments.get(group.id, ctx.agent)
   end
@@ -431,7 +438,18 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
              )
              |> Ash.create()
 
+    enable_group!(group)
     %{group | enabled: true}
+  end
+
+  # A change to the persisted group row, as an operator edit leaves it, without the update
+  # action's own reconciliation.
+  defp set_group!(group, assignments, values) do
+    %{num_rows: 1} =
+      Repo.query!(
+        "UPDATE platform.sweep_groups SET #{assignments} WHERE id = $1::uuid",
+        [Ecto.UUID.dump!(group.id) | values]
+      )
   end
 
   defp horizon!(ctx, horizon) do

@@ -109,6 +109,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   Runs the pass over one sweep group. With a `delivery` context (the issuer authority and a
   sender, see `delivery_context/0`) it also pushes each agent the lease it is missing and
   withdraws the lease from agents the group no longer leases to; without one it only plans.
+  `group` only names the group: the pass decides from the row as committed.
   """
   @spec reconcile_group(SweepGroup.t(), DateTime.t(), delivery() | nil) :: summary()
   def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now(), delivery \\ nil) do
@@ -134,7 +135,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
             leased,
             add(count_revoked(revoked, current), withdraw(current, keep, now, delivery)),
             fn agent, acc ->
-              add(acc, lease_agent(current.id, current, agent.agent_id, now, delivery))
+              add(acc, lease_agent(current.id, agent.agent_id, now, delivery))
             end
           )
 
@@ -166,7 +167,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   defp selection(group, now) do
-    with {:ok, %SweepGroup{} = current} <- locked_group(group.id, group),
+    with {:ok, %SweepGroup{} = current} <- locked_group(group.id),
          {:ok, profile} <- group_profile(current) do
       case LeaseEligibility.evaluate_group(current, profile) do
         {:ok, inputs} ->
@@ -184,22 +185,14 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  # The group row as it stands under `FOR UPDATE`. The caller's struct is used while the row
-  # has not been updated since that struct was read; any committed update replaces it.
-  defp locked_group(group_id, base) do
+  # The group row as committed, read under `FOR UPDATE`. Every lease decision is made from it
+  # rather than from the struct the caller read earlier.
+  defp locked_group(group_id) do
     SweepGroup
     |> Ash.Query.filter(id == ^group_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(actor: actor())
-    |> current_group(base)
   end
-
-  defp current_group(
-         {:ok, %SweepGroup{updated_at: version}},
-         %SweepGroup{updated_at: version} = base
-       ), do: {:ok, base}
-
-  defp current_group(result, _base), do: result
 
   defp group_profile(group) do
     case load_profile(group.profile_id) do
@@ -260,7 +253,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
            |> Ash.read(actor: actor()) do
       summary =
         Enum.reduce(assignments, empty(), fn assignment, acc ->
-          add(acc, lease_agent(assignment.sweep_group_id, nil, agent_id, now, delivery))
+          add(acc, lease_agent(assignment.sweep_group_id, agent_id, now, delivery))
         end)
 
       case Map.delete(summary, :failed_groups) do
@@ -425,9 +418,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   # the current group, profile, candidate and settings and assigns and plans the agent, so a
   # group update's revocation either commits first and the agent is skipped, or commits after
   # and fences the epoch planned here. Delivery runs after that transaction commits.
-  defp lease_agent(group_id, base, agent_id, now, delivery) do
+  defp lease_agent(group_id, agent_id, now, delivery) do
     LeaseDelivery.serialize(group_id, agent_id, fn ->
-      case plan_agent(group_id, base, agent_id, now, mode(delivery)) do
+      case plan_agent(group_id, agent_id, now, mode(delivery)) do
         {:ok, {assignment, agent, planned}} ->
           add(planned, deliver(assignment, agent.inputs.checks, now, delivery))
 
@@ -443,9 +436,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp mode(%{refresh: _}), do: :refresh
   defp mode(_delivery), do: :pass
 
-  defp plan_agent(group_id, base, agent_id, now, mode) do
+  defp plan_agent(group_id, agent_id, now, mode) do
     Repo.transaction(fn ->
-      with {:ok, group, agent} <- selected_agent(group_id, base, agent_id, now),
+      with {:ok, group, agent} <- selected_agent(group_id, agent_id, now),
            {:ok, assignment} <- assignment_for(group, agent, mode),
            {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
         {assignment, agent, sync_slots(assignment, agent.inputs, agent.slots, unrun)}
@@ -456,8 +449,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end)
   end
 
-  defp selected_agent(group_id, base, agent_id, now) do
-    with {:ok, %SweepGroup{} = group} <- locked_group(group_id, base),
+  defp selected_agent(group_id, agent_id, now) do
+    with {:ok, %SweepGroup{} = group} <- locked_group(group_id),
          {:ok, profile} <- load_profile(group.profile_id),
          {:ok, inputs} <- eligible(group, profile),
          {:ok, candidates} <- LeaseAgents.candidates(group),
