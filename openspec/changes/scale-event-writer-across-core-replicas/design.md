@@ -33,7 +33,9 @@ The coordinator keeps a worker tree as well, so it consumes like any other repli
 | Coordinator pipeline (6 streams) | coordinator | See Decision 3 |
 
 A worker that cannot find its durable (a fresh install, or the coordinator not yet
-elected) retries with the existing 5 s to 60 s backoff and reports not ready.
+elected) retries and reports not ready: 1 s doubling to 5 s, without logging an
+error, until the EventWriter `startup_wait_bound_ms` (default 60 s) is exceeded,
+then the existing 5 s to 60 s backoff.
 
 ## Decision 3: ordering and idempotency
 Within one replica, Broadway processors already run with concurrency 10 and no
