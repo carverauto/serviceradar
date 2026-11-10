@@ -452,7 +452,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 52
   end
 
-  test "edge record upgrades an existing stream from discard old and 24h max_age to discard new and 72h max_age" do
+  test "edge record reconciles an existing stream from discard new and 72h max_age to discard old and 24h max_age" do
     conn =
       start_supervised!(
         {FakeJetStream,
@@ -461,11 +461,11 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              "subjects" => ["telemetry.edge-record.v1.bulk.>"],
              "retention" => "limits",
              "storage" => "file",
-             "discard" => "old",
+             "discard" => "new",
              "num_replicas" => 3,
              "max_bytes" => 1_073_741_824,
-             "max_age" => 86_400_000_000_000,
-             "duplicate_window" => 86_400_000_000_000,
+             "max_age" => 259_200_000_000_000,
+             "duplicate_window" => 120_000_000_000,
              "messages" => 14
            }
          }}
@@ -475,8 +475,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              ensure_edge_record_consumer(conn)
 
     streams = FakeJetStream.streams(conn)
-    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["discard"] == "new"
-    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["max_age"] == 259_200_000_000_000
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["discard"] == "old"
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["max_age"] == 86_400_000_000_000
     assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 14
   end
 

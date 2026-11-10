@@ -23,7 +23,7 @@ reservation ServiceRadar creates and checks them at render time:
 | `large` | 500G (465.66 GiB) | 500Gi |
 
 `TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 960 MiB on
-`small`, 3 GiB on `medium`, 8 GiB on `large` and 124 MiB on `tenant-2g`), and so are its audit and security-quarantine streams
+`small`, 1 GiB on `medium` and `large`, and 28 MiB on `tenant-2g`), and so are its audit and security-quarantine streams
 `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` and
 `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` (R3, 64 MiB each except
 8 MiB each on `tenant-2g`), and EventWriter's dead-letter stream
@@ -39,8 +39,8 @@ Per-server need, with the chart's full/spread formula:
 | `small` | 1 | 25.46875 GiB | 28.50 GiB |
 | `medium` | 3 | 57.8125 + 28/3 + 12 = 79.15 GiB | 79.16 GiB |
 | `medium` | 1 | 77.8125 GiB | 79.16 GiB |
-| `large` | 3 | 286.3125 + 128/3 + 64 = 392.98 GiB | 395.81 GiB |
-| `large` | 1 | 382.3125 GiB | 395.81 GiB |
+| `large` | 3 | 279.3125 + 128/3 + 64 = 385.98 GiB | 395.81 GiB |
+| `large` | 1 | 375.3125 GiB | 395.81 GiB |
 | `tenant-2g` | 3 | 1.14453125 + 0.1875 + 0.25 = 1.58 GiB (1698693120 bytes) | 1.58 GiB |
 
 `small` on three servers stays under a demo/farm01 `30G` store: 23.72 GiB is
@@ -235,7 +235,7 @@ serviceradar-control repository):
 `tenant-2g` is sized for three NATS servers and the replica counts
 `values-tenant.yaml` sets (KV, objects, `events`, plugins, `ARANCINI_CAUSAL`,
 `metrics`, `scan_results`, `NOTIFICATIONS`, `TELEMETRY_EDGE_RECORD_V1_BULK` at
-124 MiB, its audit and security-quarantine streams at 8 MiB each, its
+28 MiB, its audit and security-quarantine streams at 8 MiB each, its
 dead-letter stream at 4 MiB, the separate recovery stream at 4 MiB, and the fixed 64 MiB `EXPOSURE_RECOVERY`
 reservation at R3; `flows` and the remaining EventWriter and exposure streams
 at R1). Full reservations are 1172 MiB, spread is 576 MiB, and the most loaded
