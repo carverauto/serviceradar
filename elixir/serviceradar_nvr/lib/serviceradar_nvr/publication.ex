@@ -4,7 +4,7 @@ defmodule ServiceRadarNVR.Publication do
 
   Trusted same-VM callers supply authority correlation and Core responses; these
   files do not prove origin, qualified storage, availability or deletion rights.
-  Capacity serializes persistence while local writers are idle. Incomplete or
+  A bounded task verifies and persists records outside the capacity owner. Incomplete or
   conflicting files remain untouched. Acknowledgement persistence syncs the exact
   matching intent before the response, retaining both records for recovery.
   """

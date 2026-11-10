@@ -237,6 +237,20 @@ qualification. Concurrent publication, broader hold/disposition reserves,
 authenticated delivery and continuous capture remain open; tasks 3.2 and 3.3 are
 not complete.
 
+Concurrent local publication checkpoint for 3.2/3.3: one supervised task verifies
+and persists intent/acknowledgement records outside the capacity owner while
+recording admission, write checks and rotation continue. Capacity authorizes the
+write from fresh inventory and keeps its full byte reservation until task exit,
+including when the file already appears in inventory. Saturation refuses without
+a waiting queue; a thirty-second task deadline survives caller loss. Recovery
+remains exclusive. The shipped-release test stalls a real publication task,
+records and rotates 510 synthetic frames, verifies decoded output, persists the
+acknowledgement during capture, and checks deadline cleanup and retry after caller
+loss. Publication-supervisor failure preserves capture; loss of capacity
+accounting retires publication tasks. Authenticated remote delivery, scheduling,
+catalog completion and storage
+qualification remain open; tasks 3.2 and 3.3 are not complete.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

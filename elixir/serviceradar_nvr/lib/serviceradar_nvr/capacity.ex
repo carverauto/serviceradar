@@ -9,6 +9,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   @limits %{max_block_bytes: 16_777_216, max_fragments: 8, max_fragment_bytes: 4_194_304}
   @probe_interval_ms 1000
+  @publication_timeout 30_000
 
   def start_link(config), do: GenServer.start_link(__MODULE__, config, name: __MODULE__)
   def reserve, do: GenServer.call(__MODULE__, :reserve)
@@ -18,10 +19,10 @@ defmodule ServiceRadarNVR.Capacity do
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
 
   def prepare_publication(block_id, reference),
-    do: GenServer.call(__MODULE__, {:publication, block_id, :intent, reference}, 30_000)
+    do: GenServer.call(__MODULE__, {:publication, block_id, :intent, reference}, @publication_timeout + 5_000)
 
   def acknowledge_publication(block_id, bytes),
-    do: GenServer.call(__MODULE__, {:publication, block_id, :acknowledgement, bytes}, 30_000)
+    do: GenServer.call(__MODULE__, {:publication, block_id, :acknowledgement, bytes}, @publication_timeout + 5_000)
 
   def recover_block(block_id, expected_identity),
     do: GenServer.call(__MODULE__, {:recover_block, block_id, expected_identity}, 30_000)
@@ -29,7 +30,17 @@ defmodule ServiceRadarNVR.Capacity do
   @impl true
   def init(config) do
     {:ok, bytes} = Spool.reservation_bytes(@limits)
-    {:ok, %{config: config, storage: nil, reservations: %{}, block_bytes: bytes, publication_floor: 0, probe: nil}}
+
+    {:ok,
+     %{
+       config: config,
+       storage: nil,
+       reservations: %{},
+       block_bytes: bytes,
+       publication_floor: 0,
+       publication: nil,
+       probe: nil
+     }}
   end
 
   @impl true
@@ -93,6 +104,11 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
+  def handle_call({:recover_block, _block_id, _identity}, _from, %{publication: publication} = state)
+      when not is_nil(publication) do
+    {:reply, {:error, :nvr_publication_capacity}, state}
+  end
+
   def handle_call({:recover_block, _block_id, _identity}, _from, %{reservations: reservations} = state)
       when map_size(reservations) > 0 do
     {:reply, {:error, :nvr_recordings_active}, state}
@@ -117,30 +133,67 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  def handle_call({:publication, _block_id, _kind, _payload}, _from, %{reservations: reservations} = state)
-      when map_size(reservations) > 0 do
-    {:reply, {:error, :nvr_recordings_active}, state}
+  def handle_call({:publication, _block_id, _kind, _payload}, _from, %{publication: publication} = state)
+      when not is_nil(publication) do
+    {:reply, {:error, :nvr_publication_capacity}, state}
   end
 
-  def handle_call({:publication, block_id, kind, payload}, _from, state) do
-    case storage(state) do
-      {:ok, storage} ->
-        result =
-          with {:ok, usage} <- measure(storage, state),
-               {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
-               :ok <- publication_capacity(usage, kind, additional),
-               :ok <- Publication.persist(storage, block_id, kind, bytes) do
-            {:ok, bytes}
-          end
-
-        {:reply, result, %{state | storage: storage, probe: nil}}
-
-      {:error, _} = error ->
-        {:reply, error, state}
+  def handle_call({:publication, block_id, kind, payload}, from, state) do
+    with {:ok, storage} <- storage(state),
+         {:ok, publication} <- start_publication(storage, block_id, kind, payload, from) do
+      {:noreply, %{state | storage: storage, publication: publication}}
+    else
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 
+  def handle_call({:publication_write, kind, additional}, {owner, _}, %{publication: %{pid: owner} = publication} = state) do
+    with {:ok, usage} <- measure(state.storage, state),
+         :ok <- publication_capacity(usage, kind, additional) do
+      # Write guards keep the missing record's allowance and the complete
+      # pending write until the task exits and fresh inventory releases them.
+      floor = usage.publication_reserved_bytes + additional
+      publication = %{publication | reserved_bytes: additional}
+      {:reply, :ok, %{state | publication: publication, publication_floor: floor, probe: nil}}
+    else
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:publication_write, _kind, _additional}, _from, state) do
+    {:reply, {:error, :nvr_publication_unavailable}, state}
+  end
+
   @impl true
+  def handle_info({:publication_result, token, result}, %{publication: %{token: token} = publication} = state) do
+    {:noreply, %{state | publication: %{publication | result: result}}}
+  end
+
+  def handle_info(
+        {:DOWN, monitor, :process, pid, reason},
+        %{publication: %{monitor: monitor, pid: pid} = publication} = state
+      ) do
+    result =
+      case reason do
+        :normal -> publication.result
+        {:shutdown, :nvr_publication_timeout} -> {:error, :nvr_publication_timeout}
+        _ -> {:error, :nvr_publication_unavailable}
+      end
+
+    state = %{state | publication: nil, probe: nil}
+
+    # A failed/partial write remains on disk. Rebuild allowances only after the
+    # writer is dead; failed inventory keeps the previous conservative floor.
+    state =
+      case measure(state.storage, state) do
+        {:ok, usage} -> %{state | publication_floor: usage.publication_reserved_bytes}
+        {:error, _} -> state
+      end
+
+    GenServer.reply(publication.from, result)
+    {:noreply, state}
+  end
+
   def handle_info({:DOWN, token, :process, owner, _}, state) do
     reservations =
       if Map.get(state.reservations, token) == owner,
@@ -150,6 +203,58 @@ defmodule ServiceRadarNVR.Capacity do
     # The worker may have created a block since the last inventory. Keep its
     # publication headroom until the next admission rebuilds it from disk.
     {:noreply, %{state | reservations: reservations, probe: nil}}
+  end
+
+  defp start_publication(storage, block_id, kind, payload, from) do
+    owner = self()
+    token = make_ref()
+
+    case Task.Supervisor.start_child(ServiceRadarNVR.PublicationTasks, fn ->
+           receive do
+             {:publication_start, ^token} -> publish(owner, token, storage, block_id, kind, payload)
+           end
+         end) do
+      {:ok, pid} ->
+        monitor = Process.monitor(pid)
+        send(pid, {:publication_start, token})
+
+        {:ok,
+         %{
+           pid: pid,
+           monitor: monitor,
+           token: token,
+           from: from,
+           reserved_bytes: 0,
+           result: {:error, :nvr_publication_unavailable}
+         }}
+
+      {:error, :max_children} ->
+        {:error, :nvr_publication_capacity}
+
+      {:error, _} ->
+        {:error, :nvr_publication_unavailable}
+    end
+  catch
+    :exit, _ -> {:error, :nvr_publication_unavailable}
+  end
+
+  defp publish(owner, token, storage, block_id, kind, payload) do
+    # The task's own deadline survives loss of the requesting caller. Timeout
+    # and crash are unknown outcomes; immutable files are preserved for retry.
+    {:ok, timer} = :timer.exit_after(@publication_timeout, {:shutdown, :nvr_publication_timeout})
+
+    try do
+      result =
+        with {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
+             :ok <- GenServer.call(owner, {:publication_write, kind, additional}, :infinity),
+             :ok <- Publication.persist(storage, block_id, kind, bytes) do
+          {:ok, bytes}
+        end
+
+      send(owner, {:publication_result, token, result})
+    after
+      :timer.cancel(timer)
+    end
   end
 
   defp storage(%{config: %{root: nil}}), do: {:error, :nvr_storage_not_configured}
@@ -168,7 +273,10 @@ defmodule ServiceRadarNVR.Capacity do
          reservations: map_size(state.reservations),
          reserved_bytes: map_size(state.reservations) * state.block_bytes,
          publication_reserved_bytes:
-           inventory.publication_reserved_bytes + map_size(state.reservations) * Publication.pending_bytes([]),
+           inventory.publication_reserved_bytes + map_size(state.reservations) * Publication.pending_bytes([]) +
+             publication_write_bytes(state),
+         publication_write_reserved_bytes: publication_write_bytes(state),
+         publication_operations: if(is_nil(state.publication), do: 0, else: 1),
          publication_block_bytes: Publication.pending_bytes([]),
          available_bytes: free,
          max_spool_bytes: state.config.max_spool_bytes,
@@ -178,15 +286,16 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  # Existing exact retries only sync retained evidence and need no new budget.
-  # No writer is admitted during this operation, so it cannot spend a recording
-  # reservation or race a new reservation while committing the metadata.
+  defp publication_write_bytes(%{publication: nil}), do: 0
+  defp publication_write_bytes(%{publication: publication}), do: publication.reserved_bytes
+
+  # Exact retries only sync retained evidence and need no new budget.
   defp publication_capacity(_usage, _kind, 0), do: :ok
 
   defp publication_capacity(usage, kind, bytes) do
     # Spend only this absent record's allowance; preserve all other slots. A
     # retained partial record cannot reach this path because prepare refuses it.
-    needed = bytes + usage.publication_reserved_bytes - Publication.max_bytes(kind)
+    needed = usage.reserved_bytes + bytes + usage.publication_reserved_bytes - Publication.max_bytes(kind)
 
     cond do
       usage.used_bytes + needed > usage.max_spool_bytes -> {:error, :nvr_spool_budget_exhausted}
