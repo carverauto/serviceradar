@@ -96,12 +96,11 @@ object, and never deletes anything it did not create.
 
 Ownership is recorded per managed object as the open change requires (controller, type,
 upstream id, last observed configuration). In addition each owned object's name is
-deterministic and unique. A project's name is a fixed prefix, the repository slug, the
-first characters of the commit, and a project ordinal for that commit that starts at 1 and
-increases only when a drifted or missing project is superseded. A template's name is
-a fixed prefix, the automation slug, the first characters of the revision digest, the
-generation number, the variant and the run mode. Each ordinal is recorded before the create
-is sent. AWX enforces name uniqueness within an organization for projects and job
+deterministic and unique. A project's name is a fixed prefix, the repository slug and the
+commit, so there is exactly one owned project per repository and commit. A template's name
+is a fixed prefix, the automation slug, the first characters of the revision digest, the
+generation number, the variant and the run mode; the generation number is recorded before
+the create is sent. AWX enforces name uniqueness within an organization for projects and job
 templates, so after a lost create response the exact name answers "did it succeed" without
 a second create.
 
@@ -112,8 +111,8 @@ Execute grants, plus a reference to the project for its repository and commit. C
 anything (commit, playbook, input schema, references) creates a new revision and a new
 generation with new job templates. A new revision at an unchanged commit references the
 existing project for that commit and does not edit it; a new commit gets a new project. The
-previous generation keeps serving its approved binding until that binding is revoked,
-expires, or is superseded by an approved binding on the new generation; then it is retired.
+previous generation keeps serving its approved bindings until they are revoked, expire,
+or are superseded by approved bindings on the new generation; then it is retired.
 
 This is the only arrangement that satisfies three approved rules at once: an edit
 invalidates a reviewed binding, drift is never auto-repaired, and a reviewer approves an
@@ -185,10 +184,11 @@ provisioning credential that lied about what it created would be caught.
 
 For one revision, in order:
 
-1. Find the current project for the repository and commit, or create it (pinned commit,
-   update-on-launch off, override off). An existing project is used as found and is not
-   edited; one that is drifted or missing is not reused, and the commit's next project
-   ordinal is created instead (Decision 8).
+1. Find the project for the repository and commit, or create it (pinned commit,
+   update-on-launch off, override off). An existing owned project is used as found and is
+   never edited or duplicated. When it is drifted or missing, provisioning at that commit
+   stops and reports it (Decision 8). When an AWX project of that name exists and is not
+   owned, provisioning stops and names the conflict; it is never adopted.
 2. When the project has not yet reported the pinned commit as its synced revision, start
    one project update and wait until it does; fail if it reports anything else. Grant Read
    on the project to the execution principal when that grant does not already exist.
@@ -210,7 +210,10 @@ harmless (no binding, so not launchable) and are either completed by a retry or 
 After step 7 ServiceRadar calls the existing binding review "prepare" once per owned
 template, with the template, project, inventory, credential and execution-environment
 identifiers, and with the content
-digest and input schema from the revision. The automation shows "awaiting review".
+digest and input schema from the revision. Each owned template has its own binding
+review; a template is launchable only when its own binding is approved, and the automation
+is launchable in a given variant and run mode only through that approved template. The
+automation shows "awaiting review" for each template not yet approved.
 
 - Approval is the existing action, by a human principal, with the existing permission and
   the existing live checks. Provisioning success confers nothing.
@@ -237,9 +240,16 @@ reconciliation makes it visible before someone tries to launch.
 | Observation | State | What ServiceRadar does | What the operator can do |
 | --- | --- | --- | --- |
 | Matches | `in_sync` | Nothing. | Nothing. |
-| Differs | `drifted` | Reports the changed fields. Launch is already blocked by preflight. | **Replace**: provision a fresh generation from the same revision, then review; when the project is the drifted or missing object, Replace creates the commit's next project ordinal, which later generations at that commit reference. Or **Release**: give up ownership; the binding is revoked and the object is left as found. |
-| Gone | `missing` | Reports it. | Replace or Release. |
+| Differs | `drifted` | Reports the changed fields. Launch is already blocked by preflight. | For a job template: **Replace**: provision a fresh generation from the same revision, then review. Or **Release**: give up ownership; the binding is revoked and the object is left as found. |
+| Gone | `missing` | Reports it. | For a job template: Replace or Release. |
 | Unknown after an uncertain write | `unresolved` | Keeps reading; never repeats the write blindly. | Wait, or Release. |
+
+A project is never replaced: one commit has exactly one owned project, and a second would
+duplicate it. A drifted or missing project is reported and blocks provisioning at that
+commit until an operator restores it in AWX to its recorded state, or releases it.
+Releasing a project revokes the bindings of every generation that references it and leaves
+the project as found; provisioning at that commit then creates the project only when no
+AWX project of that name exists.
 
 There is deliberately no "accept the live values" action. Absorbing an out-of-band edit
 into a reviewed contract is what the preflight change forbids; the supported way to change
@@ -269,15 +279,15 @@ so the review remedy cannot succeed until the address is fixed:
 
 | Reason | Meaning | Operator action |
 | --- | --- | --- |
-| `not_in_inventory` | No AWX host in any synced inventory of this controller links to the device. | Add the host to an AWX inventory. |
 | `skipped_by_sync` | AWX has a host of that name but sync skipped it for lack of an anchor. | Give the host an address or MAC in AWX. |
+| `not_in_inventory` | AWX has no host for the device in any inventory of this controller. | Add the host to an AWX inventory. |
 | `ambiguous` | More than one membership or more than one device matches. | Choose the membership, or fix the duplicate. |
 | `host_disabled` or `not_current` | Disabled in AWX, or absent from the last complete sync. | Fix in AWX. |
 | `no_address` | The AWX host has no usable `ansible_host`. | Set it in AWX; the next sync picks it up. |
 | `quarantined` | The membership was quarantined; the evidence says why. | Review the evidence and release it to `proposed`, then approve. |
 | `needs_membership_review` | A `proposed` membership exists. | Approve it on the membership page. |
 | `held` | An active target hold exists. | Clear the hold through its own gate. |
-| `no_approved_binding` | The automation has no current approved binding. | Review the binding. |
+| `no_approved_binding` | The template for the device's variant and the chosen run mode has no current approved binding. | Review that template's binding. |
 | `launchable` | An approved, current, enabled membership with an address exists in an inventory the binding allows. | None. |
 
 Two additions make the table reachable:
@@ -334,8 +344,7 @@ End to end:
    a digest-pinned execution environment and a machine credential with privilege
    escalation, all picked from what the controller already has. They create the automation.
 3. ServiceRadar shows the plan and, on confirmation, provisions it. With two package
-   families and both `run` and `check` offered, the plan is one project (or the existing
-   one at that commit), four job templates (one per package family and run mode), a survey
+   families and both `run` and `check` offered, the plan is one project, four job templates (one per package family and run mode), a survey
    on each, an Execute grant on each of the four templates, and one Read grant on the
    project.
 4. A reviewer opens the prepared binding for each of the four templates, sees the commit,
@@ -365,7 +374,7 @@ API, under the existing `/api/admin` boundary and the open change's conventions
 | `ansible-memberships` | Adds listing by device and non-current rows, full non-secret evidence, and `release`. |
 
 Terraform: `serviceradar_ansible_automation` (desired revision; apply provisions and
-waits; exposes `pending_review_id`, binding state and owned-object ids),
+waits; exposes the pending review id and binding state of each owned template and owned-object ids),
 `serviceradar_ansible_catalog_entry` and reference data sources. Apply never approves,
 never launches, and a refresh never mutates, as the open change already requires.
 

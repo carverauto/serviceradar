@@ -83,8 +83,9 @@ Who does what:
    - opens the candidate and descriptor with `O_NOFOLLOW`, refuses non-regular files, and
      reads each once into memory under a fixed size bound; everything after operates on
      those bytes, so the caller cannot swap a file between check and use;
-   - verifies the descriptor signature over the exact descriptor bytes, before parsing
-     them, with the trusted public keys **compiled into the running updater**. No
+   - verifies the descriptor signature over the domain-separated message of Decision 2
+     (context string, newline, exact descriptor bytes), before parsing the descriptor,
+     with the trusted public keys **compiled into the running updater**. No
      environment variable, file or flag can supply or override a key;
    - parses the descriptor against its fixed schema, rejecting an undefined field or a
      missing required one, including the operation set;
@@ -106,7 +107,7 @@ Honest weaknesses of this option, and what covers them:
 | Weakness | Cover |
 | --- | --- |
 | A broken updater release can leave a host with no working privileged helper, and only root can fix that. | Candidate self-test before commit (Decision 5), a release gate proving each updater can install its successor (Decision 6), cohort canary and pause rule (Decision 9). Residual remedy is the bootstrap remedy, which must exist anyway. |
-| The root helper parses a signed document supplied by an untrusted caller. | The descriptor is a small fixed-schema JSON object; unknown fields are rejected; size is bounded; the signature is verified over the raw bytes before parsing. |
+| The root helper parses a signed document supplied by an untrusted caller. | The descriptor is a small fixed-schema JSON object; unknown fields are rejected; size is bounded; the signature is verified over the domain-separated message (Decision 2) before parsing. |
 | Field updaters predate the operation. | Unavoidable for any option; see "Bootstrap". |
 
 ### Decision 2: a typed descriptor, a dedicated key, a domain-separated signature (recommended)
@@ -176,7 +177,8 @@ version the host has run.
 Downgrade is a package-manager action by a root operator. A package install, including a
 forced one, may replace the active binary and leaves the floor unchanged; nothing in this
 design lowers the floor. An updater running below the floor still works and reports
-`below_floor`; core treats it as outdated and offers the normal forward replacement, so a
+`below_floor`; core classifies it `outdated` and schedules the normal forward replacement
+to a published updater at or above the floor, so a
 forced package downgrade does not pin a host.
 
 Lowering the floor is a high-water downgrade: it re-enables every validly signed updater
@@ -326,8 +328,8 @@ unit-file drift stays a package concern.
 
 | State | Meaning | Can core fix it? |
 | --- | --- | --- |
-| `current` | Answers `--describe`; version is at least the agent's paired updater. | Nothing to do. |
-| `outdated` | Answers `--describe`; older than the paired updater. | Yes: replacement. |
+| `current` | Answers `--describe`; version is at least the agent's paired updater and not below the floor. | Nothing to do. |
+| `outdated` | Answers `--describe`; older than the paired updater, or running below the floor. | Yes: replacement to an updater at or above both. |
 | `bootstrap_required` | Present and valid, but predates self-replacement. | No: one package upgrade. |
 | `unavailable` | Missing, not root-owned, writable by others, or not setuid. | No: reinstall the package. |
 | `replacement_failed` | The last attempt failed; carries a reason code. | Depends on the reason. |

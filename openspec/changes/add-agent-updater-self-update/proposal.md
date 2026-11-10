@@ -42,8 +42,9 @@ path to fix it.
   never writes the privileged path and never chooses the destination, owner or mode.
 - **A signed, typed updater descriptor.** Each agent release publishes, per OS and
   architecture, an updater binary and a small descriptor that binds component kind,
-  version, platform and SHA-256. The descriptor is signed over a domain-separated message
-  with a dedicated updater key whose public half is compiled into the updater. An add-on
+  version, platform, SHA-256 and operation set. The descriptor is signed over a
+  domain-separated message (a fixed context string, a newline, then the exact descriptor
+  bytes), verified before the descriptor is parsed, with a dedicated updater key whose public half is compiled into the updater. An add-on
   signature or an agent release manifest signature can never be replayed as an updater
   signature.
 - **Rollback protection.** A replacement must be strictly newer than the installed updater

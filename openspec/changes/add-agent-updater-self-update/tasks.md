@@ -9,7 +9,7 @@
 
 - [ ] 2.1 Add `--describe`: JSON version, platform, operations, floor and state, with no privileged side effect.
 - [ ] 2.2 Add the dedicated updater public key file, embedded at build time as the updater's list of trusted keys (Decision 2), with a release-time assertion that the current key matches the signing secret. The privileged path never reads a key from the environment.
-- [ ] 2.3 Add `--updater-install`: no-follow bounded reads, signature verified over the domain-separated message and the exact descriptor bytes before parsing, rejection of undefined or missing descriptor fields (the signed operation set is required), kind/platform/digest checks, rollback checks.
+- [ ] 2.3 Add `--updater-install`: no-follow bounded reads, signature verified over the domain-separated message of Decision 2 (context string, newline, exact descriptor bytes) before parsing, rejection of undefined or missing descriptor fields (the signed operation set is required), kind/platform/digest checks, rollback checks.
 - [ ] 2.4 Add the root-owned state directory, the floor file, the exclusive lock and stale temporary-file cleanup.
 - [ ] 2.5 Implement the replacement sequence: root-only temporary file in the destination directory, self-test, ownership then mode, label check, rename, directory sync, floor update.
 - [ ] 2.6 Add `--updater-self-test`, including a signature test vector and a scratch replacement.

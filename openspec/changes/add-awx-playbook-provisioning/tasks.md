@@ -21,7 +21,7 @@
 - [ ] 3.3 Render the AWX survey from the input schema and the dispatch-marker contract.
 - [ ] 3.4 Implement the durable provisioning sequence with deterministic names, per-step idempotency, unresolved-outcome handling and resumption.
 - [ ] 3.5 Read back with the execution principal and compute the projection digest.
-- [ ] 3.6 Hand off to binding review "prepare" with the revision's content digest and input schema; never approve.
+- [ ] 3.6 Hand off to binding review "prepare" once per owned template, with the revision's content digest and input schema; never approve.
 - [ ] 3.7 Implement plan (dry description of what will be created) without any upstream call that mutates.
 
 ## 4. Readiness and memberships
@@ -35,7 +35,7 @@
 ## 5. Drift, retirement and deletion
 
 - [ ] 5.1 Read-only reconciliation of owned objects with states `in_sync`, `drifted`, `missing`, `unresolved`.
-- [ ] 5.2 Replace (new generation from the same revision) and Release (drop ownership, revoke binding).
+- [ ] 5.2 Replace for a drifted or missing job template (new generation from the same revision and project) and Release (drop ownership, revoke bindings); a drifted or missing project blocks provisioning at its commit until restored or released, and is never replaced or duplicated.
 - [ ] 5.3 Retirement of superseded generations with the operation guard; guarded deletion of automations, repositories and controllers.
 
 ## 6. API, Terraform, UI, permissions, audit

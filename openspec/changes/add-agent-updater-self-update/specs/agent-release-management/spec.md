@@ -16,7 +16,7 @@ The privileged agent updater SHALL report its version, platform, supported opera
 - **AND** SHALL still be able to use the operations that updater has
 
 ### Requirement: Signed updater release descriptor
-Every published agent release SHALL include, for each supported Linux architecture, an updater binary and a descriptor that names the component kind, version, operating system, architecture, SHA-256 digest and operation set of that binary, signed with a dedicated updater signing key over a message that begins with a fixed updater-specific context string. The installed updater SHALL verify the signature over the exact descriptor bytes before parsing them, and SHALL reject a descriptor that carries a field its schema does not define or omits a required one.
+Every published agent release SHALL include, for each supported Linux architecture, an updater binary and a descriptor that names the component kind, version, operating system, architecture, SHA-256 digest and operation set of that binary, signed with a dedicated updater signing key. The signed message SHALL be the fixed context string, a newline, then the exact descriptor bytes. The installed updater SHALL verify the signature over that domain-separated message before parsing the descriptor, and SHALL reject a descriptor that carries a field its schema does not define or omits a required one.
 
 #### Scenario: Release publishes an updater
 - **WHEN** an agent release is published
@@ -78,6 +78,7 @@ The updater MUST accept only a replacement whose version is strictly greater tha
 - **WHEN** the running updater's version is below the recorded floor
 - **THEN** it SHALL keep performing its operations
 - **AND** SHALL report that it is below the floor
+- **AND** the control plane SHALL classify it `outdated` and schedule the normal forward replacement to a published updater at or above the floor
 
 ### Requirement: Atomic and interruption-safe updater replacement
 The updater SHALL publish a replacement with a single atomic rename of a fully written, correctly owned, correctly labelled file created in the destination directory, and SHALL never write the installed updater in place.
@@ -157,8 +158,8 @@ The control plane SHALL be the only initiator of an updater replacement, SHALL d
 - **AND** SHALL record the outcome on the rollout target
 
 #### Scenario: Agent is current but its updater is not
-- **WHEN** an agent already runs the desired release and its updater is replaceable and older than that release's updater
-- **THEN** the control plane SHALL schedule a replacement on the rollout's cohort order
+- **WHEN** an agent already runs the desired release and its updater is replaceable and either older than that release's updater or below its recorded floor
+- **THEN** the control plane SHALL schedule a replacement on the rollout's cohort order, to an updater at or above both
 
 #### Scenario: Kill switch is off
 - **WHEN** an operator turns the updater replacement setting off

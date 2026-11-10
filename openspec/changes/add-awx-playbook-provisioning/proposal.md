@@ -52,8 +52,8 @@ specified here.
   This uses the typed, brokered provisioning contract of
   `add-declarative-ansible-provisioning` and does not restate it.
 - **Immutable generations instead of in-place edits.** A new revision provisions new job
-  templates and references the project for its commit, creating one only for a new
-  commit. An owned project or template is never edited. Drift is
+  templates and references the one project for its repository and commit, creating it
+  only when none exists. An owned project or template is never edited or duplicated. Drift is
   detected and reported; ServiceRadar never repairs a bound object and never absorbs live
   values.
 - **Owned versus referenced, stated per object type.** Owned: projects, job templates,

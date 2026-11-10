@@ -7,7 +7,7 @@ The Ansible settings UI SHALL expose automation management beside controller and
 - **GIVEN** an administrator with the provisioning permission
 - **WHEN** they choose a playbook, declare or accept its inputs and choose the referenced inventory, execution environment and credential from the controller's existing objects
 - **THEN** the UI SHALL show the plan of objects to be created before any is created
-- **AND** after confirmation SHALL show per-object progress and the pending review
+- **AND** after confirmation SHALL show per-object progress and the pending review of each owned template
 
 #### Scenario: Provisioned automation awaits review
 - **WHEN** an automation's generation is provisioned and its binding is not approved
@@ -16,7 +16,7 @@ The Ansible settings UI SHALL expose automation management beside controller and
 #### Scenario: Drift is shown
 - **WHEN** an owned object is drifted or missing
 - **THEN** the automation SHALL show the state and the changed fields
-- **AND** SHALL offer only replace and release
+- **AND** SHALL offer only replace and release for a job template, and only release for a project
 
 #### Scenario: Operator without the provisioning permission
 - **WHEN** a user without the provisioning permission opens Ansible settings

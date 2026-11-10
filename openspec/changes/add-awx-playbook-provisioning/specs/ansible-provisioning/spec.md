@@ -86,13 +86,13 @@ ServiceRadar SHALL own only the projects, job templates, surveys and role grants
 - **AND** its existing reviewed binding SHALL keep working
 
 ### Requirement: Immutable generations
-ServiceRadar MUST provision new job templates for every new revision, MUST use one project per repository and commit that every generation at that commit references, and MUST NOT edit an owned job template, survey or project after it has been provisioned.
+ServiceRadar MUST provision new job templates for every new revision, MUST own at most one project per repository and commit, which every generation at that commit references and which is never duplicated, and MUST NOT edit an owned job template, survey or project after it has been provisioned.
 
 #### Scenario: New revision of an automation with an approved binding
 - **GIVEN** an automation whose current generation has an approved binding
 - **WHEN** a new revision is provisioned
 - **THEN** the existing generation and its binding SHALL remain usable
-- **AND** the new generation SHALL remain not launchable until its own binding is approved
+- **AND** each template of the new generation SHALL remain not launchable until its own binding is approved
 
 #### Scenario: New revision at an unchanged commit
 - **GIVEN** an owned, in-sync project for a repository and commit
@@ -121,7 +121,7 @@ Provisioning MUST use a controller credential whose purpose is distinct from syn
 - **THEN** the usage guard SHALL reject the deletion and identify the controller
 
 ### Requirement: Provisioning yields a prepared review and never an approval
-ServiceRadar MUST, after provisioning a generation, read the created objects back with the execution principal and prepare a binding review that takes the content digest and input schema from the automation revision, and MUST NOT approve a binding, approve a membership or launch a job as a consequence of provisioning.
+ServiceRadar MUST, after provisioning a generation, read the created objects back with the execution principal and prepare one binding review for each owned job template that takes the content digest and input schema from the automation revision, and MUST NOT approve a binding, approve a membership or launch a job as a consequence of provisioning.
 
 #### Scenario: Provisioning completes
 - **WHEN** every object of a generation exists
@@ -133,13 +133,15 @@ ServiceRadar MUST, after provisioning a generation, read the created objects bac
 - **THEN** ServiceRadar SHALL report the difference and SHALL NOT prepare a review
 
 #### Scenario: Reviewer approves
-- **GIVEN** a prepared review
+- **GIVEN** a prepared review for one owned job template
 - **WHEN** a human principal holding the binding permission approves it through the existing review
-- **THEN** the automation SHALL become launchable for approved memberships in the referenced inventory
+- **THEN** that template SHALL become launchable for approved memberships in the referenced inventory
+- **AND** the automation SHALL be launchable in that template's variant and run mode only through that template
+- **AND** every other template of the generation SHALL remain not launchable until its own binding is approved
 
 #### Scenario: Terraform or an API client provisions
 - **WHEN** a non-interactive client provisions an automation
-- **THEN** the result SHALL expose the pending review reference
+- **THEN** the result SHALL expose the pending review reference of each owned template
 - **AND** SHALL NOT approve it
 
 #### Scenario: No approved membership exists for the review
@@ -156,18 +158,24 @@ ServiceRadar SHALL compare each owned object's live state with the state recorde
 - **AND** SHALL NOT restore or accept the change
 
 #### Scenario: Operator replaces a drifted generation
-- **WHEN** an authorized principal chooses to replace a drifted or missing generation
-- **THEN** ServiceRadar SHALL provision a new generation from the same revision
-- **AND** when the drifted or missing object is the project, SHALL create a new project for that commit that later generations at the commit reference, without editing the old one
+- **WHEN** an authorized principal chooses to replace a generation whose job template is drifted or missing
+- **THEN** ServiceRadar SHALL provision a new generation from the same revision, referencing the same project
 - **AND** the new generation SHALL require its own review
+
+#### Scenario: Owned project drifted or missing
+- **GIVEN** the owned project for a repository and commit is drifted or missing
+- **WHEN** provisioning at that commit is requested
+- **THEN** ServiceRadar SHALL refuse and identify the project
+- **AND** SHALL NOT create a second project for that commit or edit the existing one
+- **AND** provisioning at that commit SHALL remain refused until an operator restores the project to its recorded state or releases it
 
 #### Scenario: Operator releases ownership
 - **WHEN** an authorized principal releases a generation
-- **THEN** ServiceRadar SHALL revoke its binding and stop managing its job templates, and its project when no other owned generation references it
+- **THEN** ServiceRadar SHALL revoke its bindings and stop managing its job templates, and its project when no other owned generation references it
 - **AND** SHALL leave the AWX objects as found
 
 ### Requirement: Guarded retirement and deletion of owned objects
-ServiceRadar SHALL retire a generation by revoking its binding, removing the role grants it made and deleting the objects it owns, SHALL refuse while a non-terminal operation references the generation, and SHALL never delete an object it does not own.
+ServiceRadar SHALL retire a generation by revoking its bindings, removing the role grants it made and deleting the objects it owns, SHALL refuse while a non-terminal operation references the generation, and SHALL never delete an object it does not own.
 
 #### Scenario: Retire a superseded generation
 - **GIVEN** a superseded generation with no non-terminal operation
@@ -189,7 +197,7 @@ ServiceRadar SHALL read catalog entries from catalog files in registered reposit
 #### Scenario: Install or upgrade the agent package
 - **GIVEN** the first-party repository is registered at the tested commit
 - **WHEN** an administrator creates an automation from the agent package catalog entry and references an inventory, an execution environment and a machine credential
-- **THEN** ServiceRadar SHALL provision one project and one job template per package family and offered run mode, four when both `run` and `check` are offered
+- **THEN** ServiceRadar SHALL provision one project and four job templates, one for each of the two package families in each of the two run modes `run` and `check`
 - **AND** SHALL grant the execution principal Execute on every one of those templates
 - **AND** the launch inputs SHALL be exactly the version, the optional package URL and the optional package SHA-256, with the URL and SHA-256 accepted only together
 - **AND** the automation SHALL require binding review before any launch
