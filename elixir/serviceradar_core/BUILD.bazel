@@ -397,6 +397,23 @@ write_source_files(
 )
 
 ash_schema(
+    name = "camera_local_storage_installation_schema",
+    outs = ["generated_camera_local_storage_installation/installation.json", "generated_camera_local_storage_installation/migration.exs"],
+    app = ":erlang_app",
+    generator = "//build:camera_local_storage_installation_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_local_storage_installation_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_local_storage_bootstrap_installations/20261111230000.json": ":generated_camera_local_storage_installation/installation.json",
+        "priv/repo/migrations/20261111230000_add_camera_local_storage_bootstrap_installations.exs": ":generated_camera_local_storage_installation/migration.exs",
+    },
+)
+
+ash_schema(
     name = "camera_local_storage_qualification_schema",
     outs = ["generated_camera_local_storage_qualification/qualification.json", "generated_camera_local_storage_qualification/migration.exs"],
     app = ":erlang_app",
