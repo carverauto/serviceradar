@@ -1,7 +1,7 @@
 # jetstream-storage-budget Specification
 
 ## Purpose
-The JetStream storage budget defines render-time capacity checks, sizing profiles (small, medium, large), finite stream and bucket reservations, ownership claims, and isolation protocols to ensure predictable NATS storage placement and prevent unconstrained storage exhaustion across ServiceRadar deployments.
+The JetStream storage budget defines render-time capacity checks, sizing profiles (compact, small, medium, large), finite stream and bucket reservations, ownership claims, and isolation protocols to ensure predictable NATS storage placement and prevent unconstrained storage exhaustion across ServiceRadar deployments.
 
 ## Requirements
 
@@ -111,7 +111,7 @@ The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byt
 - **AND** the chart SHALL NOT attempt to automate it
 
 #### Scenario: Shipped profiles fit their PVC
-- **GIVEN** `small` on `30Gi`, `medium` on `100Gi` and `large` on `500Gi`
+- **GIVEN** `compact` on `10Gi`, `small` on `30Gi`, `medium` on `100Gi` and `large` on `500Gi`
 - **WHEN** the chart renders each
 - **THEN** each SHALL pass this check
 
@@ -121,8 +121,8 @@ The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byt
 - **THEN** rendering SHALL fail
 
 ### Requirement: JetStream sizing profiles
-The Helm chart SHALL provide sizing profiles `small`, `medium` and `large`, selected by `nats.jetstream.profile` with `small` as the default, and Docker Compose SHALL select the same profiles with `SERVICERADAR_NATS_PROFILE`.
-A profile SHALL set `max_file_store` (30G, 100G and 500G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
+The Helm chart SHALL provide sizing profiles `compact`, `small`, `medium` and `large`, selected by `nats.jetstream.profile` with `small` as the default, while Docker Compose SHALL select `small`, `medium` and `large` with `SERVICERADAR_NATS_PROFILE`.
+The `compact` profile SHALL be a constrained pilot profile for fresh or low-data deployments. A profile SHALL set `max_file_store` (9G, 30G, 100G and 500G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
 
 #### Scenario: Default profile
 - **GIVEN** no profile is set
@@ -133,6 +133,11 @@ A profile SHALL set `max_file_store` (30G, 100G and 500G) and the default `max_b
 - **GIVEN** `nats.jetstream.profile` is `small` and `datasvc.objectStoreBytes` is set to 2 GiB
 - **WHEN** the chart renders
 - **THEN** the object store SHALL be 2 GiB and every other size SHALL keep its `small` value
+
+#### Scenario: Compact constrained pilot profile
+- **GIVEN** `nats.jetstream.profile` is `compact` on a matching `10Gi` persistence size
+- **WHEN** the chart renders
+- **THEN** the constrained pilot profile SHALL apply and rendering SHALL succeed
 
 #### Scenario: Every profile passes with all producers enabled
 - **GIVEN** each profile on a matching `nats.persistence.size` with flow-collector, bmp-collector and the trivy sidecar enabled

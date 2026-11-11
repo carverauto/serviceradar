@@ -678,24 +678,29 @@ sized for a small install:
 
 EventWriter batching, coalescer limits, `telemetry_stream_count` per signal
 and the telemetry stream and telemetry DLQ `max_bytes` join the existing
-EventWriter runtime settings with the same rule. Every stream byte size is a
-CNPG setting whose code default is derived from the active JetStream profile.
-Helm supplies only the NATS server volume and `max_file_store`
-(`jetstream-storage-budget`), plus a new `xlarge` profile. A size setting
-that would exceed the JetStream file store is rejected when saved.
+EventWriter runtime settings with the same rule. Except for the constrained
+pilot `compact` profile, every stream byte size is a CNPG setting whose code
+default is derived from the active JetStream profile. Helm supplies only the
+NATS server volume and `max_file_store` (`jetstream-storage-budget`), plus a
+new `xlarge` profile. The `compact` profile is explicitly exempt from the
+candidate, alert DLQ, signal-separated telemetry and telemetry DLQ defaults
+introduced by this change. A size setting that would exceed the JetStream
+file store is rejected when saved.
 
-Profile-derived defaults. Each profile has a planning candidate rate. Its
-candidate default is 1 h of that rate at the `capacity.md` 1.3 p99 mix
+Profile-derived defaults. Each participating profile other than `compact` has
+a planning candidate rate. Its candidate default is 1 h of that rate at the
+`capacity.md` 1.3 p99 mix
 (about 1.25 KB per candidate, 50 MB/s at 40,000/s), stored at the
 conservative 2:1 S2 ratio, rounded up. The candidate streams, the alert DLQ,
 the signal-separated telemetry streams and the telemetry DLQ replace the
-profile's existing `events` and `metrics` allocations, all R3, so their
-defaults are carved from those allocations and every profile's render-time
-need is unchanged:
+participating profile's existing `events` and `metrics` allocations, all R3,
+so their defaults are carved from those allocations and every participating
+profile's render-time need is unchanged:
 
 | Profile | `max_file_store` | Planning rate | Candidate streams (total) | Alert DLQ | Telemetry streams and DLQ (rest of `events` + `metrics`) |
 |---|---|---|---|---|---|
 | `tenant-2g` | 2G | 1/s | 4 MiB | 1 MiB | 315 MiB |
+| `compact` | 9G | exempt | exempt | exempt | exempt |
 | `small` | 36G | 100/s (covers a demo Falco burst) | 256 MiB | 64 MiB | 2.6875 GiB |
 | `medium` | 100G | 200/s | 512 MiB | 128 MiB | 9.375 GiB |
 | `large` | 500G | 2,000/s | 4.5 GiB | 512 MiB | 35 GiB |
