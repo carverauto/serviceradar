@@ -1097,3 +1097,87 @@ func TestAgentCapabilitiesAdvertiseSNMPSharedOIDs(t *testing.T) {
 		t.Fatalf("capabilities %v missing snmp-config-shared-oids:v1", caps)
 	}
 }
+
+type offeredSNMPv3Protocol struct {
+	Value string `json:"value"`
+	Proto string `json:"proto"`
+}
+
+// requireProtoEnumsCarryOfferedNames holds one proto enum to the contract in
+// both directions: every protocol core offers arrives as the offered name, and
+// the enum has no protocol the contract does not list.
+func requireProtoEnumsCarryOfferedNames(
+	t *testing.T,
+	offered []offeredSNMPv3Protocol,
+	enumNames map[int32]string,
+	enumValues map[string]int32,
+	received func(int32) string,
+) {
+	t.Helper()
+	require.NotEmpty(t, offered)
+
+	covered := map[string]struct{}{}
+
+	for _, protocol := range offered {
+		number, ok := enumValues[protocol.Proto]
+		require.Truef(t, ok, "core sends %q for %q, which the proto does not define", protocol.Proto, protocol.Value)
+		assert.Equalf(t, protocol.Value, received(number), "%s must reach the poller as %q", protocol.Proto, protocol.Value)
+
+		covered[protocol.Proto] = struct{}{}
+	}
+
+	for number, name := range enumNames {
+		if number == 0 {
+			assert.Emptyf(t, received(number), "%s must not select a protocol", name)
+			continue
+		}
+
+		assert.Containsf(t, covered, name, "the proto defines %s, which core does not offer", name)
+	}
+
+	assert.Empty(t, received(int32(len(enumNames))+1000), "an enum value the agent does not know must not select a protocol")
+}
+
+// Core sends a poller target's SNMPv3 protocols as proto enums. Each must
+// arrive as the protocol the operator picked: two enums collapsing into one
+// name gives a device a key it cannot decrypt with (AES-192-C and AES-256-C
+// use the Cisco key extension, which AES-192 and AES-256 do not).
+func TestParseProtoSNMPConfigKeepsEveryOfferedV3Protocol(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(filepath.Join("snmp", "testdata", "snmpv3_protocol_contract.json"))
+	require.NoError(t, err)
+
+	var contract struct {
+		AuthProtocols []offeredSNMPv3Protocol `json:"auth_protocols"`
+		PrivProtocols []offeredSNMPv3Protocol `json:"priv_protocols"`
+	}
+
+	require.NoError(t, json.Unmarshal(data, &contract))
+
+	parse := func(auth *proto.SNMPv3Auth) *snmp.V3Auth {
+		config, err := parseProtoSNMPConfig(&proto.SNMPConfig{
+			Enabled: true,
+			Targets: []*proto.SNMPTargetConfig{
+				{Name: "switch-01", Host: "192.0.2.10", Port: 161, V3Auth: auth},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, config.Targets, 1)
+		require.NotNil(t, config.Targets[0].V3Auth)
+
+		return config.Targets[0].V3Auth
+	}
+
+	requireProtoEnumsCarryOfferedNames(t, contract.AuthProtocols,
+		proto.SNMPAuthProtocol_name, proto.SNMPAuthProtocol_value,
+		func(number int32) string {
+			return string(parse(&proto.SNMPv3Auth{AuthProtocol: proto.SNMPAuthProtocol(number)}).AuthProtocol)
+		})
+
+	requireProtoEnumsCarryOfferedNames(t, contract.PrivProtocols,
+		proto.SNMPPrivProtocol_name, proto.SNMPPrivProtocol_value,
+		func(number int32) string {
+			return string(parse(&proto.SNMPv3Auth{PrivProtocol: proto.SNMPPrivProtocol(number)}).PrivProtocol)
+		})
+}

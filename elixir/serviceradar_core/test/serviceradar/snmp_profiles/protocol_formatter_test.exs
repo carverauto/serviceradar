@@ -1,11 +1,17 @@
 defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.SNMPProtoMapper
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
 
-  # The names core offers and the spelling it sends for each. The Go agent's and
-  # mapper's tests read the same file and fail on a name they do not accept, so
-  # this half only has to prove the file is what core really offers and sends.
+  # The names core offers and what it sends for each: the spelling in compiled
+  # agent config, the spelling in discovery credentials, and the proto enum the
+  # agent config carries. The Go agent's and mapper's tests read the same file
+  # and say which gosnmp protocol each one selects, so this half only has to
+  # prove the file is what core really offers and sends.
   @contract Path.expand(
               "../../../../../go/pkg/agent/snmp/testdata/snmpv3_protocol_contract.json",
               __DIR__
@@ -15,7 +21,7 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
   test "formats compact mapper protocol strings" do
     assert ProtocolFormatter.version(:v3, allow_binary?: true) == "v3"
     assert ProtocolFormatter.auth_protocol(:sha256, style: :compact) == "SHA256"
-    assert ProtocolFormatter.priv_protocol(:aes192c, style: :compact) == "AES192"
+    assert ProtocolFormatter.priv_protocol(:aes192c, style: :compact) == "AES192C"
   end
 
   test "formats hyphenated agent protocol strings" do
@@ -44,15 +50,51 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
            ) ==
              contract["security_levels"]
 
-    assert offered(
+    assert offered_protocols(
              ProtocolFormatter.auth_protocol_options(),
-             &ProtocolFormatter.auth_protocol(&1, style: :hyphenated)
+             &ProtocolFormatter.auth_protocol/2,
+             &SNMPProtoMapper.auth_protocol/1
            ) == contract["auth_protocols"]
 
-    assert offered(
+    assert offered_protocols(
              ProtocolFormatter.priv_protocol_options(),
-             &ProtocolFormatter.priv_protocol(&1, style: :hyphenated)
+             &ProtocolFormatter.priv_protocol/2,
+             &SNMPProtoMapper.priv_protocol/1
            ) == contract["priv_protocols"]
+  end
+
+  # A credential can reach the formatter as a stored string rather than an
+  # attribute name. Whichever spelling it arrives in, it must leave as the
+  # protocol it names: AES-192-C must not leave as AES192.
+  test "sends a protocol given as a string as the protocol it names" do
+    contract = @contract |> File.read!() |> Jason.decode!()
+
+    for {entries, format} <- [
+          {contract["auth_protocols"], &ProtocolFormatter.auth_protocol/2},
+          {contract["priv_protocols"], &ProtocolFormatter.priv_protocol/2}
+        ],
+        %{"value" => value, "wire" => wire, "mapper" => mapper} <- entries,
+        spelling <- [value, wire, mapper] do
+      assert format.(spelling, style: :compact, allow_binary?: true) == mapper, spelling
+      assert format.(spelling, style: :hyphenated) == wire, spelling
+    end
+  end
+
+  # The profile, target and device forms submit attribute names. A protocol the
+  # resource accepts but the form does not list cannot be picked, and editing a
+  # record that already holds it would submit a different one.
+  test "attribute forms offer exactly the protocols each resource accepts" do
+    for resource <- [SNMPProfile, SNMPTarget, DeviceSNMPCredential],
+        {attribute, options} <- [
+          auth_protocol: ProtocolFormatter.auth_protocol_attribute_options(),
+          priv_protocol: ProtocolFormatter.priv_protocol_attribute_options()
+        ] do
+      accepted = Ash.Resource.Info.attribute(resource, attribute).constraints[:one_of]
+
+      assert Enum.map(options, fn {_label, name} -> name end) ==
+               Enum.map(accepted, &Atom.to_string/1),
+             "#{inspect(resource)}.#{attribute}"
+    end
   end
 
   # Credentials stored while the form was free text carry these spellings, and
@@ -74,9 +116,14 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
            &ProtocolFormatter.priv_protocol_value/1, {:aes, "AES"}},
           {["AES192", "AES-192", "aes192"], &ProtocolFormatter.normalize_priv_protocol/1,
            &ProtocolFormatter.priv_protocol_value/1, {:aes192, "AES192"}},
+          {["AES256", "AES-256", "aes256"], &ProtocolFormatter.normalize_priv_protocol/1,
+           &ProtocolFormatter.priv_protocol_value/1, {:aes256, "AES256"}},
           {["AES-192-C", "aes192c", "AES192C", :aes192c],
            &ProtocolFormatter.normalize_priv_protocol/1, &ProtocolFormatter.priv_protocol_value/1,
-           {:aes192c, "AES-192-C"}}
+           {:aes192c, "AES-192-C"}},
+          {["AES-256-C", "aes256c", "AES256C", :aes256c],
+           &ProtocolFormatter.normalize_priv_protocol/1, &ProtocolFormatter.priv_protocol_value/1,
+           {:aes256c, "AES-256-C"}}
         ],
         spelling <- spellings do
       assert {normalize.(spelling), stored_value.(spelling)} == option, inspect(spelling)
@@ -99,5 +146,20 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
 
   defp offered(options, wire) do
     Enum.map(options, &%{"value" => &1.value, "wire" => wire.(&1.id)})
+  end
+
+  # `to_proto` is given the compiled spelling, as the agent config generator
+  # gives it the compiler's output.
+  defp offered_protocols(options, format, to_proto) do
+    Enum.map(options, fn option ->
+      wire = format.(option.id, style: :hyphenated)
+
+      %{
+        "value" => option.value,
+        "wire" => wire,
+        "mapper" => format.(option.id, style: :compact),
+        "proto" => Atom.to_string(to_proto.(wire))
+      }
+    end)
   end
 end

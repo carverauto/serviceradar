@@ -27,7 +27,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   For SNMPv3, configure:
   - Security level: noAuthNoPriv, authNoPriv, authPriv
   - Auth protocol: MD5, SHA, SHA-224, SHA-256, SHA-384, SHA-512
-  - Priv protocol: DES, AES, AES-192, AES-256
+  - Priv protocol: DES, AES, AES-192, AES-256, AES-192-C, AES-256-C (Cisco key extension)
 
   Passwords are encrypted at rest using Cloak.
 

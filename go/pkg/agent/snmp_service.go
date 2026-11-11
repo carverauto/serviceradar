@@ -933,18 +933,24 @@ func protoToSNMPAuthProtocol(ap proto.SNMPAuthProtocol) snmp.AuthProtocol {
 }
 
 // protoToSNMPPrivProtocol converts proto SNMPPrivProtocol to snmp.PrivProtocol.
+// Every protocol keeps its own name: the Cisco key-extension variants are
+// different protocols on the wire, not spellings of AES-192 and AES-256. An
+// unspecified or unrecognised value yields "", which the SNMP client rejects
+// when the security level needs a privacy protocol.
 func protoToSNMPPrivProtocol(pp proto.SNMPPrivProtocol) snmp.PrivProtocol {
 	switch pp {
 	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_DES:
 		return snmp.PrivProtocolDES
 	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES:
 		return snmp.PrivProtocolAES
-	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192,
-		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192C:
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192:
 		return snmp.PrivProtocolAES192
-	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256,
-		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C:
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256:
 		return snmp.PrivProtocolAES256
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192C:
+		return snmp.PrivProtocolAES192C
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C:
+		return snmp.PrivProtocolAES256C
 	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED:
 		return ""
 	}

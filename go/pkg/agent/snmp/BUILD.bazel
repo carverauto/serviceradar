@@ -54,14 +54,16 @@ go_test(
 )
 
 # The SNMPv3 security levels and protocols core offers in its forms, with the
-# spelling core sends for each. This package's tests, //go/pkg/mapper's and
-# //elixir/serviceradar_core's all read it, so the names core offers and the
-# names the Go side accepts cannot drift apart without one of them failing.
+# spelling core sends for each. This package's tests, //go/pkg/agent's,
+# //go/pkg/mapper's and //elixir/serviceradar_core's all read it, so the names
+# core offers and the names the Go side accepts cannot drift apart without one
+# of them failing.
 filegroup(
     name = "snmpv3_protocol_contract",
     srcs = ["testdata/snmpv3_protocol_contract.json"],
     visibility = [
         "//elixir/serviceradar_core:__pkg__",
+        "//go/pkg/agent:__pkg__",
         "//go/pkg/mapper:__pkg__",
     ],
 )

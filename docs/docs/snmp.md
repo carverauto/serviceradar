@@ -109,9 +109,9 @@ Each profile contains one or more SNMP targets:
 **SNMPv3 Configuration:**
 - Username: SNMPv3 username
 - Security Level: noAuthNoPriv, authNoPriv, or authPriv
-- Auth Protocol: MD5 or SHA
+- Auth Protocol: MD5, SHA (SHA-1), SHA-224, SHA-256, SHA-384 or SHA-512
 - Auth Password: Authentication password
-- Priv Protocol: DES or AES
+- Priv Protocol: DES, AES (AES-128), AES-192, AES-256, AES-192-C or AES-256-C. The `-C` options are the Cisco key-extension variants: they derive the privacy key differently from plain AES-192/AES-256, so pick the one the device is configured with.
 - Priv Password: Privacy password
 
 #### OID Configuration
