@@ -605,7 +605,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       {:error, %Invalid{} = reason} ->
         Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
-        {:ok, []}
+        {:ok, acc}
 
       {:error, reason} ->
         Logger.error("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")

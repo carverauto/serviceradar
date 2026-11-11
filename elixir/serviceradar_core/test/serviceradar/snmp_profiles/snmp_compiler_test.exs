@@ -1445,6 +1445,30 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
+    test "an interface filter value that cannot be cast compiles a profile with no query targets",
+         %{actor: actor} do
+      unique = System.unique_integer([:positive])
+      {:ok, template} = create_read_failure_template("Uncastable Interface #{unique}", actor)
+
+      profile =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Uncastable Interface #{unique}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: "in:interfaces if_speed:abc",
+          oid_template_ids: [template.id],
+          version: :v2c,
+          community: "public"
+        })
+        |> Ash.create!(actor: actor)
+
+      assert {:ok, %{"targets" => []}} = SNMPCompiler.compile_profile(profile, actor)
+    end
+
+    @tag :integration
     test "a failed device credential read fails the compile instead of an empty target list", %{
       actor: actor
     } do
@@ -1804,7 +1828,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(:create, %{
           uid: "sr:" <> Ecto.UUID.generate(),
           hostname: "heap-#{index}.example.com",
-          ip: heap_fixture_ip(index),
+          ip: ServiceRadar.TestSupport.unique_device_ip(),
           gateway_id: gateway_id,
           partition: "default",
           metadata: metadata
@@ -1866,10 +1890,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert_received {:compiled_targets, ^device_count}
     end
   end
-
-  defp heap_fixture_ip(index) when index <= 254, do: "192.0.2.#{index}"
-  defp heap_fixture_ip(index) when index <= 508, do: "198.51.100.#{index - 254}"
-  defp heap_fixture_ip(index), do: "203.0.113.#{index - 508}"
 
   defp collect_device(device, devices), do: {:cont, [device | devices]}
 
