@@ -18,23 +18,28 @@ reservation ServiceRadar creates and checks them at render time:
 
 | Profile | `max_file_store` | Target PVC (`nats.persistence.size`) |
 | --- | --- | --- |
+| `compact` | 9G (8.38 GiB) | 10Gi |
 | `small` (default) | 36G (33.53 GiB) | 36Gi |
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
-`TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 960 MiB on
-`small`, 1 GiB on `medium` and `large`, and 28 MiB on `tenant-2g`), and so are its audit and security-quarantine streams
+`TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 512 MiB on
+`compact`, 960 MiB on `small`, 1 GiB on `medium` and `large`, and 28 MiB on
+`tenant-2g`), and so are its audit and security-quarantine streams
 `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` and
 `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` (R3, 64 MiB each except
 8 MiB each on `tenant-2g`), and EventWriter's dead-letter stream
-`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` (R3, 64 MiB except 32 MiB on `small` and
-4 MiB on `tenant-2g`; see `docs/edge-record-dead-letter-runbook.md`), and the
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` (R3, 64 MiB except 32 MiB on `compact` and
+`small`, and 4 MiB on `tenant-2g`; see
+`docs/edge-record-dead-letter-runbook.md`), and the
 recovery work queue `TELEMETRY_EDGE_RECORD_RECOVERY_V1` (R3, 64 MiB except
 4 MiB on `tenant-2g`).
 Per-server need, with the chart's full/spread formula:
 
 | Profile | Servers | Need | Limit |
 | --- | --- | --- | --- |
+| `compact` | 3 | 3.34375 + 1.5/3 + 0.5 = 4.34375 GiB (4664066048 bytes) | 7.12 GiB |
+| `compact` | 1 | 4.84375 GiB (5200936960 bytes) | 7.12 GiB |
 | `small` | 3 | 19.71875 + 6/3 + 2 = 23.72 GiB (25467813888 bytes) | 28.50 GiB |
 | `small` | 1 | 25.46875 GiB | 28.50 GiB |
 | `medium` | 3 | 57.8125 + 28/3 + 12 = 79.15 GiB | 79.16 GiB |
@@ -48,11 +53,12 @@ Per-server need, with the chart's full/spread formula:
 
 With `nats.replicas` of 1 or 2, `small`, `medium` and `large` use their
 single-server size table, the same sizes the Docker Compose presets ship (for
-example `flows` is 3 GiB instead of 8 GiB in `small`). On one server every
-stream reserves its full size, and on two the R3 streams still land on both
-servers; both tables now fit the `small` budget, but the single-server table is
-used for Compose compatibility (it uses a 3 GiB `flows` size instead of 8 GiB). The `tenant-2g` profile is a
-hosted-tenant plan (see "Hosted tenant plans" below).
+example `flows` is 3 GiB instead of 8 GiB in `small`). Profiles without
+`singleServerSizes`, including `compact` and `tenant-2g`, reuse `sizes` for
+every server count. On one server every stream reserves its full size, and on
+two the R3 streams still land on both servers; both tables now fit the `small`
+budget, but the single-server table is used for Compose compatibility. The
+`tenant-2g` profile is a hosted-tenant plan (see "Hosted tenant plans" below).
 
 When the chart deploys NATS itself, every stream replica count it renders is
 capped at `nats.replicas`: a standalone nats-server rejects any stream with
