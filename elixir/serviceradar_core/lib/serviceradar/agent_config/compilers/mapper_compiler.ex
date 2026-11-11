@@ -407,15 +407,33 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       |> Enum.filter(&(&1.purpose in [nil, "", "snmp_monitoring"]))
       |> Enum.flat_map(&credential_rule_devices(&1, actor))
 
-    (seed_devices ++ rule_devices)
-    |> Enum.uniq_by(& &1.uid)
-    |> Enum.reject(&(is_nil(&1.ip) or &1.ip == ""))
+    devices =
+      (seed_devices ++ rule_devices)
+      |> Enum.uniq_by(& &1.uid)
+      |> Enum.reject(&(is_nil(&1.ip) or &1.ip == ""))
+
+    # One compile is one resolution pass: a brokered credential is audited
+    # once for the pass, not once per target.
+    CredentialResolver.with_bulk_audit(
+      [agent_id: agent_id, partition: partition],
+      fn bulk_audit ->
+        resolve_target_credentials(devices, agent_id, partition, actor, bulk_audit)
+      end
+    )
+  end
+
+  defp resolve_target_credentials(devices, agent_id, partition, actor, bulk_audit) do
+    devices
     |> Stream.chunk_every(@credential_batch_size)
     |> Stream.flat_map(fn devices ->
       resolutions =
         devices
         |> Enum.map(& &1.uid)
-        |> CredentialResolver.resolve_for_devices(actor, agent_id: agent_id, partition: partition)
+        |> CredentialResolver.resolve_for_devices(actor,
+          agent_id: agent_id,
+          partition: partition,
+          bulk_audit: bulk_audit
+        )
 
       Enum.map(devices, &{&1, Map.fetch!(resolutions, &1.uid)})
     end)

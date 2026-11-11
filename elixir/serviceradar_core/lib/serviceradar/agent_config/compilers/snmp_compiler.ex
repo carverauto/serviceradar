@@ -446,16 +446,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_query_targets(target_query, profile, oids, actor, opts) do
     compiled_oids = compile_oids(oids)
 
-    target_query
-    |> reduce_target_pages(actor, {:ok, []}, fn devices, {:ok, targets} ->
-      if oids == [] do
-        {:halt, {:ok, targets}}
-      else
-        case compile_page_targets(devices, profile, compiled_oids, actor, opts) do
-          {:ok, page_targets} -> {:cont, {:ok, Enum.reverse(page_targets, targets)}}
-          {:error, reason} -> {:halt, {:error, reason}}
+    # The pages of one compile are one resolution pass: a brokered credential
+    # is audited once for the pass, not once per device.
+    opts
+    |> Keyword.take([:agent_id, :partition])
+    |> CredentialResolver.with_bulk_audit(fn bulk_audit ->
+      opts = Keyword.put(opts, :bulk_audit, bulk_audit)
+
+      reduce_target_pages(target_query, actor, {:ok, []}, fn devices, {:ok, targets} ->
+        if oids == [] do
+          {:halt, {:ok, targets}}
+        else
+          case compile_page_targets(devices, profile, compiled_oids, actor, opts) do
+            {:ok, page_targets} -> {:cont, {:ok, Enum.reverse(page_targets, targets)}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
         end
-      end
+      end)
     end)
     |> case do
       {:ok, {:ok, targets}} -> {:ok, Enum.reverse(targets)}

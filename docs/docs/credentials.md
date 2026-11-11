@@ -98,6 +98,38 @@ core logs a redacted warning (identifying fields and rejected field names only,
 never metadata or values) and emits the
 `[:serviceradar, :credentials, :resolution_audit, :write_failed]` telemetry event.
 
+## Secret-resolution audit rows
+
+Every time the control plane resolves a stored credential it records who
+resolved which secret, for what target, where, and with what outcome, in
+`credential_secret_resolution_audits`.
+
+A resolution made on its own writes one row. Testing a credential, resolving
+the credential for one host, and an explicit SNMP target are all of this kind.
+
+Compiling an SNMP or mapper configuration is different: it resolves the same
+secret for every device a profile or credential rule selects. One compile
+writes one row for each distinct secret, consumer and outcome, not one row per
+device. The row's `metadata` says what it stands for:
+
+| Key | Meaning |
+| --- | --- |
+| `resolution_count` | How many device resolutions the row stands for |
+| `first_device_uid`, `last_device_uid` | The first and last device, in resolution order |
+| `device_set_sha256` | SHA-256 over the device UIDs in resolution order, each followed by a newline |
+| `run_id` | One value shared by every row the same compile wrote |
+| `partition` | The partition the compile was for, when it has one |
+
+The consumer columns name the profile, credential rule or device override
+whose credential was resolved, and `agent_id` names the agent the configuration
+was compiled for. A row whose resolutions each targeted a device has
+`target_kind` `device_set` and the digest as its `target_id`. A row with no
+`resolution_count` stands for exactly one resolution.
+
+To count resolutions rather than rows, sum `resolution_count` and count a row
+without it as one. To check whether a device was in a compile, recompute the
+digest from the devices the profile or rule selected at the time.
+
 ## Providers come from packages, not from the UI
 
 The provider list, the auth methods, the credential fields, the purposes, and the

@@ -1,6 +1,20 @@
 defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
   @moduledoc """
   Redacted audit metadata for credential broker resolution attempts.
+
+  A resolution made on its own writes one row: who resolved which secret
+  (`consumer_kind`, `consumer_id`), for what (`target_kind`, `target_id`),
+  where, and with what outcome.
+
+  A bulk pass writes one row for many resolutions. Compiling an SNMP or mapper
+  config resolves the same secret for every device a profile or credential
+  rule selects, so the pass writes one row per distinct secret, consumer and
+  outcome rather than one per device. Such a row has `resolution_count` in its
+  `metadata`, with `first_device_uid`, `last_device_uid`, `device_set_sha256`,
+  `run_id` and `partition`; when its resolutions each targeted a device, its
+  `target_kind` is `device_set` and its `target_id` is that digest. A row
+  without `resolution_count` stands for exactly one resolution. See
+  `ServiceRadar.SNMPProfiles.CredentialResolver.with_bulk_audit/2`.
   """
 
   use Ash.Resource,

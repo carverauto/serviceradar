@@ -21,6 +21,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -1967,34 +1968,35 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
              "compiling 200 devices took #{large_queries} queries, compiling 10 took #{small_queries}"
     end
 
-    # A brokered credential still leaves one resolution audit row per device, as
-    # it did when each device resolved on its own, but the secret is read once
-    # and the rows are inserted together.
+    # One compile is one resolution pass. Each brokered secret it resolves is
+    # audited once for the pass, with the number of devices it was resolved for;
+    # a resolution made on its own still writes its own row.
     @tag :integration
     @tag timeout: 300_000
-    test "a brokered rule credential is audited per device in a fixed number of statements", %{
-      actor: actor
-    } do
+    test "a compile audits each brokered secret once, with its device count", %{actor: actor} do
       unique = System.unique_integer([:positive])
       gateway_id = "gw-broker-#{unique}"
       agent_id = "agent-broker-#{unique}"
-      profile = create_gateway_profile(gateway_id, actor)
+      vendor = "Example Rule Vendor #{unique}"
 
-      devices =
-        for _index <- 1..200, do: create_gateway_device(actor, gateway_id)
+      rule_secret = create_snmp_secret("Rule #{unique}", "rule-community", actor)
+      profile_secret = create_snmp_secret("Profile #{unique}", "profile-community", actor)
 
-      secret =
-        NetworkCredentialSecret
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "Batch rule #{unique}",
-            provider: "snmp",
-            credential_kind: :opaque,
-            secret_payload: "rule-community"
-          },
-          actor: actor
-        )
+      {:ok, template} = create_read_failure_template("Template #{gateway_id}", actor)
+
+      profile =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Profile #{gateway_id}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+          oid_template_ids: [template.id],
+          version: :v2c,
+          credential_secret_id: profile_secret.id
+        })
         |> Ash.create!(actor: actor)
 
       rule =
@@ -2006,29 +2008,65 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             provider: "snmp",
             auth_method: :community,
             purpose: "snmp_monitoring",
-            target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+            target_query: ~s(in:devices vendor_name:"#{vendor}"),
             scope_type: :agent,
             scope_value: agent_id,
-            secret_id: secret.id
+            secret_id: rule_secret.id
           },
           actor: actor
         )
         |> Ash.create!(actor: actor)
+
+      ruled =
+        for _index <- 1..120 do
+          create_gateway_device(actor, gateway_id, %{vendor_name: vendor})
+        end
+
+      unruled = for _index <- 121..200, do: create_gateway_device(actor, gateway_id)
 
       {queries, {:ok, config}} =
         counting_queries(fn ->
           SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
         end)
 
-      assert target_ids(config) == MapSet.new(devices, & &1.uid)
-      assert Enum.all?(config["targets"], &(&1["community"] == "rule-community"))
+      by_id = Map.new(config["targets"], &{&1["id"], &1["community"]})
+      assert map_size(by_id) == 200
+      assert Enum.all?(ruled, &(by_id[&1.uid] == "rule-community"))
+      assert Enum.all?(unruled, &(by_id[&1.uid] == "profile-community"))
 
-      {:ok, audits} = CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: actor)
-      assert length(audits) == 200
-      assert Enum.all?(audits, &(&1.outcome == :success and &1.target_id == rule.id))
+      assert [rule_audit] = resolution_audits(rule_secret, actor)
+      assert rule_audit.outcome == :success
+      assert rule_audit.consumer_id == "credential_rule:#{rule.id}"
+      assert rule_audit.target_id == rule.id
+      assert rule_audit.agent_id == agent_id
+      assert rule_audit.metadata["resolution_count"] == 120
+
+      assert [profile_audit] = resolution_audits(profile_secret, actor)
+      assert profile_audit.outcome == :success
+      assert profile_audit.consumer_id == "snmp_profile:#{profile.id}"
+      assert profile_audit.target_kind == "device_set"
+      assert profile_audit.target_id == profile_audit.metadata["device_set_sha256"]
+      assert profile_audit.metadata["resolution_count"] == 80
+      assert profile_audit.metadata["run_id"] == rule_audit.metadata["run_id"]
+
+      sorted = unruled |> Enum.map(& &1.uid) |> Enum.sort()
+      assert profile_audit.metadata["first_device_uid"] == hd(sorted)
+      assert profile_audit.metadata["last_device_uid"] == List.last(sorted)
 
       assert queries <= 60,
-             "compiling 200 devices behind one brokered rule took #{queries} queries"
+             "compiling 200 devices behind two brokered secrets took #{queries} queries"
+
+      assert {:ok, %{credential: %{community: "profile-community"}}} =
+               CredentialResolver.resolve_for_device(hd(unruled).uid, actor)
+
+      assert [single_audit] =
+               profile_secret
+               |> resolution_audits(actor)
+               |> Enum.reject(&(&1.id == profile_audit.id))
+
+      assert single_audit.target_kind == "device"
+      assert single_audit.target_id == hd(unruled).uid
+      refute Map.has_key?(single_audit.metadata, "resolution_count")
     end
 
     # Interface queries select devices through their interfaces. Every selected
@@ -2096,6 +2134,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       community: "public"
     })
     |> Ash.create!(actor: actor)
+  end
+
+  defp create_snmp_secret(name, payload, actor) do
+    NetworkCredentialSecret
+    |> Ash.Changeset.for_create(
+      :create,
+      %{name: name, provider: "snmp", credential_kind: :opaque, secret_payload: payload},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp resolution_audits(secret, actor) do
+    {:ok, audits} = CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: actor)
+    audits
   end
 
   defp create_gateway_device(actor, gateway_id, attrs \\ %{}) do
