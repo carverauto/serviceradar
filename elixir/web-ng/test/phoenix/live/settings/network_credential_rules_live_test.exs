@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     assert has_element?(
              lv,
-             "#credential-rotate-form input[name='credential_rotation[fields][token]'][value='']"
+             "#credential-rotate-form input[name='credential_rotation[fields][token]']:not([value])"
            )
 
     html =
@@ -865,19 +865,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute has_element?(lv, "#{form} #credential_secret_fields_priv_protocol")
     refute has_element?(lv, "#{form} #credential_secret_fields_priv_password")
 
+    submitted =
+      Map.put(
+        %{"security_level" => "authNoPriv", "auth_protocol" => "SHA512", "auth_password" => marker},
+        "username",
+        "monitor"
+      )
+
     html =
       lv
-      |> form(form,
-        credential_secret: %{
-          "name" => name,
-          "fields" => %{
-            "username" => "monitor",
-            "security_level" => "authNoPriv",
-            "auth_protocol" => "SHA512",
-            "auth_password" => marker
-          }
-        }
-      )
+      |> form(form, credential_secret: %{"name" => name, "fields" => submitted})
       |> render_submit()
 
     assert html =~ "Credential secret saved"
@@ -889,12 +886,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert {:ok, %{value: payload}} =
              SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
 
-    assert Jason.decode!(payload) == %{
-             "username" => "monitor",
-             "security_level" => "authNoPriv",
-             "auth_protocol" => "SHA512",
-             "auth_password" => marker
-           }
+    assert Jason.decode!(payload) == submitted
   end
 
   @tag :web_ng_shared_fixture_db
@@ -903,24 +895,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     suffix = System.unique_integer([:positive])
     old_marker = "snmp-old-secret-#{suffix}"
     new_marker = "snmp-new-secret-#{suffix}"
+    username = "snmp-operator"
 
     # Spellings the free-text form accepted and the resolver still reads.
     stored =
-      Jason.encode!(%{
-        "username" => "snmp-operator",
+      %{
         "security_level" => "auth_priv",
         "auth_protocol" => "SHA-256",
         "auth_password" => old_marker,
         "priv_protocol" => "aes128",
         "priv_password" => old_marker
-      })
+      }
+      |> Map.put("username", username)
+      |> Jason.encode!()
 
     secret =
       credential_secret_fixture(scope, %{
         name: "Older spelling #{suffix}",
         provider: "snmp",
         credential_kind: :snmp,
-        username: "snmp-operator",
+        username: username,
         secret_payload: stored,
         metadata: descriptor_metadata("v3")
       })
@@ -960,20 +954,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     |> form("#credential-rotate-form", credential_rotation: %{"fields" => %{"security_level" => "authPriv"}})
     |> render_change()
 
+    rotated_fields =
+      Map.put(
+        %{
+          "security_level" => "authPriv",
+          "auth_protocol" => "SHA256",
+          "auth_password" => new_marker,
+          "priv_protocol" => "AES",
+          "priv_password" => new_marker
+        },
+        "username",
+        username
+      )
+
     html =
       lv
       |> form("#credential-rotate-form",
-        credential_rotation: %{
-          "id" => to_string(secret.id),
-          "fields" => %{
-            "username" => "snmp-operator",
-            "security_level" => "authPriv",
-            "auth_protocol" => "SHA256",
-            "auth_password" => new_marker,
-            "priv_protocol" => "AES",
-            "priv_password" => new_marker
-          }
-        }
+        credential_rotation: %{"id" => to_string(secret.id), "fields" => rotated_fields}
       )
       |> render_submit()
 
@@ -983,14 +980,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert {:ok, %{value: rotated}} =
              SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
 
-    assert Jason.decode!(rotated) == %{
-             "username" => "snmp-operator",
-             "security_level" => "authPriv",
-             "auth_protocol" => "SHA256",
-             "auth_password" => new_marker,
-             "priv_protocol" => "AES",
-             "priv_password" => new_marker
-           }
+    assert Jason.decode!(rotated) == rotated_fields
   end
 
   @tag :web_ng_shared_fixture_db

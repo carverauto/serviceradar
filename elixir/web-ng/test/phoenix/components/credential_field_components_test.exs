@@ -81,20 +81,16 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
     end
 
     test "switching away from a level drops its secrets and switching back restores the default protocol" do
-      marker = "ui-secret-marker-level-switch"
+      marker = secret_marker("level-switch")
 
       {:noreply, without_auth} =
         NetworkCredentialRulesLive.handle_event(
           "change_secret",
           %{
+            # A hidden field is not submitted by a browser; a forged or stale
+            # one must still not survive in the form.
             "credential_secret" =>
-              secret_form_params(%{
-                "username" => "monitor",
-                "security_level" => "noAuthNoPriv",
-                # A hidden field is not submitted by a browser; a forged or stale
-                # one must still not survive in the form.
-                "auth_password" => marker
-              })
+              secret_form_params(v3_fields(%{"security_level" => "noAuthNoPriv", "auth_password" => marker}))
           },
           secret_form_socket()
         )
@@ -106,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
         NetworkCredentialRulesLive.handle_event(
           "change_secret",
           %{
-            "credential_secret" => secret_form_params(%{"username" => "monitor", "security_level" => "authPriv"})
+            "credential_secret" => secret_form_params(v3_fields(%{}))
           },
           without_auth
         )
@@ -130,20 +126,22 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
     # ignored by the patch.
     test "leaves every password input of the new credential form unrendered and ignored by the patch" do
       before = render_fields(new_credential_values())
+      auth_marker = secret_marker("change-auth")
+      priv_marker = secret_marker("change-priv")
 
       {:noreply, changed} =
         NetworkCredentialRulesLive.handle_event(
           "change_secret",
           %{
             "credential_secret" =>
-              secret_form_params(%{
-                "username" => "monitor",
-                "security_level" => "authPriv",
-                "auth_protocol" => "SHA512",
-                "auth_password" => "ui-secret-marker-change-auth",
-                "priv_protocol" => "AES256",
-                "priv_password" => "ui-secret-marker-change-priv"
-              })
+              secret_form_params(
+                v3_fields(%{
+                  "auth_protocol" => "SHA512",
+                  "auth_password" => auth_marker,
+                  "priv_protocol" => "AES256",
+                  "priv_password" => priv_marker
+                })
+              )
           },
           secret_form_socket()
         )
@@ -154,11 +152,14 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
         assert_untouched_secret_inputs(document, "credential_secret")
       end
 
-      refute LazyHTML.to_html(after_change) =~ "ui-secret-marker-change"
+      refute LazyHTML.to_html(after_change) =~ auth_marker
+      refute LazyHTML.to_html(after_change) =~ priv_marker
     end
 
     test "leaves every password input of the rotation form unrendered and ignored by the patch" do
       method = snmp_v3_method()
+      auth_marker = secret_marker("rotate-auth")
+      priv_marker = secret_marker("rotate-priv")
 
       socket = %Socket{
         assigns: %{__changed__: %{}, flash: %{}, credential_descriptor: %{method: method}},
@@ -173,21 +174,21 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
           %{
             "credential_rotation" => %{
               "id" => "credential-1",
-              "fields" => %{
-                "username" => "monitor",
-                "security_level" => "authPriv",
-                "auth_protocol" => "SHA256",
-                "auth_password" => "ui-secret-marker-rotate-auth",
-                "priv_protocol" => "AES",
-                "priv_password" => "ui-secret-marker-rotate-priv"
-              }
+              "fields" =>
+                v3_fields(%{
+                  "auth_protocol" => "SHA256",
+                  "auth_password" => auth_marker,
+                  "priv_protocol" => "AES",
+                  "priv_password" => priv_marker
+                })
             }
           },
           socket
         )
 
       kept = changed.assigns.credential_form.params["fields"]
-      refute inspect(kept) =~ "ui-secret-marker-rotate"
+      refute inspect(kept) =~ auth_marker
+      refute inspect(kept) =~ priv_marker
 
       after_change = render_fields(kept, form_name: "credential_rotation")
 
@@ -199,21 +200,21 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
 
   describe "saving" do
     test "a name the form does not offer is rejected on its field and nothing is kept" do
-      marker = "ui-secret-marker-rejected-save"
+      marker = secret_marker("rejected-save")
 
       {:noreply, socket} =
         NetworkCredentialRulesLive.handle_event(
           "save_secret",
           %{
             "credential_secret" =>
-              secret_form_params(%{
-                "username" => "monitor",
-                "security_level" => "authPriv",
-                "auth_protocol" => "SHA-256",
-                "auth_password" => marker,
-                "priv_protocol" => "AES",
-                "priv_password" => marker
-              })
+              secret_form_params(
+                v3_fields(%{
+                  "auth_protocol" => "SHA-256",
+                  "auth_password" => marker,
+                  "priv_protocol" => "AES",
+                  "priv_password" => marker
+                })
+              )
           },
           secret_form_socket()
         )
@@ -238,14 +239,14 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
           "save_secret",
           %{
             "credential_secret" =>
-              secret_form_params(%{
-                "username" => "monitor",
-                "security_level" => "authPriv",
-                "auth_protocol" => "SHA256",
-                "auth_password" => "auth-secret",
-                "priv_protocol" => "AES",
-                "priv_password" => ""
-              })
+              secret_form_params(
+                v3_fields(%{
+                  "auth_protocol" => "SHA256",
+                  "auth_password" => secret_marker("auth"),
+                  "priv_protocol" => "AES",
+                  "priv_password" => ""
+                })
+              )
           },
           secret_form_socket()
         )
@@ -256,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
 
   describe "rotation" do
     test "starts with no level or protocol chosen and never renders a submitted secret" do
-      marker = "ui-secret-marker-rotation-fields"
+      marker = secret_marker("rotation-fields")
       method = snmp_v3_method()
 
       blank = render_fields(CredentialFieldComponents.values(method, %{}, false), form_name: "credential_rotation")
@@ -267,12 +268,8 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
                "priv_protocol" => []
              }
 
-      submitted = %{
-        "username" => "monitor",
-        "security_level" => "authNoPriv",
-        "auth_protocol" => "SHA512",
-        "auth_password" => marker
-      }
+      submitted =
+        v3_fields(%{"security_level" => "authNoPriv", "auth_protocol" => "SHA512", "auth_password" => marker})
 
       kept = CredentialFieldComponents.values(method, submitted, false)
       document = render_fields(kept, form_name: "credential_rotation")
@@ -338,6 +335,16 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
       assert attributes["phx-update"] == "ignore"
       refute Map.has_key?(attributes, "value")
     end
+  end
+
+  # The fields every v3 submission shares; each test adds the level, protocols
+  # and secrets it is about.
+  defp v3_fields(fields) do
+    Map.merge(%{"username" => "monitor", "security_level" => "authPriv"}, fields)
+  end
+
+  defp secret_marker(label) do
+    "ui-marker-#{label}-" <> Integer.to_string(System.unique_integer([:positive]))
   end
 
   defp secret_form_params(fields) do

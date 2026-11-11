@@ -312,17 +312,6 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
       refute inspect(attrs.metadata) =~ "priv-secret"
     end
 
-    # Everything the form can submit for a v3 credential. Each case below
-    # changes the security level and says what must come out.
-    @v3_submission %{
-      "username" => "monitor",
-      "security_level" => "authPriv",
-      "auth_protocol" => "SHA256",
-      "auth_password" => "auth-secret",
-      "priv_protocol" => "AES",
-      "priv_password" => "priv-secret"
-    }
-
     test "the security level decides which v3 fields are stored" do
       for {level, stored_fields} <- [
             {"noAuthNoPriv", ~w(security_level username)},
@@ -334,7 +323,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  CredentialSecretBuilder.build(
                    NativeDescriptors.snmp(),
                    "v3",
-                   %{@v3_submission | "security_level" => level},
+                   %{v3_submission() | "security_level" => level},
                    %{name: "Level #{level}", description: nil}
                  )
 
@@ -356,7 +345,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
             {"authPriv", "priv_protocol", {:missing_credential_field, "priv_protocol"}},
             {"authPriv", "priv_password", {:missing_credential_field, "priv_password"}}
           ] do
-        values = @v3_submission |> Map.put("security_level", level) |> Map.put(field, "")
+        values = v3_submission() |> Map.put("security_level", level) |> Map.put(field, "")
 
         result =
           CredentialSecretBuilder.build(NativeDescriptors.snmp(), "v3", values, %{
@@ -383,7 +372,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
         assert CredentialSecretBuilder.build(
                  NativeDescriptors.snmp(),
                  "v3",
-                 Map.put(@v3_submission, field, value),
+                 Map.put(v3_submission(), field, value),
                  %{name: "Unknown #{field}", description: nil}
                ) == {:error, {:invalid_credential_field, field}},
                "#{field}=#{value}"
@@ -684,6 +673,24 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  )
       end
     end
+  end
+
+  # Everything the form can submit for a v3 credential. Each case using it
+  # changes the security level or one field and says what must come out.
+  defp v3_submission do
+    marker = Integer.to_string(System.unique_integer([:positive]))
+
+    Map.put(
+      %{
+        "security_level" => "authPriv",
+        "auth_protocol" => "SHA256",
+        "auth_password" => "auth-marker-" <> marker,
+        "priv_protocol" => "AES",
+        "priv_password" => "priv-marker-" <> marker
+      },
+      "username",
+      "monitor"
+    )
   end
 
   defp rotatable_secret(overrides \\ %{}) do
