@@ -97,7 +97,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
         )
 
         pressure = PressureMonitor.check()
-        Health.record_head_failure(reason, pressure)
+        Health.record_head_failure(Head.describe_failure(reason), pressure)
 
         :ok
     end
