@@ -243,7 +243,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     assert targets |> Map.keys() |> Enum.sort() == Enum.sort(ips)
     assert Enum.all?(targets, fn {_ip, target} -> target["community"] == "batch-community" end)
 
-    assert queries <= 80,
+    # Measured 27 for the whole compile.
+    assert queries <= 30,
            "compiling target credentials for 200 devices took #{queries} queries"
   end
 

@@ -2053,7 +2053,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert profile_audit.metadata["first_device_uid"] == hd(sorted)
       assert profile_audit.metadata["last_device_uid"] == List.last(sorted)
 
-      assert queries <= 60,
+      # Measured 17: the reads of one page plus one audit and one version insert.
+      assert queries <= 20,
              "compiling 200 devices behind two brokered secrets took #{queries} queries"
 
       assert {:ok, %{credential: %{community: "profile-community"}}} =
@@ -2113,7 +2114,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert MapSet.new(delivered) == MapSet.new(devices, & &1.uid)
       assert length(pages) == 2
 
-      assert queries <= 6,
+      # Two pages, each one interface read and one device read.
+      assert queries == 4,
              "an interface query matching 261 devices took #{queries} queries"
     end
   end
