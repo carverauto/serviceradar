@@ -34,6 +34,8 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   reaching the poller, so they are asserted in the tests.
   """
 
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
+
   @snmp_provider "snmp"
   @vulncheck_provider "vulncheck"
 
@@ -108,53 +110,61 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
               "secret" => false,
               "public" => true
             },
-            # UniFi's SNMP UI is one password with hidden SHA + AES-128 authPriv.
-            # Put the same password in auth and privacy and set these explicitly.
-            %{
-              "id" => "security_level",
-              "label" => "Security level",
-              "control" => "text",
-              "required" => false,
-              "secret" => false,
-              "public" => false
-            },
+            # The level decides which of the fields below exist at all: a
+            # noAuthNoPriv credential has no passwords to store. A UniFi device
+            # shows one password and hides SHA + AES-128 authPriv behind it; put
+            # the same password in both fields and pick those protocols.
+            #
+            # Optional: a credential written without a level has it inferred
+            # from its passwords by the resolver, and callers other than the
+            # credential form rely on that.
+            select_field(
+              "security_level",
+              "Security level",
+              ProtocolFormatter.security_level_options(),
+              ProtocolFormatter.default_option(:security_level)
+            ),
             # Carried with the credential rather than left on the profile: the
             # protocols are part of what these secrets mean, so a credential
             # reused across profiles stays self-describing. The resolver reads
             # the payload first and falls back to the record, so a profile that
             # sets them still works.
-            %{
-              "id" => "auth_protocol",
-              "label" => "Authentication protocol",
-              "control" => "text",
-              "required" => false,
-              "secret" => false,
-              "public" => false
-            },
-            %{
-              "id" => "auth_password",
-              "label" => "Authentication password",
-              "control" => "password",
-              "required" => true,
-              "secret" => true,
-              "public" => false
-            },
-            %{
-              "id" => "priv_protocol",
-              "label" => "Privacy protocol",
-              "control" => "text",
-              "required" => false,
-              "secret" => false,
-              "public" => false
-            },
-            %{
-              "id" => "priv_password",
-              "label" => "Privacy password",
-              "control" => "password",
-              "required" => false,
-              "secret" => true,
-              "public" => false
-            }
+            "auth_protocol"
+            |> select_field(
+              "Authentication protocol",
+              ProtocolFormatter.auth_protocol_options(),
+              ProtocolFormatter.default_option(:auth_protocol)
+            )
+            |> applies_at(levels([:auth_no_priv, :auth_priv])),
+            applies_at(
+              %{
+                "id" => "auth_password",
+                "label" => "Authentication password",
+                "control" => "password",
+                "required" => true,
+                "secret" => true,
+                "public" => false
+              },
+              levels([:auth_no_priv, :auth_priv])
+            ),
+            "priv_protocol"
+            |> select_field(
+              "Privacy protocol",
+              ProtocolFormatter.priv_protocol_options(),
+              ProtocolFormatter.default_option(:priv_protocol)
+            )
+            |> applies_at(levels([:auth_priv])),
+            applies_at(
+              %{
+                "id" => "priv_password",
+                "label" => "Privacy password",
+                "control" => "password",
+                "required" => false,
+                "secret" => true,
+                "public" => false
+              },
+              levels([:auth_priv])
+            )
           ]
         }
       ],
@@ -211,6 +221,37 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
       "description" => "API token for the core-hosted OTX subscribed-pulse feed.",
       "plugin_id" => "alienvault-otx-core",
       "purposes" => ["threat_intel_sync"]
+    })
+  end
+
+  # A field the operator chooses from a fixed list. The options come from the
+  # module the backend normalises with, so the form cannot offer a name the
+  # resolver would not recognise; `CredentialSecretBuilder` rejects any other
+  # value.
+  defp select_field(id, label, options, default) do
+    %{
+      "id" => id,
+      "label" => label,
+      "control" => "select",
+      "options" => Enum.map(options, &%{"value" => &1.value, "label" => &1.label}),
+      "default" => default.value,
+      "required" => false,
+      "secret" => false,
+      "public" => false
+    }
+  end
+
+  defp levels(ids), do: Enum.map(ids, &ProtocolFormatter.security_level_value/1)
+
+  # Ties a field to the security levels that use it: left out of the
+  # credential at any other level, mandatory at these. With no level submitted
+  # the field keeps its own `"required"` flag, which is how a credential that
+  # leaves the level to be inferred from its passwords is still written.
+  defp applies_at(field, levels) do
+    Map.put(field, "applies_when", %{
+      "field" => "security_level",
+      "values" => levels,
+      "required" => true
     })
   end
 end

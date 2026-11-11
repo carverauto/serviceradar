@@ -40,6 +40,7 @@ go_test(
         "v3_client_test.go",
         "walk_test.go",
     ],
+    data = [":snmpv3_protocol_contract"],
     embed = [":snmp"],
     embedsrcs = ["service.go"],
     deps = [
@@ -49,5 +50,18 @@ go_test(
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_uber_go_mock//gomock",
+    ],
+)
+
+# The SNMPv3 security levels and protocols core offers in its forms, with the
+# spelling core sends for each. This package's tests, //go/pkg/mapper's and
+# //elixir/serviceradar_core's all read it, so the names core offers and the
+# names the Go side accepts cannot drift apart without one of them failing.
+filegroup(
+    name = "snmpv3_protocol_contract",
+    srcs = ["testdata/snmpv3_protocol_contract.json"],
+    visibility = [
+        "//elixir/serviceradar_core:__pkg__",
+        "//go/pkg/mapper:__pkg__",
     ],
 )

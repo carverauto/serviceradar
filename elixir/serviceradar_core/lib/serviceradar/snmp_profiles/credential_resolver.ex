@@ -1006,52 +1006,12 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp normalize_version("3"), do: :v3
   defp normalize_version(_value), do: :v2c
 
-  defp normalize_security_level(value)
-       when value in [:no_auth_no_priv, :auth_no_priv, :auth_priv], do: value
-
-  defp normalize_security_level("noAuthNoPriv"), do: :no_auth_no_priv
-  defp normalize_security_level("authNoPriv"), do: :auth_no_priv
-  defp normalize_security_level("authPriv"), do: :auth_priv
-  defp normalize_security_level("no_auth_no_priv"), do: :no_auth_no_priv
-  defp normalize_security_level("auth_no_priv"), do: :auth_no_priv
-  defp normalize_security_level("auth_priv"), do: :auth_priv
-  defp normalize_security_level(_value), do: nil
-
-  defp normalize_auth_protocol(value)
-       when value in [:md5, :sha, :sha224, :sha256, :sha384, :sha512], do: value
-
-  defp normalize_auth_protocol(value) when is_binary(value) do
-    case value |> String.downcase() |> String.replace("-", "") do
-      "md5" -> :md5
-      "sha" -> :sha
-      "sha1" -> :sha
-      "sha224" -> :sha224
-      "sha256" -> :sha256
-      "sha384" -> :sha384
-      "sha512" -> :sha512
-      _ -> nil
-    end
-  end
-
-  defp normalize_auth_protocol(_value), do: nil
-
-  defp normalize_priv_protocol(value)
-       when value in [:des, :aes, :aes192, :aes256, :aes192c, :aes256c], do: value
-
-  defp normalize_priv_protocol(value) when is_binary(value) do
-    case value |> String.downcase() |> String.replace("-", "") do
-      "des" -> :des
-      "aes" -> :aes
-      "aes128" -> :aes
-      "aes192" -> :aes192
-      "aes256" -> :aes256
-      "aes192c" -> :aes192c
-      "aes256c" -> :aes256c
-      _ -> nil
-    end
-  end
-
-  defp normalize_priv_protocol(_value), do: nil
+  # One vocabulary for every reader: the same normalisers the forms' option
+  # lists and the agent-config compiler use, so a spelling accepted here is
+  # accepted there.
+  defp normalize_security_level(value), do: ProtocolFormatter.normalize_security_level(value)
+  defp normalize_auth_protocol(value), do: ProtocolFormatter.normalize_auth_protocol(value)
+  defp normalize_priv_protocol(value), do: ProtocolFormatter.normalize_priv_protocol(value)
 
   defp decrypt_credential(nil), do: nil
 

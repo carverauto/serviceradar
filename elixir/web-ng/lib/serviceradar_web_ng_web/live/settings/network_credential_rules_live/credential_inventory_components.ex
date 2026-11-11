@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
   alias ServiceRadar.Credentials.CredentialUsage.Result
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFieldComponents
 
   attr :loading?, :boolean, required: true
   attr :secrets, :list, required: true
@@ -209,6 +210,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
   attr :descriptor, :map, default: nil
   attr :usage, :any, default: :unavailable
   attr :error, :string, default: nil
+  attr :field_errors, :map, default: %{}
 
   def credential_action_modal(%{modal: %{kind: :edit}} = assigns), do: edit_modal(assigns)
   def credential_action_modal(%{modal: %{kind: :rotate}} = assigns), do: rotate_modal(assigns)
@@ -263,8 +265,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
   end
 
   defp rotate_modal(assigns) do
-    fields = descriptor_fields(assigns.descriptor)
-    assigns = assign(assigns, :fields, fields)
+    method = descriptor_method(assigns.descriptor)
+
+    assigns =
+      assigns
+      |> assign(:method, method)
+      |> assign(:values, CredentialFieldComponents.values(method, assigns.form.params["fields"], false))
 
     ~H"""
     <.ui_modal id="credential-rotate-modal" size="form" on_cancel="close_credential_modal">
@@ -278,24 +284,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
       <.form
         for={@form}
         id="credential-rotate-form"
+        phx-change="change_credential_rotation"
         phx-submit="save_credential_rotation"
         class="space-y-4"
       >
         <input type="hidden" name={@form[:id].name} value={@modal.secret.id} />
 
         <div class="grid gap-4 md:grid-cols-2">
-          <.input
-            :for={field <- @fields}
-            id={"credential_rotation_fields_#{field["id"]}"}
-            name={"credential_rotation[fields][#{field["id"]}]"}
-            value=""
-            type={descriptor_field_input_type(field)}
-            label={field["label"]}
-            placeholder={field["placeholder"]}
-            minlength={field["min_length"]}
-            maxlength={field["max_length"]}
-            required={field["required"]}
-            autocomplete={if(field["secret"], do: "new-password", else: "off")}
+          <CredentialFieldComponents.descriptor_fields
+            method={@method}
+            form_name="credential_rotation"
+            values={@values}
+            errors={@field_errors}
             data-credential-rotation-field
           />
         </div>
@@ -469,17 +469,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp descriptor_profiles(_descriptor), do: %{}
 
-  defp descriptor_fields(%{method: %{"fields" => fields}}) when is_list(fields), do: fields
-  defp descriptor_fields(_descriptor), do: []
+  defp descriptor_method(%{method: %{} = method}), do: method
+  defp descriptor_method(_descriptor), do: %{}
 
   defp descriptor_auth_label(_secret, %{method: %{"label" => label}}) when is_binary(label) and label != "", do: label
 
   defp descriptor_auth_label(secret, _descriptor), do: auth_method_label(secret, %{})
-
-  defp descriptor_field_input_type(%{"control" => "textarea"}), do: "textarea"
-  defp descriptor_field_input_type(%{"control" => "password"}), do: "password"
-  defp descriptor_field_input_type(%{"secret" => true}), do: "password"
-  defp descriptor_field_input_type(_field), do: "text"
 
   defp credential_dom_id(id), do: "credential-secret-#{id}"
 

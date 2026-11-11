@@ -1,0 +1,24 @@
+{
+  "comment": "The SNMPv3 names core offers in its forms and the spelling core puts on the wire for each. Read by core's ProtocolFormatter tests and by the Go agent and mapper tests: a name added or removed on one side fails the other.",
+  "security_levels": [
+    {"value": "noAuthNoPriv", "wire": "noAuthNoPriv"},
+    {"value": "authNoPriv", "wire": "authNoPriv"},
+    {"value": "authPriv", "wire": "authPriv"}
+  ],
+  "auth_protocols": [
+    {"value": "MD5", "wire": "MD5"},
+    {"value": "SHA", "wire": "SHA"},
+    {"value": "SHA224", "wire": "SHA-224"},
+    {"value": "SHA256", "wire": "SHA-256"},
+    {"value": "SHA384", "wire": "SHA-384"},
+    {"value": "SHA512", "wire": "SHA-512"}
+  ],
+  "priv_protocols": [
+    {"value": "DES", "wire": "DES"},
+    {"value": "AES", "wire": "AES"},
+    {"value": "AES192", "wire": "AES-192"},
+    {"value": "AES256", "wire": "AES-256"},
+    {"value": "AES-192-C", "wire": "AES-192-C"},
+    {"value": "AES-256-C", "wire": "AES-256-C"}
+  ]
+}

@@ -598,59 +598,79 @@ func applySNMPv3(client *gosnmp.GoSNMP, target *Target) error {
 	return nil
 }
 
+// The SNMPv3 names this agent accepts, keyed as compactProtocol folds them.
+// Core offers a fixed list of names in its forms; the shared fixture
+// testdata/snmpv3_protocol_contract.json and TestSNMPv3ProtocolContract hold
+// these tables and that list to the same set of levels and protocols.
+
+func securityLevelsByName() map[string]gosnmp.SnmpV3MsgFlags {
+	return map[string]gosnmp.SnmpV3MsgFlags{
+		"":             gosnmp.NoAuthNoPriv,
+		"noauthnopriv": gosnmp.NoAuthNoPriv,
+		"authnopriv":   gosnmp.AuthNoPriv,
+		"authpriv":     gosnmp.AuthPriv,
+	}
+}
+
+func authProtocolsByName() map[string]gosnmp.SnmpV3AuthProtocol {
+	return map[string]gosnmp.SnmpV3AuthProtocol{
+		"md5":    gosnmp.MD5,
+		"sha":    gosnmp.SHA,
+		"sha1":   gosnmp.SHA,
+		"sha224": gosnmp.SHA224,
+		"sha256": gosnmp.SHA256,
+		"sha384": gosnmp.SHA384,
+		"sha512": gosnmp.SHA512,
+	}
+}
+
+func privProtocolsByName() map[string]gosnmp.SnmpV3PrivProtocol {
+	return map[string]gosnmp.SnmpV3PrivProtocol{
+		"des":     gosnmp.DES,
+		"aes":     gosnmp.AES,
+		"aes128":  gosnmp.AES,
+		"aes192":  gosnmp.AES192,
+		"aes256":  gosnmp.AES256,
+		"aes192c": gosnmp.AES192C,
+		"aes256c": gosnmp.AES256C,
+	}
+}
+
 func securityLevelToMsgFlags(sl SecurityLevel) (gosnmp.SnmpV3MsgFlags, error) {
-	switch SecurityLevel(compactProtocol(string(sl))) {
-	case "", SecurityLevelNoAuthNoPriv, "noauthnopriv":
-		return gosnmp.NoAuthNoPriv, nil
-	case SecurityLevelAuthNoPriv, "authnopriv":
-		return gosnmp.AuthNoPriv, nil
-	case SecurityLevelAuthPriv, "authpriv":
-		return gosnmp.AuthPriv, nil
-	default:
+	flags, ok := securityLevelsByName()[compactProtocol(string(sl))]
+	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPSecurityLevel, sl)
 	}
+
+	return flags, nil
 }
 
 func authProtocolToGoSNMP(ap AuthProtocol) (gosnmp.SnmpV3AuthProtocol, error) {
-	switch compactProtocol(string(ap)) {
-	case "md5":
-		return gosnmp.MD5, nil
-	case "sha", "sha1":
-		return gosnmp.SHA, nil
-	case "sha224":
-		return gosnmp.SHA224, nil
-	case "sha256":
-		return gosnmp.SHA256, nil
-	case "sha384":
-		return gosnmp.SHA384, nil
-	case "sha512":
-		return gosnmp.SHA512, nil
-	case "":
+	name := compactProtocol(string(ap))
+	if name == "" {
 		return 0, fmt.Errorf("%w: auth protocol is required", ErrUnknownSNMPAuthProtocol)
-	default:
+	}
+
+	protocol, ok := authProtocolsByName()[name]
+	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPAuthProtocol, ap)
 	}
+
+	return protocol, nil
 }
 
 func privProtocolToGoSNMP(pp PrivProtocol) (gosnmp.SnmpV3PrivProtocol, error) {
-	switch compactProtocol(string(pp)) {
-	case "des":
-		return gosnmp.DES, nil
-	case "aes", "aes128":
-		return gosnmp.AES, nil
-	case "aes192":
-		return gosnmp.AES192, nil
-	case "aes256":
-		return gosnmp.AES256, nil
-	case "aes192c":
-		return gosnmp.AES192C, nil
-	case "aes256c":
-		return gosnmp.AES256C, nil
-	case "":
+	name := compactProtocol(string(pp))
+	if name == "" {
 		return 0, fmt.Errorf("%w: privacy protocol is required", ErrUnknownSNMPPrivProtocol)
-	default:
+	}
+
+	protocol, ok := privProtocolsByName()[name]
+	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPPrivProtocol, pp)
 	}
+
+	return protocol, nil
 }
 
 func compactProtocol(value string) string {

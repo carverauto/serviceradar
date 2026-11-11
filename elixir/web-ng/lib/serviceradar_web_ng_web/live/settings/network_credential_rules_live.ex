@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.PluginConfigForm
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFieldComponents
   alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInventoryComponents
   alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialManagement
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -48,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:credential_descriptor, nil)
        |> assign(:credential_modal_usage, :unavailable)
        |> assign(:credential_action_error, nil)
+       |> assign(:credential_field_errors, %{})
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
        |> assign(:integration_profiles, %{})
@@ -61,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:rule_consumers, nil)
        |> assign(:secret_form, nil)
        |> assign(:secret_descriptor, nil)
+       |> assign(:secret_field_errors, %{})
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
       {:ok,
@@ -236,7 +239,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   def handle_event("close_secret_form", _params, socket) do
-    {:noreply, socket |> assign(:secret_form, nil) |> assign(:secret_descriptor, nil)}
+    {:noreply, close_secret_form(socket)}
+  end
+
+  # Re-renders the form for the choice just made: picking a security level
+  # decides which SNMPv3 fields exist. Only non-secret values are kept.
+  def handle_event("change_secret", %{"credential_secret" => params}, socket) do
+    params = sanitize_secret_form_params(params, socket.assigns.secret_descriptor)
+
+    {:noreply,
+     socket
+     |> assign(:secret_form, secret_form(params))
+     |> assign(:secret_field_errors, %{})}
   end
 
   def handle_event("save_secret", %{"credential_secret" => params}, socket) do
@@ -244,12 +258,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       {:ok, attrs} ->
         save_secret(socket, attrs)
 
-      {:error, message} ->
+      {:error, message, field_errors} ->
         params = sanitize_secret_form_params(params, socket.assigns.secret_descriptor)
 
         {:noreply,
          socket
          |> assign(:secret_form, secret_form(params))
+         |> assign(:secret_field_errors, field_errors)
          |> put_flash(:error, message)}
     end
   end
@@ -304,6 +319,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          )
          |> assign(:credential_action_error, "Credential details could not be saved")}
     end
+  end
+
+  def handle_event("change_credential_rotation", %{"credential_rotation" => params}, socket) do
+    id = if is_binary(params["id"]), do: params["id"], else: ""
+
+    {:noreply,
+     socket
+     |> assign(:credential_form, credential_rotation_form(socket, id, params["fields"]))
+     |> assign(:credential_field_errors, %{})}
   end
 
   def handle_event("save_credential_rotation", %{"credential_rotation" => params}, socket) do
@@ -610,6 +634,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           :if={@secret_form}
           form={@secret_form}
           descriptor={@secret_descriptor}
+          field_errors={@secret_field_errors}
         />
         <CredentialInventoryComponents.credential_action_modal
           :if={@credential_modal}
@@ -618,6 +643,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           descriptor={@credential_descriptor}
           usage={@credential_modal_usage}
           error={@credential_action_error}
+          field_errors={@credential_field_errors}
         />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -626,6 +652,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   attr(:form, :map, required: true)
   attr(:descriptor, :map, default: nil)
+  attr(:field_errors, :map, default: %{})
 
   defp secret_form_modal(assigns) do
     assigns =
@@ -651,7 +678,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </.ui_button>
         </div>
 
-        <.form for={@form} phx-submit="save_secret" class="space-y-4">
+        <.form
+          for={@form}
+          id="credential-secret-form"
+          phx-change="change_secret"
+          phx-submit="save_secret"
+          class="space-y-4"
+        >
           <input type="hidden" name={@form[:kind].name} value={@secret_kind} />
 
           <div :if={@secret_kind == "descriptor" and @descriptor} class="space-y-4">
@@ -672,18 +705,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
             <div class="grid gap-4 md:grid-cols-2">
               <.input field={@form[:name]} label="Name" required />
-              <.input
-                :for={field <- @descriptor.method["fields"]}
-                id={"credential_secret_fields_#{field["id"]}"}
-                name={"credential_secret[fields][#{field["id"]}]"}
-                value={descriptor_field_value(@form, field)}
-                type={descriptor_field_input_type(field)}
-                label={field["label"]}
-                placeholder={field["placeholder"]}
-                minlength={field["min_length"]}
-                maxlength={field["max_length"]}
-                required={field["required"]}
-                autocomplete={if(field["secret"], do: "new-password", else: "off")}
+              <CredentialFieldComponents.descriptor_fields
+                method={@descriptor.method}
+                form_name="credential_secret"
+                values={secret_form_field_values(@form, @descriptor)}
+                errors={@field_errors}
               />
             </div>
 
@@ -1397,6 +1423,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:credential_descriptor, context.descriptor)
     |> assign(:credential_modal_usage, :unavailable)
     |> assign(:credential_action_error, nil)
+    |> assign(:credential_field_errors, %{})
   end
 
   defp show_credential_modal(socket, :delete, context) do
@@ -1444,6 +1471,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:credential_descriptor, nil)
     |> assign(:credential_modal_usage, :unavailable)
     |> assign(:credential_action_error, nil)
+    |> assign(:credential_field_errors, %{})
   end
 
   defp credential_action_unauthorized(socket) do
@@ -1456,6 +1484,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp credential_details_form(params), do: to_form(params, as: :credential_details)
 
   defp credential_rotation_form(id), do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
+
+  # Carries the non-secret choices back into the rotation form, so the fields
+  # shown still match the security level picked. Secrets are dropped.
+  defp credential_rotation_form(socket, id, submitted_fields) do
+    case socket.assigns[:credential_descriptor] do
+      %{method: %{} = method} ->
+        to_form(
+          %{
+            "id" => to_string(id),
+            "fields" => CredentialFieldComponents.values(method, submitted_fields, false)
+          },
+          as: :credential_rotation
+        )
+
+      _no_descriptor ->
+        credential_rotation_form(id)
+    end
+  end
 
   defp credential_delete_form(id), do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
 
@@ -1484,10 +1530,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> reload_page_data()}
 
       {:error, reason} ->
+        {message, field_errors} = credential_rotation_error(socket, reason)
+
         {:noreply,
          socket
-         |> assign(:credential_form, credential_rotation_form(id))
-         |> assign(:credential_action_error, credential_rotation_error(reason))}
+         |> assign(:credential_form, credential_rotation_form(socket, id, submitted_values))
+         |> assign(:credential_action_error, message)
+         |> assign(:credential_field_errors, field_errors)}
     end
   end
 
@@ -1502,9 +1551,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp credential_open_error(_reason), do: "Credential action could not be opened"
 
-  defp credential_rotation_error({:missing_credential_field, field}), do: "#{credential_field_label(field)} is required"
+  # A field the builder turned down is named by its descriptor label and
+  # marked on the input; anything else is a form-level message.
+  defp credential_rotation_error(socket, reason) do
+    method =
+      case socket.assigns[:credential_descriptor] do
+        %{method: %{} = method} -> method
+        _no_descriptor -> %{}
+      end
 
-  defp credential_rotation_error({:invalid_credential_field, field}), do: "#{credential_field_label(field)} is invalid"
+    case CredentialFieldComponents.field_error(method, reason) do
+      {field_id, message} -> {message, %{field_id => message}}
+      nil -> {credential_rotation_error(reason), %{}}
+    end
+  end
 
   defp credential_rotation_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"
@@ -1512,13 +1572,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp credential_rotation_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
 
   defp credential_rotation_error(_reason), do: "Credential rotation failed"
-
-  defp credential_field_label(field) do
-    field
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
-  end
 
   defp load_page(socket, params) do
     socket =
@@ -1647,8 +1700,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         {:noreply,
          socket
          |> put_flash(:info, "Credential secret saved")
-         |> assign(:secret_form, nil)
-         |> assign(:secret_descriptor, nil)
+         |> close_secret_form()
          |> reload_page_data()
          |> maybe_select_rule_secret(secret)}
 
@@ -1909,71 +1961,61 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  # Returns `{:error, message, field_errors}`: the message for the flash, and
+  # the same text keyed by field id when the builder turned one field down.
   defp normalize_secret_params(%{"kind" => "descriptor"} = params, integration_profiles) do
     provider = required_string(params, "provider")
     auth_method = required_string(params, "auth_method")
 
-    with %{} = descriptor <- credential_method(integration_profiles, provider, auth_method),
-         {:ok, values} <- descriptor_secret_values(params["fields"], descriptor.method["fields"]),
-         {:ok, attrs} <-
-           CredentialSecretBuilder.build(
-             descriptor.profile,
-             auth_method,
-             values,
-             %{
-               name: required_string(params, "name"),
-               description: blank_to_nil(params["description"])
-             }
-           ) do
-      {:ok, attrs}
-    else
+    case credential_method(integration_profiles, provider, auth_method) do
       nil ->
-        {:error, "Credential descriptor is no longer available"}
+        {:error, "Credential descriptor is no longer available", %{}}
 
-      {:error, {:missing_credential_field, field}} ->
-        {:error, "#{format_atom(field)} is required"}
-
-      {:error, reason} ->
-        {:error, "Credential could not be saved: #{format_error(reason)}"}
+      descriptor ->
+        with {:ok, values} <- descriptor_secret_values(params["fields"]),
+             {:ok, attrs} <-
+               CredentialSecretBuilder.build(
+                 descriptor.profile,
+                 auth_method,
+                 values,
+                 %{
+                   name: required_string(params, "name"),
+                   description: blank_to_nil(params["description"])
+                 }
+               ) do
+          {:ok, attrs}
+        else
+          {:error, reason} -> secret_build_error(descriptor.method, reason)
+        end
     end
   rescue
-    ArgumentError -> {:error, "Required credential fields are missing"}
+    ArgumentError -> {:error, "Required credential fields are missing", %{}}
   end
 
-  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required"}
+  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required", %{}}
 
-  defp descriptor_secret_values(raw_values, fields) when is_map(raw_values) and is_list(fields) do
-    values = Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)
-    declared_ids = Enum.map(fields, & &1["id"])
+  defp secret_build_error(method, reason) do
+    case CredentialFieldComponents.field_error(method, reason) do
+      {field_id, message} ->
+        {:error, message, %{field_id => message}}
 
-    if Enum.any?(Map.keys(values), &(&1 not in declared_ids)) do
-      {:error, "Credential form contains an undeclared field"}
-    else
-      Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
-        id = field["id"]
-        value = Map.get(values, id, "")
-        size = byte_size(value)
-        min_length = field["min_length"] || 0
-        max_length = field["max_length"] || 16_384
-
-        cond do
-          field["required"] and String.trim(value) == "" ->
-            {:halt, {:error, "#{field["label"]} is required"}}
-
-          size < min_length or size > max_length ->
-            {:halt, {:error, "#{field["label"]} has an invalid length"}}
-
-          value == "" ->
-            {:cont, {:ok, acc}}
-
-          true ->
-            {:cont, {:ok, Map.put(acc, id, value)}}
+      nil ->
+        case reason do
+          :undeclared_credential_field -> {:error, "Credential form contains an undeclared field", %{}}
+          :missing_fields -> {:error, "Required credential fields are missing", %{}}
+          other -> {:error, "Credential could not be saved: #{format_error(other)}", %{}}
         end
-      end)
     end
   end
 
-  defp descriptor_secret_values(_raw_values, _fields), do: {:error, "Required credential fields are missing"}
+  # Only shapes the submission. Which fields are required, how long they may
+  # be and which options are offered is `CredentialSecretBuilder`'s decision,
+  # made once for this form, rotation and the API.
+  defp descriptor_secret_values(raw_values) when is_map(raw_values) do
+    {:ok, Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)}
+  end
+
+  defp descriptor_secret_values(_raw_values), do: {:error, :missing_fields}
 
   defp default_rule_params(params \\ %{}, integration_profiles \\ %{})
 
@@ -2725,37 +2767,32 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp open_descriptor_secret_form(socket, descriptor) do
-    field_defaults =
-      Map.new(descriptor.method["fields"], fn field ->
-        {field["id"], Map.get(field, "default", "")}
-      end)
-
     params = %{
       "kind" => "descriptor",
       "provider" => descriptor.provider,
       "auth_method" => descriptor.method["id"],
       "name" => "",
       "description" => "",
-      "fields" => field_defaults
+      "fields" => CredentialFieldComponents.values(descriptor.method, %{}, true)
     }
 
     socket
     |> assign(:secret_descriptor, descriptor)
     |> assign(:secret_form, secret_form(params))
+    |> assign(:secret_field_errors, %{})
+  end
+
+  defp close_secret_form(socket) do
+    socket
+    |> assign(:secret_form, nil)
+    |> assign(:secret_descriptor, nil)
+    |> assign(:secret_field_errors, %{})
   end
 
   defp sanitize_secret_form_params(params, nil), do: params
 
   defp sanitize_secret_form_params(params, descriptor) do
-    values = if is_map(params["fields"]), do: params["fields"], else: %{}
-
-    sanitized =
-      Map.new(descriptor.method["fields"], fn field ->
-        value = if field["secret"], do: "", else: Map.get(values, field["id"], "")
-        {field["id"], value}
-      end)
-
-    Map.put(params, "fields", sanitized)
+    Map.put(params, "fields", CredentialFieldComponents.values(descriptor.method, params["fields"], true))
   end
 
   defp descriptor_secret_title(nil), do: nil
@@ -2764,19 +2801,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     "New #{descriptor.profile["label"]} credential"
   end
 
-  defp descriptor_field_value(_form, %{"secret" => true}), do: ""
-
-  defp descriptor_field_value(%Form{params: params}, field) when is_map(params) do
-    params
-    |> Map.get("fields", %{})
-    |> Map.get(field["id"], "")
+  # Read back through `values/3` rather than straight from the params, so a
+  # secret cannot reach the template whatever was assigned to the form.
+  defp secret_form_field_values(%Form{params: params}, descriptor) do
+    CredentialFieldComponents.values(descriptor.method, params["fields"], true)
   end
-
-  defp descriptor_field_value(_form, _field), do: ""
-
-  defp descriptor_field_input_type(%{"control" => "password"}), do: "password"
-  defp descriptor_field_input_type(%{"control" => "textarea"}), do: "textarea"
-  defp descriptor_field_input_type(_field), do: "text"
 
   defp provider_options(integration_profiles) do
     integration_profiles

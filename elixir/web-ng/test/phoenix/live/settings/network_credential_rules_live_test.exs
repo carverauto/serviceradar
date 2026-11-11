@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     assert has_element?(
              lv,
-             "#credential-rotate-form input[name='credential_rotation[fields][token]'][value='']"
+             "#credential-rotate-form input[name='credential_rotation[fields][token]']:not([value])"
            )
 
     html =
@@ -833,6 +833,154 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["auth_method"] == "api_token"
     assert secret.metadata["plugin_id"] == "vulncheck"
     assert secret.metadata["plugin_version"] == "native"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "creates an SNMPv3 credential from selects and stores only the chosen level's fields", %{
+    conn: conn,
+    scope: scope
+  } do
+    suffix = System.unique_integer([:positive])
+    name = "SNMPv3 auth only #{suffix}"
+    marker = "snmp-auth-secret-#{suffix}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='new_descriptor_secret'][phx-value-provider='snmp'][phx-value-method='v3']")
+    |> render_click()
+
+    form = "#credential-secret-form"
+
+    assert has_element?(lv, "#{form} select#credential_secret_fields_security_level option[selected][value='authPriv']")
+    assert has_element?(lv, "#{form} select#credential_secret_fields_auth_protocol option[selected][value='SHA256']")
+    assert has_element?(lv, "#{form} select#credential_secret_fields_priv_protocol option[selected][value='AES']")
+    assert has_element?(lv, "#{form} #credential_secret_fields_priv_password")
+
+    lv
+    |> form(form, credential_secret: %{"fields" => %{"security_level" => "authNoPriv"}})
+    |> render_change()
+
+    assert has_element?(lv, "#{form} #credential_secret_fields_auth_password")
+    refute has_element?(lv, "#{form} #credential_secret_fields_priv_protocol")
+    refute has_element?(lv, "#{form} #credential_secret_fields_priv_password")
+
+    submitted =
+      Map.put(
+        %{"security_level" => "authNoPriv", "auth_protocol" => "SHA512", "auth_password" => marker},
+        "username",
+        "monitor"
+      )
+
+    html =
+      lv
+      |> form(form, credential_secret: %{"name" => name, "fields" => submitted})
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ marker
+
+    secret = get_secret_by_name!(scope, name)
+    assert secret.username == "monitor"
+
+    assert {:ok, %{value: payload}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+
+    assert Jason.decode!(payload) == submitted
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "an SNMPv3 credential stored in older spellings is left alone by an edit and replaced by a rotation",
+       %{conn: conn, scope: scope} do
+    suffix = System.unique_integer([:positive])
+    old_marker = "snmp-old-secret-#{suffix}"
+    new_marker = "snmp-new-secret-#{suffix}"
+    username = "snmp-operator"
+
+    # Spellings the free-text form accepted and the resolver still reads.
+    stored =
+      %{
+        "security_level" => "auth_priv",
+        "auth_protocol" => "SHA-256",
+        "auth_password" => old_marker,
+        "priv_protocol" => "aes128",
+        "priv_password" => old_marker
+      }
+      |> Map.put("username", username)
+      |> Jason.encode!()
+
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Older spelling #{suffix}",
+        provider: "snmp",
+        credential_kind: :snmp,
+        username: username,
+        secret_payload: stored,
+        metadata: descriptor_metadata("v3")
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='edit_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    lv
+    |> form("#credential-edit-form",
+      credential_details: %{
+        "id" => to_string(secret.id),
+        "name" => "Older spelling renamed #{suffix}",
+        "description" => ""
+      }
+    )
+    |> render_submit()
+
+    assert {:ok, %{value: ^stored}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+
+    lv
+    |> element("button[phx-click='rotate_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    modal = lv |> element("#credential-rotate-modal") |> render()
+
+    refute modal =~ old_marker
+    refute modal =~ "auth_priv"
+    refute modal =~ "aes128"
+    # Nothing stored is loaded, so nothing is pre-selected for the operator.
+    refute has_element?(lv, "#credential-rotate-form select option[selected]")
+
+    lv
+    |> form("#credential-rotate-form", credential_rotation: %{"fields" => %{"security_level" => "authPriv"}})
+    |> render_change()
+
+    rotated_fields =
+      Map.put(
+        %{
+          "security_level" => "authPriv",
+          "auth_protocol" => "SHA256",
+          "auth_password" => new_marker,
+          "priv_protocol" => "AES",
+          "priv_password" => new_marker
+        },
+        "username",
+        username
+      )
+
+    html =
+      lv
+      |> form("#credential-rotate-form",
+        credential_rotation: %{"id" => to_string(secret.id), "fields" => rotated_fields}
+      )
+      |> render_submit()
+
+    assert html =~ "Credential rotated"
+    refute html =~ new_marker
+
+    assert {:ok, %{value: rotated}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+
+    assert Jason.decode!(rotated) == rotated_fields
   end
 
   @tag :web_ng_shared_fixture_db

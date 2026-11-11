@@ -105,6 +105,30 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
   def build_rotation(_secret, _profile, _submitted_values, _opts),
     do: {:error, :invalid_credential_rotation}
 
+  @doc """
+  The fields of `method` that the submitted `values` call for, each paired with
+  whether it must be filled in.
+
+  A field may carry `"applies_when" => %{"field" => id, "values" => [...]}`,
+  naming another field and the values of it this one belongs to. Once that
+  field has a value, this one is either called for or left out entirely.
+  `"required" => true` inside `applies_when` makes it mandatory in the first
+  case. While the other field is blank this one is kept, and only its own
+  `"required"` flag applies.
+
+  Forms render from this and `build/4` validates against it, so what an
+  operator is shown and what the server enforces are the same rule.
+  """
+  @spec applicable_fields(map(), map()) :: [{map(), boolean()}]
+  def applicable_fields(method, values) when is_map(method) and is_map(values) do
+    Enum.flat_map(method["fields"] || [], fn field ->
+      case field_condition(field, values) do
+        :excluded -> []
+        condition -> [{field, required?(field, condition)}]
+      end
+    end)
+  end
+
   defp maybe_put_default_rotation_due_at(attrs, "awx", rotated_at) do
     Map.put_new_lazy(attrs, :next_rotation_due_at, fn ->
       DateTime.shift(rotated_at, second: @awx_default_token_lifetime_seconds)
@@ -181,38 +205,77 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
   end
 
   defp validate_values(method, values) do
-    fields = method["fields"] || []
-    fields_by_id = Map.new(fields, &{&1["id"], &1})
+    fields_by_id = Map.new(method["fields"] || [], &{&1["id"], &1})
 
     if Enum.any?(Map.keys(values), &(not Map.has_key?(fields_by_id, to_string(&1)))) do
       {:error, :undeclared_credential_field}
     else
-      Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      # Fields outside `applicable_fields/2` belong to a choice the operator
+      # did not make. Whatever was submitted for them is discarded rather than
+      # stored, so switching a form away from a choice cannot leave its values
+      # behind in the credential.
+      method
+      |> applicable_fields(values)
+      |> Enum.reduce_while({:ok, %{}}, fn {field, required?}, {:ok, acc} ->
         id = field["id"]
-        value = Map.get(values, id, "")
 
-        cond do
-          not is_binary(value) ->
-            {:halt, {:error, {:invalid_credential_field, id}}}
-
-          field["required"] and String.trim(value) == "" ->
-            {:halt, {:error, {:missing_credential_field, id}}}
-
-          byte_size(value) < (field["min_length"] || 0) ->
-            {:halt, {:error, {:invalid_credential_field, id}}}
-
-          byte_size(value) > (field["max_length"] || 16_384) ->
-            {:halt, {:error, {:invalid_credential_field, id}}}
-
-          value == "" ->
-            {:cont, {:ok, acc}}
-
-          true ->
-            {:cont, {:ok, Map.put(acc, id, value)}}
+        case validate_value(field, Map.get(values, id, ""), required?) do
+          :blank -> {:cont, {:ok, acc}}
+          {:ok, value} -> {:cont, {:ok, Map.put(acc, id, value)}}
+          {:error, reason} -> {:halt, {:error, {reason, id}}}
         end
       end)
     end
   end
+
+  defp validate_value(_field, value, _required?) when not is_binary(value),
+    do: {:error, :invalid_credential_field}
+
+  defp validate_value(field, value, required?) do
+    cond do
+      required? and String.trim(value) == "" ->
+        {:error, :missing_credential_field}
+
+      byte_size(value) < (field["min_length"] || 0) ->
+        {:error, :invalid_credential_field}
+
+      byte_size(value) > (field["max_length"] || 16_384) ->
+        {:error, :invalid_credential_field}
+
+      value == "" ->
+        :blank
+
+      not offered_option?(field, value) ->
+        {:error, :invalid_credential_field}
+
+      true ->
+        {:ok, value}
+    end
+  end
+
+  defp field_condition(%{"applies_when" => %{"field" => controller, "values" => allowed}}, values)
+       when is_binary(controller) and is_list(allowed) do
+    case values |> Map.get(controller, "") |> controller_value() do
+      "" -> :undecided
+      value -> if value in allowed, do: :selected, else: :excluded
+    end
+  end
+
+  defp field_condition(_field, _values), do: :unconditional
+
+  defp controller_value(value) when is_binary(value), do: String.trim(value)
+  defp controller_value(_value), do: ""
+
+  defp required?(%{"required" => true}, _condition), do: true
+  defp required?(%{"applies_when" => %{"required" => true}}, :selected), do: true
+  defp required?(_field, _condition), do: false
+
+  # A field with options stores only one of them. Without this a name the
+  # consumer does not recognise is stored and fails later, at the point of use.
+  defp offered_option?(%{"options" => options}, value) when is_list(options),
+    do: Enum.any?(options, &(&1["value"] == value))
+
+  defp offered_option?(_field, _value), do: true
 
   defp encode_payload(method, values) do
     case method["payload"] || %{"format" => "json"} do

@@ -134,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
     refute text =~ "secret_payload"
   end
 
-  test "rotation renders descriptor fields blank even after a rejected secret submission" do
+  test "rotation keeps a rejected submission's public fields and never its secrets" do
     marker = "ui-secret-marker-rotate"
 
     document =
@@ -150,8 +150,15 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
     modal = LazyHTML.query(document, "#credential-rotate-modal")
     inputs = LazyHTML.query(modal, "input[data-credential-rotation-field]")
 
-    assert LazyHTML.attribute(inputs, "value") == ["", ""]
-    assert LazyHTML.attribute(inputs, "autocomplete") == ["off", "new-password"]
+    # The username is public and comes back, so a level or protocol picked
+    # before the rejection still decides which fields are shown. The password
+    # does not.
+    assert [username, password] = inputs |> LazyHTML.attributes() |> Enum.map(&Map.new/1)
+    assert username["value"] == "operator"
+    assert username["autocomplete"] == "off"
+    refute Map.has_key?(password, "value")
+    assert password["autocomplete"] == "new-password"
+    assert password["phx-update"] == "ignore"
 
     assert LazyHTML.attribute(LazyHTML.query(modal, "form"), "phx-submit") == [
              "save_credential_rotation"
@@ -199,6 +206,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
            ]
 
     assert textarea |> LazyHTML.text() |> String.trim() == ""
+    assert LazyHTML.attribute(textarea, "phx-update") == ["ignore"]
     refute LazyHTML.to_html(modal) =~ marker
     assert LazyHTML.to_html(LazyHTML.query(modal, "input[data-credential-rotation-field]")) == ""
   end

@@ -110,7 +110,7 @@ go_test(
         "utils_cidr_test.go",
         "utils_test.go",
     ],
-    data = glob(["testdata/**"]),
+    data = glob(["testdata/**"]) + ["//go/pkg/agent/snmp:snmpv3_protocol_contract"],
     embed = [":mapper"],
     deps = [
         "//go/pkg/logger",

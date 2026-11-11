@@ -286,9 +286,9 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  %{
                    "username" => "monitor",
                    "security_level" => "authPriv",
-                   "auth_protocol" => "sha",
+                   "auth_protocol" => "SHA",
                    "auth_password" => "auth-secret",
-                   "priv_protocol" => "aes",
+                   "priv_protocol" => "AES",
                    "priv_password" => "priv-secret"
                  },
                  %{name: "Core switches", description: nil}
@@ -302,14 +302,81 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
       assert %{
                "username" => "monitor",
                "security_level" => "authPriv",
-               "auth_protocol" => "sha",
+               "auth_protocol" => "SHA",
                "auth_password" => "auth-secret",
-               "priv_protocol" => "aes",
+               "priv_protocol" => "AES",
                "priv_password" => "priv-secret"
              } = Jason.decode!(attrs.secret_payload)
 
       refute inspect(attrs.metadata) =~ "auth-secret"
       refute inspect(attrs.metadata) =~ "priv-secret"
+    end
+
+    test "the security level decides which v3 fields are stored" do
+      for {level, stored_fields} <- [
+            {"noAuthNoPriv", ~w(security_level username)},
+            {"authNoPriv", ~w(auth_password auth_protocol security_level username)},
+            {"authPriv",
+             ~w(auth_password auth_protocol priv_password priv_protocol security_level username)}
+          ] do
+        assert {:ok, attrs} =
+                 CredentialSecretBuilder.build(
+                   NativeDescriptors.snmp(),
+                   "v3",
+                   %{v3_submission() | "security_level" => level},
+                   %{name: "Level #{level}", description: nil}
+                 )
+
+        payload = Jason.decode!(attrs.secret_payload)
+
+        assert payload |> Map.keys() |> Enum.sort() == stored_fields, level
+        assert payload["security_level"] == level
+      end
+    end
+
+    test "a level requires every field it uses and none it does not" do
+      for {level, field, expected} <- [
+            {"noAuthNoPriv", "auth_password", :ok},
+            {"noAuthNoPriv", "auth_protocol", :ok},
+            {"authNoPriv", "auth_protocol", {:missing_credential_field, "auth_protocol"}},
+            {"authNoPriv", "auth_password", {:missing_credential_field, "auth_password"}},
+            {"authNoPriv", "priv_password", :ok},
+            {"authPriv", "auth_protocol", {:missing_credential_field, "auth_protocol"}},
+            {"authPriv", "priv_protocol", {:missing_credential_field, "priv_protocol"}},
+            {"authPriv", "priv_password", {:missing_credential_field, "priv_password"}}
+          ] do
+        values = v3_submission() |> Map.put("security_level", level) |> Map.put(field, "")
+
+        result =
+          CredentialSecretBuilder.build(NativeDescriptors.snmp(), "v3", values, %{
+            name: "Missing #{field}",
+            description: nil
+          })
+
+        case expected do
+          :ok -> assert {:ok, _attrs} = result, "#{level} without #{field}"
+          reason -> assert result == {:error, reason}, "#{level} without #{field}"
+        end
+      end
+    end
+
+    test "a level or protocol the form does not offer is rejected by field" do
+      for {field, value} <- [
+            {"security_level", "authpriv"},
+            {"security_level", "auth_priv"},
+            {"auth_protocol", "SHA-256"},
+            {"auth_protocol", "SHA3"},
+            {"priv_protocol", "AES128"},
+            {"priv_protocol", "aes"}
+          ] do
+        assert CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "v3",
+                 Map.put(v3_submission(), field, value),
+                 %{name: "Unknown #{field}", description: nil}
+               ) == {:error, {:invalid_credential_field, field}},
+               "#{field}=#{value}"
+      end
     end
 
     test "community and v3 authentication are required but v3 privacy is optional" do
@@ -606,6 +673,24 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  )
       end
     end
+  end
+
+  # Everything the form can submit for a v3 credential. Each case using it
+  # changes the security level or one field and says what must come out.
+  defp v3_submission do
+    marker = Integer.to_string(System.unique_integer([:positive]))
+
+    Map.put(
+      %{
+        "security_level" => "authPriv",
+        "auth_protocol" => "SHA256",
+        "auth_password" => "auth-marker-" <> marker,
+        "priv_protocol" => "AES",
+        "priv_password" => "priv-marker-" <> marker
+      },
+      "username",
+      "monitor"
+    )
   end
 
   defp rotatable_secret(overrides \\ %{}) do

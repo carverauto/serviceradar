@@ -1,5 +1,71 @@
 defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
-  @moduledoc false
+  @moduledoc """
+  The SNMP protocol vocabulary: versions, SNMPv3 security levels and the
+  authentication and privacy protocols.
+
+  This is the one place the accepted names are written down. Three things read
+  it, and they have to agree:
+
+    * forms offer `security_level_options/0`, `auth_protocol_options/0` and
+      `priv_protocol_options/0`, so an operator picks a name instead of typing
+      one;
+    * `Credentials.NativeDescriptors` puts the same options on the SNMP
+      credential descriptor, which is what `CredentialSecretBuilder` validates a
+      submitted credential against;
+    * the resolver, the agent-config compiler and the proto mapper normalise
+      stored and submitted names through `normalize_security_level/1`,
+      `normalize_auth_protocol/1` and `normalize_priv_protocol/1`.
+
+  The agent's own accepted set lives in Go. The shared fixture
+  `go/pkg/agent/snmp/testdata/snmpv3_protocol_contract.json` is read by this
+  module's tests and by the agent's, so an option added on one side without the
+  other fails a test.
+
+  ## Offered values and accepted spellings
+
+  An option's `value` is the canonical spelling a credential stores. The
+  normalisers accept more than that, because credentials stored before the
+  form offered a fixed list were free text: `SHA-256`, `sha256`, `SHA1`,
+  `AES128` and `auth_priv` all still resolve. Nothing new should be stored in
+  those spellings.
+  """
+
+  @type option :: %{id: atom(), value: String.t(), label: String.t()}
+
+  # Ordered as a form should list them. `value` is what a credential stores.
+  @security_level_options [
+    %{
+      id: :no_auth_no_priv,
+      value: "noAuthNoPriv",
+      label: "noAuthNoPriv (no authentication, no encryption)"
+    },
+    %{
+      id: :auth_no_priv,
+      value: "authNoPriv",
+      label: "authNoPriv (authentication, no encryption)"
+    },
+    %{id: :auth_priv, value: "authPriv", label: "authPriv (authentication and encryption)"}
+  ]
+
+  @auth_protocol_options [
+    %{id: :md5, value: "MD5", label: "MD5 (legacy, weak)"},
+    %{id: :sha, value: "SHA", label: "SHA (SHA-1; legacy, weak)"},
+    %{id: :sha224, value: "SHA224", label: "SHA-224"},
+    %{id: :sha256, value: "SHA256", label: "SHA-256"},
+    %{id: :sha384, value: "SHA384", label: "SHA-384"},
+    %{id: :sha512, value: "SHA512", label: "SHA-512"}
+  ]
+
+  @priv_protocol_options [
+    %{id: :des, value: "DES", label: "DES (legacy, weak)"},
+    %{id: :aes, value: "AES", label: "AES (AES-128)"},
+    %{id: :aes192, value: "AES192", label: "AES-192"},
+    %{id: :aes256, value: "AES256", label: "AES-256"},
+    %{id: :aes192c, value: "AES-192-C", label: "AES-192-C (Cisco key extension)"},
+    %{id: :aes256c, value: "AES-256-C", label: "AES-256-C (Cisco key extension)"}
+  ]
+
+  @default_option_ids %{security_level: :auth_priv, auth_protocol: :sha256, priv_protocol: :aes}
 
   @auth_protocols %{
     md5: %{compact: "MD5", hyphenated: "MD5"},
@@ -25,29 +91,88 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
     auth_priv: "authPriv"
   }
 
+  # Keyed by the name upcased with hyphens removed, so `SHA-256`, `sha256` and
+  # `Sha256` are one entry. The agent folds names the same way.
   @auth_protocol_aliases %{
     "MD5" => :md5,
     "SHA" => :sha,
+    "SHA1" => :sha,
     "SHA224" => :sha224,
-    "SHA-224" => :sha224,
     "SHA256" => :sha256,
-    "SHA-256" => :sha256,
     "SHA384" => :sha384,
-    "SHA-384" => :sha384,
-    "SHA512" => :sha512,
-    "SHA-512" => :sha512
+    "SHA512" => :sha512
   }
 
   @priv_protocol_aliases %{
     "DES" => :des,
     "AES" => :aes,
+    "AES128" => :aes,
     "AES192" => :aes192,
-    "AES-192" => :aes192,
     "AES256" => :aes256,
-    "AES-256" => :aes256,
-    "AES-192-C" => :aes192c,
-    "AES-256-C" => :aes256c
+    "AES192C" => :aes192c,
+    "AES256C" => :aes256c
   }
+
+  @security_level_aliases %{
+    "noAuthNoPriv" => :no_auth_no_priv,
+    "authNoPriv" => :auth_no_priv,
+    "authPriv" => :auth_priv,
+    "no_auth_no_priv" => :no_auth_no_priv,
+    "auth_no_priv" => :auth_no_priv,
+    "auth_priv" => :auth_priv
+  }
+
+  @doc "SNMPv3 security levels, in the order a form lists them."
+  @spec security_level_options() :: [option()]
+  def security_level_options, do: @security_level_options
+
+  @doc "SNMPv3 authentication protocols, in the order a form lists them."
+  @spec auth_protocol_options() :: [option()]
+  def auth_protocol_options, do: @auth_protocol_options
+
+  @doc "SNMPv3 privacy protocols, in the order a form lists them."
+  @spec priv_protocol_options() :: [option()]
+  def priv_protocol_options, do: @priv_protocol_options
+
+  @doc """
+  The option a new credential starts on for `:security_level`, `:auth_protocol`
+  or `:priv_protocol`.
+  """
+  @spec default_option(:security_level | :auth_protocol | :priv_protocol) :: option()
+  def default_option(:security_level),
+    do: default_option(@security_level_options, :security_level)
+
+  def default_option(:auth_protocol), do: default_option(@auth_protocol_options, :auth_protocol)
+  def default_option(:priv_protocol), do: default_option(@priv_protocol_options, :priv_protocol)
+
+  defp default_option(options, kind) do
+    id = Map.fetch!(@default_option_ids, kind)
+    Enum.find(options, &(&1.id == id))
+  end
+
+  @doc """
+  The stored spelling for any accepted spelling of a security level, or `nil`
+  when the name is not a security level.
+  """
+  @spec security_level_value(atom() | String.t() | nil) :: String.t() | nil
+  def security_level_value(value),
+    do: option_value(@security_level_options, normalize_security_level(value))
+
+  @doc "The stored spelling for any accepted spelling of an authentication protocol."
+  @spec auth_protocol_value(atom() | String.t() | nil) :: String.t() | nil
+  def auth_protocol_value(value),
+    do: option_value(@auth_protocol_options, normalize_auth_protocol(value))
+
+  @doc "The stored spelling for any accepted spelling of a privacy protocol."
+  @spec priv_protocol_value(atom() | String.t() | nil) :: String.t() | nil
+  def priv_protocol_value(value),
+    do: option_value(@priv_protocol_options, normalize_priv_protocol(value))
+
+  defp option_value(_options, nil), do: nil
+
+  defp option_value(options, id) do
+    Enum.find_value(options, fn option -> if option.id == id, do: option.value end)
+  end
 
   @spec version(atom() | String.t() | nil, keyword()) :: String.t()
   def version(value, opts \\ []) do
@@ -98,14 +223,8 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
   def normalize_security_level(value) when value in [:no_auth_no_priv, :auth_no_priv, :auth_priv],
     do: value
 
-  def normalize_security_level(value) when is_binary(value) do
-    case String.trim(value) do
-      "noAuthNoPriv" -> :no_auth_no_priv
-      "authNoPriv" -> :auth_no_priv
-      "authPriv" -> :auth_priv
-      _ -> nil
-    end
-  end
+  def normalize_security_level(value) when is_binary(value),
+    do: Map.get(@security_level_aliases, String.trim(value))
 
   def normalize_security_level(_), do: nil
 
@@ -158,6 +277,7 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
     value
     |> String.trim()
     |> String.upcase()
+    |> String.replace("-", "")
     |> then(&Map.get(aliases, &1))
   end
 
