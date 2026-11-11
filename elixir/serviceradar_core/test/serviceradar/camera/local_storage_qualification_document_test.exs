@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Camera.LocalStorageQualificationDocumentTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.LocalStorageEvidence
   alias ServiceRadar.Camera.LocalStorageQualificationDocument
 
   @document %{
@@ -88,4 +89,113 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationDocumentTest do
     assert {:ok, attrs} = LocalStorageQualificationDocument.attributes(document)
     assert attrs.report == document
   end
+
+  describe "evidence eligibility" do
+    setup do
+      {:ok, retained} = LocalStorageQualificationDocument.attributes(@document)
+
+      policy = %{
+        revision: "synthetic-policy-v1",
+        profile_sha256: String.duplicate("b", 64),
+        max_report_validity_ms: 1000,
+        max_health_age_ms: 500
+      }
+
+      health = %{
+        "binding_id" => @document["binding_id"],
+        "report_sha256" => retained.report_sha256,
+        "evidence_sha256" => String.duplicate("d", 64),
+        "observed_at_ms" => 1000,
+        "status" => "healthy"
+      }
+
+      %{retained: retained, policy: policy, health: health}
+    end
+
+    test "current evidence ends at the earlier health or report deadline", ctx do
+      assert %{evidence_status: :current, valid_until_ms: 1500} = evaluate(ctx, 1000)
+      assert %{evidence_status: :current, valid_until_ms: 1500} = evaluate(ctx, 1499)
+      assert %{reason: :health_expired} = evaluate(ctx, 1500)
+
+      ctx = put_in(ctx.health["observed_at_ms"], 1800)
+      assert %{evidence_status: :current, valid_until_ms: 2000} = evaluate(ctx, 1999)
+      assert %{reason: :report_expired} = evaluate(ctx, 2000)
+      assert %{reason: :report_from_future} = evaluate(ctx, 999)
+      assert %{reason: :health_from_future} = evaluate(ctx, 1799)
+
+      for invalid_time <- [nil, "1000", 0, 9_223_372_036_854_775_808] do
+        assert %{evidence_status: :ineligible, reason: :invalid_trusted_time} =
+                 evaluate(ctx, invalid_time)
+      end
+    end
+
+    test "policy has no implicit limits and must match both revision and profile", ctx do
+      invalid =
+        [
+          nil,
+          %{},
+          Map.put(ctx.policy, :max_health_age_ms, 0),
+          Map.put(ctx.policy, :max_report_validity_ms, "1000"),
+          Map.put(ctx.policy, :max_report_validity_ms, 9_223_372_036_854_775_808),
+          Map.put(ctx.policy, :default, true)
+        ] ++
+          Enum.map(Map.keys(ctx.policy), &Map.delete(ctx.policy, &1))
+
+      for policy <- invalid do
+        assert %{evidence_status: :ineligible, reason: :invalid_policy} =
+                 evaluate(%{ctx | policy: policy}, 1000)
+      end
+
+      for {key, value} <- [revision: "other-policy", profile_sha256: String.duplicate("e", 64)] do
+        assert %{reason: :policy_mismatch} = evaluate(put_in(ctx.policy[key], value), 1000)
+      end
+
+      assert %{reason: :report_validity_exceeded} =
+               evaluate(put_in(ctx.policy.max_report_validity_ms, 999), 1000)
+    end
+
+    test "every required outcome must pass, and retained content must match its digest", ctx do
+      for check <- Map.keys(@document["checks"]),
+          status <- ~w(failed not_tested not_confirmed unsupported) do
+        document = put_in(@document, ["checks", check], status)
+        {:ok, retained} = LocalStorageQualificationDocument.attributes(document)
+        health = Map.put(ctx.health, "report_sha256", retained.report_sha256)
+
+        assert %{evidence_status: :ineligible, reason: :required_outcome_not_passed} =
+                 evaluate(%{ctx | retained: retained, health: health}, 1000)
+      end
+
+      assert %{reason: :invalid_report} =
+               evaluate(put_in(ctx.retained.report["revision"], 2), 1000)
+
+      assert %{reason: :invalid_report} = evaluate(%{ctx | retained: nil}, 1000)
+    end
+
+    test "health evidence is mandatory, bounded and correlated with the exact report", ctx do
+      for {health, reason} <- [
+            {nil, :health_unknown},
+            {%{}, :invalid_health},
+            {Map.put(ctx.health, "status", "degraded"), :health_degraded},
+            {Map.put(ctx.health, "status", "unknown"), :health_unknown},
+            {Map.put(ctx.health, "status", "passed"), :invalid_health},
+            {Map.put(ctx.health, "evidence_sha256", ""), :invalid_health},
+            {Map.put(ctx.health, "observed_at_ms", "1000"), :invalid_health},
+            {Map.put(ctx.health, "extra", true), :invalid_health},
+            {Map.put(ctx.health, "binding_id", "00000000-0000-4000-8000-000000000099"),
+             :health_mismatch},
+            {Map.put(ctx.health, "report_sha256", String.duplicate("f", 64)), :health_mismatch}
+          ] do
+        assert %{evidence_status: :ineligible, reason: ^reason} =
+                 evaluate(%{ctx | health: health}, 1000)
+      end
+
+      for key <- Map.keys(ctx.health) do
+        assert %{reason: :invalid_health} =
+                 evaluate(%{ctx | health: Map.delete(ctx.health, key)}, 1000)
+      end
+    end
+  end
+
+  defp evaluate(ctx, now_ms),
+    do: LocalStorageEvidence.evaluate(ctx.retained, ctx.policy, ctx.health, now_ms)
 end

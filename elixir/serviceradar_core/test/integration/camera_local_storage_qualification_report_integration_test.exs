@@ -62,6 +62,64 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReportIntegrationTest do
     }
   end
 
+  test "assessment uses scoped retained evidence, trusted policy and Core time without activation",
+       ctx do
+    now = System.system_time(:millisecond)
+
+    document =
+      ctx.document
+      |> Map.put("issued_at_ms", now - 1000)
+      |> Map.put("expires_at_ms", now + 60_000)
+
+    assert {:ok, report} = LocalStorageQualificationReport.submit(document, ctx.opts)
+
+    health = %{
+      "binding_id" => ctx.binding.id,
+      "report_sha256" => report.report_sha256,
+      "evidence_sha256" => String.duplicate("c", 64),
+      "observed_at_ms" => now,
+      "status" => "healthy"
+    }
+
+    policy = %{
+      revision: document["policy_revision"],
+      profile_sha256: ctx.binding.profile_sha256,
+      max_report_validity_ms: 61_000,
+      max_health_age_ms: 60_000
+    }
+
+    actor = Map.put(ctx.qualifier, :nvr_storage_policy, policy)
+
+    assert {:ok, %{evidence_status: :current, valid_until_ms: deadline}} =
+             LocalStorageQualificationReport.assess(report.id, health, actor: actor)
+
+    assert deadline == now + 60_000
+
+    assert {:ok, %{evidence_status: :ineligible, reason: :invalid_policy}} =
+             LocalStorageQualificationReport.assess(report.id, health, ctx.opts)
+
+    assert {:ok, %{reason: :health_from_future}} =
+             LocalStorageQualificationReport.assess(
+               report.id,
+               Map.put(health, "observed_at_ms", now + 120_000),
+               actor: actor
+             )
+
+    for denied <- [
+          nil,
+          ctx.provisioner,
+          SystemActor.system(:nvr_recorder),
+          Map.put(actor, :nvr_storage_id, Ecto.UUID.generate())
+        ] do
+      assert {:error, _} =
+               LocalStorageQualificationReport.assess(report.id, health, actor: denied)
+    end
+
+    assert {:ok, unchanged} = Ash.get(LocalStorageQualificationReport, report.id, ctx.opts)
+    assert unchanged.report == document
+    assert unchanged.inserted_at == report.inserted_at
+  end
+
   test "identical retries preserve the original report UUID, issuer and insertion time", ctx do
     assert {:ok, first} = LocalStorageQualificationReport.submit(ctx.document, ctx.opts)
     rotated = Map.put(ctx.qualifier, :id, "system:synthetic_replacement_qualifier")
