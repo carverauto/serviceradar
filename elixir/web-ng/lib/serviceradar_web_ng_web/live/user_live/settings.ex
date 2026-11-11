@@ -118,6 +118,36 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
           <.ui_panel>
             <:header>
               <div>
+                <div class="text-sm font-semibold">Access</div>
+                <p class="text-xs text-sr-muted">
+                  Your current role and how you signed in.
+                </p>
+              </div>
+            </:header>
+
+            <dl class="space-y-2 text-sm">
+              <div class="flex gap-2">
+                <dt class="w-32 shrink-0 text-sr-muted">Role</dt>
+                <dd class="text-sr-ink">{format_role(@current_scope.user.role)}</dd>
+              </div>
+              <%= if @current_scope.user.role_profile_source == :idp do %>
+                <div class="flex gap-2">
+                  <dt class="w-32 shrink-0 text-sr-muted">Assigned by</dt>
+                  <dd class="text-sr-ink">Your identity provider</dd>
+                </div>
+              <% end %>
+              <%= if auth_label = format_auth_method(@current_scope.user.last_auth_method) do %>
+                <div class="flex gap-2">
+                  <dt class="w-32 shrink-0 text-sr-muted">Signed in with</dt>
+                  <dd class="text-sr-ink">{auth_label}</dd>
+                </div>
+              <% end %>
+            </dl>
+          </.ui_panel>
+
+          <.ui_panel>
+            <:header>
+              <div>
                 <div class="text-sm font-semibold">Timezone</div>
                 <p class="text-xs text-sr-muted">
                   Choose the timezone used to display timestamps in ServiceRadar.
@@ -529,6 +559,18 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
        |> push_navigate(to: ~p"/settings/profile")}
     end
   end
+
+  defp format_role(:admin), do: "Admin"
+  defp format_role(:operator), do: "Operator"
+  defp format_role(:helpdesk), do: "Helpdesk"
+  defp format_role(_), do: "Viewer"
+
+  defp format_auth_method(:oidc), do: "SSO (OIDC)"
+  defp format_auth_method(:saml), do: "SSO (SAML)"
+  defp format_auth_method(:password), do: "Password"
+  defp format_auth_method(:gateway), do: "Gateway"
+  defp format_auth_method(:api_token), do: "API token"
+  defp format_auth_method(_), do: nil
 
   defp homepage_error(message) when is_binary(message), do: "homepage " <> message
   defp homepage_error(%{errors: [_ | _] = errors}), do: Enum.map_join(errors, "; ", &Exception.message/1)
