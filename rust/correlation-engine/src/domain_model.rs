@@ -153,7 +153,7 @@ pub fn prune_stale_operator_rules(context: &mut Context, now_unix_ms: i64, ttl_m
 /// The hydrated world-state the reasoner evaluates each tick.
 ///
 /// Populated from `EmbeddedSrql` (current state + on-demand continuous-aggregate
-/// queries) and a paged read of the Dgraph topology edges, merged with JetStream and
+/// queries + Dgraph topology via `in:graph`) merged with JetStream and
 /// `signals.state.<table>` deltas.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Context {

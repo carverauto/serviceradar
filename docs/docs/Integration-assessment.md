@@ -435,7 +435,7 @@ Three feeds, three responsibilities:
 - **`EmbeddedSrql` over CNPG.** Bootstrap (current state on cold start),
   on-demand aggregates when causaloids fire (TimescaleDB continuous
   aggregates via `stats:`, `bucket:`, and `rollup_stats:`), and structural
-  snapshots (Dgraph topology edges, read in pages).
+  snapshots (Dgraph topology via `in:graph` DQL).
 - **JetStream subscriber.** Live deltas. Subscribes to `signals.causal.>`,
   core-elx-normalized OCSF/event outputs, and `arancini.updates.>` plus
   `siem.events.>` for the existing causal-signal paths. Sub-second reactivity.
