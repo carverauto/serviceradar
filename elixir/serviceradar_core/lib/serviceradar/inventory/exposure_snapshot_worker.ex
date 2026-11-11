@@ -1,14 +1,13 @@
 defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
-  @moduledoc "Publishes one bounded generation from one finite, read-only MVCC snapshot."
-  use Oban.Worker,
-    queue: :maintenance,
-    max_attempts: 20,
-    unique: [
-      period: :infinity,
-      fields: [:worker, :args],
-      keys: [:device_ord],
-      states: :incomplete
-    ]
+  @moduledoc """
+  Publishes one bounded generation from one finite, read-only MVCC snapshot.
+
+  Engine only: no Oban interface of its own. The singleton
+  `ExposureSnapshotPublisherWorker` drives the loop and owns scope rows through
+  `publish_scope/2`, which maps every outcome to loop control flow. `perform/1`
+  keeps the original direct-drive contract (synchronous publish or snooze) for
+  repair tooling and the broker-driven boundary tests.
+  """
 
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.ExposureRecovery
@@ -21,64 +20,88 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   @lock_namespace 74_526
   @page_size 500
 
-  @impl Oban.Worker
+  @doc """
+  Direct-drive entry: publishes one scope synchronously, or snoozes exactly as
+  the old per-scope Oban job did. Prefer `publish_scope/2` for loop control.
+  """
   def perform(%Oban.Job{args: args}) do
     scope = args["device_ord"]
 
+    DirectSession.run(fn session ->
+      case publish_scope(session, scope) do
+        {:ok, _generation_id} ->
+          :ok
+
+        {:defer, :preparing} ->
+          %{} |> ExposurePublicationPrepareWorker.new() |> Oban.insert()
+          {:snooze, 30}
+
+        {:defer, :wait} ->
+          {:snooze, 5}
+
+        {:error, :invalid_exposure_snapshot_scope} ->
+          {:cancel, :invalid_exposure_snapshot_scope}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end)
+  end
+
+  @doc """
+  Publishes one scope's generation on a lock-holding session.
+
+  Returns `{:ok, generation_id}` when the generation published, `{:defer, :preparing}`
+  when source preparation must run first, `{:defer, :wait}` when another generation
+  owns the serial pipeline or downstream lanes are unsettled, and `{:error, reason}`
+  otherwise. Never snoozes: the caller decides what each outcome means.
+  """
+  def publish_scope(session, scope) do
     cond do
       not Destination.enabled?() ->
         {:error, :starrocks_required}
 
       not is_nil(scope) and not (is_integer(scope) and scope in 1..4_294_967_295) ->
-        {:cancel, :invalid_exposure_snapshot_scope}
+        {:error, :invalid_exposure_snapshot_scope}
 
       true ->
-        DirectSession.run(&coordinate(&1, scope))
+        coordinate(session, scope)
     end
   end
 
   defp coordinate(session, scope) do
     case Postgrex.query!(session, "SELECT pg_try_advisory_lock($1, 0)", [@lock_namespace]).rows do
       [[false]] ->
-        {:snooze, 5}
+        {:error, :exposure_snapshot_lock_held}
 
       [[true]] ->
         case State.active() do
           {:ok, %{"status" => "publishing"} = old} ->
             # Acquiring the session lock proves that reader is gone. Its cursor
-            # can never be used with the new transaction's snapshot.
-            State.abort(old["id"], old["owner"], :reader_lost)
-            {:snooze, 5}
+            # can never be used with the new transaction's snapshot. The abort
+            # is synchronous, so the scope proceeds instead of waiting a tick.
+            with {:ok, :ok} <- State.abort(old["id"], old["owner"], :reader_lost),
+                 :none <- active_or_wait() do
+              publish(session, scope)
+            else
+              {:ok, _} -> {:defer, :wait}
+              {:error, reason} -> {:error, reason}
+            end
 
           {:ok, _generation} ->
-            {:snooze, 5}
+            {:defer, :wait}
 
           :none ->
-            if State.unsettled?(), do: {:snooze, 5}, else: publish(session, scope)
+            if State.unsettled?(), do: {:defer, :wait}, else: publish(session, scope)
         end
     end
   end
 
-  @doc "A replacement owner may abort a lost reader, but never resume its cursor."
-  def recover_reader do
-    DirectSession.run(fn session ->
-      case Postgrex.query!(session, "SELECT pg_try_advisory_lock($1, 0)", [@lock_namespace]).rows do
-        [[true]] ->
-          case State.active() do
-            {:ok, %{"status" => "publishing"} = old} ->
-              with {:ok, :ok} <- State.abort(old["id"], old["owner"], :reader_lost) do
-                args = if old["scope"], do: %{"device_ord" => old["scope"]}, else: %{}
-                with {:ok, _} <- args |> new() |> Oban.insert(), do: :ok
-              end
-
-            _ ->
-              :ok
-          end
-
-        [[false]] ->
-          :ok
-      end
-    end)
+  defp active_or_wait do
+    case State.active() do
+      :none -> :none
+      {:ok, _} -> {:ok, :wait}
+    end
   end
 
   defp publish(session, scope) do
@@ -132,11 +155,10 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
                timeout: timeout
              ) do
           {:ok, generation} ->
-            publish_end(generation)
+            with :ok <- publish_end(generation), do: {:ok, generation["id"]}
 
           {:error, :exposure_snapshot_preparation_required} ->
-            %{} |> ExposurePublicationPrepareWorker.new() |> Oban.insert()
-            {:snooze, 30}
+            {:defer, :preparing}
 
           {:error, reason} ->
             {:error, reason}

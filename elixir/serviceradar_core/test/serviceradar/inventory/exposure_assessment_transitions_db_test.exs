@@ -31,7 +31,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.Inventory.ExposureReadiness
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
   alias ServiceRadar.Inventory.ExposureSnapshotFinalizer
+  alias ServiceRadar.Inventory.ExposureSnapshotPublisherWorker, as: PublisherWorker
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
   alias ServiceRadar.Inventory.ExposureSnapshotState
   alias ServiceRadar.Inventory.ExposureSnapshotWorker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
@@ -56,7 +58,62 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
   setup do
     unique = System.unique_integer([:positive])
+
+    [[scope_floor]] =
+      Repo.query!("SELECT COALESCE(max(id), 0) FROM platform.exposure_snapshot_scopes").rows
+
+    [[job_floor]] = Repo.query!("SELECT COALESCE(max(id), 0) FROM oban_jobs").rows
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE id > $1", [scope_floor])
+
+      Repo.query!(
+        "DELETE FROM oban_jobs WHERE id > $1 AND worker = 'ServiceRadar.Inventory.ExposureSnapshotPublisherWorker'",
+        [job_floor]
+      )
+    end)
+
     {:ok, unique: unique, device_uid: "sr:exposure-transition-#{unique}"}
+  end
+
+  # Demand the singleton publisher drains, replacing the old per-scope Oban
+  # job assertions. Any unrestored status means the scope still needs a pass.
+  defp scope_pending?(scope) do
+    Repo.query!(
+      """
+      SELECT 1 FROM platform.exposure_snapshot_scopes
+      WHERE scope_ord IS NOT DISTINCT FROM $1
+        AND status IN ('pending', 'publishing', 'preparing', 'failed')
+      LIMIT 1
+      """,
+      [scope]
+    ).rows != []
+  end
+
+  # The publisher's session advisory lock, copied from the engine: when a killed
+  # reader's session has not released it yet, a publisher pass would exit
+  # quietly and the test would wait on work that never starts.
+  defp await_publisher_lock_released(attempts \\ 60) do
+    locked =
+      Repo.query!(
+        """
+        SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'
+          AND granted AND classid::bigint = 74526 AND objid = 0 AND objsubid = 2)
+        """,
+        []
+      ).rows
+
+    cond do
+      locked == [[false]] ->
+        :ok
+
+      attempts <= 1 ->
+        flunk("publisher session lock still held after reader kill")
+
+      true ->
+        Process.sleep(250)
+        await_publisher_lock_released(attempts - 1)
+    end
   end
 
   @tag sandbox: :unboxed
@@ -130,14 +187,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
           assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
 
-          assert Repo.exists?(
-                   from(j in Oban.Job,
-                     where:
-                       j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                         j.state == "available" and
-                         fragment("?->>'device_ord'", j.args) == ^to_string(scope)
-                   )
-                 )
+          assert scope_pending?(scope)
 
           replacement = live_snapshot!(conn, args)
           assert replacement > first
@@ -1164,13 +1214,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
     assert :snapshot_missing in reasons
 
-    assert Repo.exists?(
-             from(j in Oban.Job,
-               where:
-                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                   fragment("?->>'device_ord'", j.args) == ^to_string(scope)
-             )
-           )
+    assert scope_pending?(scope)
 
     predecessor = finalizing_generation!(scope)
     {:ok, [%{fact: fact}]} = ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
@@ -1203,14 +1247,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} =
                ExposureReadiness.status(scope)
 
-      Repo.query!(
-        """
-        UPDATE oban_jobs SET state = 'discarded'
-        WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
-          AND args->>'device_ord' = $1
-        """,
-        [to_string(scope)]
-      )
+      Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE scope_ord = $1", [scope])
 
       Repo.query!(
         "DELETE FROM platform.exposure_transition_outbox WHERE device_uid = $1 AND transition_seq = $2",
@@ -1224,14 +1261,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       assert {:ok, %{"repairs" => [_]}} = ExposureSnapshotState.get(predecessor)
 
-      assert Repo.exists?(
-               from(j in Oban.Job,
-                 where:
-                   j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                     j.state == "available" and
-                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
-               )
-             )
+      assert scope_pending?(scope)
 
       reconciliation_queries!(restored, dimensions, restored)
       assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
@@ -1277,28 +1307,14 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       aborted = finalizing_generation!(scope)
       retire_generation!(aborted)
 
-      Repo.query!(
-        """
-        UPDATE oban_jobs SET state = 'discarded'
-        WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
-          AND args->>'device_ord' = $1
-        """,
-        [to_string(scope)]
-      )
+      Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE scope_ord = $1", [scope])
 
       reconciliation_queries!(restored, dimensions)
       assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
       assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
       assert :snapshot_recovery in reasons
 
-      assert Repo.exists?(
-               from(j in Oban.Job,
-                 where:
-                   j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                     j.state == "available" and
-                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
-               )
-             )
+      assert scope_pending?(scope)
 
       Repo.query!(
         "UPDATE platform.exposure_transition_outbox SET inserted_at = now() - interval '11 minutes' WHERE device_uid = $1",
@@ -1361,12 +1377,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
              end)
 
     Repo.query!(
-      """
-      UPDATE oban_jobs SET state = 'completed'
-      WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
-        AND args->>'device_ord' = $1
-      """,
-      [to_string(scope)]
+      "UPDATE platform.exposure_snapshot_scopes SET status = 'complete' WHERE scope_ord = $1",
+      [scope]
     )
 
     # Source publication and PubAck do not discharge a retained obligation.
@@ -1379,14 +1391,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT") == repaired
     assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
 
-    assert Repo.exists?(
-             from(j in Oban.Job,
-               where:
-                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                   j.state == "available" and
-                   fragment("?->>'device_ord'", j.args) == ^to_string(scope)
-             )
-           )
+    assert scope_pending?(scope)
 
     assert [[%{"repairs" => [^obligation]}]] =
              Repo.query!(
@@ -1666,13 +1671,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert {:snooze, 1} = ExposureReconciliationWorker.perform(job)
     assert %{"cursor" => ^warehouse_only} = Repo.get!(Oban.Job, job.id).args
 
-    assert Repo.exists?(
-             from(j in Oban.Job,
-               where:
-                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                   j.state == "available" and j.args == ^%{}
-             )
-           )
+    assert scope_pending?(nil)
 
     assert Repo.exists?(
              from(j in Oban.Job,
@@ -2254,10 +2253,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         [scope]
       )
 
-      Repo.query!(
-        "DELETE FROM oban_jobs WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker' AND args->>'device_ord' = $1",
-        [to_string(scope)]
-      )
+      Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE scope_ord = $1", [scope])
 
       cleanup_source(ctx, package)
     end)
@@ -2296,22 +2292,31 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert lost_start["kind"] == "start"
       # Kill the reader while it waits for start receipt, before any load.
       Task.shutdown(lost, :brutal_kill)
-      assert :ok = ExposureSnapshotWorker.recover_reader()
-      assert {:ok, %{"status" => "aborted"}} = ExposureSnapshotState.get(lost_start["generation"])
-      replacement = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+      # No recover_reader call: the singleton publisher adopts the orphan by
+      # lease proof, aborts the lost generation, and republishes the scope.
+      # Its pass would exit quietly while the killed session still holds the
+      # lock, so wait for the release first.
+      await_publisher_lock_released()
+      Scopes.request(scope)
+
+      adopted =
+        Task.async(fn -> PublisherWorker.perform(%Oban.Job{args: %{}}) end)
+
       assert_receive {:msg, %{topic: replacement_subject, body: replacement_body}}, @step_timeout
       {:ok, replacement_start, _} = Snapshot.decode(replacement_body)
+      assert replacement_start["kind"] == "start"
       assert replacement_start["generation"] > lost_start["generation"]
       assert replacement_start["snapshot"] != lost_start["snapshot"]
+      assert {:ok, %{"status" => "aborted"}} = ExposureSnapshotState.get(lost_start["generation"])
       assert {:ok, 1} = consume_retained(conn, replacement_subject, replacement_body)
       {replacement_pages, _} = consume_snapshot_until_end(conn, [])
-      assert :ok = Task.await(replacement, @step_timeout)
+      # The publisher waits for completion; finalize from here while it waits.
+      live_finalize!(replacement_start["generation"], 20)
+      assert :ok = Task.await(adopted, @step_timeout)
 
       assert replacement_pages
              |> Enum.filter(&(&1["phase"] == "facts"))
              |> Enum.flat_map(& &1["records"]) == [later]
-
-      assert :ok = ExposureSnapshotFinalizer.step(replacement_start["generation"])
     end)
   end
 
@@ -2662,14 +2667,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert {:ok, %{"history_gaps" => 2, "status" => "aborted", "repairs" => [^repair]}} =
              ExposureSnapshotState.get(restart)
 
-    assert Enum.any?(
-             Repo.all(
-               from(j in Oban.Job,
-                 where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker"
-               )
-             ),
-             &(&1.args == %{})
-           )
+    assert scope_pending?(nil)
 
     [[view]] = Repo.query!("SELECT pg_current_snapshot()::text").rows
     owner = Ecto.UUID.generate()
@@ -4030,16 +4028,19 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       assert :ok = ExposureSnapshotMaintenanceWorker.perform(%Oban.Job{})
 
-      [job] =
-        Repo.all(
-          from(j in Oban.Job,
-            where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker"
-          )
-        )
+      assert [[nil, "pending"]] =
+               Repo.query!(
+                 "SELECT scope_ord, status FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL",
+                 []
+               ).rows
 
-      assert job.args == %{}
       assert :ok = ExposureSnapshotMaintenanceWorker.perform(%Oban.Job{})
-      assert Repo.aggregate(from(j in Oban.Job, where: j.worker == ^job.worker), :count) == 1
+
+      assert [[1]] =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL",
+                 []
+               ).rows
     end)
   end
 

@@ -19,7 +19,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
   alias ServiceRadar.Inventory.ExposureReconciliationComparison, as: Comparison
   alias ServiceRadar.Inventory.ExposureSnapshotFinalizer
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs, as: Repairs
-  alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Publisher
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.DirectSession
 
@@ -96,7 +96,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
              })
 
              if ExposureReadiness.replacement_required?(nil),
-               do: Oban.insert!(Publisher.new(%{}))
+               do: Scopes.request(nil)
 
              if ordinals == [], do: :ok, else: {:snooze, 1}
            end) do
@@ -147,7 +147,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
       if remaining == [] do
         :ok
       else
-        Oban.insert!(Publisher.new(%{"device_ord" => ordinal}))
+        Scopes.request(ordinal)
         {:snooze, 30}
       end
     end
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
         # An assigned repair can outlive its acknowledged outbox row. Retain
         # the obligation while a new snapshot republishes current source state.
         args = if is_nil(scope), do: %{}, else: %{"device_ord" => scope}
-        Oban.insert!(Publisher.new(args))
+        Scopes.request(args["device_ord"])
         {:snooze, 30}
 
       result ->
@@ -181,7 +181,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
 
         {:ok, %{reasons: reasons}} ->
           if ExposureReadiness.replacement_required?(ordinal) or :comparison_pending in reasons,
-            do: Oban.insert!(Publisher.new(%{"device_ord" => ordinal}))
+            do: Scopes.request(ordinal)
 
           emit(:deferred)
           {:snooze, 30}
@@ -236,7 +236,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
       Map.merge(control, %{"generation_floor" => floor, "mismatch_pending" => true})
     )
 
-    Oban.insert!(Publisher.new(%{"device_ord" => ordinal}))
+    Scopes.request(ordinal)
   end
 
   defp defer(ordinal, reason) do

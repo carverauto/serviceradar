@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
 
   import Ecto.Query
 
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes
   alias ServiceRadar.Repo
 
   @page_size 500
@@ -56,7 +57,12 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
         %{stage: stage}
       )
 
-      if args["stage"] == "done", do: :ok, else: {:snooze, 1}
+      if args["stage"] == "done" do
+        # Preparing scopes parked with backoff may now be due.
+        ExposureSnapshotScopes.ensure_publisher()
+      else
+        {:snooze, 1}
+      end
     end
   end
 

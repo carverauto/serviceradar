@@ -331,6 +331,8 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 1,
     "test/serviceradar/inventory/endpoint_vulnerability_incremental_match_test.exs": 1,
     "test/serviceradar/inventory/exposure_assessment_transitions_db_test.exs": 1,
+    "test/serviceradar/inventory/exposure_snapshot_publisher_db_test.exs": 1,
+    "test/serviceradar/inventory/exposure_snapshot_scopes_db_test.exs": 1,
     "test/serviceradar/inventory/exposure_transition_relay_test.exs": 1,
     "test/serviceradar/inventory/device_inventory_rollup_db_test.exs": 1,
     "test/serviceradar/inventory/fleet_identity_dictionary_boundary_db_test.exs": 1,
