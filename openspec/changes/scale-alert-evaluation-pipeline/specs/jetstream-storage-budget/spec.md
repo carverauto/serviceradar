@@ -2,7 +2,7 @@
 
 ### Requirement: JetStream sizing profiles
 The Helm chart SHALL provide sizing profiles `tenant-2g`, `compact`, `small`, `medium`, `large` and `xlarge`, selected by `nats.jetstream.profile` with `small` as the default, and Docker Compose SHALL select the same profiles except `compact` with `SERVICERADAR_NATS_PROFILE`.
-A profile SHALL set `max_file_store` (2G, 9G, 36G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates through the chart, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. The `compact` profile SHALL remain a constrained pilot profile and SHALL be exempt from the candidate, alert dead-letter, signal-separated telemetry and telemetry dead-letter defaults introduced by this change.
+A profile SHALL set `max_file_store` (2G, 9G, 36G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates through the chart, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. The `compact` profile SHALL remain a constrained pilot profile for fresh or low-data deployments, SHALL NOT be a supported downgrade target from a larger profile, and SHALL be exempt from the candidate, alert dead-letter, signal-separated telemetry and telemetry dead-letter defaults introduced by this change.
 For every profile except `compact`, the signal-separated telemetry streams, the alert candidate streams and the telemetry and alert dead-letter streams SHALL take `max_bytes` from CNPG runtime settings whose code defaults are derived from the active profile; the chart SHALL supply only the NATS volume and `max_file_store` for them, and a size setting that would exceed the JetStream file store SHALL be rejected when it is saved. Each participating profile's candidate stream default SHALL hold 1 h of stored, S2-compressed bytes at that profile's planning candidate rate, using a stated conservative compression ratio that the fleet-scale gate measures, and these streams' defaults SHALL be carved from the profile's existing `events` and `metrics` allocations, which they replace, so that alert evaluation fits every participating profile. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
 
 #### Scenario: Default profile
@@ -17,7 +17,7 @@ For every profile except `compact`, the signal-separated telemetry streams, the 
 
 #### Scenario: Compact constrained pilot profile
 - **GIVEN** `nats.jetstream.profile` is `compact` on a matching `10Gi` persistence size
-- **WHEN** the chart renders and pipeline-specific defaults are derived
+- **WHEN** the chart renders and pipeline-specific defaults are considered
 - **THEN** the constrained pilot profile SHALL apply and rendering SHALL succeed
 - **AND** no candidate, alert dead-letter, telemetry or telemetry dead-letter defaults SHALL be required or derived for `compact`
 

@@ -38,7 +38,7 @@ The chart SHALL take the value from `nats.jetstream.maxFileStore` when set and o
 #### Scenario: Chart default
 - **GIVEN** no `nats.jetstream.maxFileStore` and the default `small` profile
 - **WHEN** the chart renders the NATS configuration
-- **THEN** `max_file_store` SHALL be `30000000000`
+- **THEN** `max_file_store` SHALL be `36000000000`
 
 #### Scenario: Binary suffix override
 - **GIVEN** `nats.jetstream.maxFileStore` is `30Gi` and `nats.persistence.size` is `40Gi`
@@ -111,7 +111,7 @@ The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byt
 - **AND** the chart SHALL NOT attempt to automate it
 
 #### Scenario: Shipped profiles fit their PVC
-- **GIVEN** `compact` on `10Gi`, `small` on `30Gi`, `medium` on `100Gi` and `large` on `500Gi`
+- **GIVEN** `compact` on `10Gi`, `small` on `36Gi`, `medium` on `100Gi` and `large` on `500Gi`
 - **WHEN** the chart renders each
 - **THEN** each SHALL pass this check
 
@@ -122,7 +122,7 @@ The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byt
 
 ### Requirement: JetStream sizing profiles
 The Helm chart SHALL provide sizing profiles `compact`, `small`, `medium` and `large`, selected by `nats.jetstream.profile` with `small` as the default, while Docker Compose SHALL select `small`, `medium` and `large` with `SERVICERADAR_NATS_PROFILE`.
-The `compact` profile SHALL be a constrained pilot profile for fresh or low-data deployments. A profile SHALL set `max_file_store` (9G, 30G, 100G and 500G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
+The `compact` profile SHALL be a constrained pilot profile for fresh or low-data deployments and SHALL NOT be a supported downgrade target from a larger profile. A profile SHALL set `max_file_store` (9G, 36G, 100G and 500G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
 
 #### Scenario: Default profile
 - **GIVEN** no profile is set

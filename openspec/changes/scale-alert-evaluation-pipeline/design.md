@@ -183,13 +183,15 @@ leaders across NATS servers.
 
 Stream shape: file storage, R3 (capped to `nats.replicas`), S2 compression,
 Limits retention, DiscardNew, `MaxAge` 0, finite `max_bytes` from a CNPG
-runtime setting whose code default is derived from the active JetStream
-profile: 1 h of stored, S2-compressed bytes at the profile's sustained
-candidate rate (resolved Q4). Candidates are sized at p99 including the full
-projected payload; at the design point that is about 180 GB before
-compression and about 90 GB stored at a conservative 2:1 S2 ratio, which
-gate G4 measures and confirms (`capacity.md` 1.3-1.4). The duplicate
-window at its minimum, because deduplication belongs to the evaluator (D6).
+runtime setting. For every participating profile except `compact`, its code
+default is derived from the active JetStream profile: 1 h of stored,
+S2-compressed bytes at the profile's sustained candidate rate (resolved Q4).
+The constrained `compact` profile is exempt from this pipeline-specific
+candidate-stream default. Candidates are sized at p99 including the full
+projected payload; at the design point that is about 180 GB before compression
+and about 90 GB stored at a conservative 2:1 S2 ratio, which gate G4 measures
+and confirms (`capacity.md` 1.3-1.4). The duplicate window at its minimum,
+because deduplication belongs to the evaluator (D6).
 Owners delete consumed messages by purging each block's subjects up to that
 block's committed checkpoint (a purge filtered to `...b<b>.*`), so an idle
 block never holds back another block's purge. Nothing ages out unprocessed.
@@ -572,10 +574,12 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   map, with `telemetry_stream_count` per signal as a setting. The default is
   1 stream per signal on small installs and 4 at the design point. Streams are
   R3 and DiscardNew, with `max_bytes` from a CNPG runtime setting whose code
-  default is derived from the active JetStream profile (a 30-minute outage
-  window). Today's `events` stream binds `logs.>` and `events.>` (and the
-  OTEL subjects) and `metrics` binds `metrics.>`, which overlap the new
-  subjects, so release N replaces both in one order. Release-N publishers
+  default is derived from the active participating JetStream profile (a
+  30-minute outage window); the constrained `compact` profile is exempt from
+  this pipeline-specific default. Today's `events` stream binds `logs.>` and
+  `events.>` (and the OTEL subjects) and `metrics` binds `metrics.>`, which
+  overlap the new subjects, so release N replaces both in one order. Release-N
+  publishers
   publish only to the v1 block subjects. Until the migration unbinds an old
   stream it still binds them, so a v1 publish is stored and acknowledged
   there and that stored message is its only copy. Release-N versions of
@@ -671,7 +675,7 @@ sized for a small install:
 | `unowned_block_grace_s` (degraded) | 30 | 30 |
 | stream fill degraded / critical bounds | 60% / 85% | same |
 | `move_stall_critical_s` | 600 | 600 |
-| candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile (table below) | derived from `xlarge` (1 h budget) |
+| candidate stream and alert DLQ `max_bytes` | derived from the active participating JetStream profile; `compact` is exempt (table below) | derived from `xlarge` (1 h budget) |
 | `auto_reshard` | `false` | `false` (D12) |
 | `candidate_inline_max_bytes` (larger candidates carry the record reference instead of the full payload, D8) | 512 KiB | 512 KiB |
 | `cutover_import_segment_max_bytes` (upper bound on the release-N import stream) | 64 MiB | 64 MiB |
@@ -938,10 +942,11 @@ that evaluates through both designs.
    min(`cutover_import_segment_max_bytes`, remaining - reserve), where
    remaining is the smallest, over the servers that would hold its
    replicas, of `max_file_store` minus the `max_bytes` already reserved
-   there (not unused disk), and reserve is the profile-derived size of the
-   candidate streams and the alert DLQ, the release-N streams created before
-   the old telemetry streams are deleted (the telemetry replacements use the
-   reservation those streams free, D10). A minimal segment is one import
+   there (not unused disk), and reserve is the participating profile's derived
+   size of the candidate streams and the alert DLQ, the release-N streams
+   created before the old telemetry streams are deleted (the telemetry
+   replacements use the reservation those streams free, D10). A minimal
+   segment is one import
    record at `candidate_inline_max_bytes` plus one segment-end marker per
    block at the maximum stored marker size, the size of a marker as
    published (subject, headers and framing included) carrying the largest
@@ -1213,10 +1218,11 @@ mode (D12). The same elasticity applies to the telemetry streams (D10). Gates
 G6 and G7 were added.
 
 **Q4. Candidate stream outage budget.** 1 h of stored (S2-compressed) bytes
-at the sustained candidate rate, as the profile-derived code default of the
-CNPG stream size setting, using a conservative 2:1 S2 ratio that G4 measures
-and confirms. The 180 GB design-point figure is the volume before
-compression.
+at the sustained candidate rate, as the participating profile's derived code
+default of the CNPG stream size setting, using a conservative 2:1 S2 ratio
+that G4 measures and confirms. The constrained `compact` profile is exempt
+from this pipeline-specific default. The 180 GB design-point figure is the
+volume before compression.
 
 **Q5. Duplicate suppression.** The persisted 128-bit candidate-id ring with a
 10 min horizon (D6), with the NATS duplicate window at its minimum.

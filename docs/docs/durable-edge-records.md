@@ -227,12 +227,10 @@ later check.
 EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
 for each of the other three ordinary streams and the recovery stream. On a Helm
 install the chart's JetStream profile (`nats.jetstream.profile`) sets the
-sizes, and they differ by profile: `small` gives the primary stream 960 MiB and
-the dead-letter stream 32 MiB; every profile gives the recovery stream 64 MiB
-except `tenant-2g`, which gives it 4 MiB, its minimum; and `tenant-2g` gives
-the primary stream 28 MiB, the audit and security-quarantine streams 8 MiB each
-and the dead-letter stream 4 MiB. `core.eventWriter.streams.<stream>.maxBytes`
-overrides any one of them (see [Helm Configuration](./helm-configuration.md)).
+sizes. The chart data in
+`helm/serviceradar/files/jetstream-profiles.yaml` is authoritative for current
+per-profile caps. `core.eventWriter.streams.<stream>.maxBytes` overrides any one
+of them (see [Helm Configuration](./helm-configuration.md)).
 
 ### 4. EventWriter projects the record
 

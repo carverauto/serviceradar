@@ -41,6 +41,7 @@ install that has accumulated data beyond compact's stream caps.
 `docs/edge-record-dead-letter-runbook.md`), and the
 recovery work queue `TELEMETRY_EDGE_RECORD_RECOVERY_V1` (R3, 64 MiB except
 4 MiB on `tenant-2g`).
+
 Per-server need, with the chart's full/spread formula:
 
 | Profile | Servers | Need | Limit |
