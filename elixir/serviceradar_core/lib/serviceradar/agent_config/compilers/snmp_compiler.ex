@@ -66,6 +66,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # bound is rejected by the agent, so it is enforced here where the name is
   # built rather than discovered at the far end.
   alias Ash.Error.Invalid
+  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
@@ -90,6 +91,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Logger
 
   @max_target_name_length 128
+
+  # A target query can match the whole inventory, and a compile runs inside a
+  # heap-capped invalidation worker. Devices are therefore read one page at a
+  # time with only these columns, and a page is released before the next one is
+  # read, so the live rows never exceed one page whatever the inventory size.
+  @target_device_fields [:uid, :name, :hostname, :ip, :management_device_id]
+  @target_device_page_size 250
 
   @impl true
   def config_type, do: :snmp
@@ -293,9 +301,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
           filter = %{"field" => field, "op" => "eq", "value" => device_uid}
           ast = Map.update(ast, "filters", [filter], &(&1 ++ [filter]))
 
-          with {:ok, devices} <- execute_parsed_query(entity, ast, actor) do
-            {:ok, Enum.any?(devices, &(&1.uid == device_uid))}
-          end
+          reduce_parsed_query(entity, ast, actor, false, fn device, found? ->
+            if device.uid == device_uid, do: {:halt, true}, else: {:cont, found?}
+          end)
         end
     end
   end
@@ -328,9 +336,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     with :ok <- validate_format(format),
          {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
-         {:ok, devices} <- execute_target_query(target_query, actor),
          {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor),
-         {:ok, query_targets} <- compile_query_targets(devices, profile, oids, actor, opts) do
+         {:ok, query_targets} <-
+           compile_query_targets(target_query, profile, oids, actor, opts) do
       compiled_targets =
         profile_targets
         |> merge_targets(query_targets)
@@ -428,61 +436,75 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # A device whose read failed is not a device to skip: skipping every device
   # on a credential or alias outage compiles an empty target list that
   # ConfigServer would cache. The error fails the compile instead.
-  defp compile_query_targets(devices, profile, oids, actor, opts) do
-    devices
-    |> Enum.reduce_while({:ok, []}, fn device, {:ok, acc} ->
-      case compile_device_target(device, profile, oids, actor, opts) do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, target} -> {:cont, {:ok, [target | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+  #
+  # A profile without OIDs yields no query target for any device. The first
+  # page is still read, so a failed device read fails the compile, and the
+  # reduction stops there instead of walking the inventory for nothing.
+  defp compile_query_targets(target_query, profile, oids, actor, opts) do
+    compiled_oids = compile_oids(oids)
+
+    target_query
+    |> reduce_target_query(actor, {:ok, []}, fn device, {:ok, acc} ->
+      if oids == [] do
+        {:halt, {:ok, acc}}
+      else
+        case compile_device_target(device, profile, compiled_oids, actor, opts) do
+          {:ok, nil} -> {:cont, {:ok, acc}}
+          {:ok, target} -> {:cont, {:ok, [target | acc]}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       end
     end)
     |> case do
-      {:ok, targets} -> {:ok, Enum.reverse(targets)}
-      error -> error
+      {:ok, {:ok, targets}} -> {:ok, Enum.reverse(targets)}
+      {:ok, {:error, _reason} = error} -> error
+      {:error, _reason} = error -> error
     end
   end
 
   @doc """
-  Execute the SRQL target_query to find matching devices.
+  Folds `fun` over the devices an SRQL target_query matches.
 
   Handles both interface and device queries:
-  - `in:interfaces ...` → Extract unique devices from matching interfaces
-  - `in:devices ...` → Use matched devices directly
+  - `in:interfaces ...` → the unique devices of the matching interfaces
+  - `in:devices ...` → the matched devices
+
+  `fun` receives each device and the accumulator and returns `{:cont, acc}` or
+  `{:halt, acc}`. A device carries only `uid`, `name`, `hostname`, `ip` and
+  `management_device_id`. Device queries are read one page at a time, and a
+  page is released before the next is read, so a caller that keeps only what
+  it needs from each device does bounded work per page however many devices
+  match.
 
   A nil or empty query, an unparseable query, and an uncastable filter
-  return `{:ok, []}`. A failed read returns
+  return `{:ok, acc}` unchanged. A failed read returns
   `{:error, {:target_query_failed, reason}}`, and a call made before
   `ServiceRadar.Repo` has started returns `{:error, :repo_unavailable}`.
   """
-  @spec execute_target_query(String.t() | nil, map()) ::
-          {:ok, [Device.t()]} | {:error, term()}
-  def execute_target_query(nil, _actor), do: {:ok, []}
-  def execute_target_query("", _actor), do: {:ok, []}
+  @spec reduce_target_query(
+          String.t() | nil,
+          map(),
+          acc,
+          (Device.t(), acc -> {:cont, acc} | {:halt, acc})
+        ) :: {:ok, acc} | {:error, term()}
+        when acc: term()
+  def reduce_target_query(target_query, _actor, acc, _fun) when target_query in [nil, ""],
+    do: {:ok, acc}
 
-  def execute_target_query(target_query, actor) do
+  def reduce_target_query(target_query, actor, acc, fun) when is_function(fun, 2) do
     if repo_ready?() do
-      do_execute_target_query(target_query, actor)
+      target_query = String.trim(target_query)
+
+      case SRQLAst.parse(target_query) do
+        {:ok, ast} ->
+          reduce_parsed_query(SRQLAst.entity(target_query), ast, actor, acc, fun)
+
+        {:error, reason} ->
+          Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
+          {:ok, acc}
+      end
     else
       {:error, :repo_unavailable}
-    end
-  rescue
-    e ->
-      Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
-      {:error, {:target_query_failed, e}}
-  end
-
-  defp do_execute_target_query(target_query, actor) do
-    target_query = String.trim(target_query)
-
-    case SRQLAst.parse(target_query) do
-      {:ok, ast} ->
-        entity = SRQLAst.entity(target_query)
-        execute_parsed_query(entity, ast, actor)
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
-        {:ok, []}
     end
   end
 
@@ -550,8 +572,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "status" => :status
   }
 
-  # Execute query based on entity type
-  defp execute_parsed_query("interfaces", ast, actor) do
+  # Reduce over the query's devices based on entity type
+  defp reduce_parsed_query("interfaces", ast, actor, acc, fun) do
     # Query interfaces, then extract unique devices
     filters = SRQLDeviceMatcher.extract_filters(ast)
 
@@ -576,6 +598,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         |> Enum.map(& &1.device)
         |> Enum.reject(&is_nil/1)
         |> filter_active_devices(actor)
+        |> case do
+          {:ok, devices} -> {:ok, Enum.reduce_while(devices, acc, fun)}
+          error -> error
+        end
 
       {:error, %Invalid{} = reason} ->
         Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
@@ -587,8 +613,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp execute_parsed_query(_entity, ast, actor) do
-    # Query devices directly
+  defp reduce_parsed_query(_entity, ast, actor, acc, fun) do
     filters = SRQLDeviceMatcher.extract_filters(ast)
 
     query =
@@ -600,24 +625,48 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         tag_fields?: true,
         log_prefix: "SNMPCompiler"
       )
+      |> Ash.Query.select(@target_device_fields)
 
-    try do
-      devices =
-        query
-        |> Page.stream!(actor: actor)
-        |> Enum.reduce([], fn device, acc -> [device | acc] end)
-        |> Enum.reverse()
+    reduce_device_pages(query, actor, nil, acc, fun)
+  end
 
-      {:ok, devices}
-    rescue
-      exception in Invalid ->
-        Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(exception)}")
-        {:ok, []}
+  # Only the read is guarded here: `fun` runs outside the rescue, so a failure
+  # in the caller's own work is never reported as a failed target query.
+  defp reduce_device_pages(query, actor, cursor, acc, fun) do
+    case read_device_page(query, actor, cursor) do
+      {:ok, %Keyset{results: devices, more?: more?}} ->
+        case Enum.reduce_while(devices, {:cont, acc}, &reduce_device(&1, &2, fun)) do
+          {:cont, acc} when more? ->
+            reduce_device_pages(query, actor, List.last(devices).__metadata__.keyset, acc, fun)
 
-      exception ->
-        Logger.error("SNMPCompiler: failed to query devices - #{inspect(exception)}")
-        {:error, {:target_query_failed, exception}}
+          {_cont_or_halt, acc} ->
+            {:ok, acc}
+        end
+
+      {:error, %Invalid{} = reason} ->
+        Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
+        {:ok, acc}
+
+      {:error, reason} ->
+        Logger.error("SNMPCompiler: failed to query devices - #{inspect(reason)}")
+        {:error, {:target_query_failed, reason}}
     end
+  end
+
+  defp reduce_device(device, {:cont, acc}, fun) do
+    case fun.(device, acc) do
+      {:cont, acc} -> {:cont, {:cont, acc}}
+      {:halt, acc} -> {:halt, {:halt, acc}}
+    end
+  end
+
+  defp read_device_page(query, actor, cursor) do
+    page = [limit: @target_device_page_size]
+    page = if cursor, do: Keyword.put(page, :after, cursor), else: page
+
+    Ash.read(query, actor: actor, page: page)
+  rescue
+    exception -> {:error, exception}
   end
 
   # A device whose lifecycle status cannot be read is not a device to deliver
@@ -676,28 +725,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Compile a device into a target config
-  defp compile_device_target(device, profile, oids, actor, opts) do
-    if oids == [] do
-      Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
-      {:ok, nil}
-    else
-      # If device has a management device, use its IP for polling
-      case resolve_polling_host(device, actor) do
-        {:ok, host} ->
-          if missing_host?(host) do
-            Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
-            {:ok, nil}
-          else
-            compile_device_target_with_host(device, profile, oids, actor, host, opts)
-          end
+  defp compile_device_target(device, profile, compiled_oids, actor, opts) do
+    # If device has a management device, use its IP for polling
+    case resolve_polling_host(device, actor) do
+      {:ok, host} ->
+        if missing_host?(host) do
+          Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
+          {:ok, nil}
+        else
+          compile_device_target_with_host(device, profile, compiled_oids, actor, host, opts)
+        end
 
-        {:error, reason} ->
-          Logger.error(
-            "SNMPCompiler: polling host resolution failed for device #{device.uid} - #{inspect(reason)}"
-          )
+      {:error, reason} ->
+        Logger.error(
+          "SNMPCompiler: polling host resolution failed for device #{device.uid} - #{inspect(reason)}"
+        )
 
-          {:error, reason}
-      end
+        {:error, reason}
     end
   end
 
@@ -859,7 +903,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFE80..0xFEBF, do: true
   defp private_ip_tuple?(_), do: false
 
-  defp compile_device_target_with_host(device, profile, oids, actor, host, opts) do
+  defp compile_device_target_with_host(device, profile, compiled_oids, actor, host, opts) do
     credential = resolve_device_credentials(device.uid, profile, actor, opts)
 
     # A failed credential read fails the compile so ConfigServer does not cache a
@@ -881,7 +925,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       credential when is_map(credential) ->
         if valid_credentials?(credential) do
           version = Map.get(credential, :version, profile.version)
-          base_target = build_base_target(device, host, profile, oids, version)
+          base_target = build_base_target(device, host, profile, compiled_oids, version)
           {:ok, apply_snmp_auth(base_target, version, credential)}
         else
           Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
@@ -894,7 +938,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp build_base_target(device, host, profile, oids, version) do
+  # Every target of a profile carries the same compiled OID list, built once by
+  # the caller rather than once per device.
+  defp build_base_target(device, host, profile, compiled_oids, version) do
     %{
       "id" => device.uid,
       "name" => device.name || device.hostname || device.uid,
@@ -904,7 +950,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       "poll_interval_seconds" => profile.poll_interval,
       "timeout_seconds" => profile.timeout,
       "retries" => profile.retries,
-      "oids" => compile_oids(oids)
+      "oids" => compiled_oids
     }
   end
 

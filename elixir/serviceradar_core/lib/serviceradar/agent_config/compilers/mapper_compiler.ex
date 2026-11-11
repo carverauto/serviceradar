@@ -384,12 +384,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp target_credentials(jobs, partition, agent_id, actor) do
     seeds = Enum.flat_map(jobs, fn job -> Enum.map(job.seeds || [], & &1.seed) end)
 
+    # Only the uid and the address are used below, so neither read loads a
+    # whole device record: a rule's target query can match the inventory.
     seed_devices =
       Device
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(ip in ^seeds or hostname in ^seeds or uid in ^seeds)
+      |> Ash.Query.select([:uid, :ip])
       |> Page.stream!()
-      |> Enum.to_list()
+      |> Enum.map(&%{uid: &1.uid, ip: &1.ip})
 
     rule_devices =
       partition
@@ -402,7 +405,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
     (seed_devices ++ rule_devices)
     |> Enum.uniq_by(& &1.uid)
-    |> Enum.reject(&(is_nil(&1.ip) or &1.ip == "" or not is_nil(&1.deleted_at)))
+    |> Enum.reject(&(is_nil(&1.ip) or &1.ip == ""))
     |> Enum.reduce_while({:ok, %{}}, fn device, {:ok, targets} ->
       case CredentialResolver.resolve_for_device(device.uid, actor,
              agent_id: agent_id,
@@ -450,9 +453,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   # fails closed on the same read, but mapper discovery still has the seed
   # devices and the default credential fallback to work with.
   defp credential_rule_devices(rule, actor) do
-    case SNMPCompiler.execute_target_query(rule.target_query, actor) do
+    case SNMPCompiler.reduce_target_query(rule.target_query, actor, [], fn device, devices ->
+           {:cont, [%{uid: device.uid, ip: device.ip} | devices]}
+         end) do
       {:ok, devices} ->
-        devices
+        Enum.reverse(devices)
 
       {:error, reason} ->
         Logger.warning(

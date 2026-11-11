@@ -69,7 +69,7 @@ defmodule ServiceRadar.AgentConfig.CompilerTest do
                  )
 
         assert {:error, :repo_unavailable} =
-                 SNMPCompiler.execute_target_query("in:devices", actor)
+                 SNMPCompiler.reduce_target_query("in:devices", actor, [], &collect_device/2)
 
         assert {:error, :repo_unavailable} =
                  SNMPCompiler.load_template_oids(
@@ -84,4 +84,6 @@ defmodule ServiceRadar.AgentConfig.CompilerTest do
     refute log =~ "SNMPCompiler"
     refute log =~ "SNMP ownership lookup failed"
   end
+
+  defp collect_device(device, devices), do: {:cont, [device | devices]}
 end
