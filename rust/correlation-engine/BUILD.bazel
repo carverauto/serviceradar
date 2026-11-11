@@ -16,7 +16,6 @@ rust_library(
         cargo_only = True,
         normal = True,
     ) + [
-        "//rust/dgraph-topology:dgraph_topology",
         "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",
     ],
@@ -45,7 +44,6 @@ rust_test(
         normal = True,
         normal_dev = True,
     ) + [
-        "//rust/dgraph-topology:dgraph_topology",
         "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",
     ],

@@ -10,7 +10,6 @@ async-nats = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 deep_causality = { workspace = true }
-dgraph-topology = { path = "../dgraph-topology" }
 envy = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

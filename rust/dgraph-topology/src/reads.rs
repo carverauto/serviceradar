@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-//! Typed reads for the device neighbourhood (SRQL `in:device_graph`), edge
-//! endpoints by kind, and the MTR path overlays.
+//! Typed reads for the device neighbourhood (SRQL `in:device_graph`) and the
+//! MTR path overlays.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -39,14 +39,6 @@ const PEER_FIELDS: &str = "device.id device.hostname device.ip";
 const DEVICE_FIELDS: &str = "device.id device.hostname device.ip device.pkg_worst_severity
       device.pkg_critical_count device.pkg_kev_count device.pkg_has_unpatched_rce";
 const CURRENT_CONNECTS_TO: &str = r#"eq(topo.kind, "CONNECTS_TO") AND NOT eq(topo.stale, true)"#;
-
-/// The two device identities one topology edge joins, with its `topo.kind`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EdgeEndpoints {
-    pub kind: String,
-    pub source: String,
-    pub target: String,
-}
 
 /// One `MTR_PATH` edge between two consecutive responding hops.
 #[derive(Debug, Clone, PartialEq)]
@@ -97,20 +89,6 @@ impl TopologyClient {
             .into_iter()
             .filter_map(MtrPathRow::into_path)
             .collect())
-    }
-
-    /// The identities joined by each current (non-stale) edge of `kinds`, read
-    /// with bounded pages in one read-only snapshot. An edge with an endpoint
-    /// that is not a Device is left out.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::query_canonical_edges`]. A failed page returns no edges.
-    pub async fn query_edge_endpoints(
-        &self,
-        kinds: &[&str],
-    ) -> Result<Vec<EdgeEndpoints>, TopologyError> {
-        crate::canonical_read::edge_endpoints(self.dgraph(), kinds).await
     }
 
     /// The device, its interfaces, and the peer interfaces its current

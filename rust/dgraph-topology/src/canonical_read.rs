@@ -31,7 +31,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use crate::client::{CanonicalEdgeRow, dql_string};
-use crate::{CanonicalEdge, CanonicalGraph, EdgeEndpoints, TopologyError, TopologyView};
+use crate::{CanonicalEdge, CanonicalGraph, TopologyError, TopologyView};
 
 pub(crate) const PAGE_SIZE: usize = 256;
 const DEVICES: QueryBlock<'static> = QueryBlock {
@@ -124,65 +124,6 @@ pub(crate) async fn rebuild_inputs(client: &DgraphClient) -> Result<Vec<Value>, 
         |row: Map<String, Value>| Some(Value::Object(row)),
     )
     .await
-}
-
-/// The identities each current edge of `kinds` joins, in UID order. An edge with
-/// an endpoint that carries no `device.id` is not between two devices and is
-/// left out; its UID still advances the cursor.
-pub(crate) async fn edge_endpoints(
-    client: &DgraphClient,
-    kinds: &[&str],
-) -> Result<Vec<EdgeEndpoints>, TopologyError> {
-    if kinds.is_empty() {
-        return Ok(Vec::new());
-    }
-    let list = kinds
-        .iter()
-        .map(|kind| dql_string(kind))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let filter = format!("NOT eq(topo.stale, true) AND eq(topo.kind, [{list}])");
-    let block = QueryBlock {
-        name: "edges",
-        vars: "",
-        func: "type(TopologyEdge)",
-        filter: &filter,
-        fields: "topo.kind topo.src { device.id } topo.dst { device.id }",
-    };
-    scan(
-        &mut client.new_read_only_txn(),
-        &block,
-        EdgeEndpointsRow::into_endpoints,
-    )
-    .await
-}
-
-#[derive(Deserialize)]
-struct EdgeEndpointsRow {
-    #[serde(default, rename = "topo.kind")]
-    kind: String,
-    #[serde(default, rename = "topo.src")]
-    src: Vec<DeviceIdentity>,
-    #[serde(default, rename = "topo.dst")]
-    dst: Vec<DeviceIdentity>,
-}
-
-#[derive(Deserialize)]
-struct DeviceIdentity {
-    #[serde(default, rename = "device.id")]
-    id: String,
-}
-
-impl EdgeEndpointsRow {
-    fn into_endpoints(self) -> Option<EdgeEndpoints> {
-        let source = self.src.into_iter().next()?.id;
-        let target = self.dst.into_iter().next()?.id;
-        (!source.is_empty() && !target.is_empty()).then_some(EdgeEndpoints {
-            kind: self.kind,
-            source,
-            target,
-        })
-    }
 }
 
 /// The Interface vertices carrying `keys`, with the id of each owning device,

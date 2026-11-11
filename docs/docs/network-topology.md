@@ -95,8 +95,8 @@ still too large for the gRPC receive limit is retried at half the size. If any
 page fails, the read fails as a whole and that run writes and prunes nothing:
 the pruning decision is only ever made from a complete read.
 
-The other reads and writes whose size follows the inventory are bounded the same
-way. Stale pruning ages edges a few thousand at a time, one transaction per
+Stale pruning and `in:device_graph` follow the inventory too and are bounded the
+same way. Stale pruning ages edges a few thousand at a time, one transaction per
 page, so a large backlog of aged edges is cleared across several transactions
 and a repeat finishes anything a failure left behind. `in:device_graph` pages
 the device's own ports and edges, and reads from each neighbour only the port

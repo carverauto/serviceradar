@@ -38,7 +38,7 @@ pub use crate::client::TopologyClient;
 pub use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 pub use crate::dql_rows::wrap_dql_value;
 pub use crate::errors::{TopologyError, TopologyErrorEnum};
-pub use crate::reads::{EdgeEndpoints, MAX_MTR_PATHS, MtrPath};
+pub use crate::reads::{MAX_MTR_PATHS, MtrPath};
 pub use crate::schema::{
     PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_LINK_KEY, PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES,
     schema_spec,
