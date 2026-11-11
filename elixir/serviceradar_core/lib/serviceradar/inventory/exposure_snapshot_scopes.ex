@@ -114,7 +114,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
            WHERE id = $1
            RETURNING attempts
            """,
-           [id, @backoff_seconds, @backoff_cap_seconds, to_string(reason)]
+           [id, @backoff_seconds, @backoff_cap_seconds, encode_reason(reason)]
          ) do
       {:ok, %{rows: [[attempts]]}} when attempts >= @dead_attempts ->
         Repo.query!("UPDATE #{@table} SET status = 'dead', updated_at = now() WHERE id = $1", [
@@ -141,6 +141,10 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
         {:error, reason}
     end
   end
+
+  defp encode_reason(reason) when is_exception(reason), do: Exception.message(reason)
+  defp encode_reason(reason) when is_atom(reason) or is_binary(reason), do: to_string(reason)
+  defp encode_reason(reason), do: inspect(reason)
 
   @doc "Publishing rows whose lease expired, oldest first, for orphan adoption."
   def expired_publishing do

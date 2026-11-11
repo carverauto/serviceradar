@@ -45,7 +45,8 @@ pattern). One execution:
    `publishing`, aborts the generation with its recorded owner and
    `:reader_lost` — the existing proof (holding the session lock proves the
    reader is gone) — and re-pends the scope for republication with a fresh
-   generation. A `published` or `finalizing` generation belongs to the
+   generation. An already `aborted` generation re-pends the scope the same
+   way. A `published` or `finalizing` generation belongs to the
    maintenance/finalizer pipeline and is left alone; the backstop re-ensures
    until its completion marks the scope complete.
 3. Claims the next due row (`pending`, `preparing`, or `failed`;

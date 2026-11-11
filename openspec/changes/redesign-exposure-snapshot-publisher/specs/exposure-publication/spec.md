@@ -30,7 +30,7 @@ Generations fence independent source views, so order affects latency only; the f
 
 ### Requirement: Scopes Publish At Least Once Across Crashes
 The system SHALL republish any scope whose generation did not observably complete before the publisher died, with a fresh generation fence.
-A `publishing` row whose lease expired is adopted by the next run: a completed generation marks the scope complete with no republish; a still-`publishing` generation is aborted through the session-lock reader-lost proof and the scope republishes; a `published` or `finalizing` generation belongs to the maintenance/finalizer pipeline and is left alone until it completes.
+A `publishing` row whose lease expired is adopted by the next run: a completed generation marks the scope complete with no republish; a still-`publishing` generation is aborted through the session-lock reader-lost proof and the scope republishes; an already `aborted` generation republishes the scope the same way; a `published` or `finalizing` generation belongs to the maintenance/finalizer pipeline and is left alone until it completes.
 Duplicate delivery across the crash is absorbed by envelope-hash idempotency.
 
 #### Scenario: Crash mid-drain resumes without loss or double work

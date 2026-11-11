@@ -39,6 +39,9 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
         {:defer, :wait} ->
           {:snooze, 5}
 
+        {:error, :exposure_snapshot_lock_held} ->
+          {:snooze, 5}
+
         {:error, :invalid_exposure_snapshot_scope} ->
           {:cancel, :invalid_exposure_snapshot_scope}
 

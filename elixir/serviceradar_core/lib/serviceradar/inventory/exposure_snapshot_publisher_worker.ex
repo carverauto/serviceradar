@@ -69,6 +69,9 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
       {:ok, %{"status" => "complete"}} ->
         Scopes.complete(id)
 
+      {:ok, %{"status" => "aborted"}} ->
+        Scopes.requeue(id)
+
       {:ok, %{"status" => "publishing", "owner" => owner}} ->
         # Holding the session lock proves the recorded reader is gone, the
         # same proof the old per-scope jobs used before publishing.
@@ -157,7 +160,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   end
 
   defp await_completion(id, generation_id) do
-    case wait_while(fn -> not generation_complete?(generation_id) end, completion_budget_ms()) do
+    case wait_while(fn -> not generation_settled?(generation_id) end, completion_budget_ms()) do
       :ok ->
         case State.get(generation_id) do
           {:ok, %{"status" => "complete"}} -> Scopes.complete(id)
@@ -172,8 +175,11 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     end
   end
 
-  defp generation_complete?(generation_id) do
-    match?({:ok, %{"status" => "complete"}}, State.get(generation_id))
+  defp generation_settled?(generation_id) do
+    case State.get(generation_id) do
+      {:ok, %{"status" => status}} -> status in ["complete", "aborted"]
+      _ -> false
+    end
   end
 
   defp pipeline_busy? do

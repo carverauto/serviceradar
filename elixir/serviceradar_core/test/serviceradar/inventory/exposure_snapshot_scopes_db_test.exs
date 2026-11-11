@@ -15,7 +15,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
   @moduletag :integration
 
   @migration_path Path.expand(
-                    "../../../priv/repo/migrations/20261111223654_add_exposure_snapshot_scopes.exs",
+                    "../../../priv/repo/migrations/20261111235445_add_exposure_snapshot_scopes.exs",
                     __DIR__
                   )
   @external_resource @migration_path
@@ -257,7 +257,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     Runner.run(
       Repo,
       Repo.config(),
-      20_261_111_223_654,
+      20_261_111_235_445,
       ScopesMigration,
       :forward,
       direction,
