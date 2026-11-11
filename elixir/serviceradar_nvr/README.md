@@ -11,6 +11,20 @@ It has no camera source connector, assignment protocol, upload worker or playbac
 catalog. Starting the service does not start recording. It does not join an
 Erlang distribution cluster or start core, a Repo, NATS or libcluster.
 
+## New-volume bootstrap
+
+Trusted provisioning can call `ServiceRadarNVR.bootstrap_storage/3` offline with
+Core's canonical preparation and the configured storage/binding reference. It
+requires a private empty root and exclusive provider attachment with previous
+writers retired. It syncs `.bootstrap-preparation.json` before creating
+`.storage-id`; exact retries preserve bytes, and incomplete or conflicting files
+are never repaired. Existing spools cannot be bootstrapped this way.
+
+This is local installation only. The preparation keeps inventory and write
+admission closed pending the separate two-sided completion protocol. No startup
+path bootstraps or enables recording. See [the bootstrap contract](../../docs/nvr-runtime.md#explicit-new-volume-installation)
+for the API, persistence order and unresolved-state behavior.
+
 ## Runtime boundary
 
 `ServiceRadarNVR.start_recording(identity, clock)` returns a worker and a bounded

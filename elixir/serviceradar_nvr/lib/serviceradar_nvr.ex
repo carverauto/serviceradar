@@ -21,6 +21,18 @@ defmodule ServiceRadarNVR do
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Spool
 
+  @doc """
+  Provision a new empty private root with authenticated Core preparation bytes.
+
+  This offline operation requires exclusive provider attachment and retired
+  writers. `reference` contains trusted `:storage_id`, `:binding_id` and
+  `:binding_sha256`. Exact retries sync unchanged evidence; existing spools and
+  partial/conflicting files are preserved and refused. Success is local
+  installation only: admission remains closed pending two-sided completion.
+  """
+  def bootstrap_storage(root, reference, preparation),
+    do: ServiceRadarNVR.StorageBootstrap.initialize(root, reference, preparation)
+
   def start_recording(identity, clock) do
     case DynamicSupervisor.start_child(ServiceRadarNVR.Sessions, {Session, {self(), identity, clock}}) do
       {:ok, pid} -> {:ok, pid, GenServer.call(pid, :inbox)}

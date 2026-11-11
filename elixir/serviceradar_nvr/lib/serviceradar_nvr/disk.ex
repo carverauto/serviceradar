@@ -12,6 +12,7 @@ defmodule ServiceRadarNVR.Disk do
   def inventory(storage) do
     with :ok <- Storage.verify(storage),
          {:ok, entries} <- File.ls(storage.root),
+         true <- ".bootstrap-preparation.json" not in entries || {:error, :nvr_history_bootstrap_incomplete},
          blocks = List.delete(entries, ".storage-id"),
          true <- length(blocks) <= @max_blocks || {:error, :nvr_inventory_limit},
          {:ok, bytes, pending} <- sum_blocks(storage.root, blocks),
