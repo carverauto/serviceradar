@@ -194,7 +194,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
 
       {:error, reason} ->
         Logger.warning("Threat intel feed download failed",
-          url: url,
+          url: OutboundFeedPolicy.redact_url(url),
           error: OutboundFeedPolicy.format_reason(reason)
         )
 

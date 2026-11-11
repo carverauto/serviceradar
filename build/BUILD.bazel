@@ -40,6 +40,21 @@ ex_unit_test(
     ],
 )
 
+# Console log metadata contract: what ServiceRadar.Logging.ConsoleFormatter prints, and that
+# every Logger.warning/error metadata key in the Elixir releases is either printed or
+# deliberately withheld.
+ex_unit_test(
+    name = "logger_metadata_contract_test",
+    size = "small",
+    srcs = ["logger_metadata_contract_test.exs"],
+    data = [
+        "//elixir/serviceradar_agent_gateway:logger_call_site_srcs",
+        "//elixir/serviceradar_core:logger_call_site_srcs",
+        "//elixir/serviceradar_core_elx:logger_call_site_srcs",
+        "//elixir/web-ng:logger_call_site_srcs",
+    ],
+)
+
 _INTEGRATION_SELECTION_RUNNERS = integration_selection_runner_names()
 
 ex_unit_test(

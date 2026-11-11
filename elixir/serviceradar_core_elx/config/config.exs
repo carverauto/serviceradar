@@ -10,9 +10,8 @@ config :ash,
 
 config :ash_oban, oban_name: Oban
 
-config :logger, :console,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :node]
+# Console metadata is an allowlist owned by ServiceRadar.Logging.ConsoleFormatter.
+config :logger, :default_handler, formatter: {ServiceRadar.Logging.ConsoleFormatter, %{}}
 
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 

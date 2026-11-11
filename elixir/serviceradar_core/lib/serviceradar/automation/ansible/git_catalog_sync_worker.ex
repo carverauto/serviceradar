@@ -113,7 +113,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
 
         Logger.warning("AWX GitCatalogSyncWorker: git sync failed",
           repository_id: repo.id,
-          reason: inspect(reason)
+          reason: sanitized
         )
 
         {:error, reason}

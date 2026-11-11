@@ -80,7 +80,8 @@ cnpg_ssl_opts =
   end)
 
 # Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
+config :logger, :default_handler,
+  formatter: {ServiceRadar.Logging.ConsoleFormatter, %{format: "[$level] $message\n"}}
 
 if log_level = parse_log_level.(System.get_env("SERVICERADAR_LOCAL_LOG_LEVEL")) do
   config :logger, level: log_level

@@ -45,31 +45,8 @@ config :esbuild,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-# Configure Elixir's Logger
-config :logger, :default_formatter,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [
-    :request_id,
-    :event_type,
-    :severity,
-    # Auth-related metadata
-    :user_id,
-    :email,
-    :method,
-    :timestamp,
-    :token_type,
-    :jti,
-    :reason,
-    :type,
-    :path,
-    :session_started_at,
-    :absolute_timeout_seconds,
-    :remote_ip,
-    :ip,
-    :user_agent,
-    :relay_session_id,
-    :viewer_id
-  ]
+# Console metadata is an allowlist owned by ServiceRadar.Logging.ConsoleFormatter.
+config :logger, :default_handler, formatter: {ServiceRadar.Logging.ConsoleFormatter, %{}}
 
 # The credentials API receives provider-specific material under `values`.
 # Filter the entire envelope before Phoenix formats request parameters.

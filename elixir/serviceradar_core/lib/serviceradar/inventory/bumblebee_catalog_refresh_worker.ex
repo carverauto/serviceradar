@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
   alias ServiceRadar.Jobs.SelfScheduling
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -174,7 +175,10 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
            {:ok, parsed} <- BumblebeeCatalogParser.parse(body, max_entries: max_entries) do
         {:cont, {:ok, [%{url: url, body: body, parsed: parsed} | acc]}}
       else
-        {:error, reason} -> {:halt, {:error, {:catalog_url_failed, url, reason}}}
+        {:error, reason} ->
+          # An operator-supplied catalog URL may carry credentials, and this
+          # reason is logged and stored in the refresh event.
+          {:halt, {:error, {:catalog_url_failed, OutboundFeedPolicy.redact_url(url), reason}}}
       end
     end)
     |> case do
