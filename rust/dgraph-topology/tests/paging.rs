@@ -59,6 +59,11 @@ struct Fixture {
     mutation_response: Value,
     snapshot_established: bool,
     faults_delivered: usize,
+    interfaces: Vec<Value>,
+    /// Fail every interface lookup after this many have been answered.
+    interface_outage_after: Option<usize>,
+    /// (keys requested, response bytes) per interface lookup.
+    interface_calls: Vec<(usize, usize)>,
     violations: Vec<String>,
 }
 
@@ -111,6 +116,9 @@ impl Fixture {
         }
 
         self.queries.push(request.query.clone());
+        if request.query.contains("eq(iface.key,") {
+            return self.interface_lookup(&request.query);
+        }
         let query: String = request.query.split_whitespace().collect();
         let block = if query.contains("type(Device)") {
             Block::Nodes
@@ -213,6 +221,45 @@ impl Fixture {
         Ok(api::Response {
             json,
             txn: context,
+            ..Default::default()
+        })
+    }
+
+    /// `eq(iface.key, [..])`: the stored Interface rows whose key is listed.
+    fn interface_lookup(&mut self, query: &str) -> Result<api::Response, Status> {
+        let list = query
+            .split_once("eq(iface.key,")
+            .and_then(|(_, rest)| rest.split_once("]))"))
+            .map(|(list, _)| format!("{list}]"))
+            .expect("interface key list");
+        let keys: BTreeSet<String> = serde_json::from_str(&list).expect("JSON key list");
+        if self
+            .interface_outage_after
+            .is_some_and(|answered| self.interface_calls.len() >= answered)
+        {
+            self.interface_calls.push((keys.len(), 0));
+            return Err(Status::unavailable("invented interface lookup outage"));
+        }
+        let mut rows: Vec<Value> = self
+            .interfaces
+            .iter()
+            .filter(|row| keys.contains(row["iface.key"].as_str().expect("fixture key")))
+            .cloned()
+            .collect();
+        for row in &mut rows {
+            project_selected(row, query);
+        }
+        let json = serde_json::to_vec(&json!({"interfaces": rows})).expect("fixture JSON");
+        self.interface_calls.push((keys.len(), json.len()));
+        if json.len() < RECEIVE_LIMIT - 1024 {
+            self.snapshot_established = true;
+        }
+        Ok(api::Response {
+            json,
+            txn: Some(api::TxnContext {
+                start_ts: SNAPSHOT,
+                ..Default::default()
+            }),
             ..Default::default()
         })
     }
@@ -639,6 +686,197 @@ async fn later_page_protocol_or_source_failures_never_return_a_partial_graph() {
             assert_eq!(fixture.calls.last().expect("last page attempt").first, 1);
         }
     }
+}
+
+/// A stored row the canonical rebuild reads: only the predicates it selects.
+fn rebuild_row(index: usize, kind: &str) -> Value {
+    json!({
+        "uid": format!("{:#x}", 4096 + index),
+        "topo.kind": kind,
+        "topo.protocol": "lldp",
+        "topo.evidence_class": "direct-physical",
+        "topo.ingestor": "mapper_topology_v1",
+        "topo.confidence_tier": "high",
+        "topo.if_name_ab": format!("port{index}"),
+        "topo.if_index_ab": index,
+        "topo.last_seen": "2030-01-02T00:00:00Z",
+        "topo.pair_support_rank": 0,
+        "topo.src": [{"device.id": "sr:host0001.example.com"}],
+        "topo.dst": [{"device.id": format!("sr:host{index:04}.example.com")}]
+    })
+}
+
+fn interface(index: usize, name_bytes: usize) -> Value {
+    json!({
+        "iface.key": format!("sr:host0001.example.com/port{index}"),
+        "iface.name": format!("port{index}{}", "x".repeat(name_bytes)),
+        "iface.if_index": index,
+        "~device.interfaces": [{"device.id": "sr:host0001.example.com"}]
+    })
+}
+
+#[tokio::test]
+async fn rebuild_inputs_return_every_stored_row_across_pages_of_one_snapshot() {
+    let kinds = ["CANONICAL_TOPOLOGY", "CONNECTS_TO", "ATTACHED_TO"];
+    let mut stored: Vec<Value> = (1..=600)
+        .map(|index| rebuild_row(index, kinds[index % kinds.len()]))
+        .collect();
+    // A canonical row with no resolvable endpoint must reach the caller, which
+    // refuses to rebuild from it. Dropping it here would let the rebuild treat
+    // the edge as gone and delete it.
+    stored[299]
+        .as_object_mut()
+        .expect("fixture row")
+        .remove("topo.dst");
+    let server = RunningServer::start(Fixture {
+        edges: stored.clone(),
+        ..Default::default()
+    })
+    .await;
+
+    let rows = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_rebuild_inputs(),
+    )
+    .await
+    .expect("finite source traversal")
+    .expect("complete paged rebuild read");
+
+    // The same rows one unpaged response would carry, in the same UID order.
+    let unpaged: Vec<Value> = stored
+        .into_iter()
+        .map(|mut row| {
+            row.as_object_mut().expect("fixture row").remove("uid");
+            row
+        })
+        .collect();
+    assert_eq!(rows, unpaged);
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    fixture.assert_protocol();
+    assert_eq!(
+        fixture
+            .calls
+            .iter()
+            .map(|call| (call.first, call.after))
+            .collect::<Vec<_>>(),
+        vec![(256, 0), (256, 4096 + 256), (256, 4096 + 512)]
+    );
+    assert!(fixture.calls.iter().all(|call| call.bytes < RECEIVE_LIMIT));
+    assert!(
+        fixture
+            .calls
+            .iter()
+            .filter(|call| call.after > 0)
+            .all(|call| call.start_ts == SNAPSHOT)
+    );
+    // Endpoints are identities only: embedding each device's port list in every
+    // edge row is what outgrew the receive limit.
+    assert!(
+        fixture
+            .queries
+            .iter()
+            .all(|query| !query.contains("device.interfaces")),
+        "{:?}",
+        fixture.queries
+    );
+}
+
+#[tokio::test]
+async fn a_rebuild_read_that_fails_part_way_returns_no_rows_and_writes_nothing() {
+    let server = RunningServer::start(Fixture {
+        edges: (1..=600)
+            .map(|index| rebuild_row(index, "CANONICAL_TOPOLOGY"))
+            .collect(),
+        fault: Some(Fault::ServerFailure),
+        ..Default::default()
+    })
+    .await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_rebuild_inputs(),
+    )
+    .await
+    .expect("a failed page must terminate the read");
+    assert!(result.is_err(), "a partial rebuild input set was returned");
+    {
+        let fixture = server.fixture.lock().expect("fixture lock");
+        assert!(
+            fixture.faults_delivered > 0,
+            "the first page failed instead"
+        );
+        assert!(fixture.mutations.is_empty());
+    }
+
+    let keys: Vec<String> = (1..=600)
+        .map(|index| format!("sr:host0001.example.com/port{index}"))
+        .collect();
+    let server = RunningServer::start(Fixture {
+        interfaces: (1..=600).map(|index| interface(index, 0)).collect(),
+        interface_outage_after: Some(1),
+        ..Default::default()
+    })
+    .await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_interfaces_by_key(&keys),
+    )
+    .await
+    .expect("a failed chunk must terminate the lookup");
+    assert!(result.is_err(), "a partial interface set was returned");
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert_eq!(fixture.interface_calls.len(), 2, "one answered, one failed");
+    assert!(fixture.mutations.is_empty());
+}
+
+#[tokio::test]
+async fn interface_lookup_is_chunked_and_splits_a_chunk_past_the_grpc_limit() {
+    // 300 keys are two chunks. The first chunk's 256 rows exceed the receive
+    // limit, so it is split; no key is lost and no unlisted interface returned.
+    let stored: Vec<Value> = (1..=320).map(|index| interface(index, 20 * 1024)).collect();
+    let keys: Vec<String> = (1..=300)
+        .map(|index| format!("sr:host0001.example.com/port{index}"))
+        .collect();
+    let server = RunningServer::start(Fixture {
+        interfaces: stored.clone(),
+        ..Default::default()
+    })
+    .await;
+
+    let rows = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_interfaces_by_key(&keys),
+    )
+    .await
+    .expect("finite lookup")
+    .expect("complete chunked lookup");
+
+    assert_eq!(rows, stored[..300]);
+    assert!(
+        server
+            .client
+            .query_interfaces_by_key(&[])
+            .await
+            .expect("empty lookup")
+            .is_empty(),
+        "an empty key list needs no round trip"
+    );
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert!(fixture.violations.is_empty(), "{:?}", fixture.violations);
+    assert_eq!(
+        fixture
+            .interface_calls
+            .iter()
+            .map(|(keys, _bytes)| *keys)
+            .collect::<Vec<_>>(),
+        vec![256, 128, 128, 44]
+    );
+    assert!(fixture.interface_calls[0].1 > RECEIVE_LIMIT);
+    assert!(
+        fixture.interface_calls[1..]
+            .iter()
+            .all(|(_keys, bytes)| *bytes < RECEIVE_LIMIT)
+    );
 }
 
 #[tokio::test]

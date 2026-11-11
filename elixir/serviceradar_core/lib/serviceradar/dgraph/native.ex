@@ -113,6 +113,14 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec query_canonical_graph(url(), deadline_ms()) :: submission()
   def query_canonical_graph(_url, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "The canonical rebuild's input rows as JSON, read in bounded pages from one snapshot."
+  @spec query_rebuild_inputs(url(), deadline_ms()) :: submission()
+  def query_rebuild_inputs(_url, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "The Interface vertices carrying `keys` as JSON, read in bounded chunks."
+  @spec query_interfaces_by_key(url(), [String.t()], deadline_ms()) :: submission()
+  def query_interfaces_by_key(_url, _keys, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec downstream_of(url(), [String.t()], [String.t()], deadline_ms()) :: submission()
   def downstream_of(_url, _from_ids, _to_ids, _deadline_ms),
     do: :erlang.nif_error(:nif_not_loaded)

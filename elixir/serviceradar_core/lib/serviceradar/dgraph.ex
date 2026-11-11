@@ -299,6 +299,44 @@ defmodule ServiceRadar.Dgraph do
   end
 
   @doc """
+  The canonical rebuild's inputs: every current canonical edge and current
+  mapper evidence edge, as stored rows (`"topo.*"` predicates, endpoints as
+  `"topo.src"` / `"topo.dst"` lists of `%{"device.id" => id}`) in UID order.
+  Read in bounded pages from one Dgraph snapshot, so no response grows with
+  the inventory. A failed page fails the read; it never returns a partial set.
+  Not retried.
+  """
+  @spec query_rebuild_inputs() :: {:ok, [map()]} | {:error, String.t()}
+  def query_rebuild_inputs do
+    with {:ok, url} <- url(),
+         {:ok, json} <-
+           call(:query_rebuild_inputs, :bulk, false, &Native.query_rebuild_inputs(url, &1)) do
+      decode_json(json)
+    end
+  end
+
+  @doc """
+  The Interface vertices carrying `keys`, each as `"iface.key"`, `"iface.name"`,
+  `"iface.if_index"` and its owning devices under `"~device.interfaces"`. Read
+  in bounded chunks from one Dgraph snapshot. Not retried.
+  """
+  @spec query_interfaces_by_key([String.t()]) :: {:ok, [map()]} | {:error, String.t()}
+  def query_interfaces_by_key([]), do: {:ok, []}
+
+  def query_interfaces_by_key(keys) when is_list(keys) do
+    with {:ok, url} <- url(),
+         {:ok, json} <-
+           call(
+             :query_interfaces_by_key,
+             :bulk,
+             false,
+             &Native.query_interfaces_by_key(url, keys, &1)
+           ) do
+      decode_json(json)
+    end
+  end
+
+  @doc """
   Graph fact after Prefix expansion. Returns `:reachable` or `:disjoint`.
   Does not return postpone/sequence.
   """

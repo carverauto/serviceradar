@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker
 
@@ -241,5 +243,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
       assert metadata.status == :completed
       refute HealthConditions.unhealthy?(condition)
     end
+  end
+
+  test "a failed rebuild logs its reason in the message, not only in metadata" do
+    reason =
+      "dgraph: RPC Error: OutOfRange: Error, decoded message length too large: " <>
+        "found 4235378 bytes, the limit is: 4194304 bytes"
+
+    # The console formatter prints the message and no metadata.
+    log =
+      capture_log([format: "[$level] $message\n", metadata: []], fn ->
+        TopologyStateCleanupWorker.log_rebuild_failure(
+          "Canonical topology rebuild failed",
+          reason,
+          %{lock_skipped: false}
+        )
+      end)
+
+    assert log =~ "[warning] Canonical topology rebuild failed: #{reason}"
   end
 end

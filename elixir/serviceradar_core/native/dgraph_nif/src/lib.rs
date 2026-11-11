@@ -448,6 +448,49 @@ fn query_canonical_graph(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_
     )
 }
 
+/// The canonical rebuild's inputs as a JSON array of stored rows, read in
+/// bounded pages from one snapshot.
+#[rustler::nif]
+fn query_rebuild_inputs(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_> {
+    dgraph_call(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        |client| async move { client.query_rebuild_inputs().await },
+        |result| match result
+            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
+        },
+    )
+}
+
+/// The Interface vertices carrying `keys` as a JSON array, read in bounded
+/// chunks from one snapshot.
+#[rustler::nif]
+fn query_interfaces_by_key(
+    env: Env<'_>,
+    url: String,
+    keys: Vec<String>,
+    deadline_ms: u64,
+) -> Term<'_> {
+    dgraph_call(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move { client.query_interfaces_by_key(&keys).await },
+        |result| match result
+            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
+        },
+    )
+}
+
 #[rustler::nif]
 fn query_neighbourhood(env: Env<'_>, url: String, device_id: String, deadline_ms: u64) -> Term<'_> {
     dgraph_call(

@@ -304,4 +304,76 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       refute HealthConditions.unhealthy?(condition)
     end
   end
+
+  describe "failure_text/1" do
+    test "keeps the receive-limit sizes an operator needs" do
+      reason =
+        "dgraph: RPC Error: OutOfRange: Error, decoded message length too large: " <>
+          "found 4235378 bytes, the limit is: 4194304 bytes"
+
+      assert CanonicalRebuild.failure_text(reason) == reason
+    end
+
+    test "is one line, and marks a cut with the full size" do
+      assert CanonicalRebuild.failure_text({:rebuild_cursor, :closed}) ==
+               "{:rebuild_cursor, :closed}"
+
+      assert CanonicalRebuild.failure_text("first\n  second") == "first second"
+
+      long = String.duplicate("é", 400)
+      text = CanonicalRebuild.failure_text(long)
+
+      assert String.valid?(text)
+      assert String.starts_with?(text, String.duplicate("é", 250) <> "... ")
+      assert String.ends_with?(text, "(800 bytes, cut at 500)")
+    end
+  end
+
+  describe "record_rebuild_health/2" do
+    defp recorder do
+      test_pid = self()
+
+      fn check, healthy?, metadata, _opts ->
+        send(test_pid, {:health, check, healthy?, metadata})
+        :ok
+      end
+    end
+
+    test "a failed rebuild is an unhealthy core check carrying the reason" do
+      reason = "dgraph: RPC Error: OutOfRange: found 4235378 bytes, the limit is: 4194304 bytes"
+
+      assert :ok =
+               CanonicalRebuild.record_rebuild_health(
+                 {:error, reason, %{lock_skipped: false}},
+                 recorder()
+               )
+
+      assert_received {:health, "topology-canonical-rebuild", false, %{"reason" => ^reason}}
+    end
+
+    test "a completed or unchanged rebuild is healthy" do
+      assert :ok =
+               CanonicalRebuild.record_rebuild_health(
+                 {:ok, %{after_prune_edges: 3, lock_skipped: false}},
+                 recorder()
+               )
+
+      assert_received {:health, "topology-canonical-rebuild", true, _}
+
+      assert :ok =
+               CanonicalRebuild.record_rebuild_health(
+                 {:ok, %{skipped: true, reason: :unchanged_topology}},
+                 recorder()
+               )
+
+      assert_received {:health, "topology-canonical-rebuild", true, _}
+    end
+
+    test "a run that lost the rebuild lock says nothing about health" do
+      assert :ok =
+               CanonicalRebuild.record_rebuild_health({:ok, %{lock_skipped: true}}, recorder())
+
+      refute_received {:health, _, _, _}
+    end
+  end
 end

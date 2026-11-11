@@ -9,6 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
+  alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
 
   require Logger
@@ -35,6 +36,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # so the skip guard cannot indefinitely prevent reconciliation or stale pruning.
   @default_canonical_rebuild_heartbeat_ms 3_600_000
 
+  # Core health check a rebuild outcome is recorded under. While rebuilds fail,
+  # readers keep working from the last reconciled canonical graph as it goes
+  # stale and nothing is pruned, so the failure has to reach operators through
+  # the health timeline and the managed `core_health_check_unhealthy` alert
+  # rule, not only through a log line.
+  @rebuild_health_check "topology-canonical-rebuild"
+  @max_failure_text_bytes 500
+
   # The shared platform.runtime_topology_projection_meta row makes the skip
   # guard durable across restarts and replicas. A missing hash always proceeds
   # with reconciliation.
@@ -49,15 +58,79 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   def rebuild_canonical_device_links do
-    case maybe_skip_unchanged_rebuild() do
-      {:skip, stats} ->
-        emit_canonical_rebuild_telemetry(:completed, stats)
-        Logger.debug("Canonical topology rebuild skipped; observed topology unchanged")
-        {:ok, stats}
+    result =
+      case maybe_skip_unchanged_rebuild() do
+        {:skip, stats} ->
+          emit_canonical_rebuild_telemetry(:completed, stats)
+          Logger.debug("Canonical topology rebuild skipped; observed topology unchanged")
+          {:ok, stats}
 
-      {:proceed, _fingerprint} ->
-        run_canonical_rebuild()
+        {:proceed, _fingerprint} ->
+          run_canonical_rebuild()
+      end
+
+    record_rebuild_health(result)
+    result
+  end
+
+  @doc "Core health check entity id for the canonical topology rebuild."
+  @spec rebuild_health_check() :: String.t()
+  def rebuild_health_check, do: @rebuild_health_check
+
+  @doc false
+  # Records the rebuild outcome as a core health check. The tracker stores
+  # transitions only, so a rebuild that fails on every run is one unhealthy
+  # event (and one open alert) until a run succeeds. A run that lost the lock
+  # to another rebuild says nothing about health and records nothing. An
+  # unchanged-topology skip is healthy: the inputs were read and the canonical
+  # graph already reflects them.
+  @spec record_rebuild_health(
+          {:ok, map()} | {:error, term(), map()},
+          (String.t(), boolean(), map(), keyword() -> :ok)
+        ) :: :ok
+  def record_rebuild_health(result, recorder \\ &TripwireHealth.record/4)
+
+  def record_rebuild_health({:ok, %{lock_skipped: true}}, _recorder), do: :ok
+
+  def record_rebuild_health({:ok, _stats}, recorder) when is_function(recorder, 4) do
+    recorder.(@rebuild_health_check, true, %{}, reason: "canonical topology rebuild completed")
+  end
+
+  def record_rebuild_health({:error, reason, _stats}, recorder) when is_function(recorder, 4) do
+    text = failure_text(reason)
+
+    recorder.(
+      @rebuild_health_check,
+      false,
+      %{"reason" => text},
+      reason: "canonical topology rebuild failed (#{text})"
+    )
+  end
+
+  @doc false
+  # A rebuild failure reason as one bounded line for log messages and health
+  # metadata. Structured log metadata is dropped by the console formatter, so
+  # the reason has to be in the message text to reach an operator reading pod
+  # logs. A cut is marked with the full size, never silent.
+  @spec failure_text(term()) :: String.t()
+  def failure_text(reason) do
+    text = if is_binary(reason), do: reason, else: inspect(reason)
+    text = text |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    if byte_size(text) > @max_failure_text_bytes do
+      kept = text |> String.slice(0, @max_failure_text_bytes) |> binary_prefix()
+      "#{kept}... (#{byte_size(text)} bytes, cut at #{byte_size(kept)})"
+    else
+      text
     end
+  end
+
+  # String.slice/3 counts graphemes; bound the bytes as well without splitting
+  # a character.
+  defp binary_prefix(text) when byte_size(text) <= @max_failure_text_bytes, do: text
+
+  defp binary_prefix(text) do
+    text |> String.slice(0, String.length(text) - 1) |> binary_prefix()
   end
 
   # Returns {:skip, stats} when the full mapper-evidence input is unchanged since
