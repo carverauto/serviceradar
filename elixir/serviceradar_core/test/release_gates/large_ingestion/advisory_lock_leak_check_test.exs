@@ -93,22 +93,28 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
         {"idle in transaction", false, "idle in transaction"},
         {"idle in an aborted transaction", true, "idle in transaction (aborted)"}
       ] do
-    test "a transaction lock on a client already #{label} is in flight, unresolved at the deadline, and gone once it ends",
+    test "a transaction lock on a client already #{label} is unresolved, never leaked, and gone once it ends",
          %{key: key} do
-      holder = start_transaction_lock_holder!(key, abort: unquote(abort?))
-      await_state!(holder.backend, unquote(state))
+      %{task: task, backend: backend} =
+        start_transaction_lock_holder!(key, abort: unquote(abort?))
 
-      assert %{leaked: leaked, in_flight: in_flight} = AdvisoryLockLeaks.observe(Repo)
-      assert [] = held(leaked, key)
-      assert [%{verdict: :in_flight, state: unquote(state)}] = held(in_flight, key)
+      await_state!(backend, unquote(state))
 
-      assert [%{verdict: :unresolved, state: unquote(state)}] =
-               held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
+      %{leaked: observed_leaked, in_flight: observed_in_flight} = AdvisoryLockLeaks.observe(Repo)
+      while_open = held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
 
-      %{task: task} = holder
+      assert [%{verdict: :unresolved, state: unquote(state)}] = while_open
+
       send(task, :commit)
       assert_receive {:committed, ^task}
-      assert [] = held(AdvisoryLockLeaks.leaked(Repo), key)
+      after_commit = held(AdvisoryLockLeaks.leaked(Repo), key)
+
+      assert [] = after_commit
+
+      verdicts =
+        Enum.map(held(observed_leaked ++ observed_in_flight ++ while_open, key), & &1.verdict)
+
+      refute :leaked in verdicts
     end
   end
 

@@ -1,4 +1,6 @@
 defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
+  @poll_interval_ms 20
+
   @moduledoc """
   Finds advisory locks that client sessions of the current database left behind.
 
@@ -15,28 +17,32 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   `pg_locks` does not say whether a lock is session-level or
   transaction-level, so each observation reads `pg_stat_activity`, then
   `pg_locks`, then `pg_stat_activity` again, and classifies every granted
-  advisory lock by what its holder did across the three reads:
+  advisory lock in the current database by its holder across the three reads:
 
-    * **leaked**: the holder's state was exactly `idle` in both activity
-      reads and its `state_change` did not move, so it had no transaction open
-      at any point in between and the lock cannot be transaction-level. A
-      lock held by the session running these statements is leaked for the same
-      reason: each statement runs in a transaction of its own, so a lock that session
-      already holds was not taken by any of them.
-    * **in flight**: the holder was in any other state (`idle in transaction`,
-      `idle in transaction (aborted)`, `active`, ...), changed state during the
-      observation, or had no activity row in the second read. The lock may be
-      transaction-level, or its session may be exiting, and is observed again;
-      once `pg_locks` no longer lists it, it is gone and not reported.
-    * **out of scope**: the holder is not a client backend. Server background
-      workers, such as TimescaleDB job workers, take advisory locks of their
-      own, and nothing the application does through a connection can leave one
-      behind.
+  | Observation                                                              | Verdict                  |
+  | ------------------------------------------------------------------------ | ------------------------ |
+  | client backend, state exactly `idle` in both reads, `state_change` same  | `:leaked`                |
+  | the checking session itself                                              | `:leaked`                |
+  | client backend in any other state, or changed, started or was replaced   | `:in_flight`             |
+  | holder has no activity row, or the lock has no pid (prepared xact)       | `:in_flight`             |
+  | holder is not a client backend (TimescaleDB workers, scheduler)          | not reported             |
+  | a later read of `pg_locks` no longer lists the lock                      | gone, not reported       |
+  | still `:in_flight` at the settle deadline                                | `:unresolved`, a failure |
 
-  `leaked/2` repeats the observation until no lock is in flight. A lock whose
-  holder never becomes idle before the settle deadline is reported as
-  `:unresolved` rather than dropped, so a transaction left open, or a session
-  lock on a connection that stays busy, still fails the caller.
+  "Any other state" includes `idle in transaction`, `idle in transaction
+  (aborted)`, `active`, `fastpath function call` and `disabled`.
+
+  An idle holder had no transaction open at any point between the reads, so
+  its lock cannot be transaction-level. The checking session's lock is leaked
+  for the same reason: each statement runs in a transaction of its own, so a
+  lock that session already holds was not taken by any of them. A missing
+  activity row never makes a lock `:leaked`.
+
+  `leaked/2` repeats the observation every #{@poll_interval_ms} ms while any
+  lock is `:in_flight`. Each repeat re-reads `pg_locks`, so a lock that is no
+  longer granted is gone and not reported. A lock still `:in_flight` at the
+  settle deadline is returned as `:unresolved`, a failure, and its diagnostic
+  line shows the holder's state or that it had no activity row.
 
   Call it outside a transaction, from a test tagged `sandbox: :unboxed`. Inside
   one, PostgreSQL answers both activity reads from a single cached snapshot and
@@ -44,7 +50,6 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   """
 
   @default_settle_timeout_ms 30_000
-  @poll_interval_ms 20
 
   @activity_sql """
   SELECT pid, pid = pg_backend_pid(), backend_start, backend_type, state, state_change,
