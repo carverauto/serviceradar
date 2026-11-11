@@ -103,6 +103,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        capabilities: [],
        config_version: nil,
        applied_plugin_assignments: [],
+       installed_sweep_lease_digests: %{},
        commands: %{},
        registry_key: nil,
        gateway_node: Atom.to_string(node()),
@@ -574,7 +575,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       state
       | capabilities: normalize_capabilities(hello.capabilities),
         config_version: normalize_config_version(hello.config_version),
-        applied_plugin_assignments: normalize_applied_plugin_assignments(hello.applied_plugin_assignments)
+        applied_plugin_assignments: normalize_applied_plugin_assignments(hello.applied_plugin_assignments),
+        installed_sweep_lease_digests: normalize_installed_sweep_lease_digests(hello.installed_sweep_lease_digests)
     }
   end
 
@@ -634,6 +636,32 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   def normalize_applied_plugin_assignments(_assignments), do: []
+
+  # The hello's installed sweep lease digests (group id to hex SHA-256 of the
+  # installed push payload), kept for the session's lease refresh so core can
+  # skip re-issuing a window the agent already holds. Anything else normalizes
+  # to no digests, which re-issues everything: the safe direction for an older
+  # agent or a malformed map.
+  defp normalize_installed_sweep_lease_digests(digests) when is_map(digests) do
+    if map_size(digests) > 1_024 do
+      %{}
+    else
+      digests
+      |> Enum.reduce_while({:ok, %{}}, fn
+        {group, digest}, {:ok, acc} when is_binary(group) and is_binary(digest) ->
+          {:cont, {:ok, Map.put(acc, group, digest)}}
+
+        _entry, _acc ->
+          {:halt, :error}
+      end)
+      |> case do
+        {:ok, normalized} -> normalized
+        :error -> %{}
+      end
+    end
+  end
+
+  defp normalize_installed_sweep_lease_digests(_digests), do: %{}
 
   defp reduce_plugin_assignment(assignment, {:ok, normalized}) do
     with {:ok, proof} <- normalize_plugin_assignment_proof(assignment),
@@ -1298,9 +1326,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp run_sweep_lease_refresh(state, attempt) do
     session = self()
     agent_id = state.agent_id
+    digests = Map.get(state, :installed_sweep_lease_digests, %{})
 
     Task.start(fn ->
-      case start_refresh_on_core(agent_id, session, attempt) do
+      case start_refresh_on_core(agent_id, session, attempt, digests) do
         {:ok, refresh} -> send(session, {:sweep_lease_refresh_started, attempt, refresh})
         {:error, _reason} = error -> send(session, {:sweep_lease_refresh_result, attempt, error})
       end
@@ -1309,8 +1338,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     %{state | sweep_lease_refresh: {:running, attempt, nil}}
   end
 
-  defp start_refresh_on_core(agent_id, session, attempt) do
-    ConfigSyncForwarder.start_sweep_lease_refresh(agent_id, session, attempt)
+  defp start_refresh_on_core(agent_id, session, attempt, digests) do
+    ConfigSyncForwarder.start_sweep_lease_refresh(agent_id, session, attempt, digests)
   catch
     kind, reason -> {:error, {kind, reason}}
   end

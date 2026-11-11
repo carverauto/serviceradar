@@ -196,6 +196,124 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              MapSet.new(unrun!(assignment!(group, ctx.agent), later), &Ecto.UUID.dump!(&1.id))
   end
 
+  test "a refresh with a matching hello digest skips the re-issue", ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = clear_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    digest = row.delivered_payload_sha256
+    assert is_binary(row.authority_fingerprint)
+    issuances = issuance_count(assignment!(group, ctx.agent))
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest,
+               installed: true
+             })
+
+    later = DateTime.shift(now, second: 1)
+
+    assert {:ok, %{pushed: 0, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, later, %{group.id => digest})
+
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    # The skip rebuilds nothing: no re-sign, no issuance write, no send. The row is
+    # byte-identical to the acknowledged push and issuance did not grow.
+    assert {:ok, [skipped]} = LeaseDelivery.list_for_group(group.id)
+    assert skipped.delivered_payload_sha256 == digest
+    assert skipped.delivered_at == row.delivered_at
+    assert skipped.authority_fingerprint == row.authority_fingerprint
+    assert issuance_count(assignment!(group, ctx.agent)) == issuances
+  end
+
+  test "a refresh with a mismatched hello digest re-issues the window", ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = clear_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: row.delivered_payload_sha256,
+               installed: true
+             })
+
+    later = DateTime.shift(now, second: 1)
+
+    assert {:ok, %{pushed: 1, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, later, %{
+               group.id => String.duplicate("0", 64)
+             })
+
+    assert_receive {:pushed, _, _, _, _}
+  end
+
+  test "a NULL authority fingerprint rebuilds once, then matches", ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = clear_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    digest = row.delivered_payload_sha256
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest,
+               installed: true
+             })
+
+    assignment = assignment!(group, ctx.agent)
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!(
+               "UPDATE platform.sweep_lease_deliveries SET authority_fingerprint = NULL WHERE producer_assignment_id = $1::uuid",
+               [Ecto.UUID.dump!(assignment.id)]
+             )
+
+    later = DateTime.shift(now, second: 1)
+
+    # NULL never matches, so the matching digest still takes the full path once.
+    assert {:ok, %{pushed: 1, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, later, %{group.id => digest})
+
+    assert_receive {:pushed, _, _, _, _}
+
+    assert {:ok, [rebuilt]} = LeaseDelivery.list_for_group(group.id)
+    assert is_binary(rebuilt.authority_fingerprint)
+    new_digest = rebuilt.delivered_payload_sha256
+    assert new_digest != digest
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: new_digest,
+               installed: true
+             })
+
+    # The rebuilt row carries a fingerprint, so the next refresh skips.
+    assert {:ok, %{pushed: 0, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, ctx.delivery, later, %{group.id => new_digest})
+
+    refute_receive {:pushed, _, _, _, _}, 50
+  end
+
+  # The full-window batching case lives in lease_window_commit_serial_db_test.exs: it
+  # counts database transactions around a 2,016-slot re-push, which needs a serial lane
+  # (pg_stat_database counts every backend's commits, so a concurrent test would pollute
+  # the delta).
+
   test "a refresh leaves the group's other agents, their slots and their deliveries alone", ctx do
     horizon!(ctx, 3_600)
     peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.11")
@@ -260,37 +378,44 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     refute_receive {:pushed, ^agent, _, %{revoked: false}, _}, 50
   end
 
-  test "a refresh queued behind a send does not revive an agent revoked while it waited",
-       ctx do
+  test "a refresh that loses a held lock reports busy and revives nothing", ctx do
     assert_queued_run_keeps_revocation(ctx, fn _group, delivery ->
-      assert {:ok, %{pushed: 0, errors: 0}} = LeasePass.refresh_agent(ctx.agent, delivery)
+      assert {:error, :delivery_in_progress} = LeasePass.refresh_agent(ctx.agent, delivery)
     end)
   end
 
-  test "a pass queued behind a send does not revive an agent revoked after it read the group",
-       ctx do
+  test "a pass that loses a held lock skips the agent and revives nothing", ctx do
     assert_queued_run_keeps_revocation(ctx, fn group, delivery ->
       assert %{pushed: 0, errors: 0} =
                LeasePass.reconcile_group(group, DateTime.utc_now(), delivery)
     end)
   end
 
-  test "two refreshes of one agent never send its lease at the same time", ctx do
-    assert_serialized_sends(ctx, fn _group, delivery, now ->
-      [
-        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
-        fn -> LeasePass.refresh_agent(ctx.agent, delivery, DateTime.shift(now, second: 1)) end
-      ]
-    end)
+  test "a refresh that loses the delivery lock reports busy instead of waiting", ctx do
+    assert_try_once_sends(
+      ctx,
+      fn _group, delivery, now ->
+        [
+          fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+          fn -> LeasePass.refresh_agent(ctx.agent, delivery, DateTime.shift(now, second: 1)) end
+        ]
+      end,
+      &(&1 == {:error, :delivery_in_progress})
+    )
   end
 
-  test "a refresh and a lease pass never send one agent's lease at the same time", ctx do
-    assert_serialized_sends(ctx, fn group, delivery, now ->
-      [
-        fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
-        fn -> LeasePass.reconcile_group(group, now, delivery) end
-      ]
-    end)
+  test "a lease pass that loses the delivery lock skips the busy agent instead of waiting",
+       ctx do
+    assert_try_once_sends(
+      ctx,
+      fn group, delivery, now ->
+        [
+          fn -> LeasePass.refresh_agent(ctx.agent, delivery, now) end,
+          fn -> LeasePass.reconcile_group(group, now, delivery) end
+        ]
+      end,
+      &match?(%{pushed: 0, errors: 0}, &1)
+    )
   end
 
   test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
@@ -1293,7 +1418,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                %{
                  name: "Lease pass #{ctx.suffix}-#{unique}",
                  partition: ctx.partition.slug,
-                 interval: "15m",
+                 interval: Keyword.get(overrides, :interval, "15m"),
                  enabled: false,
                  agent_ids: Keyword.get(overrides, :agent_ids, [ctx.agent]),
                  static_targets: ["192.0.2.0/28", "198.51.100.7"],
@@ -1388,10 +1513,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     checks
   end
 
-  # Both runs push this agent's lease through a sender that takes 200 ms. Under the delivery
-  # lock one send finishes before the next starts, and the delivery row records the payload
-  # that was sent last.
-  defp assert_serialized_sends(ctx, runs) do
+  # Both runs push this agent's lease through a sender that holds the delivery lock until
+  # released. Under the try-once delivery lock the second run never waits: it answers
+  # while the holder still sends, so exactly one send happens and the delivery row records
+  # the holder's payload. `second` asserts the loser's answer (a pass skips, a refresh
+  # reports busy).
+  defp assert_try_once_sends(ctx, runs, second) do
     horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     enable!(group)
@@ -1401,33 +1528,44 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     slow = fn _agent_id, _group_id, payload ->
       send(test_pid, {:send, :started, self()})
-      Process.sleep(200)
+
+      receive do
+        :release_send -> :ok
+      end
+
       send(test_pid, {:send, :finished, self(), payload})
       :ok
     end
 
-    group
-    |> runs.(%{ctx.delivery | sender: slow}, now)
-    |> Enum.map(&Task.async/1)
-    |> Task.await_many(10_000)
+    [first_run, second_run] = runs.(group, %{ctx.delivery | sender: slow}, now)
 
-    assert [
-             {:started, first},
-             {:finished, first, _},
-             {:started, second},
-             {:finished, second, last}
-           ] =
-             Enum.map(1..4, fn _ -> next_send_event() end)
+    holder = Task.async(first_run)
+    assert_receive {:send, :started, holder_pid}, 5_000
 
-    refute first == second
-    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
-    assert row.delivered_payload_sha256 == digest(last)
+    try do
+      loser = Task.async(second_run)
+      # The loser answers while the holder still sends: no parking on the lock.
+      assert second.(Task.await(loser, 5_000))
+
+      send(holder_pid, :release_send)
+      _holder_result = Task.await(holder, 10_000)
+
+      assert_receive {:send, :finished, _holder_pid, last}
+      refute_receive {:send, _, _, _}, 100
+
+      assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+      assert row.delivered_payload_sha256 == digest(last)
+    after
+      send(holder_pid, :release_send)
+    end
   end
 
-  # A real send holds the agent's delivery lock while `queued` reads the group and then waits
-  # on that lock. A group update removes the agent meanwhile, revoking it in the update's own
-  # transaction. Once the lock is released, the queued run must leave the revocation, its epoch
-  # and its dropped slots as they are, mint no issuance for the agent and send nothing.
+  # A real send holds the agent's delivery lock while `queued` loses it try-once and answers
+  # without waiting: the await below completes while the holder still sends. A group update
+  # removes the agent meanwhile, revoking it in the update's own transaction. Once the lock
+  # is released, the holder's stale send must leave the revocation, its epoch and its
+  # dropped slots as they are, mint no issuance for the agent — and the queued run must
+  # have sent nothing.
   defp assert_queued_run_keeps_revocation(ctx, queued) do
     horizon!(ctx, 3_600)
     peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.12")
@@ -1460,7 +1598,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       end
 
       waiting = Task.async(fn -> queued.(group, %{ctx.delivery | sender: late}) end)
-      await_delivery_lock_wait(waiting.pid, System.monotonic_time(:millisecond) + 5_000)
+      Task.await(waiting, 5_000)
 
       assert {:ok, _updated} =
                group
@@ -1473,7 +1611,6 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
       send(holder_pid, :release)
       Task.await(holding, 10_000)
-      Task.await(waiting, 10_000)
 
       refute_receive {:late_push, _, _}, 50
       current = assignment!(group, ctx.agent)
@@ -1483,24 +1620,6 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       assert issuance_count(assignment) == issuances
     after
       send(holder_pid, :release)
-    end
-  end
-
-  defp await_delivery_lock_wait(pid, deadline) do
-    {:current_stacktrace, stack} = Process.info(pid, :current_stacktrace)
-
-    cond do
-      Enum.any?(stack, &match?({:global, _, _, _}, &1)) ->
-        :ok
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        flunk("the queued run never waited on the agent's delivery lock")
-
-      true ->
-        receive do
-        after
-          5 -> await_delivery_lock_wait(pid, deadline)
-        end
     end
   end
 
@@ -1515,15 +1634,6 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       )
 
     count
-  end
-
-  defp next_send_event do
-    receive do
-      {:send, :started, pid} -> {:started, pid}
-      {:send, :finished, pid, payload} -> {:finished, pid, payload}
-    after
-      5_000 -> flunk("a lease send did not happen")
-    end
   end
 
   defp enable!(group) do

@@ -159,8 +159,13 @@ func reassembleSweepLeaseChunks(chunks []*proto.SweepLeaseChunk) ([]byte, error)
 type sweepLeaseStore struct {
 	dir string
 
-	mu       sync.Mutex
-	leases   map[string]*edgev1.SweepLeaseV1
+	mu     sync.Mutex
+	leases map[string]*edgev1.SweepLeaseV1
+	// digests holds the hex SHA-256 of the last installed push payload per
+	// group, as reported in the control hello so core can skip re-issuing a
+	// window the agent already holds. A group with a lease but no digest
+	// predates digest recording and is never reported.
+	digests  map[string]string
 	executed map[string]map[string]int64
 	// refusals holds each group's slot refusals until core can no longer
 	// judge the slot (sweep_lease_refusal.go), keyed by execution id.
@@ -176,6 +181,12 @@ const (
 	// attributed by recovery. It is never loaded or run, and its bytes stay on
 	// disk untouched.
 	sweepLeaseFileSuffix = ".issued.pb"
+	// sweepLeaseDigestSuffix names the sidecar holding the hex SHA-256 of the
+	// last installed push payload for a group. It is written after the lease
+	// file, so a crash between the two leaves a lease with no digest: the
+	// group is then omitted from the hello and core re-issues, which is the
+	// safe direction.
+	sweepLeaseDigestSuffix = ".digest"
 )
 
 func defaultSweepLeaseDir() string {
@@ -201,6 +212,7 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	store := &sweepLeaseStore{
 		dir:      dir,
 		leases:   make(map[string]*edgev1.SweepLeaseV1),
+		digests:  make(map[string]string),
 		executed: make(map[string]map[string]int64),
 		refusals: make(map[string]map[string]sweepLeaseRefusalRecord),
 	}
@@ -229,6 +241,26 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 			if readErr != nil && firstErr == nil {
 				firstErr = fmt.Errorf("read sweep lease refusals %s: %w", groupID, readErr)
 			}
+
+			continue
+		}
+
+		if strings.HasSuffix(name, sweepLeaseDigestSuffix) {
+			groupID := strings.TrimSuffix(name, sweepLeaseDigestSuffix)
+
+			data, readErr := os.ReadFile(filepath.Join(dir, name))
+			if readErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("read sweep lease digest %s: %w", groupID, readErr)
+				}
+
+				continue
+			}
+
+			// A malformed digest is dropped, not fatal: the group is then
+			// omitted from the hello and core re-issues its window. Failing
+			// the whole store open here would discard every held lease.
+			_ = store.loadDigest(groupID, data)
 
 			continue
 		}
@@ -314,7 +346,90 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		}
 	}
 
+	// A digest without a loaded lease belongs to a discarded or missing
+	// lease; reporting it would make core believe the agent holds a window
+	// it does not, so it is dropped rather than reported.
+	for groupID := range store.digests {
+		if _, ok := store.leases[groupID]; !ok {
+			delete(store.digests, groupID)
+		}
+	}
+
 	return store, firstErr
+}
+
+// loadDigest records a persisted installed-payload digest. The caller holds
+// no lock; the constructor is single-threaded.
+func (s *sweepLeaseStore) loadDigest(groupID string, data []byte) error {
+	digest := strings.TrimSpace(string(data))
+	if !validSweepLeaseDigest(digest) {
+		return fmt.Errorf("malformed installed digest for group %s", groupID)
+	}
+
+	s.digests[groupID] = digest
+
+	return nil
+}
+
+func validSweepLeaseDigest(digest string) bool {
+	if len(digest) != 64 {
+		return false
+	}
+
+	for i := 0; i < len(digest); i++ {
+		c := digest[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *sweepLeaseStore) digestPath(groupID string) string {
+	return filepath.Join(s.dir, groupID+sweepLeaseDigestSuffix)
+}
+
+// RecordInstalledDigest persists the hex SHA-256 of the push payload the
+// agent just installed for groupID, for the control hello. It runs after the
+// lease file is written: a crash between the two leaves no digest, the group
+// is omitted from the hello, and core re-issues, which is the safe direction.
+func (s *sweepLeaseStore) RecordInstalledDigest(groupID, digest string) error {
+	if !validSweepLeaseDigest(digest) {
+		return fmt.Errorf("%w: malformed installed digest for group %s", errInvalidSweepLease, groupID)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := durablefs.WriteFile(s.digestPath(groupID), []byte(digest+"\n"), sweepLeaseFileMode); err != nil {
+		return fmt.Errorf("write sweep lease digest: %w", err)
+	}
+
+	if err := durablefs.Sync(s.dir); err != nil {
+		return fmt.Errorf("sync sweep lease digest: %w", err)
+	}
+
+	s.digests[groupID] = digest
+
+	return nil
+}
+
+// InstalledLeaseDigests returns the installed-payload digest per group that
+// has both a loaded lease and a recorded digest, for the control hello.
+func (s *sweepLeaseStore) InstalledLeaseDigests() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make(map[string]string, len(s.digests))
+
+	for groupID, digest := range s.digests {
+		if _, ok := s.leases[groupID]; ok {
+			out[groupID] = digest
+		}
+	}
+
+	return out
 }
 
 // Get returns a copy of the installed lease for groupID, or nil.
@@ -453,6 +568,14 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 
 		if err := os.Remove(s.executedPath(wantGroup)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove revoked sweep lease executions: %w", err)
+		}
+
+		// A revoked group holds nothing: drop its digest so the hello stops
+		// reporting it and core never skips on a stale window.
+		delete(s.digests, wantGroup)
+
+		if err := os.Remove(s.digestPath(wantGroup)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove revoked sweep lease digest: %w", err)
 		}
 
 		if err := s.forgetRefusalsLocked(wantGroup); err != nil {
@@ -733,6 +856,14 @@ func (p *PushLoop) handleSweepLeaseChunk(chunk *proto.SweepLeaseChunk, assembler
 		p.sendSweepLeaseAck(sender, sweepLeaseAckRefused(group, push.GetLeaseId(), digest, err))
 
 		return
+	}
+
+	// Record the installed payload digest for the control hello. A failure
+	// here only omits the group from the hello: the install stands and is
+	// acked, and core re-issues the window on the next session instead of
+	// skipping.
+	if err := store.RecordInstalledDigest(group, digest); err != nil {
+		p.logger.Warn().Err(err).Str("sweep_group_id", group).Msg("Installed sweep lease but its digest was not recorded")
 	}
 
 	p.onSweepLeaseInstalled(group, held)

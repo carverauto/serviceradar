@@ -392,9 +392,31 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				HostTlsFingerprints:   p.helloHostTLSFingerprints(),
 				ConfigSectionStatuses: p.helloConfigSectionStatuses(),
 				EdgeRecordSpool:       p.edgeSpoolStatus(),
+				// Installed sweep lease digests let core skip re-issuing a window
+				// the agent already holds. Groups without a recorded digest are
+				// omitted so core re-issues them; agents that predate the store
+				// support report nothing and keep today's behavior.
+				InstalledSweepLeaseDigests: p.helloInstalledSweepLeaseDigests(),
 			},
 		},
 	}
+}
+
+// helloInstalledSweepLeaseDigests reports the installed sweep lease payload
+// digest per group, from the persisted lease store. It returns nil when the
+// store was never opened (no lease ever installed), so the hello carries no
+// field and core re-issues instead of skipping.
+func (p *PushLoop) helloInstalledSweepLeaseDigests() map[string]string {
+	if p == nil {
+		return nil
+	}
+
+	store := p.loadedSweepLeaseStore()
+	if store == nil {
+		return nil
+	}
+
+	return store.InstalledLeaseDigests()
 }
 
 // helloConfigSectionStatuses reports the current per-section config apply state on the

@@ -158,23 +158,49 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
           {:ok, pid()} | {:error, term()}
   def start_sweep_lease_refresh(agent_id, session, attempt)
       when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 do
-    case rpc(:start_sweep_lease_refresh, [agent_id, session, attempt], @rpc_timeout) do
-      {:ok, refresh} when is_pid(refresh) ->
-        {:ok, refresh}
+    start_refresh_rpc([agent_id, session, attempt], agent_id)
+  end
 
-      {:error, :peer_too_old} = error ->
-        error
+  @doc """
+  Starts the refresh carrying the agent's installed sweep lease digests (group id to hex
+  SHA-256 of the installed push payload), so core can skip re-issuing a window the agent
+  already holds. A core that predates the digest argument answers `{:error, :peer_too_old}`;
+  the refresh then starts without digests, which re-issues everything: today's behavior for
+  a new agent against an old core.
+  """
+  @spec start_sweep_lease_refresh(String.t(), pid(), non_neg_integer(), map()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_sweep_lease_refresh(agent_id, session, attempt, digests)
+      when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 and is_map(digests) do
+    case rpc(:start_sweep_lease_refresh, [agent_id, session, attempt, digests], @rpc_timeout) do
+      {:error, :peer_too_old} ->
+        start_refresh_rpc([agent_id, session, attempt], agent_id)
 
-      {:error, reason} ->
-        Logger.warning("Failed to start sweep lease refresh on core: agent_id=#{agent_id} #{inspect(reason)}")
-
-        {:error, reason}
-
-      other ->
-        Logger.warning("Unexpected sweep lease refresh start result: agent_id=#{agent_id} #{inspect(other)}")
-
-        {:error, {:unexpected_result, other}}
+      result ->
+        handle_refresh_start(result, agent_id)
     end
+  end
+
+  defp start_refresh_rpc(args, agent_id) do
+    :start_sweep_lease_refresh
+    |> rpc(args, @rpc_timeout)
+    |> handle_refresh_start(agent_id)
+  end
+
+  defp handle_refresh_start({:ok, refresh}, _agent_id) when is_pid(refresh), do: {:ok, refresh}
+
+  defp handle_refresh_start({:error, :peer_too_old} = error, _agent_id), do: error
+
+  defp handle_refresh_start({:error, reason}, agent_id) do
+    Logger.warning("Failed to start sweep lease refresh on core: agent_id=#{agent_id} #{inspect(reason)}")
+
+    {:error, reason}
+  end
+
+  defp handle_refresh_start(other, agent_id) do
+    Logger.warning("Unexpected sweep lease refresh start result: agent_id=#{agent_id} #{inspect(other)}")
+
+    {:error, {:unexpected_result, other}}
   end
 
   @doc "Persists an agent's refusal to run one leased sweep slot on core."

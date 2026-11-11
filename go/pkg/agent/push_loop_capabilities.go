@@ -89,6 +89,10 @@ const (
 	// core-pushed sweep schedule leases (SweepLeaseChunk), so the gateway may
 	// send them.
 	capabilitySweepLeaseV1 = "sweep_lease_v1"
+	// capabilitySweepLeaseHelloDigests: this agent reports the digest of the
+	// installed sweep lease payload per sweep group in its control hello, so
+	// core can skip re-issuing a window the agent already holds.
+	capabilitySweepLeaseHelloDigests = "sweep_lease_hello_digests:v1"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -591,6 +595,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
 		capabilitySweepLeaseV1,
+		capabilitySweepLeaseHelloDigests,
 		capabilitySweepLeasePlanChecksV1,
 		"snmp",
 		capabilitySNMPSharedOIDs,

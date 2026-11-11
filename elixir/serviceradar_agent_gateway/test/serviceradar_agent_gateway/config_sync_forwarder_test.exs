@@ -84,6 +84,33 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
     assert {:error, :core_unavailable} = ConfigSyncForwarder.record_config_ack("agent-4", ack)
   end
 
+  test "refresh start carries digests, and falls back without them on an old core" do
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn
+      :start_sweep_lease_refresh, [_agent, _session, 0, digests] when digests != %{} ->
+        send(test_pid, {:refresh_rpc, :with_digests})
+        {:error, :peer_too_old}
+
+      :start_sweep_lease_refresh, [_agent, _session, 0] ->
+        send(test_pid, {:refresh_rpc, :without_digests})
+        {:ok, spawn(fn -> :ok end)}
+
+      function, args ->
+        send(test_pid, {:config_sync, function, args})
+        :ok
+    end)
+
+    digests = %{"group-a" => String.duplicate("ab", 32)}
+
+    assert {:ok, refresh} =
+             ConfigSyncForwarder.start_sweep_lease_refresh("agent-1", self(), 0, digests)
+
+    assert is_pid(refresh)
+    assert_received {:refresh_rpc, :with_digests}
+    assert_received {:refresh_rpc, :without_digests}
+  end
+
   test "caller facing an older core node neither crashes nor logs an error, and succeeds once a capable node exists" do
     Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc)
     ensure_distribution_started!()

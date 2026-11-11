@@ -85,7 +85,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   @type delivery :: %{
           required(:authority) => LeaseDelivery.authority(),
           required(:sender) => LeaseDelivery.sender(),
-          optional(:refresh) => String.t()
+          optional(:refresh) => String.t(),
+          optional(:reported_digests) => %{String.t() => String.t()}
         }
 
   @doc "The most slots one pass mints for one assignment."
@@ -235,33 +236,70 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   The refresh succeeds only when every group planned cleanly and every push reached the session.
   Without lease authority (`nil`), or when any group or push failed, it returns an error so the
   caller retries rather than leaving the acknowledged window unpushed.
-  """
-  @spec refresh_agent(String.t(), delivery() | nil, DateTime.t()) ::
-          {:ok, summary()} | {:error, term()}
-  def refresh_agent(agent_id, delivery, now \\ DateTime.utc_now())
 
-  def refresh_agent(agent_id, nil, _now) when is_binary(agent_id),
+  The refresh may carry the agent's installed sweep lease digests (group id to hex
+  SHA-256 of the installed push payload, from its control hello). The per-group re-issue
+  skips a group whose reported digest matches core's issuance evidence; anything else
+  re-issues the group, so an agent that predates the digest field keeps today's behavior.
+  """
+  @spec refresh_agent(String.t(), delivery() | nil, DateTime.t(), map()) ::
+          {:ok, summary()} | {:error, term()}
+  def refresh_agent(agent_id, delivery, now \\ DateTime.utc_now(), reported_digests \\ %{})
+
+  def refresh_agent(agent_id, nil, _now, _reported_digests) when is_binary(agent_id),
     do: {:error, :lease_authority_unavailable}
 
-  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now)
+  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now, reported_digests)
       when is_binary(agent_id) do
-    delivery = Map.put(delivery, :refresh, agent_id)
+    delivery =
+      delivery
+      |> Map.put(:refresh, agent_id)
+      |> Map.put(:reported_digests, normalize_reported_digests(reported_digests))
 
     with {:ok, assignments} <-
            SweepProducerAssignment
            |> Ash.Query.for_read(:active_for_agent, %{agent_id: agent_id}, actor: actor())
            |> Ash.read(actor: actor()) do
       summary =
-        Enum.reduce(assignments, empty(), fn assignment, acc ->
-          add(acc, lease_agent(assignment.sweep_group_id, agent_id, now, delivery))
+        Enum.reduce_while(assignments, empty(), fn assignment, acc ->
+          case lease_agent(assignment.sweep_group_id, agent_id, now, delivery) do
+            {:error, :delivery_in_progress} = busy -> {:halt, busy}
+            group_summary -> {:cont, add(acc, group_summary)}
+          end
         end)
 
-      case Map.delete(summary, :failed_groups) do
-        %{errors: 0} = summary -> {:ok, summary}
-        %{errors: errors} -> {:error, {:lease_refresh_incomplete, errors}}
+      case summary do
+        {:error, _reason} = busy ->
+          busy
+
+        summary ->
+          case Map.delete(summary, :failed_groups) do
+            %{errors: 0} = summary -> {:ok, summary}
+            %{errors: errors} -> {:error, {:lease_refresh_incomplete, errors}}
+          end
       end
     end
   end
+
+  # Hello-reported installed digests the per-group re-issue compares against issuance
+  # evidence. Anything but a small binary-to-binary map normalizes to no digests, which
+  # re-issues everything: the safe direction for an older agent or a malformed map.
+  defp normalize_reported_digests(digests) when is_map(digests) and map_size(digests) <= 1_024 do
+    digests
+    |> Enum.reduce_while({:ok, %{}}, fn
+      {group, digest}, {:ok, acc} when is_binary(group) and is_binary(digest) ->
+        {:cont, {:ok, Map.put(acc, group, digest)}}
+
+      _entry, _acc ->
+        {:halt, :error}
+    end)
+    |> case do
+      {:ok, normalized} -> normalized
+      :error -> %{}
+    end
+  end
+
+  defp normalize_reported_digests(_digests), do: %{}
 
   @doc """
   The delivery context of a pass: the issuer authority (`LeaseDelivery.authority/0`) and the
@@ -419,18 +457,39 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   # group update's revocation either commits first and the agent is skipped, or commits after
   # and fences the epoch planned here. Delivery runs after that transaction commits.
   defp lease_agent(group_id, agent_id, now, delivery) do
-    LeaseDelivery.serialize(group_id, agent_id, fn ->
-      case plan_agent(group_id, agent_id, now, mode(delivery)) do
-        {:ok, {assignment, agent, planned}} ->
-          add(planned, deliver(assignment, agent.inputs.checks, now, delivery))
+    case LeaseDelivery.serialize(group_id, agent_id, fn ->
+           case plan_agent(group_id, agent_id, now, mode(delivery)) do
+             {:ok, {assignment, agent, planned}} ->
+               add(planned, deliver(assignment, agent.inputs.checks, now, delivery))
 
-        {:ok, :not_selected} ->
-          empty()
+             {:ok, :not_selected} ->
+               empty()
 
-        {:error, reason} ->
-          lease_failed(group_id, agent_id, reason)
-      end
-    end)
+             {:error, reason} ->
+               lease_failed(group_id, agent_id, reason)
+           end
+         end) do
+      :aborted -> delivery_busy(group_id, agent_id, delivery)
+      {:aborted, _reason} -> delivery_busy(group_id, agent_id, delivery)
+      result -> result
+    end
+  end
+
+  # The delivery lock is held by a concurrent refresh or pass: a periodic pass skips the
+  # agent for this pass (delivery state is untouched, so the next pass picks it up), while
+  # a session refresh reports busy so the gateway retries with its bounded backoff. The
+  # session never parks on the lock.
+  defp delivery_busy(_group_id, _agent_id, %{refresh: _}) do
+    {:error, :delivery_in_progress}
+  end
+
+  defp delivery_busy(group_id, agent_id, _delivery) do
+    Logger.debug(
+      "Sweep lease pass: delivery of group #{group_id} on #{agent_id} in progress, " <>
+        "skipping this pass"
+    )
+
+    empty()
   end
 
   defp mode(%{refresh: _}), do: :refresh
@@ -501,9 +560,22 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp deliver(_assignment, _checks, _now, nil), do: empty()
 
   defp deliver(assignment, checks, now, %{refresh: _} = delivery),
-    do: push(assignment, checks, now, delivery, fresh: true)
+    do:
+      push(assignment, checks, now, delivery,
+        fresh: true,
+        reported_digest: reported_digest(delivery, assignment)
+      )
 
   defp deliver(assignment, checks, now, delivery), do: push(assignment, checks, now, delivery, [])
+
+  # The digest the agent reported for the group on its control hello, if any. Exact match
+  # only: anything else fails the refresh skip to the full path, which is the safe
+  # direction for an older agent or a group the agent does not hold.
+  defp reported_digest(delivery, assignment) do
+    delivery
+    |> Map.get(:reported_digests, %{})
+    |> Map.get(assignment.sweep_group_id)
+  end
 
   defp push(assignment, checks, now, %{authority: authority, sender: sender} = delivery, opts) do
     case LeaseDelivery.deliver(assignment, authority, now, sender, checks, opts) do

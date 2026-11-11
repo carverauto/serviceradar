@@ -293,11 +293,15 @@ That push does not wait for the next tail. When an agent advertising
 `sweep_lease_v1` registers a new control session, the gateway asks core
 (`AgentGatewaySync.start_sweep_lease_refresh/3`) to refresh it. That call only
 starts the refresh: core runs it under `ServiceRadar.SweepJobs.LeaseRefresh`
-with no caller deadline, because reissuing the full window takes as long as the
-lease horizon needs, and sends the result to the session as a message.
+with no caller deadline, and sends the result to the session as a message.
+A refresh whose window is already recorded and still valid is verified current
+without rebuilding or resending (see `fix-sweep-lease-reissue-stall`); only a
+missing or stale window reissues the full window, which takes as long as the
+lease horizon needs.
 `LeasePass.refresh_agent/3` evaluates, plans and delivers only that agent in
-each group it holds an active assignment in, through the full-window path, even
-when core holds a matching acknowledgement. No other agent's assignment, slots or
+each group it holds an active assignment in, through the full-window path when
+the recorded issuance is missing or stale, and verifies current without
+resending when core holds a matching acknowledgement of identical content. No other agent's assignment, slots or
 delivery is touched, and nothing is revoked or withdrawn; an agent the group no
 longer leases to is left for the next lease pass. It sends to the registering
 session's pid, because the cluster registry can lag the registration. The window
@@ -305,10 +309,12 @@ holds only future scheduled slots, and each push records its issuance evidence
 before it is sent.
 
 The lease pass and a refresh plan and deliver one agent's lease of one group
-under the same cluster-wide `:global.trans` lock, taken across every connected
+under the same cluster-wide per-agent delivery lock, taken with a bounded try
+(never an indefinite wait) across every connected
 node; revocation sends take it too. Under the lock they read the delivery row
-fresh, commit issuance, `record_push` and send, so two refreshes, or a refresh
-and a pass, never interleave and the last recorded push is the last one sent.
+fresh, commit issuance, `record_push` and send, so two deliverers for one agent
+never interleave — at most one holds the lock while the other skips or retries —
+and the last recorded push is the last one sent.
 Issuance is committed by itself before the send; the lock is not a database
 transaction around the network call. The session monitors the refresh process
 on core, so it does not ask again while a refresh is still running, and a refresh

@@ -960,6 +960,19 @@ defmodule Monitoring.ControlStreamHello.LabelsEntry do
   field :value, 2, type: :string
 end
 
+defmodule Monitoring.ControlStreamHello.InstalledSweepLeaseDigestsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.ControlStreamHello.InstalledSweepLeaseDigestsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
 defmodule Monitoring.ControlStreamHello do
   @moduledoc false
 
@@ -1011,6 +1024,12 @@ defmodule Monitoring.ControlStreamHello do
     proto3_optional: true,
     type: Monitoring.EdgeRecordSpoolStatus,
     json_name: "edgeRecordSpool"
+
+  field :installed_sweep_lease_digests, 19,
+    repeated: true,
+    type: Monitoring.ControlStreamHello.InstalledSweepLeaseDigestsEntry,
+    json_name: "installedSweepLeaseDigests",
+    map: true
 end
 
 defmodule Monitoring.CommandRequest do
