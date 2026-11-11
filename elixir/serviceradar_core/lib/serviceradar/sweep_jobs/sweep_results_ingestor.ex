@@ -3406,7 +3406,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       from(e in SweepGroupExecution,
         where:
           e.sweep_group_id == ^sweep_group_id and e.status == :running and
-            e.id != ^execution_id
+            e.id != ^execution_id,
+        select: e.id,
+        order_by: [asc: e.id],
+        lock: "FOR UPDATE SKIP LOCKED"
       )
 
     query =
@@ -3416,14 +3419,29 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         base_query
       end
 
-    Repo.update_all(query,
-      set: [
-        status: :failed,
-        completed_at: now,
-        updated_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
-        error_message: "superseded by new execution"
-      ]
-    )
+    # Two concurrent new-execution inserts each hold a speculative lock on their
+    # own row and try to supersede the other. A plain UPDATE blocks on the other
+    # transaction's speculative lock, creating a circular ShareLock wait.
+    # SELECT … FOR UPDATE SKIP LOCKED acquires row locks in ascending id order
+    # and skips any row that is currently speculatively locked, breaking the
+    # cycle. The surrounding Repo.transaction ensures the SELECT and UPDATE share
+    # the same connection; when nested inside an outer transaction Ecto 3.x
+    # reuses that connection directly (no savepoint is created).
+    Repo.transaction(fn ->
+      ids = Repo.all(query)
+
+      if ids != [] do
+        Repo.update_all(
+          from(e in SweepGroupExecution, where: e.id in ^ids),
+          set: [
+            status: :failed,
+            completed_at: now,
+            updated_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+            error_message: "superseded by new execution"
+          ]
+        )
+      end
+    end)
 
     :ok
   end
