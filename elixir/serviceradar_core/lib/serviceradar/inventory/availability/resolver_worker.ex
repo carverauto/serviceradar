@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.Availability.ResolverWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 55, states: [:available, :scheduled]]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Inventory.Availability.Resolution
   alias ServiceRadar.Repo

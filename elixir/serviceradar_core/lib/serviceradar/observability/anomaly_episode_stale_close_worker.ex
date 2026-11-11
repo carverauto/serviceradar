@@ -19,7 +19,10 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker do
   (`SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES`) overrides it.
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.AnomalyDetectionConfig

@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.PluginServiceStateReconcileWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 1,
-    unique: [period: 240, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Observability.ServiceStateRegistry
 
