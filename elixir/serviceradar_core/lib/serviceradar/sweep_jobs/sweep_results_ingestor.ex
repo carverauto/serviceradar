@@ -3430,7 +3430,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Repo.transaction(fn ->
       ids = Repo.all(query)
 
-      unless ids == [] do
+      if ids != [] do
         Repo.update_all(
           from(e in SweepGroupExecution, where: e.id in ^ids),
           set: [
