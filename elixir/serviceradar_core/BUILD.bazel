@@ -619,6 +619,9 @@ _TEST_RUNTIME_DATA = glob(
     # test/serviceradar/inventory/endpoint_inventory_package_set_hash_vectors_test.exs:
     # the package_set_hash vectors shared with the Go producer.
     "//go/pkg/endpointinventory:package_set_hash_golden",
+    # Read at runtime by test/serviceradar/snmp_profiles/protocol_formatter_test.exs:
+    # the SNMPv3 names core offers, shared with the Go agent's and mapper's tests.
+    "//go/pkg/agent/snmp:snmpv3_protocol_contract",
     "//addons/anomaly-addon:anomaly_manifest",
     # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs, which calls
     # Code.require_file on it OUTSIDE any test -- so an unstaged generator aborts the

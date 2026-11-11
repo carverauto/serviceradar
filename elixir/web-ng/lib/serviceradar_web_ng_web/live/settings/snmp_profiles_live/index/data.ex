@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -188,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
       field_values
       |> Enum.reject(fn {_key, value} -> is_nil(value) or String.trim(to_string(value)) == "" end)
       |> Map.new(fn {key, value} -> {to_string(key), to_string(value)} end)
+      |> Map.new(fn {key, value} -> {key, stored_snmp_name(key, value)} end)
 
     with {:ok, descriptor} <- NativeDescriptors.fetch("snmp"),
          {:ok, attrs} <-
@@ -205,6 +207,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # A profile holds its protocols as attribute names (`sha256`); a credential
+  # stores the spelling the credential form offers (`SHA256`). A name the
+  # formatter does not know is passed through for the builder to reject, rather
+  # than dropped here.
+  #
+  # The profile's security level is deliberately not promoted. A profile left
+  # on its no-auth default still has its level inferred from the passwords
+  # (see `CredentialResolver`); writing that default into the credential would
+  # make it explicit and discard the passwords.
+  defp stored_snmp_name("auth_protocol", value), do: ProtocolFormatter.auth_protocol_value(value) || value
+  defp stored_snmp_name("priv_protocol", value), do: ProtocolFormatter.priv_protocol_value(value) || value
+  defp stored_snmp_name(_field, value), do: value
 
   # The agent selector ships a hidden empty entry so unchecking every box still
   # submits the field. Strip blanks so the persisted array is clean ([] = legacy

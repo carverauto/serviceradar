@@ -773,8 +773,30 @@ platform-owned rather than package-published. It supports rules, scoped to
 agents, with one purpose (`snmp_monitoring`) and two auth methods:
 
 - `community` -- a community string, for v1/v2c.
-- `v3` -- username, auth protocol and password, optional privacy protocol and
-  password.
+- `v3` -- username, security level, and the authentication and privacy
+  protocol and password that level uses.
+
+The security level and both protocols are chosen from lists, not typed. A new
+credential starts on `authPriv` with SHA-256 and AES (AES-128). The level decides
+which fields the form shows and which are stored:
+
+| Security level | Fields shown and required |
+| --- | --- |
+| `noAuthNoPriv` | username only |
+| `authNoPriv` | authentication protocol and password |
+| `authPriv` | authentication and privacy protocol and password |
+
+A field the chosen level does not use is not stored, even if it was filled in
+before the level was changed. MD5, SHA (SHA-1) and DES are marked legacy; they
+remain available for devices that support nothing stronger. The same rules are
+enforced when a credential is created or rotated through the API: a level or
+protocol outside the list is refused with the field named.
+
+Rotating a credential replaces it completely. The stored level and protocols are
+not loaded into the rotation form, so choose them again along with the new
+passwords. Credentials saved before the lists existed keep working in whatever
+spelling they were typed (`SHA-256`, `auth_priv`); a rotation rewrites them in
+the listed spelling.
 
 The rule form shows **Target Query**, defaulted to `in:devices`. A blank
 target query is refused with `Target query is required`, and no rule is saved.

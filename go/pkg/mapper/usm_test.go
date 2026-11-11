@@ -17,7 +17,10 @@
 package mapper
 
 import (
+	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -136,4 +139,60 @@ func TestSNMPv3ConnectDoesNotRejectMissingSecurityModel(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, client.Conn)
 	require.NoError(t, client.Conn.Close())
+}
+
+type offeredSNMPv3Name struct {
+	Value string `json:"value"`
+	Wire  string `json:"wire"`
+}
+
+// requireOfferedNamesAccepted resolves each offered name in its stored and its
+// wire spelling. Both must be accepted and agree, and no two offered names may
+// resolve to the same thing.
+func requireOfferedNamesAccepted[T comparable](
+	t *testing.T, names []offeredSNMPv3Name, resolve func(string) (T, error),
+) {
+	t.Helper()
+	require.NotEmpty(t, names)
+
+	seen := make(map[T]string, len(names))
+
+	for _, name := range names {
+		resolved, err := resolve(name.Value)
+		require.NoErrorf(t, err, "core offers %q, which discovery rejects", name.Value)
+
+		onWire, err := resolve(name.Wire)
+		require.NoErrorf(t, err, "core sends %q, which discovery rejects", name.Wire)
+		require.Equalf(t, resolved, onWire, "%q and its wire spelling %q differ", name.Value, name.Wire)
+
+		other, duplicate := seen[resolved]
+		require.Falsef(t, duplicate, "%q and %q resolve to the same thing", name.Value, other)
+
+		seen[resolved] = name.Value
+	}
+}
+
+// Discovery resolves SNMPv3 names with its own switch statements, so it is held
+// to the same list as the agent's poller: every security level and protocol
+// core offers in its forms must be accepted here. The fixture is the one the
+// agent's and core's tests read.
+func TestSNMPv3NamesOfferedByCoreAreAccepted(t *testing.T) {
+	data, err := os.ReadFile(
+		filepath.Join("..", "agent", "snmp", "testdata", "snmpv3_protocol_contract.json"))
+	require.NoError(t, err)
+
+	var contract struct {
+		SecurityLevels []offeredSNMPv3Name `json:"security_levels"`
+		AuthProtocols  []offeredSNMPv3Name `json:"auth_protocols"`
+		PrivProtocols  []offeredSNMPv3Name `json:"priv_protocols"`
+	}
+
+	require.NoError(t, json.Unmarshal(data, &contract))
+
+	requireOfferedNamesAccepted(t, contract.SecurityLevels,
+		func(name string) (gosnmp.SnmpV3MsgFlags, error) {
+			return snmpv3MsgFlags(name, &SNMPCredentials{})
+		})
+	requireOfferedNamesAccepted(t, contract.AuthProtocols, normalizeSNMPAuthProtocol)
+	requireOfferedNamesAccepted(t, contract.PrivProtocols, normalizeSNMPPrivProtocol)
 }
