@@ -8,7 +8,10 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
 
     * forms offer `security_level_options/0`, `auth_protocol_options/0` and
       `priv_protocol_options/0`, so an operator picks a name instead of typing
-      one;
+      one; the profile, target and device forms, whose fields are resource
+      attributes, offer the same protocols through
+      `auth_protocol_attribute_options/0` and
+      `priv_protocol_attribute_options/0`;
     * `Credentials.NativeDescriptors` puts the same options on the SNMP
       credential descriptor, which is what `CredentialSecretBuilder` validates a
       submitted credential against;
@@ -76,13 +79,17 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
     sha512: %{compact: "SHA512", hyphenated: "SHA-512"}
   }
 
+  # Every protocol has its own spelling in both styles. The Cisco key-extension
+  # variants are separate protocols, not spellings of AES-192 and AES-256: they
+  # derive the privacy key differently, so sending one as the other gives the
+  # device a key it cannot decrypt with.
   @priv_protocols %{
     des: %{compact: "DES", hyphenated: "DES"},
     aes: %{compact: "AES", hyphenated: "AES"},
     aes192: %{compact: "AES192", hyphenated: "AES-192"},
     aes256: %{compact: "AES256", hyphenated: "AES-256"},
-    aes192c: %{compact: "AES192", hyphenated: "AES-192-C"},
-    aes256c: %{compact: "AES256", hyphenated: "AES-256-C"}
+    aes192c: %{compact: "AES192C", hyphenated: "AES-192-C"},
+    aes256c: %{compact: "AES256C", hyphenated: "AES-256-C"}
   }
 
   @security_levels %{
@@ -133,6 +140,23 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
   @doc "SNMPv3 privacy protocols, in the order a form lists them."
   @spec priv_protocol_options() :: [option()]
   def priv_protocol_options, do: @priv_protocol_options
+
+  @doc """
+  Authentication protocols as `{label, name}` pairs for a form whose field is
+  the `auth_protocol` attribute of a profile, target or device credential
+  (`sha256`) rather than a stored credential value (`SHA256`).
+  """
+  @spec auth_protocol_attribute_options() :: [{String.t(), String.t()}]
+  def auth_protocol_attribute_options, do: attribute_options(@auth_protocol_options)
+
+  @doc """
+  Privacy protocols as `{label, name}` pairs for a form whose field is the
+  `priv_protocol` attribute of a profile, target or device credential.
+  """
+  @spec priv_protocol_attribute_options() :: [{String.t(), String.t()}]
+  def priv_protocol_attribute_options, do: attribute_options(@priv_protocol_options)
+
+  defp attribute_options(options), do: Enum.map(options, &{&1.label, Atom.to_string(&1.id)})
 
   @doc """
   The option a new credential starts on for `:security_level`, `:auth_protocol`

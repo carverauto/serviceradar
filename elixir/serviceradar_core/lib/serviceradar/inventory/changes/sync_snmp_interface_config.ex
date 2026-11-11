@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
@@ -261,9 +262,15 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
     |> maybe_put(:community, Map.get(credential, :community))
     |> maybe_put(:username, Map.get(credential, :username))
     |> maybe_put(:security_level, security_level(credential))
-    |> maybe_put(:auth_protocol, normalize_auth_protocol(Map.get(credential, :auth_protocol)))
+    |> maybe_put(
+      :auth_protocol,
+      ProtocolFormatter.normalize_auth_protocol(Map.get(credential, :auth_protocol))
+    )
     |> maybe_put(:auth_password, Map.get(credential, :auth_password))
-    |> maybe_put(:priv_protocol, normalize_priv_protocol(Map.get(credential, :priv_protocol)))
+    |> maybe_put(
+      :priv_protocol,
+      ProtocolFormatter.normalize_priv_protocol(Map.get(credential, :priv_protocol))
+    )
     |> maybe_put(:priv_password, Map.get(credential, :priv_password))
   end
 
@@ -288,38 +295,6 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
         level
     end
   end
-
-  defp normalize_auth_protocol(nil), do: nil
-
-  defp normalize_auth_protocol(protocol) when is_binary(protocol) do
-    case String.downcase(protocol) do
-      "md5" -> :md5
-      "sha" -> :sha
-      "sha224" -> :sha224
-      "sha256" -> :sha256
-      "sha384" -> :sha384
-      "sha512" -> :sha512
-      _ -> nil
-    end
-  end
-
-  defp normalize_auth_protocol(protocol) when is_atom(protocol), do: protocol
-
-  defp normalize_priv_protocol(nil), do: nil
-
-  defp normalize_priv_protocol(protocol) when is_binary(protocol) do
-    case String.downcase(protocol) do
-      "des" -> :des
-      "aes" -> :aes
-      "aes192" -> :aes192
-      "aes256" -> :aes256
-      "aes192c" -> :aes192c
-      "aes256c" -> :aes256c
-      _ -> nil
-    end
-  end
-
-  defp normalize_priv_protocol(protocol) when is_atom(protocol), do: protocol
 
   defp interface_target_name(settings, interface, host) do
     base =

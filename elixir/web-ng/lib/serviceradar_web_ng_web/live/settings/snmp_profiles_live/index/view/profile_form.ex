@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
 
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -259,14 +260,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                     type="select"
                     field={@form[:auth_protocol]}
                     class={ui_field_class(class: "w-full")}
-                    options={[
-                      {"MD5", "md5"},
-                      {"SHA", "sha"},
-                      {"SHA-224", "sha224"},
-                      {"SHA-256", "sha256"},
-                      {"SHA-384", "sha384"},
-                      {"SHA-512", "sha512"}
-                    ]}
+                    options={ProtocolFormatter.auth_protocol_attribute_options()}
                   />
                 </div>
                 <div>
@@ -297,12 +291,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                     type="select"
                     field={@form[:priv_protocol]}
                     class={ui_field_class(class: "w-full")}
-                    options={[
-                      {"DES", "des"},
-                      {"AES", "aes"},
-                      {"AES-192", "aes192"},
-                      {"AES-256", "aes256"}
-                    ]}
+                    options={ProtocolFormatter.priv_protocol_attribute_options()}
                   />
                 </div>
                 <div>

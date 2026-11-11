@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   attr(:device_row, :map, default: nil)
@@ -315,14 +316,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                   type="select"
                   field={@snmp_credential_form[:auth_protocol]}
                   class={ui_field_class(size: "sm", class: "w-full")}
-                  options={[
-                    {"MD5", "md5"},
-                    {"SHA", "sha"},
-                    {"SHA-224", "sha224"},
-                    {"SHA-256", "sha256"},
-                    {"SHA-384", "sha384"},
-                    {"SHA-512", "sha512"}
-                  ]}
+                  options={ProtocolFormatter.auth_protocol_attribute_options()}
                 />
               </div>
               <div>
@@ -353,12 +347,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                   type="select"
                   field={@snmp_credential_form[:priv_protocol]}
                   class={ui_field_class(size: "sm", class: "w-full")}
-                  options={[
-                    {"DES", "des"},
-                    {"AES", "aes"},
-                    {"AES-192", "aes192"},
-                    {"AES-256", "aes256"}
-                  ]}
+                  options={ProtocolFormatter.priv_protocol_attribute_options()}
                 />
               </div>
               <div>

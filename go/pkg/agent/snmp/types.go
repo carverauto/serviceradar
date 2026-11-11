@@ -172,6 +172,14 @@ const (
 	PrivProtocolAES192 PrivProtocol = "AES192"
 	// PrivProtocolAES256 represents AES-256 privacy.
 	PrivProtocolAES256 PrivProtocol = "AES256"
+	// PrivProtocolAES192C represents AES-192 privacy with the Cisco (Reeder)
+	// key extension. It is not interchangeable with PrivProtocolAES192: the
+	// two localize the privacy key differently, so a device configured for one
+	// cannot decrypt the other.
+	PrivProtocolAES192C PrivProtocol = "AES-192-C"
+	// PrivProtocolAES256C represents AES-256 privacy with the Cisco (Reeder)
+	// key extension. See PrivProtocolAES192C.
+	PrivProtocolAES256C PrivProtocol = "AES-256-C"
 )
 
 // V3Auth represents SNMPv3 authentication parameters.

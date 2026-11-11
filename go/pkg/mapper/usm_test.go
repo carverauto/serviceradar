@@ -89,17 +89,35 @@ func TestApplySNMPv3AuthNoPrivAndNoAuthNoPriv(t *testing.T) {
 	assert.Equal(t, gosnmp.NoAuthNoPriv, noAuth.MsgFlags)
 }
 
-func TestApplySNMPv3RejectsUnknownProtocol(t *testing.T) {
-	err := applySNMPv3(&gosnmp.GoSNMP{}, &SNMPCredentials{
-		Username:        "monitor",
-		SecurityLevel:   "authPriv",
-		AuthProtocol:    "SHA3",
-		AuthPassword:    "auth-secret",
-		PrivacyProtocol: "AES",
-		PrivacyPassword: "priv-secret",
-	})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrUnknownSNMPAuthProtocol)
+// A name discovery does not know, or none at all, must fail the job. It must
+// never be walked with some other protocol in its place.
+func TestApplySNMPv3RejectsUnknownOrMissingProtocols(t *testing.T) {
+	tests := []struct {
+		name         string
+		authProtocol string
+		privProtocol string
+		want         error
+	}{
+		{"unknown auth protocol", "SHA3", "AES", ErrUnknownSNMPAuthProtocol},
+		{"missing auth protocol", "", "AES", ErrUnknownSNMPAuthProtocol},
+		{"unknown privacy protocol", "SHA", "AES512", ErrUnknownSNMPPrivProtocol},
+		{"Cisco suffix on a protocol that has no such variant", "SHA", "AES128C", ErrUnknownSNMPPrivProtocol},
+		{"missing privacy protocol", "SHA", "", ErrUnknownSNMPPrivProtocol},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := applySNMPv3(&gosnmp.GoSNMP{}, &SNMPCredentials{
+				Username:        "monitor",
+				SecurityLevel:   "authPriv",
+				AuthProtocol:    tt.authProtocol,
+				AuthPassword:    "auth-secret",
+				PrivacyProtocol: tt.privProtocol,
+				PrivacyPassword: "priv-secret",
+			})
+			require.ErrorIs(t, err, tt.want)
+		})
+	}
 }
 
 func TestSNMPv3ConnectDoesNotRejectMissingSecurityModel(t *testing.T) {
@@ -142,8 +160,97 @@ func TestSNMPv3ConnectDoesNotRejectMissingSecurityModel(t *testing.T) {
 }
 
 type offeredSNMPv3Name struct {
-	Value string `json:"value"`
-	Wire  string `json:"wire"`
+	Value  string `json:"value"`
+	Wire   string `json:"wire"`
+	Mapper string `json:"mapper"`
+}
+
+// requireOfferedProtocolsSelected resolves each offered protocol in every
+// spelling core can deliver it in - most importantly the one core puts in
+// discovery credentials - and requires the gosnmp protocol named for it in
+// want. Accepting the name is not enough: AES-192-C resolved as AES-192 is
+// accepted and then cannot decrypt.
+func requireOfferedProtocolsSelected[T comparable](
+	t *testing.T, names []offeredSNMPv3Name, want map[string]T, resolve func(string) (T, error),
+) {
+	t.Helper()
+
+	for _, name := range names {
+		expected, ok := want[name.Value]
+		require.Truef(t, ok, "core offers %q; say here which gosnmp protocol it is", name.Value)
+		require.NotEmptyf(t, name.Mapper, "%q has no discovery spelling in the contract", name.Value)
+
+		for _, spelling := range []string{name.Mapper, name.Value, name.Wire} {
+			resolved, err := resolve(spelling)
+			require.NoErrorf(t, err, "discovery rejects %q", spelling)
+			assert.Equalf(t, expected, resolved, "%q", spelling)
+		}
+	}
+}
+
+func TestSNMPv3OfferedProtocolsSelectTheirOwnProtocol(t *testing.T) {
+	data, err := os.ReadFile(
+		filepath.Join("..", "agent", "snmp", "testdata", "snmpv3_protocol_contract.json"))
+	require.NoError(t, err)
+
+	var contract struct {
+		AuthProtocols []offeredSNMPv3Name `json:"auth_protocols"`
+		PrivProtocols []offeredSNMPv3Name `json:"priv_protocols"`
+	}
+
+	require.NoError(t, json.Unmarshal(data, &contract))
+	require.NotEmpty(t, contract.AuthProtocols)
+	require.NotEmpty(t, contract.PrivProtocols)
+
+	requireOfferedProtocolsSelected(t, contract.AuthProtocols,
+		map[string]gosnmp.SnmpV3AuthProtocol{
+			"MD5":    gosnmp.MD5,
+			"SHA":    gosnmp.SHA,
+			"SHA224": gosnmp.SHA224,
+			"SHA256": gosnmp.SHA256,
+			"SHA384": gosnmp.SHA384,
+			"SHA512": gosnmp.SHA512,
+		},
+		func(name string) (gosnmp.SnmpV3AuthProtocol, error) {
+			client := &gosnmp.GoSNMP{}
+			err := applySNMPv3(client, &SNMPCredentials{
+				Username:      "monitor",
+				SecurityLevel: "authNoPriv",
+				AuthProtocol:  name,
+				AuthPassword:  "auth-secret",
+			})
+			if err != nil {
+				return 0, err
+			}
+
+			return client.SecurityParameters.(*gosnmp.UsmSecurityParameters).AuthenticationProtocol, nil
+		})
+
+	requireOfferedProtocolsSelected(t, contract.PrivProtocols,
+		map[string]gosnmp.SnmpV3PrivProtocol{
+			"DES":       gosnmp.DES,
+			"AES":       gosnmp.AES,
+			"AES192":    gosnmp.AES192,
+			"AES256":    gosnmp.AES256,
+			"AES-192-C": gosnmp.AES192C,
+			"AES-256-C": gosnmp.AES256C,
+		},
+		func(name string) (gosnmp.SnmpV3PrivProtocol, error) {
+			client := &gosnmp.GoSNMP{}
+			err := applySNMPv3(client, &SNMPCredentials{
+				Username:        "monitor",
+				SecurityLevel:   "authPriv",
+				AuthProtocol:    "SHA",
+				AuthPassword:    "auth-secret",
+				PrivacyProtocol: name,
+				PrivacyPassword: "priv-secret",
+			})
+			if err != nil {
+				return 0, err
+			}
+
+			return client.SecurityParameters.(*gosnmp.UsmSecurityParameters).PrivacyProtocol, nil
+		})
 }
 
 // requireOfferedNamesAccepted resolves each offered name in its stored and its

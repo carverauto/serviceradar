@@ -57,22 +57,41 @@ func TestNewSNMPClientAuthPrivHyphenatedProtocols(t *testing.T) {
 	assert.Equal(t, gosnmp.AES256, usm.PrivacyProtocol)
 }
 
-func TestNewSNMPClientRejectsUnknownAuthProtocol(t *testing.T) {
-	_, err := newSNMPClient(&Target{
-		Host:    "127.0.0.1",
-		Port:    161,
-		Version: Version3,
-		V3Auth: &V3Auth{
-			Username:      "serviceradar",
-			SecurityLevel: SecurityLevelAuthPriv,
-			AuthProtocol:  "SHA3",
-			AuthPassword:  "auth-secret",
-			PrivProtocol:  "AES",
-			PrivPassword:  "priv-secret",
-		},
-	})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrUnknownSNMPAuthProtocol)
+// A name the agent does not know, or none at all, must fail the target. It
+// must never be polled with some other protocol in its place.
+func TestNewSNMPClientRejectsUnknownOrMissingProtocols(t *testing.T) {
+	tests := []struct {
+		name         string
+		authProtocol AuthProtocol
+		privProtocol PrivProtocol
+		want         error
+	}{
+		{"unknown auth protocol", "SHA3", "AES", ErrUnknownSNMPAuthProtocol},
+		{"missing auth protocol", "", "AES", ErrUnknownSNMPAuthProtocol},
+		{"unknown privacy protocol", "SHA", "AES512", ErrUnknownSNMPPrivProtocol},
+		{"Cisco suffix on a protocol that has no such variant", "SHA", "AES-128-C", ErrUnknownSNMPPrivProtocol},
+		{"missing privacy protocol", "SHA", "", ErrUnknownSNMPPrivProtocol},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newSNMPClient(&Target{
+				Host:    "127.0.0.1",
+				Port:    161,
+				Version: Version3,
+				V3Auth: &V3Auth{
+					Username:      "serviceradar",
+					SecurityLevel: SecurityLevelAuthPriv,
+					AuthProtocol:  tt.authProtocol,
+					AuthPassword:  "auth-secret",
+					PrivProtocol:  tt.privProtocol,
+					PrivPassword:  "priv-secret",
+				},
+			})
+			require.ErrorIs(t, err, tt.want)
+			require.ErrorIs(t, err, ErrInvalidTargetConfig)
+		})
+	}
 }
 
 func TestNewSNMPClientRejectsMissingV3Auth(t *testing.T) {
@@ -97,6 +116,82 @@ type snmpv3ProtocolContract struct {
 type snmpv3ContractName struct {
 	Value string `json:"value"`
 	Wire  string `json:"wire"`
+}
+
+// usmFor builds the client a poller target with these protocols gets and
+// returns the USM parameters gosnmp will use for it.
+func usmFor(t *testing.T, authProtocol AuthProtocol, privProtocol PrivProtocol) *gosnmp.UsmSecurityParameters {
+	t.Helper()
+
+	client, err := newSNMPClient(&Target{
+		Host:    "192.0.2.10",
+		Port:    161,
+		Version: Version3,
+		V3Auth: &V3Auth{
+			Username:      "serviceradar",
+			SecurityLevel: SecurityLevelAuthPriv,
+			AuthProtocol:  authProtocol,
+			AuthPassword:  "auth-secret",
+			PrivProtocol:  privProtocol,
+			PrivPassword:  "priv-secret",
+		},
+	})
+	require.NoErrorf(t, err, "auth %q, privacy %q", authProtocol, privProtocol)
+
+	impl, ok := client.(*SNMPClientImpl)
+	require.True(t, ok)
+
+	usm, ok := impl.client.SecurityParameters.(*gosnmp.UsmSecurityParameters)
+	require.True(t, ok)
+
+	return usm
+}
+
+// Each name core offers must select its own gosnmp protocol, in the spelling a
+// credential stores (which is also what a proto-delivered target carries) and
+// in the spelling of compiled agent config. Accepting the name is not enough:
+// AES-192-C polled as AES-192 is accepted and then cannot decrypt, because the
+// Cisco variants extend the privacy key differently.
+func TestSNMPv3OfferedNamesSelectTheirOwnProtocol(t *testing.T) {
+	contract := loadSNMPv3ProtocolContract(t)
+
+	wantAuth := map[string]gosnmp.SnmpV3AuthProtocol{
+		"MD5":    gosnmp.MD5,
+		"SHA":    gosnmp.SHA,
+		"SHA224": gosnmp.SHA224,
+		"SHA256": gosnmp.SHA256,
+		"SHA384": gosnmp.SHA384,
+		"SHA512": gosnmp.SHA512,
+	}
+
+	wantPriv := map[string]gosnmp.SnmpV3PrivProtocol{
+		"DES":       gosnmp.DES,
+		"AES":       gosnmp.AES,
+		"AES192":    gosnmp.AES192,
+		"AES256":    gosnmp.AES256,
+		"AES-192-C": gosnmp.AES192C,
+		"AES-256-C": gosnmp.AES256C,
+	}
+
+	for _, name := range contract.AuthProtocols {
+		want, ok := wantAuth[name.Value]
+		require.Truef(t, ok, "core offers auth protocol %q; say here which gosnmp protocol it is", name.Value)
+
+		for _, spelling := range []string{name.Value, name.Wire} {
+			assert.Equalf(t, want, usmFor(t, AuthProtocol(spelling), PrivProtocolAES).AuthenticationProtocol,
+				"auth protocol %q", spelling)
+		}
+	}
+
+	for _, name := range contract.PrivProtocols {
+		want, ok := wantPriv[name.Value]
+		require.Truef(t, ok, "core offers privacy protocol %q; say here which gosnmp protocol it is", name.Value)
+
+		for _, spelling := range []string{name.Value, name.Wire} {
+			assert.Equalf(t, want, usmFor(t, AuthProtocolSHA, PrivProtocol(spelling)).PrivacyProtocol,
+				"privacy protocol %q", spelling)
+		}
+	}
 }
 
 func loadSNMPv3ProtocolContract(t *testing.T) snmpv3ProtocolContract {
