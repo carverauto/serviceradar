@@ -186,5 +186,15 @@ defmodule ServiceRadar.LoggerMetadataContractTest do
     for {key, _value} when is_atom(key) <- metadata, do: {key, "#{relative}:#{meta[:line]}"}
   end
 
+  # `Logger.log(level, message, key: value)` with a guarded level, or with a
+  # level chosen at run time that may be one.
+  defp literal_metadata_keys(
+         {{:., _, [{:__aliases__, _, [:Logger]}, :log]}, meta, [level, _message, metadata]},
+         relative
+       )
+       when (level in @guarded_levels or not is_atom(level)) and is_list(metadata) do
+    for {key, _value} when is_atom(key) <- metadata, do: {key, "#{relative}:#{meta[:line]}"}
+  end
+
   defp literal_metadata_keys(_node, _relative), do: []
 end

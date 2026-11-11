@@ -14,8 +14,10 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
 
   ## Adding a metadata key
 
-  A key used by a `Logger.warning/2` or `Logger.error/2` call must be in exactly
-  one of two lists, and `//build:logger_metadata_contract_test` fails otherwise:
+  A key used by a `Logger.warning/2` or `Logger.error/2` call, or by a
+  `Logger.log/3` call whose level is one of those or is chosen at run time, must
+  be in exactly one of two lists, and `//build:logger_metadata_contract_test`
+  fails otherwise:
 
     * `printed_keys/0` when every call site puts an identifier, a count, a
       name or an already-redacted failure description under it. Redact a
@@ -53,45 +55,46 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     after_prune_edges age_bound_seconds agent_id agent_scope agent_uid agent_uids alert_id
     applied_days args assessment_id assignment_id attempt attempt_id attempted_at attempts
     awx_job_id awx_template_id batch_count batch_index batch_number batch_run_count batch_size
-    batches body_partition bytes caller caller_pid cancelled_jobs candidate_assignment_ids
-    cap_dropped cause certificate_partition_id check check_id checker_id chunk chunk_hours
-    chunks cluster_id cn cnpg_export_enabled collection_id column command_id command_type
-    compress_after_hours config_version configured_days constraint consumer consumer_name
-    contract_id controller_id controller_index count count_per_minute credential_secret_id
-    cutoff cve_id dataset deleted delivery_count delivery_id demoted_manifest_rows
-    desktop_session_id dest device_count device_id device_ids device_uid diagnostics dir
-    discarded_count discarded_jobs discovered_stream dlq_sequence drop_point dropped_chunks
-    dropped_total durable endpoint_role ensure_reason episode_uid error error_count errors
-    event_id event_type exception execution_id expected_agent_id expected_command_type
-    expected_gateway_node expired_inflight expired_sequences failed failed_occurrences
-    failed_since failure_arity failure_code failure_kind failure_module failures filter_subject
-    frame_type gateway_id grant_id handler_id hazards health_condition healthy host id
-    identity_component_id identity_component_type identity_partition_id if_index
-    integration_source_id interface_uid interval invocation_id ip job_id jti key kind known
-    known_sources label lane lifecycle_reason limit_bytes mapper_evidence_edges
-    matched_assignment_ids max_age_ms max_buffered max_deliver media_ingest_id media_session_id
-    message_size message_type metadata method metric min_canonical_edges missing missing_objects
-    msg_id new_state node oban_job_id object_key observed occurrences oldest_age_seconds
-    oldest_pending_ms ongoing_failure operation orphan_grace_seconds overdue_seconds owner_pid
-    package_id partition partition_id parts pass payload_field_count payload_kind pending_count
-    phase pipeline plugin_assignment_id plugin_id plugin_package_id policy_id port producer_id
-    producer_type profile_id profile_name progress_percent promoted_starved_jobs protocols
-    provider_id provider_key pull_subjects query queue reason reasons received_agent_id
-    received_gateway_node recorded recovered recovery_errors registry_epoch relay_session_id
-    release_tag released_stream remote_ip repo_url reported_command_type repository_id
-    request_id requested_stream rescued_count rescued_jobs resource resource_key response
-    result results retention_days retry_in_ms retrying rollout_id root_span_ratio
-    root_spans route_id route_ids row_count rows rule_id rule_name run_id running sample
-    sampler_address scan_id schedule_id schema scoped_series section_count series_key
-    service_name services session_agent_id session_id session_partition_id session_started_at
-    severity shard signal signing_key_id silence_id since snapshot_id source source_id sqlstate
-    stale stale_conflict_cutoff_seconds stale_executing_minutes stale_job_count
-    stale_oban_job_id stale_run_cutoff_seconds stale_threshold_minutes
-    starvation_threshold_minutes state stats status step step_number stream subject
-    subject_partition success sweep_group_execution_id sweep_group_id sweep_group_name table
-    tables target_count target_id target_key threshold threshold_per_minute timeout_ms
-    token_type topic total_spans transition_class trigger_mode type unexported_chunks
-    update_kind updated_count upto url user_id version view viewer_id window_minutes worker
+    batcher batches body_partition bytes caller caller_pid cancelled_jobs
+    candidate_assignment_ids cap_dropped cause certificate_partition_id check check_id
+    checker_id chunk chunk_hours chunks cluster_id cn cnpg_export_enabled collection_id column
+    command_id command_type compress_after_hours config_version configured_days constraint
+    consumer consumer_name contract_id controller_id controller_index count count_per_minute
+    credential_secret_id cutoff cve_id database_bytes dataset deleted delivery_count delivery_id
+    demoted_manifest_rows desktop_session_id dest device_count device_id device_ids device_uid
+    diagnostics dir discarded_count discarded_jobs discovered_stream dlq_sequence drop_point
+    dropped_chunks dropped_total durable endpoint_role ensure_reason episode_uid error
+    error_count errors event_id event_type exception execution_id expected_agent_id
+    expected_command_type expected_gateway_node expired_inflight expired_sequences failed
+    failed_occurrences failed_since failure_arity failure_code failure_kind failure_module
+    failures filter_subject frame_type gateway_id grant_id handler_id hazards health_condition
+    healthy held host id identity_component_id identity_component_type identity_partition_id
+    if_index integration_source_id interface_uid interval invocation_id ip job_id jti key kind
+    known known_sources label lane lifecycle_reason limit_bytes mapper_evidence_edges
+    matched_assignment_ids max_age_ms max_attempts max_buffered max_deliver media_ingest_id
+    media_session_id message_count message_size message_type metadata method metric
+    min_canonical_edges missing missing_objects msg_id new_state node oban_job_id object_key
+    observed occurrences oldest_age_seconds oldest_pending_ms ongoing_failure operation
+    orphan_grace_seconds overdue_seconds owner_pid package_id partition partition_id parts pass
+    payload_field_count payload_kind pending_count phase pipeline plugin_assignment_id plugin_id
+    plugin_package_id policy_id port producer_id producer_type profile_id profile_name
+    progress_percent promoted_starved_jobs protocols provider_id provider_key pull_subjects
+    query queue reason reasons received_agent_id received_gateway_node recorded recovered
+    recovery_errors registry_epoch relay_session_id release_tag released_stream remote_ip
+    repo_url reported_command_type repository_id request_id requested_stream rescued_count
+    rescued_jobs resource resource_key response result results retention_days retry_in_ms
+    retrying rollout_id root_span_ratio root_spans route_id route_ids row_count rows rule_id
+    rule_name run_id running sample sampler_address scan_id schedule_id schema scoped_series
+    section_count series_key service_name services session_agent_id session_id
+    session_partition_id session_started_at severity shard signal signing_key_id silence_id
+    since snapshot_id source source_id sqlstate stale stale_conflict_cutoff_seconds
+    stale_executing_minutes stale_job_count stale_oban_job_id stale_run_cutoff_seconds
+    stale_threshold_minutes starvation_threshold_minutes state stats status step step_number
+    stream subject subject_partition success sweep_group_execution_id sweep_group_id
+    sweep_group_name table tables target_count target_id target_key threshold
+    threshold_per_minute timeout_ms token_type topic total_spans transition_class trigger_mode
+    type unexported_chunks update_kind updated_count upto url usage_pct user_id version view
+    viewer_id volume_bytes window_minutes worker
   )a
 
   # Keys that call sites use but the console must not print. Each entry says why.
