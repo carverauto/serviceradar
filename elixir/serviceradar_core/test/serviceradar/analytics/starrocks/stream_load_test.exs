@@ -1289,9 +1289,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert_received {:wire_request, ["flow-alpha", "flow-bravo"]}
   end
 
-  # Label-state polls have no body, so they stay on Req. A publish-timeout
-  # answer from the headers must not be followed by a second load, and the
-  # poll itself must not advertise Expect or a body.
+  # A publish-timeout answer from the headers must not be followed by a second
+  # load, and the body-less state poll must not advertise Expect or a body.
   test "a header-only publish timeout is reconciled by a body-less state poll" do
     {:ok, listener} =
       :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
@@ -1363,6 +1362,111 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert_receive :saw_400
     assert_receive :no_retry, 2_000
     refute_received :retried
+  end
+
+  test "a DNS lookup stall longer than 5s does not starve the TCP connect timer on attempt 1" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_success_loads(listener, parent) end})
+
+    original_lookup = :inet_db.res_option(:lookup)
+    :inet_db.set_lookup([:native])
+    {:ok, _} = :inet_gethost_native.gethostbyname(~c"localhost")
+
+    on_exit(fn ->
+      :sys.resume(:inet_gethost_native)
+      :inet_db.set_lookup(original_lookup)
+    end)
+
+    :sys.suspend(:inet_gethost_native)
+
+    spawn(fn ->
+      Process.sleep(5_100)
+      :sys.resume(:inet_gethost_native)
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{loaded: 2}} =
+                 StreamLoad.persist("otel_metrics", @rows,
+                   config: %{fe_http: "http://localhost:#{port}"},
+                   http_timeout: 8_000
+                 )
+      end)
+
+    assert_received {:wire_request, @rows}
+    refute_received {:wire_request, _}
+    refute log =~ "StarRocks Stream Load label unresolved"
+    refute log =~ "StarRocks Stream Load attempt failed"
+  end
+
+  test "a TCP connect timeout before any request is sent returns connect_failed without polling load state" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, backlog: 1, reuseaddr: true])
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    fillers = saturate_accept_queue(port, [])
+
+    on_exit(fn ->
+      Enum.each(fillers, &:gen_tcp.close/1)
+      :gen_tcp.close(listener)
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:error, {{:connect_failed, :timeout}, label}} =
+                 StreamLoad.persist("otel_metrics", @rows,
+                   config: %{fe_http: "http://127.0.0.1:#{port}"},
+                   http_timeout: 200
+                 )
+
+        assert String.starts_with?(label, "sr-")
+      end)
+
+    refute log =~ "StarRocks Stream Load label unresolved"
+    refute log =~ "trigger=:http_timeout"
+  end
+
+  test "get_load_state closes its connection so a peer-closed idle socket never poisons the next reconciliation" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    server =
+      start_supervised!(
+        {Task, fn -> serve_two_reconciled_loads_closing_idle_state_socket(listener, parent) end}
+      )
+
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+    first_rows = [%{"id" => "flow-alpha", "bytes_in" => 10, "bytes_out" => 1}]
+    second_rows = [%{"id" => "flow-bravo", "bytes_in" => 20, "bytes_out" => 2}]
+
+    assert {:ok, %{loaded: 1, reconciled: true}} =
+             StreamLoad.persist("otel_metrics", first_rows, config: config, http_timeout: 5_000)
+
+    assert_receive {:first_state_socket_ready, first_state_headers}, 2_000
+    send(server, :close_first_state_socket)
+    assert_receive :first_state_socket_closed, 2_000
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{loaded: 1, reconciled: true}} =
+                 StreamLoad.persist("otel_metrics", second_rows,
+                   config: config,
+                   http_timeout: 5_000
+                 )
+      end)
+
+    refute log =~ "connect_failed"
+    refute log =~ "StarRocks Stream Load label unresolved"
+    refute log =~ "StarRocks Stream Load attempt failed"
+    assert first_state_headers["connection"] == "close"
   end
 
   defp drain_leak_probes do
@@ -1603,6 +1707,106 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       ])
 
     :gen_tcp.close(state)
+  end
+
+  defp saturate_accept_queue(port, sockets) when length(sockets) < 128 do
+    case :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false], 50) do
+      {:ok, socket} ->
+        saturate_accept_queue(port, [socket | sockets])
+
+      {:error, :timeout} ->
+        sockets
+    end
+  end
+
+  defp serve_two_reconciled_loads_closing_idle_state_socket(listener, parent) do
+    serve_publish_timeout_load(listener)
+
+    {:ok, state1} = :gen_tcp.accept(listener, 5_000)
+    {:ok, {:http_request, :GET, _, _}} = :gen_tcp.recv(state1, 0, 5_000)
+    headers1 = receive_headers(state1, %{})
+    body = load_state_body("VISIBLE")
+
+    :ok =
+      :gen_tcp.send(state1, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
+        Integer.to_string(byte_size(body)),
+        "\r\n\r\n",
+        body
+      ])
+
+    send(parent, {:first_state_socket_ready, headers1})
+
+    receive do
+      :close_first_state_socket ->
+        :gen_tcp.close(state1)
+        Process.sleep(20)
+        send(parent, :first_state_socket_closed)
+    after
+      5_000 -> :gen_tcp.close(state1)
+    end
+
+    serve_publish_timeout_load(listener)
+    serve_remaining_requests(listener, body)
+  end
+
+  defp serve_publish_timeout_load(listener) do
+    {:ok, socket} = :gen_tcp.accept(listener, 5_000)
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
+    _headers = receive_headers(socket, %{})
+    response = Jason.encode!(%{"Status" => "Publish Timeout"})
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+        Integer.to_string(byte_size(response)),
+        "\r\n\r\n",
+        response
+      ])
+
+    :gen_tcp.close(socket)
+  end
+
+  defp serve_remaining_requests(listener, state_body) do
+    case :gen_tcp.accept(listener, 2_000) do
+      {:ok, socket} ->
+        case :gen_tcp.recv(socket, 0, 2_000) do
+          {:ok, {:http_request, :GET, _, _}} ->
+            _headers = receive_headers(socket, %{})
+
+            :ok =
+              :gen_tcp.send(socket, [
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+                Integer.to_string(byte_size(state_body)),
+                "\r\n\r\n",
+                state_body
+              ])
+
+            :gen_tcp.close(socket)
+
+          {:ok, {:http_request, :PUT, _, _}} ->
+            _headers = receive_headers(socket, %{})
+            response = Jason.encode!(%{"Status" => "Publish Timeout"})
+
+            :ok =
+              :gen_tcp.send(socket, [
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+                Integer.to_string(byte_size(response)),
+                "\r\n\r\n",
+                response
+              ])
+
+            :gen_tcp.close(socket)
+
+          _ ->
+            :gen_tcp.close(socket)
+        end
+
+        serve_remaining_requests(listener, state_body)
+
+      {:error, _} ->
+        :ok
+    end
   end
 
   defp read_wire_request(socket, parent) do
