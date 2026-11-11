@@ -3424,8 +3424,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # transaction's speculative lock, creating a circular ShareLock wait.
     # SELECT … FOR UPDATE SKIP LOCKED acquires row locks in ascending id order
     # and skips any row that is currently speculatively locked, breaking the
-    # cycle. The surrounding Repo.transaction holds those locks until the UPDATE
-    # completes (a savepoint when called inside an outer transaction).
+    # cycle. The surrounding Repo.transaction ensures the SELECT and UPDATE share
+    # the same connection; when nested inside an outer transaction Ecto 3.x
+    # reuses that connection directly (no savepoint is created).
     Repo.transaction(fn ->
       ids = Repo.all(query)
 
