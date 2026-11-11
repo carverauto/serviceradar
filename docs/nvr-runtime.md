@@ -299,9 +299,54 @@ There is no external provisioning endpoint or automatic registration at startup.
 
 This resource is identity evidence only. It has no update, deletion or activation
 action and grants no qualification, recording, local-copy registration or playback
-permission. Qualification reports, current eligibility, scoped activation and
-withdrawal remain pending. Existing installations stay unqualified; accepted
-publication intents and S3 archive state keep their existing meanings.
+permission. Current eligibility, scoped activation and withdrawal remain pending.
+Existing installations stay unqualified; accepted publication intents and S3
+archive state keep their existing meanings.
+
+## Local storage qualification reports
+
+Core's internal `ServiceRadar.Camera.LocalStorageQualificationReport.submit/2`
+retains immutable evidence reports against an existing binding. Each version-1
+document contains exactly `schema_version`, `binding_id`, `storage_id`,
+`binding_sha256`, `profile_sha256`, `revision`, `evidence_sha256`,
+`policy_revision`, `issued_at_ms`, `expires_at_ms` and `checks`. Binding and storage
+UUIDs must be canonical; all three digests are lowercase SHA-256 hex. The policy
+revision is a bounded ASCII token. Revision and timestamps are positive signed
+64-bit integers, and expiry must follow issuance. The report digest hashes
+canonical JSON with the `nvr-local-storage-qualification-report-v1` domain
+separator. Evidence stays outside the report and is identified by its digest.
+
+The checks map records each required outcome independently:
+
+- `acknowledged_writes_survive_worker_disk_loss`
+- `replica_placement_and_health`
+- `provider_attachment_fencing`
+- `application_writer_ownership`
+- `reattachment_preserves_identity_and_bytes`
+- `retained_volume_lifecycle`
+- `restore_preserves_history`
+
+Each outcome is `passed`, `failed`, `not_tested`, `not_confirmed` or `unsupported`.
+Unknown fields and incomplete checks are rejected. Expired reports and failed
+checks can be retained as historical observations; retention does not evaluate
+freshness or infer eligibility from passing outcomes.
+
+The trusted caller supplies an authenticated system actor with
+`nvr_storage_purpose: :qualify` and the exact `nvr_storage_id`. Deployment
+authentication/configuration supplies these fields and the issuing principal,
+never the document. Qualification principals can read bindings and reports only
+for their scoped storage lifetime; they cannot provision bindings. Provisioning
+and generic recorder actors cannot submit reports. There is no external report
+endpoint or automatic qualification on startup.
+
+Submission verifies that the retained binding matches the document's storage
+UUID, binding digest and profile digest. Identical retries of `(binding_id,
+revision)` preserve the original report UUID, `issued_by` and insertion time.
+Changed content at that revision conflicts; another revision retains the earlier
+report. A later revision is not an implicit current selection. The resource has
+no update, deletion or activation action. Evidence verification, explicit policy
+validity/health-age/restore-horizon limits and scoped activation are still required
+before any profile can authorize local-copy registration.
 
 ## Qualification before rollout
 

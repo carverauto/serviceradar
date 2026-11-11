@@ -87,8 +87,11 @@ defmodule ServiceRadar.Camera.LocalStorageBinding do
 
     policy action_type(:read) do
       forbid_unless actor_attribute_equals(:role, :system)
-      forbid_unless actor_attribute_equals(:nvr_storage_purpose, :provision)
-      authorize_if expr(storage_id == ^actor(:nvr_storage_id))
+
+      authorize_if expr(
+                     storage_id == ^actor(:nvr_storage_id) and
+                       ^actor(:nvr_storage_purpose) in [:provision, :qualify]
+                   )
     end
   end
 
