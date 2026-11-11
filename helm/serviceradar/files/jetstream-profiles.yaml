@@ -36,8 +36,8 @@
 #   large     3        279.3125 + 128/3 + 64 = 385.98      395.81
 #   large     1        375.3125                            395.81
 #   tenant-2g 3        1.14453125 + 0.1875 + 0.25 = 1.58   1.58
-#   compact   3        3.34375 + 1.5/3 + 0.5 = 4.34375     7.12
-#   compact   1        4.84375                              7.12
+#   compact   3        3.46875 + 1.5/3 + 0.5 = 4.46875     7.12
+#   compact   1        4.96875                              7.12
 #
 # The edge-record audit and security-quarantine streams are reserved at R3 in
 # every profile (64 MiB each; 8 MiB in tenant-2g), like the primary
@@ -265,7 +265,7 @@ profiles:
     persistenceSize: 10Gi
     sizes:
       datasvcKV: 64Mi
-      datasvcObjects: 512Mi
+      datasvcObjects: 640Mi
       events: 512Mi
       flows: 512Mi
       plugins: 256Mi

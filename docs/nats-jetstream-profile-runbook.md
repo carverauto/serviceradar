@@ -45,8 +45,8 @@ Per-server need, with the chart's full/spread formula:
 
 | Profile | Servers | Need | Limit |
 | --- | --- | --- | --- |
-| `compact` | 3 | 3.34375 + 1.5/3 + 0.5 = 4.34375 GiB (4664066048 bytes) | 7.12 GiB |
-| `compact` | 1 | 4.84375 GiB (5200936960 bytes) | 7.12 GiB |
+| `compact` | 3 | 3.46875 + 1.5/3 + 0.5 = 4.46875 GiB (4798283776 bytes) | 7.12 GiB |
+| `compact` | 1 | 4.96875 GiB (5335154688 bytes) | 7.12 GiB |
 | `small` | 3 | 19.71875 + 6/3 + 2 = 23.72 GiB (25467813888 bytes) | 28.50 GiB |
 | `small` | 1 | 25.46875 GiB | 28.50 GiB |
 | `medium` | 3 | 57.8125 + 28/3 + 12 = 79.15 GiB | 79.16 GiB |
