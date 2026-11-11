@@ -17,6 +17,13 @@ defmodule ServiceRadar.Edge.PipelineSettings do
   @default_max_horizon_seconds 30 * 86_400
   @default_spool_max_bytes 1024 * 1024 * 1024
 
+  # No hard limit could be derived from the agent: each SNMP target is its own collector
+  # (a few goroutines and one UDP socket), the agent unit allows 65,535 open files, and
+  # nothing in the agent caps the target count. 10,000 is the default the nearest
+  # analogue already uses (`AddonProfile.max_targets`), and at roughly 300 bytes a target
+  # in the shared-OID format it keeps one profile's config near 3 MB.
+  @default_snmp_max_targets 10_000
+
   @type resolved :: %{horizon_seconds: pos_integer(), spool_max_bytes: pos_integer()}
 
   @doc "The horizon used when no scope sets one: seven days."
@@ -31,6 +38,29 @@ defmodule ServiceRadar.Edge.PipelineSettings do
   @spec default_spool_max_bytes() :: pos_integer()
   def default_spool_max_bytes, do: @default_spool_max_bytes
 
+  @doc "The SNMP target limit used when no scope sets one: 10,000 targets per profile per agent."
+  @spec default_snmp_max_targets() :: pos_integer()
+  def default_snmp_max_targets, do: @default_snmp_max_targets
+
+  @doc """
+  The most targets one SNMP profile may compile for an agent: the agent's value, else its
+  partition's, else the global row's, else the default. `agent_id` may be `nil` for a
+  profile that is not being compiled for a particular agent; only the partition and
+  global rows apply then.
+  """
+  @spec snmp_max_targets(String.t() | nil, String.t() | nil) ::
+          {:ok, pos_integer()} | {:error, term()}
+  def snmp_max_targets(agent_id, partition_id)
+      when (is_binary(agent_id) or is_nil(agent_id)) and
+             (is_binary(partition_id) or is_nil(partition_id)) do
+    with {:ok, rows} <- read_rows(agent_id || "", partition_id) do
+      by_scope = Map.new(rows, &{&1.scope, &1})
+      ordered = Enum.flat_map([:agent, :partition, :global], &List.wrap(by_scope[&1]))
+
+      {:ok, first_value(ordered, :snmp_max_targets) || @default_snmp_max_targets}
+    end
+  end
+
   @doc """
   The settings that apply to an agent in a partition (`partition_id` is the partition's id).
   With a `nil` partition, an agent whose partition has no row, only the agent and global rows
@@ -39,6 +69,12 @@ defmodule ServiceRadar.Edge.PipelineSettings do
   @spec resolve(String.t(), String.t() | nil) :: {:ok, resolved()} | {:error, term()}
   def resolve(agent_id, partition_id)
       when is_binary(agent_id) and (is_binary(partition_id) or is_nil(partition_id)) do
+    with {:ok, rows} <- read_rows(agent_id, partition_id) do
+      {:ok, combine(rows)}
+    end
+  end
+
+  defp read_rows(agent_id, partition_id) do
     query =
       Ash.Query.filter(
         PipelineSetting,
@@ -46,9 +82,7 @@ defmodule ServiceRadar.Edge.PipelineSettings do
           (scope == :partition and scope_key == ^(partition_id || ""))
       )
 
-    with {:ok, rows} <- Ash.read(query, actor: SystemActor.system(:edge_pipeline_settings)) do
-      {:ok, combine(rows)}
-    end
+    Ash.read(query, actor: SystemActor.system(:edge_pipeline_settings))
   end
 
   @doc false

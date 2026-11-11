@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
 
   attr :profiles, :list, required: true
   attr :profile_target_counts, :map, default: %{}
+  attr :profile_target_refusals, :map, default: %{}
   attr :profile_package_names, :map, default: %{}
 
   def profiles_panel(assigns) do
@@ -96,6 +97,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                       title="This profile has no credential bound, so it compiles to zero targets and collects nothing. Bind a credential rule to it."
                     >
                       No credential
+                    </.ui_badge>
+                    <!--
+                    The compiler refuses a profile over its target limit whole:
+                    it compiles to zero targets. Shown persistently for the same
+                    reason as the credential warning above.
+                    -->
+                    <.ui_badge
+                      :if={Map.has_key?(@profile_target_refusals, profile.id)}
+                      id={"snmp-profile-#{profile.id}-target-limit"}
+                      variant="danger"
+                      size="xs"
+                      title={Map.get(@profile_target_refusals, profile.id)}
+                    >
+                      Too many targets
                     </.ui_badge>
                   </div>
                   <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">

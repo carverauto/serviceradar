@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -55,6 +56,55 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
              lv,
              "input[name='form[community]'][placeholder='Leave blank to keep existing']"
            )
+  end
+
+  test "the profile list marks a profile that has grown past its target limit", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    agent_id = "agent-limit-#{unique}"
+    vendor = "Limit Vendor #{unique}"
+
+    PipelineSetting
+    |> Ash.Changeset.for_create(:upsert, %{
+      scope: :agent,
+      scope_key: agent_id,
+      snmp_max_targets: 1
+    })
+    |> Ash.create!(scope: scope)
+
+    device_fixture(%{vendor_name: vendor})
+
+    {:ok, grown} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Grown #{unique}",
+        community: "secret",
+        target_query: ~s(in:devices vendor_name:"#{vendor}"),
+        agent_ids: [agent_id]
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, within} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Within #{unique}",
+        community: "secret",
+        target_query: ~s(in:devices vendor_name:"Other #{vendor}"),
+        agent_ids: [agent_id]
+      })
+      |> Ash.create(scope: scope)
+
+    device_fixture(%{vendor_name: vendor})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert lv
+           |> element("#snmp-profile-#{grown.id}-target-limit")
+           |> render() =~ "more than 1 targets for agent #{agent_id}"
+
+    refute has_element?(lv, "#snmp-profile-#{within.id}-target-limit")
   end
 
   test "new profile form renders the agent targeting selector", %{conn: conn} do

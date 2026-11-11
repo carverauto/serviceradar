@@ -16,6 +16,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -2120,22 +2121,161 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
-  defp create_gateway_profile(gateway_id, actor) do
-    {:ok, template} = create_read_failure_template("Template #{gateway_id}", actor)
+  describe "target limit per profile" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      agent_id = "agent-limit-#{unique}"
 
-    SNMPProfile
-    |> Ash.Changeset.for_create(:create, %{
-      name: "Profile #{gateway_id}",
-      poll_interval: 60,
-      timeout: 5,
-      retries: 3,
-      enabled: true,
-      target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
-      oid_template_ids: [template.id],
-      version: :v2c,
-      community: "public"
-    })
-    |> Ash.create!(actor: actor)
+      PipelineSetting
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{scope: :agent, scope_key: agent_id, snmp_max_targets: 3},
+        actor: actor
+      )
+      |> Ash.create!()
+
+      handler = "snmp-target-limit-#{unique}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :snmp, :target_limit_exceeded],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:target_limit_exceeded, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      {:ok, actor: actor, agent_id: agent_id, gateway_id: "gw-limit-#{unique}"}
+    end
+
+    @tag :integration
+    test "a profile at the limit is saved and compiled, and one over it is refused at save", %{
+      actor: actor,
+      agent_id: agent_id,
+      gateway_id: gateway_id
+    } do
+      for _index <- 1..3, do: create_gateway_device(actor, gateway_id)
+
+      profile = create_gateway_profile(gateway_id, actor, %{agent_ids: [agent_id]})
+      assert {:ok, config} = SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+      assert length(config["targets"]) == 3
+      refute_received {:target_limit_exceeded, _measurements, _metadata}
+
+      create_gateway_device(actor, gateway_id)
+      over = %{name: "Over #{gateway_id}", agent_ids: [agent_id]}
+
+      assert {:error, error} =
+               gateway_id |> gateway_profile_changeset(actor, over) |> Ash.create(actor: actor)
+
+      message = Exception.message(error)
+      assert message =~ ~s(SNMP profile "Over #{gateway_id}")
+      assert message =~ "more than 3 targets for agent #{agent_id}"
+      assert message =~ "counted 4"
+      assert message =~ "Narrow the target query or split the profile across agents"
+
+      # A disabled profile is not judged, so one over the limit can be parked.
+      assert {:ok, _disabled} =
+               gateway_id
+               |> gateway_profile_changeset(actor, Map.put(over, :enabled, false))
+               |> Ash.create(actor: actor)
+    end
+
+    @tag :integration
+    test "a profile that grows past the limit compiles to no targets and other profiles still compile",
+         %{actor: actor, agent_id: agent_id, gateway_id: gateway_id} do
+      for _index <- 1..3, do: create_gateway_device(actor, gateway_id)
+      profile = create_gateway_profile(gateway_id, actor, %{agent_ids: [agent_id]})
+
+      other_gateway = "other-#{gateway_id}"
+      for _index <- 1..2, do: create_gateway_device(actor, other_gateway)
+      other = create_gateway_profile(other_gateway, actor, %{agent_ids: [agent_id]})
+
+      create_gateway_device(actor, gateway_id)
+      profile_id = profile.id
+
+      assert {:ok, refused} = SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+      assert refused["targets"] == []
+      assert refused["enabled"] == false
+      assert refused["profile_id"] == profile_id
+
+      assert_received {:target_limit_exceeded, %{count: 1, targets: 4, limit: 3},
+                       %{profile_id: ^profile_id, agent_id: ^agent_id}}
+
+      assert {:ok, other_config} = SNMPCompiler.compile_profile(other, actor, agent_id: agent_id)
+      assert length(other_config["targets"]) == 2
+
+      # The limit is the agent's: an agent on the default compiles all four.
+      assert {:ok, wide} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: "wide-#{agent_id}")
+
+      assert length(wide["targets"]) == 4
+    end
+
+    @tag :integration
+    test "explicit targets count toward the limit", %{
+      actor: actor,
+      agent_id: agent_id,
+      gateway_id: gateway_id
+    } do
+      for _index <- 1..2, do: create_gateway_device(actor, gateway_id)
+      profile = create_gateway_profile(gateway_id, actor, %{agent_ids: [agent_id]})
+
+      for index <- 1..2 do
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "Explicit #{index} #{gateway_id}",
+            host: ServiceRadar.TestSupport.unique_device_ip(),
+            port: 161,
+            version: :v2c,
+            community: "public"
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+      end
+
+      assert {:ok, %{"targets" => []}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      assert_received {:target_limit_exceeded, %{targets: 4, limit: 3}, _metadata}
+    end
+  end
+
+  defp create_gateway_profile(gateway_id, actor, attrs \\ %{}) do
+    gateway_id |> gateway_profile_changeset(actor, attrs) |> Ash.create!(actor: actor)
+  end
+
+  defp gateway_profile_changeset(gateway_id, actor, attrs) do
+    unique = System.unique_integer([:positive])
+    {:ok, template} = create_read_failure_template("Template #{gateway_id} #{unique}", actor)
+
+    Ash.Changeset.for_create(
+      SNMPProfile,
+      :create,
+      Map.merge(
+        %{
+          name: "Profile #{gateway_id}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+          oid_template_ids: [template.id],
+          version: :v2c,
+          community: "public"
+        },
+        attrs
+      )
+    )
   end
 
   defp create_snmp_secret(name, payload, actor) do

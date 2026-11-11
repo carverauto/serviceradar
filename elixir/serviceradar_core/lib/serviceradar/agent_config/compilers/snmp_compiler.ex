@@ -70,6 +70,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
+  alias ServiceRadar.AgentConfig.WarningLedger
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -82,6 +83,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
+  alias ServiceRadar.SNMPProfiles.TargetLimit
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLQuery
@@ -335,32 +337,80 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   defp do_compile_profile(profile, actor, opts) do
     format = resolve_format_opt(opts)
-    target_query = normalize_target_query(profile.target_query, profile.is_default)
+    agent_id = Keyword.get(opts, :agent_id)
 
-    with :ok <- validate_format(format),
-         {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
+    with :ok <- validate_format(format) do
+      case TargetLimit.check(profile, agent_id, Keyword.get(opts, :partition)) do
+        :ok ->
+          WarningLedger.forget({:snmp_target_limit, profile.id, agent_id})
+          compile_profile_targets(profile, actor, opts, format)
+
+        # A profile over the limit is refused whole: it contributes no targets
+        # and the agent's config still compiles. Cutting it down to the limit
+        # would poll an arbitrary subset.
+        {:refused, refusal} ->
+          report_target_limit_refusal(refusal)
+          {:ok, profile_config(profile, [], format)}
+
+        {:error, reason} ->
+          {:error, {:target_limit_read_failed, reason}}
+      end
+    end
+  end
+
+  defp compile_profile_targets(profile, actor, opts, format) do
+    with {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
          {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor),
          {:ok, query_targets} <-
-           compile_query_targets(target_query, profile, oids, actor, opts) do
+           compile_query_targets(target_query(profile), profile, oids, actor, opts) do
       compiled_targets =
         profile_targets
         |> merge_targets(query_targets)
         |> sort_targets()
         |> sanitize_target_names()
 
-      config =
-        format_compiled_config(
-          %{
-            "enabled" => profile.enabled and compiled_targets != [],
-            "profile_id" => profile.id,
-            "profile_name" => profile.name,
-            "targets" => compiled_targets
-          },
-          format
-        )
-
-      {:ok, Map.put(config, "config_hash", config_hash(config))}
+      {:ok, profile_config(profile, compiled_targets, format)}
     end
+  end
+
+  defp profile_config(profile, compiled_targets, format) do
+    config =
+      format_compiled_config(
+        %{
+          "enabled" => profile.enabled and compiled_targets != [],
+          "profile_id" => profile.id,
+          "profile_name" => profile.name,
+          "targets" => compiled_targets
+        },
+        format
+      )
+
+    Map.put(config, "config_hash", config_hash(config))
+  end
+
+  # The counter fires on every compile of a refused profile. The log line is
+  # written when the refusal starts or its numbers change, not on every compile.
+  defp report_target_limit_refusal(refusal) do
+    :telemetry.execute(
+      [:serviceradar, :snmp, :target_limit_exceeded],
+      %{count: 1, targets: refusal.count, limit: refusal.limit},
+      Map.take(refusal, [:profile_id, :profile_name, :agent_id])
+    )
+
+    subject = {:snmp_target_limit, refusal.profile_id, refusal.agent_id}
+
+    if WarningLedger.changed?(subject, {refusal.count, refusal.limit}) do
+      Logger.warning("SNMPCompiler: " <> TargetLimit.message(refusal))
+    end
+  end
+
+  @doc """
+  The target query a profile is compiled with: its own, `in:devices` for a
+  default profile that sets none, or `nil` when it selects no devices.
+  """
+  @spec target_query(map()) :: String.t() | nil
+  def target_query(profile) do
+    normalize_target_query(Map.get(profile, :target_query), Map.get(profile, :is_default) == true)
   end
 
   @doc """

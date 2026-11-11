@@ -214,6 +214,43 @@ in:devices hostname:%core% type:Switch
 
 The profile with the highest priority that matches a device is used. If no targeting profile matches, the default profile (if one exists) is applied.
 
+### Target Limit Per Profile
+
+One SNMP profile may give one agent at most 10,000 targets. A profile's targets
+are the devices its target query selects plus its explicit targets.
+
+A profile over the limit is refused, not cut down to the limit:
+
+- **When you save it.** The save fails with a message that names the profile,
+  the agent, the count and the limit. Disabling the profile is always allowed.
+- **When it is compiled for an agent.** Inventory grows after a profile is
+  saved. A profile that has grown past the limit compiles to zero targets, so
+  that agent stops SNMP polling for the profile, and the rest of the agent's
+  configuration is delivered as usual. Core logs a warning and emits the
+  `[:serviceradar, :snmp, :target_limit_exceeded]` telemetry event with the
+  profile, the agent, the count and the limit.
+- **In Settings.** The profile list marks the profile **Too many targets**,
+  with the same message.
+
+Counting stops one past the limit, so a reported count of 10,001 means "more
+than 10,000".
+
+To fix a refused profile, narrow its target query or split it into several
+profiles pinned to different agents.
+
+The limit is a setting, not a Helm value. It is the `snmp_max_targets` column
+of `platform.edge_pipeline_settings`, read for the agent, then its partition,
+then the global row, with 10,000 as the default when none sets it. There is no
+settings page for it yet; an administrator sets it through the
+`ServiceRadar.Edge.PipelineSetting` resource. Saving a profile and the Settings
+list do not know an agent's partition, so they apply the agent and global
+settings only; a compile applies all three.
+
+The default is a conservative choice, not a measured agent limit. Each target
+is its own collector on the agent and nothing in the agent caps their number.
+10,000 matches the default already used for add-on profile targets, and keeps
+one profile's configuration near 3 MB.
+
 ### Monitoring Agent SNMP Status
 
 The agent runs in push mode: it does not expose an HTTP status endpoint. SNMP service status is reported over the agent's gRPC interface and surfaced in the ServiceRadar UI and core API. For direct inspection, check the agent logs:

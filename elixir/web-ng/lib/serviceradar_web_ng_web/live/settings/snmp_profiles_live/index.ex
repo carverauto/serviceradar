@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:page_title, "SNMP Profiles")
         |> assign(:profiles, profiles)
         |> assign(:profile_target_counts, profile_target_counts)
+        |> Data.assign_profile_target_refusals(profiles)
         |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
         |> assign(:selected_profile, nil)
         |> assign(:show_form, nil)
