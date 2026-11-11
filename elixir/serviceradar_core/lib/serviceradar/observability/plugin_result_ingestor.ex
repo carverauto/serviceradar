@@ -635,6 +635,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp fetch_string(map, keys) do
     case fetch_value(map, keys) do
+      nil -> nil
       value when is_binary(value) -> String.trim(value)
       value when is_atom(value) -> Atom.to_string(value)
       value when is_integer(value) -> Integer.to_string(value)
@@ -1818,7 +1819,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     agent_id = fetch_string(status, [:agent_id])
     partition = fetch_string(status, [:partition])
 
-    Logger.info(
+    # An unknown assignment id is the one withdrawal that can also mean an agent is reporting
+    # under an assignment it was never given, so it warns; the others are routine.
+    level = if reason == :plugin_assignment_not_found, do: :warning, else: :info
+
+    Logger.log(
+      level,
       "Proxmox inventory result not applied, its assignment was withdrawn: " <>
         "reason=#{reason} assignment_id=#{assignment_id} agent_id=#{agent_id} " <>
         "partition=#{partition}"

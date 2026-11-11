@@ -124,20 +124,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
   end
 
   test "a result whose assignment was withdrawn is acknowledged, counted and not applied" do
-    event = [:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn]
-    handler = "proxmox-assignment-withdrawn-#{System.unique_integer([:positive])}"
-    parent = self()
-
-    :telemetry.attach(
-      handler,
-      event,
-      fn ^event, measurements, metadata, _config ->
-        send(parent, {:assignment_withdrawn, measurements, metadata})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    attach_assignment_withdrawn()
 
     Application.put_env(
       :serviceradar_core,
@@ -156,6 +143,49 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
                     }}
 
     refute_receive {:proxmox_records, _records}
+  end
+
+  # Absent provenance and absent labels must report no assignment id, not the string "nil".
+  test "a withdrawn result that names no assignment reports none" do
+    attach_assignment_withdrawn()
+
+    Application.put_env(
+      :serviceradar_core,
+      :proxmox_scope_test_result,
+      {:error, :plugin_assignment_disabled}
+    )
+
+    {payload, status, _observed_at} = proxmox_fixture()
+    payload = Map.delete(payload, "labels")
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    assert_receive {:assignment_withdrawn, %{count: 1}, metadata}
+    assert metadata.reason == :plugin_assignment_disabled
+    assert metadata.assignment_id == nil
+  end
+
+  test "an unknown assignment is logged as a warning, any other withdrawal at info" do
+    previous_level = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
+    for {reason, level} <- [
+          {:plugin_assignment_not_found, "warning"},
+          {:plugin_assignment_disabled, "info"}
+        ] do
+      Application.put_env(:serviceradar_core, :proxmox_scope_test_result, {:error, reason})
+      {payload, status, _observed_at} = proxmox_fixture()
+
+      log =
+        capture_log([format: "[$level] $message\n"], fn ->
+          assert :ok = PluginResultIngestor.ingest(payload, status)
+        end)
+
+      assert log =~
+               "[#{level}] Proxmox inventory result not applied, its assignment was withdrawn: " <>
+                 "reason=#{reason}"
+    end
   end
 
   test "Proxmox results bypass generic discovery before global device ids can reconcile" do
@@ -202,6 +232,23 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
     assert is_nil(guest.device_uid)
     refute_receive {:generic_device_discovery_ran, _updates, _context}
     refute_receive {:generic_membership_reconciliation_ran, _payload, _context}
+  end
+
+  defp attach_assignment_withdrawn do
+    event = [:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn]
+    handler = "proxmox-assignment-withdrawn-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(parent, {:assignment_withdrawn, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
   end
 
   defp proxmox_fixture do
