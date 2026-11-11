@@ -26,7 +26,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   `rescued_jobs`.
 
   Each pass then runs `ServiceRadar.Jobs.CronBacklogRepair`, which handles the
-  pending side: redundant cron ticks that never complete and periodic jobs starved
+  pending side: redundant pending cron ticks and periodic jobs starved
   behind higher-priority work.
   """
 
