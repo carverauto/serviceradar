@@ -23,6 +23,13 @@ reservation ServiceRadar creates and checks them at render time:
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
+**Compact support boundary:** `compact` is supported only for new deployments,
+pilots and other low-data installs. It is not a supported downgrade target from
+`small` or a larger profile. Existing streams and buckets can retain larger
+limits when their stored data exceeds a compact cap, so the desired profile
+budget does not prove that a downgrade will fit. Use `small` or larger for any
+install that has accumulated data beyond compact's stream caps.
+
 `TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 512 MiB on
 `compact`, 960 MiB on `small`, 1 GiB on `medium` and `large`, and 28 MiB on
 `tenant-2g`), and so are its audit and security-quarantine streams
