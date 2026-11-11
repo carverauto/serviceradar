@@ -4555,9 +4555,11 @@ type ControlStreamHello struct {
 	EdgeRecordCapabilities *v1.EdgeRecordCapabilitiesV1 `protobuf:"bytes,17,opt,name=edge_record_capabilities,json=edgeRecordCapabilities,proto3,oneof" json:"edge_record_capabilities,omitempty"`
 	EdgeRecordSpool        *EdgeRecordSpoolStatus       `protobuf:"bytes,18,opt,name=edge_record_spool,json=edgeRecordSpool,proto3,oneof" json:"edge_record_spool,omitempty"` // As in AgentHelloRequest
 	// Digest (hex SHA-256) of the installed sweep lease payload per sweep group,
-	// as persisted in the agent's lease store. Absent on agents that predate it
-	// and for groups the agent holds nothing for; core then re-issues the full
-	// window instead of skipping on trust.
+	// as persisted in the agent's lease store. Authoritative only when the same
+	// hello advertises the "sweep_lease_hello_digests:v1" capability; otherwise
+	// it is ignored. Absent on agents that predate it and for groups the agent
+	// holds nothing for; core then re-issues the full window instead of
+	// skipping on trust.
 	InstalledSweepLeaseDigests map[string]string `protobuf:"bytes,19,rep,name=installed_sweep_lease_digests,json=installedSweepLeaseDigests,proto3" json:"installed_sweep_lease_digests,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache

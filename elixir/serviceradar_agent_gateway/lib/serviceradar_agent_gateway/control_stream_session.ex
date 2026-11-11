@@ -32,6 +32,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   @sweep_lease_refresh_retry_max_ms 60_000
   @config_push_chunks_capability "config_push_chunks"
   @sweep_lease_capability "sweep_lease_v1"
+  @sweep_lease_hello_digests_capability "sweep_lease_hello_digests:v1"
   # grpc-go's default client receive limit, which agents keep.
   @legacy_config_push_max_bytes 4 * 1024 * 1024
 
@@ -571,12 +572,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp verify_expected_control_evidence(_state, _expected), do: {:error, :console_control_evidence_unavailable}
 
   defp update_control_evidence(state, %Monitoring.ControlStreamHello{} = hello) do
+    capabilities = normalize_capabilities(hello.capabilities)
+
     %{
       state
-      | capabilities: normalize_capabilities(hello.capabilities),
+      | capabilities: capabilities,
         config_version: normalize_config_version(hello.config_version),
         applied_plugin_assignments: normalize_applied_plugin_assignments(hello.applied_plugin_assignments),
-        installed_sweep_lease_digests: normalize_installed_sweep_lease_digests(hello.installed_sweep_lease_digests)
+        installed_sweep_lease_digests: installed_sweep_lease_digests(capabilities, hello.installed_sweep_lease_digests)
     }
   end
 
@@ -639,9 +642,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   # The hello's installed sweep lease digests (group id to hex SHA-256 of the
   # installed push payload), kept for the session's lease refresh so core can
-  # skip re-issuing a window the agent already holds. Anything else normalizes
-  # to no digests, which re-issues everything: the safe direction for an older
-  # agent or a malformed map.
+  # skip re-issuing a window the agent already holds. The map is authoritative
+  # only when the same hello advertises `sweep_lease_hello_digests:v1`; without
+  # it, or for anything but a small binary-to-binary map, the session keeps no
+  # digests, which re-issues everything: the safe direction.
+  defp installed_sweep_lease_digests(capabilities, digests) do
+    if @sweep_lease_hello_digests_capability in capabilities,
+      do: normalize_installed_sweep_lease_digests(digests),
+      else: %{}
+  end
+
   defp normalize_installed_sweep_lease_digests(digests) when is_map(digests) do
     if map_size(digests) > 1_024 do
       %{}

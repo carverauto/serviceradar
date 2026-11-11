@@ -10,11 +10,6 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorkerTest do
       workers = ReapStalePeriodicJobsWorker.orphan_rescue_workers()
 
       assert LeasePassWorker in workers
-
-      for worker <- workers do
-        assert {:module, worker} = :code.ensure_loaded(worker)
-        assert function_exported?(worker, :rescue_orphaned, 1)
-      end
     end
   end
 

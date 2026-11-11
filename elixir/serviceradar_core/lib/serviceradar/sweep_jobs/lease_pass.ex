@@ -282,8 +282,10 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   # Hello-reported installed digests the per-group re-issue compares against issuance
-  # evidence. Anything but a small binary-to-binary map normalizes to no digests, which
-  # re-issues everything: the safe direction for an older agent or a malformed map.
+  # evidence. The gateway forwards them only from a hello advertising
+  # `sweep_lease_hello_digests:v1`. Anything but a small binary-to-binary map normalizes to
+  # no digests, which re-issues everything: the safe direction for an older agent or a
+  # malformed map.
   defp normalize_reported_digests(digests) when is_map(digests) and map_size(digests) <= 1_024 do
     digests
     |> Enum.reduce_while({:ok, %{}}, fn

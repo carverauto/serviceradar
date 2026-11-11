@@ -695,6 +695,35 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
           :ok
       end
 
+      start_push_session!(agent_id, ["sweep_lease_v1", "sweep_lease_hello_digests:v1"],
+        config_sync_rpc: config_sync_rpc,
+        hello: %Monitoring.ControlStreamHello{
+          agent_id: agent_id,
+          capabilities: ["sweep_lease_v1", "sweep_lease_hello_digests:v1"],
+          installed_sweep_lease_digests: digests
+        }
+      )
+
+      assert_receive :refresh_carried_digests, 1_000
+      refute_received :refresh_without_digests
+    end
+
+    test "a hello without the digest capability refreshes with no digests" do
+      ensure_process_registry!()
+
+      agent_id = "agent-lease-digests-unadvertised-#{System.unique_integer([:positive])}"
+      test_pid = self()
+      digests = %{"group-a" => String.duplicate("ab", 32)}
+
+      config_sync_rpc = fn
+        :start_sweep_lease_refresh, [^agent_id, _session, 0, forwarded] ->
+          send(test_pid, {:refresh_digests, forwarded})
+          {:error, :unexpected_refresh}
+
+        _function, _args ->
+          :ok
+      end
+
       start_push_session!(agent_id, ["sweep_lease_v1"],
         config_sync_rpc: config_sync_rpc,
         hello: %Monitoring.ControlStreamHello{
@@ -704,8 +733,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
         }
       )
 
-      assert_receive :refresh_carried_digests, 1_000
-      refute_received :refresh_without_digests
+      assert_receive {:refresh_digests, forwarded}, 1_000
+      assert forwarded == %{}
     end
 
     test "an agent already running the current config is not sent it again" do
