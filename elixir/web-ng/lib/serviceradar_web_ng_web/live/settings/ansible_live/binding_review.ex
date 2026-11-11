@@ -49,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     |> assign(:binding_choice_count, 0)
     |> assign(:binding_review, nil)
     |> assign(:binding_pending, nil)
+    |> assign(:binding_generation, 0)
     |> assign(:revoking_binding, nil)
     |> assign(:revoke_form, to_form(%{}, as: :revoke))
     |> assign(:revoke_error, nil)
@@ -100,6 +101,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     put_flash(socket, :error, "Register an AWX controller before reviewing a binding.")
   end
 
+  def new_review(%{assigns: %{binding_pending: pending}} = socket) when not is_nil(pending), do: socket
+
   def new_review(socket) do
     params =
       prefill_template(
@@ -121,12 +124,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
       )
 
     socket
+    |> next_generation()
     |> assign(:show_binding_form, true)
     |> assign(:binding_review, nil)
     |> assign(:binding_form, to_form(params, as: :binding))
     |> load_choices(params["inventory_id"])
   end
 
+  def cancel_form(%{assigns: %{binding_pending: :create}} = socket), do: socket
   def cancel_form(socket), do: close_form(socket)
 
   @doc """
@@ -179,51 +184,69 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
 
   def create(%{assigns: %{binding_review: %{request: request, digest: digest}}} = socket) do
     scope = socket.assigns.current_scope
+    generation = socket.assigns.binding_generation
     body = Map.put(request, "expected_review_digest", digest)
 
     socket
     |> assign(:binding_pending, :create)
     |> start_async(:ansible_binding_create, fn ->
-      {request, automation().create_binding(scope, body)}
+      {generation, request, automation().create_binding(scope, body)}
     end)
   end
 
+  def discard_review(%{assigns: %{binding_pending: :create}} = socket), do: socket
   def discard_review(socket), do: assign(socket, :binding_review, nil)
 
   @doc "Handles the result of a prepare started by `prepare/2` or a changed create."
-  def prepared(socket, result) do
+  def prepared(%{assigns: %{binding_generation: generation}} = socket, {:ok, {generation, request, outcome}}) do
     changed? = socket.assigns.binding_pending == :reprepare
-    socket = assign(socket, :binding_pending, nil)
 
-    case result do
-      {:ok, {request, outcome}} ->
-        if current_request?(socket, request),
-          do: apply_prepared(socket, request, outcome, changed?),
-          else: socket
+    socket
+    |> assign(:binding_pending, nil)
+    |> apply_prepared(request, outcome, changed?)
+  end
 
-      _ ->
-        put_flash(socket, :error, "The binding review could not be prepared.")
-    end
+  def prepared(socket, {:ok, {_stale_generation, _request, _outcome}}), do: socket
+
+  def prepared(socket, _result) do
+    socket
+    |> assign(:binding_pending, nil)
+    |> put_flash(:error, "The binding review could not be prepared.")
   end
 
   @doc "Handles the result of a create started by `create/1`."
-  def created(socket, result) do
-    socket = assign(socket, :binding_pending, nil)
+  def created(socket, {:ok, {generation, request, {:ok, binding}}}) do
+    socket =
+      if generation == socket.assigns.binding_generation, do: close_form(socket), else: socket
 
-    case result do
-      {:ok, {request, outcome}} ->
-        if current_request?(socket, request),
-          do: apply_created(socket, request, outcome),
-          else: socket
+    socket =
+      put_flash(
+        socket,
+        :info,
+        "Created binding version #{binding[:binding_version]} for template #{binding[:job_template_id]}."
+      )
 
-      _ ->
-        put_flash(socket, :error, "The binding was not created.")
+    if request["controller_id"] == socket.assigns.binding_controller_id do
+      socket
+      |> assign(:binding_template_id, binding[:job_template_id])
+      |> load_versions()
+    else
+      socket
     end
   end
 
-  defp current_request?(socket, request) do
-    socket.assigns.show_binding_form and
-      request["controller_id"] == socket.assigns.binding_controller_id
+  def created(%{assigns: %{binding_generation: generation}} = socket, {:ok, {generation, request, outcome}}) do
+    socket
+    |> assign(:binding_pending, nil)
+    |> apply_created(request, outcome)
+  end
+
+  def created(socket, {:ok, {_stale_generation, _request, _outcome}}), do: socket
+
+  def created(socket, _result) do
+    socket
+    |> assign(:binding_pending, nil)
+    |> put_flash(:error, "The binding was not created.")
   end
 
   defp apply_prepared(socket, request, {:ok, %{review: review, review_digest: digest}}, changed?)
@@ -242,17 +265,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
 
   defp apply_prepared(socket, _request, _outcome, _changed?) do
     put_flash(socket, :error, "The binding review could not be prepared.")
-  end
-
-  defp apply_created(socket, _request, {:ok, binding}) do
-    socket
-    |> put_flash(
-      :info,
-      "Created binding version #{binding[:binding_version]} for template #{binding[:job_template_id]}."
-    )
-    |> close_form()
-    |> assign(:binding_template_id, binding[:job_template_id])
-    |> load_versions()
   end
 
   defp apply_created(socket, request, {:error, :binding_review_changed}) do
@@ -421,16 +433,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
 
   defp start_prepare(socket, request, marker) do
     scope = socket.assigns.current_scope
+    generation = socket.assigns.binding_generation
 
     socket
     |> assign(:binding_pending, marker)
     |> start_async(:ansible_binding_prepare, fn ->
-      {request, automation().prepare_binding(scope, request)}
+      {generation, request, automation().prepare_binding(scope, request)}
     end)
+  end
+
+  defp next_generation(socket) do
+    assign(socket, :binding_generation, socket.assigns.binding_generation + 1)
   end
 
   defp close_form(socket) do
     socket
+    |> next_generation()
     |> assign(:show_binding_form, false)
     |> assign(:binding_review, nil)
     |> assign(:binding_pending, nil)

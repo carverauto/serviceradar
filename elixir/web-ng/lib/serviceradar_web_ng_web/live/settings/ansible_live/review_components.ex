@@ -579,7 +579,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         </fieldset>
 
         <div class="flex justify-end gap-2 pt-3">
-          <.ui_button type="button" size="sm" variant="ghost" phx-click="cancel_binding_form">
+          <.ui_button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={@pending == :create}
+            phx-click="cancel_binding_form"
+          >
             Cancel
           </.ui_button>
           <.ui_button
@@ -698,7 +704,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
       </p>
 
       <div class="flex justify-end gap-2">
-        <.ui_button type="button" size="sm" variant="ghost" phx-click="discard_binding_review">
+        <.ui_button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={@pending == :create}
+          phx-click="discard_binding_review"
+        >
           Discard
         </.ui_button>
         <.ui_button
