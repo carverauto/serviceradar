@@ -17,16 +17,17 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   `pg_locks`, then `pg_stat_activity` again, and classifies every granted
   advisory lock by what its holder did across the three reads:
 
-    * **leaked**: the holder was `idle` in both activity reads and its
-      `state_change` did not move, so it had no transaction open at any point
-      in between and the lock cannot be transaction-level. A lock held by the
-      session running these statements is leaked for the same reason: each
-      statement runs in a transaction of its own, so a lock that session
+    * **leaked**: the holder's state was exactly `idle` in both activity
+      reads and its `state_change` did not move, so it had no transaction open
+      at any point in between and the lock cannot be transaction-level. A
+      lock held by the session running these statements is leaked for the same
+      reason: each statement runs in a transaction of its own, so a lock that session
       already holds was not taken by any of them.
-    * **in flight**: the holder was inside a transaction, or changed state,
-      during the observation. The lock may be transaction-level and is
-      observed again.
-    * **released**: the holding session ended before the second activity read.
+    * **in flight**: the holder was in any other state (`idle in transaction`,
+      `idle in transaction (aborted)`, `active`, ...), changed state during the
+      observation, or had no activity row in the second read. The lock may be
+      transaction-level, or its session may be exiting, and is observed again;
+      once `pg_locks` no longer lists it, it is gone and not reported.
     * **out of scope**: the holder is not a client backend. Server background
       workers, such as TimescaleDB job workers, take advisory locks of their
       own, and nothing the application does through a connection can leave one
@@ -76,6 +77,7 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   @type lock :: %{
           verdict: :leaked | :in_flight | :unresolved,
           pid: integer() | nil,
+          activity_row?: boolean(),
           classid: integer(),
           objid: integer(),
           objsubid: integer(),
@@ -195,6 +197,7 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
         %{
           verdict: verdict,
           pid: pid,
+          activity_row?: holder != nil,
           classid: classid,
           objid: objid,
           objsubid: objsubid,
@@ -211,8 +214,9 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
 
   # A lock with no backend belongs to a prepared transaction, which never becomes idle.
   defp verdict(nil, _earlier, _holder), do: :in_flight
-  # The session ended, which released every lock it held.
-  defp verdict(_pid, _earlier, nil), do: :not_applicable
+  # No activity row: the session is exiting, and the next pg_locks read shows whether
+  # its lock went with it.
+  defp verdict(_pid, _earlier, nil), do: :in_flight
 
   defp verdict(_pid, _earlier, %{backend_type: type}) when type != "client backend",
     do: :not_applicable
@@ -239,10 +243,14 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   end
 
   defp format_lock(lock) do
-    "  #{lock.verdict} pid=#{inspect(lock.pid)} classid=#{lock.classid} objid=#{lock.objid} " <>
-      "objsubid=#{lock.objsubid} mode=#{lock.mode} state=#{inspect(lock.state)} " <>
+    "  #{lock.verdict} pid=#{inspect(lock.pid)}#{activity_note(lock)} " <>
+      "classid=#{lock.classid} objid=#{lock.objid} objsubid=#{lock.objsubid} " <>
+      "mode=#{lock.mode} state=#{inspect(lock.state)} " <>
       "state_change=#{inspect(lock.state_change)} xact_start=#{inspect(lock.xact_start)} " <>
       "backend_start=#{inspect(lock.backend_start)} " <>
       "application_name=#{inspect(lock.application_name)} query=#{inspect(lock.query)}"
   end
+
+  defp activity_note(%{activity_row?: true}), do: ""
+  defp activity_note(_lock), do: " (holder had no pg_stat_activity row)"
 end

@@ -64,7 +64,7 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
 
   test "a transaction lock held by a running transaction is waited out, not reported",
        %{key: key} do
-    holder = start_transaction_lock_holder!(key)
+    %{task: holder} = start_transaction_lock_holder!(key)
 
     # While the transaction is open the lock is a pg_locks row like any other, which is
     # what a bare count of advisory locks trips over.
@@ -80,13 +80,48 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
 
   test "a lock whose transaction never ends is reported once the settle deadline passes",
        %{key: key} do
-    holder = start_transaction_lock_holder!(key)
+    %{task: holder} = start_transaction_lock_holder!(key)
 
     assert [%{verdict: :unresolved, state: "idle in transaction"}] =
              held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
 
     send(holder, :commit)
     assert_receive {:committed, ^holder}
+  end
+
+  for {label, abort?, state} <- [
+        {"idle in transaction", false, "idle in transaction"},
+        {"idle in an aborted transaction", true, "idle in transaction (aborted)"}
+      ] do
+    test "a transaction lock on a client already #{label} is in flight, unresolved at the deadline, and gone once it ends",
+         %{key: key} do
+      holder = start_transaction_lock_holder!(key, abort: unquote(abort?))
+      await_state!(holder.backend, unquote(state))
+
+      assert %{leaked: leaked, in_flight: in_flight} = AdvisoryLockLeaks.observe(Repo)
+      assert [] = held(leaked, key)
+      assert [%{verdict: :in_flight, state: unquote(state)}] = held(in_flight, key)
+
+      assert [%{verdict: :unresolved, state: unquote(state)}] =
+               held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
+
+      %{task: task} = holder
+      send(task, :commit)
+      assert_receive {:committed, ^task}
+      assert [] = held(AdvisoryLockLeaks.leaked(Repo), key)
+    end
+  end
+
+  test "a lock whose holder disconnects between observations is not reported", %{key: key} do
+    holder = start_transaction_lock_holder!(key)
+
+    assert %{in_flight: in_flight} = AdvisoryLockLeaks.observe(Repo)
+    assert [%{pid: backend}] = held(in_flight, key)
+    assert backend == holder.backend
+
+    Repo.query!("SELECT pg_terminate_backend($1)", [backend])
+
+    assert [] = held(AdvisoryLockLeaks.leaked(Repo), key)
   end
 
   test "an observation inside a transaction is refused rather than answered from a stale snapshot" do
@@ -102,17 +137,25 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
     start_supervised!({Postgrex, DirectSession.connection_opts()}, id: make_ref())
   end
 
-  defp start_transaction_lock_holder!(key) do
+  defp start_transaction_lock_holder!(key, opts \\ []) do
     session = start_session!()
     test_pid = self()
 
-    holder =
+    task =
       start_supervised!(
         {Task,
          fn ->
            Postgrex.transaction(session, fn conn ->
+             %Postgrex.Result{rows: [[backend]]} =
+               Postgrex.query!(conn, "SELECT pg_backend_pid()", [])
+
              Postgrex.query!(conn, "SELECT pg_advisory_xact_lock($1)", [key])
-             send(test_pid, {:locked, self()})
+
+             if Keyword.get(opts, :abort, false) do
+               {:error, %Postgrex.Error{}} = Postgrex.query(conn, "SELECT 1 / 0", [])
+             end
+
+             send(test_pid, {:locked, self(), backend})
 
              receive do
                :commit -> :ok
@@ -124,7 +167,24 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
         id: make_ref()
       )
 
-    assert_receive {:locked, ^holder}, 15_000
-    holder
+    assert_receive {:locked, ^task, backend}, 15_000
+    %{task: task, backend: backend}
+  end
+
+  defp await_state!(backend, state, attempts \\ 250) do
+    %Postgrex.Result{rows: rows} =
+      Repo.query!("SELECT state FROM pg_stat_activity WHERE pid = $1", [backend])
+
+    cond do
+      rows == [[state]] ->
+        :ok
+
+      attempts == 0 ->
+        flunk("backend #{backend} never reached #{inspect(state)}: #{inspect(rows)}")
+
+      true ->
+        Process.sleep(20)
+        await_state!(backend, state, attempts - 1)
+    end
   end
 end
