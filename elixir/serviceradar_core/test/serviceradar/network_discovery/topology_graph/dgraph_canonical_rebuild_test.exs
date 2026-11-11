@@ -186,6 +186,78 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
              DgraphRebuild.plan(inputs, @cutoff)
   end
 
+  test "paged stored rows with ports resolved by key decode like rows embedding every port" do
+    embedded = [
+      evidence("sr:switch-a", "sr:switch-b", "port1", "port7"),
+      "sr:switch-b"
+      |> evidence("sr:switch-c", "port7", "port1")
+      |> Map.put("relation", "CANONICAL_TOPOLOGY")
+    ]
+
+    stored = [
+      stored_edge("CONNECTS_TO", "sr:switch-a", "sr:switch-b", "port1", "port7"),
+      stored_edge("CANONICAL_TOPOLOGY", "sr:switch-b", "sr:switch-c", "port7", "port1")
+    ]
+
+    rows = Enum.map(stored, &DgraphRebuild.edge_row/1)
+
+    assert DgraphRebuild.interface_keys(rows) ==
+             ["sr:switch-a/port1", "sr:switch-b/port7", "sr:switch-c/port1"]
+
+    interfaces = [
+      stored_interface("sr:switch-a", "port1", 1),
+      stored_interface("sr:switch-b", "port7", 7),
+      stored_interface("sr:switch-c", "port1", 1)
+    ]
+
+    assert rows |> DgraphRebuild.attach_interfaces(interfaces) |> DgraphRebuild.decode_inputs() ==
+             DgraphRebuild.decode_inputs(embedded)
+  end
+
+  test "a port is attributed only from an interface its endpoint device owns" do
+    rows = [
+      DgraphRebuild.edge_row(
+        stored_edge("CONNECTS_TO", "sr:switch-a", "sr:switch-b", "port1", "port7")
+      )
+    ]
+
+    foreign =
+      "sr:switch-a"
+      |> stored_interface("port1", 1)
+      |> Map.put("~device.interfaces", [%{"device.id" => "sr:switch-z"}])
+
+    {:ok, %{evidence: [edge]}} =
+      rows |> DgraphRebuild.attach_interfaces([foreign]) |> DgraphRebuild.decode_inputs()
+
+    assert {edge.if_index_ab, edge.if_index_ba} == {0, 0}
+  end
+
+  defp stored_edge(kind, source, target, local, remote) do
+    %{
+      "topo.kind" => kind,
+      "topo.ingestor" => "mapper_topology_v1",
+      "topo.protocol" => "lldp",
+      "topo.evidence_class" => "direct-physical",
+      "topo.confidence_tier" => "high",
+      "topo.if_name_ab" => local,
+      "topo.if_name_ba" => remote,
+      "topo.if_index_ab" => 0,
+      "topo.if_index_ba" => 0,
+      "topo.last_seen" => @observed,
+      "topo.src" => [%{"device.id" => source}],
+      "topo.dst" => [%{"device.id" => target}]
+    }
+  end
+
+  defp stored_interface(device_id, name, index) do
+    %{
+      "iface.key" => "#{device_id}/#{name}",
+      "iface.name" => name,
+      "iface.if_index" => index,
+      "~device.interfaces" => [%{"device.id" => device_id}]
+    }
+  end
+
   defp evidence(source, target, local, remote) do
     %{
       "source" => [endpoint(source, local)],

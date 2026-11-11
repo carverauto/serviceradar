@@ -54,7 +54,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
         Logger.info("Topology state cleanup completed", stats: stats)
 
       {:error, reason} ->
-        Logger.warning("Topology state cleanup failed", reason: inspect(reason))
+        Logger.warning("Topology state cleanup failed: #{CanonicalRebuild.failure_text(reason)}",
+          reason: inspect(reason)
+        )
     end
 
     run_rebuild_with_recovery(min_canonical_edges)
@@ -72,7 +74,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
 
       {:error, reason, stats} ->
         emit_cleanup_rebuild_telemetry(:failed, stats, min_canonical_edges, reason)
-        Logger.warning("Canonical topology rebuild failed", reason: inspect(reason), stats: stats)
+        log_rebuild_failure("Canonical topology rebuild failed", reason, stats)
         :ok
     end
   end
@@ -99,16 +101,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
         {:error, reason, retry_stats} ->
           emit_recovery_telemetry(:failed, retry_stats, min_canonical_edges, reason)
 
-          Logger.warning(
-            "Canonical topology recovery rebuild failed",
-            reason: inspect(reason),
-            stats: retry_stats
-          )
+          log_rebuild_failure("Canonical topology recovery rebuild failed", reason, retry_stats)
       end
     end
   end
 
   defp maybe_recover_canonical_rebuild(_stats, _min_canonical_edges), do: :ok
+
+  @doc false
+  # The reason is part of the message: the console formatter prints no
+  # metadata, so "rebuild failed" alone told an operator reading pod logs
+  # nothing about why.
+  @spec log_rebuild_failure(String.t(), term(), map()) :: :ok
+  def log_rebuild_failure(message, reason, stats) when is_binary(message) and is_map(stats) do
+    Logger.warning("#{message}: #{CanonicalRebuild.failure_text(reason)}",
+      reason: inspect(reason),
+      stats: stats
+    )
+  end
 
   @doc false
   # Honest recovery outcome (fj #4378): a recovery rebuild that still leaves the

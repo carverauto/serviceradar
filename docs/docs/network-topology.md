@@ -88,6 +88,21 @@ Reconciliation retains the starvation and mass-deletion guards for stale
 pruning. Its input fingerprint and heartbeat persist in CNPG
 (`runtime_topology_projection_meta`), so an unchanged topology is not rewritten.
 
+Reconciliation reads its inputs in pages of at most 256 edges from one Dgraph
+snapshot, and resolves the interfaces those edges name by key in chunks of the
+same size, so no response grows with the inventory. A page or chunk that is
+still too large for the gRPC receive limit is retried at half the size. If any
+page fails, the read fails as a whole and that run writes and prunes nothing:
+the pruning decision is only ever made from a complete read.
+
+Every outcome is recorded as the `topology-canonical-rebuild` core health
+check. A failed reconciliation turns it `unhealthy` with the failure reason,
+which opens an alert through the seeded `core_health_check_unhealthy` rule,
+and the next completed (or unchanged) reconciliation returns it to `healthy`.
+While it is unhealthy, ServiceRadar Atlas and every other reader of canonical
+edges keep showing the last reconciled topology. Core also logs
+`Canonical topology rebuild failed: <reason>` for each failed run.
+
 ### Projection lag
 
 Mapper ingestion commits interface and topology evidence to CNPG first, inside

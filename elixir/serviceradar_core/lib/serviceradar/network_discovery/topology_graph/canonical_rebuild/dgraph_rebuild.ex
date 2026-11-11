@@ -7,7 +7,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
-  @evidence_kinds ~w(CONNECTS_TO LOGICAL_PEER HOSTED_ON INFERRED_TO ATTACHED_TO OBSERVED_TO)
   @canonical_kinds ~w(CONNECTS_TO LOGICAL_PEER HOSTED_ON)
   @relation_rank %{
     "CONNECTS_TO" => 5,
@@ -24,35 +23,100 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
              pair_support_rank)a
   @directional_fields ~w(if_name if_index flow_pps flow_bps)a
 
-  # Both sets come from one Dgraph read. Evidence has already passed Projection's
-  # confidence/interface policy at ingest; it must not be reconstructed from another store.
+  # Both sets come from one paged Dgraph read of one snapshot. Evidence has
+  # already passed Projection's confidence/interface policy at ingest; it must
+  # not be reconstructed from another store.
+  #
+  # The edge rows carry endpoint identities only. The ports an edge names are
+  # then resolved by interface key, in bounded chunks, instead of embedding
+  # each endpoint's whole port list in every edge row: that response grew with
+  # edges times ports and outgrew the gRPC receive limit. Either read failing
+  # fails the whole read, so a rebuild never plans from a partial set.
   def read_inputs do
-    fields = Enum.map_join(@fields, "\n", &"#{&1}: topo.#{&1}")
-
-    query = """
-    {
-      edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND
-        (eq(topo.kind, "CANONICAL_TOPOLOGY") OR
-         (eq(topo.ingestor, "mapper_topology_v1") AND
-          eq(topo.kind, #{Jason.encode!(@evidence_kinds)})))) {
-        relation: topo.kind
-        #{fields}
-        source: topo.src { id: device.id interfaces: device.interfaces {
-          key: iface.key name: iface.name index: iface.if_index
-        } }
-        target: topo.dst { id: device.id interfaces: device.interfaces {
-          key: iface.key name: iface.name index: iface.if_index
-        } }
-      }
-    }
-    """
-
-    case Dgraph.query(query) do
-      {:ok, %{"edges" => rows}} when is_list(rows) -> decode_inputs(rows)
-      {:error, _} = error -> error
-      _ -> {:error, :invalid_dgraph_rebuild_response}
+    with {:ok, stored} <- stored_rows(Dgraph.query_rebuild_inputs()),
+         rows = Enum.map(stored, &edge_row/1),
+         {:ok, interfaces} <- stored_rows(Dgraph.query_interfaces_by_key(interface_keys(rows))) do
+      rows |> attach_interfaces(interfaces) |> decode_inputs()
     end
   end
+
+  defp stored_rows({:ok, rows}) when is_list(rows), do: {:ok, rows}
+  defp stored_rows({:error, _} = error), do: error
+  defp stored_rows(_), do: {:error, :invalid_dgraph_rebuild_response}
+
+  @doc false
+  # A stored TopologyEdge row (`"topo.*"` predicates) as the row decode_inputs/1
+  # reads. A row that is not a map is kept as it is, so decode_inputs/1 judges it.
+  def edge_row(%{} = stored) do
+    Map.new(stored, fn
+      {"topo.kind", kind} -> {"relation", kind}
+      {"topo.src", endpoints} -> {"source", endpoint_rows(endpoints)}
+      {"topo.dst", endpoints} -> {"target", endpoint_rows(endpoints)}
+      {"topo." <> field, value} -> {field, value}
+      other -> other
+    end)
+  end
+
+  def edge_row(other), do: other
+
+  defp endpoint_rows(endpoints) when is_list(endpoints) do
+    Enum.map(endpoints, fn
+      %{"device.id" => id} -> %{"id" => id}
+      other -> other
+    end)
+  end
+
+  defp endpoint_rows(other), do: other
+
+  @doc false
+  # The interface keys the rows' endpoints name, each once.
+  def interface_keys(rows) when is_list(rows) do
+    rows
+    |> Enum.flat_map(fn row -> for {_side, _id, key} <- row_ports(row), do: key end)
+    |> Enum.uniq()
+  end
+
+  @doc false
+  # Gives every endpoint the stored interface its edge names, when the endpoint's
+  # device owns one with that key. `interfaces` are stored Interface rows.
+  def attach_interfaces(rows, interfaces) when is_list(rows) and is_list(interfaces) do
+    owned =
+      for %{"iface.key" => key} = iface <- interfaces,
+          %{"device.id" => device_id} <- List.wrap(iface["~device.interfaces"]),
+          reduce: %{} do
+        acc ->
+          Map.put_new(acc, {device_id, key}, %{
+            "key" => key,
+            "name" => iface["iface.name"],
+            "index" => iface["iface.if_index"]
+          })
+      end
+
+    Enum.map(rows, fn row ->
+      Enum.reduce(row_ports(row), row, fn {side, id, key}, acc ->
+        case Map.fetch(owned, {id, key}) do
+          {:ok, iface} -> Map.put(acc, side, [%{"id" => id, "interfaces" => [iface]}])
+          :error -> acc
+        end
+      end)
+    end)
+  end
+
+  # {side, device id, interface key} for each endpoint that names a port. Only
+  # the single-endpoint shape decode_edge/1 accepts is considered.
+  defp row_ports(%{} = row) do
+    for {side, name_field, index_field} <- [
+          {"source", "if_name_ab", "if_index_ab"},
+          {"target", "if_name_ba", "if_index_ba"}
+        ],
+        [%{"id" => id}] <- [row[side]],
+        key = Utils.interface_id(id, row[name_field], row[index_field]),
+        is_binary(key) do
+      {side, id, key}
+    end
+  end
+
+  defp row_ports(_row), do: []
 
   def decode_inputs(rows) when is_list(rows) do
     Enum.reduce_while(rows, {:ok, %{evidence: [], canonical: []}}, fn row, {:ok, inputs} ->

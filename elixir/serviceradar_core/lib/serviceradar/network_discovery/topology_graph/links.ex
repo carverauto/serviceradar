@@ -40,8 +40,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     Pruning.maybe_prune_stale_mapper_evidence_links()
 
     case CanonicalRebuild.rebuild_canonical_device_links() do
-      {:error, reason, _stats} -> {:error, reason}
-      _ -> :ok
+      {:error, reason, _stats} ->
+        Logger.warning(
+          "Canonical topology rebuild failed: #{CanonicalRebuild.failure_text(reason)}"
+        )
+
+        {:error, reason}
+
+      _ ->
+        :ok
     end
   end
 

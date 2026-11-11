@@ -914,6 +914,30 @@ impl TopologyClient {
         crate::canonical_read::view(&self.client, stale_cutoff).await
     }
 
+    /// Read the canonical rebuild's inputs (current canonical edges and current
+    /// mapper evidence) with bounded pages in one read-only snapshot. Rows are
+    /// the stored predicates, undecoded and in UID order; none is dropped.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`]. A failed page returns no rows.
+    pub async fn query_rebuild_inputs(&self) -> Result<Vec<Value>, TopologyError> {
+        crate::canonical_read::rebuild_inputs(&self.client).await
+    }
+
+    /// Read the Interface vertices carrying `keys`, each with the ids of the
+    /// devices that own it, in bounded chunks from one read-only snapshot.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`]. A failed chunk returns no rows.
+    pub async fn query_interfaces_by_key(
+        &self,
+        keys: &[String],
+    ) -> Result<Vec<Value>, TopologyError> {
+        crate::canonical_read::interfaces(&self.client, keys).await
+    }
+
     async fn delete_edge_by_link_key(&self, key: &str) -> Result<(), TopologyError> {
         let key_q = dql_string(key);
         let query = format!("{{ edge(func: eq(topo.link_key, {key_q})) {{ e as uid }} }}");
