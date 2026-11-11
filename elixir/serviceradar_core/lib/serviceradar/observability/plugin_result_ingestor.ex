@@ -1747,41 +1747,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp handler_support_result(other), do: {:error, {:unexpected_support_result, other}}
 
   defp ingest_handler(ProxmoxEnrichmentIngestor, payload, status, observed_at, actor) do
-    with {:ok, source_scope} <-
-           proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
-      ProxmoxEnrichmentIngestor.ingest(payload, status,
-        actor: actor,
-        observed_at: observed_at,
-        source_scope: source_scope
-      )
-    end
-  rescue
-    e ->
-      {:error, e}
-  catch
-    kind, reason ->
-      {:error, {kind, reason}}
+    ingest_proxmox(payload, status, observed_at, actor, [])
   end
 
   defp ingest_handler({ProxmoxEnrichmentIngestor, opts}, payload, status, observed_at, actor) do
-    with {:ok, source_scope} <-
-           proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
-      ProxmoxEnrichmentIngestor.ingest(
-        payload,
-        status,
-        Keyword.merge(opts,
-          actor: actor,
-          observed_at: observed_at,
-          source_scope: source_scope
-        )
-      )
-    end
-  rescue
-    e ->
-      {:error, e}
-  catch
-    kind, reason ->
-      {:error, {kind, reason}}
+    ingest_proxmox(payload, status, observed_at, actor, opts)
   end
 
   defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
@@ -1807,6 +1777,58 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp ingest_handler(handler, _payload, _status, _observed_at, _actor) do
     {:error, {:invalid_handler, handler}}
+  end
+
+  defp ingest_proxmox(payload, status, observed_at, actor, opts) do
+    case proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
+      {:ok, source_scope} ->
+        ProxmoxEnrichmentIngestor.ingest(
+          payload,
+          status,
+          Keyword.merge(opts, actor: actor, observed_at: observed_at, source_scope: source_scope)
+        )
+
+      {:error, reason} ->
+        if ProxmoxSourceScopeResolver.assignment_withdrawn?(reason),
+          do: settle_withdrawn_proxmox_result(reason, payload, status),
+          else: {:error, reason}
+    end
+  rescue
+    e ->
+      {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
+
+  # The operator withdrew the assignment this result was produced under (disabled or deleted
+  # it, or its credential rule or package), so there is no source scope to apply the result
+  # in, and redelivering it fails the same way for as long as that stands. It is settled
+  # here: nothing is applied, the refusal is logged and counted, and the result is
+  # acknowledged. Whether a result is applied is decided by the assignment's state when it
+  # arrives, not by a retry that outlasts the withdrawal: if the operator restores the
+  # assignment the agent reports again, and each result carries the whole inventory.
+  defp settle_withdrawn_proxmox_result(reason, payload, status) do
+    assignment_id =
+      Enum.find_value(
+        [fetch_value(status, [:plugin_provenance]), fetch_value(payload, ["labels"])],
+        &fetch_string(&1, ["assignment_id"])
+      )
+
+    agent_id = fetch_string(status, [:agent_id])
+    partition = fetch_string(status, [:partition])
+
+    Logger.info(
+      "Proxmox inventory result not applied, its assignment was withdrawn: " <>
+        "reason=#{reason} assignment_id=#{assignment_id} agent_id=#{agent_id} " <>
+        "partition=#{partition}"
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn],
+      %{count: 1},
+      %{reason: reason, assignment_id: assignment_id, agent_id: agent_id, partition: partition}
+    )
   end
 
   defp handler_module({handler, _opts}), do: handler

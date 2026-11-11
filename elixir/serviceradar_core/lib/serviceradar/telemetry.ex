@@ -556,6 +556,11 @@ defmodule ServiceRadar.Telemetry do
         description:
           "AWX inventory observations acknowledged unapplied because a newer one was recorded"
       ),
+      counter("serviceradar.inventory.proxmox_result.assignment_withdrawn.count",
+        tags: [:reason],
+        description:
+          "Proxmox inventory results acknowledged unapplied because their assignment was withdrawn"
+      ),
       counter("serviceradar.inventory.source_succession.merged.count",
         tags: [:identifier_type],
         description: "Records merged into the record holding their source's current id"

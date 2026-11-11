@@ -123,6 +123,41 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
     refute_receive {:proxmox_records, _records}
   end
 
+  test "a result whose assignment was withdrawn is acknowledged, counted and not applied" do
+    event = [:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn]
+    handler = "proxmox-assignment-withdrawn-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(parent, {:assignment_withdrawn, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    Application.put_env(
+      :serviceradar_core,
+      :proxmox_scope_test_result,
+      {:error, :plugin_assignment_disabled}
+    )
+
+    {payload, status, _observed_at} = proxmox_fixture()
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    assert_receive {:assignment_withdrawn, %{count: 1},
+                    %{
+                      reason: :plugin_assignment_disabled,
+                      assignment_id: "33333333-3333-4333-8333-333333333333"
+                    }}
+
+    refute_receive {:proxmox_records, _records}
+  end
+
   test "Proxmox results bypass generic discovery before global device ids can reconcile" do
     scope = %{
       integration_id: "11111111-1111-4111-8111-111111111111",
