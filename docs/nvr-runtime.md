@@ -344,9 +344,9 @@ UUID, binding digest and profile digest. Identical retries of `(binding_id,
 revision)` preserve the original report UUID, `issued_by` and insertion time.
 Changed content at that revision conflicts; another revision retains the earlier
 report. A later revision is not an implicit current selection. The resource has
-no update, deletion or activation action. Evidence verification, explicit policy
-validity/health-age/restore-horizon limits and scoped activation are still required
-before any profile can authorize local-copy registration.
+no update, deletion or activation action. Evidence assessment is described in the
+next section; what it still leaves required before any profile can authorize
+local-copy registration is listed there.
 
 ## Local storage evidence assessment
 
@@ -379,8 +379,9 @@ it is an assessment at that instant, not a reusable grant. The pure
 registration can evaluate them against trusted transaction-time evidence.
 Assessment does not select a current binding, activate a report, reverse a
 withdrawal or advertise playable footage. The separate serialized current-state
-and registration operations, restore reconciliation and actual provider
-qualification remain required. Existing installations remain unqualified.
+and registration operations, an explicit restore-horizon limit, restore
+reconciliation and actual provider qualification remain required. Existing
+installations remain unqualified.
 
 ## Qualification before rollout
 
