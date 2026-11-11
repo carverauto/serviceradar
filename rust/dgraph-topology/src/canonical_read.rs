@@ -18,6 +18,10 @@
 //! ceiling. Failed pages never expose a partial canonical graph to the caller.
 //! Existing canonical admission is unchanged: relations whose endpoints carry no
 //! identity are excluded, while their raw UIDs still advance the page cursor.
+//!
+//! Every read whose result grows with the fleet goes through [`scan`]; a query
+//! that returns a whole result in one response is only safe when a single row
+//! bounds it.
 
 use std::collections::HashMap;
 
@@ -29,16 +33,18 @@ use serde_json::{Map, Value};
 use crate::client::{CanonicalEdgeRow, dql_string};
 use crate::{CanonicalEdge, CanonicalGraph, TopologyError, TopologyView};
 
-const PAGE_SIZE: usize = 256;
-const DEVICES: QueryBlock = QueryBlock {
+pub(crate) const PAGE_SIZE: usize = 256;
+const DEVICES: QueryBlock<'static> = QueryBlock {
     name: "nodes",
-    kind: "Device",
+    vars: "",
+    func: "type(Device)",
     filter: "has(device.id)",
     fields: "device.id device.hostname device.ip",
 };
-const EDGES: QueryBlock = QueryBlock {
+const EDGES: QueryBlock<'static> = QueryBlock {
     name: "edges",
-    kind: "TopologyEdge",
+    vars: "",
+    func: "type(TopologyEdge)",
     filter: r#"eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true)"#,
     fields: "topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
       topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
@@ -46,9 +52,10 @@ const EDGES: QueryBlock = QueryBlock {
       topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank
       topo.src { device.id } topo.dst { device.id }",
 };
-const VIEW_EDGES: QueryBlock = QueryBlock {
+const VIEW_EDGES: QueryBlock<'static> = QueryBlock {
     name: "edges",
-    kind: "TopologyEdge",
+    vars: "",
+    func: "type(TopologyEdge)",
     filter: r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true)) OR eq(topo.kind, "ATTACHED_TO") OR eq(topo.kind, "INFERRED_TO") OR eq(topo.kind, "HOSTED_ON")"#,
     fields: "topo.kind topo.stale topo.last_seen topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
       topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
@@ -62,9 +69,10 @@ const VIEW_EDGES: QueryBlock = QueryBlock {
 // `device.interfaces`: that repeats a device's whole port list on every edge it
 // terminates, so the response grows with edges times ports. The rebuild
 // resolves the ports it attributes by key instead (see `interfaces`).
-const REBUILD_INPUTS: QueryBlock = QueryBlock {
+const REBUILD_INPUTS: QueryBlock<'static> = QueryBlock {
     name: "edges",
-    kind: "TopologyEdge",
+    vars: "",
+    func: "type(TopologyEdge)",
     filter: r#"NOT eq(topo.stale, true) AND (eq(topo.kind, "CANONICAL_TOPOLOGY") OR (eq(topo.ingestor, "mapper_topology_v1") AND eq(topo.kind, ["CONNECTS_TO", "LOGICAL_PEER", "HOSTED_ON", "INFERRED_TO", "ATTACHED_TO", "OBSERVED_TO"])))"#,
     fields: "topo.kind topo.protocol topo.evidence_class topo.ingestor topo.confidence_tier
       topo.if_name_ab topo.if_name_ba topo.if_index_ab topo.if_index_ba
@@ -158,25 +166,33 @@ pub(crate) async fn interfaces(
     Ok(result)
 }
 
-struct QueryBlock {
-    name: &'static str,
-    kind: &'static str,
-    filter: &'static str,
-    fields: &'static str,
+/// One root block read in UID order. `func` is the root function; `vars` holds
+/// the `var` blocks it reads from, and `filter` the root filter, either empty.
+pub(crate) struct QueryBlock<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) vars: &'a str,
+    pub(crate) func: &'a str,
+    pub(crate) filter: &'a str,
+    pub(crate) fields: &'a str,
 }
 
-impl QueryBlock {
+impl QueryBlock<'_> {
     fn query(&self, first: usize, after: u64) -> String {
         let cursor = if after == 0 {
             String::new()
         } else {
             format!(", after: {after:#x}")
         };
+        let filter = if self.filter.is_empty() {
+            String::new()
+        } else {
+            format!(" @filter({})", self.filter)
+        };
         format!(
-            "{{ {name}(func: type({kind}), first: {first}{cursor}) @filter({filter}) {{ uid {fields} }} }}",
+            "{{ {vars}{name}(func: {func}, first: {first}{cursor}){filter} {{ uid {fields} }} }}",
+            vars = self.vars,
             name = self.name,
-            kind = self.kind,
-            filter = self.filter,
+            func = self.func,
             fields = self.fields,
         )
     }
@@ -189,9 +205,9 @@ struct PageRow<T> {
     data: T,
 }
 
-async fn scan<T: DeserializeOwned, U>(
+pub(crate) async fn scan<T: DeserializeOwned, U>(
     txn: &mut Txn<ReadOnly>,
-    block: &QueryBlock,
+    block: &QueryBlock<'_>,
     convert: impl Fn(T) -> Option<U>,
 ) -> Result<Vec<U>, TopologyError> {
     let mut result = Vec::new();
@@ -251,7 +267,7 @@ fn require_snapshot(
     Ok(())
 }
 
-fn next_uid(uid: &str, after: u64) -> Result<u64, TopologyError> {
+pub(crate) fn next_uid(uid: &str, after: u64) -> Result<u64, TopologyError> {
     uid.strip_prefix("0x")
         .filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .and_then(|digits| u64::from_str_radix(digits, 16).ok())

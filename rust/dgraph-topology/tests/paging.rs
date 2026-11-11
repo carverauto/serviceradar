@@ -65,6 +65,29 @@ struct Fixture {
     /// (keys requested, response bytes) per interface lookup.
     interface_calls: Vec<(usize, usize)>,
     violations: Vec<String>,
+    /// (first, after, response bytes) per prune transaction.
+    age_calls: Vec<(usize, u64, usize)>,
+    neighborhood: Option<Neighborhood>,
+    neighborhood_calls: Vec<NeighborhoodCall>,
+}
+
+/// One device's stored neighbourhood, in the row shapes its paged reads select.
+#[derive(Default)]
+struct Neighborhood {
+    device: Value,
+    interfaces: Vec<Value>,
+    outbound: Vec<Value>,
+    inbound: Vec<Value>,
+    /// Every stored Interface of every peer, each naming its owner's UID.
+    peer_interfaces: Vec<Value>,
+}
+
+#[derive(Debug)]
+struct NeighborhoodCall {
+    block: String,
+    first: usize,
+    rows: usize,
+    bytes: usize,
 }
 
 impl Fixture {
@@ -80,6 +103,9 @@ impl Fixture {
         if !request.mutations.is_empty() {
             if request.read_only || request.mutations.len() != 1 {
                 return self.violation("edge upsert must use one write mutation");
+            }
+            if request.query.contains("aged as uid") {
+                return self.age(&request);
             }
             let mutation = &request.mutations[0];
             self.mutations.push(
@@ -118,6 +144,9 @@ impl Fixture {
         self.queries.push(request.query.clone());
         if request.query.contains("eq(iface.key,") {
             return self.interface_lookup(&request.query);
+        }
+        if self.neighborhood.is_some() {
+            return self.neighborhood_page(&request);
         }
         let query: String = request.query.split_whitespace().collect();
         let block = if query.contains("type(Device)") {
@@ -251,6 +280,114 @@ impl Fixture {
         }
         let json = serde_json::to_vec(&json!({"interfaces": rows})).expect("fixture JSON");
         self.interface_calls.push((keys.len(), json.len()));
+        if json.len() < RECEIVE_LIMIT - 1024 {
+            self.snapshot_established = true;
+        }
+        Ok(api::Response {
+            json,
+            txn: Some(api::TxnContext {
+                start_ts: SNAPSHOT,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    }
+
+    /// A prune transaction: the stored edges of a kind the query names, past
+    /// its cursor. Every fixture edge is older than any cutoff. Dgraph commits
+    /// the mutation whether or not the client can decode the response.
+    fn age(&mut self, request: &api::Request) -> Result<api::Response, Status> {
+        let query: String = request.query.split_whitespace().collect();
+        let first = argument(&query, &request.vars, "first")
+            .map(|value| value.parse::<usize>().expect("numeric first argument"))
+            .unwrap_or(usize::MAX);
+        let after = argument(&query, &request.vars, "after")
+            .map(|value| uid(&value))
+            .unwrap_or(0);
+        let aged: BTreeSet<u64> = self
+            .edges
+            .iter()
+            .filter(|row| {
+                let kind = row["topo.kind"].as_str().expect("fixture kind");
+                request
+                    .query
+                    .contains(&format!("eq(topo.kind, \"{kind}\")"))
+            })
+            .map(|row| uid(row["uid"].as_str().expect("fixture UID")))
+            .filter(|row| *row > after)
+            .take(first)
+            .collect();
+        let rows: Vec<Value> = aged
+            .iter()
+            .map(|row| json!({"uid": format!("{row:#x}")}))
+            .collect();
+        let json = serde_json::to_vec(&json!({"stale": rows})).expect("fixture JSON");
+        let stored = |row: &Value| aged.contains(&uid(row["uid"].as_str().expect("fixture UID")));
+        if request.mutations[0].delete_json.is_empty() {
+            for row in self.edges.iter_mut().filter(|row| stored(row)) {
+                row["topo.stale"] = json!(true);
+            }
+        } else {
+            self.edges.retain(|row| !stored(row));
+        }
+        self.age_calls.push((first, after, json.len()));
+        Ok(api::Response {
+            json,
+            txn: Some(api::TxnContext::default()),
+            ..Default::default()
+        })
+    }
+
+    /// One page of a neighbourhood read, chosen by its root block and the
+    /// `var` blocks that block reads from.
+    fn neighborhood_page(&mut self, request: &api::Request) -> Result<api::Response, Status> {
+        let query: String = request.query.split_whitespace().collect();
+        let (vars, root) = query.rsplit_once("(func:").expect("root query function");
+        let block = vars
+            .rsplit(['{', '}'])
+            .next()
+            .expect("root query alias")
+            .to_owned();
+        let first = argument(root, &request.vars, "first")
+            .map(|value| value.parse::<usize>().expect("numeric first argument"))
+            .unwrap_or(usize::MAX);
+        let after = argument(root, &request.vars, "after")
+            .map(|value| uid(&value))
+            .unwrap_or(0);
+        let stored = self.neighborhood.as_ref().expect("neighbourhood fixture");
+        let source: Vec<&Value> = match block.as_str() {
+            "device" => {
+                let id = stored.device["device.id"].as_str().expect("fixture id");
+                let named = request.query.contains(&format!("eq(device.id, \"{id}\")"));
+                named.then_some(&stored.device).into_iter().collect()
+            }
+            "interfaces" if vars.contains("ownasdevice.interfaces") => {
+                stored.interfaces.iter().collect()
+            }
+            "edges" if vars.contains("incidentas~topo.src") => stored.outbound.iter().collect(),
+            "edges" if vars.contains("incidentas~topo.dst") => stored.inbound.iter().collect(),
+            "peer_interfaces" => named_peer_interfaces(vars, &stored.peer_interfaces),
+            _ => return self.violation("unexpected neighbourhood query"),
+        };
+        let mut rows: Vec<Value> = source
+            .into_iter()
+            .filter(|row| uid(row["uid"].as_str().expect("fixture UID")) > after)
+            .take(first)
+            .cloned()
+            .collect();
+        for row in &mut rows {
+            project_selected(row, &request.query);
+        }
+        let count = rows.len();
+        let mut body = serde_json::Map::new();
+        body.insert(block.clone(), Value::Array(rows));
+        let json = serde_json::to_vec(&body).expect("fixture JSON");
+        self.neighborhood_calls.push(NeighborhoodCall {
+            block,
+            first,
+            rows: count,
+            bytes: json.len(),
+        });
         if json.len() < RECEIVE_LIMIT - 1024 {
             self.snapshot_established = true;
         }
@@ -1071,6 +1208,282 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
         "{edge_query}"
     );
     assert!(edge_query.contains("topo.stale"), "{edge_query}");
+}
+
+/// The stored peer Interfaces a `peer_interfaces` page may return: for each
+/// `var(func: uid(P)) { .. as device.interfaces @filter(..) }` block, the
+/// Interfaces owned by `P` whose name or ifIndex that block's filter lists.
+fn named_peer_interfaces<'a>(vars: &str, stored: &'a [Value]) -> Vec<&'a Value> {
+    fn listed<T: serde::de::DeserializeOwned>(block: &str, function: &str) -> Vec<T> {
+        block
+            .split_once(function)
+            .and_then(|(_, rest)| rest.split_once("])"))
+            .map(|(list, _)| serde_json::from_str(&format!("[{list}]")).expect("JSON list"))
+            .unwrap_or_default()
+    }
+    let mut selected = Vec::new();
+    for block in vars.split("var(func:uid(").skip(1) {
+        let owner = block.split_once(')').expect("peer UID").0;
+        let names: Vec<String> = listed(block, "eq(iface.name,[");
+        let if_indexes: Vec<i64> = listed(block, "eq(iface.if_index,[");
+        selected.extend(stored.iter().filter(|row| {
+            row["~device.interfaces"][0]["uid"] == owner
+                && (names.iter().any(|name| row["iface.name"] == name.as_str())
+                    || if_indexes
+                        .iter()
+                        .any(|index| row["iface.if_index"] == *index))
+        }));
+    }
+    selected.sort_by_key(|row| uid(row["uid"].as_str().expect("fixture UID")));
+    selected
+}
+
+#[tokio::test]
+async fn prune_ages_every_edge_in_bounded_transactions_past_the_grpc_limit() {
+    // One transaction naming every aged UID answers with more than the receive
+    // limit; the edges of a kind the prune does not name must be left alone.
+    let kind = |index: u64| match index % 36 {
+        0 => "ATTACHED_TO",
+        1 => "MTR_PATH",
+        _ => "CONNECTS_TO",
+    };
+    let stored: Vec<Value> = (0..185_000_u64)
+        .map(|index| {
+            json!({
+                "uid": format!("{:#x}", 0x1000_0000_0000_u64 + index),
+                "topo.kind": kind(index)
+            })
+        })
+        .collect();
+    let count = |wanted: &str| {
+        stored
+            .iter()
+            .filter(|row| row["topo.kind"] == wanted)
+            .count()
+    };
+    let (attached, mtr, connects) = (
+        count("ATTACHED_TO"),
+        count("MTR_PATH"),
+        count("CONNECTS_TO"),
+    );
+    let server = RunningServer::start(Fixture {
+        edges: stored,
+        ..Default::default()
+    })
+    .await;
+
+    let aged = tokio::time::timeout(
+        Duration::from_secs(60),
+        server.client.prune_stale(
+            "2030-01-02T00:00:00Z",
+            &["ATTACHED_TO".to_owned(), "CONNECTS_TO".to_owned()],
+        ),
+    )
+    .await
+    .expect("finite prune")
+    .expect("complete paged prune");
+    assert_eq!(aged, attached + connects);
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert!(fixture.violations.is_empty(), "{:?}", fixture.violations);
+    // Attachments stay as last-known rows; evidence is deleted; the rest is untouched.
+    assert_eq!(fixture.edges.len(), attached + mtr);
+    assert!(fixture.edges.iter().all(
+        |row| match row["topo.kind"].as_str().expect("fixture kind") {
+            "ATTACHED_TO" => row["topo.stale"] == true,
+            "MTR_PATH" => row.get("topo.stale").is_none(),
+            _ => false,
+        }
+    ));
+    assert!(
+        fixture
+            .age_calls
+            .iter()
+            .all(|(_first, _after, bytes)| *bytes < RECEIVE_LIMIT / 8),
+        "a prune transaction returned an unbounded UID list"
+    );
+    assert!(
+        fixture
+            .age_calls
+            .iter()
+            .map(|(_first, _after, bytes)| bytes)
+            .sum::<usize>()
+            > RECEIVE_LIMIT,
+        "the aged UIDs must outgrow one response"
+    );
+}
+
+#[tokio::test]
+async fn device_neighborhood_pages_ports_and_reads_only_the_peer_ports_edges_name() {
+    const CORE: &str = "sr:core0001.example.com";
+    let description = "x".repeat(20 * 1024);
+    let host = |peer: usize| format!("sr:host{peer:04}.example.com");
+    let peer_uid = |peer: usize| format!("{:#x}", 0x1_0000 + peer);
+    let peer = |peer: usize| {
+        json!([{
+            "uid": peer_uid(peer),
+            "device.id": host(peer),
+            "device.hostname": format!("host{peer:04}.example.com")
+        }])
+    };
+    let port = |uid: usize, owner: usize, name: &str, if_index: usize, description: &str| {
+        json!({
+            "uid": format!("{uid:#x}"),
+            "iface.key": format!("{}/{name}", host(owner)),
+            "iface.name": name,
+            "iface.if_index": if_index,
+            "iface.description": description,
+            "~device.interfaces": [{"uid": peer_uid(owner)}]
+        })
+    };
+
+    // 300 access peers each carry three uplinks; an edge names one of them.
+    // Five more name their port by ifIndex alone, and the last names a port
+    // that has no Interface vertex.
+    let mut peer_interfaces = Vec::new();
+    for owner in 1..=300 {
+        for uplink in 0..3 {
+            let named = uplink == owner % 3;
+            peer_interfaces.push(port(
+                0x10_0000 + owner * 4 + uplink,
+                owner,
+                &format!("uplink{uplink}"),
+                uplink + 1,
+                if named { &description } else { "unnamed" },
+            ));
+        }
+    }
+    for owner in 301..=305 {
+        peer_interfaces.push(port(0x10_0000 + owner * 4, owner, "mgmt", 9, "by ifIndex"));
+        peer_interfaces.push(port(
+            0x10_0000 + owner * 4 + 1,
+            owner,
+            "spare",
+            10,
+            "unnamed",
+        ));
+    }
+    let server = RunningServer::start(Fixture {
+        neighborhood: Some(Neighborhood {
+            device: json!({
+                "uid": "0x1",
+                "device.id": CORE,
+                "device.hostname": "core0001.example.com",
+                "device.ip": "192.0.2.1"
+            }),
+            interfaces: (1..=300)
+                .map(|index| {
+                    json!({
+                        "uid": format!("{:#x}", 0x100 + index),
+                        "iface.key": format!("{CORE}/port{index}"),
+                        "iface.name": format!("port{index}"),
+                        "iface.if_index": index,
+                        "iface.description": description
+                    })
+                })
+                .collect(),
+            outbound: (1..=300)
+                .map(|owner| {
+                    json!({
+                        "uid": format!("{:#x}", 0x2_0000 + owner),
+                        "topo.if_name_ba": format!("uplink{}", owner % 3),
+                        "topo.if_index_ba": 0,
+                        "peer": peer(owner)
+                    })
+                })
+                .collect(),
+            inbound: (301..=306)
+                .map(|owner| {
+                    json!({
+                        "uid": format!("{:#x}", 0x2_0000 + owner),
+                        "topo.if_name_ab": if owner == 306 { "eth0" } else { "" },
+                        "topo.if_index_ab": if owner == 306 { 0 } else { 9 },
+                        "peer": peer(owner)
+                    })
+                })
+                .collect(),
+            peer_interfaces,
+        }),
+        ..Default::default()
+    })
+    .await;
+
+    let graph = tokio::time::timeout(
+        Duration::from_secs(30),
+        server.client.query_device_neighborhood(CORE, true),
+    )
+    .await
+    .expect("finite neighbourhood read")
+    .expect("complete paged neighbourhood")
+    .expect("the device exists");
+
+    assert_eq!(graph["device"]["id"], CORE);
+    assert_eq!(graph["device"]["ip"], "192.0.2.1");
+    let interfaces = graph["interfaces"].as_array().expect("interfaces");
+    assert_eq!(interfaces.len(), 300);
+    assert!(interfaces.iter().zip(1..).all(|(iface, index)| {
+        iface["id"] == format!("{CORE}/port{index}")
+            && iface["device_id"] == CORE
+            && iface["descr"] == description.as_str()
+    }));
+
+    let peers = graph["peer_interfaces"]
+        .as_array()
+        .expect("peer interfaces");
+    assert_eq!(peers.len(), 306);
+    for (peer, owner) in peers.iter().zip(1..) {
+        assert_eq!(peer["owner_device_id"], host(owner), "{owner}");
+        assert_eq!(
+            peer["owner_device"]["hostname"],
+            format!("host{owner:04}.example.com")
+        );
+        match owner {
+            1..=300 => {
+                let uplink = owner % 3;
+                assert_eq!(peer["id"], format!("{}/uplink{uplink}", host(owner)));
+                assert_eq!(peer["ifindex"], uplink + 1);
+                assert_eq!(peer["descr"], description.as_str());
+            }
+            301..=305 => {
+                assert_eq!(peer["id"], format!("{}/mgmt", host(owner)));
+                assert_eq!(peer["ifindex"], 9);
+            }
+            _ => {
+                assert!(peer["id"].is_null(), "no Interface vertex: {peer}");
+                assert_eq!(peer["name"], "eth0");
+            }
+        }
+    }
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert!(fixture.violations.is_empty(), "{:?}", fixture.violations);
+    let calls = &fixture.neighborhood_calls;
+    assert!(calls.iter().all(|call| call.first > 0 && call.first <= 256));
+    let decoded = || calls.iter().filter(|call| call.bytes < RECEIVE_LIMIT);
+    for block in ["interfaces", "peer_interfaces"] {
+        assert!(
+            calls
+                .iter()
+                .any(|call| call.block == block && call.bytes > RECEIVE_LIMIT),
+            "{block} must exercise tonic's real receive ceiling"
+        );
+        assert!(
+            decoded()
+                .filter(|call| call.block == block)
+                .map(|call| call.bytes)
+                .sum::<usize>()
+                > RECEIVE_LIMIT,
+            "{block} must outgrow one response"
+        );
+    }
+    // A peer contributes the port its edge names, not its port list.
+    assert_eq!(
+        decoded()
+            .filter(|call| call.block == "peer_interfaces")
+            .map(|call| call.rows)
+            .sum::<usize>(),
+        305
+    );
 }
 
 #[derive(Clone)]

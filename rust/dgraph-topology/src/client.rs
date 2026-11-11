@@ -20,12 +20,17 @@ use dgraph_client::{DgraphClient, Mutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::canonical_read::next_uid;
 use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 use crate::errors::TopologyError;
 use crate::types::{
     CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite,
     PrefixWrite, TopologyView,
 };
+
+/// Edges one prune transaction ages. Its response carries only their UIDs, so
+/// this many rows stay far below the gRPC receive limit.
+const AGE_PAGE_SIZE: usize = 4096;
 
 /// Topology operations against one Dgraph client.
 #[derive(Clone)]
@@ -694,6 +699,11 @@ impl TopologyClient {
     /// same key clears `topo.stale`. An explicit delete removes the row, so
     /// absence is not turned back into evidence.
     ///
+    /// Edges are aged a bounded page at a time in UID order, one transaction
+    /// per page, so the UID list a transaction returns is bounded however many
+    /// edges have aged. A failure leaves the earlier pages aged; a repeat
+    /// finishes the rest.
+    ///
     /// # Errors
     ///
     /// Returns [`TopologyError`] if the query or mutation fails.
@@ -726,23 +736,40 @@ impl TopologyClient {
             kind_filters.push(format!("eq(topo.kind, {kind_q})"));
         }
         let kind_filter = kind_filters.join(" OR ");
-        let query = format!(
-            "{{
-  stale(func: type(TopologyEdge)) @filter(({kind_filter}) AND lt(topo.last_seen, {cutoff_q})) {{
+        let mut target = json!({ "uid": "uid(aged)" });
+        if !delete {
+            target["topo.stale"] = json!(true);
+        }
+        let mut after = 0;
+        let mut aged = 0;
+        loop {
+            let cursor = if after == 0 {
+                String::new()
+            } else {
+                format!(", after: {after:#x}")
+            };
+            let query = format!(
+                "{{
+  stale(func: type(TopologyEdge), first: {AGE_PAGE_SIZE}{cursor}) @filter(({kind_filter}) AND lt(topo.last_seen, {cutoff_q})) {{
     aged as uid
   }}
 }}"
-        );
-        let mut target = json!({ "uid": "uid(aged)" });
-        let parsed: StaleQuery = if delete {
-            self.upsert(&query, "@if(gt(len(aged), 0))", &json!({}), Some(&target))
-                .await?
-        } else {
-            target["topo.stale"] = json!(true);
-            self.upsert(&query, "@if(gt(len(aged), 0))", &target, None)
-                .await?
-        };
-        Ok(parsed.stale.len())
+            );
+            let page: StaleQuery = if delete {
+                self.upsert(&query, "@if(gt(len(aged), 0))", &json!({}), Some(&target))
+                    .await?
+            } else {
+                self.upsert(&query, "@if(gt(len(aged), 0))", &target, None)
+                    .await?
+            };
+            for row in &page.stale {
+                after = next_uid(&row.uid, after)?;
+            }
+            aged += page.stale.len();
+            if page.stale.len() < AGE_PAGE_SIZE {
+                return Ok(aged);
+            }
+        }
     }
 
     /// Upsert the provided canonical edges, then delete canonical edges whose
@@ -1018,7 +1045,12 @@ struct NamedUidBlocks {
 #[derive(Debug, Deserialize, Default)]
 struct StaleQuery {
     #[serde(default)]
-    stale: Vec<UidRow>,
+    stale: Vec<AgedRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgedRow {
+    uid: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
