@@ -222,7 +222,7 @@ nats:
     # tenant-2g. A profile sets max_file_store and the default max_bytes of every
     # stream, KV bucket and object store ServiceRadar creates
     # (files/jetstream-profiles.yaml):
-    #   compact   -> max_file_store 9G,   for a 10Gi PVC (small single-agent installs)
+    #   compact   -> max_file_store 9G,   for a 10Gi PVC (fresh or low-data pilots)
     #   small     -> max_file_store 36G,  for the default 36Gi PVC
     #   medium    -> max_file_store 100G, for a 100Gi PVC
     #   large     -> max_file_store 500G, for a 500Gi PVC
