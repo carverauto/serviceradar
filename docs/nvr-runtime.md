@@ -370,6 +370,37 @@ VMs, interruption states and refusal paths; they do not prove worker/disk-loss
 durability. The provider qualification and supported restore protocol remain
 separate work.
 
+### Core installation acknowledgement
+
+After the offline installer returns success, the trusted provisioner can call
+`ServiceRadar.Camera.LocalStorageBootstrapInstallation.confirm(preparation_id, preparation_sha256, actor: provisioner)`.
+The caller must have observed the synced preparation and marker under exclusive
+attachment with previous writers retired. Core cannot inspect those files: the
+digest correlates the report with its preparation, and the scoped provisioning
+principal is responsible for the installation attestation. Recorder and
+qualification principals cannot confirm installation.
+
+Core checks the exact preparation UUID and lowercase digest within the actor's
+storage scope, then commits one immutable acknowledgement per storage lifetime.
+The canonical JSON contains exactly `version: 1`,
+`kind: "local_storage_bootstrap_installed"`, `operation_id` (the preparation UUID),
+`storage_id` and `preparation_sha256`. It is bounded to 512 bytes, and
+`record_sha256` hashes those exact bytes. A restrictive foreign key preserves the
+original preparation. Reads use the same provisioning/storage scope.
+
+Exact retries return the original bytes, confirming principal and insertion time,
+including after credential rotation or a later binding generation. A missing or
+foreign preparation or mismatched digest is rejected even after a successful
+confirmation. There is no update or deletion action and no network endpoint or
+automatic caller for this operation.
+
+This is Core's installation acknowledgement, not a completed two-sided history
+checkpoint or a storage qualification. NVR persistence of this acknowledgement,
+control-space accounting and completion reconciliation remain unimplemented.
+The volume's preparation barrier still refuses capture and inventory; Core does
+not use this row to authorize registration, playback or deletion. Physical
+provider failure recovery and retained-volume restore still need their own proof.
+
 ## Local storage qualification reports
 
 Core's internal `ServiceRadar.Camera.LocalStorageQualificationReport.submit/2`
