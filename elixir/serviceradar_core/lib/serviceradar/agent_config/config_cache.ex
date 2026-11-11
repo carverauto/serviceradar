@@ -3,7 +3,24 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   ETS-based cache for compiled agent configurations.
 
   Provides fast lookups for compiled configs with hash-based change detection.
-  Cache is invalidated via NATS events when source resources change.
+  A lookup never leaves the node: it is one ETS read.
+
+  ## Invalidation across nodes
+
+  Every node keeps its own table, and an agent's config is compiled on whichever
+  node serves it, so an invalidation has to reach all of them. `invalidate/1`
+  and `invalidate_key/4` drop the entries here and broadcast the same
+  invalidation on `ServiceRadar.PubSub`; the cache process on every other
+  connected node drops its own entries when the broadcast arrives.
+
+  A broadcast only reaches nodes connected at that moment, so a node also
+  empties its table whenever another node connects: it cannot know what it
+  missed while the two were apart. A node that starts later starts empty.
+
+  What remains is bounded by the five-minute entry TTL: a compile already running on another node when the invalidation
+  arrives can still cache what it read, and a node running a release from
+  before this broadcast neither sends nor receives it, so during a rolling
+  upgrade those nodes rely on the TTL as before.
 
   ## Cache Key Structure
 
@@ -25,6 +42,8 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   @table_name :agent_config_cache
   @default_ttl_ms to_timeout(minute: 5)
+
+  @invalidation_topic "agent_config:cache_invalidation"
 
   # Client API
 
@@ -104,10 +123,19 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   end
 
   @doc """
-  Invalidates all cached configs for a config type.
+  Invalidates all cached configs for a config type, on every connected node.
   """
   @spec invalidate(atom()) :: :ok
   def invalidate(config_type) do
+    invalidate_local(config_type)
+    broadcast({:config_cache_invalidate, config_type, node()})
+  end
+
+  @doc "The PubSub topic invalidations are broadcast on."
+  @spec invalidation_topic() :: String.t()
+  def invalidation_topic, do: @invalidation_topic
+
+  defp invalidate_local(config_type) do
     if :ets.whereis(@table_name) == :undefined do
       :ok
     else
@@ -122,17 +150,31 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   end
 
   @doc """
-  Invalidates a specific cache entry.
+  Invalidates a specific cache entry, on every connected node.
   """
   @spec invalidate_key(atom(), String.t(), String.t() | nil, term()) :: :ok
   def invalidate_key(config_type, partition, agent_id, scope \\ nil) do
-    if :ets.whereis(@table_name) == :undefined do
-      :ok
-    else
-      key = cache_key(config_type, partition, agent_id, scope)
+    key = cache_key(config_type, partition, agent_id, scope)
+    invalidate_key_local(key)
+    broadcast({:config_cache_invalidate_key, key, node()})
+  end
+
+  defp invalidate_key_local(key) do
+    if :ets.whereis(@table_name) != :undefined do
       :ets.delete(@table_name, key)
-      :ok
     end
+
+    :ok
+  end
+
+  # Other nodes drop their own entries on receipt. Where PubSub is not running
+  # the invalidation stays local, as it was before the broadcast existed.
+  defp broadcast(message) do
+    if Process.whereis(ServiceRadar.PubSub) do
+      Phoenix.PubSub.broadcast(ServiceRadar.PubSub, @invalidation_topic, message)
+    end
+
+    :ok
   end
 
   @doc """
@@ -176,6 +218,14 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
         write_concurrency: true
       ])
 
+    if Process.whereis(ServiceRadar.PubSub) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, @invalidation_topic)
+    end
+
+    # A node that connects may have invalidated entries while it was out of
+    # reach of the broadcast.
+    :net_kernel.monitor_nodes(true)
+
     # Schedule periodic cleanup of expired entries
     schedule_cleanup()
 
@@ -188,6 +238,30 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
     schedule_cleanup()
     {:noreply, state}
   end
+
+  # This node already dropped its entries when it sent the broadcast.
+  def handle_info({:config_cache_invalidate, _config_type, origin}, state) when origin == node(),
+    do: {:noreply, state}
+
+  def handle_info({:config_cache_invalidate, config_type, _origin}, state) do
+    invalidate_local(config_type)
+    {:noreply, state}
+  end
+
+  def handle_info({:config_cache_invalidate_key, _key, origin}, state) when origin == node(),
+    do: {:noreply, state}
+
+  def handle_info({:config_cache_invalidate_key, key, _origin}, state) do
+    invalidate_key_local(key)
+    {:noreply, state}
+  end
+
+  def handle_info({:nodeup, _node}, state) do
+    clear_all()
+    {:noreply, state}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
 
   # Private helpers
 
