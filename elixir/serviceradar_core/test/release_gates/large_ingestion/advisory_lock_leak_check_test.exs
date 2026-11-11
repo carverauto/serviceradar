@@ -118,22 +118,44 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
     end
   end
 
-  test "a lock released just before the settle deadline is not reported", %{key: key} do
+  test "an in-flight lock released before the final read at the deadline is not reported",
+       %{key: key} do
     %{task: task} = start_transaction_lock_holder!(key)
-    settle_timeout_ms = 1_000
-    deadline = System.monotonic_time(:millisecond) + settle_timeout_ms
+    test_pid = self()
 
-    check =
-      Task.async(fn ->
-        AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: settle_timeout_ms)
-      end)
+    release = fn ->
+      send(test_pid, :final_read)
+      send(task, :commit)
+      assert_receive {:committed, ^task}, 15_000
+    end
 
-    Process.sleep(settle_timeout_ms - 100)
+    assert [] =
+             held(
+               AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 0, before_final_read: release),
+               key
+             )
+
+    assert_received :final_read
+    refute_received :final_read
+  end
+
+  test "an in-flight lock still granted at the final read is reported as unresolved",
+       %{key: key} do
+    %{task: task} = start_transaction_lock_holder!(key)
+    test_pid = self()
+    keep = fn -> send(test_pid, :final_read) end
+
+    assert [%{verdict: :unresolved, state: "idle in transaction"}] =
+             held(
+               AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 0, before_final_read: keep),
+               key
+             )
+
+    assert_received :final_read
+    refute_received :final_read
+
     send(task, :commit)
     assert_receive {:committed, ^task}
-    assert System.monotonic_time(:millisecond) < deadline
-
-    assert [] = held(Task.await(check, 30_000), key)
   end
 
   test "a lock whose holder disconnects between observations is not reported", %{key: key} do

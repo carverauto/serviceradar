@@ -112,12 +112,18 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
     * `:settle_timeout_ms` - how long to wait for in-flight locks to resolve
       before reporting them as `:unresolved`. Defaults to
       #{@default_settle_timeout_ms} ms.
+    * `:before_final_read` - a zero-arity function called once the deadline
+      has passed with locks still in flight, before the final `pg_locks` read
+      that decides which of them are `:unresolved`. Not called otherwise.
+      Defaults to a no-op; tests use it to change the database at that point.
   """
   @spec leaked(module(), keyword()) :: [lock()]
   def leaked(repo, opts \\ []) do
     ignore = Keyword.get(opts, :ignore, [])
     timeout = Keyword.get(opts, :settle_timeout_ms, @default_settle_timeout_ms)
-    settle(repo, ignore, System.monotonic_time(:millisecond) + timeout)
+    before_final_read = Keyword.get(opts, :before_final_read, fn -> :ok end)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    settle(repo, ignore, deadline, before_final_read)
   end
 
   @doc """
@@ -154,7 +160,7 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
     )
   end
 
-  defp settle(repo, ignore, deadline) do
+  defp settle(repo, ignore, deadline, before_final_read) do
     %{leaked: leaked, in_flight: in_flight} = observe(repo, ignore: ignore)
 
     cond do
@@ -162,11 +168,12 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
         leaked
 
       System.monotonic_time(:millisecond) >= deadline ->
+        before_final_read.()
         leaked ++ Enum.map(still_granted(repo, in_flight), &%{&1 | verdict: :unresolved})
 
       true ->
         Process.sleep(@poll_interval_ms)
-        settle(repo, ignore, deadline)
+        settle(repo, ignore, deadline, before_final_read)
     end
   end
 
