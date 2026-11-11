@@ -348,6 +348,40 @@ no update, deletion or activation action. Evidence verification, explicit policy
 validity/health-age/restore-horizon limits and scoped activation are still required
 before any profile can authorize local-copy registration.
 
+## Local storage evidence assessment
+
+`LocalStorageQualificationReport.assess(report_id, health, actor: qualifier)`
+loads the retained report through its storage-scoped read policy. The trusted
+adapter must supply `actor.nvr_storage_policy` from deployment configuration,
+never from the request. That policy has exactly four atom keys: `revision`,
+`profile_sha256`, `max_report_validity_ms` and `max_health_age_ms`. The revision
+and profile must match the report. Both limits are explicit positive signed
+64-bit millisecond counts; no production defaults are supplied.
+
+The health decision has exactly five string keys: `binding_id`, `report_sha256`,
+`evidence_sha256`, `observed_at_ms` and `status`. It refers to the exact retained
+binding/report, includes a lowercase SHA-256 evidence digest and a positive
+signed 64-bit observation timestamp, and records `healthy`, `degraded` or
+`unknown`. The qualification authority must verify this evidence before calling;
+a recorder-supplied claim is insufficient. Raw operational telemetry still goes
+through JetStream. Assessment neither probes the provider nor persists telemetry.
+
+Assessment uses Core time. All seven report outcomes must pass. Report issuance
+and health observation cannot be in the future; report validity cannot exceed
+the policy limit. Evidence expires at the report expiry or the health observation
+plus its maximum age, whichever comes first; the exact deadline is excluded.
+Missing policy, missing/unknown/degraded health, malformed or mismatched evidence
+and expired observations return an ineligible result with a bounded reason.
+
+A successful result is `%{evidence_status: :current, valid_until_ms: deadline}`;
+it is an assessment at that instant, not a reusable grant. The pure
+`LocalStorageEvidence.evaluate/4` owns these rules so future activation and
+registration can evaluate them against trusted transaction-time evidence.
+Assessment does not select a current binding, activate a report, reverse a
+withdrawal or advertise playable footage. The separate serialized current-state
+and registration operations, restore reconciliation and actual provider
+qualification remain required. Existing installations remain unqualified.
+
 ## Qualification before rollout
 
 Use synthetic footage to verify that a committed spool and its journal recover

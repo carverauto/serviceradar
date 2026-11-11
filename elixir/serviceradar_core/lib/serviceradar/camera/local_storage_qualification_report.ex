@@ -9,7 +9,9 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReport do
 
   Retention validates the binding correlation, not the evidence or its freshness.
   This resource has no activation, update or deletion action and grants no
-  capture, registration or playback authority.
+  capture, registration or playback authority. `assess/3` reads through the same
+  storage scope and uses Core time and `actor.nvr_storage_policy` supplied by the
+  trusted adapter. Its current-evidence result is not an activation decision.
   """
   use Ash.Resource,
     domain: ServiceRadar.Camera,
@@ -20,6 +22,7 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReport do
 
   alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.LocalStorageBinding
+  alias ServiceRadar.Camera.LocalStorageEvidence
   alias ServiceRadar.Camera.LocalStorageQualificationDocument
 
   postgres do
@@ -48,10 +51,38 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReport do
 
   code_interface do
     define :submit, args: [:document]
+    define :assess, args: [:id, :health]
   end
 
   actions do
     defaults [:read]
+
+    action :assess do
+      argument :id, :uuid, allow_nil?: false
+      argument :health, :map, sensitive?: true
+      returns :map
+
+      run fn input, context ->
+        case Ash.get(__MODULE__, input.arguments.id, actor: context.actor) do
+          {:ok, report} when not is_nil(report) ->
+            policy = Map.get(context.actor, :nvr_storage_policy)
+
+            {:ok,
+             LocalStorageEvidence.evaluate(
+               report,
+               policy,
+               input.arguments.health,
+               System.system_time(:millisecond)
+             )}
+
+          {:ok, nil} ->
+            {:error, "local storage qualification report unavailable"}
+
+          {:error, error} ->
+            {:error, error}
+        end
+      end
+    end
 
     create :submit do
       accept []
@@ -94,6 +125,11 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReport do
   end
 
   policies do
+    policy action(:assess) do
+      forbid_unless actor_attribute_equals(:role, :system)
+      authorize_if actor_attribute_equals(:nvr_storage_purpose, :qualify)
+    end
+
     policy action_type(:create) do
       authorize_if ServiceRadar.Camera.Checks.QualifyingLocalStorage
     end
