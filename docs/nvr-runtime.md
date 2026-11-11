@@ -304,6 +304,38 @@ permission. Scoped activation and withdrawal are separate decisions; see
 Existing installations stay unqualified; accepted publication intents and S3
 archive state keep their existing meanings.
 
+## Local storage bootstrap preparation
+
+Core's internal
+`ServiceRadar.Camera.LocalStorageBootstrapPreparation.prepare(operation_id, binding_id, actor: provisioner)`
+retains one immutable preparation per storage lifetime. The provisioning caller
+chooses an operation UUID once and recovers that same operation on retries. Core
+loads the binding through the caller's storage scope; it derives the storage UUID
+and principal from trusted actor configuration. The same `:provision` purpose
+used for bindings is required. Recorder and qualification principals cannot
+prepare bootstrap operations, and reads remain provisioning/storage scoped.
+
+The retained canonical JSON has exactly `version: 1`,
+`kind: "local_storage_bootstrap_prepared"`, `operation_id`, `storage_id`,
+`binding_id` and `binding_sha256`. `record_sha256` is the lowercase SHA-256 of
+those exact bytes. The bounded record contains no provider reference or path.
+Core persists the record before returning it. It is correlation evidence from a
+trusted control caller, not a signature or a remote authentication mechanism.
+
+Exact retries return the original record, principal and insertion time, including
+after credential rotation. A different operation or binding for the same storage
+UUID conflicts; an operation UUID cannot be reused for another storage lifetime.
+There is no update or deletion action, and the binding has a restrictive foreign
+key so retained provenance cannot be silently removed.
+
+Preparation alone does not attest that the volume is empty or that history is
+reconciled. It writes no volume marker and grants no capture, publication,
+playback or deletion authority. The volume-side empty-root installation and
+completion receipt remain unimplemented. They must establish matching durable
+control-plane and volume state before capture. A retained spool needs supported
+history reconciliation even if it has a preparation; a missing history file is
+never permission to bootstrap it. No startup path invokes this action.
+
 ## Local storage qualification reports
 
 Core's internal `ServiceRadar.Camera.LocalStorageQualificationReport.submit/2`

@@ -11,6 +11,7 @@
   - Third checkpoint: scoped report assessment checks explicit trusted policy, Core time, required outcomes and exact-report health evidence. It returns a bounded current-evidence interval without activating qualification.
   - Fourth checkpoint: scoped activation/withdrawal uses one conditional-upsert decision row per storage lifetime, ordered revisions, transaction-time evidence checks and policy snapshots. Current status fails closed on expiry or policy changes; reports remain immutable. Registration/history serialization remains in task 2.4.
 - [ ] 2.2 Implement explicit new-volume history bootstrap and supported publication/preservation/disposition reconciliation for retained volumes.
+  - First checkpoint: Core retains one immutable bootstrap preparation per storage lifetime, bound to a scoped provider binding and caller-selected operation UUID. Exact retries preserve canonical bytes and provenance; changed operations/bindings conflict. Preparation grants no history eligibility. Volume-side empty-root installation, two-sided completion and retained-volume reconciliation remain pending.
 - [ ] 2.3 Add bounded registration/acknowledgement codecs and NVR durable sidecars, inventory, control reservations and recovery.
 - [ ] 2.4 Add the Core registration resource/transaction and authenticated receiver, with exact retries and qualification/history/disposition serialization.
 - [ ] 2.5 Add bounded NVR registration delivery and restart reconciliation separately from unchanged v1 intent acceptance.
