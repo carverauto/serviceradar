@@ -109,6 +109,6 @@ defmodule ServiceRadar.Camera.LocalStorageBindingIntegrationTest do
     assert visible.id == first.id
     assert {:ok, [visible]} = Ash.read(LocalStorageBinding, actor: other_actor)
     assert visible.id == other.id
-    assert {:error, _} = Ash.read(LocalStorageBinding, actor: SystemActor.system(:nvr_recorder))
+    assert {:ok, []} = Ash.read(LocalStorageBinding, actor: SystemActor.system(:nvr_recorder))
   end
 end
