@@ -36,6 +36,10 @@ routes; an empty API bearer scope grants no configuration access.
 Operation preparation/launch and membership/binding mutations currently require
 a human principal. Requests associated with an OAuth client are rejected for
 these actions. Configuration CRUD can use an appropriately scoped OAuth client.
+An administrator signed in to the web UI can approve memberships and review,
+create, or revoke bindings under **Settings → Ansible** without an API token; the
+UI calls the same services with the same permissions (see the
+[operator guide](./ansible.md#5-approve-awx-memberships)).
 
 ## Configuration lifecycle
 

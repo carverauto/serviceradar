@@ -657,6 +657,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/security_diagnostics_show_test.exs",
         "test/phoenix/live/settings/anomaly_detection_live_test.exs",
         "test/phoenix/live/settings/ansible_live_test.exs",
+        "test/phoenix/live/settings/ansible_review_live_test.exs",
         "test/phoenix/live/settings/audit_events_live_test.exs",
         "test/phoenix/live/settings/auth_users_authorization_test.exs",
         "test/phoenix/live/settings/bmp_live_test.exs",

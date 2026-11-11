@@ -2,9 +2,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   @moduledoc """
   Settings page for the Ansible integration.
 
-  Manages Ansible controllers and playbook repositories.
+  Manages Ansible controllers and playbook repositories, and hosts the two
+  human review steps of the AWX integration: approving inventory memberships
+  and reviewing, creating, and revoking job-template bindings.
 
-  Permission: `ansible.controllers.manage` (admin role by default).
+  Permissions: `ansible.controllers.manage` for controllers and both review
+  tabs, `ansible.repositories.manage` for repositories (admin role by
+  default). The review tabs call `ServiceRadarWebNG.AnsibleAutomation` with
+  the session user's scope, so their lists also require `ansible.runs.view`
+  (memberships) or `ansible.catalog.view` (bindings), and the domain services
+  re-check the human principal and current authority on every mutation.
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -19,6 +26,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview
+  alias ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview
+  alias ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -33,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   @tabs [
     {:controllers, "Controllers"},
+    {:memberships, "Memberships"},
+    {:bindings, "Template bindings"},
     {:repositories, "Repositories"}
   ]
 
@@ -60,6 +72,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "delete_repository" => :read,
       "cancel_repository_form" => :read,
       "validate_repository" => :read,
+      "select_membership_scope" => :read,
+      "filter_memberships" => :read,
+      "review_membership" => :read,
+      "cancel_membership_review" => :read,
+      "approve_membership" => :read,
+      "select_binding_scope" => :read,
+      "new_binding_review" => :read,
+      "cancel_binding_form" => :read,
+      "validate_binding" => :read,
+      "prepare_binding" => :read,
+      "create_binding" => :read,
+      "discard_binding_review" => :read,
+      "start_revoke_binding" => :read,
+      "close_revoke_binding" => :read,
+      "confirm_revoke_binding" => :read,
       "select_tab" => :read
     })
   end
@@ -110,6 +137,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
            socket
            |> activate_repositories_tab()
            |> push_patch(to: ~p"/settings/ansible?#{%{tab: "repositories"}}")}
+        end)
+
+      review_tab when review_tab in [:memberships, :bindings] ->
+        with_current_permission(socket, @controller_permission, fn socket ->
+          {:noreply,
+           socket
+           |> activate_review_tab(review_tab)
+           |> push_patch(to: ~p"/settings/ansible?#{%{tab: Atom.to_string(review_tab)}}")}
         end)
 
       nil ->
@@ -272,6 +307,111 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end)
   end
 
+  ## Membership review ---------------------------------------------------------
+
+  def handle_event("select_membership_scope", params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.select_scope(socket, params, socket.assigns.review_controllers)}
+    end)
+  end
+
+  def handle_event("filter_memberships", %{"filter" => filter}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.filter(socket, filter)}
+    end)
+  end
+
+  def handle_event("review_membership", %{"id" => id}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.review(socket, id)}
+    end)
+  end
+
+  def handle_event("cancel_membership_review", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.cancel_review(socket)}
+    end)
+  end
+
+  def handle_event("approve_membership", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.approve(socket)}
+    end)
+  end
+
+  ## Binding review ------------------------------------------------------------
+
+  def handle_event("select_binding_scope", params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.select_scope(socket, params, socket.assigns.review_controllers)}
+    end)
+  end
+
+  def handle_event("new_binding_review", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.new_review(socket)}
+    end)
+  end
+
+  def handle_event("cancel_binding_form", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.cancel_form(socket)}
+    end)
+  end
+
+  def handle_event("validate_binding", %{"binding" => params}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.validate(socket, params)}
+    end)
+  end
+
+  def handle_event("prepare_binding", %{"binding" => params}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.prepare(socket, params)}
+    end)
+  end
+
+  def handle_event("create_binding", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.create(socket)}
+    end)
+  end
+
+  def handle_event("discard_binding_review", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.discard_review(socket)}
+    end)
+  end
+
+  def handle_event("start_revoke_binding", %{"id" => id}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.start_revoke(socket, id)}
+    end)
+  end
+
+  def handle_event("close_revoke_binding", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.close_revoke(socket)}
+    end)
+  end
+
+  def handle_event("confirm_revoke_binding", %{"revoke" => params}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, BindingReview.confirm_revoke(socket, params)}
+    end)
+  end
+
+  # Prepare and create repeat brokered AWX reads through the controller's agent,
+  # so they run off the LiveView process. The domain re-checks the reviewer.
+  @impl true
+  def handle_async(:ansible_binding_prepare, result, socket) do
+    {:noreply, BindingReview.prepared(socket, result)}
+  end
+
+  def handle_async(:ansible_binding_create, result, socket) do
+    {:noreply, BindingReview.created(socket, result)}
+  end
+
   defp assign_static_state(socket, scope) do
     socket
     |> assign(:page_title, "Ansible Settings")
@@ -293,6 +433,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
     |> stream(:repositories, [], reset: true)
     |> assign(:repository_count, 0)
+    |> assign(:review_controllers, [])
+    |> MembershipReview.init()
+    |> BindingReview.init()
   end
 
   defp load_connected_state(socket, scope) do
@@ -359,6 +502,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       ^rendered_tab -> socket
       :controllers -> activate_controllers_tab(socket)
       :repositories -> activate_repositories_tab(socket)
+      review_tab when review_tab in [:memberships, :bindings] -> activate_review_tab(socket, review_tab)
     end
   end
 
@@ -397,6 +541,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     |> assign(:repository_count, length(repositories))
   end
 
+  defp activate_review_tab(socket, tab) do
+    controllers =
+      Enum.map(list_controllers(), fn ctrl -> %{id: to_string(ctrl.id), name: ctrl.name} end)
+
+    socket = assign(socket, :review_controllers, controllers)
+
+    case tab do
+      :memberships -> socket |> assign(:active_tab, :memberships) |> MembershipReview.activate(controllers)
+      :bindings -> socket |> assign(:active_tab, :bindings) |> BindingReview.activate(controllers)
+    end
+  end
+
   defp refresh_access(socket, current_scope) do
     socket
     |> assign(:current_scope, current_scope)
@@ -418,8 +574,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp assign_access(socket, can_manage_controllers, can_manage_repositories) do
     tabs =
       Enum.filter(@tabs, fn
-        {:controllers, _label} -> can_manage_controllers
         {:repositories, _label} -> can_manage_repositories
+        {_controller_tab, _label} -> can_manage_controllers
       end)
 
     active_tab =
@@ -470,7 +626,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
           <p class="text-sm text-sr-muted">
-            AWX/AAP controllers and git playbook repositories.
+            AWX/AAP controllers, membership and template-binding review, and git playbook
+            repositories.
           </p>
         </header>
 
@@ -503,6 +660,58 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             form={@controller_form}
             editing_id={@editing_controller_id}
             awx_secrets={@awx_credential_secrets}
+            timezone={user_timezone(@current_scope)}
+          />
+        </section>
+
+        <section
+          :if={
+            @settings_loaded and @can_manage_ansible_controllers and
+              @active_tab == :memberships
+          }
+          id="ansible-memberships-tab"
+          class="space-y-4"
+        >
+          <ReviewComponents.memberships_panel
+            controllers={@review_controllers}
+            controller_id={@membership_controller_id}
+            inventories={@membership_inventories}
+            inventory_id={@membership_inventory_id}
+            filter={@membership_filter}
+            counts={@membership_counts}
+            memberships={@streams.memberships}
+            notice={@membership_notice}
+            reviewing={@reviewing_membership}
+            timezone={user_timezone(@current_scope)}
+          />
+        </section>
+
+        <section
+          :if={
+            @settings_loaded and @can_manage_ansible_controllers and
+              @active_tab == :bindings
+          }
+          id="ansible-bindings-tab"
+          class="space-y-4"
+        >
+          <ReviewComponents.bindings_panel
+            controllers={@review_controllers}
+            controller_id={@binding_controller_id}
+            templates={@binding_templates}
+            template_id={@binding_template_id}
+            notice={@binding_notice}
+            versions={@streams.binding_versions}
+            version_count={@binding_version_count}
+            show_form={@show_binding_form}
+            form={@binding_form}
+            choices={@streams.binding_choices}
+            choice_count={@binding_choice_count}
+            choice_notice={@binding_choice_notice}
+            review={@binding_review}
+            pending={@binding_pending}
+            revoking={@revoking_binding}
+            revoke_form={@revoke_form}
+            revoke_error={@revoke_error}
             timezone={user_timezone(@current_scope)}
           />
         </section>
@@ -1590,6 +1799,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp to_atom_tab(tab) when is_binary(tab) do
     case tab do
       "controllers" -> :controllers
+      "memberships" -> :memberships
+      "bindings" -> :bindings
       "repositories" -> :repositories
       _ -> nil
     end

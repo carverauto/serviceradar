@@ -29,7 +29,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
     test "Ansible copy exposes only supported settings workflows" do
       ansible = Catalog.view(:ansible)
 
-      assert ansible.description == "Manage Ansible controllers and repositories."
+      assert ansible.description ==
+               "Manage Ansible controllers and repositories; review memberships and bindings."
+
       refute String.contains?(String.downcase(ansible.description), "schedule")
       refute String.contains?(String.downcase(ansible.description), "retention")
       refute "schedule" in ansible.keywords
