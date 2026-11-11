@@ -657,10 +657,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
             {:ok, ips}
 
           {:error, reason} ->
-            case :inet.getaddrs(char_host, :inet6) do
-              {:ok, [_ | _] = ips} -> {:ok, ips}
-              {:error, _} -> {:error, reason}
-            end
+            {:error, reason}
         end
     end
   end
