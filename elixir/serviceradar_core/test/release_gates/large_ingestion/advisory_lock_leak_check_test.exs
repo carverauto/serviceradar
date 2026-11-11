@@ -89,33 +89,43 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
     assert_receive {:committed, ^holder}
   end
 
-  for {label, abort?, state} <- [
-        {"idle in transaction", false, "idle in transaction"},
-        {"idle in an aborted transaction", true, "idle in transaction (aborted)"}
-      ] do
-    test "a transaction lock on a client already #{label} is unresolved, never leaked, and gone once it ends",
-         %{key: key} do
-      %{task: task, backend: backend} =
-        start_transaction_lock_holder!(key, abort: unquote(abort?))
+  test "a transaction lock on a client already idle in transaction is unresolved, never leaked, and gone once it ends",
+       %{key: key} do
+    %{task: task, backend: backend} = start_transaction_lock_holder!(key)
 
-      await_state!(backend, unquote(state))
+    await_state!(backend, "idle in transaction")
 
-      %{leaked: observed_leaked, in_flight: observed_in_flight} = AdvisoryLockLeaks.observe(Repo)
-      while_open = held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
+    %{leaked: observed_leaked, in_flight: observed_in_flight} = AdvisoryLockLeaks.observe(Repo)
+    while_open = held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
 
-      assert [%{verdict: :unresolved, state: unquote(state)}] = while_open
+    assert [%{verdict: :unresolved, state: "idle in transaction"}] = while_open
 
-      send(task, :commit)
-      assert_receive {:committed, ^task}
-      after_commit = held(AdvisoryLockLeaks.leaked(Repo), key)
+    send(task, :commit)
+    assert_receive {:committed, ^task}
+    after_commit = held(AdvisoryLockLeaks.leaked(Repo), key)
 
-      assert [] = after_commit
+    assert [] = after_commit
 
-      verdicts =
-        Enum.map(held(observed_leaked ++ observed_in_flight ++ while_open, key), & &1.verdict)
+    verdicts =
+      Enum.map(held(observed_leaked ++ observed_in_flight ++ while_open, key), & &1.verdict)
 
-      refute :leaked in verdicts
-    end
+    refute :leaked in verdicts
+  end
+
+  test "a transaction lock is already released once its transaction aborts, so nothing is reported",
+       %{key: key} do
+    %{task: task, backend: backend} = start_transaction_lock_holder!(key, abort: true)
+
+    await_state!(backend, "idle in transaction (aborted)")
+
+    %{leaked: observed_leaked, in_flight: observed_in_flight} = AdvisoryLockLeaks.observe(Repo)
+
+    assert [] = held(observed_leaked, key)
+    assert [] = held(observed_in_flight, key)
+    assert [] = held(AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: 100), key)
+
+    send(task, :commit)
+    assert_receive {:committed, ^task}
   end
 
   test "an in-flight lock released before the final read at the deadline is not reported",

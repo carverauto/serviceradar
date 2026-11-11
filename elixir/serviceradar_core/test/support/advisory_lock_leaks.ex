@@ -35,6 +35,9 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
 
   "Any other state" includes `idle in transaction`, `idle in transaction
   (aborted)`, `active`, `fastpath function call` and `disabled`.
+  A session in `idle in transaction (aborted)` has already released its
+  transaction-level locks, so a lock it still holds is session-level, but it
+  cannot be told apart until the transaction ends.
 
   An idle holder had no transaction open at any point between the reads, so
   its lock cannot be transaction-level. The checking session's lock is leaked
