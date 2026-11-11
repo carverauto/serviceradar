@@ -216,21 +216,34 @@ The profile with the highest priority that matches a device is used. If no targe
 
 ### Target Limit Per Profile
 
-One SNMP profile may give one agent at most 10,000 targets. A profile's targets
-are the devices its target query selects plus its explicit targets.
+One SNMP profile may give one agent at most 10,000 targets. The count is the
+devices the profile's target query matches plus its explicit targets; it is not
+the number of targets a compile would build from them.
 
 A profile over the limit is refused, not cut down to the limit:
 
-- **When you save it.** The save fails with a message that names the profile,
-  the agent, the count and the limit. Disabling the profile is always allowed.
-- **When it is compiled for an agent.** Inventory grows after a profile is
-  saved. A profile that has grown past the limit compiles to zero targets, so
-  that agent stops SNMP polling for the profile, and the rest of the agent's
-  configuration is delivered as usual. Core logs a warning and emits the
+- **When you create or update it.** The save fails with a message that names
+  the profile, the agent, the count and the limit. Disabling the profile is
+  always allowed.
+- **When it is compiled for an agent.** A profile that is over the limit at
+  compile time compiles to zero targets, so that agent stops SNMP polling for
+  the profile, and the rest of the agent's configuration is delivered as usual.
+  Core logs a warning and emits the
   `[:serviceradar, :snmp, :target_limit_exceeded]` telemetry event with the
   profile, the agent, the count and the limit.
 - **In Settings.** The profile list marks the profile **Too many targets**,
   with the same message.
+
+Some changes are not checked when they are saved, and succeed even when they
+put a profile over the limit:
+
+- inventory growing after the profile was saved;
+- making a profile the default profile;
+- adding or editing an explicit target on a profile.
+
+After any of these, the next compile contributes no targets for that profile
+until it is back under the limit. The **Too many targets** badge and the core
+warning are the signal.
 
 Counting stops one past the limit, so a reported count of 10,001 means "more
 than 10,000".

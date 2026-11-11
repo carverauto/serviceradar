@@ -106,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                     <.ui_badge
                       :if={Map.has_key?(@profile_target_refusals, profile.id)}
                       id={"snmp-profile-#{profile.id}-target-limit"}
-                      variant="danger"
+                      variant="error"
                       size="xs"
                       title={Map.get(@profile_target_refusals, profile.id)}
                     >

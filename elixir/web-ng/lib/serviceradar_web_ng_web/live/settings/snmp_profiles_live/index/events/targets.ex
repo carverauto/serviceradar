@@ -140,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
         {:noreply,
          socket
          |> assign(:targets, targets)
+         |> Data.assign_profile_target_refusals(socket.assigns.profiles)
          |> assign(:show_target_modal, false)
          |> assign(:target_form, nil)
          |> assign(:editing_target, nil)
@@ -166,6 +167,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
             {:noreply,
              socket
              |> assign(:targets, targets)
+             |> Data.assign_profile_target_refusals(socket.assigns.profiles)
              |> put_flash(:info, "Target deleted")}
 
           {:error, _} ->
