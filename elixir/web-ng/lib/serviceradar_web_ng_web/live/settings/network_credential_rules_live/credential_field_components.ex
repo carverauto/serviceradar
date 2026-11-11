@@ -9,8 +9,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
   the function the server validates a submission with, so the form cannot show
   a rule the server does not enforce.
 
-  Secret fields always render empty. `values/3` is the only way submitted
-  params reach this component, and it drops them.
+  Secret fields render with no value attribute and are ignored by later
+  patches, so a form change neither echoes a secret nor clears one the
+  operator typed. `values/3` is the only way submitted params reach this
+  component, and it leaves secret fields out.
   """
 
   use ServiceRadarWebNGWeb, :html
@@ -56,17 +58,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
         {@rest}
       />
       <.input
-        :if={field["control"] != "select"}
+        :if={field["control"] != "select" and field["secret"]}
         id={"#{@form_name}_fields_#{field["id"]}"}
         name={"#{@form_name}[fields][#{field["id"]}]"}
         type={input_type(field)}
         label={field["label"]}
-        value={if(field["secret"], do: "", else: Map.get(@values, field["id"], ""))}
+        value={nil}
+        phx-update="ignore"
         placeholder={field["placeholder"]}
         minlength={field["min_length"]}
         maxlength={field["max_length"]}
         required={required?}
-        autocomplete={if(field["secret"], do: "new-password", else: "off")}
+        autocomplete="new-password"
+        errors={field_errors(@errors, field)}
+        {@rest}
+      />
+      <.input
+        :if={field["control"] != "select" and !field["secret"]}
+        id={"#{@form_name}_fields_#{field["id"]}"}
+        name={"#{@form_name}[fields][#{field["id"]}]"}
+        type={input_type(field)}
+        label={field["label"]}
+        value={Map.get(@values, field["id"], "")}
+        placeholder={field["placeholder"]}
+        minlength={field["min_length"]}
+        maxlength={field["max_length"]}
+        required={required?}
+        autocomplete="off"
         errors={field_errors(@errors, field)}
         {@rest}
       />
@@ -78,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
   The non-secret values a form should keep, from the `fields` params it
   submitted.
 
-  A secret is never kept. A field the form did not submit, because the operator
+  A secret field is left out. A field the form did not submit, because the operator
   had switched to a choice that hides it, starts again from the descriptor's
   default when `defaults?` is set. A rotation passes `false`: it must not
   pre-select a protocol the stored credential may not use.
@@ -87,12 +105,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
   def values(method, submitted, defaults?) do
     submitted = if is_map(submitted), do: submitted, else: %{}
 
-    Map.new(method["fields"] || [], fn field ->
+    for field <- method["fields"] || [], !field["secret"], into: %{} do
       {field["id"], kept_value(field, Map.get(submitted, field["id"]), defaults?)}
-    end)
+    end
   end
 
-  defp kept_value(%{"secret" => true}, _submitted, _defaults?), do: ""
   defp kept_value(_field, submitted, _defaults?) when is_binary(submitted), do: submitted
   defp kept_value(field, nil, true), do: Map.get(field, "default", "")
   defp kept_value(_field, _submitted, _defaults?), do: ""

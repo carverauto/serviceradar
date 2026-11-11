@@ -119,7 +119,81 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
                "priv_protocol" => ["AES"]
              }
 
-      assert LazyHTML.attribute(password_inputs(document), "value") == ["", ""]
+      assert Enum.map(secret_inputs(document), &Map.has_key?(&1, "value")) == [false, false]
+    end
+  end
+
+  describe "a change event" do
+    # LiveView overwrites an unfocused input's value with the one the server
+    # renders unless the input is phx-update="ignore", so a secret the operator
+    # typed survives a later change only if its input carries no value and is
+    # ignored by the patch.
+    test "leaves every password input of the new credential form unrendered and ignored by the patch" do
+      before = render_fields(new_credential_values())
+
+      {:noreply, changed} =
+        NetworkCredentialRulesLive.handle_event(
+          "change_secret",
+          %{
+            "credential_secret" =>
+              secret_form_params(%{
+                "username" => "monitor",
+                "security_level" => "authPriv",
+                "auth_protocol" => "SHA512",
+                "auth_password" => "ui-secret-marker-change-auth",
+                "priv_protocol" => "AES256",
+                "priv_password" => "ui-secret-marker-change-priv"
+              })
+          },
+          secret_form_socket()
+        )
+
+      after_change = render_fields(changed.assigns.secret_form.params["fields"])
+
+      for document <- [before, after_change] do
+        assert_untouched_secret_inputs(document, "credential_secret")
+      end
+
+      refute LazyHTML.to_html(after_change) =~ "ui-secret-marker-change"
+    end
+
+    test "leaves every password input of the rotation form unrendered and ignored by the patch" do
+      method = snmp_v3_method()
+
+      socket = %Socket{
+        assigns: %{__changed__: %{}, flash: %{}, credential_descriptor: %{method: method}},
+        private: %{live_temp: %{}}
+      }
+
+      before = render_fields(%{"security_level" => "authPriv"}, form_name: "credential_rotation")
+
+      {:noreply, changed} =
+        NetworkCredentialRulesLive.handle_event(
+          "change_credential_rotation",
+          %{
+            "credential_rotation" => %{
+              "id" => "credential-1",
+              "fields" => %{
+                "username" => "monitor",
+                "security_level" => "authPriv",
+                "auth_protocol" => "SHA256",
+                "auth_password" => "ui-secret-marker-rotate-auth",
+                "priv_protocol" => "AES",
+                "priv_password" => "ui-secret-marker-rotate-priv"
+              }
+            }
+          },
+          socket
+        )
+
+      kept = changed.assigns.credential_form.params["fields"]
+      refute inspect(kept) =~ "ui-secret-marker-rotate"
+
+      after_change = render_fields(kept, form_name: "credential_rotation")
+
+      for document <- [before, after_change] do
+        assert_untouched_secret_inputs(document, "credential_rotation")
+      end
     end
   end
 
@@ -247,7 +321,24 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
     |> String.trim()
   end
 
-  defp password_inputs(document), do: LazyHTML.query(document, "input[type='password']")
+  defp secret_inputs(document, form_name \\ "credential_secret") do
+    for field <- ~w(auth_password priv_password) do
+      [attributes] =
+        document
+        |> LazyHTML.query("input##{form_name}_fields_#{field}")
+        |> LazyHTML.attributes()
+
+      Map.new(attributes)
+    end
+  end
+
+  defp assert_untouched_secret_inputs(document, form_name) do
+    for attributes <- secret_inputs(document, form_name) do
+      assert attributes["type"] == "password"
+      assert attributes["phx-update"] == "ignore"
+      refute Map.has_key?(attributes, "value")
+    end
+  end
 
   defp secret_form_params(fields) do
     %{
