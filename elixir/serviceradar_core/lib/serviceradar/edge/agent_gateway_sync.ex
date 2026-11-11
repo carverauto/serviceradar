@@ -202,12 +202,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           {:ok, pid()} | {:error, term()}
   def start_sweep_lease_refresh(agent_id, session, attempt)
       when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 do
+    start_sweep_lease_refresh(agent_id, session, attempt, %{})
+  end
+
+  @doc """
+  Starts the refresh carrying the agent's installed sweep lease digests (group id to hex
+  SHA-256 of the installed push payload), reported on its control hello. An agent that
+  predates the digest field reports none, and the refresh re-issues everything.
+  """
+  @spec start_sweep_lease_refresh(String.t(), pid(), non_neg_integer(), map()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_sweep_lease_refresh(agent_id, session, attempt, digests)
+      when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 and
+             is_map(digests) do
     LeaseRefresh.start(agent_id, session, attempt, fn ->
-      refresh_sweep_leases(agent_id, session)
+      refresh_sweep_leases(agent_id, session, digests)
     end)
   end
 
-  defp refresh_sweep_leases(agent_id, session) do
+  defp refresh_sweep_leases(agent_id, session, digests) do
     sender = fn _agent_id, group_id, payload ->
       ServiceRadar.Edge.AgentCommandBus.push_sweep_lease_to_session(session, group_id, payload)
     end
@@ -218,7 +231,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         authority -> %{authority: authority, sender: sender}
       end
 
-    case ServiceRadar.SweepJobs.LeasePass.refresh_agent(agent_id, delivery) do
+    case ServiceRadar.SweepJobs.LeasePass.refresh_agent(
+           agent_id,
+           delivery,
+           DateTime.utc_now(),
+           digests
+         ) do
       {:ok, _summary} -> :ok
       {:error, reason} -> {:error, reason}
     end

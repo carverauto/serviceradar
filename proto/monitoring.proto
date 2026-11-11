@@ -699,6 +699,13 @@ message ControlStreamHello {
   repeated HostTlsFingerprint host_tls_fingerprints = 16; // Certificates the host's own services present
   optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 17;
   optional EdgeRecordSpoolStatus edge_record_spool = 18; // As in AgentHelloRequest
+  // Digest (hex SHA-256) of the installed sweep lease payload per sweep group,
+  // as persisted in the agent's lease store. Authoritative only when the same
+  // hello advertises the "sweep_lease_hello_digests:v1" capability; otherwise
+  // it is ignored. Absent on agents that predate it and for groups the agent
+  // holds nothing for; core then re-issues the full window instead of
+  // skipping on trust.
+  map<string, string> installed_sweep_lease_digests = 19;
 }
 
 // CommandRequest represents a command sent to the agent.

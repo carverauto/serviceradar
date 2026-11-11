@@ -481,6 +481,7 @@ go_test(
         "sweep_lease_executor_test.go",
         "sweep_lease_refusal_test.go",
         "sweep_edge_producer_test.go",
+        "sweep_lease_digest_test.go",
         "sweep_lease_test.go",
         "sweep_performance_test.go",
         "sweep_service_group_id_test.go",

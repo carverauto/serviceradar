@@ -112,7 +112,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   Pushes the assignment's lease if the agent is missing any of it. `checks` is the agent's
   check set for the group (`LeaseEligibility.agent_checks/3`), which the push carries.
   `fresh: true` pushes the full window even when the agent acknowledged the delivered
-  one, so authority installed before this push is replaced rather than relied on.
+  one, so authority installed before this push is replaced rather than relied on —
+  unless the refresh skip proves the agent already holds exactly this window (see
+  `skip_fresh_push?/8`), in which case it returns `{:ok, :up_to_date}` without
+  re-signing, rebuilding evidence, or sending. `:reported_digest` carries the digest
+  the agent reported for the group on its control hello; anything else (absent,
+  non-binary, or unequal) takes the full path.
   """
   @spec deliver(
           SweepProducerAssignment.t(),
@@ -150,10 +155,84 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
             |> Map.put(:ack_pending_since, pending_since(state, lease_id, now))
             |> Map.put(:check_set, check_set)
 
-          send_push(assignment, lease_id, push, authority, now, sender)
+          if Keyword.get(opts, :fresh, false) and
+               skip_fresh_push?(
+                 assignment,
+                 state,
+                 lease_id,
+                 push,
+                 unrun,
+                 dropped?,
+                 authority,
+                 opts
+               ) do
+            Logger.info(
+              "Sweep lease refresh: window of group #{assignment.sweep_group_id} on " <>
+                "#{assignment.agent_id} already installed " <>
+                "(digest #{state.acked_payload_sha256}), skipping re-issue"
+            )
+
+            {:ok, :up_to_date}
+          else
+            send_push(assignment, lease_id, push, authority, now, sender)
+          end
       end
     end
   end
+
+  # Whether a `fresh: true` re-issue may be skipped: the freshly planned window must be
+  # provably identical to what the agent holds. Every condition fails safe to the full
+  # path — a first issue (no row), a fence/epoch bump/revocation (lease id or revoked_at),
+  # an unacked or refused push, a changed window (dropped or uncarried slots, moved
+  # cursor), rotated authority (fingerprint), or a hello digest that does not equal the
+  # acked digest (wiped store, old agent, or merely a different window).
+  defp skip_fresh_push?(_assignment, state, lease_id, push, unrun, dropped?, authority, opts) do
+    with %SweepLeaseDelivery{} = row when is_nil(row.revoked_at) <- state,
+         true <- row.lease_id == lease_id,
+         true <- row.ack_installed == true,
+         true <- row.acked_payload_sha256 == row.delivered_payload_sha256,
+         false <- dropped?,
+         true <- carried_window?(unrun, row),
+         true <- authority_fingerprint(authority, push.issued_at) == row.authority_fingerprint,
+         digest when is_binary(digest) <- Keyword.get(opts, :reported_digest),
+         true <- digest == row.acked_payload_sha256 do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  # The planned window covers exactly the delivered-but-unrun slots: every unrun slot was
+  # carried by a push (nothing newly filled), and the cursor has not moved (nothing ran
+  # off the end or was appended past it). An empty unrun set skips vacuously: every slot
+  # ran and was acknowledged, so a bare push would carry nothing.
+  defp carried_window?([], _row), do: true
+
+  defp carried_window?(unrun, row) do
+    Enum.all?(unrun, & &1.delivered_at) and
+      DateTime.compare(carried_end(unrun), row.delivered_window_end) == :eq
+  end
+
+  # Identifies the authority a push is signed under: issuer key id, contract
+  # id/version/bundle digest, registry epoch/snapshot digest, and the lease
+  # issued-at. A re-push of the same lease recomputes the identical fingerprint
+  # (`full/4` reuses the recorded `lease_issued_at`), so the refresh skip can
+  # prove the window is still current without re-signing. Stored by
+  # `record_push/6`; NULL (pre-migration rows) never equals a fingerprint, so
+  # those rebuild once and match from then on.
+  defp authority_fingerprint(%{key: key, contract: contract}, %DateTime{} = issued_at) do
+    sha256_hex([
+      frame(key.key_id),
+      frame(contract.contract_id),
+      <<contract.contract_version::unsigned-64>>,
+      frame(contract.contract_bundle_sha256),
+      <<contract.registry_epoch::unsigned-64>>,
+      frame(contract.registry_snapshot_sha256),
+      issued_at |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601() |> frame()
+    ])
+  end
+
+  defp frame(binary) when is_binary(binary), do: [<<byte_size(binary)::unsigned-32>>, binary]
 
   @doc """
   Runs `fun` holding the cluster-wide lock on one agent's lease of one sweep group. Planning,
@@ -163,7 +242,29 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   """
   @spec serialize(Ecto.UUID.t(), String.t(), (-> result)) :: result when result: term()
   def serialize(sweep_group_id, agent_id, fun) when is_function(fun, 0) do
-    :global.trans({{__MODULE__, sweep_group_id, agent_id}, self()}, fun, [node() | Node.list()])
+    serialize(sweep_group_id, agent_id, fun, 0)
+  end
+
+  @doc """
+  The same lock with explicit `:global.trans` retries. The default (and every current
+  caller) is try-once: when another process holds the lock, `fun` never runs and an
+  abort is returned instead of queueing behind the holder, so no caller waits on another
+  agent's delivery without a bound. A contended try-once transaction answers `:aborted`;
+  a deadlock or node-loss abort answers `{:aborted, reason}`. Only lock contention
+  surfaces either shape here: the bodies run under this lock use `with` and return
+  tuples, never `throw`, so a logic error propagates to the caller rather than
+  masquerading as "busy".
+  """
+  @spec serialize(Ecto.UUID.t(), String.t(), (-> result), non_neg_integer()) :: result
+        when result: term()
+  def serialize(sweep_group_id, agent_id, fun, retries)
+      when is_function(fun, 0) and is_integer(retries) and retries >= 0 do
+    :global.trans(
+      {{__MODULE__, sweep_group_id, agent_id}, self()},
+      fun,
+      [node() | Node.list()],
+      retries
+    )
   end
 
   @doc """
@@ -426,7 +527,14 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     |> Ash.exists(actor: actor())
   end
 
-  defp send_push(assignment, lease_id, push, %{key: key, contract: contract}, now, sender) do
+  defp send_push(
+         assignment,
+         lease_id,
+         push,
+         %{key: key, contract: contract} = authority,
+         now,
+         sender
+       ) do
     with {:ok, capability} <- push_capability(assignment, push, contract, key),
          {:ok, slots} <- lease_slots(assignment, push.slots, key),
          :ok <- record_mappings(capability, slots, key) do
@@ -444,7 +552,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           check_sets: if(slots == [], do: [], else: [push.check_set])
         })
 
-      with {:ok, :pushed} <- record_push(assignment, lease_id, push, payload, now) do
+      fingerprint = authority_fingerprint(authority, push.issued_at)
+
+      with {:ok, :pushed} <- record_push(assignment, lease_id, push, payload, fingerprint, now) do
         case sender.(assignment.agent_id, assignment.sweep_group_id, payload) do
           :ok -> {:ok, :pushed}
           {:error, reason} -> {:ok, {:not_delivered, reason}}
@@ -453,22 +563,36 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     end
   end
 
+  # Builds the mapping evidence entries for every slot first (keeping every per-slot
+  # verification `RecoveryAssignmentEvidence.sweep/3` performs), then commits the
+  # concatenated entries in `commit_issuance/1`'s 256-entry chunks: a bounded handful of
+  # transactions for a whole window instead of one per slot. Chunks stay small enough
+  # that every commit fits the checkout timeout even on a loaded executor; a whole-window
+  # single transaction does not. A conflicting entry still halts the push
+  # before `record_push` and the send, exactly as the per-slot commits did; entries a
+  # halted chunk already committed resolve `:committed` on retry through the untouched
+  # issuance replay path.
   defp record_mappings(nil, [], _key), do: :ok
 
   defp record_mappings(capability, slots, key) do
-    Enum.reduce_while(slots, :ok, fn slot, :ok ->
-      with {:ok, entries} <- RecoveryAssignmentEvidence.sweep(capability, slot, key.public_key),
-           :ok <- commit_mapping_batches(entries) do
-        {:cont, :ok}
-      else
+    slots
+    |> Enum.reduce_while({:ok, []}, fn slot, {:ok, acc} ->
+      case RecoveryAssignmentEvidence.sweep(capability, slot, key.public_key) do
+        {:ok, entries} -> {:cont, {:ok, [entries | acc]}}
         error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, reversed} -> reversed |> Enum.reverse() |> List.flatten() |> commit_entry_chunks()
+      error -> error
+    end
   end
 
-  defp commit_mapping_batches(entries) do
+  defp commit_entry_chunks([]), do: :ok
+
+  defp commit_entry_chunks(entries) do
     entries
-    |> Enum.chunk_every(4096)
+    |> Enum.chunk_every(256)
     |> Enum.reduce_while(:ok, fn batch, :ok ->
       case RecoveryAssignments.commit_issuance(batch) do
         {:ok, :committed} -> {:cont, :ok}
@@ -529,7 +653,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp pending_since(nil, _lease_id, now), do: now
 
-  defp record_push(assignment, lease_id, push, payload, now) do
+  defp record_push(assignment, lease_id, push, payload, fingerprint, now) do
     SweepLeaseDelivery
     |> Ash.Changeset.for_create(
       :record_push,
@@ -542,6 +666,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         delivered_window_end: push.cursor,
         delivered_high_water: push.high_water,
         delivered_payload_sha256: sha256_hex(payload),
+        authority_fingerprint: fingerprint,
         delivered_at: now,
         ack_pending_since: push.ack_pending_since,
         revoked_at: nil
@@ -622,12 +747,32 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   defp withdraw(row, now, sender) do
-    serialize(row.sweep_group_id, row.agent_id, fn ->
-      case get_by_group_agent(row.sweep_group_id, row.agent_id) do
-        {:ok, %SweepLeaseDelivery{} = current} -> withdraw_current(current, now, sender)
-        _gone -> false
-      end
-    end)
+    case serialize(row.sweep_group_id, row.agent_id, fn ->
+           case get_by_group_agent(row.sweep_group_id, row.agent_id) do
+             {:ok, %SweepLeaseDelivery{} = current} -> withdraw_current(current, now, sender)
+             _gone -> false
+           end
+         end) do
+      :aborted ->
+        busy_revocation(row)
+
+      {:aborted, _reason} ->
+        busy_revocation(row)
+
+      result ->
+        result
+    end
+  end
+
+  # A busy agent's revocation is retried by the next pass: the intent persists in the row
+  # state, and counting it withdrawn would drop it silently.
+  defp busy_revocation(row) do
+    Logger.debug(
+      "Sweep lease pass: revocation for group #{row.sweep_group_id} on #{row.agent_id} " <>
+        "deferred, delivery in progress"
+    )
+
+    false
   end
 
   defp withdraw_current(row, now, sender) do
