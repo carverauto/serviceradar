@@ -67,6 +67,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
   end
 
   @doc "Applies a controller/template selection from the scope form."
+  def select_scope(%{assigns: %{binding_pending: pending}} = socket, _params, _controllers) when not is_nil(pending),
+    do: socket
+
   def select_scope(socket, params, controllers) do
     requested_controller = Map.get(params, "controller_id")
 
@@ -188,29 +191,60 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
   def discard_review(socket), do: assign(socket, :binding_review, nil)
 
   @doc "Handles the result of a prepare started by `prepare/2` or a changed create."
-  def prepared(socket, {:ok, {request, {:ok, %{review: review, review_digest: digest}}}})
-      when is_map(review) and is_binary(digest) do
+  def prepared(socket, result) do
     changed? = socket.assigns.binding_pending == :reprepare
+    socket = assign(socket, :binding_pending, nil)
 
-    socket
-    |> assign(:binding_pending, nil)
-    |> assign(:binding_review, %{request: request, review: review, digest: digest, changed?: changed?})
-  end
+    case result do
+      {:ok, {request, outcome}} ->
+        if current_request?(socket, request),
+          do: apply_prepared(socket, request, outcome, changed?),
+          else: socket
 
-  def prepared(socket, {:ok, {_request, {:error, reason}}}) do
-    socket
-    |> assign(:binding_pending, nil)
-    |> put_flash(:error, "The binding review could not be prepared: #{format_reason(reason)}.")
-  end
-
-  def prepared(socket, _result) do
-    socket
-    |> assign(:binding_pending, nil)
-    |> put_flash(:error, "The binding review could not be prepared.")
+      _ ->
+        put_flash(socket, :error, "The binding review could not be prepared.")
+    end
   end
 
   @doc "Handles the result of a create started by `create/1`."
-  def created(socket, {:ok, {_request, {:ok, binding}}}) do
+  def created(socket, result) do
+    socket = assign(socket, :binding_pending, nil)
+
+    case result do
+      {:ok, {request, outcome}} ->
+        if current_request?(socket, request),
+          do: apply_created(socket, request, outcome),
+          else: socket
+
+      _ ->
+        put_flash(socket, :error, "The binding was not created.")
+    end
+  end
+
+  defp current_request?(socket, request) do
+    socket.assigns.show_binding_form and
+      request["controller_id"] == socket.assigns.binding_controller_id
+  end
+
+  defp apply_prepared(socket, request, {:ok, %{review: review, review_digest: digest}}, changed?)
+       when is_map(review) and is_binary(digest) do
+    assign(socket, :binding_review, %{
+      request: request,
+      review: review,
+      digest: digest,
+      changed?: changed?
+    })
+  end
+
+  defp apply_prepared(socket, _request, {:error, reason}, _changed?) do
+    put_flash(socket, :error, "The binding review could not be prepared: #{format_reason(reason)}.")
+  end
+
+  defp apply_prepared(socket, _request, _outcome, _changed?) do
+    put_flash(socket, :error, "The binding review could not be prepared.")
+  end
+
+  defp apply_created(socket, _request, {:ok, binding}) do
     socket
     |> put_flash(
       :info,
@@ -221,7 +255,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     |> load_versions()
   end
 
-  def created(socket, {:ok, {request, {:error, :binding_review_changed}}}) do
+  defp apply_created(socket, request, {:error, :binding_review_changed}) do
     socket
     |> assign(:binding_review, nil)
     |> put_flash(
@@ -232,16 +266,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     |> start_prepare(request, :reprepare)
   end
 
-  def created(socket, {:ok, {_request, {:error, reason}}}) do
-    socket
-    |> assign(:binding_pending, nil)
-    |> put_flash(:error, "The binding was not created: #{format_reason(reason)}.")
+  defp apply_created(socket, _request, {:error, reason}) do
+    put_flash(socket, :error, "The binding was not created: #{format_reason(reason)}.")
   end
 
-  def created(socket, _result) do
-    socket
-    |> assign(:binding_pending, nil)
-    |> put_flash(:error, "The binding was not created.")
+  defp apply_created(socket, _request, _outcome) do
+    put_flash(socket, :error, "The binding was not created.")
   end
 
   ## Revoke ------------------------------------------------------------------
@@ -403,6 +433,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     socket
     |> assign(:show_binding_form, false)
     |> assign(:binding_review, nil)
+    |> assign(:binding_pending, nil)
     |> assign(:binding_choice_count, 0)
     |> assign(:binding_choice_notice, nil)
     |> stream(:binding_choices, [], reset: true)

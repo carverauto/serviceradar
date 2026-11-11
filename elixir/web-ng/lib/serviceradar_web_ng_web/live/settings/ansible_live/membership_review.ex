@@ -376,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
           "Resolve the duplicate devices; a link cannot be forced."
 
       _ ->
-        "Quarantined because a previously approved link changed. It cannot be approved here."
+        "Quarantined. It cannot be approved or force-linked here."
     end
   end
 

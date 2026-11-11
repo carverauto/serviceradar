@@ -179,7 +179,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
 
     Automation.put(:prepare_results, [
       {:ok, %{review: review(), review_digest: @review_digest_1}},
-      {:ok, %{review: review(), review_digest: @review_digest_2}}
+      {:ok, %{review: review(), review_digest: @review_digest_2}},
+      {:ok, %{review: review(), review_digest: @review_digest_1}}
     ])
 
     Automation.put(:create_results, [
@@ -248,6 +249,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     assert second_create["expected_review_digest"] == @review_digest_2
     assert has_element?(view, "#flash-info", "Created binding version 4")
     refute has_element?(view, "#ansible-binding-review")
+    refute has_element?(view, "#ansible-binding-creating")
+
+    view |> element("#ansible-binding-new") |> render_click()
+
+    view
+    |> form("#ansible-binding-form",
+      binding: %{
+        credential_ids: "5, 6",
+        machine_credential_id: "5",
+        execution_environment_id: "3",
+        membership_ids: [@approved_id],
+        content_sha256: @content_sha,
+        review_ticket: "CHG-0001"
+      }
+    )
+    |> render_submit()
+
+    render_async(view)
+
+    assert_receive {:prepare, _user_id, ^expected_request}
+    assert has_element?(view, "#ansible-binding-review-digest", @review_digest_1)
   end
 
   @tag :web_ng_shared_fixture_db

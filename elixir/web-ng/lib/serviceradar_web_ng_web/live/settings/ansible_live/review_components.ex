@@ -308,6 +308,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
           <select
             id="ansible-binding-controller"
             name="controller_id"
+            disabled={not is_nil(@pending)}
             class={ui_field_class(size: "sm")}
           >
             <option
@@ -329,6 +330,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
             list="ansible-binding-template-options"
             value={@template_id}
             phx-debounce="400"
+            disabled={not is_nil(@pending)}
             class={ui_field_class(size: "sm", mono: true)}
             placeholder="Template ID"
           />
@@ -341,6 +343,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         type="button"
         size="sm"
         variant="primary"
+        disabled={not is_nil(@pending)}
         phx-click="new_binding_review"
       >
         + Review a binding
