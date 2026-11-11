@@ -429,37 +429,5 @@ config :swoosh, :api_client, false
 config :swoosh, local: false
 
 if config_env() == :prod do
-  config :logger, :console,
-    format: "$time $metadata[$level] $message\n",
-    metadata: [
-      :request_id,
-      :gateway_id,
-      :partition_id,
-      :node,
-      :agent_id,
-      :partition,
-      :subject,
-      :reason,
-      :service_name,
-      :message_size,
-      :payload_kind,
-      :event_id,
-      :command_id,
-      :expected_command_type,
-      :reported_command_type,
-      :phase,
-      :desktop_session_id,
-      :command_type,
-      :success,
-      :payload_field_count,
-      :progress_percent,
-      :config_version,
-      :section_count,
-      :chunks,
-      :bytes,
-      :limit_bytes
-    ]
-
-  config :logger,
-    level: :info
+  config :logger, level: :info
 end

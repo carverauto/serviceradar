@@ -261,11 +261,26 @@ defmodule ServiceRadar.ColdTier.Head do
       # create_simple_secret signatures vary by pg_duckdb version; surface
       # loudly — without the secret every export/read fails fast anyway.
       Logger.error("Cold tier: failed to (re)assert S3 secret on head",
-        reason: Exception.message(e)
+        reason: describe_failure(e)
       )
 
       reraise e, __STACKTRACE__
   end
+
+  @doc """
+  Describes a head failure for logs without the statement text.
+
+  Setup statements carry the S3 secret key and the FDW password inline, and a
+  `Postgrex.Error` repeats the failing statement in its message and context, so
+  only the SQLSTATE and the server's primary message are kept.
+  """
+  @spec describe_failure(term()) :: String.t()
+  def describe_failure(%Postgrex.Error{postgres: %{code: code, message: message}}),
+    do: "#{code}: #{message}"
+
+  def describe_failure(%DBConnection.ConnectionError{message: message}), do: message
+  def describe_failure(%{__exception__: true, __struct__: module}), do: inspect(module)
+  def describe_failure(reason), do: inspect(reason)
 
   defp head_opts_or_error do
     case Config.head_opts() do

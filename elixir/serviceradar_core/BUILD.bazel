@@ -780,6 +780,14 @@ filegroup(
     srcs = ALL_TEST_SRCS + glob(["test/db/**"]) + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
 )
 
+# Read as source by //build:logger_metadata_contract_test, which checks the metadata keys of
+# every Logger.warning/error call. Kept separate from :srcs so the test's inputs are only
+# the files it parses.
+filegroup(
+    name = "logger_call_site_srcs",
+    srcs = glob(["lib/**/*.ex"]),
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(

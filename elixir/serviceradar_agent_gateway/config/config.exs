@@ -5,36 +5,8 @@ import Config
 # `max_length` bounds the stored size. Required since Ash 3.33.
 config :ash, default_string_length_count: :codepoints
 
-# Logger configuration
-config :logger, :console,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [
-    :request_id,
-    :gateway_id,
-    :partition_id,
-    :agent_id,
-    :partition,
-    :subject,
-    :reason,
-    :service_name,
-    :message_size,
-    :payload_kind,
-    :event_id,
-    :command_id,
-    :expected_command_type,
-    :reported_command_type,
-    :phase,
-    :desktop_session_id,
-    :command_type,
-    :success,
-    :payload_field_count,
-    :progress_percent,
-    :config_version,
-    :section_count,
-    :chunks,
-    :bytes,
-    :limit_bytes
-  ]
+# Console metadata is an allowlist owned by ServiceRadar.Logging.ConsoleFormatter.
+config :logger, :default_handler, formatter: {ServiceRadar.Logging.ConsoleFormatter, %{}}
 
 config :serviceradar_agent_gateway, :metrics,
   enabled: true,

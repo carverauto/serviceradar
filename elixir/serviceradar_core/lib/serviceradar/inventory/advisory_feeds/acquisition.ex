@@ -485,10 +485,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     case http_get_json.(url, headers) do
       {:ok, %{"data" => [first | _]}} when is_map(first) -> {:ok, first}
       {:ok, %{"data" => []}} -> {:error, :empty_backup_index}
-      {:ok, other} -> {:error, {:unexpected_backup_response, other}}
+      {:ok, other} -> {:error, {:unexpected_backup_response, response_shape(other)}}
       {:error, reason} -> {:error, {:backup_index_failed, reason}}
     end
   end
+
+  # The index body lists presigned download URLs, whose query is a credential,
+  # so an unexpected body is reported by its shape and never by its content.
+  defp response_shape(%{} = body), do: {:map, body |> Map.keys() |> Enum.sort() |> Enum.take(20)}
+  defp response_shape(body) when is_list(body), do: {:list, length(body)}
+  defp response_shape(body) when is_binary(body), do: {:binary, byte_size(body)}
+  defp response_shape(_body), do: :other
 
   @doc """
   Extract `download.zip` into `extracted_dir`; classify the payload.

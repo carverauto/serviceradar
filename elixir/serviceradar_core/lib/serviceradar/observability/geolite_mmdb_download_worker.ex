@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ObanFailureEventReporter
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -258,7 +259,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
       {:error, reason} = error ->
         Logger.warning("GeoLite MMDB download failed",
-          url: url,
+          url: OutboundFeedPolicy.redact_url(url),
           dest: dest_path,
           error: inspect(reason)
         )

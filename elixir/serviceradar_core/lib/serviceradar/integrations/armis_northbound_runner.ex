@@ -2065,8 +2065,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       when status in 200..299 and is_binary(token) ->
         {:error, :missing_access_token}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:token_request_failed, status, body}}
+      # The body is not carried in the reason: an unexpected 2xx shape can
+      # still hold the access token, and the reason is logged and recorded.
+      {:ok, %{status: status}} ->
+        {:error, {:token_request_failed, status}}
 
       {:error, reason} ->
         {:error, reason}

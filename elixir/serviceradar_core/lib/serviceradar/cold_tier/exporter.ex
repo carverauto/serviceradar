@@ -93,11 +93,11 @@ defmodule ServiceRadar.ColdTier.Exporter do
         # pressure, not silently return healthy (review F10). Pressure is
         # computed against the primary and does not need the head.
         Logger.error("Cold tier: analytics head setup failed; skipping export run",
-          reason: inspect(reason)
+          reason: Head.describe_failure(reason)
         )
 
         pressure = PressureMonitor.check()
-        Health.record_head_failure(reason, pressure)
+        Health.record_head_failure(Head.describe_failure(reason), pressure)
 
         :ok
     end

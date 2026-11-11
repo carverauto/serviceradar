@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -434,7 +435,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
       {:error, reason} ->
         Logger.warning("Could not publish first-party plugin sync-failed event",
-          repo_url: repository.repo_url,
+          repo_url: OutboundFeedPolicy.redact_url(repository.repo_url),
           reason: inspect(reason)
         )
     end
