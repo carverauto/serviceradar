@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               <div class="flex items-center gap-2">
                 <.input
                   type={if @show_password, do: "text", else: "password"}
-                  name="form[community]"
+                  name="target[community]"
                   value=""
                   class={ui_field_class(class: "w-full")}
                   placeholder={
@@ -190,7 +190,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 <div class="flex items-center gap-2">
                   <.input
                     type={if @show_password, do: "text", else: "password"}
-                    name="form[auth_password]"
+                    name="target[auth_password]"
                     value=""
                     class={ui_field_class(class: "w-full")}
                     placeholder={if @editing_target, do: "Enter to change", else: "Auth password"}
@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 </label>
                 <.input
                   type={if @show_password, do: "text", else: "password"}
-                  name="form[priv_password]"
+                  name="target[priv_password]"
                   value=""
                   class={ui_field_class(class: "w-full")}
                   placeholder={if @editing_target, do: "Enter to change", else: "Privacy password"}

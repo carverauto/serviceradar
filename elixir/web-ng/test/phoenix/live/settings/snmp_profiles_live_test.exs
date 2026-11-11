@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
     render_hook(lv, "open_target_modal", %{})
 
     render_hook(lv, "save_target", %{
-      "form" => %{
+      "target" => %{
         "name" => "explicit-#{unique}",
         "host" => "192.0.2.10",
         "port" => "161",

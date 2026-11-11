@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
     scope = socket.assigns.current_scope
 
     ash_form =
-      Form.for_create(SNMPOIDTemplate, :create, domain: ServiceRadar.SNMPProfiles, scope: scope)
+      Form.for_create(SNMPOIDTemplate, :create, domain: ServiceRadar.SNMPProfiles, scope: scope, as: "custom_template")
 
     {:noreply,
      socket
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
     case Ash.get(SNMPOIDTemplate, id, scope: scope) do
       {:ok, template} ->
         ash_form =
-          Form.for_update(template, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+          Form.for_update(template, :update, domain: ServiceRadar.SNMPProfiles, scope: scope, as: "custom_template")
 
         # Convert OIDs to UI format
         oids =
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
      |> assign(:ash_custom_template_form, nil)}
   end
 
-  def handle_event("validate_custom_template", %{"form" => params}, socket) do
+  def handle_event("validate_custom_template", %{"custom_template" => params}, socket) do
     ash_form = Form.validate(socket.assigns.ash_custom_template_form, params)
 
     {:noreply,
@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
      |> assign(:ash_custom_template_form, ash_form)}
   end
 
-  def handle_event("save_custom_template", %{"form" => params}, socket) do
+  def handle_event("save_custom_template", %{"custom_template" => params}, socket) do
     scope = socket.assigns.current_scope
     oids = socket.assigns.custom_template_oids
 
