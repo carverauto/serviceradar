@@ -9,6 +9,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+  alias ServiceRadar.AgentConfig.ConfigInvalidator
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.DependencyDispatcher
   alias ServiceRadar.AgentConfig.DependencyResolvers
@@ -1329,7 +1330,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       try do
         assert {:error, {:target_query_failed, _}} =
-                 SNMPCompiler.execute_target_query("in:devices", actor)
+                 SNMPCompiler.reduce_target_query("in:devices", actor, [], &collect_device/2)
       after
         Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
       end
@@ -1434,7 +1435,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "a filter value that cannot be cast matches no device rather than failing", %{
       actor: actor
     } do
-      assert {:ok, []} = SNMPCompiler.execute_target_query("in:devices type_id:abc", actor)
+      assert {:ok, []} =
+               SNMPCompiler.reduce_target_query(
+                 "in:devices type_id:abc",
+                 actor,
+                 [],
+                 &collect_device/2
+               )
+    end
+
+    @tag :integration
+    test "an interface filter value that cannot be cast compiles a profile with no query targets",
+         %{actor: actor} do
+      unique = System.unique_integer([:positive])
+      {:ok, template} = create_read_failure_template("Uncastable Interface #{unique}", actor)
+
+      profile =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Uncastable Interface #{unique}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: "in:interfaces if_speed:abc",
+          oid_template_ids: [template.id],
+          version: :v2c,
+          community: "public"
+        })
+        |> Ash.create!(actor: actor)
+
+      assert {:ok, %{"targets" => []}} = SNMPCompiler.compile_profile(profile, actor)
     end
 
     @tag :integration
@@ -1764,9 +1795,103 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       missing = "definitely-no-such-host-#{System.unique_integer([:positive])}"
 
       assert {:ok, []} =
-               SNMPCompiler.execute_target_query(~s(in:devices hostname:"#{missing}"), actor)
+               SNMPCompiler.reduce_target_query(
+                 ~s(in:devices hostname:"#{missing}"),
+                 actor,
+                 [],
+                 &collect_device/2
+               )
     end
   end
+
+  describe "a target query matching more devices than one page" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      {:ok, actor: SystemActor.system(:test)}
+    end
+
+    # Each fixture device carries a metadata map far larger than the columns a
+    # target needs. Holding every matched device as a whole record needs several
+    # times this cap; reading a page of target columns at a time does not grow
+    # with the device count or with what else the records carry.
+    @tag :integration
+    @tag timeout: 300_000
+    test "compiles inside the invalidation worker's heap cap", %{actor: actor} do
+      parent = self()
+      device_count = 520
+      gateway_id = "gw-heap-#{System.unique_integer([:positive])}"
+      metadata = Map.new(1..2_500, &{"attr_#{&1}", &1})
+
+      for index <- 1..device_count do
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: "heap-#{index}.example.com",
+          ip: ServiceRadar.TestSupport.unique_device_ip(),
+          gateway_id: gateway_id,
+          partition: "default",
+          metadata: metadata
+        })
+        |> Ash.create!(actor: actor)
+      end
+
+      {:ok, template} = create_read_failure_template("Heap Cap #{gateway_id}", actor)
+
+      profile =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Heap Cap #{gateway_id}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+          oid_template_ids: [template.id],
+          version: :v2c,
+          community: "public"
+        })
+        |> Ash.create!(actor: actor)
+
+      handler = "snmp-heap-cap-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        ConfigInvalidator.telemetry_event(),
+        fn _event, _measurements, metadata, pid -> send(pid, {:invalidation, metadata}) end,
+        parent
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      task_supervisor = Module.concat(__MODULE__, "HeapCapTasks")
+      server = Module.concat(__MODULE__, "HeapCapInvalidator")
+      start_supervised!({Task.Supervisor, name: task_supervisor})
+
+      start_supervised!(
+        {ConfigInvalidator,
+         name: server,
+         task_supervisor: task_supervisor,
+         max_heap_words: 2_000_000,
+         cache: fn _type -> :ok end,
+         schedule: fn message, _delay -> send(parent, {:timer, message}) end,
+         push: fn _type, _scope ->
+           {:ok, config} = SNMPCompiler.compile_profile(profile, actor)
+           send(parent, {:compiled_targets, length(config["targets"])})
+         end}
+      )
+
+      assert ConfigInvalidator.request(server, :snmp) == :ok
+      assert_receive {:timer, fire}
+      send(server, fire)
+
+      assert_receive {:invalidation, %{config_type: :snmp, status: status}}, 240_000
+      assert status == :ok
+      assert_received {:compiled_targets, ^device_count}
+    end
+  end
+
+  defp collect_device(device, devices), do: {:cont, [device | devices]}
 
   defp unique_test_ip(a, b, value) do
     third = rem(value, 250) + 1
