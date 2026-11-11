@@ -82,7 +82,10 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   ]
 
   # Workers implementing ServiceRadar.Jobs.OrphanRescue.
-  @orphan_rescue_workers [ServiceRadar.Jobs.RefreshTraceSummariesWorker]
+  @orphan_rescue_workers [
+    ServiceRadar.Jobs.RefreshTraceSummariesWorker,
+    ServiceRadar.SweepJobs.LeasePassWorker
+  ]
 
   @completed_event [:serviceradar, :jobs, :periodic_cleanup, :completed]
   @failed_event [:serviceradar, :jobs, :periodic_cleanup, :failed]

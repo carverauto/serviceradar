@@ -3,6 +3,20 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorkerTest do
 
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+  alias ServiceRadar.SweepJobs.LeasePassWorker
+
+  describe "orphan_rescue_workers/0" do
+    test "routes provable orphans through each registered worker's proof" do
+      workers = ReapStalePeriodicJobsWorker.orphan_rescue_workers()
+
+      assert LeasePassWorker in workers
+
+      for worker <- workers do
+        assert {:module, worker} = :code.ensure_loaded(worker)
+        assert function_exported?(worker, :rescue_orphaned, 1)
+      end
+    end
+  end
 
   describe "split_stale_jobs/1" do
     test "rescues retryable jobs and discards exhausted jobs" do

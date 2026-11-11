@@ -62,7 +62,7 @@ merges (rebase onto staging, add the registration, revalidate).
 - [x] 4.2 `OrphanRescue` implementation for `LeasePassWorker` (sidecar
       connection + session advisory lock, 60 s grace). Unit test the proof
       both ways: dead holder rescues, live holder is left alone.
-- [ ] 4.3 Phase 2 only, after the in-gate cron-duplicates branch merges and
+- [x] 4.3 Phase 2 only, after the in-gate cron-duplicates branch merges and
       on top of staging: register in `orphan_rescue_workers/0`. Do not edit
       that file on a branch cut before the merge. Reaper test covers the
       rescued row.
