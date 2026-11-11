@@ -294,8 +294,9 @@ That push does not wait for the next tail. When an agent advertising
 (`AgentGatewaySync.start_sweep_lease_refresh/3`) to refresh it. That call only
 starts the refresh: core runs it under `ServiceRadar.SweepJobs.LeaseRefresh`
 with no caller deadline, and sends the result to the session as a message.
-A refresh whose window is already recorded and still valid is verified current
-without rebuilding or resending (see `fix-sweep-lease-reissue-stall`); only a
+A refresh whose window is already recorded, still valid, and reported installed
+by the agent's session hello under the same digest is verified current without
+rebuilding or resending (see `fix-sweep-lease-reissue-stall`); only a
 missing or stale window reissues the full window, which takes as long as the
 lease horizon needs.
 `LeasePass.refresh_agent/3` evaluates, plans and delivers only that agent in

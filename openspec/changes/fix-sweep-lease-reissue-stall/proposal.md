@@ -113,7 +113,7 @@ These hold by construction and were approved before build:
   re-issue on trust alone leaves a store-wiped agent unleashed for slots
   already issued with nothing noticing, which is exactly what the session
   re-issue exists to cover. The agent protocol addition (proto + Go agent +
-  gateway pass-through, capability-gated, mixed-version matrix in design §1)
+  gateway pass-through, capability-gated, mixed-version matrix in design §2)
   ships in this change.
 - **D2 — registration deferred, decided.** No exception: the rescue
   implementation and tests land now, and the one-line reaper registration

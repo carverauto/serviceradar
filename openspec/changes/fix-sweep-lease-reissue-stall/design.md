@@ -52,7 +52,7 @@ with group and digest.
 
 First-issue and changed-window refreshes are unaffected: no ack, or any
 predicate miss, takes today's full path. Agents without the hello capability
-take today's full path per group (cheaper via §2 batching); the skip never
+take today's full path per group (cheaper via §3 batching); the skip never
 fires on trust alone.
 
 The pre-skip state query is ruled out: the hello digest subsumes it. It is
@@ -65,11 +65,15 @@ re-assert core's own records.
 - The agent reports per sweep group the SHA-256 of the installed lease
   payload bytes — the same digest it acked with `installed: true` — in the
   session hello (or the first control message where hello cannot carry it),
-  behind a new capability (e.g. `sweep_lease_hello_digests_v1`). Absent group
+  behind the capability `sweep_lease_hello_digests:v1`. Absent group
   means the agent holds nothing for that group.
 - Proto, Go agent, and gateway pass-through ship together: the gateway
   session carries the reported map into the refresh path (`refresh_agent`
   gains the reported digests; absent by default, which forces the full path).
+  The map is authoritative only when the same hello advertises the
+  capability: without it the gateway forwards an empty map, and core
+  normalizes a malformed map to empty, so both layers fail closed to the
+  full path.
 - Skip is core's invisible optimization: agents MUST NOT assume it and observe
   no behavior change, because a re-push of identical content re-installs and
   re-acks idempotently through the existing merge path.
