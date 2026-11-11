@@ -33,7 +33,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     assert mounted_socket.assigns.controller_count == 0
     assert mounted_socket.assigns.repository_count == 0
     assert mounted_socket.assigns.awx_credential_secrets == []
-    assert mounted_socket.assigns.tabs == [controllers: "Controllers"]
+
+    assert mounted_socket.assigns.tabs == [
+             controllers: "Controllers",
+             memberships: "Memberships",
+             bindings: "Template bindings"
+           ]
+
     refute mounted_socket.assigns.can_manage_ansible_repositories
   end
 

@@ -2394,7 +2394,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :edge_automation,
       subgroup: nil,
       title: "Ansible",
-      description: "Manage Ansible controllers and repositories.",
+      description: "Manage Ansible controllers and repositories; review memberships and bindings.",
       icon: "hero-command-line",
       route: "/settings/ansible",
       live_view: ServiceRadarWebNGWeb.Settings.AnsibleLive,
@@ -2429,6 +2429,22 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           title: "Controllers",
           route: "/settings/ansible?tab=controllers",
           keywords: ["ansible", "controllers", "awx", "aap"],
+          permission: "ansible.controllers.manage"
+        },
+        %{
+          id: :memberships,
+          tab: "memberships",
+          title: "Memberships",
+          route: "/settings/ansible?tab=memberships",
+          keywords: ["ansible", "awx", "inventory", "memberships", "approve", "needs review"],
+          permission: "ansible.controllers.manage"
+        },
+        %{
+          id: :bindings,
+          tab: "bindings",
+          title: "Template bindings",
+          route: "/settings/ansible?tab=bindings",
+          keywords: ["ansible", "awx", "job template", "binding", "review", "revoke"],
           permission: "ansible.controllers.manage"
         },
         %{

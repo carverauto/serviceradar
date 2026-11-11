@@ -103,7 +103,7 @@ The device inventory SHALL present canonical Ansible launch and provider-neutral
 
 ### Requirement: Retained Ansible Lifecycle Internals Are Not Operator Settings
 
-The settings UI SHALL expose controller and repository management only. It SHALL NOT expose retained schedule, run-ingestion, watchdog, or retention internals as supported operator workflows or configuration. Stored records and backend workers MAY remain for audit and a later architectural migration.
+The settings UI SHALL expose controller and repository management and the human review of AWX memberships and template bindings only. It SHALL NOT expose retained schedule, run-ingestion, watchdog, or retention internals as supported operator workflows or configuration. Stored records and backend workers MAY remain for audit and a later architectural migration.
 
 #### Scenario: Administrator opens Ansible settings
 

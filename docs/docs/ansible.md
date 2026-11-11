@@ -10,7 +10,7 @@ This guide covers:
 
 - [Architecture](#architecture)
 - [Deployment](#deployment)
-- [Operator guide](#operator-guide) — registering controllers and repositories
+- [Operator guide](#operator-guide) — registering controllers and repositories, approving memberships, reviewing bindings
 - [User guide](#user-guide) — launching playbooks and inspecting operations
 - [Configuration reference](#configuration-reference) — env vars + per-resource overrides
 - [RBAC reference](#rbac-reference) — the ten `ansible.*` permission keys
@@ -226,8 +226,10 @@ Use this procedure for a new controller, an AWX change, or a callback rollout:
    `ServiceRadar Ephemeral`; never in an organization that contains production
    credentials. Operators must launch through ServiceRadar so its RBAC,
    preflight evidence, and audit trail cannot be bypassed.
-3. Create or renew the approved binding through the binding-review workflow with
-   a complete secret-free reviewed launch snapshot. A digest-only binding from
+3. Create or renew the approved binding through the binding-review workflow
+   (**Settings → Ansible → Template bindings**, see
+   [Review template bindings](#6-review-template-bindings)) with a complete
+   secret-free reviewed launch snapshot. A digest-only binding from
    an earlier release is intentionally non-launchable. Do not patch a reviewed
    binding in place.
 4. If ServiceRadar reports template/project, credential, execution-environment,
@@ -276,11 +278,36 @@ If the `inventory_sync` plugin assignment is wired up on the controller's agent,
 2. Plugin calls AWX inventory API.
 3. Plugin skips any host whose variables carry neither an IP (`ansible_host` or `ansible_ssh_host`) nor a NIC MAC, then emits a `DeviceDiscovery` aggregate (`source: "awx"`) for the remaining hosts via `result.WithDeviceDiscovery(...)`.
 4. Agent → gateway → DIRE merges the record into the device that already owns that AWX host (controller + host id) or that shares a MAC. An exact `ansible_host` address also merges when the first DNS label of the host name agrees (case-insensitive; `host01` agrees with `host01.example.com`; an address is not a host name), when a Proxmox guest anchors the record, or when the device at that address has no MAC. The address alone does not merge into a device that has a MAC, or into an agent-managed device under a different name. A host name without that address never merges, and a MAC that contradicts the device's MACs refuses the match. The device that holds the address survives; a linked Proxmox guest survives over both. The merge is audited as `awx_host_network_match`, or `awx_proxmox_network_match` when a guest anchors it.
-5. Matched devices get `ansible_managed = true`; anchored AWX hosts that DIRE still cannot match surface in **Settings → Ansible → Controllers** as a "needs review" list (v2 feature; currently they're emitted but not yet rendered).
+5. Matched devices get `ansible_managed = true`. Each AWX host also becomes a durable membership `(controller, inventory, AWX host ID)` whose link to a device is `proposed` when exactly one device matches, `unlinked` when none does, and `quarantined` when several do or a previously approved link changed. Memberships are listed under **Settings → Ansible → Memberships**; see the next step.
 
 No manual "mark Ansible-managed" toggle exists — the state is fully derived.
 
-### 5. Scheduled execution is unavailable
+### 5. Approve AWX memberships
+
+A launch only targets a device through an **approved** membership. Inventory sync proposes links; a person approves them.
+
+1. Open **Settings → Ansible → Memberships** (requires `ansible.controllers.manage`; listing also requires `ansible.runs.view`).
+2. Pick the controller and AWX inventory. Inventories with pending proposals show how many need review; **Needs review** filters the table to them.
+3. Each row shows host name, address, AWX host ID, link disposition, the proposed device (linked to its device page), the link evidence kind and match count, and when the host was last seen.
+4. Click **Review** on a proposal. The panel shows the exact evidence that will be approved: controller, inventory, AWX host ID, device UID, source generation, source fingerprint, and evidence digest. Click **Approve link** to approve it as yourself.
+5. If inventory sync changed the proposal after you opened it, the approval is refused and the panel reloads with the current evidence. Review it again; nothing is approved on your behalf.
+
+Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it.
+
+### 6. Review template bindings
+
+A launch also needs a current approved binding for the AWX job template. Binding review reads existing AWX configuration through the controller's agent; it does not create or change anything in AWX, and it supports non-callback bindings only.
+
+1. Open **Settings → Ansible → Template bindings** (requires `ansible.controllers.manage`; listing also requires `ansible.catalog.view`, and choosing memberships requires `ansible.runs.view`).
+2. Pick the controller and enter or pick the AWX job template ID. The table lists its binding versions with state, expiry, inventory, project revision, content hash, and supported modes.
+3. Click **Review a binding** and fill in the request: template, project, inventory, AWX credential IDs, machine credential ID, execution environment ID, the approved memberships to bind, content SHA-256, review ticket, approval TTL, and optionally an input schema and input classifications (JSON objects declaring typed, non-secret launch inputs). Project and inventory are suggested from the AWX catalog sync, and memberships are chosen from the approved list. The content SHA-256 and review ticket are values you attest; AWX does not report them.
+4. Click **Prepare review**. ServiceRadar reads the template, project, inventory, credentials, and execution environment from AWX and shows what it observed: inventory policy, project and SCM revision, credential IDs and kinds, prompt-on-launch flags, run and check support, inventory groups, the input schema, and the review digest. Editing any field discards the review.
+5. Click **Create approved binding**. ServiceRadar repeats the AWX reads and creates the binding only if the result still matches the review digest. If AWX changed in between, nothing is created and the page shows the refreshed review for you to inspect before creating again.
+6. To withdraw a binding, click **Revoke** on the current version and type its ID to confirm. New launches through that version stop immediately.
+
+The same steps are available to scripts through the [provisioning API](./ansible-provisioning-api.md#exact-membership-and-binding-review); both paths use the same services, permissions, and human-principal requirement.
+
+### 7. Scheduled execution is unavailable
 
 ServiceRadar currently supports interactive, authorized launches only. A future
 scheduled-execution capability must use an immutable, expiring delegation and
@@ -375,10 +402,10 @@ The ten Ansible permission keys, with the default role assignments:
 
 | Key | Default roles | What it grants |
 |---|---|---|
-| `ansible.controllers.manage` | `admin` | Register / edit / delete `AnsibleController`. Required to reach the Controllers tab. |
+| `ansible.controllers.manage` | `admin` | Register / edit / delete `AnsibleController`. Approve AWX memberships and prepare, create, or revoke template bindings. Required to reach the Controllers, Memberships, and Template bindings tabs. |
 | `ansible.repositories.manage` | `admin` | Register / edit / delete `PlaybookRepository`. Required to reach the Repositories tab. |
-| `ansible.catalog.view` | `all` (viewer / helpdesk / operator / admin) | Browse `/ansible/catalog`. |
-| `ansible.runs.view` | `all` | View `/ansible/operations` and `/ansible/operations/:id`. The deployed permission key is retained for RBAC compatibility. |
+| `ansible.catalog.view` | `all` (viewer / helpdesk / operator / admin) | Browse `/ansible/catalog`. List template binding versions. |
+| `ansible.runs.view` | `all` | View `/ansible/operations` and `/ansible/operations/:id`. List AWX inventory memberships. The deployed permission key is retained for RBAC compatibility. |
 | `ansible.runs.launch` | `operator` / `admin` | Show **Launch Playbook** and authorize the canonical Ansible launch flow. It does not authorize provider-neutral **Run Action**. |
 | `ansible.runs.cancel` | `operator` / `admin` | Authorize cancellation services. The canonical operation pages are currently read-only. |
 | `ansible.schedules.view` | `all` | Reserved key for stored schedule records; no schedule UI is exposed. |
@@ -386,7 +413,7 @@ The ten Ansible permission keys, with the default role assignments:
 | `ansible.delegations.manage` | `admin` | Manage immutable execution delegations for schedules or operations. This does not make retained schedules executable. |
 | `ansible.targets.holds.clear` | `admin` | Reconcile and clear a device-wide Ansible mutation hold using current approval, policy, and recovery evidence. |
 
-These keys map to Ash resources through `ServiceRadarWebNGWeb.Authorization.Permissions`. The launch route uses create authorization on canonical operations. Ansible settings refresh the current user's authority before loading data and before every controller or repository action, then enforce the permission for that exact resource.
+These keys map to Ash resources through `ServiceRadarWebNGWeb.Authorization.Permissions`. The launch route uses create authorization on canonical operations. Ansible settings refresh the current user's authority before loading data and before every controller, repository, membership, or binding action, then enforce the permission for that exact resource. Membership approval and binding review additionally require a logged-in human user; the domain services check this and the user's current authority again from storage.
 
 Provider-neutral device/interface actions use separate keys: `northbound.actions.launch` for **Run Action** and `northbound.actions.view` for non-Ansible Action History. Neither key substitutes for `ansible.runs.launch` or `ansible.runs.view`, and stale Ansible northbound rows are excluded from those operator surfaces.
 
@@ -432,7 +459,7 @@ Services page keeps the last failed card are in
 - Confirm the `inventory_sync` plugin manifest is assigned (separate from the on-demand manifest).
 - Confirm the agent can reach AWX (same constraint as health).
 - Check `DiscoveryRecord` ingestion in DIRE — the AWX hosts may be matching onto different devices. Look for `awx` in the device's `discovery_sources` set.
-- A host whose variables carry no IP or MAC is skipped at the producer and never emitted; if an expected host is missing, check its AWX host variables. Anchored hosts DIRE can't match are emitted but not yet surfaced; check the agent logs for `inventory_sync` discovery records.
+- A host whose variables carry no IP or MAC is skipped at the producer and never emitted; if an expected host is missing, check its AWX host variables. AWX hosts no device matches appear as `unlinked` memberships under **Settings → Ansible → Memberships**; check the agent logs for `inventory_sync` discovery records.
 
 ### Operation stuck in `:planned` or `:dispatching`
 

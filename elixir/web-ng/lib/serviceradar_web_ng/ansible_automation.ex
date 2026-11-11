@@ -1,12 +1,21 @@
 defmodule ServiceRadarWebNG.AnsibleAutomation do
-  @moduledoc "Canonical Ansible operations and exact membership review for the authenticated API."
+  @moduledoc """
+  Canonical Ansible operations and exact membership and binding review.
+
+  The authenticated API and the Ansible settings review UI both call this
+  module with the initiating user's scope, so RBAC and the human-principal
+  requirement are enforced by the same domain services for both surfaces.
+  """
 
   alias ServiceRadar.Automation.Ansible.AwxBindingReview
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.AwxMembershipApproval
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
+  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
+
+  require Ash.Query
 
   @membership_fields ~w(id controller_id inventory_id awx_host_id canonical_device_uid host_name ansible_host enabled current link_disposition source_fingerprint last_seen_at)a
   @binding_fields ~w(id controller_id job_template_id binding_version current approval_state approval_expires_at inventory_policy allowed_inventory_ids project_id scm_revision content_sha256 execution_environment_id run_mode_supported check_mode_supported reviewed_at reviewed_launch_snapshot_digest)a
@@ -103,6 +112,83 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
   end
 
   def binding_view(binding), do: Map.take(binding, @binding_fields)
+
+  @doc """
+  Lists the AWX inventories that hold current memberships for one controller,
+  with the number of proposals in each that await human review.
+
+  Reads use the caller's scope, so they require the same `ansible.runs.view`
+  authority as `list_memberships/2`.
+  """
+  def list_membership_inventories(scope, controller_id) do
+    with {:ok, controller_id} <- uuid(controller_id),
+         {:ok, inventories} <-
+           controller_id
+           |> current_memberships_query()
+           |> Ash.Query.distinct(:inventory_id)
+           |> Ash.read(scope: scope),
+         {:ok, proposals} <-
+           controller_id
+           |> current_memberships_query()
+           |> Ash.Query.filter(link_disposition == :proposed and enabled == true)
+           |> Ash.read(scope: scope) do
+      counts = Enum.frequencies_by(proposals, & &1.inventory_id)
+
+      {:ok,
+       inventories
+       |> Enum.map(& &1.inventory_id)
+       |> Enum.uniq()
+       |> Enum.sort()
+       |> Enum.map(&%{inventory_id: &1, needs_review: Map.get(counts, &1, 0)})}
+    end
+  end
+
+  @doc """
+  Lists the AWX-sourced catalog rows of one controller that carry a job
+  template id, with the project and inventory ids the catalog sync recorded.
+
+  These are hints for the binding review form only; prepare re-reads AWX
+  through the broker and its review is the authority. Requires
+  `ansible.catalog.view` through the caller's scope.
+  """
+  def list_binding_templates(scope, controller_id) do
+    with {:ok, controller_id} <- uuid(controller_id),
+         {:ok, playbooks} <- Playbook.list_by_controller(controller_id, scope: scope) do
+      {:ok,
+       playbooks
+       |> Enum.filter(&(&1.source_type == :awx and is_integer(&1.awx_job_template_id)))
+       |> Enum.map(&template_view/1)
+       |> Enum.sort_by(&{String.downcase(&1.name || ""), &1.job_template_id})}
+    end
+  end
+
+  defp current_memberships_query(controller_id) do
+    AwxHostMembership
+    |> Ash.Query.filter(controller_id == ^controller_id and current == true)
+    |> Ash.Query.select([:inventory_id])
+  end
+
+  defp template_view(playbook) do
+    metadata = playbook.metadata || %{}
+
+    %{
+      playbook_id: playbook.id,
+      name: playbook.name,
+      job_template_id: playbook.awx_job_template_id,
+      project_id: optional_awx_id(Map.get(metadata, "project")),
+      inventory_id: optional_awx_id(Map.get(metadata, "inventory"))
+    }
+  end
+
+  defp optional_awx_id(value) when is_integer(value) and value > 0, do: value
+  defp optional_awx_id(_value), do: nil
+
+  defp uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_identifier}
+    end
+  end
 
   defp membership_view(membership) do
     digest =

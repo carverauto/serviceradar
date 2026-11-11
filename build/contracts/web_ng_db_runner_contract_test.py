@@ -191,6 +191,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/agents_releases_live_test.exs",
     "test/phoenix/live/settings/anomaly_detection_live_test.exs",
     "test/phoenix/live/settings/ansible_live_test.exs",
+    "test/phoenix/live/settings/ansible_review_live_test.exs",
     "test/phoenix/live/settings/audit_events_live_test.exs",
     "test/phoenix/live/settings/audit_history_actor_test.exs",
     "test/phoenix/live/settings/audit_history_live_test.exs",
