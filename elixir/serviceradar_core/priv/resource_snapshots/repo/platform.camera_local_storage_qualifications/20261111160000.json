@@ -1,0 +1,187 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "storage_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_local_storage_qualification_report_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_local_storage_qualification_reports"
+      },
+      "scale": null,
+      "size": null,
+      "source": "qualification_report_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "health",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "policy",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "decision_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "decided_by",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "decided_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "revision"
+      ],
+      "base_filter": null,
+      "check": "revision > 0",
+      "name": "camera_local_storage_qualification_revision"
+    },
+    {
+      "attribute": [
+        "state"
+      ],
+      "base_filter": null,
+      "check": "(state = 'active' AND qualification_report_id IS NOT NULL AND\n health IS NOT NULL AND policy IS NOT NULL AND reason IS NULL) OR\n(state = 'withdrawn' AND qualification_report_id IS NULL AND\n health IS NULL AND policy IS NULL AND reason IS NOT NULL)\n",
+      "name": "camera_local_storage_qualification_state"
+    },
+    {
+      "attribute": [
+        "decision_sha256"
+      ],
+      "base_filter": null,
+      "check": "decision_sha256 ~ '^[0-9a-f]{64}$' AND\n(health IS NULL OR (jsonb_typeof(health) = 'object' AND octet_length(health::text) <= 2048)) AND\n(policy IS NULL OR (jsonb_typeof(policy) = 'object' AND octet_length(policy::text) <= 2048))\n",
+      "name": "camera_local_storage_qualification_bounds"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "C13477FA2CA2CE4059FA22F7CA5AE6DB34B523C705C3A9975D4A5E0E8639B536",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_local_storage_qualifications",
+  "temporal": null
+}

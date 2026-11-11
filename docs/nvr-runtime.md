@@ -375,13 +375,47 @@ and expired observations return an ineligible result with a bounded reason.
 
 A successful result is `%{evidence_status: :current, valid_until_ms: deadline}`;
 it is an assessment at that instant, not a reusable grant. The pure
-`LocalStorageEvidence.evaluate/4` owns these rules so future activation and
+`LocalStorageEvidence.evaluate/4` owns these rules so activation and future
 registration can evaluate them against trusted transaction-time evidence.
 Assessment does not select a current binding, activate a report, reverse a
-withdrawal or advertise playable footage. The separate serialized current-state
-and registration operations, an explicit restore-horizon limit, restore
-reconciliation and actual provider qualification remain required. Existing
-installations remain unqualified.
+withdrawal or advertise playable footage. Current decisions use the separate
+operations below. Registration, an explicit
+restore-horizon limit, restore reconciliation and actual provider qualification
+remain required. Existing installations remain unqualified.
+
+## Current local storage qualification
+
+`LocalStorageQualification.activate(revision, report_id, health, actor: qualifier)`
+selects a retained report for the actor's storage lifetime. The trusted adapter
+supplies the same explicit policy and verified health evidence as assessment.
+A conditional PostgreSQL upsert serializes decisions on the storage UUID across
+all binding generations. The decision revision is a positive signed 64-bit
+integer independent of report revisions. A higher revision replaces the current
+decision; a stale revision or changed content at the same revision conflicts.
+Activation checks evidence with Core time inside the transaction after acquiring
+the row lock. Failure rolls back the entire decision.
+
+`LocalStorageQualification.withdraw(revision, reason, actor: qualifier)` records
+a withdrawn decision without requiring a policy or fresh evidence. The reason
+is a bounded ASCII token. Withdrawal can precede the first activation, preventing
+a delayed older activation from reviving eligibility. It leaves immutable
+reports and media intact and does not release holds or retire writers. The
+qualifier must withdraw when it learns that storage is degraded or unknown; a
+rejected activation leaves the previous decision intact. Core does not poll the
+provider in this operation.
+
+An exact retry of the current decision returns its original issuer and time,
+including when that decision's evidence has since expired. This is a historical
+receipt, not renewed qualification. Changing policy or health requires a higher
+decision revision. The row retains the policy snapshot used for activation.
+
+`LocalStorageQualification.status(actor: qualifier)` returns `unknown` without
+a decision, `withdrawn` after withdrawal, or evaluates an active decision against
+Core time. A changed or missing trusted policy, expired report or expired health
+makes it ineligible. Status is an advisory snapshot. Future registration must
+lock this same storage row and recheck evidence, history and disposition in its
+own transaction; this API does not admit recordings or advertise playable media.
+No provider is qualified automatically and no policy limits are defaulted.
 
 ## Qualification before rollout
 
