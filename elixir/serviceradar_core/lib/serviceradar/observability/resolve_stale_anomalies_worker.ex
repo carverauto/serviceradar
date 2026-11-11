@@ -25,7 +25,10 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorker do
   and the Postgres `alert_id` stay consistent (a later re-anomaly opens a fresh
   alert rather than being suppressed by a stale snapshot).
   """
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Repo

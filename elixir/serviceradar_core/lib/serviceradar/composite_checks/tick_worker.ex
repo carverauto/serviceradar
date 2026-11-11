@@ -14,7 +14,10 @@ defmodule ServiceRadar.CompositeChecks.TickWorker do
   `serviceradar_core_elx` one is what the release loads).
   """
 
-  use Oban.Worker, queue: :monitoring, max_attempts: 1
+  use Oban.Worker,
+    queue: :monitoring,
+    max_attempts: 1,
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck

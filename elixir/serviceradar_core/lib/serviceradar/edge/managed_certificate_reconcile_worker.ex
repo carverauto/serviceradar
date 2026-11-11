@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Edge.ManagedCertificateReconcileWorker do
   @moduledoc "Finds pending rotations and due renewals without relying on a live web-node notifier."
-  use Oban.Worker, queue: :maintenance, max_attempts: 3, unique: [period: 55, states: :incomplete]
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ManagedCertificateLifecycleWorker

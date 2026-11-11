@@ -10,7 +10,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaperWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 60, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.SweepJobs.ExecutionReaper
 
