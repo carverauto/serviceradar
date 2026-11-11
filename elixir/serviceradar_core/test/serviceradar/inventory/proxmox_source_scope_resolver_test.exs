@@ -136,18 +136,36 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
              )
   end
 
+  # The third element is whether the refusal is an operator's withdrawal, which a result
+  # consumer settles, or a contradiction of the authenticated agent, which stays a failure.
   test "rejects disabled, manual, wrong-agent, and wrong-plugin assignments" do
     cases = [
-      {%{enabled: false}, :plugin_assignment_disabled},
-      {%{source: :manual}, :plugin_assignment_not_policy_managed},
+      {%{enabled: false}, :plugin_assignment_disabled, true},
+      {%{source: :manual}, :plugin_assignment_not_policy_managed, false},
+      {%{agent_uid: "edge-tonka01"}, :plugin_assignment_agent_mismatch, false},
+      {%{partition_id: "tonka01"}, :plugin_assignment_partition_mismatch, false},
+      {%{plugin_id: "proxmox-console"}, :plugin_assignment_plugin_mismatch, false}
+    ]
+
+    for {change, expected, withdrawn?} <- cases do
+      assignment = Map.merge(assignment_fixture(), change)
+      assert {:error, ^expected} = resolve(assignment: assignment)
+      assert ProxmoxSourceScopeResolver.assignment_withdrawn?(expected) == withdrawn?
+    end
+  end
+
+  test "a disabled assignment that contradicts the delivering agent is refused, not withdrawn" do
+    cases = [
       {%{agent_uid: "edge-tonka01"}, :plugin_assignment_agent_mismatch},
       {%{partition_id: "tonka01"}, :plugin_assignment_partition_mismatch},
+      {%{source: :manual}, :plugin_assignment_not_policy_managed},
       {%{plugin_id: "proxmox-console"}, :plugin_assignment_plugin_mismatch}
     ]
 
     for {change, expected} <- cases do
-      assignment = Map.merge(assignment_fixture(), change)
+      assignment = assignment_fixture() |> Map.merge(change) |> Map.put(:enabled, false)
       assert {:error, ^expected} = resolve(assignment: assignment)
+      refute ProxmoxSourceScopeResolver.assignment_withdrawn?(expected)
     end
   end
 

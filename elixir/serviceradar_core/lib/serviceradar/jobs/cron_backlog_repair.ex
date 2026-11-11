@@ -4,13 +4,18 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
   job failing.
 
   **Redundant pending ticks.** A cron entry inserts one job per tick. A tick that
-  never completes (a worker that snoozes forever, a queue no node consumes) leaves
-  its job pending while the next tick inserts another, so the backlog grows by one
-  job per interval for as long as the condition lasts. Two pending ticks of the
-  same worker, queue and args do the same work, so every pending tick but the
-  newest is cancelled once it is `available`, or while it is `scheduled` more
-  than a couple of seconds ahead of now. A `scheduled` tick that is already due
-  is left alone: Oban's stager can overwrite a cancel of a due row.
+  is still pending when the next one fires (a queue slower than the schedule, a
+  worker that snoozes forever, a queue no node consumes) is joined by another
+  unless the worker's uniqueness spans ticks, so the backlog grows by one job per
+  interval for as long as the condition lasts. A cron worker prevents that at
+  insert with `unique: [period: :infinity, states: [:available, :scheduled]]`; a
+  finite `period` shorter than the schedule never matches the previous tick and
+  prevents nothing. This repair covers the workers that do not declare it and
+  rows already pending at upgrade. Two pending ticks of the same worker, queue
+  and args do the same work, so every pending tick but the newest is cancelled
+  once it is `available`, or while it is `scheduled` more than a couple of
+  seconds ahead of now. A `scheduled` tick that is already due is left alone:
+  Oban's stager can overwrite a cancel of a due row.
 
   **Starved schedulers.** Oban fetches by priority before age, so a queue that
   always has priority-0 work available never fetches a lower-priority job, and a

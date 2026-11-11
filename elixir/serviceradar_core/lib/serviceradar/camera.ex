@@ -25,6 +25,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.RecordingBlock
     resource ServiceRadar.Camera.ArchiveBinding
     resource ServiceRadar.Camera.LocalStorageBinding
+    resource ServiceRadar.Camera.LocalStorageQualificationReport
     resource ServiceRadar.Camera.ArchiveQualificationReceipt
     resource ServiceRadar.Camera.ArchiveInitAuthority
     resource ServiceRadar.Camera.ArchiveManifestAuthority

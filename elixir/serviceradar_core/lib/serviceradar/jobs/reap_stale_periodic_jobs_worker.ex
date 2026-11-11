@@ -26,14 +26,14 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   `rescued_jobs`.
 
   Each pass then runs `ServiceRadar.Jobs.CronBacklogRepair`, which handles the
-  pending side: redundant cron ticks that never complete and periodic jobs starved
+  pending side: redundant pending cron ticks and periodic jobs starved
   behind higher-priority work.
   """
 
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 1,
-    unique: [period: 300, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   import Ecto.Query, warn: false
 
@@ -308,19 +308,35 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   # Pending periodic jobs that will never run are this sweep's other half: see
   # CronBacklogRepair. Runs after the reap so a failure here cannot stop it.
   defp repair_cron_backlog do
-    case CronBacklogRepair.run(periodic_worker_names()) do
-      %{cancelled_ticks: 0, promoted_jobs: []} ->
-        :ok
+    %{cancelled_ticks: cancelled, promoted_jobs: promoted} =
+      CronBacklogRepair.run(periodic_worker_names())
 
-      %{cancelled_ticks: cancelled, promoted_jobs: promoted} ->
-        Logger.warning(
-          "Repaired wedged periodic Oban jobs cancelled_redundant_ticks=#{cancelled} " <>
-            "promoted_starved=[#{format_job_refs(promoted)}]",
-          cancelled_redundant_ticks: cancelled,
-          promoted_starved_jobs: promoted,
-          starvation_threshold_minutes: CronBacklogRepair.starvation_threshold_minutes()
-        )
-    end
+    log_cancelled_ticks(cancelled)
+    log_promoted_jobs(promoted)
+  end
+
+  # A cancelled tick lost nothing: a newer pending tick of the same worker does the
+  # same work. It means only that a tick waited in its queue past the next one.
+  defp log_cancelled_ticks(0), do: :ok
+
+  defp log_cancelled_ticks(cancelled) do
+    Logger.info(
+      "Cancelled redundant pending cron ticks count=#{cancelled}; " <>
+        "a newer pending tick of each worker remains",
+      cancelled_redundant_ticks: cancelled
+    )
+  end
+
+  # A promoted job had stopped running: it sat past the starvation threshold behind
+  # higher-priority work and would have stayed there.
+  defp log_promoted_jobs([]), do: :ok
+
+  defp log_promoted_jobs(promoted) do
+    Logger.warning(
+      "Promoted starved periodic Oban jobs promoted_starved=[#{format_job_refs(promoted)}]",
+      promoted_starved_jobs: promoted,
+      starvation_threshold_minutes: CronBacklogRepair.starvation_threshold_minutes()
+    )
   end
 
   defp maybe_log_cleanup([], []), do: :ok

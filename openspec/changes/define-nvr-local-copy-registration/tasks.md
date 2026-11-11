@@ -6,7 +6,8 @@
 ## 2. Implementation after approval
 
 - [ ] 2.1 Add immutable storage bindings/reports, current eligibility and scoped activation/withdrawal without qualifying existing installations automatically.
-  - First checkpoint: immutable `LocalStorageBinding` generations retain exact provider/profile identity and original provisioning provenance; scoped provisioning refuses conflicting retries. Reports, current eligibility and activation/withdrawal are still pending.
+  - First checkpoint: immutable `LocalStorageBinding` generations retain exact provider/profile identity and original provisioning provenance; scoped provisioning refuses conflicting retries.
+  - Second checkpoint: immutable `LocalStorageQualificationReport` revisions retain bounded outcomes, evidence digests, policy revisions and original issuing provenance against the exact binding/profile. Scoped qualification principals can retain reports but cannot provision bindings; retention does not verify evidence or freshness. Current eligibility and activation/withdrawal are still pending.
 - [ ] 2.2 Implement explicit new-volume history bootstrap and supported publication/preservation/disposition reconciliation for retained volumes.
 - [ ] 2.3 Add bounded registration/acknowledgement codecs and NVR durable sidecars, inventory, control reservations and recovery.
 - [ ] 2.4 Add the Core registration resource/transaction and authenticated receiver, with exact retries and qualification/history/disposition serialization.

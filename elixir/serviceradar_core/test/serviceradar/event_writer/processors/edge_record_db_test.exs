@@ -1553,8 +1553,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     # The Proxmox source-scope resolver gates on the delivering agent's
     # authenticated capabilities, which the edge path takes from the agent's
-    # stored record. With them the resolver moves on to the assignment lookup
-    # (absent here); without them it refuses at the capability gate.
+    # stored record. With them the resolver moves on to the assignment lookup;
+    # the assignment is absent here, which is an operator withdrawal, so the
+    # record is acknowledged and the withdrawal counted. Without them the
+    # resolver refuses at the capability gate and the record raises.
     test "a Proxmox result is gated on the authenticated agent's stored capabilities" do
       proxmox_capabilities = [
         "plugin-host-authority:v1",
@@ -1562,28 +1564,54 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         "proxmox-identity:v3"
       ]
 
-      for {capabilities, expected} <- [
-            {proxmox_capabilities ++ ["synthetic-other:v1"], "plugin_assignment_not_found"},
-            {["plugin-host-authority:v1"], "missing_proxmox_identity_delivery_capabilities"}
-          ] do
-        {agent_id, partition} = plugin_result_agent!(capabilities)
+      test_pid = self()
 
-        frame =
-          build_plugin_result_frame([proxmox_result_item()],
-            agent_id: agent_id,
-            partition: partition
-          )
-
-        error =
-          assert_raise RuntimeError, fn ->
-            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
-          end
-
-        assert error.message =~ "plugin_result_handlers_failed"
-        assert error.message =~ inspect(ProxmoxEnrichmentIngestor)
-        assert error.message =~ expected
-        assert ledger_count(frame.record) == 0
+      withdrawn = fn _event, measurements, metadata, _config ->
+        send(test_pid, {:assignment_withdrawn, measurements, metadata})
       end
+
+      {agent_id, partition} =
+        plugin_result_agent!(proxmox_capabilities ++ ["synthetic-other:v1"])
+
+      frame =
+        build_plugin_result_frame([proxmox_result_item()],
+          agent_id: agent_id,
+          partition: partition
+        )
+
+      with_telemetry(
+        [[:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn]],
+        withdrawn,
+        fn ->
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     request: stored_ack()
+                   )
+        end
+      )
+
+      assert_receive {:assignment_withdrawn, %{count: 1},
+                      %{reason: :plugin_assignment_not_found, agent_id: ^agent_id}}
+
+      assert ledger_count(frame.record) == 1
+
+      {agent_id, partition} = plugin_result_agent!(["plugin-host-authority:v1"])
+
+      frame =
+        build_plugin_result_frame([proxmox_result_item()],
+          agent_id: agent_id,
+          partition: partition
+        )
+
+      error =
+        assert_raise RuntimeError, fn ->
+          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+        end
+
+      assert error.message =~ "plugin_result_handlers_failed"
+      assert error.message =~ inspect(ProxmoxEnrichmentIngestor)
+      assert error.message =~ "missing_proxmox_identity_delivery_capabilities"
+      assert ledger_count(frame.record) == 0
     end
 
     test "a batch without host provenance is refused at decode" do

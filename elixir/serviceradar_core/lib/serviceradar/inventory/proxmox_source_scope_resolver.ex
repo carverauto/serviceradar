@@ -21,6 +21,27 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
     "proxmox-semantic-connector:v1",
     "proxmox-identity:v3"
   ]
+  @withdrawn_reasons [
+    :plugin_assignment_not_found,
+    :plugin_assignment_disabled,
+    :plugin_assignment_package_not_approved,
+    :credential_rule_not_found,
+    :credential_rule_disabled
+  ]
+
+  @doc """
+  Whether a `resolve/3` refusal means the operator withdrew the authority the result was
+  produced under: the assignment is disabled or deleted, its package is no longer approved,
+  or its credential rule is disabled or deleted.
+
+  Such a result was legitimate when the agent produced it, cannot be applied now, and fails
+  the same way on every later delivery, so a result consumer settles it instead of retrying
+  it. Every other refusal stays a failure: a lookup that did not complete may succeed next
+  time, and an envelope or assignment that contradicts the authenticated agent is not
+  something an operator's change explains.
+  """
+  @spec assignment_withdrawn?(term()) :: boolean()
+  def assignment_withdrawn?(reason), do: reason in @withdrawn_reasons
 
   @spec resolve(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def resolve(payload, status, opts) when is_map(payload) and is_map(status) do
@@ -168,9 +189,6 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
       canonical_uuid_value(field(assignment, :id)) != assignment_id ->
         {:error, :plugin_assignment_id_mismatch}
 
-      field(assignment, :enabled) != true ->
-        {:error, :plugin_assignment_disabled}
-
       field(assignment, :source) not in [:policy, "policy"] ->
         {:error, :plugin_assignment_not_policy_managed}
 
@@ -182,6 +200,9 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
 
       field(assignment, :plugin_id) != expected_plugin_id ->
         {:error, :plugin_assignment_plugin_mismatch}
+
+      field(assignment, :enabled) != true ->
+        {:error, :plugin_assignment_disabled}
 
       not is_map(package) ->
         {:error, :plugin_assignment_package_not_loaded}
