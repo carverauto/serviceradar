@@ -3,63 +3,14 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReportIntegrationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.LocalStorageBinding
+  alias ServiceRadar.Camera.LocalStorageQualification
   alias ServiceRadar.Camera.LocalStorageQualificationReport
+  alias ServiceRadar.Test.LocalStorageFixtures, as: Fixtures
 
   @moduletag :integration
 
   setup do
-    storage_id = Ecto.UUID.generate()
-
-    provisioner =
-      :synthetic_storage_provisioner
-      |> SystemActor.system()
-      |> Map.merge(%{nvr_storage_purpose: :provision, nvr_storage_id: storage_id})
-
-    qualifier =
-      :synthetic_storage_qualifier
-      |> SystemActor.system()
-      |> Map.merge(%{nvr_storage_purpose: :qualify, nvr_storage_id: storage_id})
-
-    configuration = %{
-      "schema_version" => 1,
-      "storage_id" => storage_id,
-      "generation" => 1,
-      "provider_resource_ref" => "invented-qualification-volume",
-      "profile_sha256" => String.duplicate("a", 64)
-    }
-
-    assert {:ok, binding} = LocalStorageBinding.register(configuration, actor: provisioner)
-
-    document = %{
-      "schema_version" => 1,
-      "binding_id" => binding.id,
-      "storage_id" => storage_id,
-      "binding_sha256" => binding.binding_sha256,
-      "profile_sha256" => binding.profile_sha256,
-      "revision" => 1,
-      "evidence_sha256" => String.duplicate("b", 64),
-      "policy_revision" => "synthetic-policy-v1",
-      "issued_at_ms" => 1000,
-      "expires_at_ms" => 2000,
-      "checks" => %{
-        "acknowledged_writes_survive_worker_disk_loss" => "passed",
-        "replica_placement_and_health" => "passed",
-        "provider_attachment_fencing" => "passed",
-        "application_writer_ownership" => "passed",
-        "reattachment_preserves_identity_and_bytes" => "passed",
-        "retained_volume_lifecycle" => "passed",
-        "restore_preserves_history" => "passed"
-      }
-    }
-
-    %{
-      binding: binding,
-      document: document,
-      configuration: configuration,
-      provisioner: provisioner,
-      qualifier: qualifier,
-      opts: [actor: qualifier]
-    }
+    Fixtures.context()
   end
 
   test "assessment uses scoped retained evidence, trusted policy and Core time without activation",
@@ -118,6 +69,178 @@ defmodule ServiceRadar.Camera.LocalStorageQualificationReportIntegrationTest do
     assert {:ok, unchanged} = Ash.get(LocalStorageQualificationReport, report.id, ctx.opts)
     assert unchanged.report == document
     assert unchanged.inserted_at == report.inserted_at
+  end
+
+  test "activation retains its receipt, policy changes fail closed and withdrawal fences stale decisions",
+       ctx do
+    {report, health, actor} = Fixtures.current_evidence(ctx)
+    opts = [actor: actor]
+    assert {:ok, %{qualification_status: :unknown}} = LocalStorageQualification.status(opts)
+    assert {:ok, first} = LocalStorageQualification.activate(1, report.id, health, opts)
+    assert first.storage_id == ctx.binding.storage_id
+    assert first.state == :active
+    assert first.qualification_report_id == report.id
+
+    assert {:ok, %{qualification_status: :qualified, revision: 1}} =
+             LocalStorageQualification.status(opts)
+
+    rotated = Map.put(actor, :id, "system:synthetic_rotated_qualifier")
+    assert {:ok, retry} = LocalStorageQualification.activate(1, report.id, health, actor: rotated)
+    assert retry.decided_by == first.decided_by
+    assert retry.decided_at == first.decided_at
+    assert retry.decision_sha256 == first.decision_sha256
+
+    changed_policy = put_in(actor.nvr_storage_policy.max_health_age_ms, 300_000)
+
+    assert {:ok, %{qualification_status: :ineligible, reason: :policy_changed}} =
+             LocalStorageQualification.status(actor: changed_policy)
+
+    assert {:error, conflict} =
+             LocalStorageQualification.activate(1, report.id, health, actor: changed_policy)
+
+    assert Exception.message(conflict) =~ "decision_conflict"
+
+    assert {:ok, withdrawn} =
+             LocalStorageQualification.withdraw(2, "operator-withdrawal", ctx.opts)
+
+    assert withdrawn.state == :withdrawn
+    assert is_nil(withdrawn.qualification_report_id)
+
+    assert {:ok, retry} =
+             LocalStorageQualification.withdraw(2, "operator-withdrawal", actor: rotated)
+
+    assert retry.decided_at == withdrawn.decided_at
+    assert retry.decided_by == withdrawn.decided_by
+    assert {:error, _} = LocalStorageQualification.activate(1, report.id, health, opts)
+    assert {:error, _} = LocalStorageQualification.activate(2, report.id, health, opts)
+    assert {:error, _} = LocalStorageQualification.withdraw(2, "changed-reason", ctx.opts)
+
+    assert {:ok, %{qualification_status: :withdrawn, revision: 2}} =
+             LocalStorageQualification.status(ctx.opts)
+
+    assert {:ok, historical} = Ash.get(LocalStorageQualificationReport, report.id, ctx.opts)
+    assert historical.report == report.report
+    assert {:ok, _} = LocalStorageQualification.activate(3, report.id, health, opts)
+  end
+
+  test "withdrawal before first activation and binding generation changes share one revision order",
+       ctx do
+    {report, health, actor} = Fixtures.current_evidence(ctx)
+    assert {:ok, _} = LocalStorageQualification.withdraw(5, "storage-offline", ctx.opts)
+    assert {:error, _} = LocalStorageQualification.activate(4, report.id, health, actor: actor)
+
+    assert {:ok, binding} =
+             LocalStorageBinding.register(Map.put(ctx.configuration, "generation", 2),
+               actor: ctx.provisioner
+             )
+
+    document =
+      Map.merge(report.report, %{
+        "binding_id" => binding.id,
+        "binding_sha256" => binding.binding_sha256
+      })
+
+    assert {:ok, next_report} = LocalStorageQualificationReport.submit(document, ctx.opts)
+
+    next_health =
+      Map.merge(health, %{
+        "binding_id" => binding.id,
+        "report_sha256" => next_report.report_sha256
+      })
+
+    assert {:ok, current} =
+             LocalStorageQualification.activate(6, next_report.id, next_health, actor: actor)
+
+    assert current.qualification_report_id == next_report.id
+    assert {:error, _} = LocalStorageQualification.activate(5, report.id, health, actor: actor)
+    assert {:ok, [only]} = Ash.read(LocalStorageQualification, ctx.opts)
+    assert only.revision == 6
+    assert {:ok, historical} = Ash.get(LocalStorageQualificationReport, report.id, ctx.opts)
+    assert historical.id == report.id
+  end
+
+  test "rejected evidence rolls back a newer decision and preserves withdrawal", ctx do
+    {report, health, actor} = Fixtures.current_evidence(ctx)
+    assert {:ok, _} = LocalStorageQualification.withdraw(1, "maintenance", ctx.opts)
+
+    # Freshness is evaluated after the conditional write acquires the storage row lock.
+    stale_health = Map.put(health, "observed_at_ms", 1)
+
+    assert {:error, error} =
+             LocalStorageQualification.activate(2, report.id, stale_health, actor: actor)
+
+    assert Exception.message(error) =~ "health_expired"
+
+    assert {:ok, %{qualification_status: :withdrawn, revision: 1}} =
+             LocalStorageQualification.status(ctx.opts)
+
+    for invalid <- [
+          Map.put(health, "status", "degraded"),
+          Map.put(health, "report_sha256", String.duplicate("d", 64))
+        ] do
+      assert {:error, _} = LocalStorageQualification.activate(2, report.id, invalid, actor: actor)
+    end
+
+    assert {:error, _} = LocalStorageQualification.activate(2, report.id, health, ctx.opts)
+    assert {:ok, _} = LocalStorageQualification.activate(2, report.id, health, actor: actor)
+  end
+
+  test "only storage-scoped qualification principals may decide or inspect current state", ctx do
+    {report, health, actor} = Fixtures.current_evidence(ctx)
+    assert {:ok, first} = LocalStorageQualification.activate(1, report.id, health, actor: actor)
+
+    for denied <- [
+          nil,
+          ctx.provisioner,
+          SystemActor.system(:nvr_recorder),
+          Map.put(actor, :role, :admin),
+          Map.put(actor, :id, "invalid\nprincipal")
+        ] do
+      assert {:error, _} = LocalStorageQualification.activate(2, report.id, health, actor: denied)
+      assert {:error, _} = LocalStorageQualification.withdraw(2, "denied", actor: denied)
+    end
+
+    other = Map.put(actor, :nvr_storage_id, Ecto.UUID.generate())
+    assert {:error, _} = LocalStorageQualification.activate(2, report.id, health, actor: other)
+    assert {:ok, []} = Ash.read(LocalStorageQualification, actor: other)
+
+    assert {:ok, %{qualification_status: :unknown}} =
+             LocalStorageQualification.status(actor: other)
+
+    for denied <- [nil, ctx.provisioner, SystemActor.system(:nvr_recorder)] do
+      assert {:error, _} = LocalStorageQualification.status(actor: denied)
+    end
+
+    assert {:ok, retained} = Ash.get(LocalStorageQualification, first.storage_id, actor: actor)
+    assert retained.revision == 1
+  end
+
+  test "expired current evidence stays ineligible when its historical receipt is retried", ctx do
+    {report, health, actor} = Fixtures.current_evidence(ctx)
+    actor = put_in(actor.nvr_storage_policy.max_health_age_ms, 10_000)
+    health = Map.put(health, "observed_at_ms", System.system_time(:millisecond))
+    assert {:ok, receipt} = LocalStorageQualification.activate(1, report.id, health, actor: actor)
+
+    assert {:ok, %{qualification_status: :qualified}} =
+             LocalStorageQualification.status(actor: actor)
+
+    deadline = health["observed_at_ms"] + actor.nvr_storage_policy.max_health_age_ms
+    Process.sleep(max(0, deadline - System.system_time(:millisecond) + 1))
+
+    assert {:ok, %{qualification_status: :ineligible, reason: :health_expired}} =
+             LocalStorageQualification.status(actor: actor)
+
+    assert {:ok, retry} = LocalStorageQualification.activate(1, report.id, health, actor: actor)
+    assert retry.decided_at == receipt.decided_at
+    assert retry.decided_by == receipt.decided_by
+
+    assert {:error, error} =
+             LocalStorageQualification.activate(2, report.id, health, actor: actor)
+
+    assert Exception.message(error) =~ "health_expired"
+
+    assert {:ok, %{qualification_status: :ineligible, revision: 1}} =
+             LocalStorageQualification.status(actor: actor)
   end
 
   test "identical retries preserve the original report UUID, issuer and insertion time", ctx do

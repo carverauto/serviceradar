@@ -208,6 +208,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/camera/relay_session_lifecycle_test.exs": 1,
     "test/serviceradar/camera/relay_session_manager_test.exs": 1,
     "test/integration/camera_ingest_ownership_integration_test.exs": 1,
+    "test/integration/camera_local_storage_qualification_concurrency_test.exs": 1,
     "test/integration/camera_recorder_ownership_integration_test.exs": 1,
     "test/integration/camera_recording_blocks_integration_test.exs": 1,
     "test/integration/camera_archive_uploads_integration_test.exs": 1,

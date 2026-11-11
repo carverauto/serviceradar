@@ -21,7 +21,7 @@ defmodule ServiceRadar.Camera.LocalStorageEvidence do
          :ok <- matching_policy(report, policy),
          :ok <- passing_outcomes(report),
          :ok <- report_freshness(report, policy, now_ms),
-         :ok <- health_evidence(health, retained, report),
+         :ok <- validate_health(health, retained),
          :ok <- health_freshness(health, policy, now_ms) do
       %{
         evidence_status: :current,
@@ -30,6 +30,20 @@ defmodule ServiceRadar.Camera.LocalStorageEvidence do
       }
     else
       {:error, reason} -> %{evidence_status: :ineligible, reason: reason}
+    end
+  end
+
+  @doc "Returns a bounded JSON policy snapshot for a current qualification decision."
+  def policy_snapshot(policy) do
+    with :ok <- valid_policy(policy) do
+      {:ok, Map.new(policy, fn {key, value} -> {Atom.to_string(key), value} end)}
+    end
+  end
+
+  @doc "Validates bounded, exact-report health evidence without renewing freshness."
+  def validate_health(health, retained) do
+    with {:ok, report} <- retained_report(retained) do
+      health_evidence(health, retained, report)
     end
   end
 
