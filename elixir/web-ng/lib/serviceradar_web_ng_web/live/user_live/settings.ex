@@ -130,10 +130,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
                 <dt class="w-32 shrink-0 text-sr-muted">Role</dt>
                 <dd class="text-sr-ink">{format_role(@current_scope.user.role)}</dd>
               </div>
-              <%= if @current_scope.user.role_profile_source == :idp do %>
+              <%= if @current_scope.user.role_profile_source == :idp and
+                     not is_nil(@current_scope.user.role_profile_id) do %>
                 <div class="flex gap-2">
                   <dt class="w-32 shrink-0 text-sr-muted">Assigned by</dt>
-                  <dd class="text-sr-ink">Your identity provider</dd>
+                  <dd class="text-sr-ink">Role profile assigned by identity provider</dd>
                 </div>
               <% end %>
               <%= if auth_label = format_auth_method(@current_scope.user.last_auth_method) do %>
@@ -563,14 +564,15 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   defp format_role(:admin), do: "Admin"
   defp format_role(:operator), do: "Operator"
   defp format_role(:helpdesk), do: "Helpdesk"
-  defp format_role(_), do: "Viewer"
+  defp format_role(:viewer), do: "Viewer"
 
   defp format_auth_method(:oidc), do: "SSO (OIDC)"
   defp format_auth_method(:saml), do: "SSO (SAML)"
   defp format_auth_method(:password), do: "Password"
   defp format_auth_method(:gateway), do: "Gateway"
   defp format_auth_method(:api_token), do: "API token"
-  defp format_auth_method(_), do: nil
+  defp format_auth_method(:oauth_client), do: "OAuth client"
+  defp format_auth_method(nil), do: nil
 
   defp homepage_error(message) when is_binary(message), do: "homepage " <> message
   defp homepage_error(%{errors: [_ | _] = errors}), do: Enum.map_join(errors, "; ", &Exception.message/1)
