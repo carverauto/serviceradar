@@ -189,9 +189,6 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
       canonical_uuid_value(field(assignment, :id)) != assignment_id ->
         {:error, :plugin_assignment_id_mismatch}
 
-      field(assignment, :enabled) != true ->
-        {:error, :plugin_assignment_disabled}
-
       field(assignment, :source) not in [:policy, "policy"] ->
         {:error, :plugin_assignment_not_policy_managed}
 
@@ -203,6 +200,9 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
 
       field(assignment, :plugin_id) != expected_plugin_id ->
         {:error, :plugin_assignment_plugin_mismatch}
+
+      field(assignment, :enabled) != true ->
+        {:error, :plugin_assignment_disabled}
 
       not is_map(package) ->
         {:error, :plugin_assignment_package_not_loaded}

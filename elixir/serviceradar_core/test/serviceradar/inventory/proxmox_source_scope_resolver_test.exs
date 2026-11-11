@@ -154,6 +154,21 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
     end
   end
 
+  test "a disabled assignment that contradicts the delivering agent is refused, not withdrawn" do
+    cases = [
+      {%{agent_uid: "edge-tonka01"}, :plugin_assignment_agent_mismatch},
+      {%{partition_id: "tonka01"}, :plugin_assignment_partition_mismatch},
+      {%{source: :manual}, :plugin_assignment_not_policy_managed},
+      {%{plugin_id: "proxmox-console"}, :plugin_assignment_plugin_mismatch}
+    ]
+
+    for {change, expected} <- cases do
+      assignment = assignment_fixture() |> Map.merge(change) |> Map.put(:enabled, false)
+      assert {:error, ^expected} = resolve(assignment: assignment)
+      refute ProxmoxSourceScopeResolver.assignment_withdrawn?(expected)
+    end
+  end
+
   test "does not accept a result-owned partition as a substitute for transport evidence" do
     assert {:error, :missing_authenticated_partition_id} =
              resolve(
