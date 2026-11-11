@@ -50,6 +50,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   # How long a load waits for `100 Continue` (or an early final response)
   # before sending its body anyway, as RFC 9110 15.2.1 allows a client to.
   @continue_wait_ms 3_000
+  @connect_timeout_ms 5_000
 
   def persist(table, rows, opts \\ []) when is_binary(table) and is_list(rows) do
     body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
@@ -520,7 +521,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     %{
       method: :get,
       url: "#{fe}/api/#{database}/get_load_state?label=#{label}",
-      headers: [],
+      headers: [{"connection", "close"}],
       body: nil,
       config: config,
       timeout: http_timeout(opts)
@@ -584,91 +585,122 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     end
   end
 
-  # A load body is sent only after the server asks for it. The FE answers a
-  # Stream Load with a 307 from its headers alone and closes the connection,
-  # and a coordinator can reject a load from its headers ("Label already
-  # used"). Writing the body regardless races that close: a large body is
-  # still being written when the peer resets the socket, so the load fails
-  # with `:closed` and its real answer is lost. Req (Finch) cannot wait for
-  # `100 Continue`, so loads drive Mint directly; body-less requests (label
-  # state polls) stay on Req.
-  defp default_http(%{body: body} = request) when is_binary(body) and body != "" do
+  # Both Stream Load PUTs and `get_load_state` polls open a fresh one-shot Mint
+  # connection and close it after the response:
+  #
+  # 1. A load body is sent only after the server asks for it (`100 Continue` or
+  #    the continue wait). The FE answers with a 307 from the headers alone and
+  #    closes the connection, and a coordinator can reject a load from its
+  #    headers ("Label already used"). Writing the body regardless races that
+  #    close: a large body is still being written when the peer resets the
+  #    socket, so the load fails with `:closed` and its real answer is lost.
+  # 2. `get_load_state` only runs during reconciliation (often tens of minutes
+  #    apart); keeping its HTTP/1 socket in a dynamic Finch pool leaves an idle
+  #    passive socket that the FE or service NAT closes between reconciliations,
+  #    causing the next state check to fail with `{:connect_failed, :closed}`.
+  # 3. Hostnames are resolved before starting the 5s TCP connect timer so a
+  #    transient DNS nameserver failover does not consume `:gen_tcp.connect/4`'s
+  #    shared timer and starve the TCP handshake into a false `:http_timeout`.
+  defp default_http(request) do
     timeout = Map.get(request, :timeout) || @default_http_timeout_ms
     uri = URI.parse(request.url)
     scheme = if uri.scheme == "https", do: :https, else: :http
     target = if uri.query, do: "#{uri.path}?#{uri.query}", else: uri.path || "/"
     deadline = System.monotonic_time(:millisecond) + timeout
+    body = Map.get(request, :body)
+    has_body? = is_binary(body) and body != ""
 
     headers =
       Enum.map(request.headers ++ request_auth(request), fn {name, value} ->
         {to_string(name), value}
       end) ++
-        [{"content-length", Integer.to_string(byte_size(body))}]
+        if(has_body?, do: [{"content-length", Integer.to_string(byte_size(body))}], else: [])
 
-    connected =
-      Mint.HTTP.connect(scheme, uri.host, uri.port,
-        mode: :passive,
-        protocols: [:http1],
-        transport_opts: [timeout: min(5_000, timeout)]
-      )
-
-    case connected do
+    case connect_mint(scheme, uri, deadline) do
       {:ok, conn} ->
         conn
-        |> Mint.HTTP.request(method_name(request.method), target, headers, :stream)
-        |> continue_load(body, deadline)
+        |> send_mint_request(request.method, target, headers, body, has_body?, deadline)
         |> close_load_conn(conn)
         |> load_result()
-
-      {:error, error} ->
-        load_result({:error, error})
-    end
-  end
-
-  defp default_http(request) do
-    timeout = Map.get(request, :timeout) || @default_http_timeout_ms
-
-    # OTP 28.1 httpc automatically replays 503 Retry-After responses and has no
-    # switch to disable that. Req's explicit retry/redirect controls keep this
-    # module in charge of both the attempt budget and the actual dialed host.
-    result =
-      Req.request(
-        method: request.method,
-        url: request.url,
-        headers: request.headers ++ request_auth(request),
-        body: request.body,
-        decode_body: false,
-        retry: false,
-        redirect: false,
-        request_timeout: timeout,
-        receive_timeout: timeout,
-        finch: [
-          pool_timeout: min(5_000, timeout),
-          conn_opts: [transport_opts: [timeout: min(5_000, timeout)]]
-        ]
-      )
-
-    case result do
-      {:ok, response} ->
-        headers =
-          Enum.flat_map(response.headers, fn {key, values} ->
-            Enum.map(List.wrap(values), &{key, &1})
-          end)
-
-        {:ok, %{status: response.status, headers: headers, body: response.body}}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, %Req.TransportError{reason: reason}} ->
-        {:error, {:connect_failed, reason}}
 
       {:error, reason} ->
         if stopping_reason?(reason) do
           exit(reason)
         else
-          {:error, reason}
+          {:error, {:connect_failed, reason}}
         end
+    end
+  end
+
+  defp connect_mint(scheme, %URI{host: host} = uri, deadline) when is_binary(host) do
+    port = uri.port || if(scheme == :https, do: 443, else: 80)
+
+    case resolve_host(host) do
+      {:ok, ips} ->
+        connect_ips(ips, scheme, host, port, deadline, :nxdomain)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp resolve_host(host) do
+    char_host = String.to_charlist(host)
+
+    case :inet.parse_address(char_host) do
+      {:ok, ip} ->
+        {:ok, [ip]}
+
+      {:error, :einval} ->
+        case :inet.getaddrs(char_host, :inet) do
+          {:ok, [_ | _] = ips} ->
+            {:ok, ips}
+
+          {:error, reason} ->
+            case :inet.getaddrs(char_host, :inet6) do
+              {:ok, [_ | _] = ips} -> {:ok, ips}
+              {:error, _} -> {:error, reason}
+            end
+        end
+    end
+  end
+
+  defp connect_ips([ip | rest], scheme, host, port, deadline, _last_error) do
+    connect_timeout = min(@connect_timeout_ms, max(remaining(deadline), 1))
+
+    case Mint.HTTP.connect(scheme, ip, port,
+           hostname: host,
+           mode: :passive,
+           protocols: [:http1],
+           transport_opts: [timeout: connect_timeout]
+         ) do
+      {:ok, conn} ->
+        {:ok, conn}
+
+      {:error, error} ->
+        connect_ips(rest, scheme, host, port, deadline, connect_error_reason(error))
+    end
+  end
+
+  defp connect_ips([], _scheme, _host, _port, _deadline, last_error), do: {:error, last_error}
+
+  defp connect_error_reason(%Mint.TransportError{reason: reason}), do: reason
+  defp connect_error_reason(%Mint.HTTPError{reason: reason}), do: {:http_error, reason}
+  defp connect_error_reason(reason), do: reason
+
+  defp send_mint_request(conn, method, target, headers, body, true, deadline) do
+    conn
+    |> Mint.HTTP.request(method_name(method), target, headers, :stream)
+    |> continue_load(body, deadline)
+  end
+
+  defp send_mint_request(conn, method, target, headers, _body, false, deadline) do
+    case Mint.HTTP.request(conn, method_name(method), target, headers, nil) do
+      {:ok, conn, ref} ->
+        await_response(conn, ref, %{status: nil, headers: [], body: []}, deadline, :final)
+
+      {:error, _conn, _error} = error ->
+        error
     end
   end
 
