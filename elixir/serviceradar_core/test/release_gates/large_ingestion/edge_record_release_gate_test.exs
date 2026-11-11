@@ -81,6 +81,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.TestSupport.AdvisoryLockLeaks
   alias ServiceRadarAgentGateway.Config, as: GatewayConfig
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
@@ -300,11 +301,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     baseline_ledger_rows = ledger_rows_for_scope(network_scope_id)
     baseline_delivery_slots = delivery_slots_for_scope(network_scope_id)
 
-    baseline_advisory_locks =
-      scalar_count!(
-        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
-        []
-      )
+    # Session locks that were already held before this run are not this run's to answer for.
+    baseline_advisory_locks = AdvisoryLockLeaks.leaked(Repo)
 
     sync_spool_id = random_uuid(7)
     {:ok, sync_contract} = OutputContract.from_epoch(active_epoch, {@sync_contract, 1})
@@ -335,21 +333,16 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
         acks = stream_single_frame!(frame, sync_spool_id, chunk_number)
 
-        advisory_locks_after_chunk =
-          scalar_count!(
-            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
-            []
-          )
+        leaked_advisory_locks = AdvisoryLockLeaks.leaked(Repo, ignore: baseline_advisory_locks)
 
         current_devices = scalar_count!("SELECT count(*) FROM platform.ocsf_devices", [])
         expected_devices = baseline_devices + end_device
 
-        assert advisory_locks_after_chunk <= baseline_advisory_locks
+        assert leaked_advisory_locks == [], AdvisoryLockLeaks.format(leaked_advisory_locks)
         assert current_devices == expected_devices
 
         %{
           chunk_number: chunk_number,
-          advisory_locks: advisory_locks_after_chunk,
           current_devices: current_devices,
           acks: acks
         }
@@ -508,8 +501,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       total_devices_in_db: total_devices_in_db,
       armis_identifiers: armis_identifiers,
       ip_identifiers: ip_identifiers,
-      baseline_advisory_locks: baseline_advisory_locks,
-      max_advisory_locks: Enum.max(Enum.map(chunk_metrics, & &1.advisory_locks)),
+      # Taken after the companion records, so it covers every contract in the run.
+      leaked_advisory_locks: AdvisoryLockLeaks.leaked(Repo, ignore: baseline_advisory_locks),
       total_chunks: total_chunks,
       sync_acks: Enum.flat_map(chunk_metrics, & &1.acks),
       companion_acks: scheduled_sweep_acks ++ unleased_acks ++ mapper_acks ++ metrics_acks,
@@ -731,8 +724,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       total_devices_in_db: 50_000,
       armis_identifiers: 50_000,
       ip_identifiers: 50_000,
-      baseline_advisory_locks: 0,
-      max_advisory_locks: 0,
+      leaked_advisory_locks: [],
       total_chunks: 1,
       sync_acks: [passing_ack],
       companion_acks: [passing_ack, passing_ack, passing_ack, passing_ack],
@@ -756,11 +748,26 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     assert :ok = qualify_edge_ingestion_run!(valid_summary)
 
+    leaked_advisory_lock = %{
+      verdict: :leaked,
+      pid: 4242,
+      classid: 0,
+      objid: 1_947_000_001,
+      objsubid: 1,
+      mode: "ExclusiveLock",
+      backend_start: now,
+      state: "idle",
+      state_change: now,
+      xact_start: nil,
+      application_name: "release-gate",
+      query: "SELECT pg_advisory_lock($1)"
+    }
+
     for mutation <- [
           %{total_devices_in_db: 49_999},
           %{armis_identifiers: 49_999},
           %{ip_identifiers: 49_999},
-          %{max_advisory_locks: 1},
+          %{leaked_advisory_locks: [leaked_advisory_lock]},
           %{active_snapshot_records: 0},
           %{completed_sync_runs: 0},
           %{ledger_rows_committed: 4},
@@ -783,7 +790,9 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   end
 
   defp qualify_edge_ingestion_run!(summary) do
-    assert summary.max_advisory_locks <= summary.baseline_advisory_locks
+    assert summary.leaked_advisory_locks == [],
+           AdvisoryLockLeaks.format(summary.leaked_advisory_locks)
+
     assert summary.total_devices_in_db == summary.baseline_devices + summary.total_devices
     assert summary.armis_identifiers == summary.total_devices
     assert summary.ip_identifiers >= summary.total_devices

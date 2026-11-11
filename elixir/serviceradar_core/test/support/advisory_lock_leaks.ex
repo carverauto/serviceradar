@@ -1,0 +1,248 @@
+defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
+  @moduledoc """
+  Finds advisory locks that client sessions of the current database left behind.
+
+  A leaked advisory lock is a session-level lock still held by a session that
+  has no transaction open. That is what a session lock taken through a pooled
+  connection looks like once the caller has moved on: the backend sits idle in
+  the pool and keeps the lock until it disconnects.
+
+  Counting the rows of `pg_locks` does not test that. A transaction-level
+  advisory lock is a row there too for as long as its transaction runs, so a
+  count taken while any other process is inside such a transaction reports a
+  lock that is released a few milliseconds later.
+
+  `pg_locks` does not say whether a lock is session-level or
+  transaction-level, so each observation reads `pg_stat_activity`, then
+  `pg_locks`, then `pg_stat_activity` again, and classifies every granted
+  advisory lock by what its holder did across the three reads:
+
+    * **leaked**: the holder was `idle` in both activity reads and its
+      `state_change` did not move, so it had no transaction open at any point
+      in between and the lock cannot be transaction-level. A lock held by the
+      session running these statements is leaked for the same reason: each
+      statement runs in a transaction of its own, so a lock that session
+      already holds was not taken by any of them.
+    * **in flight**: the holder was inside a transaction, or changed state,
+      during the observation. The lock may be transaction-level and is
+      observed again.
+    * **released**: the holding session ended before the second activity read.
+    * **out of scope**: the holder is not a client backend. Server background
+      workers, such as TimescaleDB job workers, take advisory locks of their
+      own, and nothing the application does through a connection can leave one
+      behind.
+
+  `leaked/2` repeats the observation until no lock is in flight. A lock whose
+  holder never becomes idle before the settle deadline is reported as
+  `:unresolved` rather than dropped, so a transaction left open, or a session
+  lock on a connection that stays busy, still fails the caller.
+
+  Call it outside a transaction, from a test tagged `sandbox: :unboxed`. Inside
+  one, PostgreSQL answers both activity reads from a single cached snapshot and
+  nothing can be classified, so the observation raises instead.
+  """
+
+  @default_settle_timeout_ms 30_000
+  @poll_interval_ms 20
+
+  @activity_sql """
+  SELECT pid, pid = pg_backend_pid(), backend_start, backend_type, state, state_change,
+         xact_start, application_name, left(query, 300)
+  FROM pg_stat_activity
+  WHERE datname = current_database()
+  """
+
+  # The columns of @activity_sql after pid, in order.
+  @activity_fields [
+    :self?,
+    :backend_start,
+    :backend_type,
+    :state,
+    :state_change,
+    :xact_start,
+    :application_name,
+    :query
+  ]
+
+  @locks_sql """
+  SELECT pid, classid::bigint, objid::bigint, objsubid::integer, mode
+  FROM pg_locks
+  WHERE locktype = 'advisory'
+    AND granted
+    AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+  ORDER BY pid, classid, objid, objsubid, mode
+  """
+
+  @type lock :: %{
+          verdict: :leaked | :in_flight | :unresolved,
+          pid: integer() | nil,
+          classid: integer(),
+          objid: integer(),
+          objsubid: integer(),
+          mode: String.t(),
+          backend_start: DateTime.t() | nil,
+          state: String.t() | nil,
+          state_change: DateTime.t() | nil,
+          xact_start: DateTime.t() | nil,
+          application_name: String.t() | nil,
+          query: String.t() | nil
+        }
+
+  @doc """
+  Returns the advisory locks left behind in the current database, waiting for
+  in-flight transactions to finish first. An empty list means none.
+
+  Options:
+
+    * `:ignore` - locks returned by an earlier call, to leave out. A lock is
+      the same lock when the same session still holds the same key in the same
+      mode.
+    * `:settle_timeout_ms` - how long to wait for in-flight locks to resolve
+      before reporting them as `:unresolved`. Defaults to
+      #{@default_settle_timeout_ms} ms.
+  """
+  @spec leaked(module(), keyword()) :: [lock()]
+  def leaked(repo, opts \\ []) do
+    ignore = Keyword.get(opts, :ignore, [])
+    timeout = Keyword.get(opts, :settle_timeout_ms, @default_settle_timeout_ms)
+    settle(repo, ignore, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  @doc """
+  Classifies the advisory locks held at one instant, without waiting.
+
+  Options: `:ignore`, as for `leaked/2`.
+  """
+  @spec observe(module(), keyword()) :: %{leaked: [lock()], in_flight: [lock()]}
+  def observe(repo, opts \\ []) do
+    ignored = opts |> Keyword.get(:ignore, []) |> MapSet.new(&identity/1)
+
+    before = activity(repo)
+    %Postgrex.Result{rows: lock_rows} = repo.query!(@locks_sql, [])
+    later = activity(repo)
+    reject_enclosing_transaction!(before, later)
+
+    locks =
+      lock_rows
+      |> Enum.map(&classify(&1, before, later))
+      |> Enum.reject(&(is_nil(&1) or MapSet.member?(ignored, identity(&1))))
+
+    %{
+      leaked: Enum.filter(locks, &(&1.verdict == :leaked)),
+      in_flight: Enum.filter(locks, &(&1.verdict == :in_flight))
+    }
+  end
+
+  @doc "Renders locks for an assertion message, one line per lock."
+  @spec format([lock()]) :: String.t()
+  def format(locks) do
+    Enum.join(
+      ["advisory locks left behind (#{length(locks)}):" | Enum.map(locks, &format_lock/1)],
+      "\n"
+    )
+  end
+
+  defp settle(repo, ignore, deadline) do
+    %{leaked: leaked, in_flight: in_flight} = observe(repo, ignore: ignore)
+
+    cond do
+      in_flight == [] ->
+        leaked
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        leaked ++ Enum.map(in_flight, &%{&1 | verdict: :unresolved})
+
+      true ->
+        Process.sleep(@poll_interval_ms)
+        settle(repo, ignore, deadline)
+    end
+  end
+
+  # Each statement of an observation must run in a transaction of its own. Inside one
+  # transaction PostgreSQL serves both activity reads from the same cached snapshot, so
+  # they would agree whatever the other sessions did in between.
+  defp reject_enclosing_transaction!(before, later) do
+    if own_transaction(before) == own_transaction(later) do
+      raise ArgumentError,
+            "advisory lock leaks cannot be observed inside a transaction; " <>
+              "call from a test tagged `sandbox: :unboxed`, outside Repo.transaction/2"
+    end
+  end
+
+  defp own_transaction(activity) do
+    Enum.find_value(activity, fn {_pid, session} -> session.self? && session.xact_start end)
+  end
+
+  defp activity(repo) do
+    %Postgrex.Result{rows: rows} = repo.query!(@activity_sql, [])
+
+    Map.new(rows, fn [pid | values] ->
+      {pid, Map.new(Enum.zip(@activity_fields, values))}
+    end)
+  end
+
+  defp classify([pid, classid, objid, objsubid, mode], before, later) do
+    earlier = Map.get(before, pid)
+    holder = Map.get(later, pid)
+
+    case verdict(pid, earlier, holder) do
+      :not_applicable ->
+        nil
+
+      verdict ->
+        described = holder || earlier || %{}
+
+        %{
+          verdict: verdict,
+          pid: pid,
+          classid: classid,
+          objid: objid,
+          objsubid: objsubid,
+          mode: mode,
+          backend_start: described[:backend_start],
+          state: described[:state],
+          state_change: described[:state_change],
+          xact_start: described[:xact_start],
+          application_name: described[:application_name],
+          query: described[:query]
+        }
+    end
+  end
+
+  # A lock with no backend belongs to a prepared transaction, which never becomes idle.
+  defp verdict(nil, _earlier, _holder), do: :in_flight
+  # The session ended, which released every lock it held.
+  defp verdict(_pid, _earlier, nil), do: :not_applicable
+
+  defp verdict(_pid, _earlier, %{backend_type: type}) when type != "client backend",
+    do: :not_applicable
+
+  # A session that appeared, or was replaced under a reused pid, during the observation.
+  defp verdict(_pid, nil, _holder), do: :in_flight
+
+  defp verdict(_pid, %{backend_start: started}, %{backend_start: restarted})
+       when started != restarted, do: :in_flight
+
+  # The observing session. `observe/2` has established that no transaction of its own
+  # spans the lock read, so a lock it holds was taken by an earlier statement.
+  defp verdict(_pid, %{self?: true}, _holder), do: :leaked
+
+  defp verdict(_pid, %{state: "idle", state_change: changed}, %{
+         state: "idle",
+         state_change: changed
+       }), do: :leaked
+
+  defp verdict(_pid, _earlier, _holder), do: :in_flight
+
+  defp identity(lock) do
+    {lock.pid, lock.backend_start, lock.classid, lock.objid, lock.objsubid, lock.mode}
+  end
+
+  defp format_lock(lock) do
+    "  #{lock.verdict} pid=#{inspect(lock.pid)} classid=#{lock.classid} objid=#{lock.objid} " <>
+      "objsubid=#{lock.objsubid} mode=#{lock.mode} state=#{inspect(lock.state)} " <>
+      "state_change=#{inspect(lock.state_change)} xact_start=#{inspect(lock.xact_start)} " <>
+      "backend_start=#{inspect(lock.backend_start)} " <>
+      "application_name=#{inspect(lock.application_name)} query=#{inspect(lock.query)}"
+  end
+end
