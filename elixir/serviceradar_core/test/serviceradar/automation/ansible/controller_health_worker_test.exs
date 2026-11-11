@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorkerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerHealthWorker
 
@@ -15,6 +17,11 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorkerTest do
   defmodule FailingAwxClient do
     @moduledoc false
     def ping(_controller, _opts), do: {:error, :unreachable}
+  end
+
+  defmodule OfflineAgentAwxClient do
+    @moduledoc false
+    def ping(controller, _opts), do: {:error, {:agent_offline, controller.agent_id}}
   end
 
   defp controller(overrides \\ %{}) do
@@ -44,9 +51,26 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorkerTest do
     assert opts[:context]["verb"] == "awx.ping"
   end
 
-  test "probe/2 returns the error and does not crash on dispatch failure" do
-    assert {:error, :unreachable} =
-             ControllerHealthWorker.probe(controller(), awx_client: FailingAwxClient)
+  test "probe/2 returns the dispatch error and warns with the reason an operator needs" do
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:error, :unreachable} =
+                 ControllerHealthWorker.probe(controller(), awx_client: FailingAwxClient)
+      end)
+
+    assert log =~ "controller_id=ctrl-uuid-1"
+    assert log =~ "agent_id=agent-a"
+    assert log =~ "reason=:unreachable"
+  end
+
+  test "probe/2 does not warn while the controller's agent has no control session" do
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:error, {:agent_offline, "agent-a"}} =
+                 ControllerHealthWorker.probe(controller(), awx_client: OfflineAgentAwxClient)
+      end)
+
+    refute log =~ "ControllerHealthWorker"
   end
 
   test "perform/1 returns invalid_args when controller_id is missing" do

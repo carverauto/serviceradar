@@ -77,9 +77,10 @@ defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker do
               |> merge_summary(summary)
 
             {:error, reason} ->
-              Logger.warning("Failed to reconcile plugin credential rules for agent",
-                agent_uid: uid,
-                reason: inspect(reason)
+              # In the message: the console formatter prints no call-site metadata.
+              Logger.warning(
+                "Failed to reconcile plugin credential rules for agent " <>
+                  "agent_uid=#{uid} reason=#{inspect(reason)}"
               )
 
               %{acc | failed_agents: acc.failed_agents + 1}

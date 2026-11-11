@@ -493,6 +493,24 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert File.read!(dest) == @body
   end
 
+  @tag :tmp_dir
+  test "a failed ipinfo download logs its reason and never the tokenized URL", ctx do
+    dest = Path.join(ctx.tmp_dir, "ipinfo_lite.mmdb")
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert {:error, {:http_status, 404}} =
+                 IpinfoMmdbDownloadWorker.download_file(
+                   "https://localhost/missing?token=synthetic-token",
+                   dest,
+                   opts(ctx, [])
+                 )
+      end)
+
+    assert log =~ "Ipinfo MMDB download failed reason={:http_status, 404}"
+    refute log =~ "synthetic-token"
+  end
+
   test "refuses a redirect off HTTPS", ctx do
     assert {:error, {:insecure_redirect, "http://localhost/artifact.tar.gz"}} =
              EgressClient.fetch_body("https://localhost/insecure-redirect", opts(ctx, []))

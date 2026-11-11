@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorkerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker
 
   defmodule FakeMaterializer do
@@ -34,11 +36,17 @@ defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorkerTest do
       %{uid: "agent-fail"}
     ]
 
-    assert summary =
-             PluginCredentialRuleReconcileWorker.reconcile_agents(agents,
-               materializer: FakeMaterializer,
-               test_pid: self()
-             )
+    {summary, log} =
+      with_log([level: :warning], fn ->
+        PluginCredentialRuleReconcileWorker.reconcile_agents(agents,
+          materializer: FakeMaterializer,
+          test_pid: self()
+        )
+      end)
+
+    # The console prints only the message, so the failed agent and its reason must be in it.
+    assert log =~ "agent_uid=agent-fail"
+    assert log =~ "reason=:boom"
 
     assert_receive {:reconcile_all, "agent-a"}
     assert_receive {:reconcile_all, "agent-b"}
