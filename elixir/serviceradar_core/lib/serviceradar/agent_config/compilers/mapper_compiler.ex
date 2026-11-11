@@ -34,6 +34,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   @default_max_active_jobs 100
   @default_result_retention "24h"
 
+  # Target credentials are resolved a batch of devices at a time, so the reads
+  # depend on the number of batches and not on the number of devices.
+  @credential_batch_size 250
+
   @impl true
   def config_type, do: :mapper
 
@@ -406,11 +410,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     (seed_devices ++ rule_devices)
     |> Enum.uniq_by(& &1.uid)
     |> Enum.reject(&(is_nil(&1.ip) or &1.ip == ""))
-    |> Enum.reduce_while({:ok, %{}}, fn device, {:ok, targets} ->
-      case CredentialResolver.resolve_for_device(device.uid, actor,
-             agent_id: agent_id,
-             partition: partition
-           ) do
+    |> Stream.chunk_every(@credential_batch_size)
+    |> Stream.flat_map(fn devices ->
+      resolutions =
+        devices
+        |> Enum.map(& &1.uid)
+        |> CredentialResolver.resolve_for_devices(actor, agent_id: agent_id, partition: partition)
+
+      Enum.map(devices, &{&1, Map.fetch!(resolutions, &1.uid)})
+    end)
+    |> Enum.reduce_while({:ok, %{}}, fn {device, resolution}, {:ok, targets} ->
+      case resolution do
         {:ok, %{credential: nil}} ->
           {:cont, {:ok, targets}}
 
@@ -453,8 +463,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   # fails closed on the same read, but mapper discovery still has the seed
   # devices and the default credential fallback to work with.
   defp credential_rule_devices(rule, actor) do
-    case SNMPCompiler.reduce_target_query(rule.target_query, actor, [], fn device, devices ->
-           {:cont, [%{uid: device.uid, ip: device.ip} | devices]}
+    case SNMPCompiler.reduce_target_pages(rule.target_query, actor, [], fn page, devices ->
+           {:cont, Enum.reduce(page, devices, &[%{uid: &1.uid, ip: &1.ip} | &2])}
          end) do
       {:ok, devices} ->
         Enum.reverse(devices)

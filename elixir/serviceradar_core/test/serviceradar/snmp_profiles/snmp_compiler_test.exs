@@ -13,10 +13,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.DependencyDispatcher
   alias ServiceRadar.AgentConfig.DependencyResolvers
+  alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
@@ -1330,7 +1333,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       try do
         assert {:error, {:target_query_failed, _}} =
-                 SNMPCompiler.reduce_target_query("in:devices", actor, [], &collect_device/2)
+                 SNMPCompiler.reduce_target_pages("in:devices", actor, [], &collect_page/2)
       after
         Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
       end
@@ -1436,11 +1439,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor: actor
     } do
       assert {:ok, []} =
-               SNMPCompiler.reduce_target_query(
+               SNMPCompiler.reduce_target_pages(
                  "in:devices type_id:abc",
                  actor,
                  [],
-                 &collect_device/2
+                 &collect_page/2
                )
     end
 
@@ -1795,11 +1798,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       missing = "definitely-no-such-host-#{System.unique_integer([:positive])}"
 
       assert {:ok, []} =
-               SNMPCompiler.reduce_target_query(
+               SNMPCompiler.reduce_target_pages(
                  ~s(in:devices hostname:"#{missing}"),
                  actor,
                  [],
-                 &collect_device/2
+                 &collect_page/2
                )
     end
   end
@@ -1891,7 +1894,273 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
-  defp collect_device(device, devices), do: {:cont, [device | devices]}
+  describe "per-page lookups" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      {:ok, actor: SystemActor.system(:test)}
+    end
+
+    # Polling hosts and credentials are read for a whole page, so compiling 200
+    # devices issues exactly the queries compiling 10 does. Resolving them one
+    # device at a time costs several queries more for every device added.
+    @tag :integration
+    @tag timeout: 300_000
+    test "a page costs the same queries whatever number of devices it holds", %{actor: actor} do
+      gateway_id = "gw-batch-#{System.unique_integer([:positive])}"
+      profile = create_gateway_profile(gateway_id, actor)
+
+      parent = create_gateway_device(actor, "gw-other-#{gateway_id}")
+      managed = create_gateway_device(actor, gateway_id, %{management_device_id: parent.uid})
+      overridden = create_gateway_device(actor, gateway_id)
+
+      # An alias is only preferred over a public canonical address.
+      public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
+      aliased = create_gateway_device(actor, gateway_id, %{ip: public_ip})
+      plain = for _index <- 4..10, do: create_gateway_device(actor, gateway_id)
+
+      DeviceSNMPCredential
+      |> Ash.Changeset.for_create(
+        :create,
+        %{device_id: overridden.uid, version: :v2c, community: "override-community"},
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+      {:ok, alias_state} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: aliased.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: "10.20.30.40",
+            metadata: %{}
+          },
+          actor: actor
+        )
+
+      {:ok, _confirmed} =
+        DeviceAliasState.record_sighting(alias_state, %{confirm_threshold: 1}, actor: actor)
+
+      {small_queries, {:ok, small}} =
+        counting_queries(fn -> SNMPCompiler.compile_profile(profile, actor) end)
+
+      first_ten = [managed, overridden, aliased | plain]
+      assert target_ids(small) == MapSet.new(first_ten, & &1.uid)
+
+      by_id = Map.new(small["targets"], &{&1["id"], &1})
+      assert by_id[managed.uid]["host"] == parent.ip
+      assert by_id[overridden.uid]["community"] == "override-community"
+      assert by_id[aliased.uid]["host"] == "10.20.30.40"
+      assert by_id[hd(plain).uid]["host"] == hd(plain).ip
+      assert by_id[hd(plain).uid]["community"] == "public"
+
+      more =
+        for _index <- 11..200, do: create_gateway_device(actor, gateway_id)
+
+      {large_queries, {:ok, large}} =
+        counting_queries(fn -> SNMPCompiler.compile_profile(profile, actor) end)
+
+      assert target_ids(large) == MapSet.new(first_ten ++ more, & &1.uid)
+
+      assert large_queries == small_queries,
+             "compiling 200 devices took #{large_queries} queries, compiling 10 took #{small_queries}"
+    end
+
+    # A brokered credential still leaves one resolution audit row per device, as
+    # it did when each device resolved on its own, but the secret is read once
+    # and the rows are inserted together.
+    @tag :integration
+    @tag timeout: 300_000
+    test "a brokered rule credential is audited per device in a fixed number of statements", %{
+      actor: actor
+    } do
+      unique = System.unique_integer([:positive])
+      gateway_id = "gw-broker-#{unique}"
+      agent_id = "agent-broker-#{unique}"
+      profile = create_gateway_profile(gateway_id, actor)
+
+      devices =
+        for _index <- 1..200, do: create_gateway_device(actor, gateway_id)
+
+      secret =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Batch rule #{unique}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            secret_payload: "rule-community"
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      rule =
+        NetworkCredentialRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Batch rule #{unique}",
+            provider: "snmp",
+            auth_method: :community,
+            purpose: "snmp_monitoring",
+            target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+            scope_type: :agent,
+            scope_value: agent_id,
+            secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      {queries, {:ok, config}} =
+        counting_queries(fn ->
+          SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+        end)
+
+      assert target_ids(config) == MapSet.new(devices, & &1.uid)
+      assert Enum.all?(config["targets"], &(&1["community"] == "rule-community"))
+
+      {:ok, audits} = CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: actor)
+      assert length(audits) == 200
+      assert Enum.all?(audits, &(&1.outcome == :success and &1.target_id == rule.id))
+
+      assert queries <= 60,
+             "compiling 200 devices behind one brokered rule took #{queries} queries"
+    end
+
+    # Interface queries select devices through their interfaces. Every selected
+    # device is delivered, past the page size, once each, and without the
+    # devices marked inactive; the reads are per page, not per device.
+    @tag :integration
+    @tag timeout: 300_000
+    test "an interface query delivers every in-service device past one page", %{actor: actor} do
+      unique = System.unique_integer([:positive])
+      gateway_id = "gw-interfaces-#{unique}"
+      if_name = "uplink-#{unique}"
+
+      devices =
+        for _index <- 1..260 do
+          device = create_gateway_device(actor, gateway_id)
+          create_interface(actor, device, "ifindex:1", if_name)
+          device
+        end
+
+      create_interface(actor, hd(devices), "ifindex:2", if_name)
+
+      inactive = create_gateway_device(actor, gateway_id)
+      create_interface(actor, inactive, "ifindex:1", if_name)
+      {:ok, _inactive} = Device.mark_inactive(inactive, actor: actor)
+
+      unmatched = create_gateway_device(actor, gateway_id)
+      create_interface(actor, unmatched, "ifindex:1", "other-#{unique}")
+
+      {queries, {:ok, pages}} =
+        counting_queries(fn ->
+          SNMPCompiler.reduce_target_pages(
+            ~s(in:interfaces if_name:"#{if_name}"),
+            actor,
+            [],
+            &{:cont, [&1 | &2]}
+          )
+        end)
+
+      delivered = pages |> Enum.reverse() |> List.flatten() |> Enum.map(& &1.uid)
+
+      assert length(delivered) == 260,
+             "delivered #{length(delivered)} devices in #{length(pages)} pages"
+
+      assert MapSet.new(delivered) == MapSet.new(devices, & &1.uid)
+      assert length(pages) == 2
+
+      assert queries <= 6,
+             "an interface query matching 261 devices took #{queries} queries"
+    end
+  end
+
+  defp create_gateway_profile(gateway_id, actor) do
+    {:ok, template} = create_read_failure_template("Template #{gateway_id}", actor)
+
+    SNMPProfile
+    |> Ash.Changeset.for_create(:create, %{
+      name: "Profile #{gateway_id}",
+      poll_interval: 60,
+      timeout: 5,
+      retries: 3,
+      enabled: true,
+      target_query: ~s(in:devices gateway_id:"#{gateway_id}"),
+      oid_template_ids: [template.id],
+      version: :v2c,
+      community: "public"
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp create_gateway_device(actor, gateway_id, attrs \\ %{}) do
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: "host-#{System.unique_integer([:positive])}.example.com",
+          ip: ServiceRadar.TestSupport.unique_device_ip(),
+          gateway_id: gateway_id,
+          partition: "default"
+        },
+        attrs
+      )
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp create_interface(actor, device, interface_uid, if_name) do
+    Interface
+    |> Ash.Changeset.for_create(:create, %{
+      timestamp: DateTime.truncate(DateTime.utc_now(), :second),
+      device_id: device.uid,
+      interface_uid: interface_uid,
+      if_name: if_name
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp target_ids(config), do: MapSet.new(config["targets"], & &1["id"])
+
+  # Counts the queries the calling process issues while `fun` runs.
+  defp counting_queries(fun) do
+    handler = "snmp-compiler-queries-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:service_radar, :repo, :query],
+        fn _event, _measurements, _metadata, _config ->
+          if self() == test_pid, do: send(test_pid, :repo_query)
+        end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      {drain_queries(0), result}
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  defp drain_queries(count) do
+    receive do
+      :repo_query -> drain_queries(count + 1)
+    after
+      0 -> count
+    end
+  end
+
+  defp collect_page(page, devices), do: {:cont, devices ++ page}
 
   defp unique_test_ip(a, b, value) do
     third = rem(value, 250) + 1

@@ -150,6 +150,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_secret_by_id, action: :by_id_with_secret, args: [:id]
+    define :list_secrets_by_ids, action: :by_ids_with_secret, args: [:ids]
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
     define :schedule_rotation, action: :schedule_rotation
@@ -186,6 +187,14 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+      prepare build(select: @secret_read_fields)
+    end
+
+    # `:by_id_with_secret` for a set: a caller resolving one credential for many
+    # targets loads each referenced secret once instead of once per target.
+    read :by_ids_with_secret do
+      argument :ids, {:array, :uuid}, allow_nil?: false
+      filter expr(id in ^arg(:ids))
       prepare build(select: @secret_read_fields)
     end
 

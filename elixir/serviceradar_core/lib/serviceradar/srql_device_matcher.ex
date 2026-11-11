@@ -44,6 +44,31 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     end
   end
 
+  @doc """
+  Returns which of `device_uids` satisfy `filters`, in one read.
+
+  This is `match_ast/3` for a set of devices: the same default filters and
+  field mappings apply, and the devices are restricted with `uid in` instead
+  of a `uid` filter in the query. A filter that cannot be cast, or a failed
+  read, is returned as `{:error, reason}` for the caller to classify.
+  """
+  @spec matching_uids([filter()], [String.t()], term(), keyword()) ::
+          {:ok, MapSet.t(String.t())} | {:error, term()}
+  def matching_uids(_filters, [], _actor, _opts), do: {:ok, MapSet.new()}
+
+  def matching_uids(filters, device_uids, actor, opts) when is_list(device_uids) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(uid in ^device_uids)
+    |> apply_filters(filters, opts)
+    |> Ash.Query.select([:uid])
+    |> Ash.read(actor: actor, page: [limit: length(device_uids)])
+    |> case do
+      {:ok, %{results: devices}} -> {:ok, MapSet.new(devices, & &1.uid)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec extract_filters(map()) :: [filter()]
   def extract_filters(%{"filters" => filters}) when is_list(filters) do
     Enum.map(filters, fn filter ->

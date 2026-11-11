@@ -12,16 +12,9 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   1. Load all targeting profiles (enabled, non-default, with target_query)
   2. Sort by priority (highest first)
-  3. For each profile, execute the SRQL query with a device UID filter
-  4. Return the first profile where the query matches the device
-
-  ## Query Execution
-
-  For a profile with `target_query: "in:devices tags.role:network-monitor"`, we execute:
-
-      in:devices tags.role:network-monitor uid:{device_uid}
-
-  If this query returns results, the profile matches the device.
+  3. For each profile, read which of the still-unmatched devices its SRQL
+     filters select, in one query restricted to those device UIDs
+  4. Give each device the first profile that selects it
 
   ## Interface Targeting
 
@@ -73,14 +66,30 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   @spec resolve_for_device(String.t() | nil, String.t() | nil, map()) ::
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
   def resolve_for_device(device_uid, agent_id, actor) when is_binary(device_uid) do
-    SRQLProfileResolver.resolve(device_uid, actor,
-      load_profiles: fn actor -> load_targeting_profiles(agent_id, actor) end,
-      match_profile: &matches_device?/3,
-      log_prefix: "SNMPSrqlTargetResolver"
-    )
+    [device_uid]
+    |> resolve_for_devices(agent_id, actor)
+    |> Map.fetch!(device_uid)
   end
 
   def resolve_for_device(nil, _agent_id, _actor), do: {:ok, nil}
+
+  @doc """
+  Resolves the matching SNMP profile for each of `device_uids`.
+
+  Each profile's `target_query` is evaluated once against all the devices it
+  can still claim, so the reads depend on the number of targeting profiles and
+  not on the number of devices. Every device gets the result
+  `resolve_for_device/3` gives it.
+  """
+  @spec resolve_for_devices([String.t()], String.t() | nil, map()) ::
+          %{String.t() => {:ok, SNMPProfile.t() | nil} | {:error, term()}}
+  def resolve_for_devices(device_uids, agent_id, actor) when is_list(device_uids) do
+    SRQLProfileResolver.resolve_many(device_uids, actor,
+      load_profiles: fn actor -> load_targeting_profiles(agent_id, actor) end,
+      match_profiles: &matching_devices/3,
+      log_prefix: "SNMPSrqlTargetResolver"
+    )
+  end
 
   # Load all profiles with SRQL targeting, ordered by priority.
   #
@@ -108,52 +117,32 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     end
   end
 
-  # Check if a profile's target_query matches a device
-  defp matches_device?(profile, device_uid, actor) do
+  # Which of the devices a profile's target_query matches.
+  #
+  # An interface query is not evaluated against interfaces here: any device
+  # that exists and is in service is taken to match, as before.
+  defp matching_devices(profile, device_uids, actor) do
     target_query = profile.target_query
 
-    if is_nil(target_query) or target_query == "" do
-      {:ok, false}
-    else
-      # Determine if this is a device or interface query
-      if String.starts_with?(target_query, "in:interfaces") do
-        # Interface targeting - check if device has matching interfaces
-        match_via_interfaces(device_uid, actor)
-      else
-        # Device targeting - check if device matches directly
-        combined_query = String.trim(target_query) <> " uid:\"#{device_uid}\""
-        execute_device_match(combined_query, actor)
-      end
+    cond do
+      is_nil(target_query) or target_query == "" ->
+        {:ok, MapSet.new()}
+
+      String.starts_with?(target_query, "in:interfaces") ->
+        match_devices([], device_uids, actor)
+
+      true ->
+        with {:ok, ast} <- SRQLAst.parse(String.trim(target_query)) do
+          ast
+          |> SRQLDeviceMatcher.extract_filters()
+          |> match_devices(device_uids, actor)
+        end
     end
   end
 
-  # Execute a device match query
-  defp execute_device_match(query_string, actor) do
-    with {:ok, ast} <- parse_query_ast(query_string) do
-      check_device_exists(ast, actor)
-    end
-  end
-
-  # For interface targeting, check if the device has any matching interfaces
-  # This is a simplified approach - for full interface targeting we'd query the interfaces table
-  defp match_via_interfaces(device_uid, actor) do
-    # Transform interface query to device query by adding device.uid filter
-    # e.g., "in:interfaces type:ethernet" -> check if device with uid has any interfaces
-    # For now, we do a simple device lookup and assume interface targeting works
-    # A full implementation would join with interfaces table
-    device_query = "in:devices uid:\"#{device_uid}\""
-
-    with {:ok, ast} <- parse_query_ast(device_query) do
-      check_device_exists(ast, actor)
-    end
-  end
-
-  defp parse_query_ast(query_string) do
-    SRQLAst.parse(query_string)
-  end
-
-  # Check if any devices match the parsed SRQL filters
-  defp check_device_exists(ast, actor) do
-    SRQLDeviceMatcher.match_ast(ast, actor, log_prefix: "SNMPSrqlTargetResolver")
+  defp match_devices(filters, device_uids, actor) do
+    SRQLDeviceMatcher.matching_uids(filters, device_uids, actor,
+      log_prefix: "SNMPSrqlTargetResolver"
+    )
   end
 end
