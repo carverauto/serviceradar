@@ -299,7 +299,8 @@ There is no external provisioning endpoint or automatic registration at startup.
 
 This resource is identity evidence only. It has no update, deletion or activation
 action and grants no qualification, recording, local-copy registration or playback
-permission. Current eligibility, scoped activation and withdrawal remain pending.
+permission. Scoped activation and withdrawal are separate decisions; see
+[Current local storage qualification](#current-local-storage-qualification).
 Existing installations stay unqualified; accepted publication intents and S3
 archive state keep their existing meanings.
 
