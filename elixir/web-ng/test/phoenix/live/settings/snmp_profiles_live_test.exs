@@ -5,9 +5,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -55,6 +57,113 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
              lv,
              "input[name='form[community]'][placeholder='Leave blank to keep existing']"
            )
+  end
+
+  test "the profile list marks a profile that has grown past its target limit", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    agent_id = "agent-limit-#{unique}"
+    vendor = "Limit Vendor #{unique}"
+
+    PipelineSetting
+    |> Ash.Changeset.for_create(:upsert, %{
+      scope: :agent,
+      scope_key: agent_id,
+      snmp_max_targets: 1
+    })
+    |> Ash.create!(scope: scope)
+
+    device_fixture(%{vendor_name: vendor})
+
+    {:ok, grown} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Grown #{unique}",
+        community: "secret",
+        target_query: ~s(in:devices vendor_name:"#{vendor}"),
+        agent_ids: [agent_id]
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, within} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Within #{unique}",
+        community: "secret",
+        target_query: ~s(in:devices vendor_name:"Other #{vendor}"),
+        agent_ids: [agent_id]
+      })
+      |> Ash.create(scope: scope)
+
+    device_fixture(%{vendor_name: vendor})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert lv
+           |> element("#snmp-profile-#{grown.id}-target-limit")
+           |> render() =~ "more than 1 targets for agent #{agent_id}"
+
+    refute has_element?(lv, "#snmp-profile-#{within.id}-target-limit")
+  end
+
+  test "the target limit badge follows explicit targets added and deleted in the same view", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    agent_id = "agent-explicit-limit-#{unique}"
+    vendor = "Explicit Limit Vendor #{unique}"
+
+    PipelineSetting
+    |> Ash.Changeset.for_create(:upsert, %{
+      scope: :agent,
+      scope_key: agent_id,
+      snmp_max_targets: 1
+    })
+    |> Ash.create!(scope: scope)
+
+    device_fixture(%{vendor_name: vendor})
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Explicit #{unique}",
+        community: "secret",
+        target_query: ~s(in:devices vendor_name:"#{vendor}"),
+        agent_ids: [agent_id]
+      })
+      |> Ash.create(scope: scope)
+
+    badge = "#snmp-profile-#{profile.id}-target-limit"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+    refute has_element?(lv, badge)
+
+    render_patch(lv, ~p"/settings/snmp/#{profile.id}/edit")
+    render_hook(lv, "open_target_modal", %{})
+
+    render_hook(lv, "save_target", %{
+      "target" => %{
+        "name" => "explicit-#{unique}",
+        "host" => "192.0.2.10",
+        "port" => "161",
+        "version" => "v2c",
+        "community" => "secret"
+      }
+    })
+
+    [target] = Data.load_profile_targets(scope, profile.id)
+
+    render_patch(lv, ~p"/settings/snmp")
+    assert lv |> element(badge) |> render() =~ "more than 1 targets for agent #{agent_id}"
+
+    render_patch(lv, ~p"/settings/snmp/#{profile.id}/edit")
+    render_hook(lv, "delete_target", %{"id" => target.id})
+
+    render_patch(lv, ~p"/settings/snmp")
+    refute has_element?(lv, badge)
   end
 
   test "new profile form renders the agent targeting selector", %{conn: conn} do

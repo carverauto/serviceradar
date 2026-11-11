@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.SNMPProfiles.TargetLimit
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
@@ -23,7 +24,28 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     socket
     |> assign(:profiles, profiles)
     |> assign(:profile_target_counts, profile_target_counts)
+    |> assign_profile_target_refusals(profiles)
     |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
+  end
+
+  @doc """
+  Assigns, per enabled profile over its target limit, the message the compiler
+  logs when it refuses that profile. The count is the compiler's own and stops
+  one past the limit. Nothing is read before the socket connects.
+  """
+  def assign_profile_target_refusals(socket, profiles) do
+    refusals =
+      if connected?(socket) do
+        for profile <- profiles,
+            profile.enabled,
+            refusal <- Enum.take(TargetLimit.refusals(profile), 1),
+            into: %{},
+            do: {profile.id, TargetLimit.message(refusal)}
+      else
+        %{}
+      end
+
+    assign(socket, :profile_target_refusals, refusals)
   end
 
   def load_profiles_with_counts(scope) do

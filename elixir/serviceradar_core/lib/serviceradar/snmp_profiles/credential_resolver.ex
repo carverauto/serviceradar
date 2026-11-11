@@ -8,9 +8,13 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   2. Matching SNMP credential rule (provider snmp, purpose snmp_monitoring)
   3. Profile credentials (SRQL targeting + default fallback)
   4. None
+
+  `resolve_for_devices/3` is the one implementation of that order;
+  `resolve_for_device/3` is the same resolution for a single device.
   """
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -50,26 +54,331 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   end
 
   def resolve_for_device(device_uid, actor, opts) when is_binary(device_uid) do
-    case load_device_override(device_uid, actor) do
-      {:ok, %DeviceSNMPCredential{} = override} ->
-        credential =
-          build_credential(override, actor,
-            consumer_id: "device_snmp_credential:#{override.id}",
-            target_kind: "device",
-            target_id: device_uid
-          )
+    [device_uid]
+    |> resolve_for_devices(actor, opts)
+    |> Map.fetch!(device_uid)
+  end
 
-        case credential do
-          {:error, reason} -> {:error, reason}
-          credential -> {:ok, %{credential: credential, profile: nil, source: :device_override}}
-        end
+  @doc """
+  Resolve credentials for many device UIDs with a fixed number of reads.
 
-      {:ok, nil} ->
-        resolve_rule_or_profile(device_uid, actor, opts)
+  Every device gets the result `resolve_for_device/3` gives it, with the same
+  precedence. The reads are per kind, not per device: one for the device
+  overrides, one per rule scope, one per credential rule and one per targeting
+  profile to find which devices each selects, one per distinct profile and
+  credential secret used, and one insert for the resolution audit rows of the
+  whole call. Callers page their devices and call this once per page.
+
+  A failed read is reported on every device whose result depended on it, so a
+  caller that fails on the first read failure behaves as it did device by
+  device.
+
+  `opts` takes `:agent_id` and `:partition` (the credential rule scopes),
+  `:fallback_profile`: a profile whose own credential is used for a device
+  that resolves no credential, reported with source `:fallback_profile`, and
+  `:bulk_audit`: the handle `with_bulk_audit/2` yields. Without that handle
+  every brokered resolution writes its own audit row, as a single resolution
+  does.
+  """
+  @spec resolve_for_devices([String.t()], map(), keyword()) ::
+          %{
+            String.t() =>
+              {:ok,
+               %{
+                 credential: credential_map() | nil,
+                 profile: SNMPProfile.t() | nil,
+                 source: atom()
+               }}
+              | {:error, term()}
+          }
+  def resolve_for_devices(device_uids, actor, opts \\ []) when is_list(device_uids) do
+    device_uids = Enum.uniq(device_uids)
+
+    case Keyword.get(opts, :bulk_audit) do
+      nil ->
+        with_collected_audits(fn audit_sink ->
+          resolve_devices(device_uids, actor, opts, fn attrs, _device_uid ->
+            audit_sink.(attrs)
+          end)
+        end)
+
+      bulk_audit ->
+        resolve_devices(device_uids, actor, opts, &collect_bulk_audit(bulk_audit, &1, &2))
+    end
+  end
+
+  @doc """
+  Runs `fun` as one bulk resolution pass and audits it as one.
+
+  `fun` receives a handle to pass as `opts[:bulk_audit]` to every
+  `resolve_for_devices/3` call of the pass, typically one compile of one
+  config. Brokered resolutions made with it are not audited one row per device.
+  When `fun` returns or raises, one audit row is written for each distinct
+  secret, consumer and outcome the pass resolved, with the usual columns and
+  this `metadata`:
+
+  - `resolution_count`: how many device resolutions the row stands for
+  - `first_device_uid` and `last_device_uid`: the first and last device, in
+    resolution order
+  - `device_set_sha256`: SHA-256 over those device UIDs in resolution order,
+    each followed by a newline, to check a claimed device set against
+  - `run_id`: one value shared by every row of the pass
+  - `partition`: the pass's partition, when it has one
+
+  A row whose resolutions each targeted a device has `target_kind`
+  `device_set` and the digest as `target_id`. `context` gives `:agent_id` and
+  `:partition`; the agent is recorded in the row's `agent_id`.
+  """
+  @spec with_bulk_audit(keyword(), (term() -> result)) :: result when result: term()
+  def with_bulk_audit(context, fun) when is_list(context) and is_function(fun, 1) do
+    bulk_audit = {__MODULE__, :bulk_audit, make_ref()}
+    Process.put(bulk_audit, %{})
+
+    try do
+      fun.(bulk_audit)
+    after
+      bulk_audit
+      |> Process.delete()
+      |> bulk_audit_rows(context)
+      |> SecretBroker.write_audits()
+    end
+  end
+
+  @bulk_audit_group_fields [
+    :secret_id,
+    :secret_provider_id,
+    :grant_id,
+    :consumer_kind,
+    :consumer_id,
+    :purpose,
+    :target_kind,
+    :agent_id,
+    :resolution_location,
+    :outcome,
+    :error_class,
+    :cache_status
+  ]
+
+  # Resolutions that differ only in the device they were made for share a row.
+  defp collect_bulk_audit(bulk_audit, attrs, device_uid) do
+    group = {Map.take(attrs, @bulk_audit_group_fields), shared_target_id(attrs)}
+    groups = Process.get(bulk_audit, %{})
+
+    entry =
+      case Map.get(groups, group) do
+        nil ->
+          %{
+            attrs: attrs,
+            count: 1,
+            first: device_uid,
+            last: device_uid,
+            digest: digest_device(:crypto.hash_init(:sha256), device_uid)
+          }
+
+        entry ->
+          %{
+            entry
+            | count: entry.count + 1,
+              last: device_uid,
+              digest: digest_device(entry.digest, device_uid)
+          }
+      end
+
+    Process.put(bulk_audit, Map.put(groups, group, entry))
+  end
+
+  defp shared_target_id(%{target_kind: "device"}), do: nil
+  defp shared_target_id(attrs), do: Map.get(attrs, :target_id)
+
+  defp digest_device(digest, device_uid), do: :crypto.hash_update(digest, [device_uid, "\n"])
+
+  defp bulk_audit_rows(groups, context) when is_map(groups) do
+    run_id = Ecto.UUID.generate()
+
+    Enum.map(groups, fn {_group, entry} ->
+      digest = entry.digest |> :crypto.hash_final() |> Base.encode16(case: :lower)
+
+      metadata =
+        Map.reject(
+          %{
+            "resolution_count" => entry.count,
+            "first_device_uid" => entry.first,
+            "last_device_uid" => entry.last,
+            "device_set_sha256" => digest,
+            "run_id" => run_id,
+            "partition" => Keyword.get(context, :partition)
+          },
+          fn {_key, value} -> is_nil(value) end
+        )
+
+      entry.attrs
+      |> Map.put(:metadata, Map.merge(Map.get(entry.attrs, :metadata) || %{}, metadata))
+      |> Map.put(:agent_id, Map.get(entry.attrs, :agent_id) || Keyword.get(context, :agent_id))
+      |> put_device_set_target(digest)
+    end)
+  end
+
+  defp bulk_audit_rows(_groups, _context), do: []
+
+  defp put_device_set_target(%{target_kind: "device"} = attrs, digest),
+    do: %{attrs | target_kind: "device_set", target_id: digest}
+
+  defp put_device_set_target(attrs, _digest), do: attrs
+
+  # Resolution audit rows are collected while the devices resolve and written
+  # together, including when resolution raises part-way.
+  defp with_collected_audits(fun) do
+    key = {__MODULE__, :resolution_audits, make_ref()}
+    Process.put(key, [])
+
+    try do
+      fun.(fn attrs -> Process.put(key, [attrs | Process.get(key, [])]) end)
+    after
+      key
+      |> Process.delete()
+      |> List.wrap()
+      |> Enum.reverse()
+      |> SecretBroker.write_audits()
+    end
+  end
+
+  defp resolve_devices(device_uids, actor, opts, audit_collector) do
+    case load_device_overrides(device_uids, actor) do
+      {:ok, overrides} ->
+        {overridden, others} = Enum.split_with(device_uids, &is_map_key(overrides, &1))
+        secrets = load_secrets(%{}, Map.values(overrides), actor)
+        build_opts = [loaded_secrets: secrets, audit_collector: audit_collector]
+
+        overridden
+        |> Map.new(&{&1, override_result(Map.fetch!(overrides, &1), &1, actor, build_opts)})
+        |> Map.merge(resolve_rules_and_profiles(others, actor, opts, build_opts))
+        |> apply_fallback_profile(Keyword.get(opts, :fallback_profile), actor, build_opts)
 
       {:error, reason} ->
-        {:error, reason}
+        put_all(%{}, device_uids, {:error, reason})
     end
+  end
+
+  defp override_result(override, device_uid, actor, build_opts) do
+    credential =
+      build_credential(
+        override,
+        actor,
+        [
+          consumer_id: "device_snmp_credential:#{override.id}",
+          target_kind: "device",
+          target_id: device_uid
+        ] ++ for_device(build_opts, device_uid)
+      )
+
+    case credential do
+      {:error, reason} -> {:error, reason}
+      credential -> {:ok, %{credential: credential, profile: nil, source: :device_override}}
+    end
+  end
+
+  defp resolve_rules_and_profiles([], _actor, _opts, _build_opts), do: %{}
+
+  defp resolve_rules_and_profiles(device_uids, actor, opts, build_opts) do
+    rule_matches = match_snmp_rules(device_uids, actor, opts)
+    matched_rules = for {:ok, rule} <- Map.values(rule_matches), uniq: true, do: rule
+    build_opts = put_loaded_secrets(build_opts, Enum.map(matched_rules, &rule_record/1), actor)
+
+    rule_credentials =
+      Map.new(device_uids, fn device_uid ->
+        case Map.fetch!(rule_matches, device_uid) do
+          {:ok, rule} ->
+            {device_uid, build_rule_credential(rule, actor, for_device(build_opts, device_uid))}
+
+          other ->
+            {device_uid, other}
+        end
+      end)
+
+    # A device whose rule credential failed never reaches profile resolution.
+    pending = Enum.reject(device_uids, &match?({:error, _}, Map.fetch!(rule_credentials, &1)))
+    profiles = resolve_profiles(pending, actor)
+
+    build_opts =
+      put_loaded_secrets(build_opts, profiles |> Map.values() |> Enum.filter(&is_struct/1), actor)
+
+    Map.new(device_uids, fn device_uid ->
+      result =
+        case Map.fetch!(rule_credentials, device_uid) do
+          {:error, reason} ->
+            {:error, reason}
+
+          rule_credential ->
+            rule_or_profile_result(
+              rule_credential,
+              Map.fetch!(profiles, device_uid),
+              device_uid,
+              actor,
+              build_opts
+            )
+        end
+
+      {device_uid, result}
+    end)
+  end
+
+  defp rule_or_profile_result(_rule_credential, {:error, reason}, _uid, _actor, _build_opts),
+    do: {:error, reason}
+
+  defp rule_or_profile_result({:ok, credential}, profile, _uid, _actor, _build_opts),
+    do: {:ok, %{credential: credential, profile: profile, source: :credential_rule}}
+
+  defp rule_or_profile_result(:none, profile, device_uid, actor, build_opts) do
+    credential =
+      build_credential(
+        profile,
+        actor,
+        [
+          consumer_id: profile && "snmp_profile:#{profile.id}",
+          target_kind: "device",
+          target_id: device_uid
+        ] ++ for_device(build_opts, device_uid)
+      )
+
+    case credential do
+      {:error, reason} ->
+        {:error, reason}
+
+      credential ->
+        if credential_present?(credential) do
+          {:ok, %{credential: credential, profile: profile, source: :profile}}
+        else
+          {:ok, %{credential: nil, profile: profile, source: :none}}
+        end
+    end
+  end
+
+  defp apply_fallback_profile(results, nil, _actor, _build_opts), do: results
+
+  defp apply_fallback_profile(results, fallback, actor, build_opts) do
+    build_opts =
+      [
+        consumer_id: "snmp_profile:#{fallback.id}",
+        target_kind: "snmp_profile",
+        target_id: fallback.id
+      ] ++ put_loaded_secrets(build_opts, [fallback], actor)
+
+    Map.new(results, fn
+      {device_uid, {:ok, %{credential: credential} = resolution}} when not is_map(credential) ->
+        case build_credential(fallback, actor, for_device(build_opts, device_uid)) do
+          {:error, reason} ->
+            {device_uid, {:error, reason}}
+
+          credential when is_map(credential) ->
+            {device_uid, {:ok, %{resolution | credential: credential, source: :fallback_profile}}}
+
+          _no_credential ->
+            {device_uid, {:ok, resolution}}
+        end
+
+      resolved ->
+        resolved
+    end)
   end
 
   @doc """
@@ -83,7 +392,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
            %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
   def resolve_default(actor, opts \\ []) do
-    case resolve_rule_credential(opts, nil, actor) do
+    case resolve_unscoped_rule_credential(opts, actor) do
       {:ok, credential} ->
         case get_default_profile(actor) do
           {:error, reason} ->
@@ -156,7 +465,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   end
 
   defp resolve_unbound_host(actor, opts) do
-    case resolve_rule_credential(opts, nil, actor) do
+    case resolve_unscoped_rule_credential(opts, actor) do
       {:ok, credential} ->
         {:ok, %{credential: credential, profile: nil, source: :credential_rule}}
 
@@ -317,6 +626,12 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   object with SNMP keys such as `version`, `community`, `username`,
   `security_level`, `auth_protocol`, `auth_password`, `priv_protocol`, and
   `priv_password`.
+
+  `opts[:loaded_secrets]` maps a secret ID to `{:ok, secret}` or
+  `{:error, reason}` for secrets the caller already read, and
+  `opts[:audit_sink]` defers the resolution audit row; `resolve_for_devices/3`
+  uses both to resolve one secret for many devices without a read or an insert
+  per device.
   """
   @spec build_credential(map() | nil, map(), keyword()) ::
           credential_map() | nil | {:error, term()}
@@ -334,18 +649,31 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp resolve_profile(device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
-      {:ok, %SNMPProfile{} = profile} ->
-        load_profile(profile.id, actor)
+  # The profile each device's credentials come from: the profile targeting it,
+  # else the default. A profile is read once however many devices share it.
+  defp resolve_profiles([], _actor), do: %{}
 
-      {:ok, nil} ->
-        get_default_profile(actor)
+  defp resolve_profiles(device_uids, actor) do
+    targeting = SrqlTargetResolver.resolve_for_devices(device_uids, nil, actor)
 
-      {:error, reason} ->
-        Logger.error("SNMPCredentialResolver: SRQL targeting failed - #{inspect(reason)}")
-        {:error, reason}
-    end
+    {resolved, _loaded} =
+      Enum.map_reduce(device_uids, %{}, fn device_uid, loaded ->
+        case Map.fetch!(targeting, device_uid) do
+          {:ok, %SNMPProfile{id: id}} ->
+            loaded = Map.put_new_lazy(loaded, id, fn -> load_profile(id, actor) end)
+            {{device_uid, Map.fetch!(loaded, id)}, loaded}
+
+          {:ok, nil} ->
+            loaded = Map.put_new_lazy(loaded, :default, fn -> get_default_profile(actor) end)
+            {{device_uid, Map.fetch!(loaded, :default)}, loaded}
+
+          {:error, reason} ->
+            Logger.error("SNMPCredentialResolver: SRQL targeting failed - #{inspect(reason)}")
+            {{device_uid, {:error, reason}}, loaded}
+        end
+      end)
+
+    Map.new(resolved)
   end
 
   defp get_default_profile(actor) do
@@ -373,6 +701,66 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp load_device_overrides(device_uids, actor) do
+    DeviceSNMPCredential
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(device_id in ^device_uids)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, overrides} -> {:ok, Map.new(overrides, &{&1.device_id, &1})}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Reads the secrets `records` reference that are not loaded yet, in one
+  # query. A secret that query does not return is read on its own once, so its
+  # failure is the one a single resolution reports.
+  defp load_secrets(loaded, records, actor) do
+    secret_ids =
+      records
+      |> Enum.map(&credential_secret_id/1)
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+      |> Enum.reject(&is_map_key(loaded, &1))
+
+    case secret_ids do
+      [] ->
+        loaded
+
+      secret_ids ->
+        case NetworkCredentialSecret.list_secrets_by_ids(secret_ids, actor: actor) do
+          {:ok, secrets} ->
+            found = Map.new(secrets, &{to_string(&1.id), {:ok, &1}})
+
+            Enum.reduce(secret_ids, loaded, fn secret_id, loaded ->
+              Map.put(
+                loaded,
+                secret_id,
+                Map.get_lazy(found, secret_id, fn ->
+                  NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor)
+                end)
+              )
+            end)
+
+          {:error, reason} ->
+            put_all(loaded, secret_ids, {:error, reason})
+        end
+    end
+  end
+
+  # The broker's audit sink for one device: its row reaches the collector with
+  # the device it was resolved for.
+  defp for_device(build_opts, device_uid) do
+    {collector, build_opts} = Keyword.pop!(build_opts, :audit_collector)
+    Keyword.put(build_opts, :audit_sink, &collector.(&1, device_uid))
+  end
+
+  defp put_loaded_secrets(build_opts, records, actor) do
+    Keyword.update!(build_opts, :loaded_secrets, &load_secrets(&1, records, actor))
+  end
+
+  defp put_all(results, keys, value), do: Enum.reduce(keys, results, &Map.put(&2, &1, value))
 
   defp load_device_override(device_uid, actor) do
     DeviceSNMPCredential
@@ -477,12 +865,20 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
           purpose: Keyword.get(opts, :purpose, "snmp_monitoring"),
           target_kind: Keyword.get(opts, :target_kind) || record_target_kind(record),
           target_id: Keyword.get(opts, :target_id) || record_id(record),
-          resolution_location: Keyword.get(opts, :resolution_location, :control_plane)
+          resolution_location: Keyword.get(opts, :resolution_location, :control_plane),
+          audit_sink: Keyword.get(opts, :audit_sink)
         ],
         fn {_key, value} -> is_nil(value) end
       )
 
-    case SecretBroker.resolve_network_credential_secret(secret_id, broker_opts) do
+    resolution =
+      case opts |> Keyword.get(:loaded_secrets, %{}) |> Map.get(secret_id) do
+        {:ok, secret} -> SecretBroker.resolve_loaded_secret(secret, broker_opts)
+        {:error, reason} -> {:error, reason}
+        nil -> SecretBroker.resolve_network_credential_secret(secret_id, broker_opts)
+      end
+
+    case resolution do
       {:ok, %{value: payload, secret: secret}} ->
         finalize_credential(parse_broker_payload(payload, record, secret))
 
@@ -688,89 +1084,53 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     Map.reject(map, fn {_key, value} -> value in [nil, ""] end)
   end
 
-  defp resolve_rule_or_profile(device_uid, actor, opts) do
-    case resolve_rule_credential(opts, device_uid, actor) do
-      {:ok, credential} ->
-        with_resolved_profile(device_uid, actor, fn profile ->
-          {:ok,
-           %{
-             credential: credential,
-             profile: profile,
-             source: :credential_rule
-           }}
-        end)
+  # The first enabled SNMP monitoring rule in scope, for a caller with no device.
+  defp resolve_unscoped_rule_credential(opts, actor) do
+    case load_snmp_rules(opts, actor) do
+      {:ok, [rule | _]} -> build_rule_credential(rule, actor, [])
+      {:ok, []} -> :none
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_snmp_rules(opts, actor) do
+    opts
+    |> snmp_rule_scopes()
+    |> Enum.reduce_while({:ok, []}, fn {scope_type, scope_value}, {:ok, rules} ->
+      case NetworkCredentialRule.list_enabled_for_scope("snmp", scope_type, scope_value,
+             actor: actor
+           ) do
+        {:ok, scoped} -> {:cont, {:ok, rules ++ List.wrap(scoped)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, rules} -> {:ok, Enum.filter(rules, &snmp_monitoring_rule?/1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Gives each device its first matching rule, in rule order, as
+  # `{:ok, rule}`, `:none`, or the read failure that stopped its matching.
+  defp match_snmp_rules(device_uids, actor, opts) do
+    case load_snmp_rules(opts, actor) do
+      {:ok, rules} -> assign_snmp_rules(rules, device_uids, actor, %{})
+      {:error, reason} -> put_all(%{}, device_uids, {:error, reason})
+    end
+  end
+
+  defp assign_snmp_rules(_rules, [], _actor, matches), do: matches
+
+  defp assign_snmp_rules([], unmatched, _actor, matches), do: put_all(matches, unmatched, :none)
+
+  defp assign_snmp_rules([rule | rest], unmatched, actor, matches) do
+    case snmp_rule_matches(rule, unmatched, actor) do
+      {:ok, matched} ->
+        {hits, misses} = Enum.split_with(unmatched, &MapSet.member?(matched, &1))
+        assign_snmp_rules(rest, misses, actor, put_all(matches, hits, {:ok, rule}))
 
       {:error, reason} ->
-        {:error, reason}
-
-      :none ->
-        with_resolved_profile(device_uid, actor, fn profile ->
-          credential =
-            build_credential(profile, actor,
-              consumer_id: profile && "snmp_profile:#{profile.id}",
-              target_kind: "device",
-              target_id: device_uid
-            )
-
-          case credential do
-            {:error, reason} ->
-              {:error, reason}
-
-            credential ->
-              if credential_present?(credential) do
-                {:ok, %{credential: credential, profile: profile, source: :profile}}
-              else
-                {:ok, %{credential: nil, profile: profile, source: :none}}
-              end
-          end
-        end)
-    end
-  end
-
-  defp with_resolved_profile(device_uid, actor, fun) do
-    case resolve_profile(device_uid, actor) do
-      {:error, reason} -> {:error, reason}
-      profile -> fun.(profile)
-    end
-  end
-
-  defp resolve_rule_credential(opts, device_uid, actor) do
-    scopes = snmp_rule_scopes(opts)
-
-    if scopes == [] do
-      :none
-    else
-      scopes
-      |> Enum.reduce_while([], fn {scope_type, scope_value}, acc ->
-        case NetworkCredentialRule.list_enabled_for_scope(
-               "snmp",
-               scope_type,
-               scope_value,
-               actor: actor
-             ) do
-          {:ok, rules} -> {:cont, acc ++ List.wrap(rules)}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-      |> case do
-        {:error, reason} ->
-          {:error, reason}
-
-        rules ->
-          rules
-          |> Enum.filter(&snmp_monitoring_rule?/1)
-          |> first_matching_snmp_rule(device_uid, actor)
-          |> case do
-            {:error, reason} ->
-              {:error, reason}
-
-            nil ->
-              :none
-
-            rule ->
-              build_rule_credential(rule, actor)
-          end
-      end
+        put_all(matches, unmatched, {:error, reason})
     end
   end
 
@@ -792,68 +1152,58 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp first_matching_snmp_rule(rules, device_uid, actor) do
-    Enum.reduce_while(rules, nil, fn rule, _none ->
-      case snmp_rule_matches?(rule, device_uid, actor) do
-        {:ok, true} -> {:halt, rule}
-        {:ok, false} -> {:cont, nil}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp snmp_rule_matches?(_rule, nil, _actor), do: {:ok, true}
-
-  defp snmp_rule_matches?(rule, device_uid, actor) when is_binary(device_uid) do
+  defp snmp_rule_matches(rule, device_uids, actor) do
     query = rule.target_query |> to_string() |> String.trim()
 
     if query in ["", "in:devices"] do
-      {:ok, true}
+      {:ok, MapSet.new(device_uids)}
     else
       case SRQLAst.parse(query) do
         {:ok, ast} ->
-          filters = SRQLDeviceMatcher.extract_filters(ast)
-
-          Device
-          |> Ash.Query.for_read(:read, %{}, actor: actor)
-          |> Ash.Query.filter(uid == ^device_uid)
-          |> SRQLDeviceMatcher.apply_filters(filters, log_prefix: "SNMPCredentialResolver")
-          |> Ash.Query.limit(1)
-          |> Ash.read_one(actor: actor)
+          ast
+          |> SRQLDeviceMatcher.extract_filters()
+          |> SRQLDeviceMatcher.matching_uids(device_uids, actor,
+            log_prefix: "SNMPCredentialResolver"
+          )
           |> case do
-            {:ok, %Device{}} ->
-              {:ok, true}
-
-            {:ok, nil} ->
-              {:ok, false}
+            {:ok, matched} ->
+              {:ok, matched}
 
             {:error, reason} ->
-              if credential_read_failure?(reason), do: {:error, reason}, else: {:ok, false}
+              if credential_read_failure?(reason),
+                do: {:error, reason},
+                else: {:ok, MapSet.new()}
           end
 
         _ ->
-          {:ok, false}
+          {:ok, MapSet.new()}
       end
     end
   end
 
-  defp build_rule_credential(rule, actor) do
-    secret_id = Map.get(rule, :secret_id)
+  defp rule_record(rule) do
+    %{
+      version: rule_version(rule),
+      credential_secret_id: Map.get(rule, :secret_id),
+      id: Map.get(rule, :id)
+    }
+  end
 
-    if is_nil(secret_id) or secret_id == "" do
+  defp build_rule_credential(rule, actor, build_opts) do
+    record = rule_record(rule)
+
+    if record.credential_secret_id in [nil, ""] do
       :none
     else
-      record = %{
-        version: rule_version(rule),
-        credential_secret_id: secret_id,
-        id: Map.get(rule, :id)
-      }
-
-      case build_credential(record, actor,
-             consumer_id: "credential_rule:#{rule.id}",
-             target_kind: "credential_rule",
-             target_id: rule.id,
-             purpose: "snmp_monitoring"
+      case build_credential(
+             record,
+             actor,
+             [
+               consumer_id: "credential_rule:#{rule.id}",
+               target_kind: "credential_rule",
+               target_id: rule.id,
+               purpose: "snmp_monitoring"
+             ] ++ build_opts
            ) do
         {:error, reason} -> {:error, reason}
         nil -> :none

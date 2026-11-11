@@ -9,6 +9,9 @@ defmodule ServiceRadar.Edge.PipelineSetting do
 
   The pipeline itself has no switch; these are its knobs: how far ahead sweeps are leased,
   and the agent spool byte budget. No row is needed for either.
+
+  The table also holds one setting that is not about the pipeline, because it is scoped the
+  same way: `snmp_max_targets`, the most targets one SNMP profile may compile for one agent.
   """
 
   use Ash.Resource,
@@ -16,7 +19,14 @@ defmodule ServiceRadar.Edge.PipelineSetting do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  @fields [:scope, :scope_key, :horizon_seconds, :max_horizon_seconds, :spool_max_bytes]
+  @fields [
+    :scope,
+    :scope_key,
+    :horizon_seconds,
+    :max_horizon_seconds,
+    :spool_max_bytes,
+    :snmp_max_targets
+  ]
 
   postgres do
     table "edge_pipeline_settings"
@@ -33,7 +43,14 @@ defmodule ServiceRadar.Edge.PipelineSetting do
       accept @fields
       upsert? true
       upsert_identity :unique_scope
-      upsert_fields [:horizon_seconds, :max_horizon_seconds, :spool_max_bytes, :updated_at]
+
+      upsert_fields [
+        :horizon_seconds,
+        :max_horizon_seconds,
+        :spool_max_bytes,
+        :snmp_max_targets,
+        :updated_at
+      ]
     end
   end
 
@@ -80,6 +97,13 @@ defmodule ServiceRadar.Edge.PipelineSetting do
       constraints min: 64 * 1024 * 1024
 
       description "The agent edge-record spool byte budget (minimum 64 MiB); nil inherits, and the default is 1 GiB"
+    end
+
+    attribute :snmp_max_targets, :integer do
+      public? true
+      constraints min: 1
+
+      description "The most targets one SNMP profile may compile for one agent; nil inherits, and the default is 10,000"
     end
 
     create_timestamp :inserted_at

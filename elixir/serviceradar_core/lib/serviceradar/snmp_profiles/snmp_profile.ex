@@ -72,6 +72,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.SNMPProfiles.Changes.CheckTargetLimit
   alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
   alias ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
   alias ServiceRadar.SNMPProfiles.CredentialDsl
@@ -123,6 +124,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
 
       change ValidateSrqlQuery
       change EncryptCredentials
+      change CheckTargetLimit
     end
 
     update :update do
@@ -133,6 +135,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       require_atomic? false
       change ValidateSrqlQuery
       change EncryptCredentials
+      change CheckTargetLimit
     end
 
     update :set_as_default do

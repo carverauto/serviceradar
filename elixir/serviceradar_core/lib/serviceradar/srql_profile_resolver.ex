@@ -19,6 +19,71 @@ defmodule ServiceRadar.SRQLProfileResolver do
     end
   end
 
+  @doc """
+  Resolves the matching profile for each of `device_uids`.
+
+  The profiles are loaded once and each is evaluated against every device it
+  can still claim with one `:match_profiles` call, `(profile, device_uids,
+  actor -> {:ok, MapSet.t()} | {:error, reason})`, so the number of reads
+  depends on the number of profiles and not on the number of devices. Each
+  device gets the result `resolve/3` would give it: the first matching profile
+  in order, `{:ok, nil}` when none matches or the UID is not a device UID, and
+  `{:error, reason}` when the profiles, or a profile reached before any match,
+  could not be read.
+  """
+  @spec resolve_many([String.t()], term(), keyword()) ::
+          %{String.t() => {:ok, term() | nil} | {:error, term()}}
+  def resolve_many(device_uids, actor, opts) when is_list(device_uids) do
+    {valid, invalid} = Enum.split_with(device_uids, &Regex.match?(@device_uid_regex, &1))
+    skipped = Map.new(invalid, &{&1, {:ok, nil}})
+
+    resolve_valid(valid, actor, opts, skipped)
+  end
+
+  defp resolve_valid([], _actor, _opts, results), do: results
+
+  defp resolve_valid(valid, actor, opts, results) do
+    case load_profiles(actor, opts) do
+      {:ok, profiles} -> match_many(profiles, valid, actor, opts, results)
+      {:error, _reason} = error -> put_all(results, valid, error)
+    end
+  end
+
+  defp match_many(_profiles, [], _actor, _opts, results), do: results
+
+  defp match_many([], unmatched, _actor, _opts, results),
+    do: put_all(results, unmatched, {:ok, nil})
+
+  defp match_many([profile | rest], unmatched, actor, opts, results) do
+    case Keyword.fetch!(opts, :match_profiles).(profile, unmatched, actor) do
+      {:ok, matched} ->
+        {hits, misses} = Enum.split_with(unmatched, &MapSet.member?(matched, &1))
+        match_many(rest, misses, actor, opts, put_all(results, hits, {:ok, profile}))
+
+      {:error, reason} ->
+        if match_read_failure?(reason) do
+          # As in `find_matching_profile/4`: a device this profile might have
+          # claimed must not fall through to a lower-priority profile.
+          Logger.error(
+            "#{log_prefix(opts)}: failed to evaluate profile #{profile.id} targeting - " <>
+              "#{inspect(reason)}"
+          )
+
+          put_all(results, unmatched, {:error, reason})
+        else
+          Logger.warning(
+            "#{log_prefix(opts)}: error evaluating profile #{profile.id}: #{inspect(reason)}"
+          )
+
+          match_many(rest, unmatched, actor, opts, results)
+        end
+    end
+  end
+
+  defp put_all(results, device_uids, result) do
+    Enum.reduce(device_uids, results, &Map.put(&2, &1, result))
+  end
+
   defp load_profiles(actor, opts) do
     Keyword.fetch!(opts, :load_profiles).(actor)
   end

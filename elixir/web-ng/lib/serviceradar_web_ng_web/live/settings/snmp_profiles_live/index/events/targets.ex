@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
       Form.for_create(SNMPTarget, :create,
         domain: ServiceRadar.SNMPProfiles,
         scope: scope,
+        as: "target",
         params: %{snmp_profile_id: profile_id}
       )
 
@@ -40,7 +41,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
 
       target ->
         target_form =
-          Form.for_update(target, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+          Form.for_update(target, :update,
+            domain: ServiceRadar.SNMPProfiles,
+            scope: scope,
+            as: "target"
+          )
 
         # Load existing OIDs for this target
         oids = Data.load_target_oids(scope, target.id)
@@ -75,31 +80,30 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
     {:noreply, assign(socket, :show_password, !socket.assigns.show_password)}
   end
 
-  def handle_event("validate_target", %{"form" => params}, socket) do
+  def handle_event("validate_target", %{"target" => params}, socket) do
     scope = socket.assigns.current_scope
 
     target_form =
       if socket.assigns.editing_target do
         Form.for_update(socket.assigns.editing_target, :update,
           domain: ServiceRadar.SNMPProfiles,
-          scope: scope
+          scope: scope,
+          as: "target"
         )
       else
-        profile_id = socket.assigns.selected_profile.id
-
         Form.for_create(SNMPTarget, :create,
           domain: ServiceRadar.SNMPProfiles,
           scope: scope,
-          params: %{snmp_profile_id: profile_id}
+          as: "target"
         )
       end
 
-    target_form = Form.validate(target_form, params)
+    target_form = Form.validate(target_form, target_params(socket, params))
 
     {:noreply, assign(socket, :target_form, to_form(target_form))}
   end
 
-  def handle_event("save_target", %{"form" => params}, socket) do
+  def handle_event("save_target", %{"target" => params}, socket) do
     scope = socket.assigns.current_scope
     profile_id = socket.assigns.selected_profile.id
 
@@ -113,20 +117,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
           key in sensitive_fields and value == ""
         end)
       else
-        params
+        target_params(socket, params)
       end
 
     target_form =
       if socket.assigns.editing_target do
         Form.for_update(socket.assigns.editing_target, :update,
           domain: ServiceRadar.SNMPProfiles,
-          scope: scope
+          scope: scope,
+          as: "target"
         )
       else
         Form.for_create(SNMPTarget, :create,
           domain: ServiceRadar.SNMPProfiles,
           scope: scope,
-          params: %{snmp_profile_id: profile_id}
+          as: "target"
         )
       end
 
@@ -140,6 +145,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
         {:noreply,
          socket
          |> assign(:targets, targets)
+         |> Data.assign_profile_target_refusals(socket.assigns.profiles)
          |> assign(:show_target_modal, false)
          |> assign(:target_form, nil)
          |> assign(:editing_target, nil)
@@ -166,6 +172,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
             {:noreply,
              socket
              |> assign(:targets, targets)
+             |> Data.assign_profile_target_refusals(socket.assigns.profiles)
              |> put_flash(:info, "Target deleted")}
 
           {:error, _} ->
@@ -217,5 +224,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets do
     end
   end
 
-  # OID management event handlers
+  # The modal has no profile field: a new target always belongs to the profile
+  # being edited, and Form.validate/2 replaces any params given at for_create.
+  defp target_params(%{assigns: %{editing_target: nil}} = socket, params),
+    do: Map.put(params, "snmp_profile_id", socket.assigns.selected_profile.id)
+
+  defp target_params(_socket, params), do: params
 end

@@ -155,6 +155,107 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     refute Map.has_key?(other_targets, "192.0.2.41")
   end
 
+  # Target credentials are resolved a batch of devices at a time. Resolving them
+  # one device at a time costs several queries for each of the 200 devices.
+  @tag :integration
+  @tag timeout: 300_000
+  test "resolves a rule's target credentials in a fixed number of queries" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    vendor = "Example Batch Vendor #{suffix}"
+
+    ips =
+      for index <- 1..200 do
+        ip = ServiceRadar.TestSupport.unique_device_ip()
+
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sr:" <> Ash.UUID.generate(),
+            hostname: "batch-#{index}-#{suffix}.example.com",
+            ip: ip,
+            vendor_name: vendor
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+        ip
+      end
+
+    {:ok, secret} =
+      create_mapper_secret("snmp", "Example batch credential #{suffix}", "batch-community", actor)
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example batch rule #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example batch discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    handler = "mapper-compiler-queries-#{suffix}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:service_radar, :repo, :query],
+        fn _event, _measurements, _metadata, _config ->
+          if self() == test_pid, do: send(test_pid, :repo_query)
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    :telemetry.detach(handler)
+    queries = drain_repo_queries(0)
+
+    targets = compiled_job(config, job.name)["credentials"]["target_specific"]
+    assert targets |> Map.keys() |> Enum.sort() == Enum.sort(ips)
+    assert Enum.all?(targets, fn {_ip, target} -> target["community"] == "batch-community" end)
+
+    # Measured 27 for the whole compile.
+    assert queries <= 30,
+           "compiling target credentials for 200 devices took #{queries} queries"
+  end
+
+  defp drain_repo_queries(count) do
+    receive do
+      :repo_query -> drain_repo_queries(count + 1)
+    after
+      0 -> count
+    end
+  end
+
   @tag :integration
   test "uses profile credentials for mapper discovery jobs" do
     actor = SystemActor.system(:test)

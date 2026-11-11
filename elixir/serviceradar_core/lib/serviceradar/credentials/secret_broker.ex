@@ -643,6 +643,57 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       :ok
   end
 
+  @audit_batch_size 250
+
+  @doc """
+  Commits many prepared audit rows, as `write_audit/1` does for one.
+
+  The rows are inserted together in one transaction, #{@audit_batch_size} to a
+  statement, so a caller that resolved a credential for a page of targets
+  writes that page's audit trail with a fixed number of statements. If the
+  batch is rejected, each row is written on its own instead, which reports
+  every rejected row exactly as `write_audit/1` would. Never raises into the
+  caller.
+  """
+  @spec write_audits([map()]) :: :ok
+  def write_audits([]), do: :ok
+
+  def write_audits(rows) when is_list(rows) do
+    if persist_audits(rows) == :ok do
+      Enum.each(rows, &write_resolution_event/1)
+    else
+      Enum.each(rows, &write_audit/1)
+    end
+
+    :ok
+  end
+
+  defp persist_audits(rows) do
+    audit_actor = SystemActor.system(:credential_secret_broker_audit)
+
+    case Ash.bulk_create(rows, CredentialSecretResolutionAudit, :create,
+           actor: audit_actor,
+           batch_size: @audit_batch_size,
+           transaction: :all,
+           stop_on_error?: true,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      _rejected -> :error
+    end
+  rescue
+    _exception -> :error
+  end
+
+  defp write_resolution_event(attrs) do
+    CredentialEventWriter.write_secret_resolution(attrs)
+  rescue
+    exception ->
+      Logger.warning("Failed to write credential secret resolution event",
+        reason: Exception.message(exception)
+      )
+  end
+
   defp persist_audit(attrs) do
     audit_actor = SystemActor.system(:credential_secret_broker_audit)
 
