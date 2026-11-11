@@ -180,13 +180,12 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
             _ = GeoIP.reload()
             schedule_next(reschedule_seconds)
 
-          {:error, reason} ->
-            Logger.warning("Ipinfo MMDB download failed", error: inspect(reason))
+          {:error, _reason} ->
             schedule_next(failure_reschedule_seconds)
         end
 
       {:error, reason} ->
-        Logger.warning("Ipinfo MMDB directory unavailable", dir: dir, error: inspect(reason))
+        Logger.warning("Ipinfo MMDB directory unavailable dir=#{dir} reason=#{inspect(reason)}")
         schedule_next(failure_reschedule_seconds)
     end
   end
@@ -252,16 +251,23 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   @doc false
   def download_file(url, dest_path, opts) when is_binary(url) and is_binary(dest_path) do
     # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
-    # Callers log failures without the URL, which carries the ipinfo token.
     case EgressClient.download_to_file(url, dest_path, opts) do
       {:ok, _} = ok ->
         Logger.info("Ipinfo MMDB updated", file: dest_path)
         ok
 
-      {:error, _} = error ->
+      {:error, reason} = error ->
+        # Logged here so the startup sync and the scheduled job both report it. The reason goes
+        # in the message because the console formatter prints no call-site metadata. The URL
+        # stays out: it carries the ipinfo token.
+        Logger.warning("Ipinfo MMDB download failed reason=#{failure_reason(reason)}")
         error
     end
   end
+
+  # A redirect target can be a signed URL, so it is not logged.
+  defp failure_reason({:insecure_redirect, _target}), do: ":insecure_redirect"
+  defp failure_reason(reason), do: inspect(reason)
 
   defp file_present?(dir) when is_binary(dir) do
     File.regular?(Path.join(dir, @mmdb_filename))

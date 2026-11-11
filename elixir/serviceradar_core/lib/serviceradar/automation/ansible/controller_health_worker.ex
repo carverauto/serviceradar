@@ -92,13 +92,28 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorker do
         :ok
 
       {:error, reason} = err ->
-        Logger.warning("AWX ControllerHealthWorker: dispatch failed",
-          controller_id: controller.id,
-          reason: inspect(reason)
-        )
-
+        log_dispatch_failure(controller, reason)
         err
     end
+  end
+
+  # The command bus answers `:agent_offline` while the controller's agent has no live control
+  # session, which every gateway roll causes for a probe or two. The agent's own connection
+  # state reports that outage, and the next probe retries, so it is not a warning here. Any
+  # other reason is. Both carry the reason in the message because the console formatter
+  # prints no call-site metadata.
+  defp log_dispatch_failure(%Controller{} = controller, {:agent_offline, _agent_id}) do
+    Logger.info(
+      "AWX ControllerHealthWorker: probe not dispatched, agent has no control session " <>
+        "controller_id=#{controller.id} agent_id=#{controller.agent_id}"
+    )
+  end
+
+  defp log_dispatch_failure(%Controller{} = controller, reason) do
+    Logger.warning(
+      "AWX ControllerHealthWorker: dispatch failed " <>
+        "controller_id=#{controller.id} agent_id=#{controller.agent_id} reason=#{inspect(reason)}"
+    )
   end
 
   ## Internals -----------------------------------------------------------------
