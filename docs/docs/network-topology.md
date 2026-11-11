@@ -95,6 +95,15 @@ still too large for the gRPC receive limit is retried at half the size. If any
 page fails, the read fails as a whole and that run writes and prunes nothing:
 the pruning decision is only ever made from a complete read.
 
+The other reads and writes whose size follows the inventory are bounded the same
+way. Stale pruning ages edges a few thousand at a time, one transaction per
+page, so a large backlog of aged edges is cleared across several transactions
+and a repeat finishes anything a failure left behind. The correlation engine
+reads the edges it reasons over in pages from one snapshot. `in:device_graph`
+pages the device's own ports and edges, and reads from each neighbour only the
+port an edge names instead of the neighbour's whole port list. A query passed
+to `in:graph` is sent as written: give a broad one `first:` and `after:`.
+
 Every outcome is recorded as the `topology-canonical-rebuild` core health
 check. A failed reconciliation turns it `unhealthy` with the failure reason,
 which opens an alert through the seeded `core_health_check_unhealthy` rule,

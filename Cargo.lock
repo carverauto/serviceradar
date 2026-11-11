@@ -1416,6 +1416,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "deep_causality",
+ "dgraph-topology",
  "envy",
  "futures",
  "serde",

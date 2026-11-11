@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-//! Typed reads for the device neighbourhood (SRQL `in:device_graph`) and the
-//! MTR path overlays.
+//! Typed reads for the device neighbourhood (SRQL `in:device_graph`), edge
+//! endpoints by kind, and the MTR path overlays.
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use dgraph_client::{ReadOnly, Txn};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::canonical_read::{PAGE_SIZE, QueryBlock, next_uid, scan};
 use crate::client::{TopologyClient, dql_string};
 use crate::errors::TopologyError;
 
@@ -31,6 +35,18 @@ const MTR_HOP_ID_PREFIX: &str = "mtr:";
 
 const INTERFACE_FIELDS: &str =
     "iface.key iface.name iface.if_index iface.description iface.shutdown iface.vlan iface.vrf";
+const PEER_FIELDS: &str = "device.id device.hostname device.ip";
+const DEVICE_FIELDS: &str = "device.id device.hostname device.ip device.pkg_worst_severity
+      device.pkg_critical_count device.pkg_kev_count device.pkg_has_unpatched_rce";
+const CURRENT_CONNECTS_TO: &str = r#"eq(topo.kind, "CONNECTS_TO") AND NOT eq(topo.stale, true)"#;
+
+/// The two device identities one topology edge joins, with its `topo.kind`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeEndpoints {
+    pub kind: String,
+    pub source: String,
+    pub target: String,
+}
 
 /// One `MTR_PATH` edge between two consecutive responding hops.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,57 +99,103 @@ impl TopologyClient {
             .collect())
     }
 
+    /// The identities joined by each current (non-stale) edge of `kinds`, read
+    /// with bounded pages in one read-only snapshot. An edge with an endpoint
+    /// that is not a Device is left out.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`]. A failed page returns no edges.
+    pub async fn query_edge_endpoints(
+        &self,
+        kinds: &[&str],
+    ) -> Result<Vec<EdgeEndpoints>, TopologyError> {
+        crate::canonical_read::edge_endpoints(self.dgraph(), kinds).await
+    }
+
     /// The device, its interfaces, and the peer interfaces its current
     /// `CONNECTS_TO` evidence reaches, in the `in:device_graph` result shape.
     /// `None` when no Device carries `device_id`.
+    ///
+    /// The device's ports and edges are read with bounded pages in one
+    /// read-only snapshot, and a peer contributes only the ports an edge names:
+    /// embedding each peer's whole port list grows with neighbours times ports.
     ///
     /// The topology graph holds no collector, service or capability
     /// vertices, so those arrays are always empty.
     ///
     /// # Errors
     ///
-    /// Returns [`TopologyError`] if the query fails or the response is the
-    /// wrong shape.
+    /// Returns [`TopologyError`] if a page fails or a response is the wrong
+    /// shape. A failed page returns no partial neighbourhood.
     pub async fn query_device_neighborhood(
         &self,
         device_id: &str,
         include_topology: bool,
     ) -> Result<Option<Value>, TopologyError> {
-        let id = dql_string(device_id);
-        let peer = format!(
-            "device.id device.hostname device.ip device.interfaces {{ {INTERFACE_FIELDS} }}"
-        );
-        let edge_filter = r#"@filter(eq(topo.kind, "CONNECTS_TO") AND NOT eq(topo.stale, true))"#;
-        let query = format!(
-            r#"{{
-  device(func: eq(device.id, {id}), first: 1) {{
-    device.id
-    device.hostname
-    device.ip
-    device.pkg_worst_severity
-    device.pkg_critical_count
-    device.pkg_kev_count
-    device.pkg_has_unpatched_rce
-    device.interfaces {{ {INTERFACE_FIELDS} }}
-    outbound: ~topo.src {edge_filter} {{
-      topo.if_name_ba
-      topo.if_index_ba
-      peer: topo.dst {{ {peer} }}
-    }}
-    inbound: ~topo.dst {edge_filter} {{
-      topo.if_name_ab
-      topo.if_index_ab
-      peer: topo.src {{ {peer} }}
-    }}
-  }}
-}}"#
-        );
-        let parsed: NeighborhoodQuery = self.read(&query).await?;
-        Ok(parsed
-            .device
+        let root = format!("eq(device.id, {})", dql_string(device_id));
+        let mut txn = self.dgraph().new_read_only_txn();
+        let device = QueryBlock {
+            name: "device",
+            vars: "",
+            func: &root,
+            filter: "",
+            fields: DEVICE_FIELDS,
+        };
+        let Some(vertex) = scan(&mut txn, &device, Some::<DeviceVertex>)
+            .await?
             .into_iter()
             .next()
-            .map(|device| device.into_neighborhood(include_topology)))
+        else {
+            return Ok(None);
+        };
+        if !include_topology {
+            return Ok(Some(neighborhood(&vertex, Vec::new(), Vec::new())));
+        }
+
+        let vars = format!("var(func: {root}, first: 1) {{ own as device.interfaces }} ");
+        let own = QueryBlock {
+            name: "interfaces",
+            vars: &vars,
+            func: "uid(own)",
+            filter: "",
+            fields: INTERFACE_FIELDS,
+        };
+        let interfaces = scan(&mut txn, &own, Some::<InterfaceVertex>).await?;
+
+        let mut edges = Vec::new();
+        for (incident, far_port, far_end) in [
+            ("~topo.src", "topo.if_name_ba topo.if_index_ba", "topo.dst"),
+            ("~topo.dst", "topo.if_name_ab topo.if_index_ab", "topo.src"),
+        ] {
+            let vars = format!(
+                "var(func: {root}, first: 1) {{ incident as {incident} @filter({CURRENT_CONNECTS_TO}) }} "
+            );
+            let fields = format!("{far_port} peer: {far_end} {{ uid {PEER_FIELDS} }}");
+            let block = QueryBlock {
+                name: "edges",
+                vars: &vars,
+                func: "uid(incident)",
+                filter: "",
+                fields: &fields,
+            };
+            edges.append(&mut scan(&mut txn, &block, Some::<PeerEdge>).await?);
+        }
+        let ports = peer_ports(&mut txn, &edges).await?;
+
+        let mut peers = Vec::new();
+        for edge in &edges {
+            for peer in edge.peer_interfaces(&ports) {
+                if !peers.contains(&peer) {
+                    peers.push(peer);
+                }
+            }
+        }
+        let interfaces = interfaces
+            .iter()
+            .map(|iface| iface.to_json(&vertex.id))
+            .collect();
+        Ok(Some(neighborhood(&vertex, interfaces, peers)))
     }
 
     async fn read<T>(&self, query: &str) -> Result<T, TopologyError>
@@ -216,57 +278,82 @@ impl MtrEndpoint {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct NeighborhoodQuery {
-    #[serde(default)]
-    device: Vec<NeighborhoodDevice>,
-}
+/// The ports each peer's edges name, keyed by the peer's UID and in UID order.
+/// Only those ports are read: each peer's `device.interfaces` is filtered to
+/// the names and ifIndexes its own edges carry, [`PAGE_SIZE`] peers at a time.
+async fn peer_ports(
+    txn: &mut Txn<ReadOnly>,
+    edges: &[PeerEdge],
+) -> Result<HashMap<u64, Vec<InterfaceVertex>>, TopologyError> {
+    let mut named: BTreeMap<u64, (BTreeSet<&str>, BTreeSet<i64>)> = BTreeMap::new();
+    for edge in edges {
+        for peer in edge.peer.iter().filter(|peer| !peer.vertex.id.is_empty()) {
+            let uid = next_uid(&peer.uid, 0)?;
+            if !edge.name.is_empty() {
+                named.entry(uid).or_default().0.insert(edge.name.as_str());
+            } else if edge.if_index > 0 {
+                named.entry(uid).or_default().1.insert(edge.if_index);
+            }
+        }
+    }
 
-#[derive(Debug, Deserialize)]
-struct NeighborhoodDevice {
-    #[serde(flatten)]
-    vertex: DeviceVertex,
-    #[serde(default, rename = "device.interfaces")]
-    interfaces: Vec<InterfaceVertex>,
-    #[serde(default)]
-    outbound: Vec<PeerEdge>,
-    #[serde(default)]
-    inbound: Vec<PeerEdge>,
-}
-
-impl NeighborhoodDevice {
-    fn into_neighborhood(self, include_topology: bool) -> Value {
-        let device_id = self.vertex.id.clone();
-        let (interfaces, peer_interfaces) = if include_topology {
-            let interfaces = self
-                .interfaces
-                .iter()
-                .map(|iface| iface.to_json(&device_id))
-                .collect::<Vec<_>>();
-            let mut peers = Vec::new();
-            for edge in self.outbound.into_iter().chain(self.inbound) {
-                for peer in edge.peer_interfaces() {
-                    if !peers.contains(&peer) {
-                        peers.push(peer);
-                    }
+    let named: Vec<_> = named.into_iter().collect();
+    let mut ports: HashMap<u64, Vec<InterfaceVertex>> = HashMap::new();
+    for chunk in named.chunks(PAGE_SIZE) {
+        let mut vars = String::new();
+        let mut selected = Vec::with_capacity(chunk.len());
+        for (index, (uid, (names, if_indexes))) in chunk.iter().enumerate() {
+            let mut filters = Vec::new();
+            if !names.is_empty() {
+                let list: Vec<String> = names.iter().map(|name| dql_string(name)).collect();
+                filters.push(format!("eq(iface.name, [{}])", list.join(", ")));
+            }
+            if !if_indexes.is_empty() {
+                let list: Vec<String> = if_indexes.iter().map(i64::to_string).collect();
+                filters.push(format!("eq(iface.if_index, [{}])", list.join(", ")));
+            }
+            vars.push_str(&format!(
+                "var(func: uid({uid:#x})) {{ p{index} as device.interfaces @filter({}) }} ",
+                filters.join(" OR ")
+            ));
+            selected.push(format!("p{index}"));
+        }
+        let func = format!("uid({})", selected.join(", "));
+        let fields = format!("{INTERFACE_FIELDS} ~device.interfaces {{ uid }}");
+        let block = QueryBlock {
+            name: "peer_interfaces",
+            vars: &vars,
+            func: &func,
+            filter: "",
+            fields: &fields,
+        };
+        for port in scan(txn, &block, Some::<PeerPort>).await? {
+            for owner in &port.owners {
+                let owner = next_uid(&owner.uid, 0)?;
+                if chunk.iter().any(|(uid, _named)| *uid == owner) {
+                    ports.entry(owner).or_default().push(port.iface.clone());
                 }
             }
-            (interfaces, peers)
-        } else {
-            (Vec::new(), Vec::new())
-        };
-
-        json!({
-            "device": self.vertex.to_json(),
-            "collectors": [],
-            "services": [],
-            "targets": [],
-            "interfaces": interfaces,
-            "peer_interfaces": peer_interfaces,
-            "device_capabilities": [],
-            "service_capabilities": [],
-        })
+        }
     }
+    Ok(ports)
+}
+
+fn neighborhood(
+    vertex: &DeviceVertex,
+    interfaces: Vec<Value>,
+    peer_interfaces: Vec<Value>,
+) -> Value {
+    json!({
+        "device": vertex.to_json(),
+        "collectors": [],
+        "services": [],
+        "targets": [],
+        "interfaces": interfaces,
+        "peer_interfaces": peer_interfaces,
+        "device_capabilities": [],
+        "service_capabilities": [],
+    })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -313,7 +400,7 @@ impl DeviceVertex {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct InterfaceVertex {
     #[serde(default, rename = "iface.key")]
     key: Option<String>,
@@ -367,30 +454,49 @@ struct PeerEdge {
 }
 
 impl PeerEdge {
-    fn peer_interfaces(&self) -> Vec<Value> {
+    fn peer_interfaces(&self, ports: &HashMap<u64, Vec<InterfaceVertex>>) -> Vec<Value> {
         self.peer
             .iter()
             .filter(|device| !device.vertex.id.is_empty())
-            .map(|device| device.peer_interface(&self.name, self.if_index))
+            .map(|device| device.peer_interface(&self.name, self.if_index, ports))
             .collect()
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct PeerDevice {
+    #[serde(default)]
+    uid: String,
     #[serde(flatten)]
     vertex: DeviceVertex,
-    #[serde(default, rename = "device.interfaces")]
-    interfaces: Vec<InterfaceVertex>,
+}
+
+/// An Interface a peer's edge names, with the UIDs of the devices that own it.
+#[derive(Debug, Deserialize)]
+struct PeerPort {
+    #[serde(flatten)]
+    iface: InterfaceVertex,
+    #[serde(default, rename = "~device.interfaces")]
+    owners: Vec<UidRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UidRef {
+    uid: String,
 }
 
 impl PeerDevice {
-    fn peer_interface(&self, name: &str, if_index: i64) -> Value {
+    fn peer_interface(
+        &self,
+        name: &str,
+        if_index: i64,
+        ports: &HashMap<u64, Vec<InterfaceVertex>>,
+    ) -> Value {
         let owner = self.vertex.id.as_str();
-        let iface = self
-            .interfaces
-            .iter()
-            .find(|iface| iface.matches(name, if_index));
+        let iface = next_uid(&self.uid, 0)
+            .ok()
+            .and_then(|uid| ports.get(&uid))
+            .and_then(|ports| ports.iter().find(|iface| iface.matches(name, if_index)));
         let properties = match iface {
             Some(iface) => iface.to_json(owner),
             None => {

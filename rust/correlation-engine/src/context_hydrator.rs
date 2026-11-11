@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dgraph_topology::{EdgeEndpoints, TopologyClient};
 use srql::config::AppConfig;
 use srql::{EmbeddedSrql, QueryDirection, QueryRequest};
 use tokio::sync::RwLock;
@@ -24,12 +25,19 @@ use crate::snapshot::SnapshotStore;
 /// Upper bound on rows pulled per entity in a single current-state snapshot.
 const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
 
-/// SRQL `in:graph` (Dgraph DQL) query projecting the topology edges the
-/// causaloids reason over. Edges are reified `TopologyEdge` nodes whose
-/// endpoints carry the canonical `sr:` `device.id` (`ocsf_devices.uid`); the
-/// DQL wrapper turns each into `{start_id,end_id,label}` inside `{nodes,edges}`
-/// (see `parse_topology_edges`).
-const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY") OR eq(topo.kind, "CONTAINS") OR eq(topo.kind, "BACKED_BY") OR eq(topo.kind, "DEPENDS_ON"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
+/// The `topo.kind` values the causaloids reason over, as the engine's
+/// [`EdgeKind`]. Edges are reified `TopologyEdge` nodes whose endpoints carry
+/// the canonical `sr:` `device.id` (`ocsf_devices.uid`). Kinds outside this
+/// table are not read (coverage broadens as new edge kinds are projected).
+const TOPOLOGY_EDGE_KINDS: [(&str, EdgeKind); 7] = [
+    ("CONNECTS_TO", EdgeKind::ConnectsTo),
+    ("CANONICAL_TOPOLOGY", EdgeKind::ConnectsTo),
+    ("LOGICAL_PEER", EdgeKind::ConnectsTo),
+    ("MANAGED_BY", EdgeKind::ManagedBy),
+    ("CONTAINS", EdgeKind::Contains),
+    ("BACKED_BY", EdgeKind::BackedBy),
+    ("DEPENDS_ON", EdgeKind::DependsOn),
+];
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]
@@ -53,6 +61,7 @@ pub trait ContextStore: Send + Sync {
 /// are queried on demand here).
 pub struct ContextHydrator {
     srql: EmbeddedSrql,
+    dgraph_url: Option<String>,
     ctx: Arc<RwLock<Context>>,
     snapshot: SnapshotStore,
     max_rows: i64,
@@ -67,6 +76,7 @@ impl ContextHydrator {
     pub async fn connect(snapshot_path: &str) -> Result<Self> {
         let config = AppConfig::from_env()
             .map_err(|e| CorrelationEngineError::Hydration(format!("srql config: {e}")))?;
+        let dgraph_url = config.dgraph_url.clone();
         let srql = EmbeddedSrql::new(config)
             .await
             .map_err(|e| CorrelationEngineError::Hydration(format!("embedded srql: {e}")))?;
@@ -83,6 +93,7 @@ impl ContextHydrator {
 
         let hydrator = Self {
             srql,
+            dgraph_url,
             ctx: Arc::new(RwLock::new(restored)),
             snapshot,
             max_rows: DEFAULT_MAX_HYDRATION_ROWS,
@@ -106,7 +117,7 @@ impl ContextHydrator {
         // the whole refresh — the engine still reasons from the snapshot + the
         // live state-change deltas, just without the structural causaloids this
         // tick.
-        let edges = match self.query(TOPOLOGY_EDGES_QUERY).await {
+        let edges = match self.topology_edges().await {
             Ok(rows) => parse_topology_edges(&rows),
             Err(err) => {
                 warn!(error = %err, "topology edge projection failed; reasoning without edges this tick");
@@ -145,6 +156,23 @@ impl ContextHydrator {
         }
 
         pruned
+    }
+
+    /// Read the topology edges of every reasoned-over kind from Dgraph. The
+    /// read is paged: the edge set grows with the fleet, and one response
+    /// carrying all of it outgrows the gRPC receive limit.
+    async fn topology_edges(&self) -> Result<Vec<EdgeEndpoints>> {
+        let url = self.dgraph_url.as_deref().ok_or_else(|| {
+            CorrelationEngineError::Hydration("topology edges require DGRAPH_URL".into())
+        })?;
+        let kinds = TOPOLOGY_EDGE_KINDS.map(|(label, _kind)| label);
+        let client = TopologyClient::connect(url)
+            .await
+            .map_err(|e| CorrelationEngineError::Hydration(format!("dgraph connect: {e}")))?;
+        client
+            .query_edge_endpoints(&kinds)
+            .await
+            .map_err(|e| CorrelationEngineError::Hydration(format!("topology edges: {e}")))
     }
 
     /// Run an SRQL query and return its result rows, surfacing engine-side errors.
@@ -242,49 +270,36 @@ fn map_service(row: &serde_json::Value) -> Option<Service> {
 /// Map a topology edge label (`topo.kind`) to the engine's [`EdgeKind`]. Unknown labels
 /// are dropped (coverage broadens as new edge kinds are projected).
 fn edge_kind_from_label(label: &str) -> Option<EdgeKind> {
-    match label {
-        "CONNECTS_TO" | "CANONICAL_TOPOLOGY" | "LOGICAL_PEER" => Some(EdgeKind::ConnectsTo),
-        "MANAGED_BY" => Some(EdgeKind::ManagedBy),
-        "CONTAINS" => Some(EdgeKind::Contains),
-        "BACKED_BY" => Some(EdgeKind::BackedBy),
-        "DEPENDS_ON" => Some(EdgeKind::DependsOn),
-        _ => None,
-    }
+    TOPOLOGY_EDGE_KINDS
+        .iter()
+        .find(|(known, _kind)| *known == label)
+        .map(|(_known, kind)| *kind)
 }
 
-/// Project the `in:graph` result rows (each `{nodes,edges}`, with every
-/// `edge` carrying `start_id`/`end_id`/`label`) into deduplicated topology
-/// edges, enforcing canonical-id discipline (both endpoints must be `sr:`-keyed).
+/// Project stored edges into deduplicated topology edges, enforcing
+/// canonical-id discipline (both endpoints must be `sr:`-keyed).
 ///
 /// Dedup keys on the resolved [`EdgeKind`], not the label: several labels
 /// collapse onto one kind, and one link labelled both `CONNECTS_TO` and
 /// `CANONICAL_TOPOLOGY` would otherwise become two parallel edges, which hides
 /// it from bridge detection.
-fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
-    let mut seen: HashSet<(String, String, EdgeKind)> = HashSet::new();
+fn parse_topology_edges(rows: &[EdgeEndpoints]) -> Vec<TopologyEdge> {
+    let mut seen: HashSet<(&str, &str, EdgeKind)> = HashSet::new();
     let mut edges = Vec::new();
-    for result in results {
-        let Some(edge_rows) = result.get("edges").and_then(|e| e.as_array()) else {
+    for row in rows {
+        let Some(kind) = edge_kind_from_label(&row.kind) else {
             continue;
         };
-        for edge in edge_rows {
-            let (Some(src), Some(dst), Some(label)) = (
-                edge.get("start_id").and_then(|v| v.as_str()),
-                edge.get("end_id").and_then(|v| v.as_str()),
-                edge.get("label").and_then(|v| v.as_str()),
-            ) else {
-                continue;
-            };
-            let Some(kind) = edge_kind_from_label(label) else {
-                continue;
-            };
-            if !src.starts_with("sr:") || !dst.starts_with("sr:") {
-                // The engine consumes one canonical ID space; never fork it.
-                continue;
-            }
-            if seen.insert((src.to_string(), dst.to_string(), kind)) {
-                edges.push(TopologyEdge::new(src, dst, kind));
-            }
+        if !row.source.starts_with("sr:") || !row.target.starts_with("sr:") {
+            // The engine consumes one canonical ID space; never fork it.
+            continue;
+        }
+        if seen.insert((row.source.as_str(), row.target.as_str(), kind)) {
+            edges.push(TopologyEdge::new(
+                row.source.as_str(),
+                row.target.as_str(),
+                kind,
+            ));
         }
     }
     edges
@@ -300,6 +315,7 @@ mod tests {
         AttributedFlow, BgpRoute, Context, Device, EdgeKind, InterfaceLink, OperatorRule, Service,
         TopologyEdge,
     };
+    use dgraph_topology::EdgeEndpoints;
     use serde_json::json;
 
     #[test]
@@ -365,13 +381,12 @@ mod tests {
         assert_eq!(edge_kind_from_label("HAS_INTERFACE"), None);
     }
 
-    /// Mirror the `in:graph` wrapper shape: each row is `{nodes, edges}` and
-    /// every edge carries `start_id`/`end_id`/`label`.
-    fn graph_edge(start: &str, end: &str, label: &str) -> serde_json::Value {
-        json!({
-            "nodes": [{ "id": start, "label": start }, { "id": end, "label": end }],
-            "edges": [{ "start_id": start, "end_id": end, "label": label }]
-        })
+    fn graph_edge(start: &str, end: &str, label: &str) -> EdgeEndpoints {
+        EdgeEndpoints {
+            kind: label.to_string(),
+            source: start.to_string(),
+            target: end.to_string(),
+        }
     }
 
     #[test]
