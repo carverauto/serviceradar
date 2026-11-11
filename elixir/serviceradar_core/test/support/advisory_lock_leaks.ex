@@ -27,7 +27,11 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   | holder has no activity row, or the lock has no pid (prepared xact)       | `:in_flight`             |
   | holder is not a client backend (TimescaleDB workers, scheduler)          | not reported             |
   | a later read of `pg_locks` no longer lists the lock                      | gone, not reported       |
-  | still `:in_flight` at the settle deadline                                | `:unresolved`, a failure |
+  | `:in_flight` at the deadline, still listed by a final `pg_locks` read    | `:unresolved`, a failure |
+
+  A holder's backend type is taken from the second activity read, or from the
+  first when the second has no row for it; a holder with no row in either read
+  is `:in_flight`.
 
   "Any other state" includes `idle in transaction`, `idle in transaction
   (aborted)`, `active`, `fastpath function call` and `disabled`.
@@ -40,9 +44,10 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
 
   `leaked/2` repeats the observation every #{@poll_interval_ms} ms while any
   lock is `:in_flight`. Each repeat re-reads `pg_locks`, so a lock that is no
-  longer granted is gone and not reported. A lock still `:in_flight` at the
-  settle deadline is returned as `:unresolved`, a failure, and its diagnostic
-  line shows the holder's state or that it had no activity row.
+  longer granted is gone and not reported. Once the settle deadline passes,
+  one final `pg_locks` read drops the in-flight locks released meanwhile; the
+  rest are returned as `:unresolved`, a failure, and each diagnostic line shows
+  the holder's state or that it had no activity row.
 
   Call it outside a transaction, from a test tagged `sandbox: :unboxed`. Inside
   one, PostgreSQL answers both activity reads from a single cached snapshot and
@@ -125,7 +130,7 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
     ignored = opts |> Keyword.get(:ignore, []) |> MapSet.new(&identity/1)
 
     before = activity(repo)
-    %Postgrex.Result{rows: lock_rows} = repo.query!(@locks_sql, [])
+    lock_rows = lock_rows(repo)
     later = activity(repo)
     reject_enclosing_transaction!(before, later)
 
@@ -157,12 +162,24 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
         leaked
 
       System.monotonic_time(:millisecond) >= deadline ->
-        leaked ++ Enum.map(in_flight, &%{&1 | verdict: :unresolved})
+        leaked ++ Enum.map(still_granted(repo, in_flight), &%{&1 | verdict: :unresolved})
 
       true ->
         Process.sleep(@poll_interval_ms)
         settle(repo, ignore, deadline)
     end
+  end
+
+  defp still_granted(repo, locks) do
+    granted = repo |> lock_rows() |> MapSet.new(&List.to_tuple/1)
+    Enum.filter(locks, &MapSet.member?(granted, granted_key(&1)))
+  end
+
+  defp granted_key(lock), do: {lock.pid, lock.classid, lock.objid, lock.objsubid, lock.mode}
+
+  defp lock_rows(repo) do
+    %Postgrex.Result{rows: rows} = repo.query!(@locks_sql, [])
+    rows
   end
 
   # Each statement of an observation must run in a transaction of its own. Inside one
@@ -219,6 +236,10 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
 
   # A lock with no backend belongs to a prepared transaction, which never becomes idle.
   defp verdict(nil, _earlier, _holder), do: :in_flight
+
+  defp verdict(_pid, %{backend_type: type}, nil) when type != "client backend",
+    do: :not_applicable
+
   # No activity row: the session is exiting, and the next pg_locks read shows whether
   # its lock went with it.
   defp verdict(_pid, _earlier, nil), do: :in_flight

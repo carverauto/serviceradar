@@ -118,6 +118,24 @@ defmodule ServiceRadar.AdvisoryLockLeakCheckReleaseGateTest do
     end
   end
 
+  test "a lock released just before the settle deadline is not reported", %{key: key} do
+    %{task: task} = start_transaction_lock_holder!(key)
+    settle_timeout_ms = 1_000
+    deadline = System.monotonic_time(:millisecond) + settle_timeout_ms
+
+    check =
+      Task.async(fn ->
+        AdvisoryLockLeaks.leaked(Repo, settle_timeout_ms: settle_timeout_ms)
+      end)
+
+    Process.sleep(settle_timeout_ms - 100)
+    send(task, :commit)
+    assert_receive {:committed, ^task}
+    assert System.monotonic_time(:millisecond) < deadline
+
+    assert [] = held(Task.await(check, 30_000), key)
+  end
+
   test "a lock whose holder disconnects between observations is not reported", %{key: key} do
     holder = start_transaction_lock_holder!(key)
 
