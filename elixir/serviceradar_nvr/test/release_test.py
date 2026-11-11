@@ -61,6 +61,126 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b"NVR_RELEASE_PROBE_OK", result.stdout)
 
+    def bootstrap_document(self):
+        return {"binding_id": "00000000-0000-4000-8000-000000000022",
+                "binding_sha256": "ab" * 32, "kind": "local_storage_bootstrap_prepared",
+                "operation_id": "00000000-0000-4000-8000-000000000033",
+                "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"], "version": 1}
+
+    def bootstrap(self, document=None, raw=None, reference=None):
+        document = self.bootstrap_document() if document is None else document
+        raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode() if raw is None else raw
+        reference = {key: document[key] for key in ("storage_id", "binding_id", "binding_sha256")} if reference is None else reference
+        (self.root / "bootstrap-input.json").write_bytes(raw)
+        (self.root / "bootstrap-reference.json").write_text(json.dumps(reference))
+        self.run_probe("storage_bootstrap")
+        return json.loads((self.root / "bootstrap-result.json").read_bytes()), raw
+
+    def test_bootstrap_retains_exact_receipt_across_restart_and_keeps_admission_closed(self):
+        result, raw = self.bootstrap()
+        self.assertEqual(result, {"result": "installed", "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                  "preparation_sha256": hashlib.sha256(raw).hexdigest()})
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".bootstrap-preparation.json", ".storage-id"])
+        preparation = self.spool / ".bootstrap-preparation.json"
+        marker = self.spool / ".storage-id"
+        self.assertEqual(preparation.read_bytes(), raw)
+        self.assertEqual(marker.read_text(), self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (preparation, marker)]
+        self.assertEqual(preparation.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+        retry, _ = self.bootstrap()
+        self.assertEqual(retry, result)
+        self.assertEqual([(p.stat().st_ino, p.stat().st_mtime_ns) for p in (preparation, marker)], before)
+        for change in ({"operation_id": "00000000-0000-4000-8000-000000000044"},
+                       {"binding_id": "00000000-0000-4000-8000-000000000055"}):
+            with self.subTest(change=change):
+                conflict, _ = self.bootstrap(self.bootstrap_document() | change)
+                self.assertEqual(conflict, {"result": "refused", "reason": ":storage_bootstrap_conflict"})
+                self.assertEqual(preparation.read_bytes(), raw)
+                self.assertEqual([(p.stat().st_ino, p.stat().st_mtime_ns) for p in (preparation, marker)], before)
+
+    def test_bootstrap_refuses_untrusted_bytes_and_existing_spools_without_writing(self):
+        document = self.bootstrap_document()
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        invalid = [b"", b"x" * 513, canonical + b"\n",
+                   canonical[:-1] + b',"version":1}',
+                   json.dumps(document | {"extra": True}, sort_keys=True, separators=(",", ":")).encode(),
+                   json.dumps(document | {"operation_id": "invalid"}, sort_keys=True, separators=(",", ":")).encode(),
+                   json.dumps(document | {"storage_id": "00000000-0000-4000-8000-000000000099"},
+                              sort_keys=True, separators=(",", ":")).encode()]
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                result, _ = self.bootstrap(raw=raw)
+                self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_preparation"})
+                self.assertEqual(list(self.spool.iterdir()), [])
+        invalid_digest, _ = self.bootstrap(document | {"binding_sha256": "AB" * 32})
+        self.assertEqual(invalid_digest, {"result": "refused", "reason": ":invalid_storage_bootstrap_preparation"})
+        self.assertEqual(list(self.spool.iterdir()), [])
+        self.spool.chmod(0o755)
+        not_private, _ = self.bootstrap()
+        self.assertEqual(not_private, {"result": "refused", "reason": ":storage_bootstrap_not_private"})
+        self.assertEqual(list(self.spool.iterdir()), [])
+        self.spool.chmod(0o700)
+        for name, data in ((".storage-id", (document["storage_id"] + "\n").encode()),
+                           ("retained-media", b"synthetic retained bytes")):
+            with self.subTest(existing=name):
+                path = self.spool / name
+                path.write_bytes(data)
+                path.chmod(0o600)
+                result, _ = self.bootstrap()
+                self.assertEqual(result, {"result": "refused", "reason": ":storage_bootstrap_requires_new_root"})
+                self.assertEqual([p.name for p in self.spool.iterdir()], [name])
+                self.assertEqual(path.read_bytes(), data)
+                path.unlink()
+
+    def test_bootstrap_resumes_complete_preparation_but_preserves_incomplete_or_unsafe_files(self):
+        document = self.bootstrap_document()
+        raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        preparation = self.spool / ".bootstrap-preparation.json"
+        marker = self.spool / ".storage-id"
+        preparation.write_bytes(raw)
+        preparation.chmod(0o600)
+        result, _ = self.bootstrap()
+        self.assertEqual(result["result"], "installed")
+        self.assertEqual(marker.read_text(), document["storage_id"] + "\n")
+        # These are persisted interruption states, not a physical crash/durability claim.
+        for target, data, reason in ((preparation, b'{"binding_id":', ":storage_bootstrap_conflict"),
+                                     (marker, b"partial", ":storage_bootstrap_conflict")):
+            with self.subTest(partial=target.name):
+                original = target.read_bytes()
+                if target == preparation:
+                    marker.unlink()
+                target.write_bytes(data)
+                result, _ = self.bootstrap()
+                self.assertEqual(result, {"result": "refused", "reason": reason})
+                self.assertEqual(target.read_bytes(), data)
+                if target == preparation:
+                    self.assertFalse(marker.exists())
+                target.write_bytes(original)
+                if target == preparation:
+                    resumed, _ = self.bootstrap()
+                    self.assertEqual(resumed["result"], "installed")
+        marker.unlink()
+        preparation.chmod(0o644)
+        result, _ = self.bootstrap()
+        self.assertEqual(result, {"result": "refused", "reason": ":storage_bootstrap_not_private"})
+        self.assertFalse(marker.exists())
+        preparation.chmod(0o600)
+        outside = self.root / "retained-preparation"
+        preparation.rename(outside)
+        preparation.symlink_to(outside)
+        result, _ = self.bootstrap()
+        self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_file"})
+        self.assertTrue(preparation.is_symlink())
+        self.assertEqual(outside.read_bytes(), raw)
+        self.assertFalse(marker.exists())
+        preparation.unlink()
+        os.link(outside, preparation)
+        result, _ = self.bootstrap()
+        self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_file"})
+        self.assertEqual(outside.read_bytes(), raw)
+        self.assertFalse(marker.exists())
+
     def publication_server(self, actions, present_ca=False):
         self.run_probe("delivery_certificates")
         requests = []

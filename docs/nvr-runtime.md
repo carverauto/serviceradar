@@ -330,11 +330,45 @@ key so retained provenance cannot be silently removed.
 
 Preparation alone does not attest that the volume is empty or that history is
 reconciled. It writes no volume marker and grants no capture, publication,
-playback or deletion authority. The volume-side empty-root installation and
-completion receipt remain unimplemented. They must establish matching durable
-control-plane and volume state before capture. A retained spool needs supported
-history reconciliation even if it has a preparation; a missing history file is
-never permission to bootstrap it. No startup path invokes this action.
+playback or deletion authority. The separate volume-side installer below retains
+those bytes, but two-sided completion remains unimplemented. Matching durable
+control-plane and volume completion must precede capture. A retained spool needs
+supported history reconciliation even if it has a preparation; a missing history
+file is never permission to bootstrap it. No startup path invokes this action.
+
+### Explicit new-volume installation
+
+`ServiceRadarNVR.bootstrap_storage(root, reference, preparation)` is a trusted,
+offline provisioning API. The provider must exclusively attach the new volume,
+retire previous writers and provide an existing private empty spool directory.
+The caller authenticates Core and supplies its exact canonical preparation bytes;
+`reference` is trusted configuration with `:storage_id`, `:binding_id` and
+`:binding_sha256`. Parsing validates correlation only, not Core origin or physical
+provider identity. This operation is not exposed over HTTP or called at startup.
+
+The installer accepts at most 512 preparation bytes. It exclusively creates
+`.bootstrap-preparation.json`, syncs that file and the root directory, then
+exclusively creates the existing 37-byte `.storage-id` marker. Both files use
+mode 0600. It syncs the marker and directory and verifies storage identity before
+returning the storage handle and preparation SHA-256. The preparation must become
+durable first: a later interruption must not leave a usable legacy spool.
+
+An exact retry syncs the original bytes without rewriting either file. A complete
+preparation with a missing marker can finish installation. A partial or changed
+preparation/marker, symlink, hard link or non-private file remains untouched and
+refused. An existing spool, including a directory containing only `.storage-id`,
+cannot acquire a preparation through this API. Unexpected entries are preserved.
+Provisioning must reconcile failures; deleting evidence to force a retry is not
+a supported recovery procedure.
+
+An installed bootstrap preparation keeps NVR inventory and write admission closed
+with `:nvr_history_bootstrap_incomplete`. No capacity is advertised and no media
+reservation can omit its retained control bytes. This checkpoint does not yet
+complete Core history, enable recording, qualify storage, or authorize playback
+or deletion. Packaged-release tests cover installation, exact retries in fresh
+VMs, interruption states and refusal paths; they do not prove worker/disk-loss
+durability. The provider qualification and supported restore protocol remain
+separate work.
 
 ## Local storage qualification reports
 
