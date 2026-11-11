@@ -77,6 +77,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "review_membership" => :read,
       "cancel_membership_review" => :read,
       "approve_membership" => :read,
+      "toggle_membership_selection" => :read,
+      "toggle_all_memberships" => :read,
+      "review_selected_memberships" => :read,
+      "cancel_bulk_membership_review" => :read,
+      "approve_selected_memberships" => :read,
       "select_binding_scope" => :read,
       "new_binding_review" => :read,
       "cancel_binding_form" => :read,
@@ -339,6 +344,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end)
   end
 
+  def handle_event("toggle_membership_selection", %{"id" => id}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.toggle_selection(socket, id)}
+    end)
+  end
+
+  def handle_event("toggle_all_memberships", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.toggle_all(socket)}
+    end)
+  end
+
+  def handle_event("review_selected_memberships", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.review_selected(socket)}
+    end)
+  end
+
+  def handle_event("cancel_bulk_membership_review", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.cancel_bulk(socket)}
+    end)
+  end
+
+  def handle_event("approve_selected_memberships", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.approve_selected(socket)}
+    end)
+  end
+
   ## Binding review ------------------------------------------------------------
 
   def handle_event("select_binding_scope", params, socket) do
@@ -402,8 +437,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   end
 
   # Prepare and create repeat brokered AWX reads through the controller's agent,
-  # so they run off the LiveView process. The domain re-checks the reviewer.
+  # and bulk approval runs one domain approval per selected membership, so they
+  # run off the LiveView process. The domain re-checks the reviewer each time.
   @impl true
+  def handle_async(:ansible_membership_bulk_approve, result, socket) do
+    {:noreply, MembershipReview.bulk_approved(socket, result)}
+  end
+
   def handle_async(:ansible_binding_prepare, result, socket) do
     {:noreply, BindingReview.prepared(socket, result)}
   end
@@ -682,6 +722,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             memberships={@streams.memberships}
             notice={@membership_notice}
             reviewing={@reviewing_membership}
+            review_error={@membership_review_error}
+            approvable_count={map_size(@membership_approvable)}
+            selected={@membership_selected}
+            bulk={@membership_bulk}
             timezone={user_timezone(@current_scope)}
           />
         </section>
@@ -707,6 +751,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             choices={@streams.binding_choices}
             choice_count={@binding_choice_count}
             choice_notice={@binding_choice_notice}
+            inventories={@binding_inventories}
             review={@binding_review}
             pending={@binding_pending}
             revoking={@revoking_binding}

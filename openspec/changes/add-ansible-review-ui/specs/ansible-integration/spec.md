@@ -3,17 +3,30 @@
 ### Requirement: Membership review in Ansible settings
 The Ansible settings UI SHALL list current AWX inventory memberships per controller and inventory and SHALL let a human user holding `ansible.controllers.manage` approve a proposed membership by submitting exactly the evidence tuple the page displayed.
 
-The list SHALL show host name, address, AWX host ID, link disposition, enabled state, the proposed canonical device with a link to its device page, link-evidence kind and match count, and last-seen time. It SHALL offer a needs-review filter and SHALL show how many proposals await review in each inventory. The approval request SHALL contain the controller ID, inventory ID, AWX host ID, canonical device UID, source generation, source fingerprint, and link-evidence digest shown in the review panel and nothing else.
+The list SHALL show host name, address, AWX host ID, link disposition, enabled state, the proposed canonical device with a link to its device page, link-evidence kind and match count, and last-seen time. It SHALL offer a needs-review filter and SHALL show how many proposals await review in each inventory; the count shown for the selected inventory SHALL be derived from the same reload as the filter counts. The review SHALL open in a modal dialog that takes keyboard focus and can be dismissed with Escape, so it is visible wherever the row was in the list. The approval request SHALL contain the controller ID, inventory ID, AWX host ID, canonical device UID, source generation, source fingerprint, and link-evidence digest shown in the review dialog and nothing else.
+
+The page SHALL also let the operator select several approvable rows of the current view and approve them together. Bulk approval SHALL reload the current evidence of every selected membership and show each tuple before anything is submitted, SHALL call the same membership approval service once per membership with that membership's own shown tuple, and SHALL NOT use a bulk domain operation or a system actor. The selection SHALL be limited to approvable rows listed by the current controller, inventory, and filter, and SHALL be cleared when any of them changes.
 
 #### Scenario: Operator approves a displayed proposal
-- **WHEN** the operator opens the review panel for a current, enabled, unambiguous proposal and approves it
-- **THEN** the page SHALL submit the exact tuple shown in the panel through the same membership approval service the API uses, as the logged-in user
+- **WHEN** the operator opens the review dialog for a current, enabled, unambiguous proposal and approves it
+- **THEN** the page SHALL submit the exact tuple shown in the dialog through the same membership approval service the API uses, as the logged-in user
 - **AND** the membership SHALL be listed as approved after the service accepts it
 
 #### Scenario: Proposal changed after it was displayed
 - **WHEN** the approval service rejects the submitted tuple because the proposal's identity, generation, fingerprint, evidence, or currency changed
 - **THEN** the page SHALL NOT resubmit the request
-- **AND** it SHALL reload the membership and show the current evidence for a new review
+- **AND** it SHALL reload the membership and show the current evidence and the refusal in the review dialog for a new review
+
+#### Scenario: Operator approves several proposals at once
+- **WHEN** the operator selects several approvable memberships, opens the bulk review, and confirms it
+- **THEN** the page SHALL submit, for each membership, exactly the tuple it showed for that membership, one approval per membership, as the logged-in user
+- **AND** a refusal of one membership SHALL NOT prevent the others from being submitted
+- **AND** the page SHALL report each membership's outcome, approved or the reason it was refused, and reload the list and counts
+
+#### Scenario: Some proposals changed during a bulk approval
+- **WHEN** the approval service refuses some memberships of a bulk approval because their proposals changed
+- **THEN** the page SHALL NOT resubmit them
+- **AND** those that are still approvable SHALL stay selected and be shown again with their current evidence for another explicit confirmation
 
 #### Scenario: Membership cannot be approved
 - **WHEN** a membership is unlinked, quarantined, disabled, already approved, or its evidence is not a single unambiguous match
@@ -23,7 +36,7 @@ The list SHALL show host name, address, AWX host ID, link disposition, enabled s
 ### Requirement: Template binding review in Ansible settings
 The Ansible settings UI SHALL list template binding versions per controller and job template and SHALL let a human user holding `ansible.controllers.manage` prepare a binding review, create a binding only from a prepared review's digest, and revoke a current approved version after typing its exact identifier.
 
-The version list SHALL show state, approval expiry, inventory policy and inventories, project and SCM revision, content hash, and supported modes. The prepared review SHALL show the broker-observed inventory policy, project and SCM revision, execution environment, credential IDs and kinds, machine credential, prompt-on-launch flags, run and check support, inventory groups, input schema and classifications, and the review digest. The page SHALL NOT render credential material and SHALL NOT add brokered AWX reads beyond the existing prepare and create services. It MAY suggest identifiers from approved memberships and AWX-sourced catalog rows, and SHALL label the content SHA-256 and review ticket as values the reviewer attests.
+The version list SHALL show state, approval expiry, inventory policy and inventories, project and SCM revision, content hash, and supported modes. The prepared review SHALL open in a modal dialog that takes keyboard focus, and SHALL show the broker-observed inventory policy, project and SCM revision, execution environment, credential IDs and kinds, machine credential, prompt-on-launch flags, run and check support, inventory groups, input schema and classifications, and the review digest. The page SHALL NOT render credential material and SHALL NOT add brokered AWX reads beyond the existing prepare and create services. It MAY suggest identifiers from approved memberships, inventories with current memberships, and AWX-sourced catalog rows, but SHALL NOT preselect a job template or inventory the operator did not choose. The approved-membership choices SHALL follow the inventory ID in the request and SHALL say when no inventory is chosen. The page SHALL label the content SHA-256 and review ticket as values the reviewer attests.
 
 #### Scenario: Create requires a prepared review
 - **WHEN** no review has been prepared for the current request
@@ -49,7 +62,7 @@ Membership approval and binding prepare, create, and revoke from the settings UI
 The review tabs SHALL be hidden from users without `ansible.controllers.manage`; their lists SHALL be read with the session user's scope and therefore also require `ansible.runs.view` for memberships and `ansible.catalog.view` for bindings. The UI SHALL NOT approve or bind as a system actor, SHALL NOT relax the API's rejection of OAuth-client principals, and SHALL NOT introduce a token type.
 
 #### Scenario: Authority removed while a review is open
-- **WHEN** a user whose `ansible.controllers.manage` permission was removed sends an approve, create, or revoke event directly
+- **WHEN** a user whose `ansible.controllers.manage` permission was removed sends an approve, bulk approve, create, or revoke event directly
 - **THEN** the page SHALL refuse the event without calling the domain service
 - **AND** the domain services SHALL continue to enforce the human-principal and current-authority checks independently
 
