@@ -41,7 +41,7 @@ table grows with reconnects rather than with new authority.
   would send is already recorded, still valid, AND the agent's session hello
   reports the same installed window digest core recorded, core skips the
   rebuild and the resend and reports the window verified current. Otherwise it
-  rebuilds per group, commits issuance evidence in 4,096-entry batches instead
+  rebuilds per group, commits issuance evidence in 256-entry batches instead
   of one transaction per slot, and sends exactly as today.
 - The agent reports, per sweep group, a digest of the installed lease window
   it holds (it already persists it), in the session hello behind a
@@ -97,7 +97,7 @@ These hold by construction and were approved before build:
   push before anything is sent.
 - No verification is skipped: every committed entry still passes
   `verify_issuance` (Ed25519 over authority-signed claims). Only the
-  transaction count drops, from one per slot to one per 4,096-entry chunk,
+  transaction count drops, from one per slot to one per 256-entry chunk,
   and partial-chunk commits stay harmless exactly as today because replay
   resolves them `:committed`.
 - Per-agent serialization is preserved: try-lock admits at most one

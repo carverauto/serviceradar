@@ -63,8 +63,9 @@ const (
 )
 
 var (
-	errInvalidSweepLeaseChunk = errors.New("invalid sweep lease chunk")
-	errInvalidSweepLease      = errors.New("invalid sweep lease")
+	errInvalidSweepLeaseChunk    = errors.New("invalid sweep lease chunk")
+	errInvalidSweepLease         = errors.New("invalid sweep lease")
+	errMalformedSweepLeaseDigest = errors.New("malformed installed sweep lease digest")
 )
 
 // sweepLeaseAssembler collects the chunks of one lease push. The gateway
@@ -226,108 +227,17 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	var discarded []string
 
 	for _, entry := range entries {
-		name := entry.Name()
 		if entry.IsDir() {
 			continue
 		}
 
-		if strings.HasSuffix(name, sweepLeaseRefusalsSuffix) {
-			groupID := strings.TrimSuffix(name, sweepLeaseRefusalsSuffix)
-
-			data, readErr := os.ReadFile(filepath.Join(dir, name))
-			if readErr == nil {
-				readErr = store.loadRefusals(groupID, data, time.Now().UnixNano())
-			}
-			if readErr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("read sweep lease refusals %s: %w", groupID, readErr)
-			}
-
-			continue
+		discard, err := loadStoreEntry(store, dir, entry.Name())
+		if discard != "" {
+			discarded = append(discarded, discard)
 		}
-
-		if strings.HasSuffix(name, sweepLeaseDigestSuffix) {
-			groupID := strings.TrimSuffix(name, sweepLeaseDigestSuffix)
-
-			data, readErr := os.ReadFile(filepath.Join(dir, name))
-			if readErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("read sweep lease digest %s: %w", groupID, readErr)
-				}
-
-				continue
-			}
-
-			// A malformed digest is dropped, not fatal: the group is then
-			// omitted from the hello and core re-issues its window. Failing
-			// the whole store open here would discard every held lease.
-			_ = store.loadDigest(groupID, data)
-
-			continue
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
-
-		if strings.HasSuffix(name, sweepLeaseExecutedSuffix) {
-			groupID := strings.TrimSuffix(name, sweepLeaseExecutedSuffix)
-
-			data, readErr := os.ReadFile(filepath.Join(dir, name))
-			if readErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("read sweep lease executions %s: %w", groupID, readErr)
-				}
-
-				continue
-			}
-
-			executed := make(map[string]int64)
-			if decodeErr := json.Unmarshal(data, &executed); decodeErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("decode sweep lease executions %s: %w", groupID, decodeErr)
-				}
-
-				continue
-			}
-
-			pruneExecuted(executed, time.Now().UnixNano())
-			store.executed[groupID] = executed
-
-			continue
-		}
-
-		if !strings.HasSuffix(name, sweepLeaseFileSuffix) {
-			continue
-		}
-
-		groupID := strings.TrimSuffix(name, sweepLeaseFileSuffix)
-
-		data, readErr := os.ReadFile(filepath.Join(dir, name))
-		if readErr != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("read sweep lease %s: %w", groupID, readErr)
-			}
-
-			continue
-		}
-
-		var lease edgev1.SweepLeaseV1
-		if unmarshalErr := goproto.Unmarshal(data, &lease); unmarshalErr != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("decode sweep lease %s: %w", groupID, unmarshalErr)
-			}
-
-			continue
-		}
-
-		// A stored lease whose slots do not run from carried check sets was
-		// installed before this agent executed from the plan. It is discarded,
-		// so the group runs on its local ticker until core pushes a full
-		// window. A held lease without slots stays and keeps the ticker off.
-		if len(lease.GetSlots()) > 0 {
-			if _, checkErr := edgerecord.SweepLeaseCheckSets(&lease); checkErr != nil {
-				discarded = append(discarded, groupID)
-				continue
-			}
-		}
-
-		store.leases[groupID] = &lease
 	}
 
 	for _, groupID := range discarded {
@@ -358,12 +268,98 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	return store, firstErr
 }
 
+// loadStoreEntry loads one persisted store file: refusals, an installed-payload
+// digest, executions, or a lease. It returns the group ID when the entry is a
+// lease discarded for pre-plan slots, so the caller can clean up its sidecars.
+// Any other outcome reports through err; a malformed digest is dropped, not
+// fatal, exactly as the constructor always treated it.
+func loadStoreEntry(store *sweepLeaseStore, dir, name string) (string, error) {
+	if strings.HasSuffix(name, sweepLeaseRefusalsSuffix) {
+		groupID := strings.TrimSuffix(name, sweepLeaseRefusalsSuffix)
+
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			err = store.loadRefusals(groupID, data, time.Now().UnixNano())
+		}
+		if err != nil {
+			return "", fmt.Errorf("read sweep lease refusals %s: %w", groupID, err)
+		}
+
+		return "", nil
+	}
+
+	if strings.HasSuffix(name, sweepLeaseDigestSuffix) {
+		groupID := strings.TrimSuffix(name, sweepLeaseDigestSuffix)
+
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return "", fmt.Errorf("read sweep lease digest %s: %w", groupID, err)
+		}
+
+		// A malformed digest is dropped, not fatal: the group is then
+		// omitted from the hello and core re-issues its window. Failing
+		// the whole store open here would discard every held lease.
+		_ = store.loadDigest(groupID, data)
+
+		return "", nil
+	}
+
+	if strings.HasSuffix(name, sweepLeaseExecutedSuffix) {
+		groupID := strings.TrimSuffix(name, sweepLeaseExecutedSuffix)
+
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return "", fmt.Errorf("read sweep lease executions %s: %w", groupID, err)
+		}
+
+		executed := make(map[string]int64)
+		if err := json.Unmarshal(data, &executed); err != nil {
+			return "", fmt.Errorf("decode sweep lease executions %s: %w", groupID, err)
+		}
+
+		pruneExecuted(executed, time.Now().UnixNano())
+		store.executed[groupID] = executed
+
+		return "", nil
+	}
+
+	if !strings.HasSuffix(name, sweepLeaseFileSuffix) {
+		return "", nil
+	}
+
+	groupID := strings.TrimSuffix(name, sweepLeaseFileSuffix)
+
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return "", fmt.Errorf("read sweep lease %s: %w", groupID, err)
+	}
+
+	var lease edgev1.SweepLeaseV1
+	if err := goproto.Unmarshal(data, &lease); err != nil {
+		return "", fmt.Errorf("decode sweep lease %s: %w", groupID, err)
+	}
+
+	// A stored lease whose slots do not run from carried check sets was
+	// installed before this agent executed from the plan. It is discarded,
+	// so the group runs on its local ticker until core pushes a full
+	// window. A held lease without slots stays and keeps the ticker off.
+	if len(lease.GetSlots()) > 0 {
+		if _, err := edgerecord.SweepLeaseCheckSets(&lease); err != nil {
+			return groupID, nil
+		}
+	}
+
+	store.leases[groupID] = &lease
+
+	return "", nil
+}
+
 // loadDigest records a persisted installed-payload digest. The caller holds
 // no lock; the constructor is single-threaded.
 func (s *sweepLeaseStore) loadDigest(groupID string, data []byte) error {
 	digest := strings.TrimSpace(string(data))
 	if !validSweepLeaseDigest(digest) {
-		return fmt.Errorf("malformed installed digest for group %s", groupID)
+		return fmt.Errorf("%w for group %s", errMalformedSweepLeaseDigest, groupID)
 	}
 
 	s.digests[groupID] = digest

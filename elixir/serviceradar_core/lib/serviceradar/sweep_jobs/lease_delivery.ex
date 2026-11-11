@@ -565,8 +565,10 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   # Builds the mapping evidence entries for every slot first (keeping every per-slot
   # verification `RecoveryAssignmentEvidence.sweep/3` performs), then commits the
-  # concatenated entries in `commit_issuance/1`'s 4,096-entry chunks: one transaction for
-  # a whole window instead of one per slot. A conflicting entry still halts the push
+  # concatenated entries in `commit_issuance/1`'s 256-entry chunks: a bounded handful of
+  # transactions for a whole window instead of one per slot. Chunks stay small enough
+  # that every commit fits the checkout timeout even on a loaded executor; a whole-window
+  # single transaction does not. A conflicting entry still halts the push
   # before `record_push` and the send, exactly as the per-slot commits did; entries a
   # halted chunk already committed resolve `:committed` on retry through the untouched
   # issuance replay path.
@@ -590,7 +592,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp commit_entry_chunks(entries) do
     entries
-    |> Enum.chunk_every(4096)
+    |> Enum.chunk_every(256)
     |> Enum.reduce_while(:ok, fn batch, :ok ->
       case RecoveryAssignments.commit_issuance(batch) do
         {:ok, :committed} -> {:cont, :ok}

@@ -57,7 +57,7 @@ equality, never trust.
 
 - **GIVEN** a full-window rebuild over more slots than fit one issuance batch
 - **WHEN** core commits the mapping evidence
-- **THEN** it SHALL commit in 4,096-entry batches rather than one transaction
+- **THEN** it SHALL commit in 256-entry batches rather than one transaction
   per slot
 - **AND** every entry SHALL still pass verification
 - **AND** a conflicting entry SHALL still halt the push before anything is sent.

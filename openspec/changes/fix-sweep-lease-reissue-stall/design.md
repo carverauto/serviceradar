@@ -86,15 +86,18 @@ re-assert core's own records.
     unknown-field tolerance; the old gateway does not forward it); full
     re-issue. The agent never waits for or depends on a skip.
 
-### 3. Batching: build all entries, commit in 4,096-entry chunks
+### 3. Batching: build all entries, commit in 256-entry chunks
 
 `record_mappings` keeps its per-slot evidence construction (including every
 `verify_issuance` check) but returns entries instead of committing per slot;
-a new step commits the concatenated entries with the existing
-`commit_issuance` 4,096-entry cap, so a 2,015-slot window commits in one
-transaction instead of ~2,015. A conflicting entry still halts the push
-before `record_push` and the send, exactly as today; partial-chunk commits
-resolve `:committed` on retry through the untouched replay path.
+a new step commits the concatenated entries in 256-entry chunks through the
+existing `commit_issuance` (whose 4,096-entry cap is now just an upper bound),
+so a 2,015-slot window commits in ~16 transactions instead of ~2,015. Chunks
+stay small enough that every commit fits the checkout timeout even on a loaded
+executor — CI proved a whole-window single transaction does not fit. A
+conflicting entry still halts the push before `record_push` and the send,
+exactly as today; partial-chunk commits resolve `:committed` on retry through
+the untouched replay path.
 
 `mark_carried` is already a bulk update and stays as-is. The per-slot
 `source_authorizations` signatures stay per-slot (CPU-cheap, no round trips).
