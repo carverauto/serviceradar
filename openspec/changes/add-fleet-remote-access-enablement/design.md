@@ -135,9 +135,14 @@ A certificate is issued only when the device account's readiness state is `verif
 (spec "Per-device-account readiness state"). This is what turns a raw handshake
 failure into a statement made before Connect. Anyone who may open an SSH session to the
 device may request a readiness check, so a stale state costs one click, not an
-administrator. The gate cannot apply where the routing agent predates the probe, or an
-upgrade of the control plane would cut off working access; the spec carries that one
-exception.
+administrator. `verified` is set only by a successful probe, with no exception. An agent
+that predates the probe cannot verify anything, so a grant imported from the file-based
+policy behind such an agent would lose working access at upgrade. The spec therefore
+carries one issuance allowance, not a readiness exception: a device account holding an
+imported legacy principal that has never been probed because its agent cannot probe may
+receive certificates while it shows `pending` with reason `probe_unsupported`. The
+allowance ends when the agent can probe and, for every device account, in the release
+that stops accepting the chart value (spec "Per-device-account readiness state").
 
 ### Decision 4: one bundle, one layout, three channels; the newer role survives
 
@@ -201,10 +206,19 @@ and no permit extensions, and the agent will not open a channel on it; any one o
 would prevent interactive use. The SSO requirement governs user certificates and does
 not apply to it.
 
+Each probe certificate carries exactly one principal, because sshd accepts a
+certificate when any one of its principals is listed: a certificate carrying both the
+new and the previous principal would succeed on a host that still lists only the
+previous one, and revoking on that signal would lock the account out. The probe tries
+the current principal alone first and the previous principal alone second; only the
+first kind of success retires the previous principal.
+
 A rejection cannot say whether the CA is untrusted, the account is missing or the
 principal is absent: sshd answers all three the same way (inference from the protocol;
 not tested here). The state model therefore uses history: rejection after a verified
-state is `drifted`; rejection without one leaves `not_enrolled`.
+state is `drifted` with reason `certificate_rejected`; rejection without one is
+`not_enrolled` with the same reason. The spec lists every state and reason pair and the
+writer allowed to set it.
 
 ### Decision 8: the existing host-key store becomes the trust source
 
@@ -259,25 +273,40 @@ established from the code").
 
 Import rules are in spec "One-time import of the file-based policy". Hostname and IP
 keys are resolved to devices at import time; an ambiguous key yields a disabled rule,
-never a broader grant. Principals in the old policy become legacy principals so that
-hosts enrolled by hand keep working until their next enrollment replaces them with
-generated ones; the probe, not the import, decides whether each is actually present.
+never a broader grant. Imported rules pass the same content checks as any other rule;
+a rule that cannot is imported disabled. A legacy account's single principal becomes
+the previous principal of that device account, so that hosts enrolled by hand keep
+working until their next enrollment installs the generated one; the probe, not the
+import, decides whether each is actually present. An account with several legacy
+principals gets none, because the cardinality rule allows one and choosing among them
+would be a guess. The imported CA record keeps the deployment's existing signer.
 
-Chart: the release that ships the import keeps `remoteAccess.sshCertificatePolicy`
-solely to feed it and marks it deprecated. The next release removes the value, its
-helper validation and its mount, and refuses to render while the value is still set,
-with a message naming the Settings page where the imported rules are. The
-response-policy Secret (`automationCallbacks.responsePolicy`) is removed in the same
-release as the stored-bundle provider ships, because it has no content to import that
-the bundles do not already hold.
+Chart: both values this change replaces follow one timeline (spec "Retired deployment
+values"). In the release N that ships the replacement the value is accepted, read only
+by the import, and warned about; in release N+1 the chart refuses to render while it
+is set. N is the import release for `remoteAccess.sshCertificatePolicy` and the
+stored-bundle provider release for `automationCallbacks.responsePolicy`.
 
 ## Approved statements this change relaxes
 
-| Statement | Where | Effect of this change |
+All six are statements of the open change `publish-ssh-ca-ansible-enrollment`, in its
+`ansible-remote-access-enrollment` delta and its design. That delta is not in the
+baseline specs, so this change cannot replace it with MODIFIED blocks; this table is the
+contract, and the named requirement of this change is the surviving rule.
+
+| # | Statement relaxed (requirement in `publish-ssh-ca-ansible-enrollment`) | Surviving rule |
 | --- | --- | --- |
-| The role must not manage local accounts. | `publish-ssh-ca-ansible-enrollment` design and `ansible-remote-access-enrollment` delta | Relaxed for accounts in mode `managed` only: create with a locked password and no groups. Still no sudo, PAM or directory changes, and no change to an account the role did not create. |
-| Hypervisors and higher-risk targets fail closed without a separate policy. | same change, non-goals and delta | This change is that policy for hypervisors: class `elevated`, rule opt-in, one host at a time. Other higher-risk targets stay excluded. |
-| A host with unmanaged `TrustedUserCAKeys` or `AuthorizedPrincipalsFile` is refused; existing trust is never adopted implicitly. | same change, delta and role preflight | Relaxed for two recognized layouts whose CA is in the bundle. Any other unmanaged source is still refused. |
+| 1 | "Public collection provides AWX-discoverable enrollment workflows", scenario "Operator uses direct mode", and its design: direct wrappers take per-host CA, account and principal inputs from the operator and make no ServiceRadar authorization, audit, canonical-identity or readiness claim. | "Direct mode reads its hosts and values from ServiceRadar" and "Enrollment channels": direct runs take every per-host value from the bundle through the inventory plugin, name hosts by canonical device UID, read bundles and submit results under ServiceRadar permissions, and their results drive readiness. Direct mode still accepts no callback grant, and direct retirement and removal keep the controller's own approval. |
+| 2 | "Enrollment validates supported targets before mutation": one non-socket-activated sshd instance; socket-activated instances fail closed. | "Supported platforms pass in their stock configuration": a supported release's default activation mode passes, including a single socket-activated instance. Multiple instances and non-default socket activation still fail. |
+| 3 | "Enrollment validates supported targets before mutation" (login-disabled accounts fail closed; scenarios "Supported target passes preflight" and "Input or layout is unsafe" require an existing account) and "Role installs public trust with target-specific principals" (principal files for existing accounts only; local-account state preserved); design non-goal "local-account creation". | "Account handling follows the bundle's account mode": mode `managed` creates a locked account with no groups, and its locked password does not count as login-disabled. Still no sudo, PAM or directory changes, and no change to an account the role did not create. |
+| 4 | "Enrollment validates supported targets before mutation": higher-risk targets without separate policy fail closed; design non-goal PVE/hypervisors. | "Elevated targets are enrolled only by explicit class": hypervisors as class `elevated` under rule opt-in, one host at a time. Other higher-risk targets stay excluded. |
+| 5 | "Enrollment validates supported targets before mutation", scenario "Existing organization policy conflicts", and "Role installs public trust with target-specific principals" (the role manages only its own bundle, drop-in and principal files). | "Pre-existing layouts are adopted, not rejected": two recognized layouts whose CA is in the bundle are converted, and their files removed after verification. Any other unmanaged source is still refused. |
+| 6 | "Role installs public trust with target-specific principals": every principal is selected from the immutable `(controller_id, inventory_id, awx_host_id, canonical_device_uid)` tuple. | "Principals are generated per device account" and "The enrollment bundle is the only source of per-host enrollment values": principals are generated per device account and selected by canonical device UID in every channel. In the integrated channel the bundle is also keyed by the tuple, and tuple and play-host set equality are unchanged. |
+
+No normative statement of another open change is contradicted or relaxed. Checked:
+`add-automation-callback-grants`, `harden-ansible-awx-targeting`,
+`harden-proxmox-console-credential-custody`, `add-proxmox-native-guest-terminal-console`,
+`harden-remote-access-security`, `refactor-unified-credential-management`.
 
 Not relaxed: targeting by membership tuple; the per-child target limit; target holds
 and their clearing permission; no AWX host or host-variable writes; one read-only
@@ -297,7 +326,8 @@ routing; per-action re-authorization and frame authentication for sessions.
 - Enrollment-reported host keys are trusted without review. Mitigation: only for a
   device with no trusted key; a change always needs authorization; evidence is kept.
 - Legacy principals are shared between hosts until re-enrollment. Mitigation: they are
-  flagged on the device account and in the fleet view, and one enrollment replaces them.
+  flagged on the device account and in the fleet view, one enrollment and probe retire
+  them, and the legacy probe allowance ends in a fixed release.
 - The work spans core, web-ng, the agent, the chart and a second repository.
   Mitigation: phases in `tasks.md`; each phase is useful alone.
 
@@ -309,15 +339,18 @@ routing; per-action re-authorization and frame authentication for sessions.
    policy is read only by the import.
 3. Ship readiness, the probe and central host-key delivery behind agent capability
    negotiation. Device accounts with legacy principals are probed once and become
-   `verified` where hosts already work.
+   `verified` where hosts already work; behind agents that cannot probe they stay under
+   the legacy probe allowance.
 4. Release the public content with adoption, account modes, the elevated class,
    results and the inventory plugin. Enable the direct and manual channels.
 5. Enable the integrated channel when the callback and targeting changes it depends on
    are approved for mutation.
 6. Ship the console changes; they are independent of 2 to 5.
-7. Remove the chart values (Decision 11).
+7. Each chart value reaches its release N+1 (Decision 11): `remoteAccess.sshCertificatePolicy`
+   one release after step 2, `automationCallbacks.responsePolicy` one release after
+   step 5. The legacy probe allowance ends with the first.
 
-Rollback: until step 7, the previous release can be restored; it reads the legacy
+Rollback: until `remoteAccess.sshCertificatePolicy` reaches its release N+1, the previous release can be restored; it reads the legacy
 policy again. Rules and device accounts created meanwhile are left in place. Hosts
 adopted into the single layout are not converted back; the single layout accepts the
 same certificates.
@@ -352,9 +385,10 @@ same certificates.
     rules.
 11. **Periodic probe.** (a) On by default every 24 hours (recommended). (b) Off by
     default.
-12. **Chart value removal.** (a) Remove one release after the import ships and refuse
-    to render while it is set (recommended, Decision 11). (b) Ignore it silently.
-    (c) Keep it one more release.
+12. **Chart value removal.** (a) For both replaced values, accept and warn in the
+    release N that ships the replacement and refuse to render while set in release N+1
+    (recommended, Decision 11, spec "Retired deployment values"). (b) Ignore them
+    silently. (c) Keep them one more release.
 
 The spec deltas are written to the recommended options. A different choice changes
 the named requirement and its tasks.

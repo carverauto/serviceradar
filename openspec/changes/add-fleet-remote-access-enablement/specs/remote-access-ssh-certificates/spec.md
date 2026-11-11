@@ -90,7 +90,7 @@ A principal is `srp_v1_` followed by 43 URL-safe base64 characters encoding 32 b
 
 ### Requirement: Certificates carry only the requested device account
 The system SHALL issue a certificate that contains only the non-revoked principals of the one device account being accessed.
-A device account has one current principal and, at most, one previous principal during a rotation and one imported legacy principal after migration. A certificate issued for one device account is therefore not accepted for another account on the same host or for any account on another host enrolled with generated principals.
+A device account holds exactly one current principal and at most one previous principal. A previous principal has one origin: `rotation` (the principal a rotation replaced), `import` (the legacy principal the one-time import attached) or `merge` (the current principal of a merged-away device account). No other principal is ever attached to a device account, and no principal is held by two device accounts of the same device. A certificate issued for one device account is therefore not accepted for another account on the same host or for any account on another host enrolled with generated principals.
 
 #### Scenario: Certificate for one device is refused by another
 - **GIVEN** two enrolled devices with generated principals
@@ -98,23 +98,29 @@ A device account has one current principal and, at most, one previous principal 
 - **THEN** the second host rejects it
 
 ### Requirement: Principal rotation and revocation
-The system SHALL rotate a device account's principal by generating a new current principal, keeping the replaced one as the previous principal until a readiness probe succeeds with the new principal alone, and then revoking the previous principal.
-Rotation can be requested for one device account, for every device account an access rule covers, or for the whole deployment. Revoking a device account's principals stops issuance for them immediately and returns the device account to an unverified state until it is enrolled again. Removing an actor's access (rule change, actor-use policy change, account disabled) stops issuance at the next request; certificates already issued remain valid on the host until they expire, which is why the lifetime is bounded.
+The system SHALL rotate a device account's principal by generating a new current principal and keeping the replaced one as the previous principal, and SHALL revoke a previous principal of any origin only when a readiness probe whose certificate carries the current principal and no other principal succeeds.
+No other step revokes a previous principal early: not an enrollment result, not a probe whose certificate carries the previous principal, and not a later rotation request. Rotation is refused for a device account that still holds a previous principal; revocation is not. Rotation can be requested for one device account, for every device account an access rule covers, or for the whole deployment. Revoking a device account's principals revokes its current and previous principals at once, stops issuance for them immediately, generates a new current principal, and sets the readiness state `not_enrolled` with reason `principal_revoked` until the device is enrolled again and probed. Removing an actor's access (rule change, actor-use policy change, account disabled) stops issuance at the next request; certificates already issued remain valid on the host until they expire, which is why the lifetime is bounded.
 
 #### Scenario: Rotation does not interrupt access
 - **GIVEN** a verified device account
 - **WHEN** an administrator rotates its principal
 - **THEN** certificates carry both the previous and the new principal until the host is enrolled with the new one and probed
-- **AND** the previous principal is revoked after the probe succeeds with the new principal alone
+- **AND** the previous principal is revoked only after a probe whose certificate carries the new principal alone succeeds
+
+#### Scenario: Host not yet enrolled with the new principal
+- **GIVEN** a device account in rotation whose host still lists only the previous principal
+- **WHEN** a readiness probe runs
+- **THEN** the probe with the new principal alone is rejected and the previous principal is kept
+- **AND** certificates issued for the device account are still accepted by the host
 
 #### Scenario: Revocation after suspected compromise
 - **WHEN** an administrator revokes a device account's principals
 - **THEN** no further certificate is issued for them
-- **AND** the device account is no longer verified
+- **AND** the device account is `not_enrolled` with reason `principal_revoked` and holds a new current principal
 
 ### Requirement: Device identity changes keep access attached to the physical host
 The system SHALL move the device accounts, principals, enrollment evidence and readiness state of a merged-away device to the surviving device in the same transaction as the merge, recording the originating device UID on every moved record.
-When both devices hold a device account for the same Unix account, the survivor keeps its current principal and the other device's principal is retained as an additional valid principal until the next verified enrollment replaces it. An unmerge returns the records that originated from the recreated device. A deleted device's device accounts are removed and their principals are revoked; a later revival generates new principals rather than restoring revoked ones. An access rule stores no device identifier of its own, so a merge changes rule coverage only through the rule's target query; the system reports each access rule whose coverage lost the merged-away device without gaining the survivor.
+When both devices hold a device account for the same Unix account, the survivor keeps its current principal and its previous principal. If the survivor's device account holds no previous principal, the merged-away device account's current principal becomes its previous principal with origin `merge`; every other principal of the merged-away device account is revoked, and the survivor's device account is reported as needing enrollment. An unmerge returns the records that originated from the recreated device. A deleted device's device accounts are removed and their principals are revoked; a later revival generates new principals rather than restoring revoked ones. An access rule stores no device identifier of its own, so a merge changes rule coverage only through the rule's target query; the system reports each access rule whose coverage lost the merged-away device without gaining the survivor.
 
 #### Scenario: Duplicate records of one host are merged
 - **GIVEN** an enrolled, verified device account on a device that is then merged into another device record
@@ -186,7 +192,9 @@ An issuance or denial event names the actor, the device UID, the Unix account, t
 
 ### Requirement: One-time import of the file-based policy
 The system SHALL import a certificate policy supplied through the legacy environment variable or file into access rules exactly once, record the import with the policy's digest, and ignore the legacy policy from then on.
-The import converts as follows. A top-level `accounts` list becomes an enabled access rule covering all devices and is flagged in the import report as deployment-wide. A `targets` entry keyed by a device UID becomes an enabled rule whose target query selects that UID. A `targets` entry keyed by a hostname or IP address is resolved against inventory: exactly one matching device yields an enabled UID-selecting rule, more than one yields a disabled rule that lists the candidates, and none yields a report entry only. A principal mapping with source `groups` becomes a group selector in the rule's actor-use policy; a mapping with source `email`, `email_domain` or `claim` is listed in the report as not converted, and a rule whose only mappings were not converted is imported disabled. Each principal named by a converted mapping is attached as the legacy principal of every device account the imported rule creates. Imported rules reference a CA record created from the configured CA public key.
+The import converts as follows. A top-level `accounts` list becomes an access rule covering all devices and is flagged in the import report as deployment-wide. A `targets` entry keyed by a device UID becomes a rule whose target query selects that UID. A `targets` entry keyed by a hostname or IP address is resolved against inventory: exactly one matching device yields a UID-selecting rule, more than one yields a disabled rule that lists the candidates, and none yields a report entry only. A principal mapping with source `groups` becomes a group selector in the rule's actor-use policy; a mapping with source `email`, `email_domain` or `claim` is listed in the report as not converted. Imported rules are enabled except where this requirement says otherwise, and every imported rule is validated as "Access rule content" requires. A legacy entry listing more than 16 accounts is split into rules of at most 16 accounts each, in the entry's order, with the same target query and actor-use policy. A rule that has no actor-use selector after conversion, or that fails any other content check, is imported disabled and the report names the failing check; no imported rule is enabled with less validation than one created in Settings.
+Legacy principals attach per device account. For each device account an imported rule creates, the import takes the principals that the device's effective legacy policy lists for that Unix account. When that is exactly one principal and the effective legacy policy lists it for no other account of the same device, it becomes the device account's previous principal with origin `import`. Otherwise no legacy principal is attached and the report names the device account as needing enrollment. A principal named only by a mapping, and not by the account, is never attached.
+Imported rules reference one CA record holding the configured CA public key and the deployment's existing signer reference, so that issuance after the import is signed exactly as before it. When the legacy configuration has no signer reference that the CA record can hold, the CA record and every imported rule are imported disabled and the report names the missing signer.
 
 #### Scenario: Hostname key matching two devices
 - **GIVEN** a legacy policy with a `targets` entry keyed by a hostname that two devices share
@@ -201,5 +209,31 @@ The import converts as follows. A top-level `accounts` list becomes an enabled a
 
 #### Scenario: Already-enrolled host keeps working after import
 - **GIVEN** a host enrolled by hand with a principal named in the legacy policy
-- **WHEN** the import has run and the readiness probe succeeds with the legacy principal
+- **WHEN** the import has run and the readiness probe succeeds with the legacy principal alone
 - **THEN** certificates for that device account carry the legacy principal and are accepted by the host
+
+#### Scenario: Legacy account with several principals
+- **GIVEN** a legacy account entry that lists two principals for one device
+- **WHEN** the import runs
+- **THEN** the device account receives no legacy principal
+- **AND** the import report names it as needing enrollment
+
+#### Scenario: Legacy entry with more accounts than a rule allows
+- **GIVEN** a legacy `accounts` list with 40 accounts
+- **WHEN** the import runs
+- **THEN** three access rules of at most 16 accounts each are created with the same target query and actor-use policy
+
+### Requirement: Retired deployment values
+The system SHALL retire each deployment value that this change replaces on one timeline: in the release N that ships its replacement the chart still accepts the value, the product reads it for nothing except the one-time import, and both Helm and the workload emit a warning that names the value and the Settings page that replaces it; in release N+1 the chart refuses to render while the value is set, with the same message.
+The retired values are `remoteAccess.sshCertificatePolicy`, whose release N is the release that ships the one-time import, and `automationCallbacks.responsePolicy`, whose release N is the release that ships the stored-bundle response-policy provider and which has no content to import. In release N+1 the value's helper validation and mount are removed with it.
+
+#### Scenario: Upgrade to the import release with the policy value set
+- **GIVEN** a deployment with `remoteAccess.sshCertificatePolicy` set
+- **WHEN** it upgrades to release N
+- **THEN** the chart renders, the import runs once, and Helm and the workload warn that the value is ignored
+- **AND** certificate decisions use access rules only
+
+#### Scenario: Upgrade to the following release with the value still set
+- **GIVEN** a deployment with a retired value still set
+- **WHEN** it upgrades to release N+1 for that value
+- **THEN** rendering fails with a message naming the value and the Settings page that replaces it

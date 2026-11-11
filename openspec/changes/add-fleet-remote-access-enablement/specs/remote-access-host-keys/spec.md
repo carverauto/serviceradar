@@ -30,13 +30,13 @@ The record names the enrollment attempt as evidence. An administrator with `sett
 
 ### Requirement: Unknown and changed host keys are refused and classified
 The system SHALL refuse a connection, before any user authentication is attempted, when the device has no trusted host key or when the offered key is not among its trusted keys.
-With no trusted key, the offered key is recorded as `pending` with source `agent_observed`, and the device's accounts take readiness state `pending` with reason `host_key_unknown`. With trusted keys that do not include the offered key, the offered key is recorded as `conflict`, the device's accounts take readiness state `drifted` with reason `host_key_changed`, and an audit event and an operator-visible event are written. A changed key is never trusted because it was observed, and never because an enrollment result reported it, unless a host-key change was authorized for that device.
+With no trusted key, the offered key is recorded as `pending` with source `agent_observed`, and the device's probe-eligible device accounts take readiness state `pending` with reason `host_key_unknown`. With trusted keys that do not include the offered key, the offered key is recorded as `conflict`, the device's probe-eligible device accounts take readiness state `drifted` with reason `host_key_changed`, and an audit event and an operator-visible event are written. A changed key is never trusted because it was observed, and never because an enrollment result reported it, unless a host-key change was authorized for that device.
 
 #### Scenario: Host key changes unexpectedly
 - **GIVEN** a device with a trusted host key
 - **WHEN** an agent is offered a different key
 - **THEN** the connection is refused before authentication
-- **AND** the device's accounts are `drifted` with reason `host_key_changed`
+- **AND** the device's probe-eligible device accounts are `drifted` with reason `host_key_changed`
 
 #### Scenario: Enrollment reports a different key without authorization
 - **GIVEN** a device with a trusted host key and no authorized host-key change

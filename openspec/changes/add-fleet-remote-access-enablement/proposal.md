@@ -64,10 +64,12 @@ be deterministic and programmatic". Read from the code at `origin/staging` on 20
   relationship by exact test; scope evaluated against the agent that reaches the PVE
   API; a documented minimal privilege set with a verification check; classified denial
   reasons; console readiness per device.
-- **Migration:** the file-based policy is imported once into rules and then ignored;
-  its chart value is removed in the following release. Existing on-host layouts are
-  adopted. **BREAKING** for deployments that keep `remoteAccess.sshCertificatePolicy`
-  set after the removal release: the chart refuses to render until the value is deleted.
+- **Migration:** the file-based policy is imported once into rules and then ignored.
+  `remoteAccess.sshCertificatePolicy` and `automationCallbacks.responsePolicy` are each
+  accepted with a warning in the release that ships their replacement and refused in the
+  next. Existing on-host layouts are adopted. **BREAKING** for deployments that keep
+  either value set into that next release: the chart refuses to render until the value
+  is deleted.
 - **`defects.md`** lists plain bugs that can be fixed before any of this.
 
 ## Why a new change and not more requirements in an existing one
@@ -83,8 +85,9 @@ derivable instead of hand-fed.
 ## Related active changes
 
 - `publish-ssh-ca-ansible-enrollment`: owns the role and its transaction. This change
-  adds requirements to the same capability and relaxes three of its statements
-  (`design.md`, "Approved statements this change relaxes").
+  adds requirements to the same capability and relaxes six of its statements, each
+  listed with its surviving rule in `design.md`, "Approved statements this change
+  relaxes". No statement of any other open change is relaxed.
 - `add-automation-callback-grants`: owns the callback grant and the
   `remote_access.ssh_ca.bundle.read` action. This change supplies the response policy
   from stored bundles instead of a file and adds no callback action.

@@ -30,12 +30,18 @@ The recognized earlier layouts are the `fleet_ssh_enroll` layout and the layout 
 
 ### Requirement: Account handling follows the bundle's account mode
 The role SHALL require an account in mode `existing` to be present already, and SHALL create an account in mode `managed` when it is absent.
-A managed account is created with a locked password, a login shell, a home directory and no supplementary groups, and the role records that it created the account. The role never grants sudo, never changes an account it did not create, never accepts `root` or UID 0, and reports `account_missing` for an absent `existing` account and `account_not_managed` when a `managed` account name already belongs to an account the role did not create. Offboarding removes the account's principals and leaves the account and its files in place.
+A managed account is created with a locked password, a login shell, a home directory and no supplementary groups, and the role records that it created the account. The role never grants sudo, never changes an account it did not create, never accepts `root` or UID 0, and reports `account_missing` for an absent `existing` account and `account_not_managed` when a `managed` account name already belongs to an account the role did not create. A managed account's locked password does not make it login-disabled for preflight; a non-login shell or an expired account still fails preflight. The enroll transaction makes the role's principals directory hold exactly the bundle's accounts: it writes a principals file for each account the bundle lists and deletes the principals file of every account the bundle omits, including when the bundle lists no account. Offboarding removes the principals of every account and leaves the accounts and their files in place.
 
 #### Scenario: Managed account on a new host
 - **GIVEN** a bundle listing account `svc-ops` in mode `managed`
 - **WHEN** the role enrolls a host where `svc-ops` does not exist
 - **THEN** the account exists with a locked password and no supplementary groups
+
+#### Scenario: Account omitted from the bundle
+- **GIVEN** a host enrolled with accounts `svc-ops` and `svc-backup`
+- **WHEN** the role enrolls the host with a bundle that lists only `svc-ops`
+- **THEN** the principals file for `svc-backup` is deleted in the same transaction
+- **AND** the `svc-backup` Unix account itself is unchanged
 
 #### Scenario: Existing account is missing
 - **GIVEN** a bundle listing account `svc-ops` in mode `existing`
@@ -61,8 +67,8 @@ For an elevated host the role runs one host at a time, keeps the transactional r
 - **THEN** the host is enrolled with the single layout and root access is unchanged
 
 ### Requirement: Supported platforms pass in their stock configuration
-The role SHALL enroll every platform release it declares supported in that release's stock sshd configuration, including the release's default sshd activation mode, and its test matrix SHALL prove this for virtual machines and for system containers.
-A platform the role does not support is reported `ineligible` with reason `platform_unsupported` before any change. Hosts without systemd and operating-system families outside the declared list are not supported by the role.
+The role SHALL enroll every platform release it declares supported in that release's stock sshd configuration, including the release's default sshd activation mode whether that is a service or a single socket-activated instance, and its test matrix SHALL prove this for virtual machines and for system containers.
+Multiple sshd instances, and socket activation on a release whose default is a service, still fail preflight. A platform the role does not support is reported `ineligible` with reason `platform_unsupported` before any change. Hosts without systemd and operating-system families outside the declared list are not supported by the role.
 
 #### Scenario: Stock install of a supported release
 - **WHEN** the role runs preflight on an unmodified install of a supported release

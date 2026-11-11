@@ -2,7 +2,7 @@
 
 ### Requirement: Desired enrollment state is derived from access rules
 The system SHALL maintain the complete set of device accounts by evaluating every enabled access rule's target query over the whole inventory, without sampling, whenever a rule changes and on a bounded schedule.
-A device account that no enabled access rule supports any longer becomes undesired: no certificate can be issued for it, because no rule qualifies, and it is omitted from the device's enrollment bundle so that the next enrollment removes it from the host. Its principals are kept until an enrollment result shows the host no longer lists them, and are then revoked; if a rule supports the device account again before that, it becomes desired again with the same principals and is probed. Each device has an enrollment generation, an integer that increases whenever the device's desired accounts, principals or CA keys change.
+A device account that no enabled access rule supports any longer becomes undesired. Its principals are revoked at once, so no certificate can be issued with them; its readiness state becomes `drifted` with reason `removal_pending`; and it is omitted from the device's enrollment bundle, so that the next enrollment removes its principals file from the host. The device account is deleted when a `committed` or `unchanged` enrollment result is recorded for a generation whose bundle omitted it. If a rule supports the same Unix account on the device again before that, the device account becomes desired again with a newly generated current principal and readiness state `not_enrolled` with reason `principal_revoked`. Each device has an enrollment generation, an integer that increases whenever the device's desired accounts, principals or CA keys change.
 
 #### Scenario: Device newly matches a rule
 - **GIVEN** an enabled access rule listing account `svc-ops`
@@ -15,18 +15,24 @@ A device account that no enabled access rule supports any longer becomes undesir
 
 #### Scenario: Rule disabled
 - **WHEN** the only access rule supporting a device account is disabled
-- **THEN** the device account is undesired and is omitted from the device's bundle
-- **AND** the device's enrollment generation increases
+- **THEN** the device account's principals are revoked and no certificate is issued for it
+- **AND** its readiness state is `drifted` with reason `removal_pending`
+- **AND** it is omitted from the device's bundle and the device's enrollment generation increases
+
+#### Scenario: Removal confirmed by enrollment
+- **GIVEN** a device account pending removal
+- **WHEN** a `committed` result is recorded for a generation whose bundle omitted it
+- **THEN** the device account is deleted
 
 #### Scenario: Rule re-enabled before the host was changed
-- **GIVEN** an undesired device account whose host has not been enrolled since
+- **GIVEN** a device account pending removal whose host has not been enrolled since
 - **WHEN** the access rule is enabled again
-- **THEN** the device account is desired again with the same principals
-- **AND** a readiness probe is scheduled
+- **THEN** the device account is desired again with a newly generated current principal
+- **AND** its readiness state is `not_enrolled` with reason `principal_revoked` until the device is enrolled again and probed
 
 ### Requirement: The enrollment bundle is the only source of per-host enrollment values
-The system SHALL produce, for each device with at least one enrollable desired device account, one enrollment bundle derived from stored state, and every enrollment channel SHALL take its per-host values from that bundle and from nowhere else.
-A device account is enrollable unless the device is excluded or is elevated without opt-in (see "Supported targets and explicit exclusions"). A bundle contains the device UID, the enrollment generation, a digest of its content, the public keys and fingerprints of the CA records in an active or overlap state, each enrollable desired account with its mode and its non-revoked principals, the device's risk class, and whether a host-key change is authorized. It contains no private key, token or password. Reading bundles requires `devices.remote_access.ssh.ca_bundle.read`. A hand-written inventory variable, survey answer or extra variable cannot supply or override a bundle value.
+The system SHALL produce, for each device with at least one enrollable desired device account or at least one device account pending removal, one enrollment bundle derived from stored state, and every enrollment channel SHALL take its per-host values from that bundle and from nowhere else.
+A device account is enrollable unless the device is excluded or is elevated without opt-in (see "Supported targets and explicit exclusions"). A bundle contains the device UID, the enrollment generation, a digest of its content, the public keys and fingerprints of the CA records in an active or overlap state, each enrollable desired account with its mode and its non-revoked principals (a device account pending removal is never listed), the device's risk class, and whether a host-key change is authorized. It contains no private key, token or password. Reading bundles requires `devices.remote_access.ssh.ca_bundle.read`. A hand-written inventory variable, survey answer or extra variable cannot supply or override a bundle value.
 
 #### Scenario: Same values through every channel
 - **GIVEN** a device with a desired device account
@@ -88,10 +94,19 @@ A device is `elevated` when ServiceRadar's stored virtualization relationship id
 - **THEN** its device accounts have readiness state `not_enrolled` with reason `platform_unsupported` and a remedy pointing to the manual channel
 
 ### Requirement: Per-device-account readiness state
-The system SHALL store, for every desired device account, exactly one readiness state from `not_enrolled`, `pending`, `verified`, `drifted` and `unreachable`, with exactly one reason and a remedy.
-The reasons are, by state. `not_enrolled`: `never_enrolled`, `principal_revoked`, `platform_unsupported`, `elevated_not_opted_in`, `excluded`. `pending`: `enrollment_running`, `awaiting_probe`, `host_key_unknown`. `verified`: `ok`. `drifted`: `certificate_rejected`, `host_key_changed`, `target_held`. `unreachable`: `no_routing_agent`, `agent_offline`, `tcp_unreachable`, `probe_timeout`. Only a successful readiness probe sets `verified`; an enrollment result never does. A rejected certificate sets `drifted` only for a device account that was verified before; otherwise the state stays `not_enrolled`. A certificate is issued for a device account only while its state is `verified`. The one exception is a device account whose routing agent does not advertise probe support: the issuance gate does not apply to it, a successful certificate session sets `verified`, a rejected one is classified as a probe rejection would be, and the surface states that readiness cannot be checked in advance until the agent is upgraded.
+The system SHALL store, for every device account, exactly one readiness state from `not_enrolled`, `pending`, `verified`, `drifted` and `unreachable`, with exactly one reason from the closed list for that state and a remedy, and no writer SHALL set a state and reason pair outside these lists.
+The reasons are, by state. `not_enrolled`: `never_enrolled`, `certificate_rejected`, `principal_revoked`, `platform_unsupported`, `elevated_not_opted_in`, `excluded`. `pending`: `awaiting_probe`, `host_key_unknown`, `probe_unsupported`. `verified`: `ok`. `drifted`: `certificate_rejected`, `host_key_changed`, `target_held`, `removal_pending`. `unreachable`: `no_routing_agent`, `agent_offline`, `tcp_unreachable`, `probe_timeout`.
+A device account is probe-eligible when it is desired, its device is not excluded, and it is not elevated without opt-in. The writers, and the only pairs each sets, are:
+- Reconciliation: `not_enrolled`/`never_enrolled` for a new device account; `not_enrolled`/`excluded` while its device is excluded; `not_enrolled`/`elevated_not_opted_in` while it is elevated without opt-in; `pending`/`awaiting_probe`, with a probe scheduled, when such an exclusion or opt-in hold ends; `drifted`/`removal_pending` when it becomes undesired; `not_enrolled`/`principal_revoked` when it becomes desired again; `pending`/`probe_unsupported` under the legacy probe allowance below.
+- Principal revocation: `not_enrolled`/`principal_revoked`.
+- Enrollment results, as "Enrollment results are recorded" defines: `pending`/`awaiting_probe`, `not_enrolled`/`platform_unsupported`, `drifted`/`target_held`.
+- Readiness probes, as "Readiness probe" defines: `verified`/`ok`; on rejection, `drifted`/`certificate_rejected` for a device account that has been `verified` before and `not_enrolled`/`certificate_rejected` for one that has not; `pending`/`host_key_unknown`; `drifted`/`host_key_changed`; `unreachable` with one of its four reasons.
+- Host-key refusal of a session: `pending`/`host_key_unknown` and `drifted`/`host_key_changed`.
+Enrollment results, probes and host-key refusals change only probe-eligible device accounts; a device account with reason `excluded`, `elevated_not_opted_in` or `removal_pending` keeps its state and reason. Only a successful readiness probe sets `verified`; nothing else does.
+A certificate is issued for a device account only while its state is `verified`, plus one bounded issuance allowance, the legacy probe allowance: a certificate may also be issued for a device account that holds a previous principal with origin `import` and has never been probed because the agent that routes to its device does not advertise probe support. Such a device account has state `pending` with reason `probe_unsupported`, and the surface states that readiness cannot be checked until the agent is upgraded. The allowance ends for the device account when that agent advertises probe support, whereupon a probe is scheduled and only the `verified` gate applies, and it ends for every device account in release N+1 of the retirement timeline of `remoteAccess.sshCertificatePolicy` (see "Retired deployment values"). A session issued under the allowance never changes the readiness state.
 
 #### Scenario: Enrollment committed but not yet probed
+- **GIVEN** device accounts that are not `verified`
 - **WHEN** an enrollment result reports a commit for a device's current generation
 - **THEN** its device accounts are `pending` with reason `awaiting_probe`
 - **AND** a readiness probe is scheduled without operator action
@@ -106,25 +121,49 @@ The reasons are, by state. `not_enrolled`: `never_enrolled`, `principal_revoked`
 - **WHEN** an operator applies the manual instructions and requests a readiness check that succeeds
 - **THEN** the state is `verified`
 
+#### Scenario: First probe is rejected
+- **GIVEN** a device account that has never been `verified`
+- **WHEN** a readiness probe's certificate is rejected by the host
+- **THEN** the state is `not_enrolled` with reason `certificate_rejected`
+
+#### Scenario: Host key changes on a device with an excluded account
+- **GIVEN** a device with one probe-eligible device account and one device account with reason `elevated_not_opted_in`
+- **WHEN** an agent is offered a host key that is not among the device's trusted keys
+- **THEN** the probe-eligible device account is `drifted` with reason `host_key_changed`
+- **AND** the other device account keeps reason `elevated_not_opted_in`
+
 #### Scenario: Certificate request for an unverified device account
-- **GIVEN** a routing agent that advertises probe support
+- **GIVEN** a device account outside the legacy probe allowance
 - **WHEN** an actor requests a certificate for a device account that is not `verified`
 - **THEN** the request is denied with `not_ready` carrying the state, reason and remedy
 
-#### Scenario: Routing agent predates the probe
-- **GIVEN** a device account whose routing agent does not advertise probe support
-- **WHEN** a permitted actor requests a certificate and the session authenticates
-- **THEN** the certificate is issued without a prior probe
-- **AND** the device account becomes `verified`
+#### Scenario: Imported grant behind an agent that predates the probe
+- **GIVEN** a device account with a previous principal of origin `import` that has never been probed
+- **AND** an agent routing to its device that does not advertise probe support
+- **WHEN** a permitted actor requests a certificate
+- **THEN** the certificate is issued under the legacy probe allowance
+- **AND** the device account stays `pending` with reason `probe_unsupported`
+
+#### Scenario: Agent upgraded during the allowance
+- **GIVEN** a device account under the legacy probe allowance
+- **WHEN** the agent routing to its device advertises probe support
+- **THEN** a readiness probe is scheduled
+- **AND** certificates are issued for the device account only once it is `verified`
+
+#### Scenario: New grant behind an agent that predates the probe
+- **GIVEN** a device account with no previous principal of origin `import`
+- **AND** an agent routing to its device that does not advertise probe support
+- **WHEN** a permitted actor requests a certificate
+- **THEN** the request is denied with `not_ready` and a remedy to upgrade the agent
 
 ### Requirement: Readiness probe
-The system SHALL verify a device account by having the routing agent authenticate to the host with a system-issued probe certificate for that device account and disconnect without opening a session channel.
-A probe certificate carries the device account's principals under test, a lifetime of at most 60 seconds, a forced no-op command, no permit extensions, and a key ID that marks it as a probe; the agent refuses to open a channel on a probe connection. The probe verifies the host key against the central host-key store exactly as a session does. Its result is classified into the readiness states and reasons; success proves that the host trusts the CA and lists the principal for that account, and a rejection is reported as `certificate_rejected` without claiming which of the two is missing. The agent never reads a file on the host. A probe runs after an enrollment result, on request by any principal who may open an SSH session to the device, once for a device account holding an imported legacy principal, and periodically for device accounts that are `verified`, `drifted` or `unreachable`, at an interval that is a runtime setting (default 24 hours, may be disabled). Probes are rate-limited per agent.
+The system SHALL verify a probe-eligible device account by having the routing agent authenticate to the host with a system-issued probe certificate for that device account and disconnect after authentication without requesting a session channel.
+A probe certificate carries exactly one principal of the device account, a lifetime of at most 60 seconds, a forced no-op command, no permit extensions, and a key ID that marks it as a probe. The agent never requests a channel on a probe connection, so the forced command never runs; it exists only to make the certificate useless if it leaves the agent. A probe first presents a certificate carrying the current principal alone. When the host rejects it and the device account holds a previous principal, the probe presents a second certificate carrying the previous principal alone. Success with the current principal sets `verified`/`ok` and revokes the previous principal; success with only the previous principal sets `verified`/`ok` and keeps it; rejection of every certificate sets the rejection pair of "Per-device-account readiness state", without claiming whether the CA trust or the principal is missing. The probe verifies the host key against the central host-key store exactly as a session does. The agent never reads a file on the host. A probe runs after an enrollment result, on request by any principal who may open an SSH session to the device, once for a device account holding a previous principal with origin `import`, when the legacy probe allowance ends for a device account, and periodically for device accounts that are `verified`, `drifted` or `unreachable`, at an interval that is a runtime setting (default 24 hours, may be disabled). Probes are rate-limited per agent.
 
-#### Scenario: Probe cannot run commands
-- **WHEN** a probe certificate is used to request a shell or a command
-- **THEN** the host runs only the forced no-op command
-- **AND** the agent does not request a channel
+#### Scenario: Probe opens no channel
+- **WHEN** a probe connection completes certificate authentication
+- **THEN** the agent disconnects without requesting a session channel
+- **AND** the forced no-op command is not executed on the host
 
 #### Scenario: Agent offline at probe time
 - **WHEN** a probe is due and no agent that can route to the device is connected
@@ -137,12 +176,12 @@ A probe certificate carries the device account's principals under test, a lifeti
 
 ### Requirement: Enrollment results are recorded
 The system SHALL record, for every enrollment attempt on a device, the channel, the launching principal, the bundle generation and digest applied, the outcome, any pre-existing layout that was adopted, and the host's public host keys.
-The outcomes are `committed`, `unchanged`, `rolled_back`, `failed_before_mutation`, `ineligible` (with the content's reason) and `critical_manual_recovery`. The integrated channel takes results from the job's host-scoped events; the direct channel submits them to the admin API with a token holding `devices.remote_access.ssh.enrollment.report`. A result is accepted only for the device UID the bundle was issued to. An `ineligible` result leaves the readiness state unchanged, except that the content's reason `platform_unsupported` sets the readiness reason of the same name; the content's reason is shown with the state as remedy detail. `critical_manual_recovery` sets the device's accounts to `drifted` with reason `target_held` and, on the integrated channel, is subject to the launch boundary's durable target hold.
+The outcomes are `committed`, `unchanged`, `rolled_back`, `failed_before_mutation`, `ineligible` (with the content's reason) and `critical_manual_recovery`. The integrated channel takes results from the job's host-scoped events; the direct channel submits them to the admin API with a token holding `devices.remote_access.ssh.enrollment.report`. A result is accepted only for the device UID the bundle was issued to, and changes readiness only for the probe-eligible device accounts that the applied generation's bundle listed. A `committed` or `unchanged` result for the device's current generation sets each listed device account that is not `verified` to `pending` with reason `awaiting_probe`, and schedules a probe for every listed device account; a `verified` device account stays `verified` until that probe. A `committed` or `unchanged` result for any generation deletes each device account pending removal that the applied bundle omitted. An `ineligible` result with the content's reason `platform_unsupported` sets the listed device accounts to `not_enrolled` with reason `platform_unsupported`. Every other `ineligible` result, and every `rolled_back` or `failed_before_mutation` result, leaves state and reason unchanged, and the content's reason is shown with the state as remedy detail. `critical_manual_recovery` sets the listed device accounts to `drifted` with reason `target_held` and, on the integrated channel, is subject to the launch boundary's durable target hold.
 
 #### Scenario: Result for a superseded generation
 - **WHEN** a result reports a commit for a generation older than the device's current one
 - **THEN** the result is recorded
-- **AND** the device accounts changed since that generation are not marked `awaiting_probe`
+- **AND** no device account is set to `awaiting_probe` by it
 
 #### Scenario: Reporter without the permission
 - **WHEN** a token without `devices.remote_access.ssh.enrollment.report` submits a result
@@ -150,7 +189,7 @@ The outcomes are `committed`, `unchanged`, `rolled_back`, `failed_before_mutatio
 
 ### Requirement: Readiness is visible before Connect
 The system SHALL show, on a device's remote-access surface and before any connection is attempted, each device account available to the viewing actor with its readiness state, reason and remedy, and SHALL offer Connect only for device accounts that the issuance gate of "Per-device-account readiness state" admits.
-The decision shown is produced by the same evaluation that authorizes a certificate request. For a device account the gate does not admit, the surface offers the remedy: a readiness check, the enrollment channels, or the administrator action the reason names. Settings provides a deployment-wide enrollment view that counts device accounts by state and reason, filters by access rule, and exports the list through the admin API. These views load data only after the LiveView is connected and stream lists longer than 100 rows.
+The decision shown is produced by the same evaluation that authorizes a certificate request. For a device account the gate does not admit, the surface offers the remedy: a readiness check for a probe-eligible device account, the enrollment channels, or the administrator action the reason names. Settings provides a deployment-wide enrollment view that counts device accounts by state and reason, filters by access rule, and exports the list through the admin API. These views load data only after the LiveView is connected and stream lists longer than 100 rows.
 
 #### Scenario: Unenrolled device
 - **GIVEN** a device account in state `not_enrolled` with reason `never_enrolled`
