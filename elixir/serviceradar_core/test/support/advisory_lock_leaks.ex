@@ -270,8 +270,7 @@ defmodule ServiceRadar.TestSupport.AdvisoryLockLeaks do
   defp verdict(_pid, %{state: "idle", state_change: changed}, %{
          state: "idle",
          state_change: changed
-       }),
-       do: :leaked
+       }), do: :leaked
 
   defp verdict(_pid, _earlier, _holder), do: :in_flight
 
