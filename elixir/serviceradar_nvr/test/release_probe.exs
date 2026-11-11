@@ -15,7 +15,7 @@ clock = %{clock_epoch: "synthetic-clock", timebase: 90_000, dts_source: :pts_no_
 identity = %{source_id: "synthetic-camera", profile: "recording", recorder_epoch: 1, block_sequence: 0}
 
 case System.fetch_env!("NVR_TEST_MODE") do
-  "storage_bootstrap" ->
+  mode when mode in ["storage_bootstrap", "storage_bootstrap_acknowledgement", "storage_bootstrap_evidence"] ->
     directory = System.fetch_env!("TMPDIR")
     configured = directory |> Path.join("bootstrap-reference.json") |> File.read!() |> Jason.decode!()
 
@@ -25,19 +25,43 @@ case System.fetch_env!("NVR_TEST_MODE") do
       binding_sha256: configured["binding_sha256"]
     }
 
-    bytes = File.read!(Path.join(directory, "bootstrap-input.json"))
+    operation =
+      case mode do
+        "storage_bootstrap" ->
+          ServiceRadarNVR.bootstrap_storage(root, reference, File.read!(Path.join(directory, "bootstrap-input.json")))
+
+        "storage_bootstrap_acknowledgement" ->
+          ServiceRadarNVR.acknowledge_bootstrap(
+            root,
+            reference,
+            File.read!(Path.join(directory, "bootstrap-ack-input.json"))
+          )
+
+        "storage_bootstrap_evidence" ->
+          ServiceRadarNVR.bootstrap_evidence(root, reference)
+      end
 
     result =
-      case ServiceRadarNVR.bootstrap_storage(root, reference, bytes) do
+      case operation do
         {:ok, %{storage: storage, preparation_sha256: digest}} ->
-          {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.capacity()
-          {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.list_blocks()
-          {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.start_recording(identity, clock)
           %{result: "installed", storage_id: storage.id, preparation_sha256: digest}
+
+        {:ok, evidence} ->
+          Map.put(evidence, :result, "observed")
 
         {:error, reason} ->
           %{result: "refused", reason: inspect(reason)}
       end
+
+    if match?({:ok, _}, Storage.open(root, id)) and
+         Enum.any?(
+           [".bootstrap-preparation.json", ".bootstrap-acknowledgement.json"],
+           &File.exists?(Path.join(root, &1))
+         ) do
+      {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.capacity()
+      {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.list_blocks()
+      {:error, :nvr_history_bootstrap_incomplete} = ServiceRadarNVR.start_recording(identity, clock)
+    end
 
     File.write!(Path.join(directory, "bootstrap-result.json"), Jason.encode!(result))
 
