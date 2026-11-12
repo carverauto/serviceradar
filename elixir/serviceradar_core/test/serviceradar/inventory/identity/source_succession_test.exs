@@ -28,6 +28,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
   require Ash.Query
 
@@ -208,6 +209,22 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     assert [%{"field" => "first_seen"}] = audit.details["corroboration"]
     assert [%{"collection_ids" => [_ | _]}] = audit.details["retired_ids"]
     assert audit.details["succession"]["ip_transferred"]
+  end
+
+  # The device is also a hypervisor guest, re-created under a new VMID: its old reference retired
+  # with the old guest, and the successor holds the new one.
+  test "a guest reference the predecessor held and retired does not block the succession",
+       %{actor: actor} do
+    world = rekeyed(actor)
+    guest_scope = "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster01:qemu"
+    register_guest_ref!(actor, world.predecessor, "#{guest_scope}:136")
+    IdentifierArchiveFixtures.archive!(:integration_id, "#{guest_scope}:136")
+    register_guest_ref!(actor, world.successor, "#{guest_scope}:210")
+
+    assert {:ok, %{merged: 1, skipped: 0}} =
+             SourceSuccession.run(actor: actor, max_successions: 10)
+
+    assert device(world.successor, actor).deleted_at
   end
 
   test "retains the survivor's replaced primary address as a detected alias when taking the successor's address",
@@ -608,6 +625,18 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
       end)
 
     assert observations_read(lookup, params) <= 10
+  end
+
+  defp register_guest_ref!(actor, device_uid, ref) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: device_uid,
+      identifier_type: :integration_id,
+      identifier_value: ref,
+      partition: "default",
+      source: "hypervisor_enrichment"
+    })
+    |> Ash.create!(actor: actor)
   end
 
   defp register_source_id!(actor, device_uid, partition) do

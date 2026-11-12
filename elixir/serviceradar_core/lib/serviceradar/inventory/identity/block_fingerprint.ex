@@ -43,10 +43,13 @@ defmodule ServiceRadar.Inventory.Identity.BlockFingerprint do
   alias ServiceRadar.Repo
 
   # Bump on every change to what decides a block: the classification in `DuplicateSweep`,
-  # `MergePolicy`, the guards of `MergeEngine.merge_devices/3`, `SourceAuthorityGuard` and
-  # `AliasGuard`. A new version changes every fingerprint, so every blocked component is
-  # evaluated again once after the release that changes the rules.
-  @rule_version 1
+  # `MergePolicy`, the guards of `MergeEngine.merge_devices/3`, `SourceAuthorityGuard`,
+  # `GuestIdentityGuard` and `AliasGuard`. A new version changes every fingerprint, so every
+  # blocked component is evaluated again once after the release that changes the rules.
+  #
+  # 2: `GuestIdentityGuard` (distinct hypervisor guest identities). It reads the live
+  # `integration_id` rows, which the identifier rows below already cover.
+  @rule_version 2
 
   @db_prefix "platform"
   @archive_table "device_identifier_archive"

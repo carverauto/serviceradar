@@ -18,11 +18,13 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
   require Ash.Query
 
@@ -242,6 +244,129 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
 
       assert {:ok, %DeviceAliasState{state: :confirmed}} =
                Ash.get(DeviceAliasState, alias_state.id)
+    end
+  end
+
+  # Each record of the guest guard is a guest of one invented Proxmox cluster, named by its v3
+  # reference. The integration and controller are fresh per test.
+  describe "distinct guest identity guard" do
+    setup do
+      {:ok, integration: Ecto.UUID.generate(), controller: Ecto.UUID.generate()}
+    end
+
+    # A record that absorbed two guests holds their references. Before the guard, each of four
+    # further guests of the cluster merged into it on the guest's network evidence.
+    test "a record holding other guests absorbs no guest with another VMID", ctx do
+      %{actor: actor} = ctx
+      {:ok, survivor} = create_device(actor, "guest-survivor")
+      {:ok, _} = register_identifier(actor, survivor.uid, :integration_id, guest_ref(ctx, 101))
+      {:ok, _} = register_identifier(actor, survivor.uid, :integration_id, guest_ref(ctx, 102))
+
+      guests =
+        for vmid <- [136, 114, 137, 107] do
+          {:ok, guest} = create_device(actor, "guest-#{vmid}")
+          {:ok, _} = register_identifier(actor, guest.uid, :integration_id, guest_ref(ctx, vmid))
+          {guest, vmid}
+        end
+
+      for {guest, vmid} <- guests do
+        assert {:error, {:merge_blocked, :distinct_guest_identity}} =
+                 IdentityReconciler.merge_devices(guest.uid, survivor.uid,
+                   actor: actor,
+                   reason: "hypervisor_guest_network_match",
+                   details: %{
+                     "guest_provider_ref" => guest_ref(ctx, vmid),
+                     "hypervisor_vmid" => vmid
+                   }
+                 )
+
+        assert_received {:telemetry_event,
+                         [:serviceradar, :identity_reconciler, :merge, :guard_blocked], _,
+                         %{guard: :distinct_guest_identity}}
+
+        assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(guest.uid, false, actor: actor)
+        assert guest_refs(guest.uid) == [guest_ref(ctx, vmid)]
+      end
+
+      assert guest_refs(survivor.uid) == Enum.sort([guest_ref(ctx, 101), guest_ref(ctx, 102)])
+
+      {guest, vmid} = hd(guests)
+
+      assert %IdentityDecision{source: "hypervisor_guest_network_match", evidence: evidence} =
+               guard_decision([guest.uid, survivor.uid], "distinct_guest_identity")
+
+      assert evidence["guard_evidence"] == %{
+               "generation" => "proxmox_v3",
+               "from_guest_identities" => [guest_ref(ctx, vmid)],
+               "to_guest_identities" => guest_refs(survivor.uid)
+             }
+
+      # An operator's merge is not refused.
+      assert :ok =
+               IdentityReconciler.merge_devices(guest.uid, survivor.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+    end
+
+    # A migration between nodes keeps the VMID and the cluster, so the guest keeps its reference.
+    test "a guest seen again under its reference merges", ctx do
+      %{actor: actor} = ctx
+      {:ok, earlier} = create_device(actor, "guest-earlier")
+      {:ok, later} = create_device(actor, "guest-later")
+      ref = guest_ref(ctx, 136)
+      {:ok, _} = register_identifier(actor, earlier.uid, :integration_id, ref, unique("p"))
+      {:ok, _} = register_identifier(actor, later.uid, :integration_id, ref)
+
+      assert :ok =
+               IdentityReconciler.merge_devices(earlier.uid, later.uid,
+                 actor: actor,
+                 reason: "hypervisor_guest_network_match"
+               )
+    end
+
+    test "a record with no guest identity merges into a guest", ctx do
+      %{actor: actor} = ctx
+
+      for {reason, type, value} <- [
+            {"awx_proxmox_network_match", :integration_id, unique("awx:host:host01.example.com")},
+            {"identity_resolution", :agent_id, unique("agent-guest")}
+          ] do
+        {:ok, guest} = create_device(actor, "guest-own")
+        {:ok, other} = create_device(actor, "guest-other-source")
+        {:ok, _} = register_identifier(actor, guest.uid, :integration_id, unique_guest_ref(ctx))
+        {:ok, _} = register_identifier(actor, other.uid, type, value)
+
+        assert :ok =
+                 IdentityReconciler.merge_devices(other.uid, guest.uid,
+                   actor: actor,
+                   reason: reason
+                 )
+      end
+    end
+
+    # A VM re-created under a new VMID is a new guest while the old one still exists. Once the
+    # old reference retires it no longer names a guest, and the records converge.
+    test "a retired guest reference does not block the merge", ctx do
+      %{actor: actor} = ctx
+      {:ok, old} = create_device(actor, "guest-recreated-old")
+      {:ok, new} = create_device(actor, "guest-recreated-new")
+      {:ok, _} = register_identifier(actor, old.uid, :integration_id, guest_ref(ctx, 136))
+      {:ok, _} = register_identifier(actor, new.uid, :integration_id, guest_ref(ctx, 210))
+
+      assert {:error, {:merge_blocked, :distinct_guest_identity}} =
+               IdentityReconciler.merge_devices(old.uid, new.uid,
+                 actor: actor,
+                 reason: "identifier_backfill"
+               )
+
+      IdentifierArchiveFixtures.archive!(:integration_id, guest_ref(ctx, 136))
+
+      assert :ok =
+               IdentityReconciler.merge_devices(old.uid, new.uid,
+                 actor: actor,
+                 reason: "identifier_backfill"
+               )
     end
   end
 
@@ -761,18 +886,39 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
     |> Ash.create()
   end
 
-  defp register_identifier(actor, device_id, type, value) do
+  defp register_identifier(actor, device_id, type, value, partition \\ "default") do
     attrs = %{
       device_id: device_id,
       identifier_type: type,
       identifier_value: value,
-      partition: "default",
+      partition: partition,
       source: "test"
     }
 
     DeviceIdentifier
     |> Ash.Changeset.for_create(:register, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  defp guest_ref(ctx, vmid),
+    do: "proxmox:v3:#{ctx.integration}:#{ctx.controller}:cluster01:qemu:#{vmid}"
+
+  defp unique_guest_ref(ctx), do: guest_ref(ctx, 1_000 + System.unique_integer([:positive]))
+
+  defp guest_refs(device_uid) do
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_uid and identifier_type == :integration_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.identifier_value)
+    |> Enum.sort()
+  end
+
+  defp guard_decision(device_uids, guard) do
+    key = IdentityDecision.decision_key(:guard_block, guard, device_uids, nil)
+
+    IdentityDecision
+    |> Ash.Query.filter(decision_key == ^key)
+    |> Ash.read_one!(authorize?: false)
   end
 
   defp create_confirmed_alias(actor, device_id, ip) do
