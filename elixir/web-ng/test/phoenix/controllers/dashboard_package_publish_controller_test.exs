@@ -227,6 +227,9 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       delete_package_without_cascade!(deleted_package.id)
 
       on_exit(fn ->
+        Repo.query!("DELETE FROM platform.dashboard_instances WHERE route_slug = $1", [slug])
+        Repo.query!("DELETE FROM platform.dashboard_packages WHERE dashboard_id = $1", [dashboard_id])
+
         Repo.query!(
           "ALTER TABLE platform.dashboard_instances VALIDATE CONSTRAINT dashboard_instances_dashboard_package_id_fkey"
         )
@@ -501,6 +504,13 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       delete_package_without_cascade!(deleted_package.id)
 
       on_exit(fn ->
+        Repo.query!("DELETE FROM platform.dashboard_instances WHERE route_slug = $1", [slug])
+
+        Repo.query!(
+          "DELETE FROM platform.dashboard_packages WHERE dashboard_id = ANY($1)",
+          [["com.test.stale.deleted", "com.test.stale.replacement"]]
+        )
+
         Repo.query!(
           "ALTER TABLE platform.dashboard_instances VALIDATE CONSTRAINT dashboard_instances_dashboard_package_id_fkey"
         )
