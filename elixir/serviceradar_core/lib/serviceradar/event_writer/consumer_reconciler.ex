@@ -231,7 +231,9 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   # are created, converted streams are diff-reconciled, and limits streams cut
   # over to WorkQueue behind the drain barrier. The cutover is single-flighted
   # cluster-wide by stream name: when another core holds it, this tick skips
-  # and retries next pass.
+  # and retries next pass. One core likewise drains one stream at a time: while
+  # it holds a stream's cutover lock, later streams wait for the next tick (see
+  # `start_edge_cutover/3`), because one process cannot hold two global names.
   def reconcile_edge_retention(%{connected: true, conn: conn, config: config} = state)
       when is_pid(conn) do
     request = request_fun(conn)
@@ -279,6 +281,19 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   # The cluster-wide lock is held for the whole drain and released when the
   # cutover finishes or is abandoned; when another core holds it, this tick
   # skips and retries next pass.
+  #
+  # One process holds at most one lock name: OTP logs "registered under
+  # several names" and refuses the second registration, which the `:no`
+  # branch below would misread as another core holding the lock. While this
+  # core is draining a stream, later streams wait for the next tick instead
+  # of registering a second name on this process. The per-stream lock names
+  # are unchanged, so a core on the previous release still mutually excludes
+  # the same stream during a rolling upgrade.
+  defp start_edge_cutover(%{edge_cutovers: cutovers} = state, _request, _stream)
+       when cutovers != %{} do
+    state
+  end
+
   defp start_edge_cutover(%{conn: conn, config: config} = state, request, stream) do
     stream_name = Config.jetstream_stream_name(stream)
 
