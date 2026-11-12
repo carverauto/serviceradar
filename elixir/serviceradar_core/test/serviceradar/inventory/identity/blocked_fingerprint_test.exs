@@ -28,6 +28,7 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.BlockFingerprint
   alias ServiceRadar.Inventory.Identity.DuplicateSweep
   alias ServiceRadar.Inventory.Identity.PopulationGauges
   alias ServiceRadar.Inventory.Identity.ReconciliationRun
@@ -85,7 +86,8 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
       actor: SystemActor.system(:blocked_fingerprint_test),
       n: n,
       partition: "blocked-fingerprint-#{n}",
-      source_id: Ecto.UUID.generate()
+      source_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate()
     }
 
     baseline = reconcile!(ctx)
@@ -120,6 +122,31 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
       assert run.blocked_merges == second.blocked_merges
       assert run.blocked_unchanged == second.blocked_unchanged
       assert run.errors == second.errors
+    end
+  end
+
+  # A record that absorbed other guests holds their MACs, so the MAC evidence of the scheduled
+  # reconciliation joins it to each of those guests' own records.
+  describe "a pair holding different hypervisor guests" do
+    test "is not merged by identifier_backfill, and is skipped while unchanged", ctx do
+      pair = guest_pair!(ctx)
+      key = guard_block_key(pair, "distinct_guest_identity")
+
+      first = reconcile!(ctx)
+      assert guards(pair) == [:distinct_guest_identity]
+      assert live_count(pair) == 2
+      assert first.errors == ctx.baseline.errors
+
+      assert %{occurrence_count: 1, fingerprint: fingerprint, merge_reason: "identifier_backfill"} =
+               decision!(key)
+
+      assert is_binary(fingerprint)
+
+      second = reconcile!(ctx)
+      assert guards(pair) == []
+      assert %{occurrence_count: 1} = decision!(key)
+      assert second.blocked_unchanged == first.blocked_unchanged + 1
+      assert live_count(pair) == 2
     end
   end
 
@@ -176,12 +203,13 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
       assert %{occurrence_count: 1} = decision!(component_key)
 
       # A release that changes the rules.
-      changed = reconcile!(ctx, rule_version: 2)
+      next_version = BlockFingerprint.rule_version() + 1
+      changed = reconcile!(ctx, rule_version: next_version)
       assert guards(pair) == [:source_authority_conflict]
       assert %{occurrence_count: 2} = decision!(pair_key)
       assert %{occurrence_count: 2} = decision!(component_key)
 
-      unchanged = reconcile!(ctx, rule_version: 2)
+      unchanged = reconcile!(ctx, rule_version: next_version)
       assert guards(pair) == []
       assert %{occurrence_count: 2} = decision!(pair_key)
       assert %{occurrence_count: 2} = decision!(component_key)
@@ -272,6 +300,22 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
     Enum.sort([x, y])
   end
 
+  # Two MAC siblings of one invented Proxmox cluster: X holds the guests with VMIDs 101 and 102,
+  # as a record that absorbed another guest does, and Y holds the guest with VMID 136.
+  defp guest_pair!(ctx) do
+    x = device!(ctx, 8)
+    y = device!(ctx, 9)
+    register!(ctx, x, :mac, "00005E005331")
+    register!(ctx, y, :mac, "02005E005331")
+    register!(ctx, x, :integration_id, guest_ref(ctx, 101))
+    register!(ctx, x, :integration_id, guest_ref(ctx, 102))
+    register!(ctx, y, :integration_id, guest_ref(ctx, 136))
+    Enum.sort([x, y])
+  end
+
+  defp guest_ref(ctx, vmid),
+    do: "proxmox:v3:#{ctx.source_id}:#{ctx.controller_id}:cluster01:qemu:#{vmid}"
+
   # Two MAC siblings no guard but the cooldown refuses.
   defp sibling_pair!(ctx) do
     x = device!(ctx, 3)
@@ -324,6 +368,9 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
     |> Ash.create!(actor: ctx.actor)
   end
 
+  defp guard_block_key(pair, guard),
+    do: IdentityDecision.decision_key(:guard_block, guard, pair, nil)
+
   defp source_block_key(pair),
     do: IdentityDecision.decision_key(:source_block, "source_authority_conflict", pair, nil)
 
@@ -343,7 +390,8 @@ defmodule ServiceRadar.Inventory.Identity.BlockedFingerprintTest do
         where: d.decision_key == ^key,
         select: %{
           occurrence_count: d.occurrence_count,
-          fingerprint: fragment("?->>'fingerprint'", d.evidence)
+          fingerprint: fragment("?->>'fingerprint'", d.evidence),
+          merge_reason: fragment("?->>'merge_reason'", d.evidence)
         }
       )
     )

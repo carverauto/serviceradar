@@ -416,6 +416,12 @@ identified devices.
 - Stability guards (`Identity.MergeEngine`, every automatic merge):
   - devices bound to **different agents** never merge; a conflicting IP
     alias is invalidated (`mark_stale`) instead
+  - records that each hold a hypervisor guest the other does not
+    (`Identity.GuestIdentityGuard`: live Proxmox v3 or v2 guest
+    `integration_id` refs, compared within a generation) never merge,
+    whatever the merge reason (guard `distinct_guest_identity`); equal
+    sets, a subset, or a side with no guest ref still merge, and archived
+    refs never block
   - per-pair cooldown (default 24h, either direction) breaks merge
     oscillation; blocked re-merges alert via telemetry
 - Merges are transactional, audited (`merge_audit`), and move every
@@ -557,7 +563,7 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :identifier, :rejected]` | malformed identifier value dropped at the boundary |
 | `[:serviceradar, :identity_reconciler, :identifier, :truncated]` | per-update MAC sanity cap hit |
 | `[:serviceradar, :identity_reconciler, :identifier, :retired]` | per-device cardinality cap enforced |
-| `[:serviceradar, :identity_reconciler, :merge, :guard_blocked]` | distinct-agent veto or cooldown blocked a merge (oscillation signal) |
+| `[:serviceradar, :identity_reconciler, :merge, :guard_blocked]` | a MergeEngine stability guard (such as the distinct-agent or distinct-guest veto, or the cooldown) blocked a merge (oscillation signal) |
 | `[:serviceradar, :identity_reconciler, :merge, :blocked]` | evidence policy blocked a merge |
 | `[:serviceradar, :identity_reconciler, :alias, :invalidated]` | IP alias conflicted with agent identity |
 | `[:serviceradar, :identity_reconciler, :source_identity, :source_override]` | a source-authoritative identifier overrode identifier matches on records holding a different one (also persisted as a `source_authoritative_override` conflict) |

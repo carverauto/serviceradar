@@ -3,7 +3,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   Device merge/unmerge execution with stability guards.
 
   Guards applied to every automatic merge: distinct agent identities
-  veto the merge; a per-pair cooldown (merge-audit history, either
+  and distinct hypervisor guest identities (`GuestIdentityGuard`) veto
+  the merge; a per-pair cooldown (merge-audit history, either
   direction) breaks oscillation loops. Merges are transactional and
   audited; unmerge reverses an incorrect merge from the audit trail.
   """
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
+  alias ServiceRadar.Inventory.Identity.GuestIdentityGuard
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
@@ -158,23 +160,25 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       error = succession_error(from_device_id, to_device_id, reason, succession) ->
         {:error, error}
 
-      merge_guard_blocked =
+      blocked =
           merge_guard_violation(from_device_id, to_device_id, reason, actor,
             succession: succession,
             fingerprint: fingerprint
           ) ->
-        emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
+        {guard, guard_evidence} = blocked
+        emit_merge_guard_telemetry(guard, reason, from_device_id, to_device_id)
 
-        record_guard_block(merge_guard_blocked, reason, {from_device_id, to_device_id}, details,
-          fingerprint: fingerprint
+        record_guard_block(guard, reason, {from_device_id, to_device_id}, details,
+          fingerprint: fingerprint,
+          guard_evidence: guard_evidence
         )
 
         Logger.info(
           "Blocked merge #{from_device_id} -> #{to_device_id} " <>
-            "(reason: #{reason}, guard: #{merge_guard_blocked})"
+            "(reason: #{reason}, guard: #{guard})"
         )
 
-        {:error, {:merge_blocked, merge_guard_blocked}}
+        {:error, {:merge_blocked, guard}}
 
       true ->
         do_merge_devices(
@@ -209,7 +213,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   defp succession_error(_from, _to, _reason, _succession), do: :succession_reason_mismatch
 
   # Guards that apply to every automatic merge path (ingest-time, alias,
-  # scheduled backfill). Manual/administrative merges bypass them.
+  # scheduled backfill). Manual/administrative merges bypass them. A refusal is
+  # `{guard, evidence}`: the evidence goes into the blocked-merge decision.
   #
   # The scheduled run skips a pair these guards blocked while its evidence fingerprint is
   # unchanged (`BlockFingerprint`). A change to any guard here, or to what one reads, must bump
@@ -224,10 +229,14 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
       # An operator resolved a de-duplication task for this pair as "different devices" (#4604).
       Deduplication.asserted_distinct?(from_device_id, to_device_id) ->
-        :asserted_distinct
+        {:asserted_distinct, %{}}
 
       AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
-        :distinct_agent_identity
+        {:distinct_agent_identity, %{}}
+
+      # Each record holds a hypervisor guest the other does not: two virtual machines.
+      guest_conflict = GuestIdentityGuard.merge_conflict(from_device_id, to_device_id, actor) ->
+        {:distinct_guest_identity, guest_conflict}
 
       source_conflict = source_conflict(from_device_id, to_device_id, succession) ->
         _ =
@@ -235,13 +244,13 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
             fingerprint: Keyword.get(opts, :fingerprint)
           )
 
-        :source_authority_conflict
+        {:source_authority_conflict, %{}}
 
       guard = provisional_topology_merge_violation(from_device_id, to_device_id, actor) ->
-        guard
+        {guard, %{}}
 
       recent_pair_merge?(from_device_id, to_device_id, actor) ->
-        :merge_cooldown
+        {:merge_cooldown, %{}}
 
       true ->
         nil
@@ -353,6 +362,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   @fingerprinted_guards [
     :asserted_distinct,
     :distinct_agent_identity,
+    :distinct_guest_identity,
     :source_authority_conflict,
     :provisional_identity_absorb,
     :distinct_mac_identity
@@ -390,6 +400,15 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       "to_device_id" => to_device_id,
       "details" => details
     }
+
+    evidence =
+      case Keyword.get(opts, :guard_evidence, %{}) do
+        guard_evidence when map_size(guard_evidence) > 0 ->
+          Map.put(evidence, "guard_evidence", guard_evidence)
+
+        _ ->
+          evidence
+      end
 
     evidence =
       case Keyword.get(opts, :fingerprint) do
