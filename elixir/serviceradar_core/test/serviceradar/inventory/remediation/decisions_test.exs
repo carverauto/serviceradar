@@ -1110,6 +1110,37 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       end
     end
 
+    test "a survivor MAC in a partition the bad merge did not record stays its own" do
+      for {own_partition, tainted?} <- [{"site-b", false}, {"default", true}] do
+        own = [
+          awx_id(1),
+          %{"type" => "mac", "value" => "00005E005301", "partition" => own_partition}
+        ]
+
+        merges = [
+          %{
+            poisoning_merge()
+            | source_identifiers: [awx_id(2), ident("mac", "00005E005301")]
+          },
+          chained(%{
+            event_id: "e2",
+            created_at: at(2),
+            reason: "identifier_backfill",
+            from_uid: "sr:fresh",
+            source_identifiers: [ident("mac", "00005E005399")],
+            evidence: [%{"type" => "mac", "value" => "00:00:5E:00:53:01"}],
+            to_own_identifiers: own
+          })
+        ]
+
+        context = put_in(poisoned_context(), [:own, "sr:s"], own)
+        plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
+        e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+        assert (:tainted_evidence in e2.proofs) == tainted?, own_partition
+      end
+    end
+
     test "a merge in the same second as the bad merge is reported, never undone or dropped" do
       # `sr:s` holds guest 101; in the second the AWX merge poisons it, guest 102 is merged in.
       own = [awx_id(1), ident("integration_id", guest_ref(101))]

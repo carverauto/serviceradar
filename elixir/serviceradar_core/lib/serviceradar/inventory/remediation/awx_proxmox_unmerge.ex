@@ -506,15 +506,19 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   defp to_state(_device, _data), do: :deleted
 
-  # The record's identifiers that no unreversed merge brought it.
+  # The record's identifiers that no unreversed merge brought it: a merge brought the row of the
+  # `{type, value, partition}` it recorded, any partition when it recorded none.
   defp own_rows(data, uid, rows) do
     absorbed =
       data
       |> unreversed_merges_into(uid)
       |> Enum.flat_map(&(source_identifiers(&1.details) || []))
-      |> MapSet.new(&{&1.type, &1.value})
+      |> MapSet.new(&{&1.type, &1.value, &1.partition})
 
-    Enum.reject(rows, &MapSet.member?(absorbed, {&1.type, &1.value}))
+    Enum.reject(rows, fn row ->
+      MapSet.member?(absorbed, {row.type, row.value, row[:partition]}) or
+        MapSet.member?(absorbed, {row.type, row.value, nil})
+    end)
   end
 
   defp unreversed_merges_into(data, uid) do

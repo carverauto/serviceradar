@@ -1272,12 +1272,40 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   # A record's own identifiers and display MAC, less what a bad merge brought it; an address it
   # holds as an identifier stays its own.
   defp record_own(uid, mac, state, context) do
-    ids = context.own |> Map.get(uid, []) |> id_set()
+    rows = Map.get(context.own, uid, [])
+    ids = id_set(rows)
 
     ids
     |> MapSet.union(mac_set(mac || Map.get(context.display_mac, uid)))
     |> MapSet.difference(state.foreign)
     |> MapSet.union(MapSet.filter(ids, &match?({:ip, _}, &1)))
+    |> MapSet.union(macs_in_unrecorded_partitions(rows, state.foreign))
+  end
+
+  # The record's MAC rows in a partition no merge that poisoned it recorded for that value. A
+  # foreign MAC with no recorded partition (a guest NIC, a display MAC) covers every partition.
+  defp macs_in_unrecorded_partitions(rows, foreign) do
+    for %{} = row <- rows,
+        identifier_field(row, :type) in ["mac", :mac],
+        {:mac, value} = entry <- [mac_entry(identifier_field(row, :value))],
+        MapSet.member?(foreign, entry),
+        not MapSet.member?(foreign, {:mac_in, value, :any}),
+        not MapSet.member?(foreign, {:mac_in, value, nil}),
+        not MapSet.member?(foreign, {:mac_in, value, identifier_field(row, :partition)}),
+        into: MapSet.new(),
+        do: entry
+  end
+
+  # The partitions the merge recorded each MAC in; the display MAC has none.
+  defp recorded_mac_partitions(merge) do
+    recorded =
+      for %{} = id <- List.wrap(merge[:source_identifiers]),
+          identifier_field(id, :type) in ["mac", :mac],
+          {:mac, value} <- [mac_entry(identifier_field(id, :value))],
+          into: MapSet.new(),
+          do: {:mac_in, value, identifier_field(id, :partition)}
+
+    for {:mac, value} <- mac_set(merge[:from_mac]), into: recorded, do: {:mac_in, value, :any}
   end
 
   defp render_evidence(nil), do: []
@@ -1464,6 +1492,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     foreign =
       survivor.foreign
       |> MapSet.union(merged_identity(merge))
+      |> MapSet.union(recorded_mac_partitions(merge))
       |> MapSet.union(merged.foreign)
       |> MapSet.union(bound_guest_identity(merge, survivor, context))
       |> MapSet.union(address_set(merge[:from_ip]))
@@ -1512,10 +1541,14 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         not is_nil(guest),
         not MapSet.member?(survivor.established, guest.key),
         entry <-
-          Enum.flat_map(List.wrap(guest.macs), &MapSet.to_list(mac_set(&1))) ++
+          Enum.flat_map(List.wrap(guest.macs), &guest_mac_entries/1) ++
             Enum.map(List.wrap(guest.ips), &{:ip, &1}),
         into: MapSet.new(),
         do: entry
+  end
+
+  defp guest_mac_entries(value) do
+    Enum.flat_map(mac_set(value), fn {:mac, mac} = entry -> [entry, {:mac_in, mac, :any}] end)
   end
 
   defp address_set(value) do
