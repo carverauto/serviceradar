@@ -237,7 +237,9 @@ is cut over automatically, with no records lost and no dual-write: the
 reconciler seals the old stream (publishes are refused with a retryable error
 and stay on the agent spool), waits for the owning durable to drain every
 stored record, deletes the stream, and recreates it under the same name and
-subject. The cutover is single-flighted cluster-wide and every step is
+subject. The cutover is single-flighted cluster-wide, and a core drains one
+stream at a time, so the second source stream can stay in limits retention
+until a later check after the first finishes. Every step is
 idempotent, so a retried cutover converges; anything that aborts unseals the
 stream first and logs `Edge-record stream cutover aborted; stream left in
 place`. A finished cutover logs `Cut over edge-record stream to WorkQueue
