@@ -25,8 +25,9 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
 
   ## Policy intervals
 
-  `compression_after` is 1 day so the nightly background worker compresses
-  yesterday's data before today's writes accumulate on a full disk.
+  `compression_after` is 6 days — a conservative initial value. The
+  `DataRetentionWorker` reconciles it to the operator-configured lag
+  (default 2 hours) on startup, so the effective window is short-lived.
 
   `retention_interval` is 30 days — enough to cover dashboards' last_30d windows
   while preventing unbounded growth.
@@ -40,7 +41,7 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   @table "timeseries_metrics"
   @segmentby "gateway_id"
   @orderby ~s("timestamp" DESC)
-  @compression_after "1 day"
+  @compression_after "6 days"
   @retention_interval "30 days"
 
   def up do
