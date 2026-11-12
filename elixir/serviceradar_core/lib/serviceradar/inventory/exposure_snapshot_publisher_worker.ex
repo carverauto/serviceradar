@@ -218,10 +218,6 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     end
   end
 
-  # A scope whose generation already settled maps exactly like the old
-  # tick-driven wait did. A drained generation is finalized inline; anything
-  # else waits, and the maintenance tick still converges it.
-
   # Only a fully drained generation with no pending repairs is stepped: the
   # scan runs once per drain, and repair dispatch stays on the tick's cadence.
   defp steppable?(%{

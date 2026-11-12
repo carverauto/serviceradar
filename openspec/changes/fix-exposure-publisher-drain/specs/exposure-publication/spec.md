@@ -32,19 +32,6 @@ Completing a scope clears its stale `error` value.
 - **THEN** the scope stays `publishing` with no failure recorded
 - **AND** a later pass or the maintenance tick completes it once the scan succeeds.
 
-### Requirement: Scopes Publish At Least Once Across Crashes
-The system SHALL republish any scope whose generation did not observably complete before the publisher died, with a fresh generation fence.
-A `publishing` row whose lease expired is adopted by the next run: a completed generation marks the scope complete with no republish; a still-`publishing` generation is aborted through the session-lock reader-lost proof and the scope republishes; an already `aborted` generation republishes the scope the same way; a `published` or `finalizing` generation is settled inline by the adopting run (finalizer step with the same wait mapping as a normal pass) instead of waiting for the maintenance tick.
-Duplicate delivery across the crash is absorbed by envelope-hash idempotency.
-
-#### Scenario: Crash mid-drain resumes without loss or double work
-- **GIVEN** scopes A (generation complete), B (generation publishing), C (pending), and D (generation published) when the publisher process dies
-- **WHEN** the next publisher run drains the table
-- **THEN** A is marked complete with no new generation
-- **AND** B's orphaned generation is aborted and B republishes once
-- **AND** C publishes
-- **AND** D's generation is untouched and D completes without republish once it finishes.
-
 ### Requirement: In-Flight Publisher Demand Migrates To Scope Rows
 The system SHALL migrate queued `ExposureSnapshotWorker` Oban rows into scope rows exactly once at deploy time, and any legacy row executed from the queue after that adopts into the scopes table instead of publishing.
 The migration inserts one `pending` row per distinct scope (`args->>'device_ord'`, NULL when absent) from queued publisher Oban rows (`available`, `scheduled`, `retryable`), then deletes those Oban rows. `executing` rows are left for Oban lifeline, which runs them through the retained direct-drive `perform/1`, so no demand is lost. Rows inserted after the migration by old pods during the roll, and any other queued legacy row, terminate on execution: the row completes immediately when its scope row exists, inserts the scope row `pending` when absent (never touching existing rows), and cancels when it names an invalid scope; a row without `device_ord` names the fleet-wide scope and adopts it. No legacy execution publishes or snoozes, so no old publisher job survives an upgrade.
