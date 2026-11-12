@@ -24,6 +24,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
 
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
+  alias ServiceRadar.Inventory.ExposureSnapshotFinalizer, as: Finalizer
   alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
   alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Engine
@@ -132,7 +133,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     case Engine.publish_scope(session, scope) do
       {:ok, generation_id} ->
         Scopes.track_generation(id, generation_id)
-        await_completion(id, generation_id)
+        await_settlement(id, generation_id)
 
       {:defer, :preparing} ->
         with :ok <- Scopes.defer_preparing(id),
@@ -164,26 +165,98 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     end
   end
 
-  defp await_completion(id, generation_id) do
-    case wait_while(fn -> not generation_settled?(generation_id) end, completion_budget_ms()) do
-      :ok ->
-        case State.get(generation_id) do
-          {:ok, %{"status" => "complete"}} -> Scopes.complete(id, generation_id)
-          _ -> Scopes.fail(id, :exposure_snapshot_generation_aborted)
-        end
+  @doc """
+  Loop-control settle: advances one scope whose generation the pass just
+  published, without waiting for the maintenance tick. A drained generation
+  is finalized inline; anything still moving reports `:wait`, and the caller
+  re-checks with the remaining budget while the tick backstop converges
+  whatever outlives it. Returns `:done` when the scope reached a terminal
+  row state.
+  """
+  def settle_scope(id, generation_id) do
+    case State.get(generation_id) do
+      {:ok, %{"status" => "complete"}} ->
+        Scopes.complete(id, generation_id)
+        :done
 
-        :ok
+      {:ok, %{"status" => "aborted"}} ->
+        Scopes.fail(id, :exposure_snapshot_generation_aborted)
+        :done
 
-      :timeout ->
-        Scopes.release(id)
-        {:exit, :quiet}
+      {:ok, generation} ->
+        if steppable?(generation), do: settle_step(id, generation_id), else: :wait
+
+      {:error, _} ->
+        :wait
     end
   end
 
-  defp generation_settled?(generation_id) do
-    case State.get(generation_id) do
-      {:ok, %{"status" => status}} -> status in ["complete", "aborted"]
-      _ -> false
+  # The old tick-driven wait, bounded the same way: re-check until the scope
+  # settles, then release quietly on an exhausted budget so the backstop has
+  # a path back while work remains.
+  defp await_settlement(id, generation_id),
+    do:
+      await_settlement(
+        id,
+        generation_id,
+        completion_budget_ms(),
+        System.monotonic_time(:millisecond)
+      )
+
+  defp await_settlement(id, generation_id, budget_ms, started) do
+    case settle_scope(id, generation_id) do
+      :done ->
+        :ok
+
+      :wait ->
+        if System.monotonic_time(:millisecond) - started >= budget_ms do
+          Scopes.release(id)
+          {:exit, :quiet}
+        else
+          Process.sleep(@wait_check_ms)
+          await_settlement(id, generation_id, budget_ms, started)
+        end
+    end
+  end
+
+  # A scope whose generation already settled maps exactly like the old
+  # tick-driven wait did. A drained generation is finalized inline; anything
+  # else waits, and the maintenance tick still converges it.
+
+  # Only a fully drained generation with no pending repairs is stepped: the
+  # scan runs once per drain, and repair dispatch stays on the tick's cadence.
+  defp steppable?(%{
+         "status" => "finalizing",
+         "receipts" => receipts,
+         "manifest" => manifest,
+         "pending" => pending,
+         "repairs" => repairs
+       }) do
+    receipts == manifest and pending == %{} and repairs == []
+  end
+
+  defp steppable?(_generation), do: false
+
+  defp settle_step(id, generation_id) do
+    case Finalizer.step(generation_id) do
+      :ok ->
+        Scopes.complete(id, generation_id)
+        :done
+
+      {:error, reason}
+      when reason in [
+             :exposure_snapshot_finalization_pending,
+             :exposure_snapshot_repairs_pending,
+             :exposure_snapshot_incomplete
+           ] ->
+        :wait
+
+      {:error, :exposure_snapshot_input_missing} ->
+        Scopes.fail(id, :exposure_snapshot_generation_aborted)
+        :done
+
+      {:error, _reason} ->
+        :wait
     end
   end
 

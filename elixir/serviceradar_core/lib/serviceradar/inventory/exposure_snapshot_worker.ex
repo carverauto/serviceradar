@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Envelope
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo.DirectSession
@@ -21,8 +22,29 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   @page_size 500
 
   @doc """
+  Queue entry: a legacy row executed from the Oban queue (integer job id)
+  never publishes and never snoozes. When its scope row exists the scopes
+  table already owns the demand, so the row completes immediately; when
+  absent the scope is adopted `pending` and the publisher ensured; otherwise
+  the row cancels. Nothing enqueues these rows anymore; this clause only
+  terminates strays that outlived the migration (for example rows inserted
+  by previous pods during the rollout after the migration ran).
+  """
+  def perform(%Oban.Job{id: id, args: args}) when is_integer(id) do
+    case args["device_ord"] do
+      scope when is_integer(scope) and scope >= 1 ->
+        Scopes.adopt_legacy(scope)
+
+      _ ->
+        {:cancel, :superseded}
+    end
+  end
+
+  @doc """
   Direct-drive entry: publishes one scope synchronously, or snoozes exactly as
   the old per-scope Oban job did. Prefer `publish_scope/2` for loop control.
+  Only direct calls (no job id: repair tooling and boundary tests) use this
+  contract; queued rows are adopted and discarded by the clause above.
   """
   def perform(%Oban.Job{args: args}) do
     scope = args["device_ord"]
