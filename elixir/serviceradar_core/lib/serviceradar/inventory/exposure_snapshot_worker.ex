@@ -51,6 +51,12 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     end)
   end
 
+  @doc false
+  def timeout(%Oban.Job{} = job), do: Oban.Worker.timeout(job)
+
+  @doc false
+  def backoff(%Oban.Job{} = job), do: Oban.Worker.backoff(job)
+
   @doc """
   Publishes one scope's generation on a lock-holding session.
 

@@ -179,6 +179,21 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
   end
 
+  test "a republish never adopts the previous attempt's generation", %{base: base} do
+    previous_generation = base + 10
+
+    assert :ok = Scopes.request(base)
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    assert :ok = Scopes.track_generation(id, previous_generation)
+    assert :ok = Scopes.complete(id)
+
+    assert :ok = Scopes.request(base)
+    assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
+    assert :ok = Scopes.release(id)
+
+    assert [[^id, ^base, nil]] = Scopes.expired_publishing()
+  end
+
   test "ensure_publisher inserts one job no matter how often it runs", %{job_floor: floor} do
     assert :ok = Scopes.ensure_publisher()
     assert :ok = Scopes.ensure_publisher()

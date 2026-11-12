@@ -35,7 +35,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
       VALUES ($1, 'pending', 0, now(), NULL, now())
       ON CONFLICT (scope_ord) DO UPDATE
         SET status = 'pending', attempts = 0, not_before = now(), error = NULL,
-            claimed_by = NULL, lease_expires_at = NULL, updated_at = now()
+            generation_id = NULL, claimed_by = NULL, lease_expires_at = NULL,
+            updated_at = now()
       """,
       [scope]
     )
@@ -61,7 +62,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
     case Repo.query(
            """
            UPDATE #{@table}
-           SET status = 'publishing', claimed_by = $1,
+           SET status = 'publishing', generation_id = NULL, claimed_by = $1,
                lease_expires_at = now() + make_interval(secs => $2), updated_at = now()
            WHERE id = (
              SELECT id FROM #{@table}
