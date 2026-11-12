@@ -49,6 +49,10 @@ var errNoQueriesConfigured = errors.New("armis source has no queries configured"
 type Driver struct {
 	syncTimeout    time.Duration
 	requestTimeout time.Duration
+	// retryPolicy and sleep override the transient-failure retry policy and
+	// its wait; zero values use defaultRetryPolicy and a context-aware timer.
+	retryPolicy retryPolicy
+	sleep       func(context.Context, time.Duration) error
 }
 
 // NewDriver constructs the Armis sync-source driver.
@@ -72,6 +76,24 @@ func (d *Driver) effectiveRequestTimeout() time.Duration {
 	return requestTimeout
 }
 
+func (d *Driver) newRetrier(run syncsources.RunContext) *requestRetrier {
+	retrier := &requestRetrier{
+		policy:    defaultRetryPolicy(),
+		sleep:     sleepContext,
+		logger:    run.Logger,
+		sourceKey: run.SourceKey,
+		runID:     run.RunID,
+	}
+	if d != nil && d.retryPolicy.maxAttempts > 0 {
+		retrier.policy = d.retryPolicy
+	}
+	if d != nil && d.sleep != nil {
+		retrier.sleep = d.sleep
+	}
+
+	return retrier
+}
+
 // Sync runs every configured AQL query, paginating through results and
 // emitting one batch of device updates per fetched page.
 func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
@@ -79,6 +101,7 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 	defer cancel()
 
 	apiClient := newClientWithTimeout(run.Source, d.effectiveRequestTimeout())
+	apiClient.retry = d.newRetrier(run)
 	defer apiClient.close()
 	queries := configuredQueries(run.Source.Queries)
 	if len(queries) == 0 {
@@ -126,6 +149,11 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 		from := 0
 		pageIndex := 0
 		for {
+			// The client retries transient failures of this fetch and of the
+			// page's enrichment. Nothing from a page is emitted until both
+			// succeed, so a retry cannot duplicate or drop devices; when retries
+			// run out the run stops here and is reported partial, never skipping
+			// the page.
 			resp, err := apiClient.search(ctx, token, queryString, from, size)
 			if err != nil && isUnauthorized(err) {
 				tokenRefreshes++
