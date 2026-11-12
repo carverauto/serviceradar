@@ -12,7 +12,8 @@
 {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" $id) -}}{{- fail "NVR storage identities must be canonical UUIDs" -}}{{- end -}}
 {{- if hasKey $seen $id -}}{{- fail "NVR replicas must have distinct storage identities" -}}{{- end -}}
 {{- $_ := set $seen $id true -}}
-{{- end }}
+{{- end -}}
+{{- $recovery := required "nvr.recovery.existingConfigMap must name operator-owned recovery state" $nvr.recovery.existingConfigMap }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -83,6 +84,13 @@ spec:
           env:
             - name: RELEASE_TMP
               value: /tmp
+            - name: SERVICERADAR_NVR_RECOVERY_GENERATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $recovery | quote }}
+                  key: generation
+            - name: SERVICERADAR_NVR_RECOVERY_STATE_FILE
+              value: /etc/serviceradar/nvr-recovery/state.json
             - name: SERVICERADAR_NVR_MEMBER_NAME
               valueFrom:
                 fieldRef:
@@ -113,7 +121,14 @@ spec:
               mountPath: /var/lib/serviceradar-nvr
             - name: tmp
               mountPath: /tmp
+            - name: recovery
+              mountPath: /etc/serviceradar/nvr-recovery
+              readOnly: true
       volumes:
+        - name: recovery
+          configMap:
+            name: {{ $recovery | quote }}
+            optional: false
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi

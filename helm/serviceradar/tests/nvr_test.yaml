@@ -21,10 +21,21 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: NVR replicas must have distinct storage identities
+  - it: requires independently managed recovery state
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.recovery.existingConfigMap must name operator-owned recovery state
   - it: retains per-replica volumes through scale-down and workload deletion
     set:
       nvr.enabled: true
       nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
       nvr.maxSpoolBytes: 536870912
       nvr.reserveBytes: 134217728
       nvr.storage.storageIds:
@@ -58,3 +69,21 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_NVR_RESERVE_BYTES, value: "134217728"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NVR_RECOVERY_GENERATION
+            valueFrom:
+              configMapKeyRef: {name: synthetic-nvr-recovery, key: generation}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_RECOVERY_STATE_FILE, value: /etc/serviceradar/nvr-recovery/state.json}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: recovery, mountPath: /etc/serviceradar/nvr-recovery, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: recovery
+            configMap: {name: synthetic-nvr-recovery, optional: false}
+      - notExists: {path: "spec.template.spec.containers[0].volumeMounts[2].subPath"}

@@ -4,6 +4,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   alias ServiceRadarNVR.Disk
   alias ServiceRadarNVR.Publication
+  alias ServiceRadarNVR.RecoveryGate
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
 
@@ -18,6 +19,7 @@ defmodule ServiceRadarNVR.Capacity do
   def status, do: GenServer.call(__MODULE__, :status)
   def delivery_config, do: GenServer.call(__MODULE__, :delivery_config)
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
+  def recovery_ready, do: GenServer.call(__MODULE__, :recovery_ready)
 
   def prepare_publication(block_id, reference),
     do: GenServer.call(__MODULE__, {:publication, block_id, :intent, reference}, @publication_timeout + 5_000)
@@ -94,8 +96,16 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   def handle_call(:delivery_config, _from, state) do
-    result = if state.config.delivery, do: {:ok, state.config.delivery}, else: {:error, :nvr_delivery_not_configured}
+    result =
+      with :ok <- RecoveryGate.check(state.config.recovery_gate) do
+        if state.config.delivery, do: {:ok, state.config.delivery}, else: {:error, :nvr_delivery_not_configured}
+      end
+
     {:reply, result, state}
+  end
+
+  def handle_call(:recovery_ready, _from, state) do
+    {:reply, RecoveryGate.check(state.config.recovery_gate), state}
   end
 
   def handle_call(:status, _from, state) do
@@ -264,11 +274,17 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   defp storage(%{config: %{root: nil}}), do: {:error, :nvr_storage_not_configured}
-  defp storage(%{storage: nil, config: config}), do: Storage.open(config.root, config.storage_id)
-  defp storage(%{storage: storage}), do: with(:ok <- Storage.verify(storage), do: {:ok, storage})
+
+  defp storage(state) do
+    with :ok <- RecoveryGate.check(state.config.recovery_gate), do: open_storage(state)
+  end
+
+  defp open_storage(%{storage: nil, config: config}), do: Storage.open(config.root, config.storage_id)
+  defp open_storage(%{storage: storage}), do: with(:ok <- Storage.verify(storage), do: {:ok, storage})
 
   defp measure(storage, state) do
-    with {:ok, inventory} <- Disk.inventory(storage),
+    with :ok <- RecoveryGate.check(state.config.recovery_gate),
+         {:ok, inventory} <- Disk.inventory(storage),
          {:ok, free} <- Disk.available_bytes(storage.root),
          :ok <- Storage.verify(storage) do
       {:ok,
@@ -339,8 +355,13 @@ defmodule ServiceRadarNVR.Capacity do
   def writable(_available_bytes, _reserve_bytes), do: {:error, :nvr_storage_pressure}
 
   defp pressure(state) do
-    now = System.monotonic_time(:millisecond)
+    case RecoveryGate.check(state.config.recovery_gate) do
+      :ok -> pressure(state, System.monotonic_time(:millisecond))
+      error -> {error, %{state | probe: nil}}
+    end
+  end
 
+  defp pressure(state, now) do
     case state.probe do
       {at, result} when now - at < @probe_interval_ms ->
         {result, state}

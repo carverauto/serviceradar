@@ -39,6 +39,10 @@ class NVRReleaseTest(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         self.spool = self.root / "spool"
         self.spool.mkdir(mode=0o700)
+        self.generation = "00000000-0000-4000-8000-000000000077"
+        self.recovery = self.root / "recovery.json"
+        self.ready = ('{"generation":"' + self.generation + '","state":"ready"}').encode()
+        self.recovery.write_bytes(self.ready)
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -46,6 +50,8 @@ class NVRReleaseTest(unittest.TestCase):
             "PATH": "/usr/bin:/bin", "HOME": str(self.root), "TMPDIR": str(self.root),
             "RELEASE_COOKIE": "synthetic_nvr_cookie", "ERL_CRASH_DUMP": "/dev/null",
             "SERVICERADAR_NVR_SPOOL_ROOT": str(self.spool),
+            "SERVICERADAR_NVR_RECOVERY_GENERATION": self.generation,
+            "SERVICERADAR_NVR_RECOVERY_STATE_FILE": str(self.recovery),
             "SERVICERADAR_NVR_STORAGE_ID": "00000000-0000-4000-8000-000000000011",
             "NVR_TEST_EXPECTED_STORAGE_ID": "00000000-0000-4000-8000-000000000011",
             "SERVICERADAR_NVR_MAX_SESSIONS": "2", "SERVICERADAR_NVR_HEALTH_PORT": str(port),
@@ -60,6 +66,39 @@ class NVRReleaseTest(unittest.TestCase):
                                 env=env, capture_output=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b"NVR_RELEASE_PROBE_OK", result.stdout)
+
+    def test_recovery_gate_refuses_untrusted_state_without_changing_storage(self):
+        self.run_probe("recovery_ready")
+        marker = self.spool / ".storage-id"
+        before = (marker.read_bytes(), marker.stat().st_ino, marker.stat().st_mtime_ns)
+        for raw in (b"", b"x" * 257, self.ready + b"\n",
+                    self.ready.replace(b"ready", b"closed"),
+                    self.ready.replace(b"000000000077", b"000000000078"),
+                    self.ready[:-1] + b',"state":"ready"}'):
+            with self.subTest(raw=raw):
+                self.recovery.write_bytes(raw)
+                self.run_probe("recovery_closed")
+                self.assertEqual(self.recovery.read_bytes(), raw)
+        self.recovery.unlink()
+        self.run_probe("recovery_closed")
+        self.recovery.mkdir()
+        self.run_probe("recovery_closed")
+        del self.env["SERVICERADAR_NVR_RECOVERY_GENERATION"]
+        del self.env["SERVICERADAR_NVR_RECOVERY_STATE_FILE"]
+        self.run_probe("recovery_closed")
+        self.assertEqual(list(self.spool.iterdir()), [marker])
+        self.assertEqual((marker.read_bytes(), marker.stat().st_ino, marker.stat().st_mtime_ns), before)
+
+    def test_recovery_gate_observes_live_projection_and_pins_generation_until_restart(self):
+        # Model a projected-volume symlink; replacing its target changes the live view.
+        projected = self.root / "projected-state.json"
+        projected.symlink_to(self.recovery)
+        self.env["SERVICERADAR_NVR_RECOVERY_STATE_FILE"] = str(projected)
+        self.run_probe("recovery_transition")
+        next_generation = "00000000-0000-4000-8000-000000000078"
+        self.assertEqual(self.recovery.read_bytes(), self.ready.replace(self.generation.encode(), next_generation.encode()))
+        self.env["SERVICERADAR_NVR_RECOVERY_GENERATION"] = next_generation
+        self.run_probe("recovery_ready")
 
     def bootstrap_document(self):
         return {"binding_id": "00000000-0000-4000-8000-000000000022",
@@ -547,6 +586,27 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(requests), before)
         self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(), ":nvr_delivery_transport")
         self.assertFalse((block / "publication-ack.json").exists())
+
+    def test_recovery_closure_stops_delivery_retry_and_ack_persistence(self):
+        block = self.delivery_block()
+        evidence = {p.name: p.read_bytes() for p in block.iterdir()}
+        response_status = 503
+
+        def response(_body):
+            replacement = self.root / "recovery.next"
+            replacement.write_bytes(self.ready.replace(b"ready", b"closed"))
+            replacement.replace(self.recovery)
+            return response_status
+
+        requests, _, _, _ = self.publication_server(response)
+        for response_status in (503, 200):
+            with self.subTest(status=response_status):
+                self.recovery.write_bytes(self.ready)
+                before = len(requests)
+                self.run_probe("delivery")
+                self.assertEqual(len(requests) - before, 1, "delivery retried after observing closure")
+                self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(), ":nvr_recovery_closed")
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, evidence)
 
     def test_delivery_rejects_receiver_signed_by_replaced_ca_in_same_vm(self):
         block = self.delivery_block()
@@ -1082,6 +1142,17 @@ class NVRReleaseTest(unittest.TestCase):
                     urllib.request.urlopen(base + path, timeout=2)
                 self.assertEqual(failure.exception.code, status)
             self.assertEqual(list(self.spool.iterdir()), [])
+            marker = self.spool / ".storage-id"
+            marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+            marker.chmod(0o600)
+            with urllib.request.urlopen(base + "/readyz", timeout=2) as reply:
+                self.assertEqual(reply.status, 200)
+            self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+            with self.assertRaises(urllib.error.HTTPError) as failure:
+                urllib.request.urlopen(base + "/readyz", timeout=2)
+            self.assertEqual(failure.exception.code, 503)
+            with urllib.request.urlopen(base + "/healthz", timeout=2) as reply:
+                self.assertEqual(reply.status, 200)
         finally:
             proc.send_signal(signal.SIGTERM)
             proc.communicate(timeout=15)
@@ -1108,9 +1179,15 @@ class NVRReleaseTest(unittest.TestCase):
                        "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY": value}, b"invalid_nvr_auto_delivery_config")
                      for value in ["true", "yes"]]
+        settings += [({"SERVICERADAR_NVR_RECOVERY_GENERATION": "invalid"}, b"invalid_nvr_recovery_config"),
+                     ({"SERVICERADAR_NVR_RECOVERY_STATE_FILE": "relative.json"}, b"invalid_nvr_recovery_config"),
+                     ({"SERVICERADAR_NVR_RECOVERY_STATE_FILE": str(self.spool / "state.json")}, b"invalid_nvr_recovery_config"),
+                     ({"SERVICERADAR_NVR_RECOVERY_GENERATION": ""}, b"invalid_nvr_recovery_config"),
+                     ({"SERVICERADAR_NVR_RECOVERY_GENERATION": None}, b"invalid_nvr_recovery_config"),
+                     ({"SERVICERADAR_NVR_RECOVERY_STATE_FILE": None}, b"invalid_nvr_recovery_config")]
         for setting, error in settings:
             with self.subTest(setting=setting):
-                env = self.env | setting
+                env = {key: value for key, value in (self.env | setting).items() if value is not None}
                 result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
                                         env=env, capture_output=True, timeout=20)
                 self.assertNotEqual(result.returncode, 0)

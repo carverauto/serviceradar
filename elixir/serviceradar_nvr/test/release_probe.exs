@@ -15,6 +15,60 @@ clock = %{clock_epoch: "synthetic-clock", timebase: 90_000, dts_source: :pts_no_
 identity = %{source_id: "synthetic-camera", profile: "recording", recorder_epoch: 1, block_sequence: 0}
 
 case System.fetch_env!("NVR_TEST_MODE") do
+  "recovery_ready" ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:ok, %{used_bytes: 0}} = ServiceRadarNVR.capacity()
+    {:ok, []} = ServiceRadarNVR.list_blocks()
+
+  "recovery_closed" ->
+    {:ok, _} = Storage.open(root, id)
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.capacity()
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.start_recording(identity, clock)
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.list_blocks()
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.recover_block("missing", identity)
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.prepare_publication("missing", %{})
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.acknowledge_publication("missing", "{}")
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.deliver_publication("missing")
+
+  "recovery_transition" ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:ok, token, _, _} = Capacity.reserve()
+    :ok = Capacity.check(token)
+    path = Path.join(System.fetch_env!("TMPDIR"), "recovery.json")
+    ready = File.read!(path)
+    closed = String.replace(ready, "ready", "closed")
+    parent = self()
+
+    read =
+      Task.async(fn ->
+        Reads.run(fn ->
+          send(parent, {:read_started, self()})
+
+          receive do
+            :continue -> {:ok, :synthetic_bytes}
+          end
+        end)
+      end)
+
+    reader =
+      receive do
+        {:read_started, pid} -> pid
+      after
+        5000 -> raise "read did not start"
+      end
+
+    File.write!(path <> ".next", closed)
+    File.rename!(path <> ".next", path)
+    {:error, :nvr_recovery_closed} = Capacity.check(token)
+    {:error, :nvr_recovery_closed} = Capacity.next_block(token)
+    send(reader, :continue)
+    {:error, :nvr_recovery_closed} = Task.await(read)
+    {:error, :nvr_recovery_closed} = Reads.run(fn -> raise "closed read executed" end)
+    File.write!(path <> ".next", String.replace(ready, "000000000077", "000000000078"))
+    File.rename!(path <> ".next", path)
+    {:error, :nvr_recovery_closed} = Capacity.check(token)
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.capacity()
+
   mode when mode in ["storage_bootstrap", "storage_bootstrap_acknowledgement", "storage_bootstrap_evidence"] ->
     directory = System.fetch_env!("TMPDIR")
     configured = directory |> Path.join("bootstrap-reference.json") |> File.read!() |> Jason.decode!()
