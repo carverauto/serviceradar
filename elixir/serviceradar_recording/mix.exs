@@ -15,6 +15,7 @@ defmodule ServiceRadarRecording.MixProject do
 
   defp deps do
     [
+      {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       # UUID casting is a data-type dependency; no Ecto SQL adapter or Repo starts.
       {:ecto, "~> 3.14"},
       {:jason, "~> 1.4"},

@@ -1,4 +1,4 @@
-defmodule ServiceRadarNVR.RecoveryGate do
+defmodule ServiceRadarRecording.RecoveryGate do
   @moduledoc """
   Read-only deployment recovery gate, independent of the retained media volume.
 
@@ -9,7 +9,7 @@ defmodule ServiceRadarNVR.RecoveryGate do
 
   Closing this file does not retire an operation already in flight. The restore
   workflow must quiesce all authority-bearing processes before restoring data.
-  NVR never creates, repairs or changes deployment recovery state.
+  Consumers never create, repair or change deployment recovery state.
   """
 
   alias ServiceRadarRecordingMetadata.CanonicalJSON

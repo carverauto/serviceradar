@@ -21,6 +21,7 @@ filegroup(
 )
 
 RECORDING_DEPS = [
+    "//elixir/serviceradar_recording_metadata:erlang_app",
     "@hexpm//:bundlex",
     "@hexpm//:decimal",
     "@hexpm//:ecto",

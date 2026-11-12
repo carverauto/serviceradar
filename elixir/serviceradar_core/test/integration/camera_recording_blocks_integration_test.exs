@@ -19,8 +19,10 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   }
   @moduletag :integration
   @moduletag sandbox: :unboxed
+  @moduletag :tmp_dir
 
-  setup do
+  setup %{tmp_dir: directory} do
+    recovery = Fixtures.publication_recovery_gate(directory)
     Fixtures.preserve_recording_control()
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
@@ -38,7 +40,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
       )
 
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, @clock, ctx.opts)
-    Map.merge(ctx, %{owner: owner, claim: claim, block: block, relay: relay})
+    Map.merge(ctx, %{owner: owner, claim: claim, block: block, relay: relay, recovery: recovery})
   end
 
   test "local intent acknowledgement binds frozen history without granting availability", ctx do
@@ -118,6 +120,68 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
     assert {:ok, unchanged} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
     assert unchanged.recording_block_id == frozen.id
+  end
+
+  test "closed deployment state refuses new intents and retries without changing receipts", ctx do
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
+    operation = Ecto.UUID.generate()
+    bytes = Fixtures.local_intent(ctx.block, operation)
+    lookup = Keyword.put(ctx.opts, :not_found_error?, false)
+
+    File.rm!(ctx.recovery.path)
+    assert {:error, :nvr_recovery_closed} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert {:ok, nil} = Ash.get(LocalPublicationIntent, operation, lookup)
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, acknowledgement} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert {:ok, receipt} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+
+    for state <- [
+          String.replace(ctx.recovery.ready, "ready", "closed"),
+          ~s({"generation":"#{Ecto.UUID.generate()}","state":"ready"})
+        ] do
+      File.write!(ctx.recovery.path, state)
+      assert {:error, :nvr_recovery_closed} = LocalPublicationIntents.accept(bytes, ctx.opts)
+      assert {:ok, unchanged} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+      assert unchanged.inserted_at == receipt.inserted_at
+    end
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, ^acknowledgement} = LocalPublicationIntents.accept(bytes, ctx.opts)
+  end
+
+  test "closure during acceptance withholds the reply but preserves the committed intent", ctx do
+    assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
+    operation = Ecto.UUID.generate()
+    bytes = Fixtures.local_intent(ctx.block, operation)
+    handler = {__MODULE__, make_ref()}
+    parent = self()
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if self() == parent and String.starts_with?(metadata.query, "INSERT INTO") and
+               String.contains?(metadata.query, "camera_local_publication_intents") do
+            File.write!(ctx.recovery.path, String.replace(ctx.recovery.ready, "ready", "closed"))
+            send(parent, :recovery_closed_during_acceptance)
+          end
+        end,
+        nil
+      )
+
+    assert {:error, :nvr_recovery_closed} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert_received :recovery_closed_during_acceptance
+    :ok = :telemetry.detach(handler)
+    assert {:ok, receipt} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, acknowledgement} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert Jason.decode!(acknowledgement)["operation_id"] == operation
+    assert {:ok, retry} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    assert retry.inserted_at == receipt.inserted_at
   end
 
   test "competing local operations retain one acknowledgement and exact concurrent retries converge",

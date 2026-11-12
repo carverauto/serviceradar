@@ -4,7 +4,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   alias ServiceRadarNVR.Disk
   alias ServiceRadarNVR.Publication
-  alias ServiceRadarNVR.RecoveryGate
+  alias ServiceRadarRecording.RecoveryGate
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
 

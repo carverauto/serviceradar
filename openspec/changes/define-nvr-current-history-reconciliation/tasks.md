@@ -6,7 +6,9 @@
 ## 2. Implementation after approval
 
 - [ ] 2.1 Implement trusted deployment recovery state and fail-closed startup/admission consumers for Kubernetes and non-Kubernetes deployments.
-  - First checkpoint: NVR consumes external boot-pinned recovery state at admission, writer checks, publication attempts and read replies; Helm references an existing operator-owned ConfigMap. Standalone processes consume the same file contract. Core consumers, the recovery command and cross-replica quiescence verification remain pending.
+  - NVR checkpoint: NVR consumes external boot-pinned recovery state at admission, writer checks, publication attempts and read replies; Helm references an existing operator-owned ConfigMap. Standalone processes consume the same file contract.
+  - Core publication checkpoint: Core checks local-intent acceptance before its transaction and before replying; Core and web-ng consume the same projected state.
+  - Remaining Core authority consumers, the recovery command and cross-replica quiescence verification remain pending.
 - [ ] 2.2 Implement per-storage immutable history, explicit genesis and domain-owned transactional head advancement.
 - [ ] 2.3 Integrate publication, preservation and disposition serialization without changing v1 intent/S3 receipt meanings.
 - [ ] 2.4 Implement bounded NVR history persistence, control reservations, cursors and exact restart recovery.
