@@ -47,6 +47,48 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherDbTest do
     assert :ok = PublisherWorker.perform(%Oban.Job{args: %{}})
   end
 
+  # A stale scope with a stray legacy row drains in one pass with no new
+  # generation: the startup sweep adopts and terminates the row, and the
+  # fulfillment check completes the scope without publishing.
+  @tag sandbox: :unboxed
+  test "perform completes a stale scope and sweeps its legacy row", %{base: base} do
+    assert :ok = Scopes.request(base)
+    backdate_scope_request(base)
+    _generation = create_generation(base, "complete")
+
+    {:ok, %{rows: [[legacy_id]]}} =
+      Repo.query(
+        """
+        INSERT INTO platform.oban_jobs
+          (queue, worker, args, errors, state, attempt, max_attempts, scheduled_at, inserted_at)
+        VALUES
+          ('maintenance', 'ServiceRadar.Inventory.ExposureSnapshotWorker', $1, '{}', 'scheduled', 0, 20, now(), now())
+        RETURNING id
+        """,
+        [%{"device_ord" => base}]
+      )
+
+    [[before]] = Repo.query!("SELECT COUNT(*) FROM platform.exposure_snapshot_generations").rows
+
+    assert :ok = PublisherWorker.perform(%Oban.Job{args: %{}})
+
+    [[after_count]] =
+      Repo.query!("SELECT COUNT(*) FROM platform.exposure_snapshot_generations").rows
+
+    assert after_count == before
+
+    assert [[_id, "complete", nil]] =
+             Repo.query!(
+               "SELECT id, status, generation_id FROM platform.exposure_snapshot_scopes WHERE scope_ord = $1",
+               [base]
+             ).rows
+
+    assert [[state]] =
+             Repo.query!("SELECT state FROM platform.oban_jobs WHERE id = $1", [legacy_id]).rows
+
+    assert state == "completed"
+  end
+
   @tag sandbox: :unboxed
   test "a held session lock exits quietly without touching scopes", %{base: base} do
     assert :ok = Scopes.request(base)
@@ -419,6 +461,13 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherDbTest do
       end)
 
     generation["id"]
+  end
+
+  defp backdate_scope_request(scope_ord) do
+    Repo.query!(
+      "UPDATE platform.exposure_snapshot_scopes SET not_before = now() - interval '1 minute', updated_at = now() WHERE scope_ord = $1",
+      [scope_ord]
+    )
   end
 
   defp await_lock_held(attempts \\ 60) do
