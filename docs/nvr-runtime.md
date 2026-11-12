@@ -557,6 +557,42 @@ acknowledgement. A historical installation acknowledgement cannot prove that Cor
 current history survived a restore. Current-history reconciliation, runtime control
 reservations and provider failure qualification remain separate work.
 
+### Core history genesis
+
+After verifying the empty-volume installation and durable retention of Core's
+acknowledgement, the trusted provisioner can explicitly call
+`ServiceRadar.Camera.LocalStorageHistoryGenesis.establish(installation_id, installation_sha256, actor: provisioner)`.
+The actor must carry the storage provisioning scope and a canonical
+`nvr_recovery_generation` UUID from authenticated deployment control. Never copy
+that field from a recorder request or infer it from restored database records.
+There is no network endpoint or automatic startup caller in this checkpoint.
+A missing genesis on retained media requires reconciliation, not this operation.
+
+Core derives the genesis from the exact scoped installation and its preparation.
+One immutable record per storage lifetime uses the installation/preparation
+operation UUID. Its canonical JSON contains exactly `version: 1`,
+`kind: "local_storage_history_genesis"`, `operation_id`, `storage_id`,
+`recovery_generation`, `sequence: 0`, `previous_sha256: null`,
+`preparation_sha256` and `installation_sha256`. The record is bounded to 1024 bytes;
+`record_sha256` hashes those exact bytes. A restrictive foreign key preserves the
+installation and its preparation.
+
+Exact retries preserve bytes, original establishing principal and insertion time,
+including after provisioning credential or provider-binding rotation. A changed
+recovery generation conflicts with existing genesis; it cannot reset history.
+Missing or foreign installation, mismatched digest, absent/noncanonical generation
+and callers without the storage provisioning scope are refused. There are no
+update or deletion actions.
+
+This offline evidence operation does not depend on runtime recovery readiness.
+Its generation is issuance provenance, not proof that deployment control is still
+current. The provisioner owns observing exclusive attachment, empty-volume
+installation and acknowledgement persistence; a matching digest alone proves none
+of those physical facts. Genesis grants no qualification, capture, registration,
+playback or deletion. Mutable history-head advancement, local history persistence
+and current-generation completion remain pending, and the runtime bootstrap
+barrier stays closed.
+
 ## Local storage qualification reports
 
 Core's internal `ServiceRadar.Camera.LocalStorageQualificationReport.submit/2`

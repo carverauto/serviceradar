@@ -9,6 +9,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/integration/camera_local_storage_binding_integration_test.exs",
     "test/integration/camera_local_storage_bootstrap_installation_integration_test.exs",
     "test/integration/camera_local_storage_bootstrap_preparation_integration_test.exs",
+    "test/integration/camera_local_storage_history_genesis_integration_test.exs",
     "test/integration/camera_local_storage_qualification_report_integration_test.exs",
     "test/integration/camera_relay_session_reaper_integration_test.exs",
     "test/integration/component_certificate_authority_integration_test.exs",
