@@ -10,25 +10,24 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
   test "release config provisions no attributed-flow subject, stream, or durable" do
     event_writer = event_writer_config()
 
-    for key <- [:streams, :flow_streams], entries = event_writer[key], is_list(entries) do
-      for entry <- entries do
-        refute entry[:name] in ["ATTRIBUTED_FLOW", "ATTRIBUTED_FLOW_EVENTS_DRAIN"],
-               "release config must not provision #{inspect(entry[:name])}"
+    for entry <- provisioned_entries(event_writer) do
+      refute entry[:name] in ["ATTRIBUTED_FLOW", "ATTRIBUTED_FLOW_EVENTS_DRAIN"],
+             "release config must not provision #{inspect(entry[:name])}"
 
-        subject = entry[:subject] || ""
+      refute entry[:stream_name] == "attributed_flow",
+             "release config must not consume stream #{inspect(entry[:stream_name])}"
 
-        refute String.starts_with?(subject, "flow.attributed."),
-               "release config must not consume #{inspect(subject)}"
-      end
+      subject = entry[:subject] || ""
+
+      refute String.starts_with?(subject, "flow.attributed."),
+             "release config must not consume #{inspect(subject)}"
     end
   end
 
   test "release config declares no events-stream flow drains" do
     event_writer = event_writer_config()
 
-    for entries <- [event_writer[:streams], event_writer[:flow_streams]],
-        is_list(entries),
-        entry <- entries do
+    for entry <- provisioned_entries(event_writer) do
       refute String.ends_with?(entry[:name] || "", "_EVENTS_DRAIN"),
              "release config must not declare #{inspect(entry[:name])}"
 
@@ -38,9 +37,22 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
     end
   end
 
+  defp provisioned_entries(event_writer) do
+    Enum.flat_map([:streams, :flow_streams], fn key ->
+      entries = event_writer[key]
+
+      assert is_list(entries) and entries != [],
+             "release config must declare EventWriter #{inspect(key)}"
+
+      entries
+    end)
+  end
+
   # Same minimal env the file needs to evaluate: a syntactically valid
-  # cloak key and a dummy database URL (never connected).
+  # cloak key and a dummy database URL (never connected), with EventWriter
+  # enabled as the chart deploys it.
   @base_env %{
+    "EVENT_WRITER_ENABLED" => "true",
     "CLOAK_KEY" => Base.encode64(:binary.copy(<<7>>, 32)),
     "DATABASE_URL" => "ecto://user:pass@localhost/release_config_test",
     "SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED" => "false"
