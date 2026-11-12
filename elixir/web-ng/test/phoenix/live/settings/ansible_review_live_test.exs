@@ -503,14 +503,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     # Every control is open and armed; now the account loses the permission.
     restrict_permissions(user, ["ansible.repositories.manage", "ansible.runs.view", "ansible.catalog.view"])
 
+    assert has_element?(memberships_view, "#ansible-membership-review")
+    assert has_element?(release_view, "#ansible-membership-release")
+
     assert render_click(memberships_view, "approve_membership", %{}) =~
              "Your Ansible settings permissions changed"
+
+    refute has_element?(memberships_view, "#ansible-membership-review")
 
     assert render_click(bulk_view, "approve_selected_memberships", %{}) =~
              "Your Ansible settings permissions changed"
 
+    refute has_element?(bulk_view, "#ansible-membership-bulk-review")
+
     assert render_click(release_view, "release_membership", %{}) =~
              "Your Ansible settings permissions changed"
+
+    refute has_element?(release_view, "#ansible-membership-release")
 
     assert render_click(bindings_view, "create_binding", %{}) =~
              "Your Ansible settings permissions changed"

@@ -625,8 +625,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp deny_event(socket) do
     {:noreply,
-     put_flash(
-       socket,
+     socket
+     |> MembershipReview.close_dialogs()
+     |> put_flash(
        :error,
        "Your Ansible settings permissions changed. Refresh the page and try again."
      )}

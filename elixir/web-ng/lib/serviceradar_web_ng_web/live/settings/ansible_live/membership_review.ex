@@ -617,7 +617,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
     end
   end
 
-  defp close_dialogs(socket) do
+  @doc "Closes every Memberships dialog and ignores any in-flight bulk result."
+  def close_dialogs(socket) do
     socket
     |> cancel_review()
     |> cancel_release()

@@ -113,21 +113,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReviewTest do
   end
 
   test "every recorded reason has its own explanation and an unrecorded cause reads as unknown" do
-    reasons = [
-      :ambiguous_device_match,
-      :approved_device_changed,
-      :approved_link_lost_match,
-      :approved_membership_not_current,
-      :canonical_device_deleted,
-      :predates_reason_recording
-    ]
+    # Distinguishing facts from the quarantine reason table in docs/docs/ansible-provisioning-api.md.
+    expected = %{
+      ambiguous_device_match: "More than one",
+      approved_device_changed: "different device",
+      approved_link_lost_match: "stopped matching any device",
+      approved_membership_not_current: "dropped out of a complete inventory sync",
+      canonical_device_deleted: "deleted",
+      predates_reason_recording: "Cause unknown"
+    }
 
-    labels = Enum.map(reasons, &MembershipReview.quarantine_reason_label(quarantined(%{quarantine_reason: &1})))
+    labels =
+      Map.new(expected, fn {reason, _phrase} ->
+        {reason, MembershipReview.quarantine_reason_label(quarantined(%{quarantine_reason: reason}))}
+      end)
 
-    assert length(Enum.uniq(labels)) == length(reasons)
+    for {reason, phrase} <- expected do
+      assert labels[reason] =~ phrase, "#{reason} should explain #{inspect(phrase)}, got #{inspect(labels[reason])}"
+      refute labels[reason] =~ "Cause not reported"
+    end
 
-    assert MembershipReview.quarantine_reason_label(quarantined(%{quarantine_reason: :predates_reason_recording})) =~
-             "Cause unknown"
+    assert labels |> Map.values() |> Enum.uniq() |> length() == map_size(expected)
   end
 
   defp quarantined(overrides \\ %{}) do
