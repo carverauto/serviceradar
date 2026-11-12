@@ -484,6 +484,43 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   end
 
   @tag publication: true
+  test "recovery closure inside publication admission withholds init transfer until reopened", context do
+    assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+    requests = Agent.get(context.store, & &1.requests)
+    parent = self()
+    handler = make_ref()
+    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if self() == parent and String.contains?(metadata.query, "camera_recording_control") and
+               String.contains?(metadata.query, "FOR UPDATE") do
+            File.rm!(context.recovery.path)
+            send(parent, :recovery_closed_during_admission)
+          end
+        end,
+        nil
+      )
+
+    assert {:error, :nvr_recovery_closed} = ArchivePublication.complete_once(context.block.id)
+    assert_received :recovery_closed_during_admission
+    :ok = :telemetry.detach(handler)
+
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert role_intents(context, :init) == []
+    assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    File.write!(context.recovery.path, context.recovery.ready)
+    assert {:ok, receipt} = ArchivePublication.complete_once(context.block.id)
+    assert_publication(context, receipt)
+  end
+
+  @tag publication: true
   test "stopped missing manifest returns recording_stopped without local inputs or provider traffic", context do
     assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
     opts = [actor: SystemActor.system(:camera_archive_storage)]

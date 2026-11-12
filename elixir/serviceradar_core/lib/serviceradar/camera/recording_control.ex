@@ -62,17 +62,22 @@ defmodule ServiceRadar.Camera.RecordingControl do
 
     with :ok <- outside_transaction(),
          :ok <- RecoveryGate.check(gate),
-         {:ok, _} = result <-
+         result =
            transaction(fn ->
              with {:ok, current} <- locked(opts),
                   :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
                fun.()
              end
            end),
+         :ok <- admitted(result),
          :ok <- RecoveryGate.check(gate) do
       result
     end
   end
+
+  defp admitted(:ok), do: :ok
+  defp admitted({:ok, _}), do: :ok
+  defp admitted(error), do: error
 
   defp locked(opts) do
     with {:ok, _baseline} <-
