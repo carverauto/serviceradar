@@ -1075,8 +1075,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   the merge named (unless the record holds that guest's identity itself, which makes them its
   own) and the merged record's address. A record that absorbs or is absorbed into a poisoned
   record without the merge being proved bad inherits the foreign set. The poison reaches merges
-  of later seconds only (`created_at` has second precision); a merge of the same second sharing a
-  record with a bad merge is `:chained_unproven`.
+  of later seconds only (`created_at` has second precision): a merge of the same second sharing a
+  record with a bad merge is `:chained_unproven`, and does not carry poison introduced in that
+  second.
 
   **A merge is bad** when it is an AWX merge that `awx_merge_evidence/1` proves, or when it
   touches a record poisoned at its time and one of these holds:
@@ -1125,7 +1126,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
           end)
           |> unproven_beside_bad()
 
-        {judged, Enum.reduce(judged, poison, &record_merge(&2, &1, &1.verdict, context))}
+        {judged, record_second(poison, judged, context)}
       end)
 
     bad = Enum.filter(judged, &match?({:bad, _proofs}, &1.verdict))
@@ -1397,6 +1398,29 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   defp present_string(_value), do: nil
 
   # -- poison state ----------------------------------------------------------------------------
+
+  # Every merge of one second is recorded against the state the earlier seconds left, and the
+  # updates are then combined per record, so merges of the same second never see each other.
+  defp record_second(poison, same_second, context) do
+    Enum.reduce(same_second, poison, fn merge, next ->
+      case Map.fetch(record_merge(poison, merge, merge.verdict, context), merge.to_uid) do
+        {:ok, state} -> Map.update(next, merge.to_uid, state, &combine_states(&1, state))
+        :error -> next
+      end
+    end)
+  end
+
+  defp combine_states(left, right) do
+    %{
+      since: earliest(left.since, right.since),
+      foreign: MapSet.union(left.foreign, right.foreign),
+      established: MapSet.union(left.established, right.established)
+    }
+  end
+
+  defp earliest(nil, at), do: at
+  defp earliest(at, nil), do: at
+  defp earliest(left, right), do: Enum.min_by([left, right], &created_rank/1)
 
   defp poisoned?(poison, uid), do: match?(%{since: since} when not is_nil(since), poison[uid])
 

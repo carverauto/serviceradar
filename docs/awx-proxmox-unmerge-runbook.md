@@ -44,7 +44,7 @@ step computes its plan when it runs, never from a fixed list.
    *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
    the guest the merge named (unless the survivor holds that guest's identity itself) and the
    merged record's address. A merge that stays carries a poisoned record's foreign set to its
-   survivor. Every merge of a later second touching a poisoned record, of any reason, is judged
+   survivor, except poison introduced in its own second, which it does not carry. Every merge of a later second touching a poisoned record, of any reason, is judged
    too (`created_at` has second precision, so a merge in the same second as the bad merge that
    shares a record with it is reported as `chained_unproven` and left), and is bad when:
 

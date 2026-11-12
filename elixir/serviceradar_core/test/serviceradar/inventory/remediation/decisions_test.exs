@@ -1074,6 +1074,42 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       refute e2.bad?
     end
 
+    test "a same-second sibling carries no poison into the next second, in either id order" do
+      # The AWX merge poisons `sr:s` with guest 136's address while, in the same second, `sr:s`
+      # is merged into `sr:t`. A backfill into `sr:t` a second later on that address is not tainted.
+      for {awx_id, sibling_id} <- [{"e1", "e2"}, {"e9", "e2"}] do
+        merges = [
+          %{poisoning_merge() | event_id: awx_id},
+          chained(%{
+            event_id: sibling_id,
+            created_at: at(1),
+            reason: "identifier_backfill",
+            from_uid: "sr:s",
+            to_uid: "sr:t",
+            source_identifiers: [ident("mac", "00005E005398")],
+            to_own_identifiers: []
+          }),
+          chained(%{
+            event_id: "e5",
+            created_at: at(2),
+            reason: "identifier_backfill",
+            from_uid: "sr:fresh",
+            to_uid: "sr:t",
+            source_identifiers: [ident("mac", "00005E005399")],
+            evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+            to_own_identifiers: []
+          })
+        ]
+
+        plan = Decisions.plan_awx_proxmox_unmerge(merges, poisoned_context())
+        by_id = Map.new(plan.report, &{&1.event_id, &1})
+
+        assert [%{event_ids: [^awx_id]}] = plan.units
+        assert %{disposition: :chained_unproven, bad?: false} = by_id[sibling_id]
+        refute by_id["e5"][:bad?]
+      end
+    end
+
     test "a merge in the same second as the bad merge is reported, never undone or dropped" do
       # `sr:s` holds guest 101; in the second the AWX merge poisons it, guest 102 is merged in.
       own = [awx_id(1), ident("integration_id", guest_ref(101))]
