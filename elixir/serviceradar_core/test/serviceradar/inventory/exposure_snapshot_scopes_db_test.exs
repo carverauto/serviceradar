@@ -99,7 +99,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
   test "completion retires the row from the drain", %{base: base} do
     assert :ok = Scopes.request(base)
     assert {:ok, %{id: id}} = Scopes.claim(job_id())
-    assert :ok = Scopes.complete(id)
+    assert :ok = Scopes.track_generation(id, base)
+    assert :ok = Scopes.complete(id, base)
     assert :none = Scopes.claim(job_id())
     refute Scopes.pending?()
   end
@@ -125,11 +126,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     for _ <- 1..9 do
       assert {:failed, _} = Scopes.fail(id, :boom)
       assert :none = Scopes.claim(job_id())
-
-      Repo.query!(
-        "UPDATE platform.exposure_snapshot_scopes SET not_before = now() - interval '1 second' WHERE id = $1",
-        [id]
-      )
+      expire_backoff(id)
+      assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
     end
 
     assert {:dead, 10} = Scopes.fail(id, :boom)
@@ -145,7 +143,13 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     assert :ok = Scopes.request(base)
     assert {:ok, %{id: id}} = Scopes.claim(job_id())
 
-    for _ <- 1..10, do: Scopes.fail(id, :boom)
+    for _ <- 1..9 do
+      assert {:failed, _} = Scopes.fail(id, :boom)
+      expire_backoff(id)
+      assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
+    end
+
+    assert {:dead, 10} = Scopes.fail(id, :boom)
 
     assert [["dead"]] =
              Repo.query!("SELECT status FROM platform.exposure_snapshot_scopes WHERE id = $1", [
@@ -185,13 +189,47 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     assert :ok = Scopes.request(base)
     assert {:ok, %{id: id}} = Scopes.claim(job_id())
     assert :ok = Scopes.track_generation(id, previous_generation)
-    assert :ok = Scopes.complete(id)
+    assert :ok = Scopes.complete(id, previous_generation)
 
     assert :ok = Scopes.request(base)
     assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
     assert :ok = Scopes.release(id)
 
     assert [[^id, ^base, nil]] = Scopes.expired_publishing()
+  end
+
+  test "fresh demand during an attempt survives that attempt's outcome", %{base: base} do
+    generation = base + 10
+
+    assert :ok = Scopes.request(base)
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    assert :ok = Scopes.request(base)
+
+    assert :ok = Scopes.track_generation(id, generation)
+    assert :ok = Scopes.complete(id, generation)
+    assert :ok = Scopes.fail(id, :boom)
+    assert :ok = Scopes.defer_preparing(id)
+    assert :ok = Scopes.release(id)
+
+    assert [[^id, "pending", 0, nil]] =
+             Repo.query!(
+               "SELECT id, status, attempts, generation_id FROM platform.exposure_snapshot_scopes WHERE scope_ord = $1",
+               [base]
+             ).rows
+
+    assert {:ok, %{id: ^id}} = Scopes.claim(job_id())
+  end
+
+  test "completion requires the generation this claim tracked", %{base: base} do
+    assert :ok = Scopes.request(base)
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    assert :ok = Scopes.track_generation(id, base + 10)
+    assert :ok = Scopes.complete(id, base + 11)
+
+    assert [["publishing"]] =
+             Repo.query!("SELECT status FROM platform.exposure_snapshot_scopes WHERE id = $1", [
+               id
+             ]).rows
   end
 
   test "ensure_publisher inserts one job no matter how often it runs", %{job_floor: floor} do
@@ -211,7 +249,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     assert Scopes.pending?()
     assert {:ok, %{id: id}} = Scopes.claim(job_id())
     assert Scopes.pending?()
-    assert :ok = Scopes.complete(id)
+    assert :ok = Scopes.track_generation(id, base)
+    assert :ok = Scopes.complete(id, base)
     refute Scopes.pending?()
   end
 
@@ -251,6 +290,13 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
   end
 
   defp job_id, do: System.unique_integer([:positive, :monotonic])
+
+  defp expire_backoff(id) do
+    Repo.query!(
+      "UPDATE platform.exposure_snapshot_scopes SET not_before = now() - interval '1 second' WHERE id = $1",
+      [id]
+    )
+  end
 
   # Pass the map, not pre-encoded JSON: Postgrex encodes an Elixir map into a
   # jsonb object, while a pre-encoded string would be stored as a jsonb string

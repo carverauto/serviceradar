@@ -79,11 +79,14 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
     end
   end
 
-  @doc "Marks a scope complete after its generation completed."
-  def complete(id) do
+  @doc "Marks a scope complete when its claim still tracks the completed generation."
+  def complete(id, generation_id) do
     Repo.query!(
-      "UPDATE #{@table} SET status = 'complete', updated_at = now() WHERE id = $1",
-      [id]
+      """
+      UPDATE #{@table} SET status = 'complete', updated_at = now()
+      WHERE id = $1 AND status = 'publishing' AND generation_id = $2
+      """,
+      [id, generation_id]
     )
 
     :ok
@@ -96,7 +99,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
       UPDATE #{@table}
       SET status = 'preparing', not_before = now() + make_interval(secs => $2),
           updated_at = now()
-      WHERE id = $1
+      WHERE id = $1 AND status = 'publishing'
       """,
       [id, @backoff_seconds]
     )
@@ -104,24 +107,27 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
     :ok
   end
 
-  @doc "Records a scope failure with backoff, or dead-letters past the cap."
+  @doc """
+  Records a scope failure with backoff, or dead-letters past the cap. Returns
+  `:ok` without counting an attempt when fresh demand already re-pended the row.
+  """
   def fail(id, reason) do
     case Repo.query(
            """
            UPDATE #{@table}
            SET attempts = attempts + 1,
+               status = CASE WHEN attempts + 1 >= $5 THEN 'dead' ELSE 'failed' END,
                not_before = now() + make_interval(secs => LEAST($2 * (attempts + 1), $3)),
                error = $4, updated_at = now()
-           WHERE id = $1
+           WHERE id = $1 AND status = 'publishing'
            RETURNING attempts
            """,
-           [id, @backoff_seconds, @backoff_cap_seconds, encode_reason(reason)]
+           [id, @backoff_seconds, @backoff_cap_seconds, encode_reason(reason), @dead_attempts]
          ) do
-      {:ok, %{rows: [[attempts]]}} when attempts >= @dead_attempts ->
-        Repo.query!("UPDATE #{@table} SET status = 'dead', updated_at = now() WHERE id = $1", [
-          id
-        ])
+      {:ok, %{rows: []}} ->
+        :ok
 
+      {:ok, %{rows: [[attempts]]}} when attempts >= @dead_attempts ->
         :telemetry.execute(
           [:serviceradar, :exposure, :snapshot, :scope_dead],
           %{attempts: attempts},
@@ -131,11 +137,6 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
         {:dead, attempts}
 
       {:ok, %{rows: [[attempts]]}} ->
-        Repo.query!(
-          "UPDATE #{@table} SET status = 'failed', updated_at = now() WHERE id = $1",
-          [id]
-        )
-
         {:failed, attempts}
 
       {:error, reason} ->
@@ -166,7 +167,11 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
   """
   def release(id) do
     Repo.query!(
-      "UPDATE #{@table} SET claimed_by = NULL, lease_expires_at = now() - make_interval(secs => 1), updated_at = now() WHERE id = $1",
+      """
+      UPDATE #{@table}
+      SET claimed_by = NULL, lease_expires_at = now() - make_interval(secs => 1), updated_at = now()
+      WHERE id = $1 AND status = 'publishing'
+      """,
       [id]
     )
 
@@ -180,7 +185,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
       UPDATE #{@table}
       SET status = 'pending', generation_id = NULL, claimed_by = NULL,
           lease_expires_at = NULL, not_before = now(), updated_at = now()
-      WHERE id = $1
+      WHERE id = $1 AND status = 'publishing'
       """,
       [id]
     )
@@ -190,10 +195,13 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
 
   @doc "Records which generation is publishing a claimed scope."
   def track_generation(id, generation_id) do
-    Repo.query!("UPDATE #{@table} SET generation_id = $2, updated_at = now() WHERE id = $1", [
-      id,
-      generation_id
-    ])
+    Repo.query!(
+      """
+      UPDATE #{@table} SET generation_id = $2, updated_at = now()
+      WHERE id = $1 AND status = 'publishing'
+      """,
+      [id, generation_id]
+    )
 
     :ok
   end

@@ -67,7 +67,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   defp adopt(id, _scope, generation_id) do
     case State.get(generation_id) do
       {:ok, %{"status" => "complete"}} ->
-        Scopes.complete(id)
+        Scopes.complete(id, generation_id)
 
       {:ok, %{"status" => "aborted"}} ->
         Scopes.requeue(id)
@@ -142,8 +142,12 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
 
       {:defer, :wait} when waits < 3 ->
         case wait_while(&pipeline_busy?/0, pipeline_budget_ms()) do
-          :ok -> drive_scope(session, id, scope, waits + 1)
-          :timeout -> {:exit, :quiet}
+          :ok ->
+            drive_scope(session, id, scope, waits + 1)
+
+          :timeout ->
+            Scopes.release(id)
+            {:exit, :quiet}
         end
 
       {:defer, :wait} ->
@@ -152,6 +156,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
 
       {:error, reason} ->
         case Scopes.fail(id, reason) do
+          :ok -> :ok
           {:failed, _} -> :ok
           {:dead, _} -> :ok
           {:error, error} -> {:exit, {:error, error}}
@@ -163,7 +168,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     case wait_while(fn -> not generation_settled?(generation_id) end, completion_budget_ms()) do
       :ok ->
         case State.get(generation_id) do
-          {:ok, %{"status" => "complete"}} -> Scopes.complete(id)
+          {:ok, %{"status" => "complete"}} -> Scopes.complete(id, generation_id)
           _ -> Scopes.fail(id, :exposure_snapshot_generation_aborted)
         end
 
