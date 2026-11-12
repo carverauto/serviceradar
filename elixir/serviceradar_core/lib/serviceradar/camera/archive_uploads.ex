@@ -14,6 +14,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   Observation methods retain bounded facts from the original trusted internal
   actor and lease, even after that lease expires or is replaced. Unknown and a
   late response may coexist; neither publishes availability or retries a send.
+
+  Publication and reader-facing inventory, metadata and range plans require ready
+  deployment recovery before work and before replying. Checks stay outside DB
+  transactions; closure withholds success without undoing committed publication.
+  Publication status and late evidence remain available for recovery inspection.
   """
   alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Camera.ArchiveAuthorities
@@ -26,6 +31,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Repo
+  alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.Descriptor
   alias ServiceRadarRecordingMetadata.Manifest
 
@@ -141,7 +147,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   @doc """
   Read coherent archive progress without acquiring an upload lease or loading a
   local spool. The result is publication history; only status `:available`
-  confirms that its exact retained proofs remain free of conflicts.
+  confirms that its exact retained proofs remain free of conflicts. It does not
+  imply recovery readiness or grant publication or playback admission.
   """
   def publication_status(block_id, opts \\ []) do
     with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
@@ -170,24 +177,27 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   """
   def archive_metadata(camera_source_id, block_id, opts \\ []) do
     with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
-      transaction(fn ->
-        with {:ok, block} <- lock_block(block_id, opts),
-             true <-
-               block.camera_source_id == camera_source_id || {:error, :recording_block_not_found},
-             {:ok, status} <- metadata_phase(block, opts) do
-          available? = status == :available
+      with_recovery(fn ->
+        transaction(fn ->
+          with {:ok, block} <- lock_block(block_id, opts),
+               true <-
+                 block.camera_source_id == camera_source_id ||
+                   {:error, :recording_block_not_found},
+               {:ok, status} <- metadata_phase(block, opts) do
+            available? = status == :available
 
-          {:ok,
-           %{
-             schema_version: 1,
-             block_id: block.id,
-             camera_source_id: block.camera_source_id,
-             stream_profile_id: block.stream_profile_id,
-             archive_status: Atom.to_string(status),
-             published_at: if(available?, do: DateTime.to_iso8601(block.archive_published_at)),
-             descriptor: if(available?, do: block.descriptor)
-           }}
-        end
+            {:ok,
+             %{
+               schema_version: 1,
+               block_id: block.id,
+               camera_source_id: block.camera_source_id,
+               stream_profile_id: block.stream_profile_id,
+               archive_status: Atom.to_string(status),
+               published_at: if(available?, do: DateTime.to_iso8601(block.archive_published_at)),
+               descriptor: if(available?, do: block.descriptor)
+             }}
+          end
+        end)
       end)
     end
   end
@@ -213,16 +223,19 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   def archive_inventory(camera_source_id, page_opts, opts \\ []) do
     with :ok <- outside_transaction(),
          {:ok, _} <- dispatcher(opts),
-         {:ok, source_id, limit, cursor} <- inventory_page(camera_source_id, page_opts),
-         {:ok, candidates} <- inventory_candidates(source_id, limit, cursor, opts) do
-      {scanned, remaining} = Enum.split(candidates, limit)
+         {:ok, source_id, limit, cursor} <- inventory_page(camera_source_id, page_opts) do
+      with_recovery(fn ->
+        with {:ok, candidates} <- inventory_candidates(source_id, limit, cursor, opts) do
+          {scanned, remaining} = Enum.split(candidates, limit)
 
-      with {:ok, items} <- inventory_items(source_id, scanned, opts) do
-        next_cursor =
-          if remaining != [], do: encode_inventory_cursor(source_id, List.last(scanned))
+          with {:ok, items} <- inventory_items(source_id, scanned, opts) do
+            next_cursor =
+              if remaining != [], do: encode_inventory_cursor(source_id, List.last(scanned))
 
-        {:ok, %{schema_version: 1, items: items, next_cursor: next_cursor}}
-      end
+            {:ok, %{schema_version: 1, items: items, next_cursor: next_cursor}}
+          end
+        end
+      end)
     end
   end
 
@@ -332,32 +345,35 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     with :ok <- outside_transaction(),
          {:ok, _} <- dispatcher(opts),
          :ok <- valid_range_selector(selector) do
-      transaction(fn ->
-        with {:ok, block} <- lock_block(block_id, opts),
-             true <-
-               block.camera_source_id == camera_source_id || {:error, :recording_block_not_found},
-             {:ok, binding, evidence} <- available_archive(block, opts),
-             {:ok, role, first, length, sha} <- archive_interval(block.descriptor, selector) do
-          object = Map.fetch!(evidence, role)
-          verification = value(object.dispatch, role, :init_verification)
+      with_recovery(fn ->
+        transaction(fn ->
+          with {:ok, block} <- lock_block(block_id, opts),
+               true <-
+                 block.camera_source_id == camera_source_id ||
+                   {:error, :recording_block_not_found},
+               {:ok, binding, evidence} <- available_archive(block, opts),
+               {:ok, role, first, length, sha} <- archive_interval(block.descriptor, selector) do
+            object = Map.fetch!(evidence, role)
+            verification = value(object.dispatch, role, :init_verification)
 
-          {:ok,
-           %{
-             "schema_version" => 1,
-             "binding_id" => binding.id,
-             "destination_sha256" => binding.destination_sha256,
-             "descriptor_sha256" => block.descriptor_sha256,
-             "manifest_verification_sha256" => block.archive_manifest_verification_sha256,
-             "block_id" => block.id,
-             "object_key" => object.intent.object_key,
-             "first" => first,
-             "last" => first + length - 1,
-             "size" => object.intent.byte_length,
-             "etag" => verification["etag"],
-             "version_id" => verification["version_id"],
-             "sha256" => sha
-           }}
-        end
+            {:ok,
+             %{
+               "schema_version" => 1,
+               "binding_id" => binding.id,
+               "destination_sha256" => binding.destination_sha256,
+               "descriptor_sha256" => block.descriptor_sha256,
+               "manifest_verification_sha256" => block.archive_manifest_verification_sha256,
+               "block_id" => block.id,
+               "object_key" => object.intent.object_key,
+               "first" => first,
+               "last" => first + length - 1,
+               "size" => object.intent.byte_length,
+               "etag" => verification["etag"],
+               "version_id" => verification["version_id"],
+               "sha256" => sha
+             }}
+          end
+        end)
       end)
     end
   end
@@ -415,18 +431,20 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   """
   def publish_archive(lease, opts \\ []) do
     with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
-      RecordingBlocks.with_current_upload(
-        lease,
-        fn block ->
-          with {:ok, _binding, evidence} <- publication_evidence(block, opts),
-               true <-
-                 publication_phase(block, evidence) in [:archive_verified, :available] ||
-                   {:error, :archive_publication_unverified} do
-            publish_locked(block, evidence.manifest.dispatch, opts)
-          end
-        end,
-        opts
-      )
+      with_recovery(fn ->
+        RecordingBlocks.with_current_upload(
+          lease,
+          fn block ->
+            with {:ok, _binding, evidence} <- publication_evidence(block, opts),
+                 true <-
+                   publication_phase(block, evidence) in [:archive_verified, :available] ||
+                     {:error, :archive_publication_unverified} do
+              publish_locked(block, evidence.manifest.dispatch, opts)
+            end
+          end,
+          opts
+        )
+      end)
     end
   end
 
@@ -940,6 +958,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
 
   defp update(dispatch, action, attrs, opts) do
     dispatch |> Ash.Changeset.for_update(action, attrs) |> Ash.update(opts)
+  end
+
+  defp with_recovery(fun) do
+    gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+    RecoveryGate.with_ready(gate, fun)
   end
 
   defp outside_transaction do

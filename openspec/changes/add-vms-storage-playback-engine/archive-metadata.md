@@ -18,6 +18,8 @@ A missing block and a block from another camera both return `recording_not_found
 with HTTP 404. Invalid UUIDs return 400, absent authentication 401, and denied
 current permission 403. An unreadable proof chain returns the bounded 503 error
 `archive_metadata_unavailable`; internal errors are not returned to the caller.
+Closed [deployment recovery](../../../docs/nvr-runtime.md#deployment-recovery-gate)
+returns the same 503.
 
 ## Response contract
 

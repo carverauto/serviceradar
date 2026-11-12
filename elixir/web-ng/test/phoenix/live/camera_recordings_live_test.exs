@@ -6,14 +6,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.CameraComponents
 
   @moduletag :web_ng_shared_fixture_db
+  @moduletag :tmp_dir
 
-  setup do
+  setup %{tmp_dir: directory} do
+    recovery = Fixtures.recording_recovery_gate(directory)
     actor = AshTestHelpers.system_actor()
 
     {:ok, source} =
@@ -27,13 +30,14 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
         actor: actor
       )
 
-    %{source: source, actor: actor}
+    %{source: source, actor: actor, recovery: recovery}
   end
 
   test "recording-only access opens an empty archive without a live relay and rechecks paging authority", %{
     conn: conn,
     source: source,
-    actor: actor
+    actor: actor,
+    recovery: recovery
   } do
     permissions = ["devices.view", "devices.cameras.recordings.view"]
     {user, profile} = user_with_permissions(permissions, actor)
@@ -63,6 +67,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
                "SELECT count(*) FROM platform.camera_relay_sessions WHERE camera_source_id = $1",
                [Ecto.UUID.dump!(source.id)]
              )
+
+    File.rm!(recovery.path)
+    view |> element("#refresh-recordings") |> render_click()
+    assert has_element?(view, "#camera-recordings-error", "temporarily unavailable")
+    refute has_element?(view, "#camera-recordings-empty")
+    refute has_element?(view, "#camera-archive-player")
+
+    File.write!(recovery.path, recovery.ready)
+    view |> element("#refresh-recordings") |> render_click()
+    refute has_element?(view, "#camera-recordings-error")
+    assert has_element?(view, "#camera-recordings-empty")
 
     profile
     |> Ash.Changeset.for_update(:update, %{permissions: ["devices.view"]},
