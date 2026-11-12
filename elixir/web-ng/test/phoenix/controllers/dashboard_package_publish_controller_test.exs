@@ -225,6 +225,13 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       assert json_response(enabled_resp, 200)["status"] == "enabled"
 
       delete_package_without_cascade!(deleted_package.id)
+
+      on_exit(fn ->
+        Repo.query!(
+          "ALTER TABLE platform.dashboard_instances VALIDATE CONSTRAINT dashboard_instances_dashboard_package_id_fkey"
+        )
+      end)
+
       assert bound_package_id!(slug) == deleted_package.id
 
       republish_resp =
@@ -492,6 +499,13 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       assert json_response(enabled_resp, 200)["status"] == "enabled"
 
       delete_package_without_cascade!(deleted_package.id)
+
+      on_exit(fn ->
+        Repo.query!(
+          "ALTER TABLE platform.dashboard_instances VALIDATE CONSTRAINT dashboard_instances_dashboard_package_id_fkey"
+        )
+      end)
+
       assert bound_package_id!(slug) == deleted_package.id
 
       replacement_resp =
