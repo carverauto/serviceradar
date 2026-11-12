@@ -874,6 +874,16 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
              ident("mac", @universal_a)
            ]
          }, :ambiguous, :conflicting_evidence},
+        {"a shared universal display MAC voids the proof without MAC identifiers",
+         %{
+           source_identifiers: [ident("integration_id", @guest_a)],
+           from_mac: "00:00:5e:00:53:01",
+           to_own_identifiers: [ident("integration_id", guest_b_ref())],
+           to_mac: @universal_a
+         }, :ambiguous, :conflicting_evidence},
+        {"a universal MAC an earlier merge brought the survivor voids the proof",
+         %{to_absorbed_before: [ident("mac", @universal_a)]}, :ambiguous,
+         :conflicting_evidence},
         {"a merge that recorded no source identifiers", %{source_identifiers: nil}, :ambiguous,
          :source_identifiers_unrecorded}
       ]

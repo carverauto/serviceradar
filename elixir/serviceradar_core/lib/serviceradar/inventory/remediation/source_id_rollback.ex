@@ -230,7 +230,11 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
                 inspect(error, limit: 10)
             )
 
-            {:cont, Map.update!(state, :rollback_failures, &(&1 + 1))}
+            state = Map.update!(state, :rollback_failures, &(&1 + 1))
+
+            if action in [:awx_unmerge, :archive_wrong_guest_mac],
+              do: {:halt, %{state | halted: to_string(action)}},
+              else: {:cont, state}
         end
     end
   end

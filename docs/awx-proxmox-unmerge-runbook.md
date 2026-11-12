@@ -28,7 +28,9 @@ them by audit id with `MergeEngine.unmerge_device/2`.
    "Each side" means what the merged record owned at the merge (`source_identifiers` in the
    audit row) and what the survivor owns that no merge brought it. A proof is void when the two
    sides share an AWX host id, a guest identity or a universally administered MAC
-   (`conflicting_evidence`). Clusters are compared by name: two clusters that share a name are
+   (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC at
+   the merge, and the survivor also counts the MACs earlier merges had brought it
+   (`to_absorbed_before`); the `universal_macs` of each record in the plan include them. Clusters are compared by name: two clusters that share a name are
    never proved distinct.
 
 2. **Orders the unmerges.** Newest first. When the survivor of a merge was later merged away, the
@@ -261,7 +263,10 @@ first:
 | archived wrong-guest MAC | returned to its record while the record is live and no record holds the value now; others count in `skipped` as `mac_not_restorable` |
 | unmerge | the distinct assertion the step recorded is removed, and the pair is merged again, the merged record into the survivor, as an administrative merge (reason `manual_awx_unmerge_rollback`); skipped as `not_unmerged`, `record_changed` or `merged_since` when the pair is no longer as the unmerge left it |
 
-Reading last first re-merges a chain in its original order. The re-merge is a new merge: it
+Reading last first re-merges a chain in its original order. When undoing an unmerge or a MAC
+archive fails, the rollback stops there (`halted` names the action, `rollback_failures` counts
+it): going on would re-merge a later pair of the chain and take away the record the failed entry
+needs. Fix the cause and run the rollback again; entries already undone are skipped. The re-merge is a new merge: it
 records its own audit row and moves what the merged record holds now. The rollback does not
 remove an assertion that existed before the step ran.
 

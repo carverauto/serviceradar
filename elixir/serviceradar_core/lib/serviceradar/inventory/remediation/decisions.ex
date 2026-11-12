@@ -876,8 +876,13 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       from_guests: awx_guest_keys(from_ids || []),
       to_guests: awx_guest_keys(to_ids),
       guest: guest,
-      from_universal_macs: universal_identifier_macs(from_ids || []),
-      to_universal_macs: universal_identifier_macs(to_ids),
+      from_universal_macs:
+        Mac.universal_macs(identifier_mac_values(from_ids) ++ List.wrap(merge[:from_mac])),
+      to_universal_macs:
+        Mac.universal_macs(
+          identifier_mac_values(to_ids) ++
+            identifier_mac_values(merge[:to_absorbed_before]) ++ List.wrap(merge[:to_mac])
+        ),
       holder: awx_corroborating_holder(merge[:reason], from_ids || [])
     }
 
@@ -1029,9 +1034,6 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         end
     end
   end
-
-  defp universal_identifier_macs(identifiers),
-    do: identifiers |> identifier_mac_values() |> Mac.universal_macs()
 
   defp identifier_mac_values(identifiers) do
     for %{} = id <- List.wrap(identifiers),
