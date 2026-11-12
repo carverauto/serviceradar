@@ -235,8 +235,14 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   defp settle_step(id, generation_id) do
     case Finalizer.step(generation_id) do
       :ok ->
-        Scopes.complete(id, generation_id)
-        :done
+        case State.get(generation_id) do
+          {:ok, %{"status" => "complete"}} ->
+            Scopes.complete(id, generation_id)
+            :done
+
+          _ ->
+            :wait
+        end
 
       {:error, reason}
       when reason in [

@@ -17,7 +17,9 @@ After `track_generation`, the pass waits for the drain (status `finalizing`
 with empty receipts backlog, bounded by the existing completion budget), then
 calls `Finalizer.step` directly and maps the result:
 
-- `:ok` completes the scope immediately (today's complete path).
+- `:ok` completes the scope immediately (today's complete path) when the
+  generation is now `complete`; an `:ok` that only discharged repairs leaves
+  it `finalizing`, so the pass keeps waiting with the remaining budget.
 - `finalization_pending` / `repairs_pending` (repairs dispatched) waits for
   settle with the remaining budget (today's wait path).
 - `incomplete` (warehouse still draining) keeps waiting with the remaining
