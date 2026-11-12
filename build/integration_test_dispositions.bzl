@@ -353,6 +353,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/identity_reconciliation_job_test.exs": 1,
     "test/serviceradar/inventory/interface_threshold_worker_db_test.exs": 1,
     "test/serviceradar/inventory/remediation/armis_unmerge_test.exs": 1,
+    "test/serviceradar/inventory/remediation/awx_proxmox_unmerge_test.exs": 1,
     "test/serviceradar/inventory/remediation/dire_remediation_mix_task_test.exs": 1,
     "test/serviceradar/inventory/remediation/source_id_remediation_test.exs": 1,
     "test/serviceradar/inventory/source_retired_expiry_test.exs": 1,

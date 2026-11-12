@@ -14,7 +14,18 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       changed since (`SourceRetirement.clear_mark/3`);
     * `retire_source_ids` (`source-id-retire`): returns the retired ids to their record
       (`SourceReactivation.unarchive/2`) and, when the retirement marked the record, puts back
-      the identity state the mark replaced.
+      the identity state the mark replaced;
+    * `archive_wrong_guest_mac` (`awx-proxmox-unmerge`): returns the archived MAC rows to their
+      record (`AwxProxmoxUnmerge.restore_archived_macs/2`) while it is live and no record holds
+      the value now;
+    * `reassign_wrong_guest_mac` (`awx-proxmox-unmerge`): moves the MAC rows the step gave to a
+      guest's record back to the record it took them from, while they are still on the guest's
+      record and the other record is live (`AwxProxmoxUnmerge.return_moved_macs/3`);
+    * `awx_unmerge` (`awx-proxmox-unmerge`): merges the pair again, the merged record into the
+      survivor, while both are live and neither merged since the unmerge, after removing the
+      distinct assertion the step recorded. The merge is administrative (reason
+      `manual_awx_unmerge_rollback`), since the unmerge armed the pair's cooldown and the
+      assertion. The newest-first order re-merges a chain in its original order.
 
   Each action reads the state it reverses first. A replayed rollback does nothing, and a
   record that changed since is left as it is and counted in `skipped`, by reason. The review
@@ -31,6 +42,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.SourceReactivation
   alias ServiceRadar.Inventory.Identity.SourceRetirement
+  alias ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.SourceIdVerification
   alias ServiceRadar.Repo
@@ -39,7 +51,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   require Logger
 
   @step "source-id-rollback"
-  @steps ["source-id-retire", "source-succession", "released-seed-shells"]
+  @awx_step "awx-proxmox-unmerge"
+  @steps ["source-id-retire", "source-succession", "released-seed-shells", @awx_step]
+  @remerge_reason "manual_awx_unmerge_rollback"
   @shell_reason "seed_released"
   @shell_actor "system:dire_remediation"
   @unmerged_by "dire_remediation"
@@ -99,6 +113,18 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   defp action(%{"step" => "source-id-retire", "action" => "retire_source_ids"}),
     do: :retire_source_ids
 
+  defp action(%{"step" => @awx_step, "action" => "awx_unmerge"}), do: :awx_unmerge
+
+  defp action(%{"step" => @awx_step, "action" => "archive_wrong_guest_mac"}),
+    do: :archive_wrong_guest_mac
+
+  defp action(%{"step" => @awx_step, "action" => "reassign_wrong_guest_mac"}),
+    do: :reassign_wrong_guest_mac
+
+  defp action(%{"step" => @awx_step, "action" => action})
+       when action in ["candidate_preflight", "candidate_committed"],
+       do: :marker
+
   defp action(%{"step" => step}) when step in @steps, do: :not_rolled_back
   defp action(_entry), do: :ignored
 
@@ -110,6 +136,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       would_restore_marks: 0,
       would_clear_marks: 0,
       would_return_ids: 0,
+      would_remerge: 0,
+      would_restore_macs: 0,
       not_rolled_back: 0,
       ignored_entries: 0
     }
@@ -133,6 +161,12 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
 
         :retire_source_ids ->
           Map.update!(report, :would_return_ids, &(&1 + length(entry["primary_ids"] || [])))
+
+        :awx_unmerge ->
+          Map.update!(report, :would_remerge, &(&1 + 1))
+
+        action when action in [:archive_wrong_guest_mac, :reassign_wrong_guest_mac] ->
+          Map.update!(report, :would_restore_macs, &(&1 + length(ids(entry))))
 
         :marker ->
           report
@@ -167,6 +201,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       marks_cleared: 0,
       ids_returned: 0,
       identity_states_restored: 0,
+      remerged: 0,
+      macs_restored: 0,
       skipped: 0,
       skip_reasons: %{},
       not_rolled_back: 0,
@@ -200,7 +236,11 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
                 inspect(error, limit: 10)
             )
 
-            {:cont, Map.update!(state, :rollback_failures, &(&1 + 1))}
+            state = Map.update!(state, :rollback_failures, &(&1 + 1))
+
+            if action in [:awx_unmerge, :archive_wrong_guest_mac, :reassign_wrong_guest_mac],
+              do: {:halt, %{state | halted: to_string(action)}},
+              else: {:cont, state}
         end
     end
   end
@@ -283,6 +323,142 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
     end
   end
 
+  # The pair the step unmerged, merged again under the locks while both records are as the unmerge
+  # left them; the distinct assertion the step recorded goes first.
+  defp undo(:awx_unmerge, entry, actor) do
+    from = entry["from_device_uid"]
+    to = entry["to_device_uid"]
+
+    in_rollback(fn ->
+      _ =
+        Repo.query!(
+          "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1::text[]) ORDER BY uid " <>
+            "FOR NO KEY UPDATE",
+          [Enum.sort([from, to])]
+        )
+
+      case remerge_refusal(entry, from, to) do
+        nil -> remerge(entry, from, to, actor)
+        reason -> {:ok, {:skipped, reason}}
+      end
+    end)
+  end
+
+  defp undo(:archive_wrong_guest_mac, entry, actor) do
+    uid = entry["device_uid"]
+
+    in_rollback(fn ->
+      with {:ok, returned} <- AwxProxmoxUnmerge.restore_archived_macs(uid, ids(entry)),
+           :ok <- bump_after_restore(uid, returned, actor) do
+        {:ok, {:macs_restored, returned, length(ids(entry)) - length(returned)}}
+      end
+    end)
+  end
+
+  defp undo(:reassign_wrong_guest_mac, entry, actor) do
+    uid = entry["device_uid"]
+    target = entry["target_uid"]
+
+    in_rollback(fn ->
+      with {:ok, returned} <- AwxProxmoxUnmerge.return_moved_macs(uid, target, ids(entry)),
+           :ok <- bump_after_restore(uid, returned, actor),
+           :ok <- bump_after_restore(target, returned, actor) do
+        {:ok, {:macs_restored, returned, length(ids(entry)) - length(returned)}}
+      end
+    end)
+  end
+
+  defp remerge_refusal(entry, from, to) do
+    %{rows: unmerges} =
+      Repo.query!(
+        """
+        SELECT created_at FROM platform.merge_audit
+        WHERE event_id::text = $1 AND reason = 'unmerge'
+        """,
+        [entry["unmerge_event_id"]]
+      )
+
+    %{rows: live} =
+      Repo.query!(
+        "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1::text[]) AND deleted_at IS NULL",
+        [[from, to]]
+      )
+
+    case unmerges do
+      [[unmerged_at]] ->
+        cond do
+          length(live) != 2 -> :record_changed
+          merged_since?([from, to], unmerged_at) -> :merged_since
+          true -> nil
+        end
+
+      _ ->
+        :not_unmerged
+    end
+  end
+
+  # Merged away since, and back: merges into either record (the rollback's own re-merges of a
+  # chain among them) leave it a valid survivor.
+  defp merged_since?(uids, unmerged_at) do
+    %{rows: [[merged?]]} =
+      Repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM platform.merge_audit
+          WHERE from_device_id = ANY($1::text[])
+            AND reason IS DISTINCT FROM 'unmerge' AND created_at > $2
+        )
+        """,
+        [uids, unmerged_at]
+      )
+
+    merged?
+  end
+
+  defp remerge(entry, from, to, actor) do
+    with :ok <- drop_assertion(entry["distinct_assertion_id"], from, to),
+         :ok <-
+           MergeEngine.merge_devices(from, to,
+             actor: actor,
+             reason: @remerge_reason,
+             details: %{
+               "rollback_of_unmerge_event_id" => entry["unmerge_event_id"],
+               "original_merge_event_id" => List.first(ids(entry))
+             }
+           ) do
+      {:ok, :remerged}
+    end
+  end
+
+  defp drop_assertion(id, from, to) when is_binary(id) do
+    {device_a, device_b} = Enum.min_max([from, to])
+
+    _ =
+      Repo.query!(
+        """
+        DELETE FROM platform.identity_distinct_assertions
+        WHERE id::text = $1 AND device_a = $2 AND device_b = $3
+        """,
+        [id, device_a, device_b]
+      )
+
+    :ok
+  end
+
+  defp drop_assertion(_id, _from, _to), do: :ok
+
+  defp bump_after_restore(_uid, [], _actor), do: :ok
+
+  defp bump_after_restore(uid, _returned, actor) do
+    with {:ok, %Device{} = device} <- Device.get_by_uid(uid, false, actor: actor),
+         {:ok, _} <- Device.bump_identity_revision(device, actor: actor) do
+      :ok
+    else
+      {:error, _} = error -> error
+      other -> {:error, {:identity_revision_bump_failed, uid, other}}
+    end
+  end
+
   # The merge cleared the predecessor's mark; once it is unmerged, the record is retired-only
   # again and gets the mark back, unless an identity-bearing observation reached it since.
   defp restore_predecessor_mark(%{"predecessor_source_retired_at" => at} = entry, actor)
@@ -350,6 +526,14 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
     Enum.reduce(skipped, state, &skip(&2, &1, 1))
   end
 
+  defp tally(state, :remerged), do: Map.update!(state, :remerged, &(&1 + 1))
+
+  defp tally(state, {:macs_restored, returned, left}) do
+    state
+    |> Map.update!(:macs_restored, &(&1 + length(returned)))
+    |> skip(:mac_not_restorable, left)
+  end
+
   defp tally(state, {:skipped, reason}), do: skip(state, reason, 1)
 
   defp skip(state, _reason, 0), do: state
@@ -387,6 +571,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   defp describe({:ids_returned, returned, skipped, restored_state}),
     do: %{returned: returned, skipped: skipped, identity_state_restored: restored_state}
 
+  defp describe(:remerged), do: %{remerged: true}
+  defp describe({:macs_restored, returned, left}), do: %{restored: returned, left: left}
   defp describe({:skipped, reason}), do: %{skipped: reason}
 
   defp ids(entry) do

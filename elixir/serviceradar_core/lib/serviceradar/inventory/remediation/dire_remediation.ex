@@ -28,6 +28,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
         (execute gated; see below)
     11. `armis-dups`  — collapse Armis rows onto their armis_device_id owner
        (DISABLED by default — see `@armis_dups_step` below)
+    12. `awx-proxmox-unmerge` — explicit-only undo of the AWX merges that bound
+        a host to a guest of another cluster (`AwxProxmoxUnmerge`; execute gated
+        by `enable_awx_proxmox_unmerge_execute`, like the split steps)
+    13. `awx-proxmox-verify` — explicit-only, read-only checks A1-A5 of that
+        repair (`AwxProxmoxVerification`), refused under execute
 
   The source id remediation (OpenSpec add-source-id-succession, design D11)
   runs after `proxmox-dups`, in this order:
@@ -87,6 +92,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.AgentLinks
   alias ServiceRadar.Inventory.Remediation.ArmisDups
   alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
+  alias ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge
+  alias ServiceRadar.Inventory.Remediation.AwxProxmoxVerification
   alias ServiceRadar.Inventory.Remediation.BlobPurge
   alias ServiceRadar.Inventory.Remediation.BroadcastAliasArchive
   alias ServiceRadar.Inventory.Remediation.LinkLocalAliasArchive
@@ -124,17 +131,23 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   # dry-run cluster/MAC attribution report); it is otherwise dormant.
   @proxmox_unfuse_step "proxmox-unfuse"
 
+  # The undo of the AWX merges that bound a host to a guest of another cluster
+  # (change fix-awx-proxmox-guest-binding-evidence). Explicit-only, with its own
+  # execute gate, like the split steps; its checks are read-only.
+  @awx_unmerge_step "awx-proxmox-unmerge"
+  @awx_verify_step "awx-proxmox-verify"
+
   # Split-disposition steps are always explicit-request-only (dormant): they
   # mutate live devices and each has its own execute gate below.
-  @explicit_only_steps [@armis_unmerge_step, @proxmox_unfuse_step]
+  @explicit_only_steps [@armis_unmerge_step, @proxmox_unfuse_step, @awx_unmerge_step]
 
   # The source id remediation's checks and its rollback run only when named: the
   # checks never write, and the rollback reverses the runs its manifests name,
   # alone.
   @source_id_verify_step "source-id-verify"
   @source_id_rollback_step "source-id-rollback"
-  @read_only_steps [@source_id_verify_step]
-  @named_only_steps [@source_id_verify_step, @source_id_rollback_step]
+  @read_only_steps [@source_id_verify_step, @awx_verify_step]
+  @named_only_steps [@source_id_verify_step, @source_id_rollback_step, @awx_verify_step]
 
   @step_order [
     "blob-purge",
@@ -153,6 +166,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     @proxmox_unfuse_step,
     @armis_unmerge_step,
     @armis_dups_step,
+    @awx_unmerge_step,
+    @awx_verify_step,
     @source_id_verify_step,
     @source_id_rollback_step
   ]
@@ -161,7 +176,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   Ordered list of steps included by a default `all` run.
 
   Split-disposition steps (`armis-unmerge`, `proxmox-unfuse`),
-  `source-id-verify` and `source-id-rollback` are always omitted. `armis-dups`
+  `awx-proxmox-unmerge`, the read-only checks (`source-id-verify`,
+  `awx-proxmox-verify`) and `source-id-rollback` are always omitted. `armis-dups`
   is omitted unless explicitly re-enabled via config (it is the
   armis-overmerge re-collapse vector — see the moduledoc).
   """
@@ -223,6 +239,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     |> Keyword.get(:enable_proxmox_unfuse_execute, false)
   end
 
+  defp split_execute_enabled?(@awx_unmerge_step) do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:enable_awx_proxmox_unmerge_execute, false)
+  end
+
   defp split_execute_enabled?(_step), do: false
 
   @doc """
@@ -245,7 +267,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       `:armis_unmerge_include_live`, `:armis_unmerge_live_device_uids`,
       `:armis_unmerge_live_source_ids`, `:proxmox_unfuse_candidate_limit`,
       `:proxmox_unfuse_plan_sample_limit`, `:proxmox_unfuse_include_live`,
-      `:proxmox_unfuse_live_device_uids`, `:proxmox_unfuse_live_source_ids`
+      `:proxmox_unfuse_live_device_uids`, `:proxmox_unfuse_live_source_ids`,
+      `:awx_proxmox_unmerge_event_ids` (restrict execute to these merge audit
+      ids), `:awx_proxmox_unmerge_candidate_limit`,
+      `:awx_proxmox_unmerge_report_limit`
     * source id remediation options: `:source_batch_size` (records per batch
       of the retire, succession and shell steps; default 500),
       `:reviewed_source_ids` (class 8 values already reviewed, for
@@ -367,6 +392,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
           not split_execute_enabled?(@proxmox_unfuse_step) ->
         {:error, {:execute_disabled, [@proxmox_unfuse_step]}}
 
+      mode == :execute and @awx_unmerge_step in steps and
+          not split_execute_enabled?(@awx_unmerge_step) ->
+        {:error, {:execute_disabled, [@awx_unmerge_step]}}
+
       mode == :execute and Enum.any?(steps, &(&1 in @read_only_steps)) ->
         {:error, {:read_only_steps, Enum.filter(@read_only_steps, &(&1 in steps))}}
 
@@ -413,6 +442,14 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     )
   end
 
+  defp runtime_step_opts(@awx_unmerge_step, opts) do
+    Keyword.put(
+      opts,
+      :awx_proxmox_unmerge_execute_enabled,
+      split_execute_enabled?(@awx_unmerge_step)
+    )
+  end
+
   defp runtime_step_opts(_step, opts), do: opts
 
   defp run_step("blob-purge", mode, opts, manifest, actor),
@@ -444,6 +481,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("armis-unmerge", mode, opts, manifest, actor),
     do: ArmisUnmerge.run(mode, opts, manifest, actor)
+
+  defp run_step(@awx_unmerge_step, mode, opts, manifest, actor),
+    do: AwxProxmoxUnmerge.run(mode, opts, manifest, actor)
+
+  defp run_step(@awx_verify_step, mode, opts, manifest, actor),
+    do: AwxProxmoxVerification.run(mode, opts, manifest, actor)
 
   defp run_step("armis-dups", mode, opts, manifest, actor),
     do: ArmisDups.run(mode, opts, manifest, actor)

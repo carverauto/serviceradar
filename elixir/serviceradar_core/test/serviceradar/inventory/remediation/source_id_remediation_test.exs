@@ -451,6 +451,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
                would_restore_marks: 2,
                would_clear_marks: 1,
                would_return_ids: 4,
+               would_remerge: 0,
+               would_restore_macs: 0,
                not_rolled_back: 1,
                ignored_entries: 0
              }
@@ -474,6 +476,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
                marks_cleared: 1,
                ids_returned: 4,
                identity_states_restored: 3,
+               remerged: 0,
+               macs_restored: 0,
                skipped: 0,
                skip_reasons: %{},
                not_rolled_back: 1,
@@ -535,6 +539,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
                marks_cleared: 0,
                ids_returned: 0,
                identity_states_restored: 0,
+               remerged: 0,
+               macs_restored: 0,
                skipped: 8,
                skip_reasons: %{
                  shell_changed: 1,
@@ -826,6 +832,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
                marks_cleared: 0,
                ids_returned: 0,
                identity_states_restored: 0,
+               remerged: 0,
+               macs_restored: 0,
                skipped: 2,
                skip_reasons: %{not_merged: 1, merge_superseded: 1},
                not_rolled_back: 1,

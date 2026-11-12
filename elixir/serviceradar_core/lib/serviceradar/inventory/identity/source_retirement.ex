@@ -1281,12 +1281,16 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   @doc false
   # Moves the identifier rows `ids` of `device_id` to the archive with `archive_reason`
-  # `source_absent`, as a retirement does. Returns how many rows moved.
-  @spec archive_identifiers(String.t(), [integer()], DateTime.t()) :: non_neg_integer()
-  def archive_identifiers(_device_id, [], _at), do: 0
+  # (`source_absent`, as a retirement does, unless another is named). Returns how many rows
+  # moved.
+  @spec archive_identifiers(String.t(), [integer()], DateTime.t(), String.t()) ::
+          non_neg_integer()
+  def archive_identifiers(device_id, ids, at, reason \\ @archive_reason)
 
-  def archive_identifiers(device_id, ids, at) do
-    %{num_rows: archived} = Repo.query!(@archive_sql, [device_id, ids, at, @archive_reason])
+  def archive_identifiers(_device_id, [], _at, _reason), do: 0
+
+  def archive_identifiers(device_id, ids, at, reason) do
+    %{num_rows: archived} = Repo.query!(@archive_sql, [device_id, ids, at, reason])
     archived
   end
 
