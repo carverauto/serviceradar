@@ -214,8 +214,10 @@ func transientReason(err error) (string, bool) {
 	// A dial, read or write failure whose errno is platform-specific (the
 	// Windows WSA codes do not match the syscall constants above).
 	var opErr *net.OpError
-	if errors.As(err, &opErr) && (opErr.Op == "dial" || opErr.Op == "read" || opErr.Op == "write") {
-		return "connection_" + opErr.Op, true
+	for cause := err; errors.As(cause, &opErr); cause = opErr.Err {
+		if opErr.Op == "dial" || opErr.Op == "read" || opErr.Op == "write" {
+			return "connection_" + opErr.Op, true
+		}
 	}
 
 	return "", false

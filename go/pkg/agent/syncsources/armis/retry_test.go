@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -384,5 +385,21 @@ func TestSyncRetriesARefusedConnectionThenFails(t *testing.T) {
 	}
 	if waits := sleeps.recorded(); len(waits) != 2 {
 		t.Fatalf("retry waits = %v, want 2", waits)
+	}
+}
+
+// A dial through an HTTP proxy reaches the caller as net/http's proxyconnect
+// wrapper around the dial error. 10061 is Windows WSAECONNREFUSED, which no
+// syscall constant matches, so only the nested dial Op marks it transient.
+func TestProxiedDialFailureIsTransient(t *testing.T) {
+	err := &url.Error{Op: "Post", URL: "https://198.51.100.10/api/v1/search/", Err: &net.OpError{
+		Op:  "proxyconnect",
+		Net: "tcp",
+		Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.Errno(10061)},
+	}}
+
+	reason, ok := transientReason(err)
+	if !ok || reason != "connection_dial" {
+		t.Fatalf("transientReason = (%q, %v), want (\"connection_dial\", true)", reason, ok)
 	}
 }
