@@ -155,18 +155,25 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     })
   end
 
-  test "closed recovery refuses a provider grant and preserves the frozen media", context do
+  test "closed recovery refuses before any upload intent or dispatch and preserves the frozen media", context do
     before = directory_bytes(context.directory)
+    assert {:ok, frozen} = Ash.get(RecordingBlock, context.block.id, context.opts)
     File.rm!(context.recovery.path)
 
-    assert {:error, :media_upload_unavailable} = MediaUpload.upload_once(context.block.id)
-    retained = dispatch(context)
-    assert is_nil(retained.marked_at)
-    assert is_nil(retained.media_authority_revision)
-    assert is_nil(retained.media_verified_at)
+    assert {:error, :nvr_recovery_closed} = MediaUpload.upload_once(context.block.id)
+
+    assert [] =
+             ArchiveUploadIntent
+             |> Ash.Query.filter(recording_block_id == ^context.block.id)
+             |> Ash.read!(context.opts)
+
     assert Agent.get(context.store, & &1.requests) == []
     assert directory_bytes(context.directory) == before
-    assert {:ok, %{state: :sealed}} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert {:ok, block} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert block.state == :sealed
+
+    assert {block.upload_token, block.upload_expires_at, block.upload_epoch} ==
+             {frozen.upload_token, frozen.upload_expires_at, frozen.upload_epoch}
   end
 
   test "the real recorder and isolated HTTPS service retain verified media through committed core grants", context do
