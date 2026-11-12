@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   @recorder_token "synthetic-joined-recorder-to-storage-token"
 
   setup %{tmp_dir: directory} = test do
+    recovery = Fixtures.recording_recovery_gate(directory)
     {:ok, _} = Application.ensure_all_started(:ssl)
     installation = ArchiveStorageHTTP.installation(directory)
     origin = %{deployment_ref: installation.document["deployment_ref"], generation: 1}
@@ -149,8 +150,23 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       peer: peer,
       origin: origin,
       storage_port: storage_port,
-      client_tls: certificates.client_config
+      client_tls: certificates.client_config,
+      recovery: recovery
     })
+  end
+
+  test "closed recovery refuses a provider grant and preserves the frozen media", context do
+    before = directory_bytes(context.directory)
+    File.rm!(context.recovery.path)
+
+    assert {:error, :media_upload_unavailable} = MediaUpload.upload_once(context.block.id)
+    retained = dispatch(context)
+    assert is_nil(retained.marked_at)
+    assert is_nil(retained.media_authority_revision)
+    assert is_nil(retained.media_verified_at)
+    assert Agent.get(context.store, & &1.requests) == []
+    assert directory_bytes(context.directory) == before
+    assert {:ok, %{state: :sealed}} = Ash.get(RecordingBlock, context.block.id, context.opts)
   end
 
   test "the real recorder and isolated HTTPS service retain verified media through committed core grants", context do

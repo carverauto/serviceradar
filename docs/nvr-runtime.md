@@ -124,8 +124,8 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 ## Deployment recovery gate
 
-NVR runtime admission and Core local-publication acceptance require deployment-owned
-recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
+NVR runtime admission, Core recording new-work admission and local-publication
+acceptance require deployment-owned recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
 When NVR is enabled, Helm supplies the same state to NVR, Core and web-ng.
@@ -138,8 +138,8 @@ and mounts the ConfigMap directory read-only, without `subPath`, so changes to
 Standalone installations set `SERVICERADAR_NVR_RECOVERY_GENERATION` to a canonical
 UUID and `SERVICERADAR_NVR_RECOVERY_STATE_FILE` to an absolute, deployment-managed
 file outside the media spool and its restore set. Atomically replace this file;
-configure it for NVR and every Core application host accepting publication
-(including web-ng). Keep it writable only by trusted deployment control.
+configure it for NVR and every Core application host granting recording or archive
+work or accepting publication (including web-ng). Keep it writable only by trusted deployment control.
 Projected-volume symlinks are supported. NVR rejects lexical spool descendants, but cannot
 prove independent backup provenance or resolve an operator's failure domains.
 
@@ -171,7 +171,19 @@ transaction can leave a committed receipt but withholds the acknowledgement.
 The private HTTP receiver returns 503, and reopening the same generation allows
 an exact retry to recover the same immutable acknowledgement. This still means
 only v1 intent acceptance, not local-copy availability or current-history approval.
-Core's other functions and general health remain independent of this gate.
+Core also checks recovery state around its shared new-work transaction: recorder
+acquire/renew, block reservation, init/manifest dispatch preparation, dispatch
+marking and provider I/O grants. Ambient transactions are refused so these file
+reads remain outside database transactions. Closure after commit withholds the
+successful result but preserves committed claims, burned block sequences and
+one-shot dispatch markers; callers must not treat the refusal as a rollback or
+rearm an uncertain dispatch. Reopening does not override existing lease, token,
+sequence or dispatch retry rules.
+
+Stop and status, recorder/upload release, freezing already allocated blocks,
+media preparation and late observations remain available for preservation.
+General Core health remains independent of this gate. These paths are not a
+claim that current-history reconciliation or all recovery consumers are complete.
 No ready result is cached. Closing the gate cannot recall bytes already returned,
 cancel kernel I/O, or retract an HTTP request already sent. ConfigMap projection
 is eventual, and API update success is not proof that replicas observed closure.
@@ -184,8 +196,8 @@ qualified worker replacement uses the existing generation; it does not require
 manual reopening merely because a pod changed. If deployment control is also
 restored, establish fresh closed state before starting consumers.
 
-This checkpoint implements the NVR and Core publication consumers and deployment
-file wiring. The operator recovery command, remaining Core authority consumers,
+This checkpoint implements NVR admission, Core new-work and publication consumers,
+and deployment file wiring. The operator recovery command, remaining Core authority consumers,
 current-history reconciliation, per-storage completion and cross-replica
 quiescence verification are pending.
 Do not use the example ready record to bypass those prerequisites or remove the

@@ -5,8 +5,10 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
+  alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
   require Ash.Query
@@ -20,13 +22,100 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
 
   @moduletag :integration
   @moduletag sandbox: :unboxed
+  @moduletag :tmp_dir
 
-  setup do
+  setup %{tmp_dir: directory} do
+    recovery = Fixtures.recording_recovery_gate(directory)
     Fixtures.preserve_recording_control()
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
     {:ok, relay} = Fixtures.activate(ctx, relay)
-    Map.merge(ctx, %{owner: Fixtures.owner(ctx), relay: relay, storage_id: Ecto.UUID.generate()})
+
+    Map.merge(ctx, %{
+      owner: Fixtures.owner(ctx),
+      relay: relay,
+      storage_id: Ecto.UUID.generate(),
+      recovery: recovery
+    })
+  end
+
+  test "closed recovery refuses recorder grants while release remains available", ctx do
+    File.rm!(ctx.recovery.path)
+    assert {:error, :nvr_recovery_closed} = acquire(ctx)
+
+    assert [] ==
+             RecorderClaim
+             |> Ash.Query.filter(ingest_owner_id == ^ctx.owner.id)
+             |> Ash.read!(ctx.opts)
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, claim} = acquire(ctx)
+    File.rm!(ctx.recovery.path)
+
+    assert {:error, :nvr_recovery_closed} =
+             RecorderOwnership.renew(ctx.owner, claim, 30_000, ctx.opts)
+
+    assert {:error, :nvr_recovery_closed} =
+             RecorderOwnership.reserve_block(ctx.owner, claim, @clock, ctx.opts)
+
+    assert {:ok, unchanged} = Ash.get(RecorderClaim, claim.id, ctx.opts)
+    assert unchanged.lease_expires_at == claim.lease_expires_at
+    assert unchanged.next_block_sequence == 0
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, claim, ctx.opts)
+
+    assert {:ok, %{state: :released, consumer_id: nil}} =
+             Ash.get(RecorderClaim, claim.id, ctx.opts)
+  end
+
+  test "recorder admission refuses an ambient transaction", ctx do
+    assert {:ok, {:error, :ambient_transaction}} = Repo.transaction(fn -> acquire(ctx) end)
+
+    assert [] ==
+             RecorderClaim
+             |> Ash.Query.filter(ingest_owner_id == ^ctx.owner.id)
+             |> Ash.read!(ctx.opts)
+  end
+
+  test "recovery closure during allocation withholds the block but burns its committed sequence",
+       ctx do
+    assert {:ok, claim} = acquire(ctx)
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if self() == parent and String.starts_with?(metadata.query, "INSERT INTO") and
+               String.contains?(metadata.query, "camera_recording_blocks") do
+            File.rm!(ctx.recovery.path)
+            send(parent, :recovery_closed_during_allocation)
+          end
+        end,
+        nil
+      )
+
+    assert {:error, :nvr_recovery_closed} =
+             RecorderOwnership.reserve_block(ctx.owner, claim, @clock, ctx.opts)
+
+    assert_received :recovery_closed_during_allocation
+    :ok = :telemetry.detach(handler)
+
+    assert [%{block_sequence: 0, state: :open_local} = retained] =
+             RecordingBlock
+             |> Ash.Query.filter(recorder_claim_id == ^claim.id)
+             |> Ash.read!(ctx.opts)
+
+    assert {:ok, %{next_block_sequence: 1}} = Ash.get(RecorderClaim, claim.id, ctx.opts)
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+
+    assert {:ok, next} = RecorderOwnership.reserve_block(ctx.owner, claim, @clock, ctx.opts)
+    assert next.block_sequence == 1
+    refute next.id == retained.id
+    assert {:ok, %{state: :open_local}} = Ash.get(RecordingBlock, retained.id, ctx.opts)
   end
 
   test "independent database claimants admit exactly one recorder and one retention lease", ctx do

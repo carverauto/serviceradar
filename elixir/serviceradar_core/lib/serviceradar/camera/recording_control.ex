@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Camera.RecordingControl do
   @moduledoc """
-  Durable stop-only restriction on the existing local recording path.
+  Durable stop restriction and deployment recovery admission for local recording.
 
   The authenticated transport supplies the installed origin and an explicit
   system actor. No accepted document enables or resumes recording. Stop success
@@ -13,11 +13,14 @@ defmodule ServiceRadar.Camera.RecordingControl do
   freeze, release and late observations remain usable.
   No media, provider I/O or worker enumeration occurs under the control lock.
   New-work callers acquire this fence before entering any preservation callback.
-  Stop rejects ambient transactions so success means its restriction committed.
+  Stop and new-work admission reject ambient transactions. Recovery state is
+  read before admission and after commit; closure withholds success without
+  undoing committed claims, allocations or dispatch markers.
   """
   alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Camera.RecordingControlState
   alias ServiceRadar.Repo
+  alias ServiceRadarRecordingControl.RecoveryGate
 
   require Ash.Query
 
@@ -55,12 +58,20 @@ defmodule ServiceRadar.Camera.RecordingControl do
 
   @doc "Runs short new-work admission with the control lock acquired first."
   def with_admission(fun, opts) when is_function(fun, 0) do
-    transaction(fn ->
-      with {:ok, current} <- locked(opts),
-           :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
-        fun.()
-      end
-    end)
+    gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+
+    with :ok <- outside_transaction(),
+         :ok <- RecoveryGate.check(gate),
+         {:ok, _} = result <-
+           transaction(fn ->
+             with {:ok, current} <- locked(opts),
+                  :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
+               fun.()
+             end
+           end),
+         :ok <- RecoveryGate.check(gate) do
+      result
+    end
   end
 
   defp locked(opts) do

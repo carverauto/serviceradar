@@ -12,6 +12,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarCoreElx.CameraRecording.Capture
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
@@ -28,6 +29,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   @replaced_marker "00000000-0000-4000-8000-000000000099\n"
 
   setup ctx do
+    Fixtures.recording_recovery_gate(ctx.tmp_dir)
     {:ok, _} = Application.ensure_all_started(:membrane_core)
     previous = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled, false)
     previous_storage = Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)
