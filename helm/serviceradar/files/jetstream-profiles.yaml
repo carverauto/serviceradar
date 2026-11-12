@@ -9,7 +9,7 @@
 # max_file_store above 94% of nats.persistence.size. Moving a live install to a
 # larger profile follows docs/nats-jetstream-profile-runbook.md.
 #
-# Two size tables per shipped profile, selected by nats.replicas:
+# Two size-table modes, selected by nats.replicas:
 #
 # - `sizes` (nats.replicas >= 3): the D8 Helm table. R3 streams cost their size
 #   on every server and the R1 streams spread, so flows can be larger.
@@ -36,12 +36,15 @@
 #   large     3        279.3125 + 128/3 + 64 = 385.98      395.81
 #   large     1        375.3125                            395.81
 #   tenant-2g 3        1.14453125 + 0.1875 + 0.25 = 1.58   1.58
+#   compact   3        3.46875 + 1.5/3 + 0.5 = 4.46875     7.12
+#   compact   1        4.96875                              7.12
 #
 # The edge-record audit and security-quarantine streams are reserved at R3 in
 # every profile (64 MiB each; 8 MiB in tenant-2g), like the primary
 # TELEMETRY_EDGE_RECORD_V1_BULK stream, and so is EventWriter's edge-record
 # dead-letter stream TELEMETRY_EDGE_RECORD_DLQ_V1_BULK (64 MiB; 32 MiB in
-# small, which keeps small inside a 30G max_file_store; 4 MiB in tenant-2g).
+# compact and small, with the latter keeping small inside a 30G max_file_store;
+# 4 MiB in tenant-2g).
 # Recovery has independent R3 capacity: 64 MiB, or 4 MiB in tenant-2g taken
 # from primary bulk so the tenant profile keeps the same total reservation.
 # Small also moves 64 MiB from its primary bulk reservation (1 GiB -> 960 MiB)
@@ -254,6 +257,39 @@ profiles:
       threatIntel: 64Mi
       flowsFallback: 64Mi
       aranciniFallback: 64Mi
+  # Minimal profile targeting a 10 Gi NATS PVC (max_file_store 9 G ≈ 8.38 GiB;
+  # 85% per-server limit 7.12 GiB). For fresh or low-data pilot deployments on
+  # constrained infrastructure. Flow analytics and large-scale ARANCINI
+  # workloads should use the `small` profile or larger.
+  compact:
+    maxFileStore: 9G
+    persistenceSize: 10Gi
+    sizes:
+      datasvcKV: 64Mi
+      # Holds one 512 MiB API upload with 128 MiB reserved for chunk metadata.
+      datasvcObjects: 640Mi
+      events: 512Mi
+      flows: 512Mi
+      plugins: 256Mi
+      arancini: 512Mi
+      metrics: 256Mi
+      telemetry_edge_record_v1_bulk: 512Mi
+      telemetry_edge_record_audit_v1_bulk: 64Mi
+      telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 32Mi
+      telemetry_edge_record_recovery_v1: 64Mi
+      k8s_inventory: 128Mi
+      analytics_predictions: 128Mi
+      mtr_results: 128Mi
+      scan_results: 256Mi
+      notifications: 256Mi
+      exposureTransitions: 128Mi
+      exposureDimensions: 128Mi
+      trivy_reports: 128Mi
+      fieldsurvey: 128Mi
+      threatIntel: 128Mi
+      flowsFallback: 256Mi
+      aranciniFallback: 256Mi
 
 # Replica count used when a stream's own replica value is unset. The same in
 # every profile: a profile changes sizes, not the replication topology.
