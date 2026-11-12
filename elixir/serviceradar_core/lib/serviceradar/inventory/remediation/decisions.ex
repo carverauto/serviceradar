@@ -1199,6 +1199,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   defp refusal_disposition(merge, refusals) do
     case Map.get(refusals, merge.event_id) do
+      {:not_selected, _unit_id, _unit} ->
+        {:not_selected, nil}
+
       {:blocked_by_later_merge, culprit, _unit} when culprit == merge.event_id ->
         {:blocked_by_later_merge, elem(merge.to_state, 1)}
 

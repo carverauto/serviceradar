@@ -1286,6 +1286,13 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
       assert Enum.map(plan.unmerge, & &1.event_id) == ["m2", "m1"]
       assert Enum.find(plan.report, &(&1.event_id == "m3")).disposition == :not_selected
+
+      unselected = Decisions.plan_awx_proxmox_unmerge([m1, m2, other], %{}, event_ids: ["m3"])
+
+      for id <- ["m1", "m2"] do
+        assert %{disposition: :not_selected, blocked_by: nil} =
+                 Enum.find(unselected.report, &(&1.event_id == id))
+      end
     end
   end
 
