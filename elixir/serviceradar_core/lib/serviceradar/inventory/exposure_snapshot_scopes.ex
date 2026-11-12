@@ -93,12 +93,12 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
   end
 
   @doc """
-  Adopts a legacy queue scope: inserts it `pending` when no row exists (never
-  touching an existing row) and ensures the publisher. Queue-executed legacy
-  jobs call this instead of publishing, so no old-format row survives an
-  upgrade by snoozing.
+  Adopts a legacy queue scope (nil for fleet-wide): inserts it `pending` when
+  no row exists (never touching an existing row) and ensures the publisher.
+  Queue-executed legacy jobs call this instead of publishing, so no old-format
+  row survives an upgrade by snoozing.
   """
-  def adopt_legacy(scope) when is_integer(scope) and scope >= 1 do
+  def adopt_legacy(scope) when is_nil(scope) or (is_integer(scope) and scope >= 1) do
     Repo.query!(
       """
       INSERT INTO #{@table} (scope_ord, status, attempts, not_before, error, updated_at)

@@ -29,7 +29,8 @@ terminates them.
 - A legacy `ExposureSnapshotWorker` Oban row executed from the queue no
   longer publishes or snoozes: when its scope row exists it completes
   immediately; when absent it inserts the scope row (adopt-if-absent) and
-  completes; when it names no scope it cancels. Direct calls keep the legacy
+  completes (a row without `device_ord` adopts the fleet-wide scope); when
+  it names an invalid scope it cancels. Direct calls keep the legacy
   synchronous-publish-or-snooze contract for repair tooling and boundary
   tests. Nothing enqueues legacy rows anymore, so the roll-time gap is
   closed at the execution layer and needs no migration.

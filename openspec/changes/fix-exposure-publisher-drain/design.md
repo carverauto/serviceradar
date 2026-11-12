@@ -46,8 +46,10 @@ not publish and never snoozes:
   scope. This covers the roll-time orphans with no republish and no lock
   contention.
 - Its scope row is absent → insert it `pending` if absent (never touching
-  existing rows), ensure the publisher, return `:ok`.
-- No usable scope → `{:cancel, :superseded}`.
+  existing rows), ensure the publisher, return `:ok`. A row without
+  `device_ord` names the fleet-wide (NULL) scope, which old pods still
+  enqueue during the roll, and adopts the same way.
+- Invalid scope (not an integer >= 1) → `{:cancel, :superseded}`.
 
 Direct calls (`%Oban.Job{}` with no id: repair tooling and the live
 broker-driven boundary tests) keep the exact legacy
@@ -69,7 +71,7 @@ drain reporting.
 
 - Fail-first DB tests on `codex_*` scratch databases: legacy adopt-and-discard
   (queued row with covered scope completes deleted with no new generation;
-  unknown scope inserts pending; missing scope cancels), inline-step result
+  unknown or fleet-wide scope inserts pending; invalid scope cancels), inline-step result
   mapping without StarRocks (incomplete/aborted/scan-error cases), plus the
   existing publisher/scopes suites.
 - Gate: `no-mistakes` review (not claude), `gh pr merge --merge`.

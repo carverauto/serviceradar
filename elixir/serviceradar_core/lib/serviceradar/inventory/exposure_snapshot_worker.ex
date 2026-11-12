@@ -25,14 +25,15 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   Queue entry: a legacy row executed from the Oban queue (integer job id)
   never publishes and never snoozes. When its scope row exists the scopes
   table already owns the demand, so the row completes immediately; when
-  absent the scope is adopted `pending` and the publisher ensured; otherwise
-  the row cancels. Nothing enqueues these rows anymore; this clause only
+  absent the scope is adopted `pending` and the publisher ensured. A row
+  without `device_ord` names the fleet-wide scope and adopts the same way; a
+  row naming an invalid scope cancels. Nothing enqueues these rows anymore; this clause only
   terminates strays that outlived the migration (for example rows inserted
   by previous pods during the rollout after the migration ran).
   """
   def perform(%Oban.Job{id: id, args: args}) when is_integer(id) do
     case args["device_ord"] do
-      scope when is_integer(scope) and scope >= 1 ->
+      scope when is_nil(scope) or (is_integer(scope) and scope >= 1) ->
         Scopes.adopt_legacy(scope)
 
       _ ->

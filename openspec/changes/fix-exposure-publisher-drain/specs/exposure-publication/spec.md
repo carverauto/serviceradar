@@ -5,7 +5,7 @@ The system SHALL publish pending exposure snapshot scopes through one singleton 
 A scope needing publication is a row in `platform.exposure_snapshot_scopes`, never an Oban job.
 The publisher claims due rows oldest-first, publishes each scope's fenced generation through the existing per-scope engine, finalizes a drained generation inline in its own pass instead of waiting for the maintenance tick, marks the row complete only after its generation completes, and exits returning `:ok` when no claimable row remains. A warehouse scan failure during the inline step waits with the remaining budget and never fails the scope; the maintenance tick still converges it.
 Demand paths (reconciliation, finalizer, maintenance worker, prepare completion) insert or re-pend the scope row and ensure the singleton job; a unique-insert ensure while one is available or scheduled is a no-op, an executing job never blocks the next ensure, and a run that finds the session lock held exits quietly.
-The engine keeps its direct-drive `perform/1` with the original synchronous-publish-or-snooze contract for direct calls (repair tooling and boundary tests, which pass no job id); nothing enqueues it. A legacy `ExposureSnapshotWorker` row executed from the queue (integer job id) never publishes and never snoozes: it completes immediately when its scope row exists, adopts the scope row when absent, and cancels when it names no scope.
+The engine keeps its direct-drive `perform/1` with the original synchronous-publish-or-snooze contract for direct calls (repair tooling and boundary tests, which pass no job id); nothing enqueues it. A legacy `ExposureSnapshotWorker` row executed from the queue (integer job id) never publishes and never snoozes: it completes immediately when its scope row exists, adopts the scope row when absent, and cancels when it names an invalid scope; a row without `device_ord` names the fleet-wide scope and adopts it.
 Completing a scope clears its stale `error` value.
 
 #### Scenario: One execution drains many scopes
@@ -47,7 +47,7 @@ Duplicate delivery across the crash is absorbed by envelope-hash idempotency.
 
 ### Requirement: In-Flight Publisher Demand Migrates To Scope Rows
 The system SHALL migrate queued `ExposureSnapshotWorker` Oban rows into scope rows exactly once at deploy time, and any legacy row executed from the queue after that adopts into the scopes table instead of publishing.
-The migration inserts one `pending` row per distinct scope (`args->>'device_ord'`, NULL when absent) from queued publisher Oban rows (`available`, `scheduled`, `retryable`), then deletes those Oban rows. `executing` rows are left for Oban lifeline, which runs them through the retained direct-drive `perform/1`, so no demand is lost. Rows inserted after the migration by old pods during the roll, and any other queued legacy row, terminate on execution: the row completes immediately when its scope row exists, inserts the scope row `pending` when absent (never touching existing rows), and cancels when it names no scope. No legacy execution publishes or snoozes, so no old publisher job survives an upgrade.
+The migration inserts one `pending` row per distinct scope (`args->>'device_ord'`, NULL when absent) from queued publisher Oban rows (`available`, `scheduled`, `retryable`), then deletes those Oban rows. `executing` rows are left for Oban lifeline, which runs them through the retained direct-drive `perform/1`, so no demand is lost. Rows inserted after the migration by old pods during the roll, and any other queued legacy row, terminate on execution: the row completes immediately when its scope row exists, inserts the scope row `pending` when absent (never touching existing rows), and cancels when it names an invalid scope; a row without `device_ord` names the fleet-wide scope and adopts it. No legacy execution publishes or snoozes, so no old publisher job survives an upgrade.
 
 #### Scenario: Queued scopes survive the upgrade
 - **GIVEN** queued publisher Oban rows for device ordinals 5 and 12 and one fleet-wide row
@@ -64,3 +64,13 @@ The migration inserts one `pending` row per distinct scope (`args->>'device_ord'
 - **GIVEN** a scheduled legacy `ExposureSnapshotWorker` row for a scope with no scope row
 - **WHEN** Oban executes it
 - **THEN** a `pending` scope row exists for that scope and the row completes.
+
+#### Scenario: Legacy fleet-wide row adopts the fleet-wide scope
+- **GIVEN** a scheduled legacy `ExposureSnapshotWorker` row without `device_ord` and no fleet-wide scope row
+- **WHEN** Oban executes it
+- **THEN** a `pending` scope row exists with NULL `scope_ord` and the row completes.
+
+#### Scenario: Legacy row naming an invalid scope cancels
+- **GIVEN** a scheduled legacy `ExposureSnapshotWorker` row whose `device_ord` is not a positive integer
+- **WHEN** Oban executes it
+- **THEN** the row cancels without creating a scope row.

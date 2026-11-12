@@ -215,10 +215,32 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherDbTest do
              ).rows
   end
 
-  # A legacy row naming no scope is terminal: nothing can adopt it.
+  # Old pods enqueue fleet-wide demand as `%{}` during the roll; executing it
+  # must hand that demand to the publisher, not drop it.
   @tag sandbox: :unboxed
-  test "a legacy queued row without a scope cancels" do
-    assert {:cancel, :superseded} = Engine.perform(%Oban.Job{id: 1, args: %{}})
+  test "a legacy queued row without device_ord adopts the fleet-wide scope" do
+    Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL")
+
+    assert :ok = Engine.perform(%Oban.Job{id: 1, args: %{}})
+
+    assert [["pending"]] =
+             Repo.query!(
+               "SELECT status FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL"
+             ).rows
+  end
+
+  # A legacy row naming an invalid scope is terminal: nothing can adopt it.
+  @tag sandbox: :unboxed
+  test "a legacy queued row naming an invalid scope cancels" do
+    [[before]] = Repo.query!("SELECT count(*) FROM platform.exposure_snapshot_scopes").rows
+
+    for scope <- [0, -1, "7"] do
+      assert {:cancel, :superseded} =
+               Engine.perform(%Oban.Job{id: 1, args: %{"device_ord" => scope}})
+    end
+
+    assert [[^before]] =
+             Repo.query!("SELECT count(*) FROM platform.exposure_snapshot_scopes").rows
   end
 
   # A scope whose generation already completed settles inline with no new
