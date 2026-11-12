@@ -182,6 +182,16 @@ one-shot dispatch markers; callers must not treat the refusal as a rollback or
 rearm an uncertain dispatch. Reopening does not override existing lease, token,
 sequence or dispatch retry rules.
 
+Upload lease acquisition and renewal also check recovery before their transaction
+and before returning success. They reject ambient transactions; callers renew
+before starting short CNPG work. Closure after commit preserves the original
+upload token, incremented epoch or renewed expiry even when the handle is
+withheld. Reopening does not bypass active-lease exclusion or allow token reuse;
+a caller must not read a token back to impersonate an earlier worker. Upload
+release remains available while closed. These checks do not use the recording
+stop fence: a stopped recorder's frozen block may still be uploaded when recovery
+is ready.
+
 Core also requires ready recovery state when issuing or applying init, media or
 manifest archive-authority windows. It checks before and after each transaction,
 outside the database locks. Closure can withhold a reply after a revision commits;
@@ -219,7 +229,7 @@ manual reopening merely because a pod changed. If deployment control is also
 restored, establish fresh closed state before starting consumers.
 
 This checkpoint implements NVR admission, Core new-work, archive-authority issuance
-and application, archive publication and playback, local-publication consumers,
+and application, upload lease acquisition/renewal, archive publication and playback, local-publication consumers,
 and deployment file wiring. The operator
 recovery command, remaining recovery consumers,
 current-history reconciliation, per-storage completion and cross-replica

@@ -26,8 +26,18 @@ Upload acquisition locks the frozen block independently. A fresh token and
 monotonic upload epoch admit one worker; renewal, release and short CNPG work
 require the original handle and a live database-time lease. Recorder release or
 a new recorder generation does not invalidate this frozen historical authority.
-Renewal inside a publication transaction cannot extend that transaction's
-original deadline; crossing it rolls back both the renewal and publication.
+Upload acquisition and renewal require ready deployment recovery before work
+and after commit. These public APIs reject ambient transactions so the recovery
+file is read outside database locks. Closure can withhold a handle after its
+token, epoch or renewed expiry commits; it does not undo that lease. Reopening
+does not make acquisition idempotent or permit token reuse. Release remains
+available while recovery is closed, and recording stop alone does not prevent
+upload lease acquisition or renewal.
+
+Short CNPG work retains its original locked-row deadline even if a callback
+changes the expiry through the resource action; crossing that original deadline
+rolls back the expiry update and the publication. Call the public renewal API
+outside the transaction before starting subsequent work.
 Local lease deadlines must use request-start monotonic time plus the remaining
 duration in the database receipt, as recorder admission already does. No external
 I/O belongs inside either transaction fence.

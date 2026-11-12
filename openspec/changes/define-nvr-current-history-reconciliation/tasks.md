@@ -11,6 +11,7 @@
   - Core new-work checkpoint: shared admission checks recovery before its transaction and before replying for recorder claims, block reservations, metadata dispatch preparation and provider grants. Committed work is retained after closure; preservation and stop/release operations remain available.
   - Core archive-authority checkpoint: challenge and application of init/media/manifest windows check recovery before and after their transactions. Committed revisions and original deadlines survive withheld replies; status and revocation remain available.
   - Core archive-access checkpoint: publication and reader-facing metadata, inventory and ranges check recovery before work and before replies. HTTP reads recheck after provider I/O. Historical status and late evidence remain inspectable while closed.
+  - Core upload-lease checkpoint: acquisition and renewal check recovery outside transactions before work and before replies. Committed tokens, epochs and expiries survive withheld replies; release remains available and recording stop stays independent.
   - Remaining Core authority consumers, the recovery command and cross-replica quiescence verification remain pending.
 - [ ] 2.2 Implement per-storage immutable history, explicit genesis and domain-owned transactional head advancement.
 - [ ] 2.3 Integrate publication, preservation and disposition serialization without changing v1 intent/S3 receipt meanings.

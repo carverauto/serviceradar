@@ -10,6 +10,10 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   No object I/O belongs inside these transactions. An upload lease grants work on
   the frozen descriptor, not an archive receipt, availability or reclamation.
   Unfrozen blocks cannot be recovered or uploaded by this API.
+
+  Upload acquisition and renewal check deployment recovery before work and after
+  commit, outside DB transactions. Closure withholds the successful handle but
+  retains any committed token, epoch and expiry. Release remains available.
   """
   import Ash.Expr
 
@@ -17,6 +21,8 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Repo
+  alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
@@ -58,23 +64,25 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
 
   def acquire_upload(block_id, token, ttl_ms, opts \\ []) do
     with {:ok, token} <- Ecto.UUID.cast(token), :ok <- ttl(ttl_ms) do
-      transaction(fn ->
-        with {:ok, block} <- lock(block_id, opts),
-             :ok <- uploadable(block),
-             :ok <- available(block, token),
-             {:ok, claimed} <-
-               update(
-                 block,
-                 :claim_upload,
-                 %{
-                   upload_token: token,
-                   upload_epoch: block.upload_epoch + 1,
-                   upload_expires_at: DateTime.add(block.database_now, ttl_ms, :millisecond)
-                 },
-                 opts
-               ) do
-          current_upload(claimed, opts)
-        end
+      with_recovery(fn ->
+        transaction(fn ->
+          with {:ok, block} <- lock(block_id, opts),
+               :ok <- uploadable(block),
+               :ok <- available(block, token),
+               {:ok, claimed} <-
+                 update(
+                   block,
+                   :claim_upload,
+                   %{
+                     upload_token: token,
+                     upload_epoch: block.upload_epoch + 1,
+                     upload_expires_at: DateTime.add(block.database_now, ttl_ms, :millisecond)
+                   },
+                   opts
+                 ) do
+            current_upload(claimed, opts)
+          end
+        end)
       end)
     else
       :error -> {:error, :invalid_upload_token}
@@ -84,18 +92,20 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
 
   def renew_upload(lease, ttl_ms, opts \\ []) do
     with :ok <- ttl(ttl_ms) do
-      with_current_upload(
-        lease,
-        fn block ->
-          update(
-            block,
-            :renew_upload,
-            %{upload_expires_at: DateTime.add(block.database_now, ttl_ms, :millisecond)},
-            opts
-          )
-        end,
-        opts
-      )
+      with_recovery(fn ->
+        with_current_upload(
+          lease,
+          fn block ->
+            update(
+              block,
+              :renew_upload,
+              %{upload_expires_at: DateTime.add(block.database_now, ttl_ms, :millisecond)},
+              opts
+            )
+          end,
+          opts
+        )
+      end)
     end
   end
 
@@ -263,6 +273,15 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   defp publication_result({:ok, _} = result), do: {:ok, result}
   defp publication_result({:error, _} = error), do: error
   defp publication_result(_), do: {:error, :invalid_recording_publication_result}
+
+  defp with_recovery(fun) do
+    if Repo.in_transaction?() do
+      {:error, :ambient_transaction}
+    else
+      gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+      RecoveryGate.with_ready(gate, fun)
+    end
+  end
 
   defp transaction(fun) do
     [RecordingBlock]
