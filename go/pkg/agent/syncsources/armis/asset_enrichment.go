@@ -114,6 +114,18 @@ func (c *client) v3AccessToken(ctx context.Context, source models.SourceConfig, 
 		return "", fmt.Errorf("%w: %s", errV3CredentialsMissing, strings.Join(missing, ", "))
 	}
 
+	return retryCall(ctx, c.retry, requestOp{name: "v3_access_token"}, func() (string, error) {
+		return c.v3AccessTokenOnce(ctx, cfg, clientID, clientSecret, vendorID)
+	})
+}
+
+func (c *client) v3AccessTokenOnce(
+	ctx context.Context,
+	cfg assetEnrichmentConfig,
+	clientID string,
+	clientSecret string,
+	vendorID string,
+) (string, error) {
 	endpoint, err := resolveURLForBase(cfg.endpoint, v3OAuthTokenPath)
 	if err != nil {
 		return "", err
@@ -150,14 +162,7 @@ func (c *client) v3AccessToken(ctx context.Context, source models.SourceConfig, 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := readErrorBody(resp.Body)
-		if readErr != nil {
-			return "", fmt.Errorf("%w: %s: %w", errV3TokenRequestFailed, resp.Status, readErr)
-		}
-		if body != "" {
-			return "", fmt.Errorf("%w: %s: %s", errV3TokenRequestFailed, resp.Status, body)
-		}
-
-		return "", fmt.Errorf("%w: %s", errV3TokenRequestFailed, resp.Status)
+		return "", newRequestError(errV3TokenRequestFailed, resp, body, readErr)
 	}
 
 	var token v3TokenResponse
@@ -256,7 +261,22 @@ func (c *client) enrichAssetFields(
 	return devices, nil
 }
 
+// v3AssetSearch fetches one enrichment page. A retry re-requests the same
+// asset IDs and cursor, and enrichment only overwrites fields on the page's
+// devices, so a retried call cannot duplicate or drop data.
 func (c *client) v3AssetSearch(
+	ctx context.Context,
+	token string,
+	cfg assetEnrichmentConfig,
+	assetIDs []any,
+	after any,
+) (*v3AssetSearchResponse, error) {
+	return retryCall(ctx, c.retry, requestOp{name: "asset_search"}, func() (*v3AssetSearchResponse, error) {
+		return c.v3AssetSearchOnce(ctx, token, cfg, assetIDs, after)
+	})
+}
+
+func (c *client) v3AssetSearchOnce(
 	ctx context.Context,
 	token string,
 	cfg assetEnrichmentConfig,

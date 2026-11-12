@@ -61,6 +61,8 @@ type client struct {
 	endpoint           string
 	insecureSkipVerify bool
 	http               *http.Client
+	// retry retries transient request failures; nil sends each request once.
+	retry *requestRetrier
 }
 
 type requestError struct {
@@ -68,6 +70,8 @@ type requestError struct {
 	statusCode int
 	status     string
 	body       string
+	// retryAfter is the server's Retry-After, zero when absent.
+	retryAfter time.Duration
 }
 
 func (e *requestError) Error() string {
@@ -88,6 +92,7 @@ func newRequestError(err error, resp *http.Response, body string, readErr error)
 		statusCode: resp.StatusCode,
 		status:     resp.Status,
 		body:       body,
+		retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 	}
 	if readErr != nil {
 		return fmt.Errorf("%w: %w", reqErr, readErr)
@@ -173,6 +178,12 @@ func (c *client) close() {
 }
 
 func (c *client) accessToken(ctx context.Context, creds map[string]string) (string, error) {
+	return retryCall(ctx, c.retry, requestOp{name: "access_token"}, func() (string, error) {
+		return c.accessTokenOnce(ctx, creds)
+	})
+}
+
+func (c *client) accessTokenOnce(ctx context.Context, creds map[string]string) (string, error) {
 	endpoint, err := c.resolveURL(accessTokenPath)
 	if err != nil {
 		return "", err
@@ -200,14 +211,7 @@ func (c *client) accessToken(ctx context.Context, creds map[string]string) (stri
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := readErrorBody(resp.Body)
-		if readErr != nil {
-			return "", fmt.Errorf("%w: %s: %w", errTokenRequestFailed, resp.Status, readErr)
-		}
-		if body != "" {
-			return "", fmt.Errorf("%w: %s: %s", errTokenRequestFailed, resp.Status, body)
-		}
-
-		return "", fmt.Errorf("%w: %s", errTokenRequestFailed, resp.Status)
+		return "", newRequestError(errTokenRequestFailed, resp, body, readErr)
 	}
 
 	var token tokenResponse
@@ -235,7 +239,16 @@ func firstCredentialValue(creds map[string]string, keys ...string) string {
 	return ""
 }
 
+// search fetches one page. A retried page re-requests the same from/length
+// window, so retrying cannot skip or repeat a page.
 func (c *client) search(ctx context.Context, token string, query string, from int, length int) (*searchResponse, error) {
+	op := requestOp{name: "search", paged: true, from: from}
+	return retryCall(ctx, c.retry, op, func() (*searchResponse, error) {
+		return c.searchOnce(ctx, token, query, from, length)
+	})
+}
+
+func (c *client) searchOnce(ctx context.Context, token string, query string, from int, length int) (*searchResponse, error) {
 	endpoint, err := c.resolveURL(searchPath)
 	if err != nil {
 		return nil, err
