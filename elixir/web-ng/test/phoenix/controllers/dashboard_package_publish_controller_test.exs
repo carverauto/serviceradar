@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Repo
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
@@ -204,6 +205,37 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       body = json_response(conn, 200)
       assert body["result"] == "idempotent_noop"
       assert body["dashboard_id"] == "com.test.self"
+    end
+
+    test "re-publish rebinds an enabled route whose package is missing", %{conn: conn} do
+      slug = "stale-publish-#{System.unique_integer([:positive])}"
+      dashboard_id = "com.test.stale.publish"
+
+      conn
+      |> auth_cli(:admin, ["dashboard.publish"])
+      |> publish_multipart(manifest_for(dashboard_id, @renderer), @renderer, slug)
+
+      deleted_package = published_package!(dashboard_id, "0.1.0")
+
+      enabled_resp =
+        conn
+        |> auth_cli(:admin, ["dashboard.publish"])
+        |> post(~p"/api/v1/dashboard-packages/#{deleted_package.id}/enable", %{"route" => slug})
+
+      assert json_response(enabled_resp, 200)["status"] == "enabled"
+
+      delete_package_without_cascade!(deleted_package.id)
+      assert bound_package_id!(slug) == deleted_package.id
+
+      republish_resp =
+        conn
+        |> auth_cli(:admin, ["dashboard.publish"])
+        |> publish_multipart(manifest_for(dashboard_id, @renderer), @renderer, slug)
+
+      body = json_response(republish_resp, 200)
+      assert body["result"] == "written"
+      refute body["id"] == deleted_package.id
+      assert bound_package_id!(slug) == body["id"]
     end
   end
 
@@ -442,6 +474,47 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       assert body["route"] == slug
       assert body["owner_dashboard_id"] == "com.test.guard.owner"
     end
+
+    test "enable rebinds a route whose package is missing", %{conn: conn} do
+      slug = "stale-enable-#{System.unique_integer([:positive])}"
+
+      conn
+      |> auth_cli(:admin, ["dashboard.publish"])
+      |> publish_multipart(manifest_for("com.test.stale.deleted", @renderer), @renderer, slug)
+
+      deleted_package = published_package!("com.test.stale.deleted", "0.1.0")
+
+      enabled_resp =
+        conn
+        |> auth_cli(:admin, ["dashboard.publish"])
+        |> post(~p"/api/v1/dashboard-packages/#{deleted_package.id}/enable", %{"route" => slug})
+
+      assert json_response(enabled_resp, 200)["status"] == "enabled"
+
+      delete_package_without_cascade!(deleted_package.id)
+      assert bound_package_id!(slug) == deleted_package.id
+
+      replacement_resp =
+        conn
+        |> auth_cli(:admin, ["dashboard.publish"])
+        |> publish_multipart(
+          manifest_for("com.test.stale.replacement", @renderer),
+          @renderer,
+          nil
+        )
+
+      replacement_id = json_response(replacement_resp, 200)["id"]
+
+      enable_resp =
+        conn
+        |> auth_cli(:admin, ["dashboard.publish"])
+        |> post(~p"/api/v1/dashboard-packages/#{replacement_id}/enable", %{"route" => slug})
+
+      body = json_response(enable_resp, 200)
+      assert body["status"] == "enabled"
+      assert body["route_slug"] == slug
+      assert bound_package_id!(slug) == replacement_id
+    end
   end
 
   describe "Packages.import_json/3 (LiveView upload path) regression" do
@@ -584,6 +657,39 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
          |> Ash.read_one(actor: actor) do
       {:ok, %DashboardInstance{dashboard_package: %{dashboard_id: ^dashboard_id}}} -> true
       _ -> false
+    end
+  end
+
+  defp bound_package_id!(slug) do
+    %{rows: [[package_id]]} =
+      Repo.query!(
+        "SELECT dashboard_package_id::text FROM platform.dashboard_instances WHERE route_slug = $1",
+        [slug]
+      )
+
+    package_id
+  end
+
+  defp delete_package_without_cascade!(package_id) do
+    Repo.query!("""
+    ALTER TABLE platform.dashboard_instances
+    DROP CONSTRAINT dashboard_instances_dashboard_package_id_fkey
+    """)
+
+    try do
+      %{num_rows: 1} =
+        Repo.query!("DELETE FROM platform.dashboard_packages WHERE id = $1", [
+          Ecto.UUID.dump!(package_id)
+        ])
+    after
+      Repo.query!("""
+      ALTER TABLE platform.dashboard_instances
+      ADD CONSTRAINT dashboard_instances_dashboard_package_id_fkey
+      FOREIGN KEY (dashboard_package_id)
+      REFERENCES platform.dashboard_packages(id)
+      ON DELETE CASCADE
+      NOT VALID
+      """)
     end
   end
 
