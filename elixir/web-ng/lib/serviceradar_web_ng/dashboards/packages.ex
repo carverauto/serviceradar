@@ -530,8 +530,9 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     end
   end
 
-  # Slug-ownership enforcement: any enabled DashboardInstance row for this slug
-  # must already belong to the same dashboard_id, OR no row may exist for it.
+  # Slug-ownership enforcement: a slot is available when no enabled DashboardInstance
+  # row exists for the slug, the existing row belongs to the same dashboard_id, OR
+  # the existing row's package has been deleted (dangling FK — treat as unclaimed).
   defp check_slug_ownership(nil, _manifest, _ash_opts), do: :ok
 
   defp check_slug_ownership(slug, manifest, ash_opts) when is_binary(slug) do
