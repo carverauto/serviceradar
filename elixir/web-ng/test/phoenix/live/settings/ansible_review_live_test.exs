@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
   @proposed_id "0190c0de-0000-7000-8000-000000000001"
   @unlinked_id "0190c0de-0000-7000-8000-000000000002"
   @approved_id "0190c0de-0000-7000-8000-000000000003"
+  @second_id "0190c0de-0000-7000-8000-000000000004"
+  @second_device_uid "sr:66666666-7777-4888-9999-000000000000"
   @binding_id "0190c0de-0000-7000-8000-0000000000b4"
   @fingerprint_a "sha256:" <> String.duplicate("a", 64)
   @fingerprint_c "sha256:" <> String.duplicate("c", 64)
@@ -128,10 +130,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
 
     assert has_element?(view, "#ansible-membership-filter-needs_review", "Needs review (1)")
+    assert has_element?(view, "#ansible-membership-inventory option", "Inventory 7 (1 need review)")
     assert has_element?(view, "#ansible-membership-reason-#{@unlinked_id}", "cannot be forced")
     refute has_element?(view, "#ansible-membership-review-#{@unlinked_id}")
 
     view |> element("#ansible-membership-review-#{@proposed_id}") |> render_click()
+    assert has_element?(view, "dialog#ansible-membership-review", @evidence_digest)
 
     # Inventory sync re-observes the host while the operator is reading.
     changed = %{proposed(controller.id) | source_generation: "8", source_fingerprint: @fingerprint_c}
@@ -147,26 +151,83 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     assert_receive {:approve, user_id, @proposed_id, shown}
     assert user_id == user.id
 
-    assert shown == %{
-             "controller_id" => controller.id,
-             "inventory_id" => 7,
-             "awx_host_id" => 101,
-             "canonical_device_uid" => @device_uid,
-             "source_generation" => "7",
-             "source_fingerprint" => @fingerprint_a,
-             "link_evidence_digest" => @evidence_digest
-           }
+    assert shown == shown_tuple(controller.id, 101, @device_uid)
 
-    assert has_element?(view, "#flash-error", "changed after you reviewed it")
+    assert has_element?(view, "#ansible-membership-review-error", "changed after you reviewed it")
     assert has_element?(view, "#ansible-membership-review", String.duplicate("c", 64))
     refute_receive {:approve, _, _, _}
 
+    Automation.put(:memberships, [%{changed | link_disposition: :approved}, unlinked(controller.id)])
     view |> element("#ansible-membership-approve") |> render_click()
 
     assert_receive {:approve, _user_id, @proposed_id, %{"source_generation" => "8"} = reviewed}
     assert reviewed["source_fingerprint"] == @fingerprint_c
     assert has_element?(view, "#flash-info", "Approved host01.example.com")
     refute has_element?(view, "#ansible-membership-review")
+
+    # The picker count follows the reloaded list, as the filter counts do.
+    assert has_element?(view, "#ansible-membership-filter-needs_review", "Needs review (0)")
+    refute has_element?(view, "#ansible-membership-inventory option", "need review")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "bulk approval submits each shown tuple and re-presents only the rows that changed", %{
+    conn: conn,
+    controller: controller,
+    user: user
+  } do
+    Automation.put(:memberships, [proposed(controller.id), second(controller.id), unlinked(controller.id)])
+    {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
+
+    refute has_element?(view, "#ansible-membership-select-#{@unlinked_id}")
+    view |> element("#ansible-membership-select-#{@proposed_id}") |> render_click()
+    assert has_element?(view, "#ansible-membership-bulk-open", "Approve selected (1)")
+    view |> element("#ansible-membership-select-all") |> render_click()
+    assert has_element?(view, "#ansible-membership-bulk-open", "Approve selected (2)")
+
+    view |> element("#ansible-membership-bulk-open") |> render_click()
+    assert has_element?(view, "#ansible-membership-bulk-item-#{@proposed_id}", @evidence_digest)
+    assert has_element?(view, "#ansible-membership-bulk-item-#{@second_id}", @fingerprint_a)
+    refute_receive {:approve, _, _, _}
+
+    # Inventory sync re-observes the second host before the operator confirms.
+    changed = %{second(controller.id) | source_generation: "8", source_fingerprint: @fingerprint_c}
+
+    Automation.put(:memberships, [
+      %{proposed(controller.id) | link_disposition: :approved},
+      changed,
+      unlinked(controller.id)
+    ])
+
+    Automation.put(:approve_results, [
+      {:ok, %{proposed(controller.id) | link_disposition: :approved}},
+      {:error, :membership_evidence_changed},
+      {:ok, %{changed | link_disposition: :approved}}
+    ])
+
+    view |> element("#ansible-membership-bulk-approve") |> render_click()
+    render_async(view)
+
+    assert_receive {:approve, user_id, @proposed_id, first}
+    assert user_id == user.id
+    assert first == shown_tuple(controller.id, 101, @device_uid)
+    assert_receive {:approve, _user_id, @second_id, second_shown}
+    assert second_shown == shown_tuple(controller.id, 104, @second_device_uid)
+    refute_receive {:approve, _, _, _}
+
+    assert has_element?(view, "#ansible-membership-bulk-outcome-#{@proposed_id}", "approved")
+    assert has_element?(view, "#ansible-membership-bulk-outcome-#{@second_id}", "evidence changed")
+    assert has_element?(view, "#ansible-membership-bulk-changed")
+    assert has_element?(view, "#ansible-membership-bulk-item-#{@second_id}", @fingerprint_c)
+    refute has_element?(view, "#ansible-membership-bulk-item-#{@proposed_id}")
+    assert has_element?(view, "#ansible-membership-bulk-open", "Approve selected (1)")
+
+    view |> element("#ansible-membership-bulk-approve") |> render_click()
+    render_async(view)
+
+    assert_receive {:approve, _user_id, @second_id, %{"source_generation" => "8"} = reviewed}
+    assert reviewed["source_fingerprint"] == @fingerprint_c
+    assert has_element?(view, "#flash-info", "Approved 1 of 1 memberships")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -189,6 +250,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=bindings")
+    select_template(view, controller)
 
     render_click(view, "create_binding", %{})
     refute_receive {:create, _, _}
@@ -273,8 +335,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "revocation requires the exact binding ID to be typed", %{conn: conn} do
+  test "revocation requires the exact binding ID to be typed", %{conn: conn, controller: controller} do
     {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=bindings")
+    select_template(view, controller)
 
     view |> element("#ansible-binding-revoke-#{@binding_id}") |> render_click()
 
@@ -294,7 +357,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "a manager who loses ansible.controllers.manage cannot approve, create or revoke by event", %{
+  test "the binding form prefills nothing arbitrary and its memberships follow the typed inventory", %{
+    conn: conn,
+    controller: controller
+  } do
+    Automation.put(:memberships, [approved(controller.id)])
+    {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=bindings")
+
+    assert has_element?(view, "#ansible-binding-choose-template")
+    refute has_element?(view, "#ansible-binding-versions")
+
+    view |> element("#ansible-binding-new") |> render_click()
+    assert has_element?(view, "#ansible-binding-template_id[value='']")
+    assert has_element?(view, "#ansible-binding-inventory_id[value='']")
+    assert has_element?(view, "#ansible-binding-choice-notice", "No inventory chosen yet")
+    assert has_element?(view, "#ansible-binding-inventory-options option[value='7']")
+
+    view |> form("#ansible-binding-form", binding: %{inventory_id: "7"}) |> render_change()
+
+    assert has_element?(view, "#ansible-binding-choice-#{@approved_id}")
+    refute has_element?(view, "#ansible-binding-choice-notice")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "a manager who loses ansible.controllers.manage cannot approve, bulk approve, create or revoke by event", %{
     conn: conn,
     controller: controller,
     user: user
@@ -304,8 +390,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     {:ok, memberships_view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
     memberships_view |> element("#ansible-membership-review-#{@proposed_id}") |> render_click()
 
+    {:ok, bulk_view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
+    bulk_view |> element("#ansible-membership-select-all") |> render_click()
+    bulk_view |> element("#ansible-membership-bulk-open") |> render_click()
+    assert has_element?(bulk_view, "#ansible-membership-bulk-approve")
+
     Automation.put(:memberships, [approved(controller.id)])
     {:ok, bindings_view, _html} = live(conn, ~p"/settings/ansible?tab=bindings")
+    select_template(bindings_view, controller)
     bindings_view |> element("#ansible-binding-new") |> render_click()
 
     bindings_view
@@ -331,6 +423,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     assert render_click(memberships_view, "approve_membership", %{}) =~
              "Your Ansible settings permissions changed"
 
+    assert render_click(bulk_view, "approve_selected_memberships", %{}) =~
+             "Your Ansible settings permissions changed"
+
     assert render_click(bindings_view, "create_binding", %{}) =~
              "Your Ansible settings permissions changed"
 
@@ -339,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
            }) =~ "Your Ansible settings permissions changed"
 
     render_async(bindings_view)
+    render_async(bulk_view)
     refute_receive {:approve, _, _, _}
     refute_receive {:create, _, _}
     refute_receive {:revoke, _, _, _}
@@ -349,8 +445,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     %{conn: log_in_user(conn, user), user: user}
   end
 
+  # The documented approval body for a row as the fixtures below display it.
+  defp shown_tuple(controller_id, awx_host_id, device_uid) do
+    %{
+      "controller_id" => controller_id,
+      "inventory_id" => 7,
+      "awx_host_id" => awx_host_id,
+      "canonical_device_uid" => device_uid,
+      "source_generation" => "7",
+      "source_fingerprint" => @fingerprint_a,
+      "link_evidence_digest" => @evidence_digest
+    }
+  end
+
+  defp select_template(view, controller) do
+    view
+    |> form("#ansible-binding-scope-form", %{controller_id: controller.id, template_id: "42"})
+    |> render_change()
+
+    assert has_element?(view, "#ansible-binding-versions")
+  end
+
   defp proposed(controller_id) do
     membership(controller_id, @proposed_id, 101, "host01.example.com", :proposed, @device_uid, 1)
+  end
+
+  defp second(controller_id) do
+    membership(controller_id, @second_id, 104, "host04.example.com", :proposed, @second_device_uid, 1)
   end
 
   defp unlinked(controller_id) do
