@@ -1,16 +1,19 @@
 ## 1. Implementation
-- [x] 1.1 Judge each AWX merge audit row from the audit and both records' own identifiers, in pure
+- [x] 1.1 Judge each AWX merge audit row from the audit and both records' own identifiers, and
+  every later merge of any reason on a record a bad merge poisoned (the chain rule), in pure
   planning code (`Decisions.awx_merge_evidence/1`, `Decisions.plan_awx_proxmox_unmerge/3`), with
-  the chain rule and newest-first ordering.
+  units and newest-first ordering.
 - [x] 1.2 Add the explicit-only `awx-proxmox-unmerge` step: dry-run report of every action, gated
   execute, synced write-ahead manifest, one transaction per merge with a recheck under the locks,
   the unmerge by audit id and a distinct assertion per pair.
-- [x] 1.3 Archive the MAC rows an AWX update copied from the wrong guest
-  (`Decisions.plan_awx_wrong_guest_macs/1`), and re-query them after the archive.
+- [x] 1.3 Move the MAC rows copied from the wrong guest to the guest's own record, or archive them
+  when no live record holds the guest (`Decisions.plan_awx_wrong_guest_macs/1`), and re-query
+  them.
 - [x] 1.4 Reverse the step through `source-id-rollback`.
 - [x] 1.5 Add the read-only `awx-proxmox-verify` step.
 - [x] 1.6 Unit tests for the planner; database tests for execute, the ambiguous case, chain
-  ordering, MAC removal only with proof, idempotent replay and rollback.
+  ordering and units, a chained `hypervisor_guest_network_match` merge, MAC moves and archive only
+  with proof, idempotent replay and rollback.
 - [x] 1.7 Runbook `docs/awx-proxmox-unmerge-runbook.md`.
 
 ## 2. Operation (owner)

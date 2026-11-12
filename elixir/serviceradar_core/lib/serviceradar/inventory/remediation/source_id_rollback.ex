@@ -18,6 +18,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
     * `archive_wrong_guest_mac` (`awx-proxmox-unmerge`): returns the archived MAC rows to their
       record (`AwxProxmoxUnmerge.restore_archived_macs/2`) while it is live and no record holds
       the value now;
+    * `reassign_wrong_guest_mac` (`awx-proxmox-unmerge`): moves the MAC rows the step gave to a
+      guest's record back to the record it took them from, while they are still on the guest's
+      record and the other record is live (`AwxProxmoxUnmerge.return_moved_macs/3`);
     * `awx_unmerge` (`awx-proxmox-unmerge`): merges the pair again, the merged record into the
       survivor, while both are live and neither merged since the unmerge, after removing the
       distinct assertion the step recorded. The merge is administrative (reason
@@ -115,6 +118,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   defp action(%{"step" => @awx_step, "action" => "archive_wrong_guest_mac"}),
     do: :archive_wrong_guest_mac
 
+  defp action(%{"step" => @awx_step, "action" => "reassign_wrong_guest_mac"}),
+    do: :reassign_wrong_guest_mac
+
   defp action(%{"step" => @awx_step, "action" => action})
        when action in ["candidate_preflight", "candidate_committed"],
        do: :marker
@@ -159,7 +165,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
         :awx_unmerge ->
           Map.update!(report, :would_remerge, &(&1 + 1))
 
-        :archive_wrong_guest_mac ->
+        action when action in [:archive_wrong_guest_mac, :reassign_wrong_guest_mac] ->
           Map.update!(report, :would_restore_macs, &(&1 + length(ids(entry))))
 
         :marker ->
@@ -232,7 +238,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
 
             state = Map.update!(state, :rollback_failures, &(&1 + 1))
 
-            if action in [:awx_unmerge, :archive_wrong_guest_mac],
+            if action in [:awx_unmerge, :archive_wrong_guest_mac, :reassign_wrong_guest_mac],
               do: {:halt, %{state | halted: to_string(action)}},
               else: {:cont, state}
         end
@@ -344,6 +350,19 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
     in_rollback(fn ->
       with {:ok, returned} <- AwxProxmoxUnmerge.restore_archived_macs(uid, ids(entry)),
            :ok <- bump_after_restore(uid, returned, actor) do
+        {:ok, {:macs_restored, returned, length(ids(entry)) - length(returned)}}
+      end
+    end)
+  end
+
+  defp undo(:reassign_wrong_guest_mac, entry, actor) do
+    uid = entry["device_uid"]
+    target = entry["target_uid"]
+
+    in_rollback(fn ->
+      with {:ok, returned} <- AwxProxmoxUnmerge.return_moved_macs(uid, target, ids(entry)),
+           :ok <- bump_after_restore(uid, returned, actor),
+           :ok <- bump_after_restore(target, returned, actor) do
         {:ok, {:macs_restored, returned, length(ids(entry)) - length(returned)}}
       end
     end)

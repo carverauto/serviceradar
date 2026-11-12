@@ -6,10 +6,12 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxVerification do
 
     * `A1` — every pair the step unmerged is still two records: neither record, followed through
       the merges that took it away, has reached the other;
-    * `A2` — no AWX merge still in place is proved to join two different machines
-      (`Decisions.awx_merge_evidence/1`), wherever it came from;
+    * `A2` — no merge still in place is proved bad by the step's plan
+      (`Decisions.plan_awx_proxmox_unmerge/3`): an AWX merge joining two different machines, or a
+      merge of any reason chained onto a record such a merge poisoned;
     * `A3` — no such merge was made after the repair started (the regression check of
-      `fix-awx-proxmox-guest-binding-evidence`); `not_run` before any repair;
+      `fix-awx-proxmox-guest-binding-evidence`, and of the poison spreading); `not_run` before
+      any repair;
     * `A4` — no MAC row the step archived is back on the record it was taken from;
     * `A5` — every unmerged pair is still asserted distinct.
 
@@ -92,7 +94,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxVerification do
       from_uid: entry.from_uid,
       to_uid: entry.to_uid,
       disposition: to_string(entry.disposition),
-      proofs: Enum.map(entry.evidence.proofs, &to_string/1)
+      reason: entry.reason,
+      proofs: Enum.map(entry.proofs, &to_string/1)
     }
   end
 

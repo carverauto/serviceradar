@@ -63,7 +63,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     {:ok, actor: SystemActor.system(:awx_proxmox_unmerge_test), n: n, dir: dir}
   end
 
-  test "undoes a proved merge, archives only the guest MAC an AWX update copied, and replays to nothing",
+  test "undoes a proved merge, gives the copied guest MACs back to the guest, and replays to nothing",
        ctx do
     w = guest_world!(ctx)
     ambiguous = ambiguous_merge!(ctx)
@@ -71,16 +71,23 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
     assert {:ok, %{reports: %{@step => plan}}} = DireRemediation.run([steps: [@step]] ++ scope)
 
-    assert [planned] = plan.unmerge_plan
+    assert [%{merges: [planned]}] = plan.unmerge_plan
     assert planned.event_id == w.merge
     assert planned.proofs == ["proxmox_guest_mismatch"]
     assert planned.from.uid == w.holder and planned.to.uid == w.guest_device
     assert planned.from.proxmox_guests == ["cluster-a-#{ctx.n}/#{w.vmid}"]
     assert "cluster-b-#{ctx.n}/#{w.vmid}" in planned.to.proxmox_guests
 
-    assert [%{id: copied_id, device_uid: holder}] = plan.mac_cleanup_plan
-    assert copied_id == w.copied_row and holder == w.holder
-    assert plan.mac_rows_kept == %{"locally_administered" => 1, "refreshed_by_guest_report" => 1}
+    # The AWX-written row and the row the guest's own report refreshed go to the guest's record.
+    assert plan.mac_cleanup_plan
+           |> Enum.map(&{&1.id, &1.device_uid, &1.decision, &1.target_uid})
+           |> Enum.sort() ==
+             Enum.sort([
+               {w.copied_row, w.holder, "move", w.guest_device},
+               {w.refreshed_row, w.holder, "move", w.guest_device}
+             ])
+
+    assert plan.mac_rows_kept == %{"locally_administered" => 1}
 
     assert Enum.find(plan.reported_merges, &(&1.event_id == ambiguous.merge)).disposition ==
              "no_distinguishing_evidence"
@@ -96,8 +103,14 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
                  scope
              )
 
-    assert %{unmerged: 1, distinct_asserted: 1, mac_rows_archived: 1, mac_rows_still_present: 0} =
-             report
+    assert %{
+             units_applied: 1,
+             unmerged: 1,
+             distinct_asserted: 1,
+             mac_rows_moved: 2,
+             mac_rows_archived: 0,
+             mac_rows_not_settled: 0
+           } = report
 
     # The pair is apart again, each with its own guest identity.
     refute merged?(w.holder)
@@ -116,10 +129,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
     assert unmerged_by == AwxProxmoxUnmerge.unmerged_by()
 
-    # Only the AWX-written guest MAC left the holder, to the archive.
-    assert owner("mac", w.copied_mac) == nil
-    assert archived(w.copied_row) == {w.holder, AwxProxmoxUnmerge.archive_reason()}
-    assert owner("mac", w.refreshed_mac) == w.holder
+    # The guest's MACs are back on the guest's record; the locally administered one stays.
+    assert owner("mac", w.copied_mac) == w.guest_device
+    assert owner("mac", w.refreshed_mac) == w.guest_device
     assert owner("mac", w.local_mac) == w.holder
 
     # The ambiguous merge stays.
@@ -131,7 +143,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     assert %{
              "candidate_preflight" => 2,
              "awx_unmerge" => 1,
-             "archive_wrong_guest_mac" => 1,
+             "reassign_wrong_guest_mac" => 1,
              "candidate_committed" => 2
            } = actions
 
@@ -146,7 +158,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
                ] ++ scope
              )
 
-    assert %{unmerged: 0, mac_rows_archived: 0, planned_unmerges: 0} = replay
+    assert %{unmerged: 0, mac_rows_moved: 0, mac_rows_archived: 0, planned_unmerges: 0} = replay
 
     # The checks see the pair apart, the MAC gone and the assertion in place.
     assert {:ok, %{reports: %{"awx-proxmox-verify" => verify}}} =
@@ -163,7 +175,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
            )
   end
 
-  test "source-id-rollback merges the pair again and returns the archived MAC", ctx do
+  test "source-id-rollback merges the pair again and returns the moved MACs", ctx do
     w = guest_world!(ctx)
     manifest = Path.join(ctx.dir, "execute.ndjson")
 
@@ -181,7 +193,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     assert {:ok, %{reports: %{"source-id-rollback" => dry}}} =
              DireRemediation.run(steps: ["source-id-rollback"], rollback_manifests: [manifest])
 
-    assert %{would_remerge: 1, would_restore_macs: 1} = dry
+    assert %{would_remerge: 1, would_restore_macs: 2} = dry
 
     assert {:ok, %{reports: %{"source-id-rollback" => rollback}}} =
              DireRemediation.run(
@@ -192,9 +204,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
                actor: ctx.actor
              )
 
-    assert %{remerged: 1, macs_restored: 1, rollback_failures: 0} = rollback
+    assert %{remerged: 1, macs_restored: 2, rollback_failures: 0} = rollback
 
-    # Joined again, the holder's identifiers and the returned MAC on the survivor.
+    # Joined again: the MACs went back to the holder, then with it to the survivor.
     assert merged?(w.holder)
     assert owner("integration_id", w.holder_v2) == w.guest_device
     assert owner("mac", w.copied_mac) == w.guest_device
@@ -214,20 +226,28 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
   end
 
   test "undoes a chain survivor first, and reports a chain a non-qualifying merge blocks", ctx do
-    # A merged into B, then B into C, both proved: B's merge away is undone first.
+    # A merged into B, then B into C, both proved: one unit, B's merge away undone first.
     [a, b, c] = for label <- ~w(a b c), do: guest_record!(ctx, label)
     ab = historical_merge!(ctx, a, b, minutes_ago: 30)
     bc = historical_merge!(ctx, b, c, minutes_ago: 20)
 
-    # X merged into Y (proved), then Y into Z by ordinary identity resolution.
-    [x, y, z] = for label <- ~w(x y z), do: guest_record!(ctx, label)
+    # X merged into Y (proved), then Y into Z by ordinary identity resolution, on a universal MAC
+    # that Z shows as its own: that merge proves nothing wrong, so neither is undone.
+    shared_mac = mac(ctx.n, 7)
+    [x, y] = for label <- ~w(x y), do: guest_record!(ctx, label)
+    z = guest_record!(ctx, "z", mac: shared_mac)
+    identifier!(ctx.actor, y.uid, :mac, String.replace(shared_mac, ":", ""), %{})
     xy = historical_merge!(ctx, x, y, minutes_ago: 30)
     yz = historical_merge!(ctx, y, z, minutes_ago: 20, reason: "identity_resolution")
 
     scope = [awx_proxmox_unmerge_event_ids: [ab, bc, xy]]
 
     assert {:ok, %{reports: %{@step => plan}}} = DireRemediation.run([steps: [@step]] ++ scope)
-    assert Enum.map(plan.unmerge_plan, & &1.event_id) == [bc, ab]
+    assert [%{merges: merges}] = plan.unmerge_plan
+    assert Enum.map(merges, & &1.event_id) == [bc, ab]
+
+    assert Enum.find(plan.reported_merges, &(&1.event_id == yz)).disposition ==
+             "conflicting_evidence"
 
     blocked = Enum.find(plan.reported_merges, &(&1.event_id == xy))
     assert %{disposition: "blocked_by_later_merge", blocked_by: ^yz} = blocked
@@ -242,7 +262,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
                ] ++ scope
              )
 
-    assert report.unmerged == 2
+    assert %{units_applied: 1, unmerged: 2} = report
 
     for record <- [a, b] do
       refute merged?(record.uid)
@@ -252,6 +272,103 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     # Neither merge of the blocked chain moved.
     assert merged?(x.uid) and merged?(y.uid)
     assert owner("integration_id", x.v2) == z.uid
+  end
+
+  test "undoes a merge of another reason that rested on what a bad AWX merge brought, with it",
+       ctx do
+    # AWX host 2's record merged into host 1's survivor, the host bound by mistake to guest G. The
+    # survivor then held G's NIC MAC, and G's own record merged into it on that MAC.
+    vmid = 100 + rem(ctx.n, 800_000)
+    guest_mac = mac(ctx.n, 5)
+
+    {guest_ref, guest_device} =
+      ingest_proxmox_guest!(ctx.actor, "cluster-g-#{ctx.n}", vmid, [guest_mac])
+
+    identifier!(ctx.actor, guest_device, :integration_id, guest_ref, hypervisor(guest_ref))
+
+    identifier!(
+      ctx.actor,
+      guest_device,
+      :mac,
+      String.replace(guest_mac, ":", ""),
+      hypervisor(guest_ref)
+    )
+
+    survivor = awx_record!(ctx, 1)
+    host2 = awx_record!(ctx, 2)
+
+    poisoning =
+      historical_merge!(ctx, %{uid: host2}, %{uid: survivor},
+        minutes_ago: 40,
+        details: %{"guest_provider_ref" => guest_ref}
+      )
+
+    chained =
+      historical_merge!(ctx, %{uid: guest_device}, %{uid: survivor},
+        minutes_ago: 30,
+        reason: "hypervisor_guest_network_match",
+        details: %{"guest_provider_ref" => guest_ref}
+      )
+
+    scope = [awx_proxmox_unmerge_event_ids: [poisoning]]
+
+    assert {:ok, %{reports: %{@step => plan}}} = DireRemediation.run([steps: [@step]] ++ scope)
+    assert [%{merges: [first, second]}] = plan.unmerge_plan
+    assert {first.event_id, first.proofs} == {chained, ["tainted_evidence"]}
+    assert {second.event_id, second.proofs} == {poisoning, ["different_awx_hosts"]}
+    assert first.match_evidence == ["mac:" <> String.replace(guest_mac, ":", "")]
+
+    assert {:ok, %{reports: %{@step => report}}} =
+             DireRemediation.run(
+               [
+                 mode: :execute,
+                 steps: [@step],
+                 manifest_path: Path.join(ctx.dir, "poison.ndjson"),
+                 actor: ctx.actor
+               ] ++ scope
+             )
+
+    assert %{units_applied: 1, unmerged: 2, distinct_asserted: 2} = report
+
+    # The guest's record and host 2's record stand apart again, each with its own identity.
+    refute merged?(guest_device)
+    refute merged?(host2)
+    assert owner("integration_id", guest_ref) == guest_device
+    assert owner("mac", guest_mac) == guest_device
+    assert owner("integration_id", awx_id(2, ctx)) == host2
+    assert owner("integration_id", awx_id(1, ctx)) == survivor
+  end
+
+  test "archives a copied guest MAC when no live record holds that guest", ctx do
+    vmid = 100 + rem(ctx.n, 800_000)
+    copied = mac(ctx.n, 6)
+
+    {guest_ref, guest_device} =
+      ingest_proxmox_guest!(ctx.actor, "cluster-c-#{ctx.n}", vmid, [copied])
+
+    holder = guest_record!(ctx, "a2")
+    survivor = guest_record!(ctx, "b2")
+    copied_row = move_mac!(ctx.actor, copied, holder.uid, awx_metadata())
+    soft_delete!(ctx, guest_device, "test_guest_gone")
+
+    merge =
+      historical_merge!(ctx, holder, survivor,
+        minutes_ago: 20,
+        details: %{"guest_provider_ref" => guest_ref}
+      )
+
+    assert {:ok, %{reports: %{@step => report}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: [@step],
+               manifest_path: Path.join(ctx.dir, "archive.ndjson"),
+               actor: ctx.actor,
+               awx_proxmox_unmerge_event_ids: [merge]
+             )
+
+    assert %{unmerged: 1, mac_rows_archived: 1, mac_rows_not_settled: 0} = report
+    assert owner("mac", copied) == nil
+    assert archived(copied_row) == {holder.uid, AwxProxmoxUnmerge.archive_reason()}
   end
 
   # -- worlds -------------------------------------------------------------------------------
@@ -276,7 +393,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     identifier!(ctx.actor, holder, :mac, own, %{"integration_type" => "sweep"})
 
     copied_row = move_mac!(ctx.actor, copied, holder, awx_metadata())
-    move_mac!(ctx.actor, refreshed, holder, hypervisor(guest_ref))
+    refreshed_row = move_mac!(ctx.actor, refreshed, holder, hypervisor(guest_ref))
     move_mac!(ctx.actor, local, holder, awx_metadata())
 
     merge =
@@ -295,6 +412,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
       copied_mac: copied,
       copied_row: copied_row,
       refreshed_mac: refreshed,
+      refreshed_row: refreshed_row,
       local_mac: local
     }
   end
@@ -325,8 +443,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
   # A record holding its own cluster's guest identity: every one of them has the same VMID in a
   # cluster of its own, so any two are different machines.
-  defp guest_record!(ctx, label) do
-    uid = device!(ctx.actor, "#{label}#{ctx.n}")
+  defp guest_record!(ctx, label, attrs \\ []) do
+    uid = device!(ctx.actor, "#{label}#{ctx.n}", Map.new(attrs))
     v2 = "proxmox:v2:cluster-#{label}-#{ctx.n}:vm:101"
     identifier!(ctx.actor, uid, :integration_id, v2, hypervisor(v2))
     %{uid: uid, v2: v2}
@@ -389,19 +507,40 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     {identity.provider_ref, uid}
   end
 
-  defp device!(actor, label) do
+  defp device!(actor, label, attrs \\ %{}) do
     uid = "sr:" <> Ecto.UUID.generate()
 
     {:ok, _device} =
       Device
       |> Ash.Changeset.for_create(
         :create,
-        %{uid: uid, hostname: "#{label}.example.com", name: label, type: "Server", type_id: 1},
+        Map.merge(
+          %{uid: uid, hostname: "#{label}.example.com", name: label, type: "Server", type_id: 1},
+          attrs
+        ),
         actor: actor
       )
       |> Ash.create()
 
     uid
+  end
+
+  # An AWX host's record, holding its v2 id of one invented controller.
+  defp awx_record!(ctx, host) do
+    uid = device!(ctx.actor, "awxhost#{host}-#{ctx.n}")
+    identifier!(ctx.actor, uid, :integration_id, awx_id(host, ctx), awx_metadata())
+    uid
+  end
+
+  defp awx_id(host, ctx), do: "awx:v2:00000000-0000-4000-8000-0000000000c1:host:#{ctx.n}#{host}"
+
+  defp soft_delete!(ctx, uid, reason) do
+    {:ok, device} = Device.get_by_uid(uid, false, actor: ctx.actor)
+
+    {:ok, _tombstone} =
+      device
+      |> Ash.Changeset.for_update(:soft_delete, %{deleted_reason: reason, deleted_by: "test"})
+      |> Ash.update(actor: ctx.actor)
   end
 
   defp identifier!(actor, uid, type, value, metadata) do
@@ -475,14 +614,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     )
 
     {:ok, device} = Device.get_by_uid(from.uid, false, actor: ctx.actor)
-
-    {:ok, _tombstone} =
-      device
-      |> Ash.Changeset.for_update(:soft_delete, %{
-        deleted_reason: "merged",
-        deleted_by: "identity_reconciler"
-      })
-      |> Ash.update(actor: ctx.actor)
+    soft_delete!(ctx, from.uid, "merged")
 
     details =
       Map.merge(

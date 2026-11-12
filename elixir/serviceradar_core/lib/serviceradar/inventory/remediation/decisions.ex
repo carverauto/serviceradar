@@ -1047,10 +1047,18 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   defp identifier_field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   @doc """
-  Plan the `awx-proxmox-unmerge` step over the AWX merges and the merges around them.
+  Plan the `awx-proxmox-unmerge` step over every merge around the AWX merges, of any reason.
 
-  Each entry of `merges` is an `awx_merge_evidence/1` input that also carries `event_id`,
-  `created_at`, `from_uid`, `to_uid` and the current state:
+  A record that a bad AWX merge joined with another machine keeps the other machine's
+  identifiers: those the merge recorded, the NIC MACs and addresses of the guest the AWX host
+  was wrongly bound to, and the address it took. They go on matching further records, through any
+  merge path (`hypervisor_guest_network_match`, `identifier_backfill` and the rest), so the plan
+  follows each such record in time order.
+
+  `merges` are the merge audit rows touching the loaded records, unmerges excluded. Each is an
+  `awx_merge_evidence/1` input that also carries `event_id`, `created_at`, `from_uid`, `to_uid`,
+  `from_ip`, `to_ip_before`, the match `evidence` the merge recorded (`[%{type, value}]`, or
+  `nil`) and its current state:
 
     * `reversed?` — an unmerge already names it;
     * `from_state` — `:merged` (the merge's tombstone), `:live`, `:deleted` or `:missing`;
@@ -1058,109 +1066,477 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     * `to_state` — `:live`, `:deleted`, `:missing`, or `{:merged, event_id}` when the survivor
       was itself merged away by that unreversed merge.
 
-  `other_merges` are the unreversed merges of any other reason into the survivors
-  (`%{event_id, created_at, reason, from_uid, to_uid}`), and `opts` may restrict execution to
-  `:event_ids`.
+  `context` holds, per record uid, its own identifiers (`own`: what no unreversed merge brought
+  it) and display MAC (`display_mac`), and the guests by provider reference (`guests`:
+  `%{key, macs, ips}`).
 
-  Chain rule: a merge is undone only when it proved two different machines, and only once the
-  survivor is live again. When a later merge took the survivor away, that merge is undone first
-  if it qualifies on its own evidence; otherwise this one is `:blocked_by_later_merge` and both
-  stay. A later merge onto the survivor of a bad merge, of any reason, is never undone for that
-  reason alone: it is reported as `:follows_bad_merge`, since it may have matched only on what
-  the bad merge brought, or on real evidence, and the audit does not say which.
+  **A record is poisoned** from its first bad merge on: from then on its *foreign* set holds the
+  identifiers that merge recorded for the merged record, the NIC MACs and addresses of the guest
+  the merge named (unless the record holds that guest's identity itself, which makes them its
+  own) and the merged record's address. A record that absorbs or is absorbed into a poisoned
+  record without the merge being proved bad inherits the foreign set.
 
-  Returns `%{unmerge: [entry], report: [entry]}`; `unmerge` is in execution order, newest first,
-  every merge after the merge that took its survivor away.
+  **A merge is bad** when it is an AWX merge that `awx_merge_evidence/1` proves, or when it
+  touches a record poisoned at its time and one of these holds:
+
+    * `:proxmox_guest_mismatch` — the merged record holds a Proxmox guest identity (from its
+      recorded identifiers, or, for a non-AWX merge, the guest the merge names) and the survivor
+      had established another one, and none in common. A survivor's established identities are
+      its own and those of merges into it that stay; distinct VMIDs or clusters are distinct
+      machines;
+    * `:tainted_evidence` — every identifier the match rested on is in the poisoned record's
+      foreign set and none is its own. The evidence is what the merge recorded, or else the
+      identifiers the two records shared at the merge and the address when it was both records'.
+
+  Either is void (`:conflicting_evidence`) when the merged record shares a universally
+  administered MAC, a guest identity or an AWX host id with the survivor's own identifiers.
+  A merge on a poisoned record that proves nothing is `:chained_unproven` and stays; the first
+  guest merged into a record with no guest identity of its own is one, since it may be that
+  record's machine.
+
+  **Units.** The bad merges that share records form a unit, undone in one transaction or not at
+  all: newest first, every merge after the merge that took its survivor away. A unit runs only
+  when every merge in it is in place and reversible (not superseded, survivor live or taken away
+  by another merge of the unit); otherwise every merge in it is reported with the reason.
+  `opts[:event_ids]` restricts execution to the units holding one of those merges.
+
+  Returns `%{units: [%{id, event_ids, created_at}], unmerge: [merge], report: [entry]}`, units
+  newest first and `unmerge` in execution order.
   """
-  @spec plan_awx_proxmox_unmerge([map()], [map()], keyword()) :: map()
-  def plan_awx_proxmox_unmerge(merges, other_merges \\ [], opts \\ []) do
+  @spec plan_awx_proxmox_unmerge([map()], map(), keyword()) :: map()
+  def plan_awx_proxmox_unmerge(merges, context \\ %{}, opts \\ []) do
     selected = opts |> Keyword.get(:event_ids, []) |> MapSet.new()
+    context = Map.merge(%{own: %{}, display_mac: %{}, guests: %{}}, context)
 
-    assessed = Enum.map(merges, &Map.put(&1, :evidence, awx_merge_evidence(&1)))
-    bad = Enum.filter(assessed, &(&1.evidence.verdict == :different_machines))
+    {judged, _poison} =
+      merges
+      |> Enum.sort_by(&{created_rank(&1.created_at), &1.event_id})
+      |> Enum.map_reduce(%{}, fn merge, poison ->
+        awx_evidence = if merge.reason in @awx_merge_reasons, do: awx_merge_evidence(merge)
+        {verdict, evidence} = judge_merge(merge, awx_evidence, poison, context)
 
-    candidates =
-      Enum.filter(bad, &(not &1[:reversed?] and awx_state_refusal(&1, selected) == nil))
+        judged =
+          Map.merge(merge, %{verdict: verdict, awx_evidence: awx_evidence, match: evidence})
 
-    executable = executable_unmerges(candidates)
-    executable_ids = MapSet.new(executable, & &1.event_id)
-    follows = follows_bad_merges(bad, assessed, other_merges)
+        {judged, record_merge(poison, merge, verdict, context)}
+      end)
+
+    bad = Enum.filter(judged, &match?({:bad, _proofs}, &1.verdict))
+    open = Enum.reject(bad, & &1[:reversed?])
+    units = merge_units(open)
+    {runnable, refused} = Enum.split_with(units, &(unit_refusal(&1, selected) == nil))
+    runnable_ids = runnable |> Enum.flat_map(& &1.merges) |> MapSet.new(& &1.event_id)
+
+    refusals =
+      for unit <- refused,
+          {reason, culprit} = unit_refusal(unit, selected),
+          merge <- unit.merges,
+          into: %{},
+          do: {merge.event_id, {reason, culprit, unit.id}}
+
+    unit_of =
+      for unit <- units, merge <- unit.merges, into: %{}, do: {merge.event_id, unit.id}
 
     report =
-      Enum.map(assessed, fn merge ->
-        {disposition, blocked_by} = awx_disposition(merge, executable_ids, selected)
+      for merge <- judged, merge.verdict != :unrelated do
+        {disposition, blocked_by} =
+          cond do
+            MapSet.member?(runnable_ids, merge.event_id) -> {:unmerge, nil}
+            merge[:reversed?] -> {:already_unmerged, nil}
+            match?({:ambiguous, _}, merge.verdict) -> {elem(merge.verdict, 1), nil}
+            true -> refusal_disposition(merge, refusals)
+          end
 
         merge
         |> Map.take([:event_id, :created_at, :reason, :from_uid, :to_uid])
         |> Map.merge(%{
           disposition: disposition,
-          bad?: merge.evidence.verdict == :different_machines,
+          bad?: match?({:bad, _}, merge.verdict),
+          proofs: proofs(merge.verdict),
           blocked_by: blocked_by,
-          follows_bad_merges: Map.get(follows, merge.event_id, []),
-          evidence: merge.evidence
-        })
-      end)
-
-    other_report =
-      for other <- other_merges, bad_ids = Map.get(follows, other.event_id, []), bad_ids != [] do
-        other
-        |> Map.take([:event_id, :created_at, :reason, :from_uid, :to_uid])
-        |> Map.merge(%{
-          disposition: :follows_bad_merge,
-          bad?: false,
-          blocked_by: nil,
-          follows_bad_merges: bad_ids,
-          evidence: nil
+          unit: Map.get(unit_of, merge.event_id),
+          evidence: merge.awx_evidence,
+          match_evidence: render_evidence(merge.match)
         })
       end
 
-    %{unmerge: order_unmerges(executable), report: report ++ other_report}
+    %{
+      units:
+        Enum.map(runnable, fn unit ->
+          %{id: unit.id, event_ids: Enum.map(unit.merges, & &1.event_id), created_at: unit.newest}
+        end),
+      unmerge: Enum.flat_map(runnable, & &1.merges),
+      report: report
+    }
   end
 
-  defp awx_disposition(merge, executable_ids, selected) do
-    cond do
-      MapSet.member?(executable_ids, merge.event_id) -> {:unmerge, nil}
-      merge[:reversed?] -> {:already_unmerged, nil}
-      merge.evidence.verdict == :ambiguous -> {merge.evidence.reason, nil}
-      refusal = awx_state_refusal(merge, selected) -> {refusal, nil}
-      true -> {:blocked_by_later_merge, elem(merge.to_state, 1)}
+  defp proofs({:bad, proofs}), do: proofs
+  defp proofs(_verdict), do: []
+
+  defp refusal_disposition(merge, refusals) do
+    case Map.get(refusals, merge.event_id) do
+      {reason, culprit, _unit} when culprit == merge.event_id -> {reason, nil}
+      {reason, culprit, _unit} -> {:chain_blocked, "#{culprit}: #{reason}"}
     end
   end
 
-  defp awx_state_refusal(merge, selected) do
+  # -- judgement, in time order --------------------------------------------------------------
+
+  defp judge_merge(merge, awx_evidence, poison, context) do
+    tainted? = poisoned?(poison, merge.to_uid) or poisoned?(poison, merge.from_uid)
+
     cond do
-      merge[:from_state] != :merged -> :not_merged
-      merge[:superseded?] -> :merge_superseded
-      not survivor_reachable?(merge[:to_state]) -> :survivor_not_live
-      MapSet.size(selected) > 0 and not MapSet.member?(selected, merge.event_id) -> :not_selected
-      true -> nil
+      awx_evidence != nil and awx_evidence.verdict == :different_machines ->
+        {{:bad, awx_evidence.proofs}, nil}
+
+      tainted? ->
+        judge_chained(merge, poison, context)
+
+      awx_evidence != nil ->
+        {{:ambiguous, awx_evidence.reason}, nil}
+
+      true ->
+        {:unrelated, nil}
     end
   end
 
-  defp survivor_reachable?(:live), do: true
-  defp survivor_reachable?({:merged, _event_id}), do: true
-  defp survivor_reachable?(_state), do: false
+  defp judge_chained(%{source_identifiers: nil}, _poison, _context),
+    do: {{:ambiguous, :source_identifiers_unrecorded}, nil}
 
-  # A candidate whose survivor was merged away runs only once that merge is undone, so it stays
-  # only while that merge is itself undone; repeat until nothing more drops out.
-  defp executable_unmerges(candidates) do
-    ids = MapSet.new(candidates, & &1.event_id)
+  defp judge_chained(merge, poison, context) do
+    survivor = poison_state(poison, merge.to_uid, context)
+    merged = poison_state(poison, merge.from_uid, context)
 
-    kept =
-      Enum.filter(candidates, fn merge ->
-        case merge.to_state do
-          :live -> true
-          {:merged, by} -> MapSet.member?(ids, by)
-        end
+    own =
+      context.own
+      |> Map.get(merge.to_uid, [])
+      |> id_set()
+      |> MapSet.union(mac_set(merge[:to_mac] || Map.get(context.display_mac, merge.to_uid)))
+      |> MapSet.difference(survivor.foreign)
+
+    merged_ids = merged_identity(merge)
+    merged_guests = merged_guest_keys(merge, context)
+    evidence = match_evidence(merge, survivor, own, context)
+
+    verdict =
+      cond do
+        shares_identity?(merged_ids, merged_guests, own) ->
+          {:ambiguous, :conflicting_evidence}
+
+        both_disjoint?(merged_guests, survivor.established) ->
+          {:bad, [:proxmox_guest_mismatch]}
+
+        evidence != MapSet.new() and
+          (MapSet.subset?(evidence, survivor.foreign) or
+             MapSet.subset?(evidence, merged.foreign)) and
+            MapSet.disjoint?(evidence, own) ->
+          {:bad, [:tainted_evidence]}
+
+        true ->
+          {:ambiguous, :chained_unproven}
+      end
+
+    {verdict, evidence}
+  end
+
+  defp render_evidence(nil), do: []
+
+  defp render_evidence(evidence) do
+    evidence
+    |> Enum.map(fn
+      {:mac, value} -> "mac:" <> value
+      {:ip, value} -> "ip:" <> value
+      {:id, type, value} -> type <> ":" <> value
+    end)
+    |> Enum.sort()
+  end
+
+  defp shares_identity?(merged_ids, merged_guests, own) do
+    own_guests =
+      for {:id, "integration_id", value} <- own,
+          key = awx_guest_key(value),
+          into: MapSet.new(),
+          do: key
+
+    universal = fn ids ->
+      for {:mac, value} <- ids,
+          not Mac.locally_administered_mac?(value),
+          into: MapSet.new(),
+          do: value
+    end
+
+    awx_hosts = fn ids ->
+      for {:id, "integration_id", "awx:v2:" <> _ = value} <- ids, into: MapSet.new(), do: value
+    end
+
+    not MapSet.disjoint?(universal.(merged_ids), universal.(own)) or
+      not MapSet.disjoint?(merged_guests, own_guests) or
+      not MapSet.disjoint?(awx_hosts.(merged_ids), awx_hosts.(own))
+  end
+
+  # What the merge rested on: what it recorded, or else what the two records shared at the merge,
+  # with the address when it was both records'.
+  defp match_evidence(merge, survivor, own, context) do
+    case merge[:evidence] do
+      [_ | _] = recorded ->
+        recorded |> Enum.map(&evidence_entry/1) |> Enum.reject(&is_nil/1) |> MapSet.new()
+
+      _none ->
+        known =
+          own
+          |> MapSet.union(survivor.foreign)
+          |> MapSet.union(id_set(merge[:to_absorbed_before]))
+          |> MapSet.union(mac_set(merge[:to_mac] || Map.get(context.display_mac, merge.to_uid)))
+
+        shared = MapSet.intersection(merged_identity(merge), known)
+        address = present_string(merge[:from_ip])
+
+        if address != nil and address == present_string(merge[:to_ip_before]),
+          do: MapSet.put(shared, {:ip, address}),
+          else: shared
+    end
+  end
+
+  defp evidence_entry(entry) when is_map(entry) do
+    type = to_string(identifier_field(entry, :type) || "")
+    value = identifier_field(entry, :value)
+
+    cond do
+      not is_binary(value) -> nil
+      String.contains?(type, "mac") -> mac_entry(value)
+      String.contains?(type, "ip") -> {:ip, String.trim(value)}
+      true -> {:id, type, value}
+    end
+  end
+
+  defp evidence_entry(_entry), do: nil
+
+  defp mac_entry(value) do
+    case Mac.normalize_mac(value) do
+      nil -> nil
+      mac -> {:mac, mac}
+    end
+  end
+
+  defp merged_identity(merge),
+    do: merge[:source_identifiers] |> id_set() |> MapSet.union(mac_set(merge[:from_mac]))
+
+  # The merged record's guest identities: those it held, and for a non-AWX merge the guest the
+  # merge names (an AWX merge names the guest the host was bound to, which is not the merged
+  # record's own).
+  defp merged_guest_keys(merge, _context) do
+    held = awx_guest_keys(merge[:source_identifiers] || [])
+
+    named =
+      if merge.reason in @awx_merge_reasons,
+        do: nil,
+        else: awx_guest_key(merge[:guest_provider_ref])
+
+    if named, do: MapSet.put(held, named), else: held
+  end
+
+  defp id_set(identifiers) do
+    for %{} = id <- List.wrap(identifiers),
+        entry = id_entry(identifier_field(id, :type), identifier_field(id, :value)),
+        not is_nil(entry),
+        into: MapSet.new(),
+        do: entry
+  end
+
+  defp id_entry(_type, value) when not is_binary(value), do: nil
+  defp id_entry(type, value) when type in ["mac", :mac], do: mac_entry(value)
+  defp id_entry(type, value), do: {:id, to_string(type), value}
+
+  defp mac_set(value) when is_binary(value),
+    do: value |> Mac.normalize_mac_list() |> MapSet.new(&{:mac, &1})
+
+  defp mac_set(_value), do: MapSet.new()
+
+  defp present_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present_string(_value), do: nil
+
+  # -- poison state ----------------------------------------------------------------------------
+
+  defp poisoned?(poison, uid), do: match?(%{since: since} when not is_nil(since), poison[uid])
+
+  defp poison_state(poison, uid, context) do
+    Map.get_lazy(poison, uid, fn -> fresh_state(uid, context) end)
+  end
+
+  defp fresh_state(uid, context) do
+    own_guests = awx_guest_keys(Map.get(context.own, uid, []))
+    %{since: nil, foreign: MapSet.new(), established: own_guests}
+  end
+
+  # A bad merge poisons its survivor with the merged record's identifiers and what the bound guest
+  # brought. A merge that stays carries foreign identifiers along with it and establishes the
+  # merged record's guests on the survivor.
+  # A merge that stays and touches nothing poisoned only establishes the merged record's guests
+  # on the survivor.
+  defp record_merge(poison, merge, :unrelated, context) do
+    if merge[:reversed?] do
+      poison
+    else
+      survivor = poison_state(poison, merge.to_uid, context)
+
+      Map.put(poison, merge.to_uid, %{
+        survivor
+        | established: MapSet.union(survivor.established, merged_guest_keys(merge, context))
+      })
+    end
+  end
+
+  defp record_merge(poison, merge, {:bad, _proofs}, context) do
+    survivor = poison_state(poison, merge.to_uid, context)
+    merged = poison_state(poison, merge.from_uid, context)
+
+    foreign =
+      survivor.foreign
+      |> MapSet.union(merged_identity(merge))
+      |> MapSet.union(merged.foreign)
+      |> MapSet.union(bound_guest_identity(merge, survivor, context))
+      |> MapSet.union(address_set(merge[:from_ip]))
+
+    Map.put(poison, merge.to_uid, %{
+      survivor
+      | since: survivor.since || merge.created_at,
+        foreign: foreign
+    })
+  end
+
+  defp record_merge(poison, merge, {:ambiguous, _reason}, context) do
+    if merge[:reversed?] do
+      poison
+    else
+      survivor = poison_state(poison, merge.to_uid, context)
+      merged = poison_state(poison, merge.from_uid, context)
+      carries? = poisoned?(poison, merge.from_uid)
+
+      Map.put(poison, merge.to_uid, %{
+        survivor
+        | since: survivor.since || if(carries?, do: merge.created_at),
+          foreign: MapSet.union(survivor.foreign, merged.foreign),
+          established: MapSet.union(survivor.established, merged_guest_keys(merge, context))
+      })
+    end
+  end
+
+  # The NIC MACs and addresses of the guests the merge named or the merged record held, unless
+  # the survivor holds that guest's identity itself.
+  defp bound_guest_identity(merge, survivor, context) do
+    refs =
+      [
+        merge[:guest_provider_ref]
+        | for(
+            %{} = id <- List.wrap(merge[:source_identifiers]),
+            identifier_field(id, :type) == "integration_id",
+            do: identifier_field(id, :value)
+          )
+      ]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    for ref <- refs,
+        guest = Map.get(context.guests, ref),
+        not is_nil(guest),
+        not MapSet.member?(survivor.established, guest.key),
+        entry <-
+          Enum.flat_map(List.wrap(guest.macs), &MapSet.to_list(mac_set(&1))) ++
+            Enum.map(List.wrap(guest.ips), &{:ip, &1}),
+        into: MapSet.new(),
+        do: entry
+  end
+
+  defp address_set(value) do
+    case present_string(value) do
+      nil -> MapSet.new()
+      address -> MapSet.new([{:ip, address}])
+    end
+  end
+
+  # -- units -----------------------------------------------------------------------------------
+
+  # The open bad merges grouped by the records they share, each unit in execution order.
+  defp merge_units(open) do
+    open
+    |> Enum.reduce([], fn merge, groups ->
+      uids = MapSet.new([merge.from_uid, merge.to_uid])
+      {joined, apart} = Enum.split_with(groups, &(not MapSet.disjoint?(&1.uids, uids)))
+
+      [
+        %{
+          uids: Enum.reduce(joined, uids, &MapSet.union(&1.uids, &2)),
+          merges: [merge | Enum.flat_map(joined, & &1.merges)]
+        }
+        | apart
+      ]
+    end)
+    |> Enum.map(fn group ->
+      ordered = order_unmerges(group.merges)
+      newest = group.merges |> Enum.map(&created_rank(&1.created_at)) |> Enum.max()
+
+      %{
+        id: ordered |> Enum.map(& &1.event_id) |> Enum.min(),
+        merges: ordered,
+        newest: Enum.find(group.merges, &(created_rank(&1.created_at) == newest)).created_at,
+        rank: newest
+      }
+    end)
+    |> Enum.sort_by(&{&1.rank, &1.id}, :desc)
+  end
+
+  defp unit_refusal(unit, selected) do
+    ids = MapSet.new(unit.merges, & &1.event_id)
+
+    refusal =
+      Enum.find_value(unit.merges, fn merge ->
+        if reason = state_refusal(merge, ids), do: {reason, merge.event_id}
       end)
 
-    if length(kept) == length(candidates), do: kept, else: executable_unmerges(kept)
+    cond do
+      refusal ->
+        refusal
+
+      MapSet.size(selected) > 0 and MapSet.disjoint?(selected, ids) ->
+        {:not_selected, unit.id}
+
+      true ->
+        nil
+    end
+  end
+
+  defp state_refusal(merge, unit_ids) do
+    cond do
+      merge[:from_state] != :merged ->
+        :not_merged
+
+      merge[:superseded?] ->
+        :merge_superseded
+
+      merge[:to_state] == :live ->
+        nil
+
+      match?({:merged, _}, merge[:to_state]) and MapSet.member?(unit_ids, elem(merge.to_state, 1)) ->
+        nil
+
+      match?({:merged, _}, merge[:to_state]) ->
+        :blocked_by_later_merge
+
+      true ->
+        :survivor_not_live
+    end
   end
 
   # Newest first; a merge whose survivor another planned merge took away waits for it, whatever
   # the timestamps say (the audit records whole seconds, so a chain can share one).
-  defp order_unmerges(executable) do
-    sorted = Enum.sort_by(executable, &{created_rank(&1.created_at), &1.event_id}, :desc)
+  defp order_unmerges(merges) do
+    sorted = Enum.sort_by(merges, &{created_rank(&1.created_at), &1.event_id}, :desc)
     do_order_unmerges(sorted, MapSet.new(), [])
   end
 
@@ -1170,10 +1546,13 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     ready =
       Enum.find(pending, fn merge ->
         case merge.to_state do
-          {:merged, by} -> MapSet.member?(done, by)
-          _live -> true
+          {:merged, by} ->
+            MapSet.member?(done, by) or not Enum.any?(pending, &(&1.event_id == by))
+
+          _live ->
+            true
         end
-      end)
+      end) || hd(pending)
 
     do_order_unmerges(
       List.delete(pending, ready),
@@ -1188,22 +1567,6 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     do: at |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)
 
   defp created_rank(_at), do: 0
-
-  defp follows_bad_merges(bad, assessed, other_merges) do
-    bad_ids = MapSet.new(bad, & &1.event_id)
-
-    (assessed ++ other_merges)
-    |> Enum.reject(&MapSet.member?(bad_ids, &1.event_id))
-    |> Map.new(fn merge ->
-      preceding =
-        for b <- bad,
-            b.to_uid == merge.to_uid,
-            created_rank(b.created_at) <= created_rank(merge.created_at),
-            do: b.event_id
-
-      {merge.event_id, Enum.sort(preceding)}
-    end)
-  end
 
   @doc """
   Replay the planned unmerges on a set of identifier rows, as the unmerges will move them: each
@@ -1249,11 +1612,17 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     * the record's own interfaces do not report it, its AWX host does not declare it in its own
       Proxmox inventory variables, and no merge still in place brought it.
 
+  A proved row goes back to the guest's own record when one is live (`guest.record_uid`, the
+  record holding the guest's identity, often one the unmerges just restored): `:move`. Without
+  one it is archived: `:remove`. A row the guest's own Proxmox report refreshed is moved to that
+  record too, since its source attributes the value to that guest, but never archived.
+
   Any other row of a guest MAC is kept with its reason. `input` holds `guest` (`%{key,
-  device_uid, macs}`), `device` (`%{uid, own_guest_keys, other_side_is_guest?, interface_macs,
-  awx_declared_macs, absorbed_macs}`) and `rows` (`%{id, value, source, integration_type,
-  reported_guest_ref}`); `guest` also carries its `provider_ref`.
-  Returns the guest-MAC rows, each with `decision` `:remove` or `:keep` and a `reason`.
+  device_uid, macs, record_uid}`), `device` (`%{uid, own_guest_keys, other_side_is_guest?,
+  interface_macs, awx_declared_macs, absorbed_macs}`) and `rows` (`%{id, value, source,
+  integration_type, reported_guest_ref}`); `guest` also carries its `provider_ref`.
+  Returns the guest-MAC rows, each with `decision` `:move` (and `target_uid`), `:remove` or
+  `:keep`, and a `reason`.
   """
   @spec plan_awx_wrong_guest_macs(map()) :: [map()]
   def plan_awx_wrong_guest_macs(%{guest: guest, device: device, rows: rows}) do
@@ -1275,7 +1644,22 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
           value = Mac.normalize_mac(row.value),
           MapSet.member?(guest_macs, value) do
         reason = wrong_guest_mac_keep_reason(row, value, guest, device, proven_other?)
-        Map.merge(row, %{decision: if(reason, do: :keep, else: :remove), reason: reason})
+        target = guest[:record_uid]
+        target = if target != device.uid, do: target
+
+        case {reason, target} do
+          {nil, nil} ->
+            Map.merge(row, %{decision: :remove, reason: nil, target_uid: nil})
+
+          {nil, uid} ->
+            Map.merge(row, %{decision: :move, reason: nil, target_uid: uid})
+
+          {:refreshed_by_guest_report, uid} when is_binary(uid) ->
+            Map.merge(row, %{decision: :move, reason: nil, target_uid: uid})
+
+          {reason, _target} ->
+            Map.merge(row, %{decision: :keep, reason: reason, target_uid: nil})
+        end
       end
     end
   end
@@ -1291,13 +1675,6 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       Mac.locally_administered_mac?(value) ->
         :locally_administered
 
-      sync_row? and row.integration_type == "hypervisor" and
-          row[:reported_guest_ref] == guest[:provider_ref] ->
-        :refreshed_by_guest_report
-
-      not sync_row? or row.integration_type != "awx" ->
-        :not_awx_provenance
-
       MapSet.member?(normalized.(device.interface_macs), value) ->
         :observed_on_device
 
@@ -1307,8 +1684,15 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       MapSet.member?(normalized.(device.absorbed_macs), value) ->
         :absorbed_by_merge
 
-      true ->
+      sync_row? and row.integration_type == "awx" ->
         nil
+
+      sync_row? and row.integration_type == "hypervisor" and
+          row[:reported_guest_ref] == guest[:provider_ref] ->
+        :refreshed_by_guest_report
+
+      true ->
+        :not_awx_provenance
     end
   end
 

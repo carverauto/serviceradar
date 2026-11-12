@@ -8,16 +8,23 @@ Before that change, an AWX host imported from a Proxmox inventory was bound to a
 on node name and VMID alone, across clusters that reuse both, and a locally administered MAC
 (such as the fixed veth MAC a CNI gives every Kubernetes node) counted as corroboration. The
 reconciliation then merged the guest's device, the device holding the guest's MACs and the AWX
-record. Each survivor held more machines' MACs and matched more devices on the next sync.
+record. The survivor kept the other machine's MACs, addresses and Proxmox references, and kept
+absorbing correct records through other merge paths (`hypervisor_guest_network_match`,
+`identifier_backfill` and the rest) after the fix shipped, because it still held them.
 
-Every one of those merges has a `platform.merge_audit` row with reason
-`awx_proxmox_network_match` (or `awx_host_network_match`, without a guest), so the step undoes
-them by audit id with `MergeEngine.unmerge_device/2`.
+Every one of those merges, of any reason, has a `platform.merge_audit` row, so the step undoes
+them by audit id with `MergeEngine.unmerge_device/2`. The set grows until the repair runs, so the
+step computes its plan when it runs, never from a fixed list.
 
 ## What the step does
 
-1. **Judges every AWX merge.** A merge is undone only when the evidence proves that the two
-   records are different machines:
+1. **Reads the merges around the AWX merges.** It starts from every merge with reason
+   `awx_proxmox_network_match` or `awx_host_network_match`, reads every merge of any reason
+   touching their records, and widens to the records the plan implicates until nothing new is
+   implicated (at most 8 rounds and 50,000 records, or `candidate_limit_reached`).
+
+2. **Judges each merge in time order.** An AWX merge is bad when its own evidence proves the
+   two records are different machines:
 
    | Proof | Meaning |
    | --- | --- |
@@ -28,38 +35,64 @@ them by audit id with `MergeEngine.unmerge_device/2`.
    "Each side" means what the merged record owned at the merge (`source_identifiers` in the
    audit row) and what the survivor owns that no merge brought it. A proof is void when the two
    sides share an AWX host id, a guest identity or a universally administered MAC
-   (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC at
-   the merge, and the survivor also counts the MACs earlier merges had brought it
-   (`to_absorbed_before`); the `universal_macs` of each record in the plan include them. Clusters are compared by name: two clusters that share a name are
-   never proved distinct.
+   (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC, and
+   the survivor also counts the MACs earlier merges had brought it. Clusters are compared by
+   name: two clusters that share a name are never proved distinct.
 
-2. **Orders the unmerges.** Newest first. When the survivor of a merge was later merged away, the
-   merge that took it away is undone first. When that merge does not qualify, neither is undone
-   (`blocked_by_later_merge`). A later merge onto the survivor of a wrong merge is reported
-   (`follows_bad_merge`) and never undone on that ground alone: it may have matched only on what
-   the wrong merge brought, or on real evidence, and the audit does not say which.
+   **The chain rule.** A bad merge *poisons* its survivor from that moment: the survivor's
+   *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
+   the guest the merge named (unless the survivor holds that guest's identity itself) and the
+   merged record's address. A merge that stays carries a poisoned record's foreign set to its
+   survivor. Every later merge touching a poisoned record, of any reason, is judged too, and is
+   bad when:
 
-3. **Unmerges** each merge in its own transaction: it locks both records, rechecks the plan for
-   that merge under the locks, undoes it by audit id, and records the pair as distinct.
+   | Proof | Meaning |
+   | --- | --- |
+   | `proxmox_guest_mismatch` | the merged record holds a guest identity (or, for a non-AWX merge, the merge names one), the survivor had established another, and none is common. Distinct VMIDs or clusters are distinct machines |
+   | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is its own: the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
 
-4. **Archives the wrong-guest MACs.** An AWX update bound to the wrong guest wrote that guest's
-   NIC MACs onto whichever record it landed on. No merge recorded them, so no unmerge returns
-   them. After the unmerges, a MAC identifier row is moved to `device_identifier_archive` (reason
-   `awx_wrong_guest_mac`) only when all of this holds:
+   A survivor's established guests are its own and those of merges into it that stay. A shared
+   AWX host id, guest identity or universal MAC with the survivor's own identity (display MAC
+   included) voids the proof (`conflicting_evidence`). A merge on a poisoned record that proves
+   nothing stays and is reported (`chained_unproven`). That includes the first guest merged
+   into a record with no guest identity of its own, which may be that record's machine; every
+   later guest with a different VMID is then a second machine.
 
-   - the record is proved not to be the guest: it holds another guest's identity, or the other
-     side of a proved merge holds this guest's identity;
+3. **Groups the bad merges into units.** Bad merges that share records form one unit. A unit is
+   undone as a whole or not at all: newest first, a merge after the merge that took its survivor
+   away. When any merge of a unit cannot be undone (`not_merged`, `merge_superseded`,
+   `survivor_not_live`, or `blocked_by_later_merge` when a merge that stays took a survivor
+   away), the whole unit is reported: that merge with its reason, the others as
+   `chain_blocked`.
+
+4. **Unmerges each unit in one transaction**: it locks every record of the unit, plans the unit
+   again on the state under the locks, undoes each merge by audit id and records each pair as
+   distinct. A refusal anywhere rolls the whole unit back.
+
+5. **Returns or archives the wrong-guest MACs.** An AWX update bound to the wrong guest wrote
+   that guest's NIC MACs onto whichever record it landed on. No merge recorded them, so no
+   unmerge returns them. After the unmerges, a guest MAC row on either record of an undone merge
+   is acted on only when all of this holds:
+
+   - the record is proved not to be the guest: it holds another guest's identity, or another
+     record holds this guest's identity;
    - the value is a universally administered NIC MAC of the guest (as
      `virtualization_network_interfaces` reports it now);
    - the row was last written by an AWX update (`source` `sync_ingestor` and
-     `metadata.integration_type` `awx`);
+     `metadata.integration_type` `awx`), or by the guest's own Proxmox report
+     (`integration_type` `hypervisor`, `hypervisor_provider_ref` the guest's);
    - the record's own interfaces do not report it, its AWX host's own Proxmox inventory
      variables do not declare it, and no merge still in place brought it.
 
-   Every other row of a guest MAC is kept and reported with its reason:
-   `device_not_proven_other_machine`, `locally_administered`, `not_awx_provenance`,
-   `observed_on_device`, `declared_by_awx_host` or `absorbed_by_merge`. After archiving, the
-   step re-queries the rows; a row still present counts in `mac_cleanup_failures`.
+   The row goes to the record that holds the guest's identity when exactly one live record does
+   (`move`, often the record a unit just restored). Otherwise an AWX-written row goes to
+   `device_identifier_archive` with reason `awx_wrong_guest_mac` (`remove`); a row the guest's
+   own report refreshed is never archived. Every other row of a guest MAC is kept and reported
+   with its reason: `device_not_proven_other_machine`, `locally_administered`,
+   `not_awx_provenance`, `refreshed_by_guest_report`, `observed_on_device`,
+   `declared_by_awx_host` or `absorbed_by_merge`. Afterwards the step re-queries every row it
+   acted on; one not where it should be counts in `mac_rows_not_settled` and
+   `mac_cleanup_failures`.
 
 ## Preconditions
 
@@ -132,29 +165,35 @@ machines. A1, A4 and A5 pass trivially and A3 is `not_run` before any repair.
 
 Read:
 
-- `awx_merges`, `proved_different_machines`, `dispositions` (count per disposition) and
-  `candidate_limit_reached`. Execute refuses while `candidate_limit_reached` is true: raise the
-  limit so every AWX merge is read, or chains could be cut.
-- `unmerge_plan`: every merge the step will undo, in execution order (`order`). Each entry has
-  the audit id, reason, `proofs`, `corroboration`, `awx_integration_id`, `guest_provider_ref`
-  and the bound guest (`cluster/vmid`), and for both records (`from`, the merged record, and
-  `to`, the survivor) the uid, hostname, IP (and the hostname and IP at the merge), AWX host ids
-  (`controller/host`), Proxmox guest identities and universally administered MACs.
-- `reported_merges`: every other merge with its `disposition`: an ambiguity
-  (`no_distinguishing_evidence`, `conflicting_evidence`, `source_identifiers_unrecorded`),
-  `already_unmerged`, `not_merged`, `merge_superseded`, `survivor_not_live`,
-  `blocked_by_later_merge` (with `blocked_by`), `follows_bad_merge` (with `follows_bad_merges`)
-  or `not_selected`.
-- `mac_cleanup_plan`: every MAC row the step will archive, with its row id, record, value,
-  `source`, `integration_type`, `sync_service_id`, `first_seen`, `last_seen`, the guest it
-  belongs to, the merges it follows from, and the latest archive history of the value.
+- `merges_read`, `proved_different_machines`, `dispositions` (count per disposition),
+  `planned_units`, `planned_unmerges` and `candidate_limit_reached`. Execute refuses while
+  `candidate_limit_reached` is true: raise the limit so every AWX merge is read, or chains could
+  be cut.
+- `unmerge_plan`: every unit the step will undo (`order`, `unit`), each with its merges in
+  execution order. Each merge has the audit id, reason, `proofs`, `match_evidence` (what a
+  chained merge rested on, as `mac:`, `ip:` or `<type>:` values), `recorded_evidence`,
+  `corroboration`, `awx_integration_id` and `guest_provider_ref`, and for both records (`from`,
+  the merged record, and `to`, the survivor) the uid, hostname, IP (and the hostname and IP at
+  the merge) and Proxmox guest identities; an AWX merge also shows AWX host ids
+  (`controller/host`) and universally administered MACs.
+- `reported_merges`: every other judged merge with its `disposition`: an ambiguity
+  (`no_distinguishing_evidence`, `conflicting_evidence`, `source_identifiers_unrecorded`,
+  `chained_unproven`), `already_unmerged`, a refusal (`not_merged`, `merge_superseded`,
+  `survivor_not_live`, `blocked_by_later_merge`), `chain_blocked` (with `blocked_by`, the merge
+  of its unit that refused and why) or `not_selected`.
+- `mac_cleanup_plan`: every MAC row the step will move (`decision` `move`, with `target_uid`) or
+  archive (`remove`), with its row id, record, value, `source`, `integration_type`,
+  `sync_service_id`, `reported_guest_ref`, `first_seen`, `last_seen`, the guest it belongs to,
+  the merges it follows from, and the latest archive history of the value.
 - `mac_rows_kept` (count per reason), `mac_kept_sample` and `mac_guests_skipped`
   (`guest_not_found`, `guest_not_unique`).
 
-Check every `unmerge_plan` entry: the two records must be different machines by their AWX host
-ids, guest identities, hostnames and addresses. To execute only the entries you have checked,
-name them with `awx_proxmox_unmerge_event_ids`. A named merge whose survivor an unnamed merge took
-away stays blocked.
+Check every unit: in each merge the two records must be different machines by their AWX host
+ids, guest identities, hostnames, addresses and match evidence. Review every `chained_unproven`
+merge on a poisoned record too: it stays, and A2 keeps reporting nothing for it, but it may be
+the one guest that record really is. To execute only the units you have checked, name any merge
+of each with `awx_proxmox_unmerge_event_ids`: a unit runs whole, so naming one of its merges
+selects all of them.
 
 ## 3. Execute
 
@@ -192,10 +231,10 @@ kubectl exec -n <namespace> <pod> -c core-elx -- /app/bin/serviceradar_core_elx 
 kubectl cp -n <namespace> -c core-elx <pod>:/tmp/awx_proxmox_unmerge_1.ndjson ./awx_proxmox_unmerge_1.ndjson
 ```
 
-Read `unmerged`, `distinct_asserted`, `unmerge_skipped` (per reason: the recheck under the locks
-found the merge changed, or the unmerge refused it), `unmerge_failures`, `mac_rows_archived`,
-`mac_rows_stale` (rows that changed between the plan and the lock), `mac_rows_still_present`
-and `mac_cleanup_failures`. Any `*_failures` above zero, or `execution_blocked`, makes the call
+Read `units_applied`, `unmerged`, `distinct_asserted`, `units_skipped` (per reason: the plan
+under the locks no longer gave the same unit, or an unmerge refused; the whole unit rolled back),
+`unit_failures`, `mac_rows_moved`, `mac_rows_archived`, `mac_rows_stale` (rows that changed
+between the plan and the lock), `mac_rows_not_settled` and `mac_cleanup_failures`. Any `*_failures` above zero, or `execution_blocked`, makes the call
 return `{:error, {:step_failures, result}}`. `halted` `"manifest"` means a manifest entry could
 not be written and the step stopped there.
 
@@ -261,6 +300,7 @@ first:
 | Action | Rollback |
 | --- | --- |
 | archived wrong-guest MAC | returned to its record while the record is live and no record holds the value now; others count in `skipped` as `mac_not_restorable` |
+| moved wrong-guest MAC | moved back from the guest's record to the record it was taken from, while it is still on the guest's record and the other record is live; others count as `mac_not_restorable` |
 | unmerge | the distinct assertion the step recorded is removed, and the pair is merged again, the merged record into the survivor, as an administrative merge (reason `manual_awx_unmerge_rollback`); skipped as `not_unmerged`, `record_changed` or `merged_since` when the pair is no longer as the unmerge left it |
 
 Reading last first re-merges a chain in its original order. When undoing an unmerge or a MAC
@@ -279,7 +319,10 @@ remove an assertion that existed before the step ran.
   refuses an asserted pair on every automatic path (ingest, alias, registration, the scheduled
   backfill), with no time limit. Only an administrative merge passes it.
 - `fix-awx-proxmox-guest-binding-evidence` removed the binding that produced these merges. The
-  MAC cleanup removes the wrong-guest MACs that let a survivor match the guest again.
+  unmerges return what each merge recorded, and the MAC cleanup moves or archives the wrong-guest
+  MACs no merge recorded, which are what let a survivor match further records
+  (`hypervisor_guest_network_match`, `identifier_backfill`). A merge guard between records with
+  distinct Proxmox guest identities is a separate change; this step changes no guard.
 
 ## What the step leaves
 
@@ -292,7 +335,10 @@ remove an assertion that existed before the step ran.
   identifiers. Interfaces, service checks, alerts and availability the merge moved stay on the
   survivor.
 - **Display fields.** The display MAC and the address an AWX update set on a record are not
-  changed.
+  changed. A survivor that kept a wrong address can still match by address until a sync of its
+  own source corrects it; such later merges are judged on the next run.
+- **`chained_unproven` merges**, among them the first guest merged into a record with no guest
+  identity of its own.
 - **Rows the step cannot prove**, listed in `mac_kept_sample` and `reported_merges`.
 
 ## Manifests

@@ -16,27 +16,36 @@ state. The MAC rows the AWX updates wrote are in no merge audit row and need the
 ## What Changes
 - A new explicit-only DIRE remediation step, `awx-proxmox-unmerge`, dry run by default, with its
   execute refused unless the release runtime configuration sets
-  `enable_awx_proxmox_unmerge_execute`. It is never part of the default run.
-- The step undoes an AWX merge only when the evidence proves the two records are different
+  `enable_awx_proxmox_unmerge_execute`. It is never part of the default run, and it computes its
+  plan when it runs: the set grows until the repair runs.
+- The step undoes an AWX merge only when its evidence proves the two records are different
   machines: different AWX v2 host ids of one controller, Proxmox guest identities (cluster and
   VMID) that differ, or a merge corroborated only by locally administered MACs. A shared AWX
-  host id, guest identity or universally administered MAC voids the proof. Everything else is
-  reported and left in place.
-- Merges are undone newest first, by audit id, one transaction per merge, after locking both
-  records and rechecking the plan for that merge. A merge whose survivor a later merge took away
-  waits for that merge; when that merge does not qualify, both are reported instead. A later
-  merge onto the survivor of a wrong merge is reported, never undone for that reason alone.
+  host id, guest identity or universally administered MAC voids the proof.
+- A bad merge poisons its survivor with the merged record's identifiers, the bound guest's NIC
+  MACs and addresses, and the merged record's address. The survivors kept absorbing correct
+  records through other merge reasons (`hypervisor_guest_network_match`,
+  `identifier_backfill`, ...) after the fix shipped. Every later merge touching a poisoned record,
+  of any reason, is judged in time order and is bad when it joins a second Proxmox guest identity
+  to a record that had established another, or when everything its match rested on is foreign to
+  the poisoned record. Anything else is reported and left in place.
+- The bad merges that share records form a unit, undone newest first in one transaction after
+  locking every record and planning the unit again; a refusal anywhere rolls the unit back, and
+  a unit with any merge that cannot be undone is reported whole.
 - Each unmerged pair is recorded as distinct, so no automatic merge path joins it again after
   the one-day merge cooldown that the unmerge audit row arms.
-- After the unmerges, the step archives (`device_identifier_archive`, reason
-  `awx_wrong_guest_mac`) the MAC rows whose provenance proves an AWX update copied them from the
-  wrong guest, and re-queries them. Any row it cannot prove is reported and kept.
-- `source-id-rollback` reverses the step from its manifest: it returns the archived MAC rows and
-  merges each pair again, administratively, after removing the distinct assertion.
+- After the unmerges, a MAC row an AWX update copied from the wrong guest moves to the record
+  that holds the guest's identity, or, when no live record does, is archived
+  (`device_identifier_archive`, reason `awx_wrong_guest_mac`); both are re-queried. Any row whose
+  provenance cannot prove it is reported and kept.
+- `source-id-rollback` reverses the step from its manifest: it returns the moved and archived MAC
+  rows and merges each pair again, administratively, after removing the distinct assertion.
 - A read-only step, `awx-proxmox-verify` (checks A1-A5), shows after the repair and after later
-  syncs that the unmerged pairs stayed apart and that no AWX merge still joins different machines.
+  syncs that the unmerged pairs stayed apart and that no bad merge is still in place.
 - `docs/awx-proxmox-unmerge-runbook.md` gives the dry run, execute, verification and rollback
   invocations for a release pod.
+- No merge guard changes here; the guard between records with distinct Proxmox guest identities
+  is a separate change.
 
 ## Impact
 - Affected specs: device-identity-reconciliation

@@ -7,24 +7,28 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   and VMID alone, across clusters that reuse both, and a locally administered MAC counted as
   corroboration. The AWX reconciliation then merged the guest's device, the device holding the
   guest's MACs and the AWX record (`MergeEngine.merge_devices/3`, reason
-  `awx_proxmox_network_match`, or `awx_host_network_match` without a guest), so every such merge
-  has a reversible merge audit row. The change closed the path; this step undoes what it left.
+  `awx_proxmox_network_match`, or `awx_host_network_match` without a guest). The survivor kept
+  the other machine's MACs, addresses and Proxmox references, and went on absorbing correct
+  records through other merge paths (`hypervisor_guest_network_match`, `identifier_backfill`,
+  ...). Every one of those merges has a reversible merge audit row. The change closed the AWX
+  path; this step undoes what the records accumulated.
 
-  1. **Select and confirm.** Every merge audit row of the two AWX reasons is judged by
-     `Decisions.awx_merge_evidence/1` on the AWX host ids and Proxmox guest identities each side
-     owns. Only a merge proved to join different machines qualifies; anything ambiguous is
-     reported and left in place. `Decisions.plan_awx_proxmox_unmerge/3` orders the qualifying
-     merges newest first, a merge after the merge that took its survivor away, and reports
-     instead of undoing whatever a non-qualifying merge blocks.
-  2. **Unmerge.** Each merge is undone by its audit id (`MergeEngine.unmerge_device/2` with
-     `:event_id`) in one transaction per merge, after the device rows are locked and the plan is
-     rechecked for that merge on the state under the locks. The unmerge writes the `unmerge`
-     audit row that arms the merge cooldown for the pair, and the step records the pair as
-     distinct (`Deduplication.assert_distinct/4`), which no automatic merge path passes.
-  3. **MAC cleanup.** After the unmerges, the MAC identifier rows an AWX update copied from the
-     wrong guest onto either record are moved to `device_identifier_archive` with reason
-     `awx_wrong_guest_mac` (`Decisions.plan_awx_wrong_guest_macs/1` decides which), and are
-     re-queried afterwards.
+  1. **Select and confirm, at run time.** The step reads the AWX merges and, around their
+     records, every merge of any reason, widening to the records the plan implicates until
+     nothing new is implicated. `Decisions.plan_awx_proxmox_unmerge/3` judges them in time order:
+     an AWX merge on its own evidence (`Decisions.awx_merge_evidence/1`), and any merge touching
+     a record a bad merge poisoned on the chain rule (a second Proxmox guest identity, or match
+     evidence that only the poison brought). Anything it cannot prove is reported and left.
+  2. **Unmerge, one unit at a time.** The bad merges sharing records form a unit, undone newest
+     first in one transaction, after the records are locked and the unit is planned again on the
+     state under the locks; a refusal anywhere rolls the whole unit back. Each unmerge
+     (`MergeEngine.unmerge_device/2` with `:event_id`) writes the `unmerge` audit row that arms
+     the pair's merge cooldown, and the step records the pair as distinct
+     (`Deduplication.assert_distinct/4`).
+  3. **Wrong-guest MACs.** After the unmerges, the MAC rows an AWX update copied from the wrong
+     guest (`Decisions.plan_awx_wrong_guest_macs/1`) go back to the guest's own record when one
+     is live, and are archived (`device_identifier_archive`, reason `awx_wrong_guest_mac`)
+     otherwise; both are re-queried afterwards.
 
   Dry run by default and explicit-only: the step is never in the default run, and its execute is
   refused unless the release runtime configuration sets `enable_awx_proxmox_unmerge_execute`.
@@ -36,16 +40,16 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
-  alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.SourceRetirement
-  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.Remediation.Decisions
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Repo
 
+  require Ash.Query
   require Logger
 
   @step "awx-proxmox-unmerge"
@@ -53,7 +57,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   @archive_reason "awx_wrong_guest_mac"
   @default_candidate_limit 5_000
   @default_report_limit 500
-  @transaction_resources [Device, DeviceIdentifier, MergeAudit, DistinctDeviceAssertion]
+  # The widening stops after this many rounds, or past this many records; the plan is then
+  # incomplete (`candidate_limit_reached`) and execute refuses it.
+  @max_rounds 8
+  @max_records 50_000
 
   @doc "The `unmerged_by` the step's unmerge audit rows carry."
   def unmerged_by, do: @unmerged_by
@@ -73,19 +80,18 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     end
   end
 
-  # -- planning ---------------------------------------------------------------
+  # -- loading ----------------------------------------------------------------
 
   @doc false
-  # Everything the plan reads: the AWX merges (newest first, at most the candidate limit), every
-  # merge audit row touching their two records, those records, their identifiers, and the guests
-  # the merges bound.
+  # The AWX merges (newest first, at most the candidate limit), then everything around their
+  # records, widened to every record the plan implicates.
   def load(opts) do
     limit = Keyword.get(opts, :awx_proxmox_unmerge_candidate_limit, @default_candidate_limit)
 
     %{rows: rows} =
       query!(
         """
-        SELECT event_id::text, from_device_id, to_device_id, reason, details, created_at
+        SELECT from_device_id, to_device_id
         FROM platform.merge_audit
         WHERE reason = ANY($1::text[])
         ORDER BY created_at DESC NULLS LAST, event_id
@@ -94,33 +100,89 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         [Decisions.awx_merge_reasons(), limit + 1]
       )
 
-    awx = rows |> Enum.take(limit) |> Enum.map(&audit_row/1)
-    load_around(awx, length(rows) > limit)
+    rows
+    |> Enum.take(limit)
+    |> List.flatten()
+    |> load_closure(length(rows) > limit)
   end
 
-  defp load_around(awx, truncated?) do
-    uids = awx |> Enum.flat_map(&[&1.from_uid, &1.to_uid]) |> Enum.uniq()
+  defp load_closure(uids, truncated?), do: widen(MapSet.new(uids), truncated?, 1)
+
+  defp widen(uids, truncated?, round) do
+    data = load_around(MapSet.to_list(uids), truncated?)
+    implicated = implicated_records(data)
+
+    wider =
+      for merge <- data.merges,
+          merge.from_uid in implicated or merge.to_uid in implicated,
+          uid <- [merge.from_uid, merge.to_uid],
+          into: uids,
+          do: uid
+
+    cond do
+      MapSet.equal?(wider, uids) -> data
+      round >= @max_rounds or MapSet.size(wider) > @max_records -> %{data | truncated?: true}
+      true -> widen(wider, truncated?, round + 1)
+    end
+  end
+
+  defp implicated_records(data) do
+    data
+    |> plan([])
+    |> Map.fetch!(:report)
+    |> Enum.flat_map(&[&1.from_uid, &1.to_uid])
+    |> MapSet.new()
+  end
+
+  defp load_around(uids, truncated?) do
     related = related_merges(uids)
+    merges = Enum.reject(related, &(&1.reason == "unmerge"))
     identifiers = identifiers_by_device(uids)
 
-    guest_refs =
-      awx |> Enum.map(& &1.details["guest_provider_ref"]) |> Enum.filter(&is_binary/1)
-
-    merges = Enum.reject(related, &(&1.reason == "unmerge"))
+    refs =
+      (Enum.flat_map(merges, &merge_guest_refs/1) ++
+         for(rows <- Map.values(identifiers), row <- rows, do: row.value))
+      |> Enum.filter(&IntegrationIdentity.v3?/1)
+      |> Enum.uniq()
 
     %{
-      awx: awx,
-      audits: Map.new(awx, &{&1.event_id, &1}),
-      related: related,
+      merges: merges,
+      audits: Map.new(merges, &{&1.event_id, &1}),
       merges_into: Enum.group_by(merges, & &1.to_uid),
       merges_from: Enum.group_by(merges, & &1.from_uid),
       reversed: reversed_event_ids(related),
       devices: devices(uids),
       identifiers: identifiers,
-      guests: guests(Enum.uniq(guest_refs)),
+      guests: guests(refs),
       interface_macs: interface_macs(uids),
       truncated?: truncated?
     }
+  end
+
+  defp merge_guest_refs(merge) do
+    named = merge.details["guest_provider_ref"]
+
+    held =
+      for %{type: "integration_id", value: value} <- source_identifiers(merge.details) || [],
+          do: value
+
+    Enum.filter([named | held], &is_binary/1)
+  end
+
+  defp related_merges([]), do: []
+
+  defp related_merges(uids) do
+    %{rows: rows} =
+      query!(
+        """
+        SELECT event_id::text, from_device_id, to_device_id, reason, details, created_at
+        FROM platform.merge_audit
+        WHERE from_device_id = ANY($1::text[]) OR to_device_id = ANY($1::text[])
+        """,
+        [uids]
+      )
+
+    Enum.map(rows, &audit_row/1)
   end
 
   defp audit_row([event_id, from_uid, to_uid, reason, details, created_at]) do
@@ -139,22 +201,6 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
   defp utc(%DateTime{} = at), do: at
   defp utc(_at), do: ~U[1970-01-01 00:00:00Z]
-
-  defp related_merges([]), do: []
-
-  defp related_merges(uids) do
-    %{rows: rows} =
-      query!(
-        """
-        SELECT event_id::text, from_device_id, to_device_id, reason, details, created_at
-        FROM platform.merge_audit
-        WHERE from_device_id = ANY($1::text[]) OR to_device_id = ANY($1::text[])
-        """,
-        [uids]
-      )
-
-    Enum.map(rows, &audit_row/1)
-  end
 
   defp reversed_event_ids(related) do
     for %{reason: "unmerge", details: details} <- related,
@@ -209,19 +255,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       )
 
     rows
-    |> Enum.map(fn [
-                     id,
-                     device_id,
-                     type,
-                     value,
-                     partition,
-                     source,
-                     itype,
-                     sync_id,
-                     ref,
-                     first,
-                     last
-                   ] ->
+    |> Enum.map(fn [id, device_id, type, value, partition, source, itype, sync, ref, first, last] ->
       %{
         id: id,
         device_id: device_id,
@@ -230,7 +264,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         partition: partition,
         source: source,
         integration_type: itype,
-        sync_service_id: sync_id,
+        sync_service_id: sync,
         reported_guest_ref: ref,
         first_seen: first,
         last_seen: last
@@ -255,6 +289,25 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
                      AND btrim(n.mac_address) <> ''
                  ),
                  ARRAY[]::text[]
+               ),
+               COALESCE(
+                 ARRAY(
+                   SELECT split_part(address, '/', 1)
+                   FROM platform.virtualization_network_interfaces n,
+                        unnest(n.ip_addresses) AS address
+                   WHERE n.guest_id = g.id
+                 ),
+                 ARRAY[]::text[]
+               ),
+               COALESCE(
+                 ARRAY(
+                   SELECT di.device_id
+                   FROM platform.device_identifiers di
+                   JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
+                   WHERE di.identifier_type = 'integration_id'
+                     AND di.identifier_value = g.provider_ref
+                 ),
+                 ARRAY[]::text[]
                )
         FROM platform.virtualization_guests g
         WHERE g.provider_ref = ANY($1::text[])
@@ -265,12 +318,29 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     rows
     |> Enum.group_by(&hd/1)
     |> Map.new(fn
-      {ref, [[_ref, device_uid, macs]]} ->
-        {ref, %{provider_ref: ref, device_uid: device_uid, macs: macs || []}}
+      {ref, [[_ref, device_uid, macs, ips, holders]]} ->
+        {ref,
+         %{
+           provider_ref: ref,
+           key: Decisions.awx_guest_key(ref),
+           device_uid: device_uid,
+           macs: macs || [],
+           ips: ips || [],
+           holders: holders || []
+         }}
 
       # More than one guest row for one reference: which NICs are the guest's is not known.
       {ref, _several} ->
-        {ref, %{provider_ref: ref, device_uid: nil, macs: [], ambiguous?: true}}
+        {ref,
+         %{
+           provider_ref: ref,
+           key: Decisions.awx_guest_key(ref),
+           device_uid: nil,
+           macs: [],
+           ips: [],
+           holders: [],
+           ambiguous?: true
+         }}
     end)
   end
 
@@ -286,18 +356,22 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     Enum.group_by(rows, &hd/1, &List.last/1)
   end
 
+  # -- planning ---------------------------------------------------------------
+
   @doc false
   def plan(data, opts) do
-    merges = Enum.map(data.awx, &merge_input(&1, data))
+    merges = Enum.map(data.merges, &merge_input(&1, data))
 
-    others =
-      for uid <- data.awx |> Enum.map(& &1.to_uid) |> Enum.uniq(),
-          merge <- Map.get(data.merges_into, uid, []),
-          merge.reason not in Decisions.awx_merge_reasons(),
-          not MapSet.member?(data.reversed, merge.event_id),
-          do: Map.take(merge, [:event_id, :created_at, :reason, :from_uid, :to_uid])
+    context = %{
+      own:
+        Map.new(data.devices, fn {uid, device} ->
+          {uid, own_identifiers(data, uid, device)}
+        end),
+      display_mac: Map.new(data.devices, fn {uid, device} -> {uid, device.mac} end),
+      guests: data.guests
+    }
 
-    Decisions.plan_awx_proxmox_unmerge(merges, others,
+    Decisions.plan_awx_proxmox_unmerge(merges, context,
       event_ids: Keyword.get(opts, :awx_proxmox_unmerge_event_ids, [])
     )
   end
@@ -305,22 +379,14 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp merge_input(audit, data) do
     from = Map.get(data.devices, audit.from_uid)
     to = Map.get(data.devices, audit.to_uid)
-    into_survivor = Map.get(data.merges_into, audit.to_uid, [])
 
     absorbed_before =
-      into_survivor
+      data.merges_into
+      |> Map.get(audit.to_uid, [])
       |> Enum.filter(
-        &(&1.event_id != audit.event_id and
-            DateTime.before?(&1.created_at, audit.created_at))
+        &(&1.event_id != audit.event_id and DateTime.before?(&1.created_at, audit.created_at))
       )
       |> Enum.flat_map(&(source_identifiers(&1.details) || []))
-
-    to_state = to_state(to, data)
-
-    to_own =
-      data
-      |> own_rows(audit.to_uid, survivor_identifiers(data, audit.to_uid, to_state))
-      |> Enum.map(&Map.take(&1, [:type, :value, :partition]))
 
     %{
       event_id: audit.event_id,
@@ -331,9 +397,12 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       guest_provider_ref: audit.details["guest_provider_ref"],
       corroboration: audit.details["corroboration"],
       awx_integration_id: audit.details["awx_integration_id"],
+      evidence: recorded_evidence(audit.details["evidence"]),
+      from_ip: audit.details["from_device_ip"],
+      to_ip_before: audit.details["to_device_ip_before"],
       source_identifiers: source_identifiers(audit.details),
       from_mac: from && from.mac,
-      to_own_identifiers: to_own,
+      to_own_identifiers: own_identifiers(data, audit.to_uid, to),
       to_absorbed_before: absorbed_before,
       to_mac: to && to.mac,
       reversed?: MapSet.member?(data.reversed, audit.event_id),
@@ -345,20 +414,31 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
           other.event_id != audit.event_id and
             DateTime.compare(other.created_at, audit.created_at) != :lt
         end),
-      to_state: to_state
+      to_state: to_state(to, data)
     }
   end
 
-  # What the survivor holds: its rows, or, once a later merge took it away, what that merge
-  # recorded it owned.
-  defp survivor_identifiers(data, uid, {:merged, event_id}) do
-    data.merges_from
-    |> Map.get(uid, [])
-    |> Enum.find(&(&1.event_id == event_id))
-    |> then(&(source_identifiers(&1.details) || []))
-  end
+  defp recorded_evidence(entries) when is_list(entries), do: Enum.filter(entries, &is_map/1)
+  defp recorded_evidence(_entries), do: nil
 
-  defp survivor_identifiers(data, uid, _state), do: Map.get(data.identifiers, uid, [])
+  # A record's own identifiers: what it holds, or once a merge took it away what that merge
+  # recorded it owned, less what unreversed merges brought it.
+  defp own_identifiers(_data, _uid, nil), do: []
+
+  defp own_identifiers(data, uid, device) do
+    rows =
+      case to_state(device, data) do
+        {:merged, event_id} ->
+          data.audits |> Map.fetch!(event_id) |> then(&(source_identifiers(&1.details) || []))
+
+        _state ->
+          Map.get(data.identifiers, uid, [])
+      end
+
+    data
+    |> own_rows(uid, rows)
+    |> Enum.map(&Map.take(&1, [:type, :value, :partition]))
+  end
 
   defp source_identifiers(details) do
     case details["source_identifiers"] do
@@ -393,85 +473,6 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   defp to_state(_device, _data), do: :deleted
 
-  # -- MAC cleanup planning ---------------------------------------------------
-
-  @doc false
-  # The MAC rows of the records of every bad merge that is (or, in the dry run, is planned to be)
-  # undone, on `rows_by_device` (the current rows, or the dry run's projection of them).
-  def plan_macs(data, plan, rows_by_device, scope, opts) do
-    selected = opts |> Keyword.get(:awx_proxmox_unmerge_event_ids, []) |> MapSet.new()
-
-    bad =
-      Enum.filter(plan.report, fn entry ->
-        entry.bad? and entry.disposition in scope and is_binary(guest_ref(entry, data)) and
-          (MapSet.size(selected) == 0 or MapSet.member?(selected, entry.event_id))
-      end)
-
-    bad
-    |> Enum.flat_map(fn entry ->
-      ref = guest_ref(entry, data)
-      guest = Map.get(data.guests, ref)
-      facts = entry.evidence.facts
-
-      for {uid, other_is_guest?} <- [
-            {entry.from_uid, facts.to_is_guest},
-            {entry.to_uid, facts.guest != nil and MapSet.member?(facts.from_guests, facts.guest)}
-          ] do
-        {uid, ref, entry.event_id, guest, other_is_guest?}
-      end
-    end)
-    |> Enum.group_by(fn {uid, ref, _event, _guest, _other} -> {uid, ref} end)
-    |> Enum.flat_map(fn {{uid, ref}, group} ->
-      {_uid, _ref, _event, guest, _other} = hd(group)
-      event_ids = group |> Enum.map(&elem(&1, 2)) |> Enum.sort()
-      other_is_guest? = Enum.any?(group, &elem(&1, 4))
-      plan_device_macs(data, rows_by_device, uid, ref, guest, event_ids, other_is_guest?)
-    end)
-  end
-
-  defp guest_ref(entry, data) do
-    case Map.get(data.audits, entry.event_id) do
-      nil -> nil
-      audit -> audit.details["guest_provider_ref"]
-    end
-  end
-
-  defp plan_device_macs(_data, _rows, _uid, ref, nil, event_ids, _other) do
-    [%{provider_ref: ref, merge_event_ids: event_ids, skipped: :guest_not_found}]
-  end
-
-  defp plan_device_macs(_data, _rows, _uid, ref, %{ambiguous?: true}, event_ids, _other) do
-    [%{provider_ref: ref, merge_event_ids: event_ids, skipped: :guest_not_unique}]
-  end
-
-  defp plan_device_macs(data, rows_by_device, uid, ref, guest, event_ids, other_is_guest?) do
-    rows = Map.get(rows_by_device, uid, [])
-    own_rows = own_rows(data, uid, rows)
-    device = Map.get(data.devices, uid) || %{}
-
-    input = %{
-      guest: %{
-        provider_ref: ref,
-        key: Decisions.awx_guest_key(ref),
-        device_uid: guest.device_uid,
-        macs: guest.macs
-      },
-      device: %{
-        uid: uid,
-        own_guest_keys: own_guest_keys(own_rows),
-        other_side_is_guest?: other_is_guest?,
-        interface_macs: Map.get(data.interface_macs, uid, []),
-        awx_declared_macs: awx_declared_macs(device[:awx]),
-        absorbed_macs: absorbed_macs(data, uid)
-      },
-      rows: Enum.filter(rows, &(&1.type == "mac"))
-    }
-
-    input
-    |> Decisions.plan_awx_wrong_guest_macs()
-    |> Enum.map(&Map.merge(&1, %{device_uid: uid, provider_ref: ref, merge_event_ids: event_ids}))
-  end
-
   # The record's identifiers that no unreversed merge brought it.
   defp own_rows(data, uid, rows) do
     absorbed =
@@ -483,16 +484,130 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     Enum.reject(rows, &MapSet.member?(absorbed, {&1.type, &1.value}))
   end
 
-  defp absorbed_macs(data, uid) do
-    for merge <- unreversed_merges_into(data, uid),
-        %{type: "mac", value: value} <- source_identifiers(merge.details) || [],
-        do: value
-  end
-
   defp unreversed_merges_into(data, uid) do
     data.merges_into
     |> Map.get(uid, [])
     |> Enum.reject(&MapSet.member?(data.reversed, &1.event_id))
+  end
+
+  # -- MAC planning -----------------------------------------------------------
+
+  @doc false
+  # The guest MAC rows on both records of every bad merge that is (or, in the dry run, will be)
+  # undone, judged on `rows_by_device` (the current rows, or the dry run's projection of them).
+  def plan_macs(data, plan, rows_by_device, scope, opts) do
+    selected = selected_events(plan, opts)
+    holders = guest_holder_index(data, rows_by_device)
+
+    plan.report
+    |> Enum.filter(fn entry ->
+      entry.bad? and entry.disposition in scope and
+        (selected == :all or MapSet.member?(selected, entry.event_id))
+    end)
+    |> Enum.flat_map(fn entry ->
+      audit = Map.fetch!(data.audits, entry.event_id)
+
+      for ref <- Enum.uniq(merge_guest_refs(audit)),
+          uid <- [entry.from_uid, entry.to_uid],
+          do: {uid, ref, entry.event_id}
+    end)
+    |> Enum.group_by(fn {uid, ref, _event} -> {uid, ref} end, &elem(&1, 2))
+    |> Enum.flat_map(fn {{uid, ref}, event_ids} ->
+      plan_device_macs(data, rows_by_device, holders, {uid, ref}, Enum.sort(event_ids))
+    end)
+  end
+
+  # Selection names merges; a unit runs whole, so every merge of a selected unit counts.
+  defp selected_events(plan, opts) do
+    case Keyword.get(opts, :awx_proxmox_unmerge_event_ids, []) do
+      [] ->
+        :all
+
+      ids ->
+        units =
+          for entry <- plan.report,
+              entry.event_id in ids,
+              entry.unit,
+              into: MapSet.new(),
+              do: entry.unit
+
+        for entry <- plan.report,
+            entry.event_id in ids or entry.unit in units,
+            into: MapSet.new(),
+            do: entry.event_id
+    end
+  end
+
+  defp plan_device_macs(data, rows_by_device, holder_index, {uid, ref}, event_ids) do
+    case Map.get(data.guests, ref) do
+      nil ->
+        []
+
+      %{ambiguous?: true} ->
+        [%{provider_ref: ref, merge_event_ids: event_ids, skipped: :guest_not_unique}]
+
+      guest ->
+        rows = Map.get(rows_by_device, uid, [])
+        device = Map.get(data.devices, uid) || %{}
+        # The records holding the guest's identity: among the loaded ones as the unmerges leave
+        # them, and any other live record that holds its reference.
+        others = Enum.reject(guest.holders, &Map.has_key?(data.devices, &1))
+        holders = Enum.uniq(Map.get(holder_index, guest.key, []) ++ others)
+
+        input = %{
+          guest: %{
+            provider_ref: ref,
+            key: guest.key,
+            device_uid: guest.device_uid,
+            macs: guest.macs,
+            record_uid: single(holders -- [uid])
+          },
+          device: %{
+            uid: uid,
+            own_guest_keys: own_guest_keys(own_rows(data, uid, rows)),
+            other_side_is_guest?: Enum.any?(holders, &(&1 != uid)),
+            interface_macs: Map.get(data.interface_macs, uid, []),
+            awx_declared_macs: awx_declared_macs(device[:awx]),
+            absorbed_macs: absorbed_macs(data, uid)
+          },
+          rows: Enum.filter(rows, &(&1.type == "mac"))
+        }
+
+        input
+        |> Decisions.plan_awx_wrong_guest_macs()
+        |> Enum.map(
+          &Map.merge(&1, %{device_uid: uid, provider_ref: ref, merge_event_ids: event_ids})
+        )
+    end
+  end
+
+  defp single([one]), do: one
+  defp single(_none_or_several), do: nil
+
+  # Per guest identity, the loaded live records that hold it as their own (on `rows_by_device`,
+  # so in the dry run the records the unmerges will restore).
+  defp guest_holder_index(data, rows_by_device) do
+    for {uid, rows} <- rows_by_device,
+        live_after_unmerge?(data, uid, rows),
+        key <- own_guest_keys(own_rows(data, uid, rows)),
+        reduce: %{} do
+      index -> Map.update(index, key, [uid], &[uid | &1])
+    end
+  end
+
+  # A record holding rows is live, or a merged tombstone the dry run's projection gives rows back.
+  defp live_after_unmerge?(data, uid, rows) do
+    case Map.get(data.devices, uid) do
+      %{deleted?: false} -> true
+      %{deleted_reason: "merged"} -> rows != []
+      _other -> false
+    end
+  end
+
+  defp absorbed_macs(data, uid) do
+    for merge <- unreversed_merges_into(data, uid),
+        %{type: "mac", value: value} <- source_identifiers(merge.details) || [],
+        do: value
   end
 
   defp own_guest_keys(rows) do
@@ -514,7 +629,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   defp awx_declared_macs(_awx), do: []
 
-  # -- dry run ----------------------------------------------------------------
+  # -- report -----------------------------------------------------------------
 
   defp dry_run(data, plan, base, opts) do
     projected =
@@ -530,28 +645,33 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   defp base_report(data, plan, opts) do
     limit = Keyword.get(opts, :awx_proxmox_unmerge_report_limit, @default_report_limit)
-    unmerge_ids = MapSet.new(plan.unmerge, & &1.event_id)
     by_id = Map.new(plan.report, &{&1.event_id, &1})
+    planned = MapSet.new(plan.unmerge, & &1.event_id)
 
-    unmerge_plan =
-      plan.unmerge
+    units =
+      plan.units
       |> Enum.with_index(1)
-      |> Enum.map(fn {merge, order} ->
-        by_id |> Map.fetch!(merge.event_id) |> describe(data) |> Map.put(:order, order)
+      |> Enum.map(fn {unit, order} ->
+        %{
+          order: order,
+          unit: unit.id,
+          merges: Enum.map(unit.event_ids, &describe(Map.fetch!(by_id, &1), data))
+        }
       end)
 
     reported =
       plan.report
-      |> Enum.reject(&MapSet.member?(unmerge_ids, &1.event_id))
+      |> Enum.reject(&MapSet.member?(planned, &1.event_id))
       |> Enum.sort_by(&{to_string(&1.disposition), &1.event_id})
 
     %{
-      awx_merges: length(data.awx),
+      merges_read: length(data.merges),
       candidate_limit_reached: data.truncated?,
       proved_different_machines: Enum.count(plan.report, & &1.bad?),
       dispositions: Enum.frequencies_by(plan.report, &to_string(&1.disposition)),
+      planned_units: length(plan.units),
       planned_unmerges: length(plan.unmerge),
-      unmerge_plan: unmerge_plan,
+      unmerge_plan: units,
       reported_merges: reported |> Enum.take(limit) |> Enum.map(&describe(&1, data))
     }
   end
@@ -563,21 +683,21 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         audit -> audit.details
       end
 
-    evidence = entry.evidence
-    facts = evidence && evidence.facts
+    facts = entry.evidence && entry.evidence.facts
 
     %{
       event_id: entry.event_id,
       created_at: entry.created_at,
       reason: entry.reason,
       disposition: to_string(entry.disposition),
+      unit: entry.unit,
       blocked_by: entry.blocked_by,
-      follows_bad_merges: entry.follows_bad_merges,
-      proofs: (evidence && Enum.map(evidence.proofs, &to_string/1)) || [],
+      proofs: Enum.map(entry.proofs, &to_string/1),
+      match_evidence: entry.match_evidence,
       corroboration: details["corroboration"],
       awx_integration_id: details["awx_integration_id"],
       guest_provider_ref: details["guest_provider_ref"],
-      guest: facts && render_key(facts.guest),
+      recorded_evidence: details["evidence"],
       from: side(entry.from_uid, data, details, facts, :from),
       to: side(entry.to_uid, data, details, facts, :to)
     }
@@ -618,7 +738,21 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         universal_macs: Enum.sort(macs)
       })
     else
-      base
+      Map.put(base, :proxmox_guests, guest_keys_of(uid, data))
+    end
+  end
+
+  defp guest_keys_of(uid, data) do
+    case Map.get(data.devices, uid) do
+      nil ->
+        []
+
+      device ->
+        data
+        |> own_identifiers(uid, device)
+        |> own_guest_keys()
+        |> Enum.map(&render_key/1)
+        |> Enum.sort()
     end
   end
 
@@ -628,14 +762,15 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp mac_report(macs, opts) do
     limit = Keyword.get(opts, :awx_proxmox_unmerge_report_limit, @default_report_limit)
     {skipped, rows} = Enum.split_with(macs, &Map.has_key?(&1, :skipped))
-    {remove, keep} = Enum.split_with(rows, &(&1.decision == :remove))
-    history = archive_history(Enum.map(remove, & &1.value))
+    {act, keep} = Enum.split_with(rows, &(&1.decision in [:move, :remove]))
+    history = archive_history(Enum.map(act, & &1.value))
 
     %{
-      planned_mac_removals: length(remove),
+      planned_mac_moves: Enum.count(act, &(&1.decision == :move)),
+      planned_mac_removals: Enum.count(act, &(&1.decision == :remove)),
       mac_rows_kept: Enum.frequencies_by(keep, &to_string(&1.reason)),
       mac_guests_skipped: Enum.frequencies_by(skipped, &to_string(&1.skipped)),
-      mac_cleanup_plan: Enum.map(remove, &describe_mac(&1, history)),
+      mac_cleanup_plan: Enum.map(act, &describe_mac(&1, history)),
       mac_kept_sample: keep |> Enum.take(limit) |> Enum.map(&describe_mac(&1, %{}))
     }
   end
@@ -645,6 +780,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     |> Map.take([
       :id,
       :device_uid,
+      :target_uid,
       :value,
       :partition,
       :source,
@@ -657,6 +793,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       :merge_event_ids
     ])
     |> Map.merge(%{
+      decision: to_string(row.decision),
       reason: row.reason && to_string(row.reason),
       archive_history: Map.get(history, row.value, [])
     })
@@ -707,7 +844,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
           manifest_errors: :counters.new(1, [])
         }
 
-        state = Enum.reduce_while(plan.unmerge, initial_state(), &unmerge_one(&1, &2, run))
+        merges = Map.new(plan.unmerge, &{&1.event_id, &1})
+
+        state =
+          Enum.reduce_while(plan.units, initial_state(), fn unit, state ->
+            unmerge_unit(Enum.map(unit.event_ids, &Map.fetch!(merges, &1)), state, run)
+          end)
+
         state = if state.halted, do: state, else: clean_macs(state, opts, run)
 
         base
@@ -719,14 +862,16 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
   defp initial_state do
     %{
+      units_applied: 0,
       unmerged: 0,
       distinct_asserted: 0,
-      unmerge_skipped: %{},
-      unmerge_failures: 0,
+      units_skipped: %{},
+      unit_failures: 0,
+      mac_rows_moved: 0,
       mac_rows_archived: 0,
       mac_rows_stale: 0,
       mac_cleanup_failures: 0,
-      mac_rows_still_present: 0,
+      mac_rows_not_settled: 0,
       manifest_failures: 0,
       halted: nil
     }
@@ -737,6 +882,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       execution_blocked: true,
       execution_blocked_reason: to_string(reason),
       unmerged: 0,
+      mac_rows_moved: 0,
       mac_rows_archived: 0
     })
   end
@@ -750,8 +896,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     runtime? and Keyword.get(opts, :awx_proxmox_unmerge_execute_enabled, false)
   end
 
-  defp unmerge_one(merge, state, run) do
+  defp unmerge_unit(merges, state, run) do
     token = Ecto.UUID.generate()
+    event_ids = Enum.map(merges, & &1.event_id)
 
     preflight =
       Manifest.record(
@@ -759,54 +906,45 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         @step,
         :candidate_preflight,
         "platform.merge_audit",
-        [
-          merge.event_id
-        ],
+        event_ids,
         %{
           phase: "preflight",
           candidate_token: token,
-          from_device_uid: merge.from_uid,
-          to_device_uid: merge.to_uid
+          pairs: Enum.map(merges, &%{from_device_uid: &1.from_uid, to_device_uid: &1.to_uid})
         }
       )
 
     with :ok <- preflight,
-         {:ok, outcome} <- safely(fn -> unmerge_transaction(merge, token, run) end) do
-      case outcome do
-        {:unmerged, asserted?} ->
-          committed(state, run, merge.event_id, token, fn state ->
-            %{
-              state
-              | unmerged: state.unmerged + 1,
-                distinct_asserted: state.distinct_asserted + if(asserted?, do: 1, else: 0)
-            }
-          end)
-
-        {:refused, reason} ->
-          {:cont, skip(state, reason)}
-      end
+         {:ok, asserted} <- safely(fn -> unit_transaction(merges, token, run) end) do
+      committed(state, run, event_ids, token, fn state ->
+        %{
+          state
+          | units_applied: state.units_applied + 1,
+            unmerged: state.unmerged + length(merges),
+            distinct_asserted: state.distinct_asserted + asserted
+        }
+      end)
     else
+      {:error, {:refused, reason}} ->
+        {:cont, skip(state, reason)}
+
       {:error, reason} ->
-        manifest_failure? =
-          preflight != :ok or :counters.get(run.manifest_errors, 1) > 0
-
-        Logger.warning("#{@step}: unmerge of #{merge.event_id} failed: #{inspect(reason)}")
-
-        if manifest_failure? do
-          {:halt,
-           %{
-             state
-             | unmerge_failures: state.unmerge_failures + 1,
-               manifest_failures: state.manifest_failures + 1,
-               halted: "manifest"
-           }}
-        else
-          {:cont, %{state | unmerge_failures: state.unmerge_failures + 1}}
-        end
+        Logger.warning("#{@step}: unit #{inspect(event_ids)} failed: #{inspect(reason)}")
+        failure(state, run, preflight, :unit_failures)
     end
   end
 
-  defp committed(state, run, event_id, token, update) do
+  defp failure(state, run, preflight, counter) do
+    state = Map.update!(state, counter, &(&1 + 1))
+
+    if preflight != :ok or :counters.get(run.manifest_errors, 1) > 0 do
+      {:halt, %{state | manifest_failures: state.manifest_failures + 1, halted: "manifest"}}
+    else
+      {:cont, state}
+    end
+  end
+
+  defp committed(state, run, ids, token, update) do
     state = update.(state)
 
     case Manifest.record(
@@ -814,22 +952,26 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            @step,
            :candidate_committed,
            "platform.merge_audit",
-           [
-             event_id
-           ],
-           %{phase: "committed", candidate_token: token}
+           ids,
+           %{
+             phase: "committed",
+             candidate_token: token
+           }
          ) do
       :ok ->
         {:cont, state}
 
       {:error, reason} ->
-        Logger.error("#{@step}: #{event_id} committed but its marker failed: #{inspect(reason)}")
+        Logger.error(
+          "#{@step}: #{inspect(ids)} committed but its marker failed: #{inspect(reason)}"
+        )
+
         {:halt, %{state | manifest_failures: state.manifest_failures + 1, halted: "manifest"}}
     end
   end
 
   defp skip(state, reason) do
-    %{state | unmerge_skipped: Map.update(state.unmerge_skipped, to_string(reason), 1, &(&1 + 1))}
+    %{state | units_skipped: Map.update(state.units_skipped, to_string(reason), 1, &(&1 + 1))}
   end
 
   defp safely(fun) do
@@ -838,30 +980,34 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     error -> {:error, error}
   end
 
-  # One transaction per merge: lock both records, recheck the plan for this merge on the state
-  # under the locks, undo it by its audit id, record the pair distinct, and write the action entry
-  # before commit. A refusal is a value and commits nothing, since nothing was written.
-  defp unmerge_transaction(merge, token, run) do
-    @transaction_resources
-    |> Ash.transact(fn ->
-      lock_devices([merge.from_uid, merge.to_uid])
+  # One transaction per unit: lock every record, plan the unit again on the state under the locks,
+  # undo its merges in order and record each pair distinct, and write the action entries before
+  # commit. Any refusal rolls back the whole unit, so a chain is never left half undone.
+  defp unit_transaction(merges, token, run) do
+    Repo.transaction(
+      fn ->
+        lock_devices(Enum.flat_map(merges, &[&1.from_uid, &1.to_uid]))
+        revalidate_unit(merges, run.opts)
 
-      with :ok <- revalidate(merge, run.opts),
-           :ok <- do_unmerge(merge, run.actor),
-           {:ok, unmerge_event_id} <- unmerge_event_id(merge.event_id),
-           {:ok, assertion_id} <- assert_distinct(merge, run.actor),
-           :ok <- record_unmerge(merge, unmerge_event_id, assertion_id, token, run) do
-        {:unmerged, not is_nil(assertion_id)}
-      else
-        {:refused, reason} -> {:refused, reason}
-        {:error, _} = error -> error
-      end
-    end)
-    |> case do
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:ok, outcome} -> {:ok, outcome}
-      {:error, _} = error -> error
-    end
+        entries =
+          Enum.map(merges, fn merge ->
+            do_unmerge(merge, run.actor)
+            {:ok, unmerge_event_id} = unmerge_event_id(merge.event_id)
+            assertion_id = assert_distinct(merge, run.actor)
+            unmerge_entry(merge, unmerge_event_id, assertion_id, token)
+          end)
+
+        case Manifest.record_batch(run.manifest, @step, entries) do
+          :ok ->
+            Enum.count(entries, &(&1.extra.distinct_assertion_id != nil))
+
+          {:error, reason} ->
+            :counters.add(run.manifest_errors, 1, 1)
+            Repo.rollback({:manifest_prepare_failed, reason})
+        end
+      end,
+      timeout: :infinity
+    )
   end
 
   defp lock_devices(uids) do
@@ -876,30 +1022,32 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     )
   end
 
-  # The plan for this merge alone, on the state read under the locks: it must still prove two
-  # different machines and still be the merge to undo next.
-  defp revalidate(merge, opts) do
-    %{rows: rows} =
-      query!(
-        """
-        SELECT event_id::text, from_device_id, to_device_id, reason, details, created_at
-        FROM platform.merge_audit
-        WHERE event_id = CAST($1 AS uuid)
-        """,
-        [merge.event_id]
-      )
+  # The unit planned again from its own records, on the state read under the locks: it must still
+  # be one runnable unit of exactly these merges.
+  defp revalidate_unit(merges, opts) do
+    ids = merges |> Enum.map(& &1.event_id) |> Enum.sort()
 
-    data = load_around(Enum.map(rows, &audit_row/1), false)
+    data =
+      merges
+      |> Enum.flat_map(&[&1.from_uid, &1.to_uid])
+      |> load_closure(false)
 
-    case plan(data, opts) do
-      %{unmerge: [%{event_id: id}]} when id == merge.event_id ->
+    fresh = plan(data, opts)
+
+    cond do
+      data.truncated? ->
+        Repo.rollback({:refused, :candidate_limit_reached})
+
+      Enum.any?(fresh.units, &(Enum.sort(&1.event_ids) == ids)) ->
         :ok
 
-      %{report: [entry | _]} ->
-        {:refused, entry.disposition || :stale_plan}
+      true ->
+        reason =
+          Enum.find_value(fresh.report, :stale_plan, fn entry ->
+            if entry.event_id in ids and entry.disposition != :unmerge, do: entry.disposition
+          end)
 
-      _ ->
-        {:refused, :stale_plan}
+        Repo.rollback({:refused, reason})
     end
   end
 
@@ -910,8 +1058,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            event_id: merge.event_id
          ) do
       :ok -> :ok
-      {:error, reason} when is_atom(reason) -> {:refused, reason}
-      {:error, _} = error -> error
+      {:error, reason} when is_atom(reason) -> Repo.rollback({:refused, reason})
+      {:error, error} -> Repo.rollback({:unmerge_failed, merge.event_id, error})
     end
   end
 
@@ -926,7 +1074,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            [event_id]
          ) do
       %{rows: [[id]]} -> {:ok, id}
-      _ -> {:error, :unmerge_audit_missing}
+      _ -> Repo.rollback({:unmerge_audit_missing, event_id})
     end
   end
 
@@ -935,7 +1083,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   # and is not the step's to roll back.
   defp assert_distinct(merge, actor) do
     if Deduplication.asserted_distinct?(merge.from_uid, merge.to_uid) do
-      {:ok, nil}
+      nil
     else
       case Deduplication.assert_distinct(
              merge.from_uid,
@@ -943,67 +1091,59 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
              "AWX/Proxmox guest-binding unmerge of merge #{merge.event_id}",
              actor
            ) do
-        {:ok, assertion} -> {:ok, assertion.id}
-        {:error, _} = error -> error
+        {:ok, assertion} -> assertion.id
+        {:error, error} -> Repo.rollback({:assert_distinct_failed, merge.event_id, error})
       end
     end
   end
 
-  defp record_unmerge(merge, unmerge_event_id, assertion_id, token, run) do
-    entry = %{
+  defp unmerge_entry(merge, unmerge_event_id, assertion_id, token) do
+    %{
       action: :awx_unmerge,
       table: "platform.merge_audit",
       ids: [merge.event_id],
       extra: %{
         phase: "prepared",
         candidate_token: token,
+        reason: merge.reason,
         from_device_uid: merge.from_uid,
         to_device_uid: merge.to_uid,
         unmerge_event_id: unmerge_event_id,
         distinct_assertion_id: assertion_id
       }
     }
-
-    case Manifest.record_batch(run.manifest, @step, [entry]) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        :counters.add(run.manifest_errors, 1, 1)
-        {:error, {:manifest_prepare_failed, reason}}
-    end
   end
 
-  # -- execute: MAC cleanup ---------------------------------------------------
+  # -- execute: wrong-guest MACs -----------------------------------------------
 
-  # After the unmerges, on the state they left: the rows the plan proves came from the wrong guest,
-  # archived one record at a time, then re-queried.
+  # After the unmerges, on the state they left: each proved row goes to its guest's record or to
+  # the archive, one record at a time, and every row acted on is re-queried.
   defp clean_macs(state, opts, run) do
     data = load(opts)
     plan = plan(data, opts)
-    macs = plan_macs(data, plan, data.identifiers, [:already_unmerged], opts)
 
-    removals =
-      macs
-      |> Enum.filter(&(Map.get(&1, :decision) == :remove))
-      |> Enum.group_by(& &1.device_uid)
+    groups =
+      data
+      |> plan_macs(plan, data.identifiers, [:already_unmerged], opts)
+      |> Enum.filter(&(Map.get(&1, :decision) in [:move, :remove]))
+      |> Enum.group_by(&{&1.device_uid, &1.decision, &1.target_uid})
 
-    {state, archived_ids} =
-      Enum.reduce_while(removals, {state, []}, fn {uid, rows}, {state, ids} ->
-        {action, state, archived} = archive_device_macs(uid, rows, state, run)
-        {action, {state, archived ++ ids}}
+    {state, done} =
+      Enum.reduce_while(groups, {state, []}, fn {{uid, decision, target}, rows}, {state, done} ->
+        {action, state, acted} = clean_device_macs(uid, decision, target, rows, state, run)
+        {action, {state, acted ++ done}}
       end)
 
-    still_present = still_present(archived_ids)
+    unsettled = unsettled(done)
 
     %{
       state
-      | mac_rows_still_present: still_present,
-        mac_cleanup_failures: state.mac_cleanup_failures + still_present
+      | mac_rows_not_settled: unsettled,
+        mac_cleanup_failures: state.mac_cleanup_failures + unsettled
     }
   end
 
-  defp archive_device_macs(uid, rows, state, run) do
+  defp clean_device_macs(uid, decision, target, rows, state, run) do
     token = Ecto.UUID.generate()
     ids = Enum.map(rows, & &1.id)
 
@@ -1017,115 +1157,128 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         %{
           phase: "preflight",
           candidate_token: token,
-          device_uid: uid
+          device_uid: uid,
+          target_uid: target,
+          decision: decision
         }
       )
 
     with :ok <- preflight,
-         {:ok, archived} <- safely(fn -> archive_transaction(uid, rows, token, run) end) do
+         {:ok, acted} <-
+           safely(fn -> mac_transaction(uid, decision, target, rows, token, run) end) do
+      counter = if decision == :move, do: :mac_rows_moved, else: :mac_rows_archived
+
       {action, state} =
-        committed(state, run, uid, token, fn state ->
-          %{
-            state
-            | mac_rows_archived: state.mac_rows_archived + length(archived),
-              mac_rows_stale: state.mac_rows_stale + length(ids) - length(archived)
-          }
+        committed(state, run, ids, token, fn state ->
+          state
+          |> Map.update!(counter, &(&1 + length(acted)))
+          |> Map.update!(:mac_rows_stale, &(&1 + length(ids) - length(acted)))
         end)
 
-      {action, state, archived}
+      {action, state, Enum.map(acted, &{&1, decision, target})}
     else
       {:error, reason} ->
         Logger.warning("#{@step}: MAC cleanup of #{uid} failed: #{inspect(reason)}")
-
-        if preflight != :ok or :counters.get(run.manifest_errors, 1) > 0 do
-          state = %{
-            state
-            | mac_cleanup_failures: state.mac_cleanup_failures + 1,
-              manifest_failures: state.manifest_failures + 1,
-              halted: "manifest"
-          }
-
-          {:halt, state, []}
-        else
-          {:cont, %{state | mac_cleanup_failures: state.mac_cleanup_failures + 1}, []}
-        end
+        {action, state} = failure(state, run, preflight, :mac_cleanup_failures)
+        {action, state, []}
     end
   end
 
-  # Under the record's lock, a row moves only while it is still the AWX-written row of the guest
-  # MAC the plan judged; a row that changed since is left and counted as stale.
-  defp archive_transaction(uid, rows, token, run) do
-    [Device, DeviceIdentifier]
-    |> Ash.transact(fn ->
-      lock_devices([uid])
-      expected = Map.new(rows, &{&1.id, &1.value})
+  # Under the records' locks, a row is acted on only while it is still the guest MAC row the plan
+  # judged, with the same provenance; a row that changed since is left and counted as stale.
+  defp mac_transaction(uid, decision, target, rows, token, run) do
+    Repo.transaction(fn ->
+      lock_devices(Enum.reject([uid, target], &is_nil/1))
+      expected = Map.new(rows, &{&1.id, {&1.value, &1.integration_type, &1.reported_guest_ref}})
 
       %{rows: current} =
         query!(
           """
-          SELECT id, identifier_value FROM platform.device_identifiers
+          SELECT id, identifier_value, metadata->>'integration_type',
+                 metadata->>'hypervisor_provider_ref'
+          FROM platform.device_identifiers
           WHERE id = ANY($1::bigint[]) AND device_id = $2 AND identifier_type = 'mac'
-            AND source = 'sync_ingestor' AND metadata->>'integration_type' = 'awx'
+            AND source = 'sync_ingestor'
           FOR UPDATE
           """,
           [Map.keys(expected), uid]
         )
 
-      ids = for [id, value] <- current, Map.get(expected, id) == value, do: id
+      ids =
+        for [id, value, itype, ref] <- current,
+            Map.get(expected, id) == {value, itype, ref},
+            do: id
 
-      with ^ids <- archive(uid, ids),
-           :ok <- bump_revision(uid, ids, run.actor),
-           :ok <- record_archive(uid, rows, ids, token, run) do
-        {:ok, ids}
-      else
-        {:error, _} = error -> error
-        moved when is_integer(moved) -> {:error, {:archive_incomplete, moved, length(ids)}}
+      act_on_macs(uid, decision, target, ids, run.actor)
+      bump_revision([uid, target], ids, run.actor)
+
+      case record_mac_action(uid, decision, target, rows, ids, token, run) do
+        :ok -> ids
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> case do
-      {:ok, {:ok, ids}} -> {:ok, ids}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, _} = error -> error
-    end
   end
 
-  defp archive(_uid, []), do: []
+  defp act_on_macs(_uid, _decision, _target, [], _actor), do: :ok
 
-  defp archive(uid, ids) do
+  defp act_on_macs(uid, :remove, _target, ids, _actor) do
     moved = SourceRetirement.archive_identifiers(uid, ids, DateTime.utc_now(), @archive_reason)
-    if moved == length(ids), do: ids, else: moved
+    if moved != length(ids), do: Repo.rollback({:archive_incomplete, moved, length(ids)})
   end
 
-  defp bump_revision(_uid, [], _actor), do: :ok
+  defp act_on_macs(_uid, :move, target, ids, actor) do
+    DeviceIdentifier
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.read!(actor: actor)
+    |> Enum.each(fn identifier ->
+      case identifier
+           |> Ash.Changeset.for_update(:reassign_device, %{device_id: target})
+           |> Ash.update(actor: actor) do
+        {:ok, _} -> :ok
+        {:error, error} -> Repo.rollback({:reassign_failed, identifier.id, error})
+      end
+    end)
+  end
 
-  defp bump_revision(uid, _ids, actor) do
-    with {:ok, %Device{} = device} <- Device.get_by_uid(uid, false, actor: actor),
-         {:ok, _} <- Device.bump_identity_revision(device, actor: actor) do
-      :ok
-    else
-      {:error, _} = error -> error
-      other -> {:error, {:identity_revision_bump_failed, uid, other}}
+  defp bump_revision(_uids, [], _actor), do: :ok
+
+  defp bump_revision(uids, _ids, actor) do
+    for uid <- Enum.reject(uids, &is_nil/1) do
+      with {:ok, %Device{} = device} <- Device.get_by_uid(uid, false, actor: actor),
+           {:ok, _} <- Device.bump_identity_revision(device, actor: actor) do
+        :ok
+      else
+        other -> Repo.rollback({:identity_revision_bump_failed, uid, other})
+      end
     end
+
+    :ok
   end
 
-  defp record_archive(_uid, _rows, [], _token, _run), do: :ok
+  defp record_mac_action(_uid, _decision, _target, _rows, [], _token, _run), do: :ok
 
-  defp record_archive(uid, rows, ids, token, run) do
-    moved = Enum.filter(rows, &(&1.id in ids))
+  defp record_mac_action(uid, decision, target, rows, ids, token, run) do
+    acted = Enum.filter(rows, &(&1.id in ids))
+
+    {action, extra} =
+      case decision do
+        :remove -> {:archive_wrong_guest_mac, %{archive_reason: @archive_reason}}
+        :move -> {:reassign_wrong_guest_mac, %{target_uid: target}}
+      end
 
     entry = %{
-      action: :archive_wrong_guest_mac,
+      action: action,
       table: "platform.device_identifiers",
       ids: ids,
-      extra: %{
-        phase: "prepared",
-        candidate_token: token,
-        device_uid: uid,
-        archive_reason: @archive_reason,
-        values: Enum.map(moved, & &1.value),
-        provider_refs: moved |> Enum.map(& &1.provider_ref) |> Enum.uniq(),
-        merge_event_ids: moved |> Enum.flat_map(& &1.merge_event_ids) |> Enum.uniq()
-      }
+      extra:
+        Map.merge(extra, %{
+          phase: "prepared",
+          candidate_token: token,
+          device_uid: uid,
+          values: Enum.map(acted, & &1.value),
+          provider_refs: acted |> Enum.map(& &1.provider_ref) |> Enum.uniq(),
+          merge_event_ids: acted |> Enum.flat_map(& &1.merge_event_ids) |> Enum.uniq()
+        })
     }
 
     case Manifest.record_batch(run.manifest, @step, [entry]) do
@@ -1138,16 +1291,31 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     end
   end
 
-  defp still_present([]), do: 0
+  # Re-query: an archived row must be gone from the live table, a moved row on its target.
+  defp unsettled([]), do: 0
 
-  defp still_present(ids) do
-    %{rows: [[count]]} =
+  defp unsettled(acted) do
+    archived = for {id, :remove, _target} <- acted, do: id
+    moved = for {id, :move, target} <- acted, do: {id, target}
+
+    %{rows: [[present]]} =
       query!(
         "SELECT count(*) FROM platform.device_identifiers WHERE id = ANY($1::bigint[])",
-        [ids]
+        [archived]
       )
 
-    count
+    %{rows: [[landed]]} =
+      query!(
+        """
+        SELECT count(*)
+        FROM platform.device_identifiers di
+        JOIN unnest($1::bigint[], $2::text[]) AS m(id, target) ON m.id = di.id
+        WHERE di.device_id = m.target
+        """,
+        [Enum.map(moved, &elem(&1, 0)), Enum.map(moved, &elem(&1, 1))]
+      )
+
+    present + length(moved) - landed
   end
 
   # -- rollback ---------------------------------------------------------------
@@ -1182,6 +1350,31 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         RETURNING a.id
         """,
         [device_uid, ids, @archive_reason]
+      )
+
+    {:ok, rows |> Enum.map(&hd/1) |> Enum.sort()}
+  end
+
+  @doc """
+  Move MAC rows the step reassigned (`reassign_wrong_guest_mac`) from `target_uid` back to
+  `device_uid`, for `source-id-rollback`: each row moves while it is still on the target and the
+  record is live. Returns `{:ok, returned_ids}`; the others are left.
+  """
+  @spec return_moved_macs(String.t(), String.t(), [integer()]) ::
+          {:ok, [integer()]} | {:error, term()}
+  def return_moved_macs(device_uid, target_uid, ids)
+      when is_binary(device_uid) and is_binary(target_uid) and is_list(ids) do
+    %{rows: rows} =
+      query!(
+        """
+        UPDATE platform.device_identifiers AS di
+        SET device_id = $1
+        FROM platform.ocsf_devices AS d
+        WHERE d.uid = $1 AND d.deleted_at IS NULL
+          AND di.id = ANY($3::bigint[]) AND di.device_id = $2
+        RETURNING di.id
+        """,
+        [device_uid, target_uid, ids]
       )
 
     {:ok, rows |> Enum.map(&hd/1) |> Enum.sort()}
