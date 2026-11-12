@@ -598,7 +598,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
           },
           device: %{
             uid: uid,
-            own_guest_keys: own_guest_keys(own_rows(data, uid, rows)),
+            own_guest_keys: own_guest_keys(rows),
             other_side_is_guest?: Enum.any?(holders, &(&1 != uid)),
             interface_macs: Map.get(data.interface_macs, uid, []),
             awx_declared_macs: awx_declared_macs(device[:awx]),
@@ -618,12 +618,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp single([one]), do: one
   defp single(_none_or_several), do: nil
 
-  # Per guest identity, the loaded live records that hold it as their own (on `rows_by_device`,
-  # so in the dry run the records the unmerges will restore).
+  # Per guest identity, the loaded live records whose rows hold it as the unmerges leave them (on
+  # `rows_by_device`, so in the dry run the records the unmerges will restore), a key a merge that
+  # stays brought included.
   defp guest_holder_index(data, rows_by_device) do
     for {uid, rows} <- rows_by_device,
         live_after_unmerge?(data, uid, rows),
-        key <- own_guest_keys(own_rows(data, uid, rows)),
+        key <- own_guest_keys(rows),
         reduce: %{} do
       index -> Map.update(index, key, [uid], &[uid | &1])
     end

@@ -93,8 +93,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       source; a row with missing or foreign provenance excludes its candidate.
       Known faker-backed sources remain ineligible inside the remediation step.
     * `--awx-proxmox-unmerge-event <uuid>` — execute only this reviewed merge
-      audit id (repeatable; a merge whose survivor another, unselected merge took
-      away stays blocked)
+      audit id (repeatable; naming one merge of a unit runs the whole unit,
+      including the merges chained to it)
     * `--awx-proxmox-unmerge-candidate-limit <n>` — maximum AWX merges read, newest
       first (1..50000; default 5000); execute refuses when more exist
     * `--awx-proxmox-unmerge-report-limit <n>` — maximum reported merges and kept
