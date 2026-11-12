@@ -384,7 +384,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       data.merges_into
       |> Map.get(audit.to_uid, [])
       |> Enum.filter(
-        &(&1.event_id != audit.event_id and DateTime.before?(&1.created_at, audit.created_at))
+        &(&1.event_id != audit.event_id and
+            DateTime.compare(&1.created_at, audit.created_at) != :gt)
       )
       |> Enum.flat_map(&(source_identifiers(&1.details) || []))
 

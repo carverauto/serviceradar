@@ -1345,6 +1345,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   defp id_entry(_type, value) when not is_binary(value), do: nil
   defp id_entry(type, value) when type in ["mac", :mac], do: mac_entry(value)
+  defp id_entry(type, value) when type in ["ip", :ip], do: {:ip, String.trim(value)}
   defp id_entry(type, value), do: {:id, to_string(type), value}
 
   defp mac_set(value) when is_binary(value),

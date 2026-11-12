@@ -36,7 +36,8 @@ step computes its plan when it runs, never from a fixed list.
    audit row) and what the survivor owns that no merge brought it. A proof is void when the two
    sides share an AWX host id, a guest identity or a universally administered MAC
    (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC, and
-   the survivor also counts the MACs earlier merges had brought it. Clusters are compared by
+   the survivor also counts the MACs other merges into it had brought it, those made before or
+   in the same second as this one (`created_at` has second precision). Clusters are compared by
    name: two clusters that share a name are never proved distinct.
 
    **The chain rule.** A bad merge *poisons* its survivor from that moment: the survivor's
@@ -261,7 +262,7 @@ DireRemediation.run(steps: ["awx-proxmox-verify"])
 | Check | Passes when |
 | --- | --- |
 | A1 | no pair the step unmerged is one record again, following each record through the merges that took it away |
-| A2 | no AWX merge still in place is proved to join different machines |
+| A2 | no merge the plan judges bad is still in place, AWX merges and chained merges of any reason alike |
 | A3 | no such merge was made after the repair started (`not_run` before any repair) |
 | A4 | no MAC row the step archived is back on the record it was taken from |
 | A5 | every unmerged pair is still asserted distinct |
@@ -303,8 +304,8 @@ first:
 | moved wrong-guest MAC | moved back from the guest's record to the record it was taken from, while it is still on the guest's record and the other record is live; others count as `mac_not_restorable` |
 | unmerge | the distinct assertion the step recorded is removed, and the pair is merged again, the merged record into the survivor, as an administrative merge (reason `manual_awx_unmerge_rollback`); skipped as `not_unmerged`, `record_changed` or `merged_since` when the pair is no longer as the unmerge left it |
 
-Reading last first re-merges a chain in its original order. When undoing an unmerge or a MAC
-archive fails, the rollback stops there (`halted` names the action, `rollback_failures` counts
+Reading last first re-merges a chain in its original order. When undoing an unmerge, a MAC
+archive or a MAC move fails, the rollback stops there (`halted` names the action, `rollback_failures` counts
 it): going on would re-merge a later pair of the chain and take away the record the failed entry
 needs. Fix the cause and run the rollback again; entries already undone are skipped. The re-merge is a new merge: it
 records its own audit row and moves what the merged record holds now. The rollback does not
@@ -353,6 +354,7 @@ remove an assertion that existed before the step ran.
 
 - Each unmerge writes a `candidate_preflight` entry before its transaction, an `awx_unmerge`
   entry inside it and a `candidate_committed` marker after it. Each record's MAC cleanup writes
-  the same three, with `archive_wrong_guest_mac` in the middle. An `awx_unmerge` entry without a
+  the same three, with `archive_wrong_guest_mac` (an archive) or `reassign_wrong_guest_mac` (a
+  move to the guest's record) in the middle. An `awx_unmerge` entry without a
   committed marker means the transaction may not have committed; the rollback checks the state
   before it acts.

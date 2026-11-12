@@ -1047,6 +1047,51 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert [%{event_ids: ["e1"]}] = plan.units
     end
 
+    test "recorded ip evidence the survivor owns as an ip identifier is not tainted" do
+      # The poisoned record `sr:s`, carrying guest 136's address, is merged into `sr:t`, which owns
+      # that address as an ip identifier.
+      own = [ident("ip", "192.0.2.36")]
+
+      merges = [
+        poisoning_merge(),
+        chained(%{
+          event_id: "e2",
+          created_at: at(2),
+          reason: "identifier_backfill",
+          from_uid: "sr:s",
+          to_uid: "sr:t",
+          source_identifiers: [ident("mac", "00005E005399")],
+          evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+          to_own_identifiers: own
+        })
+      ]
+
+      context = put_in(poisoned_context(), [:own, "sr:t"], own)
+      plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
+      e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+      refute :tainted_evidence in e2.proofs
+      refute e2.bad?
+    end
+
+    test "a merged ip identifier equal to a poisoned guest address is tainted" do
+      merges = [
+        poisoning_merge(),
+        chained(%{
+          event_id: "e2",
+          created_at: at(2),
+          reason: "identifier_backfill",
+          from_uid: "sr:fresh",
+          source_identifiers: [ident("ip", "192.0.2.36")]
+        })
+      ]
+
+      plan = Decisions.plan_awx_proxmox_unmerge(merges, poisoned_context())
+      e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+      assert e2.proofs == [:tainted_evidence]
+    end
+
     test "undoes a chain newest first, the survivor's own merge away before the merge into it" do
       # A merged into B, then B into C, in one second, under ids that sort the other way: B's
       # merge away still runs first.
