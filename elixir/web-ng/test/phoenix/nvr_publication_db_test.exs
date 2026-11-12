@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.NVRPublicationDBTest do
   @moduletag :tmp_dir
 
   setup %{tmp_dir: directory} do
+    recovery = Fixtures.publication_recovery_gate(directory)
     Fixtures.preserve_recording_control()
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
@@ -39,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.NVRPublicationDBTest do
 
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, clock, ctx.opts)
     server = directory |> HTTP.installation(block.storage_id) |> HTTP.start!()
-    Map.merge(ctx, %{owner: owner, claim: claim, block: block, server: server})
+    Map.merge(ctx, %{owner: owner, claim: claim, block: block, server: server, recovery: recovery})
   end
 
   test "lost replies replay the committed canonical acknowledgement across listener restart", ctx do
@@ -53,6 +54,11 @@ defmodule ServiceRadarWebNGWeb.NVRPublicationDBTest do
     :ok = :ssl.close(socket)
     stop_supervised!(ctx.server.child_id)
     server = HTTP.start!(ctx.server)
+
+    File.write!(ctx.recovery.path, String.replace(ctx.recovery.ready, "ready", "closed"))
+    assert {:ok, %{status: 503, body: unavailable}} = HTTP.request(server, bytes)
+    assert Jason.decode!(unavailable) == %{"error" => "publication_unavailable"}
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
 
     assert {:ok, %{status: 200, body: acknowledgement, headers: headers}} = HTTP.request(server, bytes)
 

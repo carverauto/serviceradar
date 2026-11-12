@@ -6,10 +6,13 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   substitute for historical authority. The returned canonical bytes acknowledge
   only intent acceptance, after the immutable row commits. Qualified storage and
   local-copy publication remain separate steps. No network or filesystem I/O
-  occurs inside the transaction.
+  occurs inside the transaction. Deployment recovery state is checked before the
+  transaction and before returning the acknowledgement. Closure after admission
+  withholds the reply but does not undo a committed receipt.
   """
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent, as: Codec
 
@@ -31,7 +34,11 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   end
 
   defp accept_bytes(document, bytes, opts) do
-    with {:ok, _receipt} <- accept_document(document, digest(bytes), opts) do
+    gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+
+    with :ok <- RecoveryGate.check(gate),
+         {:ok, _receipt} <- accept_document(document, digest(bytes), opts),
+         :ok <- RecoveryGate.check(gate) do
       LocalPublicationAcknowledgement.encode(bytes)
     end
   end

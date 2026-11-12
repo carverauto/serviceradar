@@ -51,6 +51,36 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     prior == []
   end
 
+  # Only serial publication owners install deployment state; generic camera
+  # fixtures must not open this gate for unrelated tests.
+  def publication_recovery_gate(directory) do
+    prior = Application.fetch_env(:serviceradar_core, :nvr_recovery_gate)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      case prior do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :nvr_recovery_gate, value)
+        :error -> Application.delete_env(:serviceradar_core, :nvr_recovery_gate)
+      end
+    end)
+
+    path = Path.join(directory, "recovery.json")
+    generation = Ecto.UUID.generate()
+    ready = ~s({"generation":"#{generation}","state":"ready"})
+    File.write!(path, ready)
+
+    {:ok, gate} =
+      ServiceRadarRecordingControl.RecoveryGate.load(
+        %{
+          "SERVICERADAR_NVR_RECOVERY_GENERATION" => generation,
+          "SERVICERADAR_NVR_RECOVERY_STATE_FILE" => Path.expand(path)
+        },
+        nil
+      )
+
+    Application.put_env(:serviceradar_core, :nvr_recovery_gate, gate)
+    %{path: path, ready: ready}
+  end
+
   def context do
     actor = SystemActor.system(:camera_relay_test)
     key = Ecto.UUID.generate()

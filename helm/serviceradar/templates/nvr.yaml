@@ -13,7 +13,9 @@
 {{- if hasKey $seen $id -}}{{- fail "NVR replicas must have distinct storage identities" -}}{{- end -}}
 {{- $_ := set $seen $id true -}}
 {{- end -}}
-{{- $recovery := required "nvr.recovery.existingConfigMap must name operator-owned recovery state" $nvr.recovery.existingConfigMap }}
+{{- if not $nvr.recovery.existingConfigMap -}}
+{{- fail "nvr.recovery.existingConfigMap must name operator-owned recovery state" -}}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -84,13 +86,7 @@ spec:
           env:
             - name: RELEASE_TMP
               value: /tmp
-            - name: SERVICERADAR_NVR_RECOVERY_GENERATION
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ $recovery | quote }}
-                  key: generation
-            - name: SERVICERADAR_NVR_RECOVERY_STATE_FILE
-              value: /etc/serviceradar/nvr-recovery/state.json
+            {{- include "serviceradar.nvrRecoveryEnv" . | nindent 12 }}
             - name: SERVICERADAR_NVR_MEMBER_NAME
               valueFrom:
                 fieldRef:
@@ -121,14 +117,9 @@ spec:
               mountPath: /var/lib/serviceradar-nvr
             - name: tmp
               mountPath: /tmp
-            - name: recovery
-              mountPath: /etc/serviceradar/nvr-recovery
-              readOnly: true
+            {{- include "serviceradar.nvrRecoveryMount" . | nindent 12 }}
       volumes:
-        - name: recovery
-          configMap:
-            name: {{ $recovery | quote }}
-            optional: false
+        {{- include "serviceradar.nvrRecoveryVolume" . | nindent 8 }}
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi

@@ -21,7 +21,7 @@ defmodule ServiceRadarNVR.Config do
          {:ok, spool} <- integer(env, "SERVICERADAR_NVR_MAX_SPOOL_BYTES", 1_073_741_824, 1_099_511_627_776),
          {:ok, reserve} <- integer(env, "SERVICERADAR_NVR_RESERVE_BYTES", 67_108_864, 1_125_899_906_842_624),
          {:ok, root, id} <- storage(env),
-         {:ok, recovery_gate} <- ServiceRadarNVR.RecoveryGate.load(env, root),
+         {:ok, recovery_gate} <- ServiceRadarRecordingControl.RecoveryGate.load(env, root),
          {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
          {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{

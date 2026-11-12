@@ -1,0 +1,53 @@
+suite: Core and web publication share operator-owned NVR recovery state
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+tests:
+  - it: leaves unrelated Core and web deployments independent when NVR is disabled
+    documentSelector:
+      path: kind
+      value: Deployment
+      matchMany: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_RECOVERY_GENERATION}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: recovery}
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: recovery}
+          any: true
+  - it: pins the same generation and projects live state into both publication hosts
+    set:
+      nvr.enabled: true
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageClassName: example-replicated
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    documentSelector:
+      path: kind
+      value: Deployment
+      matchMany: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NVR_RECOVERY_GENERATION
+            valueFrom:
+              configMapKeyRef: {name: synthetic-nvr-recovery, key: generation}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_RECOVERY_STATE_FILE, value: /etc/serviceradar/nvr-recovery/state.json}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: recovery, mountPath: /etc/serviceradar/nvr-recovery, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: recovery
+            configMap: {name: synthetic-nvr-recovery, optional: false}

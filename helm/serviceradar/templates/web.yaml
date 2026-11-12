@@ -316,6 +316,7 @@ spec:
         - containerPort: 9100
           name: dist
         env:
+        {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
         - name: PORT
@@ -837,6 +838,7 @@ spec:
         - name: DATASVC_SERVER_NAME
           value: {{ $datasvcServerName | quote }}
         volumeMounts:
+        {{- include "serviceradar.nvrRecoveryMount" . | nindent 8 }}
         - name: tmp
           mountPath: /tmp
         {{- if $archiveReader.enabled }}
@@ -929,6 +931,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      {{- include "serviceradar.nvrRecoveryVolume" . | nindent 6 }}
       - name: tmp
         emptyDir:
           sizeLimit: 512Mi

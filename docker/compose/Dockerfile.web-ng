@@ -21,6 +21,7 @@ WORKDIR /app
 #   elixir/web-ng/mix.exs uses path: "../serviceradar_core", "../datasvc", etc.
 #   elixir/serviceradar_srql/native/srql_nif/Cargo.toml uses path: "../../../../rust/srql"
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/serviceradar_recording_control ./elixir/serviceradar_recording_control
 COPY elixir/serviceradar_recording_metadata ./elixir/serviceradar_recording_metadata
 COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
 COPY elixir/datasvc ./elixir/datasvc

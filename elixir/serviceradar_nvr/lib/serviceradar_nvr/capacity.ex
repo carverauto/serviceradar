@@ -4,9 +4,9 @@ defmodule ServiceRadarNVR.Capacity do
 
   alias ServiceRadarNVR.Disk
   alias ServiceRadarNVR.Publication
-  alias ServiceRadarNVR.RecoveryGate
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingControl.RecoveryGate
 
   @limits %{max_block_bytes: 16_777_216, max_fragments: 8, max_fragment_bytes: 4_194_304}
   @probe_interval_ms 1000

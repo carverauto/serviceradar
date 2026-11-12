@@ -124,19 +124,23 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 ## Deployment recovery gate
 
-NVR requires deployment-owned recovery state before runtime admission. Kubernetes
-sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
+NVR runtime admission and Core local-publication acceptance require deployment-owned
+recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
-The container pins `generation` in `SERVICERADAR_NVR_RECOVERY_GENERATION` at boot
+When NVR is enabled, Helm supplies the same state to NVR, Core and web-ng.
+The file reader is shared through the lightweight `serviceradar_recording_control`
+library; Core and web-ng do not need the media packaging library for this gate.
+Each process pins `generation` in `SERVICERADAR_NVR_RECOVERY_GENERATION` at boot
 and mounts the ConfigMap directory read-only, without `subPath`, so changes to
 `state.json` can propagate to existing pods.
 
 Standalone installations set `SERVICERADAR_NVR_RECOVERY_GENERATION` to a canonical
 UUID and `SERVICERADAR_NVR_RECOVERY_STATE_FILE` to an absolute, deployment-managed
 file outside the media spool and its restore set. Atomically replace this file;
-keep it writable only by trusted deployment control. Projected-volume symlinks
-are supported. Path validation rejects lexical spool descendants, but cannot
+configure it for NVR and every Core application host accepting publication
+(including web-ng). Keep it writable only by trusted deployment control.
+Projected-volume symlinks are supported. NVR rejects lexical spool descendants, but cannot
 prove independent backup provenance or resolve an operator's failure domains.
 
 The file is at most 256 bytes. Admission requires exactly the compact canonical
@@ -160,7 +164,14 @@ The runtime re-reads state for admission and each writer pressure check, even
 when the disk-pressure measurement is cached. Read tasks check before work and
 before returning results; capacity measurements and explicit block recovery
 check again before replying, and a repair or seal already written remains.
-Publication delivery checks before each HTTP attempt.
+Publication delivery checks before each HTTP attempt. Core checks before its
+intent-acceptance transaction and again before returning the acknowledgement;
+these filesystem reads stay outside the transaction. Closure during the
+transaction can leave a committed receipt but withholds the acknowledgement.
+The private HTTP receiver returns 503, and reopening the same generation allows
+an exact retry to recover the same immutable acknowledgement. This still means
+only v1 intent acceptance, not local-copy availability or current-history approval.
+Core's other functions and general health remain independent of this gate.
 No ready result is cached. Closing the gate cannot recall bytes already returned,
 cancel kernel I/O, or retract an HTTP request already sent. ConfigMap projection
 is eventual, and API update success is not proof that replicas observed closure.
@@ -173,9 +184,10 @@ qualified worker replacement uses the existing generation; it does not require
 manual reopening merely because a pod changed. If deployment control is also
 restored, establish fresh closed state before starting consumers.
 
-This checkpoint implements the NVR consumer and deployment file wiring only.
-The operator recovery command, Core consumers, current-history reconciliation,
-per-storage completion and cross-replica quiescence verification are pending.
+This checkpoint implements the NVR and Core publication consumers and deployment
+file wiring. The operator recovery command, remaining Core authority consumers,
+current-history reconciliation, per-storage completion and cross-replica
+quiescence verification are pending.
 Do not use the example ready record to bypass those prerequisites or remove the
 bootstrap barrier. A coordinated rollback of every trust source cannot be
 detected from matching old data alone. Restore qualification and deployment
