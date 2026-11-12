@@ -32,13 +32,26 @@ result, with no address or MAC evidence.
   an address. Any MAC can still contradict a match.
 - Proxmox enrichment no longer lets a guest adopt an AWX record on a unique node name and VMID:
   the guest must report the AWX host's declared address or an address of the AWX record.
+- The AWX plugin's inventory sync no longer calls a Proxmox node name and VMID an identity anchor.
+  Its emission gate is described as what it is: it skips only hosts known by name alone, and it
+  asserts no machine identity. Only a declared IP and a universally administered MAC are machine
+  evidence. Hosts that declare only a Proxmox guest reference or a locally administered MAC are
+  still emitted, as before, so that a complete aggregate does not expire their AWX membership and
+  retire their records. The emitted host set does not change.
+- Proxmox v3 provider references are parsed for a node name by `IntegrationIdentity`, the module
+  that renders them. The previous parser expected one component fewer than the rendered format,
+  so it never found the node of a v3 node reference, and for a cluster named `node` or `host` it
+  returned the wrong component. A v3 guest reference carries no node name; a guest's node comes
+  from its host reference.
 - No data repair is part of this change. Records merged by the old rule stay merged until a
   separately planned repair undoes them from the merge audit.
 
 ## Impact
 - Affected specs: device-identity-reconciliation
 - Affected code: `ServiceRadar.Inventory.DeviceDiscoveryIngestor` (AWX guest binding and holder
-  lookups), `ServiceRadar.Inventory.HypervisorEnrichmentIngestor` (AWX candidates for a guest)
+  lookups), `ServiceRadar.Inventory.HypervisorEnrichmentIngestor` (AWX candidates for a guest, node
+  names from provider references), `ServiceRadar.Inventory.IntegrationIdentity` (v3 node names),
+  the AWX Wasm plugin (`go/cmd/wasm-plugins/awx`, inventory sync emission gate)
 - AWX hosts whose only link to a guest was the node name and VMID (no guest agent address and no
   universally administered NIC MAC) stop binding to that guest. Guests created by Proxmox before
   it assigned its own OUI carry locally administered NIC MACs; those bind on the address only.

@@ -2996,12 +2996,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp existing_sr_uid(_value), do: nil
 
+  # A v3 guest reference carries no node name, so a v3 guest's node comes from its host reference.
+  defp node_name_from_provider_ref("proxmox:v3:" <> _rest = value),
+    do: IntegrationIdentity.proxmox_v3_node_name(value)
+
   defp node_name_from_provider_ref(value) when is_binary(value) do
     case String.split(value, ":") do
-      [_provider, "v3", _controller_id, _cluster_id, kind, node | _]
-      when kind in ["node", "host"] ->
-        node
-
       [_provider, "v2", _cluster_id, kind, node | _] when kind in ["node", "host"] ->
         node
 

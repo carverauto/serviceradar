@@ -17,8 +17,14 @@ import (
 //     will never cross-link an AWX host to the same machine discovered by an
 //     agent or by Proxmox. That is correct: a database primary key is not
 //     evidence about hardware.
-//   - awxHostMACs is HARDWARE EVIDENCE. A MAC that AWX already knows is the same
-//     NIC the in-guest agent reports, so it merges the two rows behaviorally.
+//   - awxHostMACs is HARDWARE EVIDENCE when the MAC is universally
+//     administered. Such a MAC is the same NIC the in-guest agent reports, so it
+//     merges the two rows behaviorally. A locally administered MAC is emitted
+//     too, but core only lets it contradict a match, never make one.
+//
+// Neither the Proxmox node name nor the VMID is identity. Proxmox clusters reuse
+// both, and AWX does not say which cluster a host came from, so they are emitted
+// as descriptive metadata that core uses only to narrow guest candidates.
 //
 // What must never be added here is a lookup that finds a device with a matching
 // hostname and borrows its MAC. That would mint a `:mac` identifier
@@ -189,17 +195,23 @@ func awxProxmoxRef(variables string) (int, string, string) {
 	return vmid, node, vmtype
 }
 
-// awxHostHasStrongAnchor reports whether an AWX host carries at least one
-// address or hardware identifier that can converge it with a device discovered
-// by another source (sweep, agent, proxmox). A hostname-only entry -- one whose
-// variables carry neither an IP ansible_host/ansible_ssh_host nor a MAC -- has
-// no anchor: DIRE will never merge it with the real device, so emitting it only
-// mints a permanent duplicate. Such hosts are skipped at the producer rather
-// than left for the ingestor to reconcile away.
+// awxHostIsReportable reports whether inventory_sync emits an AWX host. It skips
+// a hostname-only entry: one whose variables declare no IP
+// ansible_host/ansible_ssh_host, no configured NIC MAC and no Proxmox guest
+// reference. DIRE can never merge such an entry with the real device, so
+// emitting it would only mint a permanent duplicate.
 //
-// Hostname agreement is never identity (#4734), so a DNS-name ansible_host is
-// deliberately NOT an anchor.
-func awxHostHasStrongAnchor(host awxHostRow) bool {
+// Reporting a host claims nothing about its identity. Only an IP and a
+// universally administered MAC are evidence of the machine, and core binds or
+// merges an AWX host on those alone. A host whose only declarations are a
+// Proxmox node and VMID, or a locally administered MAC, has no such evidence: core
+// keeps it as its own AWX record. It is still reported, because leaving it out
+// of a complete aggregate would expire its AWX membership and retire that
+// record.
+//
+// Hostname agreement is never identity (#4734), so a DNS-name ansible_host
+// does not make a host reportable.
+func awxHostIsReportable(host awxHostRow) bool {
 	for _, candidate := range extractAnsibleHostsFromVariables(host.Variables) {
 		if isProbablyIP(candidate) {
 			return true
