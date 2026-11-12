@@ -124,8 +124,8 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 ## Deployment recovery gate
 
-NVR runtime admission, Core recording new-work admission and local-publication
-acceptance require deployment-owned recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
+NVR runtime admission, Core recording and archive work, archive playback, and
+local-publication acceptance require deployment-owned recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
 When NVR is enabled, Helm supplies the same state to NVR, Core and web-ng.
@@ -189,6 +189,19 @@ an exact retry after reopening retains the original window and cannot renew its
 deadline. Authority status and revocation remain available while closed. The
 storage challenge and media-administration endpoints return 503 for refused work.
 
+Archive publication, reader-facing metadata, inventory pages (including empty
+pages), and range plans also require ready recovery before work and before
+replying. A committed publication survives a withheld reply and returns the same
+receipt on an eligible retry. Publication status remains historical inspection;
+its `available` phase does not establish recovery readiness. Recording stop still
+permits publication of verified archives and playback when recovery is ready.
+
+The authenticated recording API returns 503 while recovery is closed. Metadata
+uses `archive_metadata_unavailable`; inventory, playlists, init and fragment
+reads use `archive_read_unavailable`, with private/no-store responses. The existing
+post-fetch range recheck withholds media if recovery closes during provider I/O.
+Bytes already delivered cannot be recalled; retained plans are not bearer grants.
+
 Stop and status, recorder/upload release, freezing already allocated blocks,
 media preparation and late observations remain available for preservation.
 General Core health remains independent of this gate. These paths are not a
@@ -206,7 +219,8 @@ manual reopening merely because a pod changed. If deployment control is also
 restored, establish fresh closed state before starting consumers.
 
 This checkpoint implements NVR admission, Core new-work, archive-authority issuance
-and application, publication consumers, and deployment file wiring. The operator
+and application, archive publication and playback, local-publication consumers,
+and deployment file wiring. The operator
 recovery command, remaining recovery consumers,
 current-history reconciliation, per-storage completion and cross-replica
 quiescence verification are pending.

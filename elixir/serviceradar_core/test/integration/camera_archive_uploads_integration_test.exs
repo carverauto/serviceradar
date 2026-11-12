@@ -1189,28 +1189,15 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              "UPDATE", "applied"}
         end
 
-      parent = self()
-      handler = {__MODULE__, make_ref()}
-      event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
-      on_exit(fn -> :telemetry.detach(handler) end)
-
-      :ok =
-        :telemetry.attach(
-          handler,
-          event,
-          fn _event, _measurements, metadata, _config ->
-            if self() == parent and String.starts_with?(metadata.query, sql) and
-                 String.contains?(metadata.query, "camera_archive_init_authorities") do
-              File.rm!(ctx.recovery.path)
-              send(parent, :recovery_closed_during_authority)
-            end
-          end,
-          nil
-        )
-
-      assert {:error, :nvr_recovery_closed} = operation.()
-      assert_received :recovery_closed_during_authority
-      :ok = :telemetry.detach(handler)
+      assert {:error, :nvr_recovery_closed} =
+               close_recovery_during_query(
+                 ctx,
+                 fn query ->
+                   String.starts_with?(query, sql) and
+                     String.contains?(query, "camera_archive_init_authorities")
+                 end,
+                 operation
+               )
 
       assert {:ok, retained} =
                ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
@@ -2229,6 +2216,87 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert dispatch.manifest_verified_at == manifest.dispatch.manifest_verified_at
   end
 
+  test "recovery closure withholds publication without discarding its committed receipt", ctx do
+    bind(ctx)
+    verified_object(ctx, :media)
+    verified_object(ctx, :init)
+    manifest = verified_object(ctx, :manifest)
+    File.rm!(ctx.recovery.path)
+
+    assert {:error, :nvr_recovery_closed} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+
+    assert {:ok, %{status: :archive_verified, result: nil}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+
+    assert {:error, :nvr_recovery_closed} =
+             close_recovery_during_query(
+               ctx,
+               fn query ->
+                 String.starts_with?(query, "UPDATE") and
+                   String.contains?(query, "camera_recording_blocks")
+               end,
+               fn -> ArchiveUploads.publish_archive(ctx.lease, ctx.opts) end
+             )
+
+    assert {:ok, %{status: :available, result: receipt}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert receipt["manifest_dispatch_id"] == manifest.dispatch.id
+    assert {:error, :nvr_recovery_closed} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, ^receipt} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+    File.rm!(ctx.recovery.path)
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(
+               ctx.lease,
+               manifest.dispatch.id,
+               %{"status" => 503},
+               ctx.opts
+             )
+
+    assert {:ok, %{status: :reconciliation_required, result: ^receipt}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+  end
+
+  for operation <- [:metadata, :range, :inventory, :empty_inventory] do
+    @tag archive_read_operation: operation
+    test "recovery gates #{operation} and withholds results when it closes during queries", ctx do
+      if ctx.archive_read_operation != :empty_inventory, do: publish_inventory_block(ctx)
+
+      read =
+        case ctx.archive_read_operation do
+          :metadata ->
+            fn -> ArchiveUploads.archive_metadata(ctx.source.id, ctx.block.id, ctx.opts) end
+
+          :range ->
+            fn -> ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, ctx.opts) end
+
+          _ ->
+            fn -> ArchiveUploads.archive_inventory(ctx.source.id, [], ctx.opts) end
+        end
+
+      assert {:ok, expected} = read.()
+      File.rm!(ctx.recovery.path)
+      assert {:error, :nvr_recovery_closed} = read.()
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+
+      assert {:error, :nvr_recovery_closed} =
+               close_recovery_during_query(
+                 ctx,
+                 &String.contains?(&1, "camera_recording_blocks"),
+                 read
+               )
+
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+      assert {:ok, ^expected} = read.()
+    end
+  end
+
   test "publication inventory advances a bounded candidate page through hidden conflicts", ctx do
     first = publish_inventory_block(ctx)
     second = ctx |> archive_context(%{}) |> publish_inventory_block()
@@ -2608,6 +2676,30 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     assert [] = intents(ctx)
     assert [] = dispatches(ctx)
+  end
+
+  defp close_recovery_during_query(ctx, query?, operation) do
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if self() == parent and query?.(metadata.query) and File.rm(ctx.recovery.path) == :ok do
+            send(parent, {:recovery_closed_during_query, handler})
+          end
+        end,
+        nil
+      )
+
+    result = operation.()
+    assert_received {:recovery_closed_during_query, ^handler}
+    :ok = :telemetry.detach(handler)
+    result
   end
 
   defp verified_object(ctx, role, manifest_budget \\ 30_000) do

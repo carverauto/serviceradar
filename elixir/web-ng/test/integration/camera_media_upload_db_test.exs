@@ -558,6 +558,21 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
 
     requests = Agent.get(context.store, & &1.requests)
+    File.rm!(context.recovery.path)
+
+    for {url, code} <- [
+          {"/api/cameras/#{context.source.id}/recordings", "archive_read_unavailable"},
+          {path, "archive_metadata_unavailable"},
+          {playlist, "archive_read_unavailable"},
+          {path <> "/init", "archive_read_unavailable"},
+          {path <> "/fragments/0", "archive_read_unavailable"}
+        ] do
+      assert token |> recording_response(url) |> json_response(503) == %{"error" => code}
+    end
+
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    File.write!(context.recovery.path, context.recovery.ready)
     response = recording_response(token, playlist, "application/vnd.apple.mpegurl")
     assert response.status == 200
     assert get_resp_header(response, "content-type") == ["application/vnd.apple.mpegurl"]
@@ -640,6 +655,20 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     assert json_response(playlist_ranged, 400)["error"] == "invalid_request"
     assert Agent.get(context.store, & &1.requests) == requests
+
+    Agent.update(context.store, fn state ->
+      Map.put(state, :read_effect, fn -> File.rm!(context.recovery.path) end)
+    end)
+
+    closed = recording_response(token, path <> "/fragments/1")
+    assert json_response(closed, 503) == %{"error" => "archive_read_unavailable"}
+    assert length(Agent.get(context.store, & &1.requests)) == length(requests) + 1
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    File.write!(context.recovery.path, context.recovery.ready)
+    reopened = recording_response(token, path <> "/fragments/1")
+    assert reopened.status == 200 and reopened.resp_body == @second_bytes
+    requests = Agent.get(context.store, & &1.requests)
 
     {:ok, %{"sub" => "user:" <> user_id}} = Guardian.decode_and_verify(token)
     user_uuid = Ecto.UUID.dump!(user_id)
