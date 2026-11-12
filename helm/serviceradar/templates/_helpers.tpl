@@ -1075,7 +1075,7 @@ which is the exact condition the WAL cap guard exists to prevent.
 Fails loudly on anything it cannot compute rather than guessing.
 */}}
 {{- define "serviceradar.storageGiB" -}}
-{{- div (int64 (include "serviceradar.quantityBytes" (default "100Gi" .))) 1073741824 -}}
+{{- div (int64 (include "serviceradar.quantityBytes" (default "250Gi" .))) 1073741824 -}}
 {{- end -}}
 
 {{/*
@@ -1697,7 +1697,7 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 
 {{- define "serviceradar.effectiveCNPG" -}}
 {{- $cnpg := deepCopy (default (dict) .Values.cnpg) -}}
-{{- $defaults := dict "clusterName" "cnpg" "instances" 3 "storageClass" "" "storageSize" "100Gi" -}}
+{{- $defaults := dict "clusterName" "cnpg" "instances" 3 "storageClass" "" "storageSize" "250Gi" -}}
 {{- range $key, $builtIn := $defaults -}}
   {{- if or (not (hasKey $cnpg $key)) (eq (get $cnpg $key | toJson) "null") -}}
     {{- $_ := set $cnpg $key $builtIn -}}

@@ -763,7 +763,7 @@ spec:
                as SERVICERADAR_LOCAL_MAILER above. */}}
         {{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
         - name: SERVICERADAR_CNPG_STORAGE_SIZE
-          value: {{ default "100Gi" $cnpg.storageSize | quote }}
+          value: {{ default "250Gi" $cnpg.storageSize | quote }}
         {{- end }}
         - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
           value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
