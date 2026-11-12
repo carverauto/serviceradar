@@ -31,6 +31,22 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
               )
           )
       },
+      (membership_item() <> "/release") => %{
+        "post" =>
+          operation("Release one quarantined membership from its exact current evidence", "AnsibleMembership",
+            parameters: [id_parameter()],
+            body: "AnsibleMembershipRelease",
+            human: true,
+            description:
+              human_description(
+                "ansible.controllers.manage",
+                "Re-evaluates the membership's AWX source tuple against current device inventory. " <>
+                  "One matching device makes it proposed, which still requires approval; no match makes it unlinked. " <>
+                  "Several matches are refused with membership_link_ambiguous and matching_device_uids, " <>
+                  "and the membership stays quarantined. A release never approves."
+              )
+          )
+      },
       binding_collection() => %{
         "get" =>
           operation("List template binding versions", "AnsibleTemplateBindingList",
@@ -152,6 +168,15 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           "inventory_id",
           "awx_host_id",
           "canonical_device_uid",
+          "source_generation",
+          "source_fingerprint",
+          "link_evidence_digest"
+        ]),
+      "AnsibleMembershipRelease" =>
+        object(release_properties(), [
+          "controller_id",
+          "inventory_id",
+          "awx_host_id",
           "source_generation",
           "source_fingerprint",
           "link_evidence_digest"
@@ -305,6 +330,28 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
       "enabled" => %{"type" => "boolean"},
       "current" => %{"type" => "boolean"},
       "link_disposition" => %{"type" => "string"},
+      "quarantine_reason" => %{
+        "type" => "string",
+        "nullable" => true,
+        "enum" => [
+          "ambiguous_device_match",
+          "approved_device_changed",
+          "approved_link_lost_match",
+          "approved_membership_not_current",
+          "canonical_device_deleted",
+          "predates_reason_recording",
+          nil
+        ],
+        "description" =>
+          "Rule that quarantined the membership; null unless link_disposition is quarantined. " <>
+            "predates_reason_recording means the cause was not recorded."
+      },
+      "quarantined_at" =>
+        Map.put(
+          datetime(),
+          "description",
+          "When the quarantine was recorded; null when not quarantined or when the reason is predates_reason_recording."
+        ),
       "source_fingerprint" => %{"type" => "string"},
       "source_generation" => decimal_string(),
       "link_evidence_digest" => nullable_string(),
@@ -324,6 +371,8 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
       "link_evidence_digest" => %{"type" => "string"}
     }
   end
+
+  defp release_properties, do: Map.delete(approval_properties(), "canonical_device_uid")
 
   defp binding_properties do
     %{

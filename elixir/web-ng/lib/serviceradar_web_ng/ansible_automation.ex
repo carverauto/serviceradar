@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
   alias ServiceRadar.Automation.Ansible.AwxBindingReview
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.AwxMembershipApproval
+  alias ServiceRadar.Automation.Ansible.AwxMembershipQuarantineRelease
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
@@ -17,7 +18,7 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
 
   require Ash.Query
 
-  @membership_fields ~w(id controller_id inventory_id awx_host_id canonical_device_uid host_name ansible_host enabled current link_disposition source_fingerprint last_seen_at)a
+  @membership_fields ~w(id controller_id inventory_id awx_host_id canonical_device_uid host_name ansible_host enabled current link_disposition quarantine_reason quarantined_at source_fingerprint last_seen_at)a
   @binding_fields ~w(id controller_id job_template_id binding_version current approval_state approval_expires_at inventory_policy allowed_inventory_ids project_id scm_revision content_sha256 execution_environment_id run_mode_supported check_mode_supported reviewed_at reviewed_launch_snapshot_digest)a
   @operation_states ~w(planned dispatching running succeeded failed canceled dispatch_partial dispatch_ambiguous cancel_failed)a
 
@@ -86,6 +87,24 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
          {:ok, approved} <-
            AwxMembershipApproval.approve(Map.put(params, "membership_id", id), scope) do
       {:ok, membership_view(approved)}
+    end
+  end
+
+  @doc """
+  Releases one quarantined membership as the scope's user from the exact
+  evidence displayed. The result is `proposed` when one device matches now and
+  `unlinked` when none does; it is never `approved`. Several matches are
+  refused as `{:error, {:membership_link_ambiguous, device_uids}}`.
+  """
+  def release_membership(scope, id, params) do
+    with :ok <-
+           exact_keys(
+             params,
+             ~w(controller_id inventory_id awx_host_id source_generation source_fingerprint link_evidence_digest)
+           ),
+         {:ok, released} <-
+           AwxMembershipQuarantineRelease.release(Map.put(params, "membership_id", id), scope) do
+      {:ok, membership_view(released)}
     end
   end
 

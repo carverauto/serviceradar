@@ -33,6 +33,23 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationSpecTest do
     assert approval["additionalProperties"] == false
     assert approve["requestBody"]["content"]["application/json"]["schema"]["$ref"] =~ "AnsibleMembershipApproval"
 
+    release = paths["/api/admin/ansible-memberships/{id}/release"]["post"]
+    release_schema = schemas["AnsibleMembershipRelease"]
+
+    assert release_schema["required"] == [
+             "controller_id",
+             "inventory_id",
+             "awx_host_id",
+             "source_generation",
+             "source_fingerprint",
+             "link_evidence_digest"
+           ]
+
+    assert release_schema["additionalProperties"] == false
+    refute Map.has_key?(release_schema["properties"], "canonical_device_uid")
+    assert release["requestBody"]["content"]["application/json"]["schema"]["$ref"] =~ "AnsibleMembershipRelease"
+    assert release["description"] =~ "never approves"
+
     membership_query = paths["/api/admin/ansible-memberships"]["get"]["parameters"]
     assert Enum.map(membership_query, & &1["name"]) == ["controller_id", "inventory_id"]
 
@@ -63,6 +80,11 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationSpecTest do
     assert membership["canonical_device_uid"] == %{"type" => "string", "nullable" => true}
     assert "canonical_device_uid" in schemas["AnsibleMembership"]["required"]
     assert schemas["AnsibleMembershipApproval"]["properties"]["canonical_device_uid"] == %{"type" => "string"}
+    assert "quarantine_reason" in schemas["AnsibleMembership"]["required"]
+    assert "quarantined_at" in schemas["AnsibleMembership"]["required"]
+    assert membership["quarantine_reason"]["nullable"] == true
+    assert "predates_reason_recording" in membership["quarantine_reason"]["enum"]
+    assert membership["quarantined_at"]["nullable"] == true
 
     evidence = schemas["AnsibleLinkEvidence"]["properties"]
     assert evidence["inventory_id"] == membership["inventory_id"]
@@ -95,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationSpecTest do
 
     mutations = [
       approve,
+      release,
       binding["post"],
       paths["/api/admin/ansible-template-bindings/prepare"]["post"],
       paths["/api/admin/ansible-template-bindings/{id}/revoke"]["post"],

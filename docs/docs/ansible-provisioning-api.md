@@ -31,7 +31,7 @@ routes; an empty API bearer scope grants no configuration access.
 | Manage repositories or request synchronization | `ansible.repositories.manage` |
 | Read operations or inventory memberships | `ansible.runs.view` |
 | Prepare or launch an operation | `ansible.runs.launch` |
-| Approve memberships; prepare, create, or revoke bindings | `ansible.controllers.manage` |
+| Approve memberships or release them from quarantine; prepare, create, or revoke bindings | `ansible.controllers.manage` |
 
 Operation preparation/launch and membership/binding mutations currently require
 a human principal. Requests associated with an OAuth client are rejected for
@@ -123,6 +123,47 @@ without signs, whitespace, or leading zeros, up to `9223372036854775807`.
 Approval compares the exact current
 proposal and freshly checks the reviewer's authority. A changed proposal
 requires another review.
+
+Each membership reports `quarantine_reason` and `quarantined_at`. They are null
+unless `link_disposition` is `quarantined`. The reason names the rule that
+quarantined it:
+
+| `quarantine_reason` | Meaning |
+| --- | --- |
+| `ambiguous_device_match` | More than one device carries the AWX source tuple. |
+| `approved_device_changed` | An approved link now matches exactly one different device. |
+| `approved_link_lost_match` | An approved link now matches no device. |
+| `approved_membership_not_current` | An approved membership expired (absent from a complete sync) and was seen again; its approval does not carry across the gap. |
+| `canonical_device_deleted` | The approved link's device was deleted or its identity purged. |
+| `predates_reason_recording` | Quarantined before reasons were recorded; the cause is unknown and `quarantined_at` is null. |
+
+Synchronization never clears a quarantine, and the row keeps the reason and
+time it entered with; `link_evidence` shows the current matches. The only exit
+is a release: send `POST /ansible-memberships/{id}/release` with exactly
+`controller_id`, `inventory_id`, `awx_host_id`, `source_generation`,
+`source_fingerprint`, and `link_evidence_digest` of the quarantined membership.
+The same human-principal and fresh `ansible.controllers.manage` checks as
+approval apply. ServiceRadar re-evaluates the AWX source tuple against current
+device inventory:
+
+| Devices that match now | Result |
+| --- | --- |
+| Exactly one | The membership becomes `proposed` for that device with fresh evidence. Approve it as above before it can launch. |
+| None | The membership becomes `unlinked`; a later sync proposes a device when one matches. |
+| More than one | `422` with `"error": "membership_link_ambiguous"` and `matching_device_uids`; the membership stays quarantined. Resolve the duplicate devices first. |
+
+A release never approves a membership. It is refused with
+`membership_not_quarantined` for a membership in any other state, with
+`membership_not_current` for an expired one, and with
+`membership_evidence_changed` when the generation, fingerprint, or evidence
+digest no longer match. Each successful release is recorded with the
+releasing user, the time, the prior reason and evidence, and the result. After
+a release the membership follows normal synchronization again, so the same
+conditions can quarantine it again with a new reason.
+
+A membership quarantine concerns one AWX host's link to one device. It is
+separate from a device's target hold after a failed mutation: releasing one
+does not clear the other.
 
 The membership's generation identifies the source observation that last changed
 its execution authority. An unchanged sync refreshes its last-seen time without

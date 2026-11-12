@@ -45,6 +45,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     :expired_at,
     :link_disposition,
     :link_evidence,
+    :quarantine_reason,
+    :quarantined_at,
     :source_fingerprint
   ]
 
@@ -135,6 +137,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       end
     end)
     |> Map.new(fn {tuple, uids} -> {tuple, uids |> Enum.uniq() |> Enum.sort()} end)
+  end
+
+  @doc """
+  Returns the devices that currently carry one AWX source tuple, sorted, from
+  the same device-evidence query and index reconciliation uses. Releasing a
+  quarantined membership evaluates its tuple with this so release and the next
+  synchronization cannot disagree about the match.
+  """
+  @spec current_matches(source_tuple(), term()) :: {:ok, [String.t()]} | {:error, term()}
+  def current_matches({controller_id, _inventory_id, _awx_host_id} = tuple, actor) do
+    with {:ok, index} <- resolve_links(%{controller_id: controller_id}, actor) do
+      {:ok, Map.get(index, tuple, [])}
+    end
   end
 
   defp dependencies(opts) do
@@ -284,7 +299,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       tuple = host_tuple(aggregate.controller_id, host)
       existing_membership = Map.get(existing_by_tuple, tuple)
       matching_device_uids = Map.get(evidence_index, tuple, [])
-      link = link_attributes(existing_membership, matching_device_uids, tuple)
+
+      link =
+        existing_membership
+        |> link_attributes(matching_device_uids, tuple)
+        |> record_quarantine(existing_membership, aggregate.observed_at)
 
       attrs = %{
         controller_id: aggregate.controller_id,
@@ -300,6 +319,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
         expired_at: nil,
         link_disposition: link.disposition,
         link_evidence: link.evidence,
+        quarantine_reason: link.quarantine_reason,
+        quarantined_at: link.quarantined_at,
         source_fingerprint: aggregate.source_fingerprint,
         metadata: host.metadata
       }
@@ -428,18 +449,26 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     })
   end
 
+  # Each quarantine names the rule that fired. A row that is already quarantined
+  # stays quarantined (`:sticky`) and keeps the reason and time it entered with;
+  # only a human release (`AwxMembershipQuarantineRelease`) leaves the state.
   defp link_attributes(existing, [canonical_device_uid], tuple) do
     cond do
-      not is_nil(existing) and field(existing, :link_disposition) == :quarantined ->
-        quarantined_link(existing, tuple, [canonical_device_uid])
+      quarantined?(existing) ->
+        quarantined_link(existing, tuple, [canonical_device_uid], :sticky)
 
-      not is_nil(existing) and field(existing, :link_disposition) == :approved and
-          (field(existing, :current) != true or
-             field(existing, :canonical_device_uid) != canonical_device_uid) ->
-        quarantined_link(existing, tuple, [canonical_device_uid])
+      approved?(existing) and field(existing, :canonical_device_uid) != canonical_device_uid ->
+        quarantined_link(existing, tuple, [canonical_device_uid], :approved_device_changed)
 
-      not is_nil(existing) and field(existing, :current) == true and
-          field(existing, :link_disposition) == :approved ->
+      approved?(existing) and field(existing, :current) != true ->
+        quarantined_link(
+          existing,
+          tuple,
+          [canonical_device_uid],
+          :approved_membership_not_current
+        )
+
+      approved?(existing) ->
         %{
           canonical_device_uid: canonical_device_uid,
           disposition: :approved,
@@ -457,39 +486,52 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
   end
 
   defp link_attributes(existing, matching_device_uids, tuple) do
-    disposition =
-      cond do
-        not is_nil(existing) and field(existing, :link_disposition) == :quarantined ->
-          :quarantined
+    cond do
+      quarantined?(existing) ->
+        quarantined_link(existing, tuple, matching_device_uids, :sticky)
 
-        length(matching_device_uids) > 1 ->
-          :quarantined
+      length(matching_device_uids) > 1 ->
+        quarantined_link(existing, tuple, matching_device_uids, :ambiguous_device_match)
 
-        not is_nil(existing) and field(existing, :link_disposition) == :approved ->
-          :quarantined
+      approved?(existing) ->
+        quarantined_link(existing, tuple, matching_device_uids, :approved_link_lost_match)
 
-        true ->
-          :unlinked
-      end
-
-    %{
-      canonical_device_uid: nil,
-      disposition: disposition,
-      evidence:
-        if(disposition == :quarantined,
-          do: merge_link_evidence(existing, source_tuple_evidence(tuple, matching_device_uids)),
-          else: source_tuple_evidence(tuple, matching_device_uids)
-        )
-    }
+      true ->
+        %{
+          canonical_device_uid: nil,
+          disposition: :unlinked,
+          evidence: source_tuple_evidence(tuple, matching_device_uids)
+        }
+    end
   end
 
-  defp quarantined_link(existing, tuple, matching_device_uids) do
+  defp quarantined?(existing),
+    do: not is_nil(existing) and field(existing, :link_disposition) == :quarantined
+
+  defp approved?(existing),
+    do: not is_nil(existing) and field(existing, :link_disposition) == :approved
+
+  defp quarantined_link(existing, tuple, matching_device_uids, reason) do
     %{
       canonical_device_uid: nil,
       disposition: :quarantined,
+      quarantine_reason: reason,
       evidence: merge_link_evidence(existing, source_tuple_evidence(tuple, matching_device_uids))
     }
   end
+
+  defp record_quarantine(%{quarantine_reason: :sticky} = link, existing, _observed_at) do
+    Map.merge(link, %{
+      quarantine_reason: field(existing, :quarantine_reason),
+      quarantined_at: field(existing, :quarantined_at)
+    })
+  end
+
+  defp record_quarantine(%{quarantine_reason: _reason} = link, _existing, observed_at),
+    do: Map.put(link, :quarantined_at, observed_at)
+
+  defp record_quarantine(link, _existing, _observed_at),
+    do: Map.merge(link, %{quarantine_reason: nil, quarantined_at: nil})
 
   defp merge_link_evidence(existing, source_evidence) do
     existing
@@ -498,7 +540,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     |> Map.merge(source_evidence)
   end
 
-  defp source_tuple_evidence({controller_id, inventory_id, awx_host_id}, device_uids) do
+  @doc """
+  The link evidence for one AWX source tuple and the devices that match it: the
+  exact six-key shape that membership approval accepts.
+  """
+  @spec source_tuple_evidence(source_tuple(), [String.t()]) :: map()
+  def source_tuple_evidence({controller_id, inventory_id, awx_host_id}, device_uids) do
     %{
       "kind" => "stored_awx_source_tuple",
       "controller_id" => controller_id,
@@ -570,6 +617,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
              enabled == upsert_conflict(:enabled) and current == upsert_conflict(:current) and
              link_disposition == upsert_conflict(:link_disposition) and
              link_evidence == upsert_conflict(:link_evidence) and
+             ((is_nil(quarantine_reason) and is_nil(upsert_conflict(:quarantine_reason))) or
+                quarantine_reason == upsert_conflict(:quarantine_reason)) and
+             ((is_nil(quarantined_at) and is_nil(upsert_conflict(:quarantined_at))) or
+                quarantined_at == upsert_conflict(:quarantined_at)) and
              ((is_nil(ansible_host) and is_nil(upsert_conflict(:ansible_host))) or
                 ansible_host == upsert_conflict(:ansible_host)) and
              ((is_nil(canonical_device_uid) and

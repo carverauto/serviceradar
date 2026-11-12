@@ -15,11 +15,20 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Automation.Ansible.Changes.ApproveAwxHostMembership
+  alias ServiceRadar.Automation.Ansible.Changes.ReleaseAwxHostMembershipQuarantine
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
   @launch_check {ActorHasPermission, permission: "ansible.runs.launch"}
   @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
+  @quarantine_reasons [
+    :ambiguous_device_match,
+    :approved_device_changed,
+    :approved_link_lost_match,
+    :approved_membership_not_current,
+    :canonical_device_deleted,
+    :predates_reason_recording
+  ]
   @launch_read_fields [
     :id,
     :controller_id,
@@ -31,6 +40,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     :current,
     :link_disposition
   ]
+
+  @doc "Every recorded reason a membership can be quarantined for."
+  def quarantine_reasons, do: @quarantine_reasons
 
   postgres do
     table "ansible_awx_host_memberships"
@@ -59,7 +71,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
 
     define :upsert_from_sync, action: :upsert_from_sync
     define :expire, action: :expire
-    define :quarantine_link, action: :quarantine_link
   end
 
   actions do
@@ -124,6 +135,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
         :expired_at,
         :link_disposition,
         :link_evidence,
+        :quarantine_reason,
+        :quarantined_at,
         :source_fingerprint,
         :metadata
       ]
@@ -142,6 +155,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
         :expired_at,
         :link_disposition,
         :link_evidence,
+        :quarantine_reason,
+        :quarantined_at,
         :source_fingerprint,
         :metadata,
         :updated_at
@@ -153,13 +168,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
       accept [:source_generation, :last_seen_at, :expired_at, :source_fingerprint, :metadata]
       change set_attribute(:current, false)
       change set_attribute(:enabled, false)
-    end
-
-    update :quarantine_link do
-      require_atomic? false
-      accept [:source_generation, :last_seen_at, :link_evidence, :source_fingerprint, :metadata]
-      change set_attribute(:link_disposition, :quarantined)
-      change set_attribute(:canonical_device_uid, nil)
     end
 
     update :approve_link do
@@ -199,6 +207,43 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
 
       change ApproveAwxHostMembership
     end
+
+    update :release_quarantine do
+      description "Release one quarantined membership to proposed or unlinked from current evidence; never to approved"
+      accept []
+
+      argument :controller_id, :uuid, allow_nil?: false
+
+      argument :inventory_id, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :awx_host_id, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :source_generation, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :source_fingerprint, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\Asha256:[0-9a-f]{64}\z/]
+
+      argument :expected_link_evidence, :map, allow_nil?: false
+
+      argument :released_link_disposition, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:proposed, :unlinked]]
+
+      argument :canonical_device_uid, :string,
+        allow_nil?: true,
+        constraints: [min_length: 1, max_length: 1_024]
+
+      argument :released_link_evidence, :map, allow_nil?: false
+
+      change ReleaseAwxHostMembershipQuarantine
+    end
   end
 
   policies do
@@ -216,7 +261,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
       authorize_if @launch_check
     end
 
-    action_with_permission([:approve_link], @manage_check)
+    action_with_permission([:approve_link, :release_quarantine], @manage_check)
   end
 
   attributes do
@@ -264,6 +309,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     end
 
     attribute :link_evidence, :map, allow_nil?: false, default: %{}, public?: true
+
+    attribute :quarantine_reason, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: @quarantine_reasons
+
+      description "Rule that quarantined the link; set exactly while link_disposition is quarantined"
+    end
+
+    attribute :quarantined_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+
+      description "When the quarantine was recorded; nil for predates_reason_recording"
+    end
+
     attribute :source_fingerprint, :string, allow_nil?: false, public?: true
     attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
     create_timestamp :inserted_at

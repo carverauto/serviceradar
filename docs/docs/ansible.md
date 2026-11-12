@@ -278,7 +278,7 @@ If the `inventory_sync` plugin assignment is wired up on the controller's agent,
 2. Plugin calls AWX inventory API.
 3. Plugin skips any host whose variables carry neither an IP (`ansible_host` or `ansible_ssh_host`) nor a NIC MAC, then emits a `DeviceDiscovery` aggregate (`source: "awx"`) for the remaining hosts via `result.WithDeviceDiscovery(...)`.
 4. Agent → gateway → DIRE merges the record into the device that already owns that AWX host (controller + host id) or that shares a MAC. An exact `ansible_host` address also merges when the first DNS label of the host name agrees (case-insensitive; `host01` agrees with `host01.example.com`; an address is not a host name), when a Proxmox guest anchors the record, or when the device at that address has no MAC. The address alone does not merge into a device that has a MAC, or into an agent-managed device under a different name. A host name without that address never merges, and a MAC that contradicts the device's MACs refuses the match. The device that holds the address survives; a linked Proxmox guest survives over both. The merge is audited as `awx_host_network_match`, or `awx_proxmox_network_match` when a guest anchors it.
-5. Matched devices get `ansible_managed = true`. Each AWX host also becomes a durable membership `(controller, inventory, AWX host ID)` whose link to a device is `proposed` when exactly one device matches, `unlinked` when none does, and `quarantined` when several do or a previously approved link changed. Memberships are listed under **Settings → Ansible → Memberships**; see the next step.
+5. Matched devices get `ansible_managed = true`. Each AWX host also becomes a durable membership `(controller, inventory, AWX host ID)` whose link to a device is `proposed` when exactly one device matches, `unlinked` when none does, and `quarantined` when several do or a previously approved link changed, with the reason recorded on the row. Memberships are listed under **Settings → Ansible → Memberships**; see the next step.
 
 No manual "mark Ansible-managed" toggle exists — the state is fully derived.
 
@@ -293,7 +293,7 @@ A launch only targets a device through an **approved** membership. Inventory syn
 5. If inventory sync changed the proposal after you opened it, the approval is refused and the dialog reloads with the current evidence. Review it again; nothing is approved on your behalf.
 6. To approve several proposals at once, tick their checkboxes (the header checkbox selects every approvable row in the current view) and click **Approve selected**. The dialog reloads and lists each membership's current evidence; nothing is submitted until you confirm. ServiceRadar then approves each membership separately with the evidence shown for it and reports each result. A membership whose proposal changed in between is not approved; it stays selected and is shown again with its current evidence for you to confirm. Changing the controller, inventory, or filter clears the selection.
 
-Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it.
+Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it. A quarantined membership stays quarantined after the fix until someone releases it; see [A membership stays `quarantined`](#a-membership-stays-quarantined).
 
 ### 6. Review template bindings
 
@@ -403,7 +403,7 @@ The ten Ansible permission keys, with the default role assignments:
 
 | Key | Default roles | What it grants |
 |---|---|---|
-| `ansible.controllers.manage` | `admin` | Register / edit / delete `AnsibleController`. Approve AWX memberships and prepare, create, or revoke template bindings. Required to reach the Controllers, Memberships, and Template bindings tabs. |
+| `ansible.controllers.manage` | `admin` | Register / edit / delete `AnsibleController`. Approve AWX memberships or release them from quarantine, and prepare, create, or revoke template bindings. Required to reach the Controllers, Memberships, and Template bindings tabs. |
 | `ansible.repositories.manage` | `admin` | Register / edit / delete `PlaybookRepository`. Required to reach the Repositories tab. |
 | `ansible.catalog.view` | `all` (viewer / helpdesk / operator / admin) | Browse `/ansible/catalog`. List template binding versions. |
 | `ansible.runs.view` | `all` | View `/ansible/operations` and `/ansible/operations/:id`. List AWX inventory memberships. The deployed permission key is retained for RBAC compatibility. |
@@ -461,6 +461,14 @@ Services page keeps the last failed card are in
 - Confirm the agent can reach AWX (same constraint as health).
 - Check `DiscoveryRecord` ingestion in DIRE — the AWX hosts may be matching onto different devices. Look for `awx` in the device's `discovery_sources` set.
 - A host whose variables carry no IP or MAC is skipped at the producer and never emitted; if an expected host is missing, check its AWX host variables. AWX hosts no device matches appear as `unlinked` memberships under **Settings → Ansible → Memberships**; check the agent logs for `inventory_sync` discovery records.
+
+### A membership stays `quarantined`
+
+Synchronization quarantines a membership when more than one device carries its AWX host (`ambiguous_device_match`), when an approved link now matches a different device (`approved_device_changed`) or no device (`approved_link_lost_match`), when an approved host returns after dropping out of a complete sync (`approved_membership_not_current`), and when the approved link's device is deleted or purged (`canonical_device_deleted`). The reason and time are stored on the row and returned by the [memberships API](./ansible-provisioning-api.md#exact-membership-and-binding-review). Rows quarantined before reasons were recorded read `predates_reason_recording`: their cause was never stored.
+
+A quarantine never clears by itself, even after the cause is fixed. Fix the cause first (remove duplicate devices, or correct the host in AWX), then release the membership with `POST /api/admin/ansible-memberships/{id}/release` as a user with `ansible.controllers.manage`. ServiceRadar checks current device inventory: one match makes the membership `proposed`, which you then approve as usual; no match makes it `unlinked`; several matches refuse the release and list the devices. A release never approves a membership.
+
+A membership quarantine is not a target hold. A target hold blocks a device after a failed or unproven mutation and is cleared through its own gate; releasing a membership does not clear it.
 
 ### Operation stuck in `:planned` or `:dispatching`
 
