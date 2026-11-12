@@ -1183,8 +1183,14 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   defp refusal_disposition(merge, refusals) do
     case Map.get(refusals, merge.event_id) do
-      {reason, culprit, _unit} when culprit == merge.event_id -> {reason, nil}
-      {reason, culprit, _unit} -> {:chain_blocked, "#{culprit}: #{reason}"}
+      {:blocked_by_later_merge, culprit, _unit} when culprit == merge.event_id ->
+        {:blocked_by_later_merge, elem(merge.to_state, 1)}
+
+      {reason, culprit, _unit} when culprit == merge.event_id ->
+        {reason, nil}
+
+      {reason, culprit, _unit} ->
+        {:chain_blocked, "#{culprit}: #{reason}"}
     end
   end
 

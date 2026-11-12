@@ -1212,7 +1212,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       by_id = Map.new(plan.report, &{&1.event_id, &1})
 
       assert plan.unmerge == []
-      assert by_id["m1"].disposition == :blocked_by_later_merge
+      assert %{disposition: :blocked_by_later_merge, blocked_by: "other-away"} = by_id["m1"]
       assert %{disposition: :source_identifiers_unrecorded, bad?: false} = by_id["m3"]
       assert by_id["m4"].disposition == :merge_superseded
       assert %{disposition: :chain_blocked, blocked_by: "m4: merge_superseded"} = by_id["m5"]

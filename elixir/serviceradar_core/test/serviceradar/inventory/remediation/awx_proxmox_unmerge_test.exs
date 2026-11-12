@@ -459,10 +459,21 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
       partition_id: "default"
     }
 
+    # The ingestor skips a guest with no address, so each NIC gets an invented one, distinct per
+    # test (the VMID follows the test's number) and per NIC.
+    host_base = rem(vmid, 84) * 3 + 1
+
     interfaces =
       macs
       |> Enum.with_index()
-      |> Enum.map(fn {mac, i} -> %{"name" => "eth#{i}", "mac_address" => mac} end)
+      |> Enum.map(fn {mac, i} ->
+        %{
+          "name" => "eth#{i}",
+          "mac_address" => mac,
+          "ip_addresses" => ["192.0.2.#{host_base + i}/24"],
+          "source" => "config+agent"
+        }
+      end)
 
     payload = %{
       "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),

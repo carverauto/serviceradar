@@ -185,8 +185,9 @@ Read:
 - `reported_merges`: every other judged merge with its `disposition`: an ambiguity
   (`no_distinguishing_evidence`, `conflicting_evidence`, `source_identifiers_unrecorded`,
   `chained_unproven`), `already_unmerged`, a refusal (`not_merged`, `merge_superseded`,
-  `survivor_not_live`, `blocked_by_later_merge`), `chain_blocked` (with `blocked_by`, the merge
-  of its unit that refused and why) or `not_selected`.
+  `survivor_not_live`, `blocked_by_later_merge` with `blocked_by`, the event id of the merge
+  that took the survivor away), `chain_blocked` (with `blocked_by`, the merge of its unit that
+  refused and why) or `not_selected`.
 - `mac_cleanup_plan`: every MAC row the step will move (`decision` `move`, with `target_uid`) or
   archive (`remove`), with its row id, record, value, `source`, `integration_type`,
   `sync_service_id`, `reported_guest_ref`, `first_seen`, `last_seen`, the guest it belongs to,
