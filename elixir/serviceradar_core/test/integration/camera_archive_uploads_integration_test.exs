@@ -1109,6 +1109,123 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              )
   end
 
+  for {kind, operation, byte_limit} <- [
+        {:init, "init_put_verified_v1", "max_init_bytes"},
+        {:media, "media_put_verified_v1", "max_media_bytes"},
+        {:manifest, "manifest_put_verified_v1", "max_manifest_bytes"}
+      ] do
+    @tag authority_kind: kind, authority_operation: operation, authority_byte_limit: byte_limit
+    test "closed recovery refuses #{kind} authority issuance and application but permits revocation",
+         ctx do
+      kind = ctx.authority_kind
+
+      {principal, desired, challenge, _} =
+        init_documents(ctx, "1", fn desired ->
+          desired
+          |> Map.put("operation", ctx.authority_operation)
+          |> Map.put("limits", %{
+            ctx.authority_byte_limit => 4096,
+            "max_operation_ms" => 5000,
+            "max_in_flight" => 1
+          })
+        end)
+
+      application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+      File.rm!(ctx.recovery.path)
+
+      assert {:error, :nvr_recovery_closed} =
+               ArchiveAuthorities.challenge(kind, principal, challenge, ctx.opts)
+
+      assert {:ok, %{"state" => "not_configured"}} =
+               ArchiveAuthorities.status(kind, @installation, ctx.binding.id, ctx.opts)
+
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+      assert {:ok, pending} = ArchiveAuthorities.challenge(kind, principal, challenge, ctx.opts)
+      File.rm!(ctx.recovery.path)
+
+      assert {:error, :nvr_recovery_closed} =
+               ArchiveAuthorities.apply(kind, @installation, application, ctx.opts)
+
+      assert {:ok, retained} =
+               ArchiveAuthorities.status(kind, @installation, ctx.binding.id, ctx.opts)
+
+      assert Map.delete(retained, "remaining_ms") == Map.delete(pending, "remaining_ms")
+
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+
+      assert {:ok, %{"state" => "applied"}} =
+               ArchiveAuthorities.apply(kind, @installation, application, ctx.opts)
+
+      File.rm!(ctx.recovery.path)
+
+      assert {:ok, %{"state" => "revoked", "revision" => "2"} = revoked} =
+               ArchiveAuthorities.revoke(kind, @installation, revoke_document(ctx, "2"), ctx.opts)
+
+      assert {:ok, ^revoked} =
+               ArchiveAuthorities.status(kind, @installation, ctx.binding.id, ctx.opts)
+
+      assert {:ok, ^revoked} =
+               ArchiveAuthorities.revoke(kind, @installation, revoke_document(ctx, "2"), ctx.opts)
+    end
+  end
+
+  for phase <- [:challenge, :apply] do
+    @tag authority_phase: phase
+    test "recovery closure during authority #{phase} retains the original committed window",
+         ctx do
+      {principal, desired, challenge, _} = init_documents(ctx)
+      application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+
+      {operation, sql, expected_state} =
+        case ctx.authority_phase do
+          :challenge ->
+            {fn -> ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts) end,
+             "INSERT INTO", "pending"}
+
+          :apply ->
+            assert {:ok, _} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
+
+            {fn -> ArchiveAuthorities.apply(:init, @installation, application, ctx.opts) end,
+             "UPDATE", "applied"}
+        end
+
+      parent = self()
+      handler = {__MODULE__, make_ref()}
+      event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          event,
+          fn _event, _measurements, metadata, _config ->
+            if self() == parent and String.starts_with?(metadata.query, sql) and
+                 String.contains?(metadata.query, "camera_archive_init_authorities") do
+              File.rm!(ctx.recovery.path)
+              send(parent, :recovery_closed_during_authority)
+            end
+          end,
+          nil
+        )
+
+      assert {:error, :nvr_recovery_closed} = operation.()
+      assert_received :recovery_closed_during_authority
+      :ok = :telemetry.detach(handler)
+
+      assert {:ok, retained} =
+               ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
+
+      assert retained["state"] == expected_state
+      assert retained["revision"] == "1"
+      assert retained["nonce"] == challenge["nonce"]
+
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+      assert {:ok, repeated} = operation.()
+      assert Map.delete(repeated, "remaining_ms") == Map.delete(retained, "remaining_ms")
+      assert repeated["remaining_ms"] <= retained["remaining_ms"]
+    end
+  end
+
   test "init authority retains its original window and consumes revisions before application",
        ctx do
     {principal, desired, challenge, context} = init_documents(ctx)

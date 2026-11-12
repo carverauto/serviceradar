@@ -9,9 +9,11 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   occurs inside the transaction. Deployment recovery state is checked before the
   transaction and before returning the acknowledgement. Closure after admission
   withholds the reply but does not undo a committed receipt.
+  Ambient transactions are refused so no acknowledgement precedes its commit.
   """
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Repo
   alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent, as: Codec
@@ -36,10 +38,15 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   defp accept_bytes(document, bytes, opts) do
     gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
 
-    with :ok <- RecoveryGate.check(gate),
-         {:ok, _receipt} <- accept_document(document, digest(bytes), opts),
-         :ok <- RecoveryGate.check(gate) do
-      LocalPublicationAcknowledgement.encode(bytes)
+    if Repo.in_transaction?() do
+      {:error, :ambient_transaction}
+    else
+      with {:ok, _receipt} <-
+             RecoveryGate.with_ready(gate, fn ->
+               accept_document(document, digest(bytes), opts)
+             end) do
+        LocalPublicationAcknowledgement.encode(bytes)
+      end
     end
   end
 

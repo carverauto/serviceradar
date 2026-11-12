@@ -12,9 +12,13 @@ A ready gate does not grant current-history approval, storage qualification,
 playback access or physical source retirement.
 
 The packaged NVR release suite owns the file contract and live-state checks.
+`RecoveryGate.with_ready/2` owns the before/after success checks shared by Core's
+publication, recording-admission and archive-authority consumers. Each consumer
+rejects ambient transactions and owns its database work.
 Core's recording-block integration suite owns receipt persistence and closure
 across acceptance, and its recorder-ownership integration suite owns new-work
-admission closure; web-ng's publication DB suite owns the authenticated HTTP
+admission closure. Core's archive-upload integration suite owns recovery closure
+during authority issuance and application; web-ng's publication DB suite owns the authenticated HTTP
 response and retry behavior, and its media-upload DB suite owns provider-grant
 closure. The library's format and Credo checks run through
 `//build/elixir_quality:quality_check`.

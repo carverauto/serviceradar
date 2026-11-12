@@ -44,6 +44,26 @@ defmodule ServiceRadarRecordingControl.RecoveryGate do
     end
   end
 
+  @doc """
+  Checks recovery before work and before returning `:ok` or `{:ok, value}`.
+
+  Other results pass through unchanged. Closure withholds success without
+  undoing work. Database callers must reject ambient transactions first and
+  complete their own transaction inside the callback.
+  """
+  def with_ready(gate, fun) when is_function(fun, 0) do
+    with :ok <- check(gate),
+         result = fun.(),
+         :ok <- successful(result),
+         :ok <- check(gate) do
+      result
+    end
+  end
+
+  defp successful(:ok), do: :ok
+  defp successful({:ok, _}), do: :ok
+  defp successful(error), do: error
+
   defp outside_spool?(_path, nil), do: true
 
   defp outside_spool?(path, root) do

@@ -7,6 +7,9 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
   control, authority, block and dispatch, without acquiring a binding lock.
   Installation/revocation never acquires block or recording-control locks.
   The callbacks below are short database work; no network or credential I/O.
+  Challenge and application require ready deployment recovery before and after
+  their transactions. A withheld reply does not undo a committed revision or
+  renew its original deadline. Status and revocation remain available.
   """
 
   import Kernel, except: [apply: 3]
@@ -19,6 +22,7 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
   alias ServiceRadar.Camera.ArchiveManifestAuthority
   alias ServiceRadar.Camera.ArchiveMediaAuthority
   alias ServiceRadar.Repo
+  alias ServiceRadarRecordingControl.RecoveryGate
 
   require Ash.Query
 
@@ -105,7 +109,7 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
          {:ok, fingerprint} <- principal_sha256(opts.kind, principal),
          {:ok, input} <- challenge_input(document),
          :ok <- outside_transaction() do
-      transaction(opts, fn ->
+      recovery_transaction(opts, fn ->
         with {:ok, binding} <- binding(input.binding_id, opts, true),
              {:ok, current} <- current(input.binding_id, opts, true),
              :ok <- origin(current, principal),
@@ -121,7 +125,7 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
          :ok <- installation(installation),
          {:ok, config, nonce} <- application(installation, envelope, opts),
          :ok <- outside_transaction() do
-      transaction(opts, fn ->
+      recovery_transaction(opts, fn ->
         with {:ok, binding} <- binding(config.binding_id, opts, true),
              {:ok, current} <- required_current(config.binding_id, opts),
              :ok <- origin(current, installation),
@@ -559,6 +563,12 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
 
   defp outside_transaction,
     do: if(Repo.in_transaction?(), do: {:error, :ambient_transaction}, else: :ok)
+
+  defp recovery_transaction(opts, fun) do
+    gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+
+    RecoveryGate.with_ready(gate, fn -> transaction(opts, fun) end)
+  end
 
   defp transaction(opts, fun) do
     [ArchiveBinding, opts.resource]
