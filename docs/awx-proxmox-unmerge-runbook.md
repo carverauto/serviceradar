@@ -67,8 +67,10 @@ step computes its plan when it runs, never from a fixed list.
    away), the whole unit is reported: that merge with its reason, the others as
    `chain_blocked`.
 
-4. **Unmerges each unit in one transaction**: it locks every record of the unit, plans the unit
-   again on the state under the locks, undoes each merge by audit id and records each pair as
+4. **Unmerges each unit in one transaction**: it locks every record of the unit, plans again
+   from the same full read as the dry run on the state under the locks (one full read per unit,
+   so a unit poisoned through a merge outside it is still seen), and requires the same unit; it
+   then undoes each merge by audit id and records each pair as
    distinct. A refusal anywhere rolls the whole unit back.
 
 5. **Returns or archives the wrong-guest MACs.** An AWX update bound to the wrong guest wrote

@@ -103,10 +103,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     rows
     |> Enum.take(limit)
     |> List.flatten()
-    |> load_closure(length(rows) > limit)
+    |> MapSet.new()
+    |> widen(length(rows) > limit, 1)
   end
-
-  defp load_closure(uids, truncated?), do: widen(MapSet.new(uids), truncated?, 1)
 
   defp widen(uids, truncated?, round) do
     data = load_around(MapSet.to_list(uids), truncated?)
@@ -1062,16 +1061,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     )
   end
 
-  # The unit planned again from its own records, on the state read under the locks: it must still
-  # be one runnable unit of exactly these merges.
+  # The whole plan computed again, from the same AWX-seeded read as the dry run, on the state read
+  # under the unit's locks: it must still hold one runnable unit of exactly these merges. A unit's
+  # poison can arrive through merges outside it, so a read of its own records is not enough. This
+  # costs one full read per unit.
   defp revalidate_unit(merges, opts) do
     ids = merges |> Enum.map(& &1.event_id) |> Enum.sort()
-
-    data =
-      merges
-      |> Enum.flat_map(&[&1.from_uid, &1.to_uid])
-      |> load_closure(false)
-
+    data = load(opts)
     fresh = plan(data, opts)
 
     cond do
