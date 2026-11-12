@@ -218,16 +218,20 @@ nats:
   trace: false
   jetstream:
     maxMemoryStore: 1G
-    # JetStream sizing profile: small (default), medium or large. A profile sets
-    # max_file_store and the default max_bytes of every stream, KV bucket and
-    # object store ServiceRadar creates (files/jetstream-profiles.yaml):
-    #   small  -> max_file_store 36G,  for the default 36Gi PVC
-    #   medium -> max_file_store 100G, for a 100Gi PVC
-    #   large  -> max_file_store 500G, for a 500Gi PVC
-    #   tenant-2g -> max_file_store 2G, the hosted-tenant plan (values-tenant.yaml)
-    # With nats.replicas 1 or 2 the shipped profiles use their single-server size
-    # table (the Docker Compose sizes; flows 3 GiB in small), because R3 streams
-    # then land on every server and fewer servers share the R1 streams.
+    # JetStream sizing profile: compact, small (default), medium, large or
+    # tenant-2g. A profile sets max_file_store and the default max_bytes of every
+    # stream, KV bucket and object store ServiceRadar creates
+    # (files/jetstream-profiles.yaml):
+    #   compact   -> max_file_store 9G,   for a 10Gi PVC (fresh or low-data pilots)
+    #   small     -> max_file_store 36G,  for the default 36Gi PVC
+    #   medium    -> max_file_store 100G, for a 100Gi PVC
+    #   large     -> max_file_store 500G, for a 500Gi PVC
+    #   tenant-2g -> max_file_store 2G,   the hosted-tenant plan (values-tenant.yaml)
+    # With nats.replicas 1 or 2, small, medium and large use their single-server
+    # size table (the Docker Compose sizes; flows 3 GiB in small), because R3
+    # streams then land on every server and fewer servers share the R1 streams.
+    # Profiles without singleServerSizes, including compact and tenant-2g, reuse
+    # their sizes table for every server count.
     # Each size is still overridable at its own value (datasvc.bucketMaxBytes,
     # datasvc.objectStoreBytes, logCollector.streamMaxBytes,
     # flowCollector.config.stream_max_bytes, bmpCollector.config.streamMaxBytes,

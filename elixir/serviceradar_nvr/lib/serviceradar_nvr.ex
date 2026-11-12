@@ -33,6 +33,30 @@ defmodule ServiceRadarNVR do
   def bootstrap_storage(root, reference, preparation),
     do: ServiceRadarNVR.StorageBootstrap.initialize(root, reference, preparation)
 
+  @doc """
+  Durably retain Core's authenticated installation acknowledgement offline.
+
+  Requires the original installed preparation, matching storage/binding reference,
+  exclusive provider attachment and retired writers. The preparation and marker
+  are synced before the acknowledgement; exact retries preserve existing bytes.
+  Partial, conflicting or unsafe evidence is refused without replacement. This
+  records historical installation evidence and leaves admission closed.
+  """
+  def acknowledge_bootstrap(root, reference, bytes),
+    do: ServiceRadarNVR.StorageBootstrap.acknowledge(root, reference, bytes)
+
+  @doc """
+  Inspect an exclusively attached bootstrap root without changing or syncing it.
+
+  Returns the canonical preparation and optional acknowledgement, their digests,
+  operation/storage IDs, and retained control bytes including the storage marker.
+  An absent acknowledgement reserves 512 future control bytes. Unexpected entries
+  and incomplete, conflicting or unsafe evidence are refused and preserved.
+  This bounded offline observation is neither a reservation nor current Core
+  history proof; retry the original write to confirm durability before delivery.
+  """
+  def bootstrap_evidence(root, reference), do: ServiceRadarNVR.StorageBootstrap.inspect(root, reference)
+
   def start_recording(identity, clock) do
     case DynamicSupervisor.start_child(ServiceRadarNVR.Sessions, {Session, {self(), identity, clock}}) do
       {:ok, pid} -> {:ok, pid, GenServer.call(pid, :inbox)}

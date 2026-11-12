@@ -81,11 +81,24 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
   end
 
   def lock_and_check(aggregate) do
-    with {:ok, _} <-
-           Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-             "awx-inventory-observation:" <> aggregate.controller_id
-           ]) do
+    with :ok <- lock_controller(aggregate.controller_id) do
       check(aggregate)
+    end
+  end
+
+  @doc """
+  Takes the controller's observation lock for the rest of the current
+  transaction. Membership reconciliation holds it while it reads and writes a
+  controller's memberships; any other membership writer that must not
+  interleave with reconciliation takes it too.
+  """
+  @spec lock_controller(String.t()) :: :ok | {:error, term()}
+  def lock_controller(controller_id) when is_binary(controller_id) do
+    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+           "awx-inventory-observation:" <> controller_id
+         ]) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
     end
   end
 

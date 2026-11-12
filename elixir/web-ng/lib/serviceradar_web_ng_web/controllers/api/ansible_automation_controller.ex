@@ -23,6 +23,10 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationController do
     respond(conn, automation().approve_membership(scope(conn), id, Map.delete(params, "id")))
   end
 
+  def release_membership(conn, %{"id" => id} = params) do
+    respond(conn, automation().release_membership(scope(conn), id, Map.delete(params, "id")))
+  end
+
   def prepare_binding(conn, params), do: respond(conn, automation().prepare_binding(scope(conn), params))
 
   def create_binding(conn, params), do: respond(conn, automation().create_binding(scope(conn), params), :created)
@@ -49,13 +53,24 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationController do
   end
 
   defp human_action?(action),
-    do: action in [:prepare, :create, :cancel, :approve_membership, :prepare_binding, :create_binding, :revoke_binding]
+    do:
+      action in [
+        :prepare,
+        :create,
+        :cancel,
+        :approve_membership,
+        :release_membership,
+        :prepare_binding,
+        :create_binding,
+        :revoke_binding
+      ]
 
   defp permission(action) when action in [:prepare, :create], do: "ansible.runs.launch"
   defp permission(:cancel), do: "ansible.runs.cancel"
 
-  defp permission(action) when action in [:approve_membership, :prepare_binding, :create_binding, :revoke_binding],
-    do: "ansible.controllers.manage"
+  defp permission(action)
+       when action in [:approve_membership, :release_membership, :prepare_binding, :create_binding, :revoke_binding],
+       do: "ansible.controllers.manage"
 
   defp permission(:bindings), do: "ansible.catalog.view"
   defp permission(_action), do: "ansible.runs.view"
@@ -65,6 +80,13 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationController do
 
   defp respond(conn, {:error, :cancellation_not_implemented}, _status),
     do: deny(conn, :not_implemented, "cancellation_not_implemented")
+
+  defp respond(conn, {:error, {:membership_link_ambiguous, device_uids}}, _status) when is_list(device_uids) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "membership_link_ambiguous", matching_device_uids: device_uids})
+    |> halt()
+  end
 
   defp respond(conn, {:error, reason}, _status) when reason in [:unauthorized, :forbidden, :not_found],
     do: deny(conn, reason, Atom.to_string(reason))

@@ -19,12 +19,16 @@ to end from the browser. The operator guide already promises a "needs review" li
   disposition, enabled state, the proposed canonical device (linked to its device
   page), link-evidence kind and match count, and last-seen time. A **Needs review**
   filter and per-inventory counts make pending proposals discoverable.
-- Approving a proposal opens a review panel that shows the complete evidence tuple
+- Approving a proposal opens a review dialog that shows the complete evidence tuple
   (controller, inventory, AWX host ID, device UID, source generation, fingerprint,
   evidence digest) and submits exactly that tuple. A proposal that changed in the
   meantime is refused by the domain, reloaded, and shown again; it is never
   re-submitted automatically. Unlinked, quarantined, disabled, and ambiguous
   memberships show why they cannot be approved. There is no way to force a link.
+- Several proposals can be selected and approved together. The bulk dialog reloads and
+  shows every selected tuple before anything is submitted, then approves each
+  membership separately with its own shown tuple; changed proposals are shown again
+  for another confirmation, never re-submitted.
 - Add a **Template bindings** tab. Per controller and job template it lists binding
   versions with state, expiry, inventory policy, project and revision, content hash,
   and modes. A two-phase review mirrors the API: the operator enters the request, the

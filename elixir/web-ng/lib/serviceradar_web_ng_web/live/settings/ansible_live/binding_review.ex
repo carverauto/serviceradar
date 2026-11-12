@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     |> assign(:binding_controller_id, nil)
     |> assign(:binding_templates, [])
     |> assign(:binding_template_id, nil)
+    |> assign(:binding_inventories, [])
     |> assign(:binding_notice, nil)
     |> assign(:binding_version_count, 0)
     |> assign(:show_binding_form, false)
@@ -64,6 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     socket
     |> assign(:binding_controller_id, keep_or_first(socket.assigns.binding_controller_id, controllers))
     |> load_templates()
+    |> load_inventories()
     |> load_versions()
   end
 
@@ -90,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
       |> assign(:binding_template_id, nil)
       |> close_form()
       |> load_templates()
+      |> load_inventories()
       |> load_versions()
     end
   end
@@ -463,6 +466,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
     |> assign(:binding_template_id, nil)
   end
 
+  # Catalog templates are suggestions only. The page never preselects one: the
+  # first catalog row is arbitrary, and prefilling it would also prefill its
+  # catalog inventory into the request form.
   defp load_templates(socket) do
     scope = socket.assigns.current_scope
 
@@ -472,7 +478,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
           socket
           |> assign(:binding_notice, nil)
           |> assign(:binding_templates, templates)
-          |> assign(:binding_template_id, default_template(socket.assigns.binding_template_id, templates))
 
         {:error, reason} ->
           socket
@@ -484,6 +489,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
       |> assign(:binding_templates, [])
       |> assign(:binding_template_id, nil)
       |> assign(:binding_notice, "Listing template bindings requires the #{@catalog_permission} permission.")
+    end
+  end
+
+  # Inventory suggestions for the request form: the inventories that hold
+  # current memberships for this controller. Without `ansible.runs.view` the
+  # membership choices explain the missing permission instead.
+  defp load_inventories(%{assigns: %{binding_controller_id: nil}} = socket) do
+    assign(socket, :binding_inventories, [])
+  end
+
+  defp load_inventories(socket) do
+    scope = socket.assigns.current_scope
+
+    with true <- RBAC.can?(scope, @membership_permission),
+         {:ok, inventories} <-
+           automation().list_membership_inventories(scope, socket.assigns.binding_controller_id) do
+      assign(socket, :binding_inventories, inventories)
+    else
+      _unavailable -> assign(socket, :binding_inventories, [])
     end
   end
 
@@ -546,12 +570,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
       |> assign(:binding_choice_count, length(choices))
       |> assign(
         :binding_choice_notice,
-        if(choices == [], do: "No approved memberships in inventory #{inventory_id}.")
+        if(choices == [],
+          do:
+            "No approved memberships in inventory #{inventory_id}. " <>
+              "Approve its memberships on the Memberships tab first."
+        )
       )
       |> stream(:binding_choices, choices, reset: true)
     else
       :error ->
-        put_choices_notice(socket, "Enter the AWX inventory ID to choose approved memberships.")
+        put_choices_notice(
+          socket,
+          "No inventory chosen yet. Enter or pick the AWX inventory ID above to list its approved memberships."
+        )
 
       :no_permission ->
         put_choices_notice(
@@ -584,16 +615,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.BindingReview do
 
   defp put_known(params, _key, nil), do: params
   defp put_known(params, key, value), do: Map.put(params, key, Integer.to_string(value))
-
-  defp default_template(current, templates) do
-    ids = Enum.map(templates, & &1.job_template_id)
-
-    cond do
-      is_integer(current) -> current
-      ids == [] -> nil
-      true -> hd(ids)
-    end
-  end
 
   defp keep_or_first(requested, controllers) do
     ids = Enum.map(controllers, &to_string(&1.id))

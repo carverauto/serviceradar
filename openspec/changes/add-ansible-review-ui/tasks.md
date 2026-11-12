@@ -22,3 +22,5 @@
 - [x] 4.1 LiveView tests: approval submits the shown tuple and a changed proposal is re-shown; create submits the prepared digest and a changed review is not accepted; typed revoke confirmation; a user who loses `ansible.controllers.manage` cannot approve, create, or revoke by sending events.
 - [x] 4.2 Register the new test file in its web-ng DB shard and the runner contract.
 - [ ] 4.3 Verify on a live deployment with a real AWX controller (requires a database and AWX; not run in this change).
+- [x] 4.4 Follow-up: open the membership review and the prepared binding review in modal dialogs; derive the selected inventory's picker count from the same reload as the filter counts; stop preselecting an arbitrary job template and its catalog inventory in the binding form; suggest inventories with current memberships.
+- [x] 4.5 Bulk membership approval: per-row selection bounded by the current view, a bulk review dialog that reloads and shows every tuple, one approval per membership with its shown tuple, per-row outcomes, and re-presentation of changed rows; LiveView tests for the submitted tuples, a mixed result, and a user who lost `ansible.controllers.manage`.

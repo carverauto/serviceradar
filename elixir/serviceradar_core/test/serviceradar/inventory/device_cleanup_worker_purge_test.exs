@@ -122,7 +122,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
     assert %{
              disposition: "quarantined",
              device_uid: nil,
-             evidence: %{"canonical_device_deleted" => %{"device_uid" => ^uid}}
+             evidence: %{"canonical_device_deleted" => %{"device_uid" => ^uid}},
+             quarantine_reason: "canonical_device_deleted",
+             quarantined_at: %NaiveDateTime{}
            } = membership(membership_id)
   end
 
@@ -611,17 +613,24 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
   end
 
   defp membership(membership_id) do
-    %{rows: [[disposition, device_uid, evidence]]} =
+    %{rows: [[disposition, device_uid, evidence, quarantine_reason, quarantined_at]]} =
       Repo.query!(
         """
-        SELECT link_disposition, canonical_device_uid, link_evidence
+        SELECT link_disposition, canonical_device_uid, link_evidence, quarantine_reason,
+               quarantined_at
         FROM platform.ansible_awx_host_memberships
         WHERE id = CAST(CAST($1 AS text) AS uuid)
         """,
         [membership_id]
       )
 
-    %{disposition: disposition, device_uid: device_uid, evidence: evidence}
+    %{
+      disposition: disposition,
+      device_uid: device_uid,
+      evidence: evidence,
+      quarantine_reason: quarantine_reason,
+      quarantined_at: quarantined_at
+    }
   end
 
   # An AWX execution that targeted `device_uid`: the audit row whose RESTRICT

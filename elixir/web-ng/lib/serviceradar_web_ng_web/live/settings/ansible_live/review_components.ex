@@ -25,9 +25,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
   attr :memberships, :any, required: true
   attr :notice, :string, default: nil
   attr :reviewing, :map, default: nil
+  attr :review_error, :string, default: nil
+  attr :approvable_count, :integer, required: true
+  attr :selected, :any, required: true
+  attr :bulk, :map, default: nil
   attr :timezone, :string, required: true
 
   def memberships_panel(assigns) do
+    assigns =
+      assigns
+      |> assign(:selected_count, MapSet.size(assigns.selected))
+      |> assign(
+        :all_selected?,
+        assigns.approvable_count > 0 and assigns.approvable_count == MapSet.size(assigns.selected)
+      )
+
     ~H"""
     <p class="text-sm text-sr-muted">
       AWX inventory hosts that inventory sync linked to ServiceRadar devices. A proposed link
@@ -89,26 +101,48 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
       No current AWX memberships for this controller yet. They appear after inventory sync runs.
     </p>
 
-    <div :if={@inventory_id} class="flex flex-wrap gap-2" role="group" aria-label="Membership filter">
+    <div :if={@inventory_id} class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap gap-2" role="group" aria-label="Membership filter">
+        <.ui_button
+          :for={{key, label, count_key} <- membership_filters()}
+          id={"ansible-membership-filter-#{key}"}
+          type="button"
+          size="xs"
+          variant={if(@filter == key, do: "primary", else: "neutral")}
+          phx-click="filter_memberships"
+          phx-value-filter={key}
+        >
+          {label} ({Map.fetch!(@counts, count_key)})
+        </.ui_button>
+      </div>
       <.ui_button
-        :for={{key, label, count_key} <- membership_filters()}
-        id={"ansible-membership-filter-#{key}"}
+        :if={@selected_count > 0}
+        id="ansible-membership-bulk-open"
         type="button"
         size="xs"
-        variant={if(@filter == key, do: "primary", else: "neutral")}
-        phx-click="filter_memberships"
-        phx-value-filter={key}
+        variant="primary"
+        phx-click="review_selected_memberships"
       >
-        {label} ({Map.fetch!(@counts, count_key)})
+        Approve selected ({@selected_count})
       </.ui_button>
     </div>
-
-    <.membership_review_panel :if={@reviewing} membership={@reviewing} timezone={@timezone} />
 
     <div :if={@inventory_id} class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface">
       <table class={ui_table_class(zebra: true, size: "sm")}>
         <thead>
           <tr>
+            <th class="w-8">
+              <input
+                :if={@approvable_count > 0}
+                id="ansible-membership-select-all"
+                type="checkbox"
+                class="size-4 cursor-pointer"
+                checked={@all_selected?}
+                phx-click="toggle_all_memberships"
+                aria-label="Select every approvable membership in this view"
+                title="Select every approvable membership in this view"
+              />
+            </th>
             <th>Host</th>
             <th>AWX host</th>
             <th>Link</th>
@@ -120,11 +154,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         </thead>
         <tbody id="ansible-memberships" phx-update="stream">
           <tr id="ansible-memberships-empty" class="hidden only:table-row">
-            <td colspan="7" class="text-center text-sm text-sr-muted">
+            <td colspan="8" class="text-center text-sm text-sr-muted">
               No memberships match this filter.
             </td>
           </tr>
           <tr :for={{id, membership} <- @memberships} id={id}>
+            <td>
+              <input
+                :if={MembershipReview.approvable?(membership)}
+                id={"ansible-membership-select-#{membership.id}"}
+                type="checkbox"
+                class="size-4 cursor-pointer"
+                checked={MapSet.member?(@selected, to_string(membership.id))}
+                phx-click="toggle_membership_selection"
+                phx-value-id={membership.id}
+                aria-label={"Select #{membership.host_name} for approval"}
+              />
+            </td>
             <td>
               <div class="font-medium">{membership.host_name}</div>
               <div :if={membership.ansible_host} class="text-xs text-sr-muted">
@@ -196,26 +242,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         </tbody>
       </table>
     </div>
+
+    <.membership_review_modal :if={@reviewing} membership={@reviewing} error={@review_error} />
+    <.membership_bulk_modal :if={@bulk} bulk={@bulk} />
     """
   end
 
   attr :membership, :map, required: true
-  attr :timezone, :string, required: true
+  attr :error, :string, default: nil
 
-  defp membership_review_panel(assigns) do
+  defp membership_review_modal(assigns) do
     ~H"""
-    <div
+    <.ui_modal
       id="ansible-membership-review"
-      class="space-y-3 rounded-lg border border-sr-line bg-sr-subtle/60 p-4"
+      size="lg"
+      on_cancel="cancel_membership_review"
+      data-return-focus={"#ansible-membership-review-#{@membership.id}"}
     >
-      <div>
-        <h2 class="text-lg font-medium">Approve membership link</h2>
-        <p class="text-sm text-sr-muted">
-          Approval links AWX host <strong>{@membership.host_name}</strong> to the device below for
-          launches, recorded as you. ServiceRadar submits exactly this evidence; if the proposal
-          changed since it was loaded, the approval is refused and the new evidence is shown.
-        </p>
-      </div>
+      <:title>Approve membership link</:title>
+
+      <.ui_alert :if={@error} variant="error" id="ansible-membership-review-error">
+        {@error}
+      </.ui_alert>
+
+      <p class="text-sm text-sr-muted">
+        Approval links AWX host <strong>{@membership.host_name}</strong> to the device below for
+        launches, recorded as you. ServiceRadar submits exactly this evidence; if the proposal
+        changed since it was loaded, the approval is refused and the new evidence is shown.
+      </p>
 
       <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm md:grid-cols-2">
         <.review_row label="Controller" value={@membership.controller_id} mono />
@@ -242,8 +296,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         <.review_row label="Evidence digest" value={@membership.link_evidence_digest} mono />
       </dl>
 
-      <div class="flex justify-end gap-2">
-        <.ui_button type="button" size="sm" variant="ghost" phx-click="cancel_membership_review">
+      <div class="sr-ui-modal-action">
+        <.ui_button
+          type="button"
+          size="sm"
+          variant="ghost"
+          phx-click="cancel_membership_review"
+          data-dialog-autofocus
+        >
           Cancel
         </.ui_button>
         <.ui_button
@@ -256,7 +316,135 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
           Approve link
         </.ui_button>
       </div>
-    </div>
+    </.ui_modal>
+    """
+  end
+
+  attr :bulk, :map, required: true
+
+  defp membership_bulk_modal(assigns) do
+    ~H"""
+    <.ui_modal
+      id="ansible-membership-bulk-review"
+      size="6xl"
+      on_cancel="cancel_bulk_membership_review"
+      data-return-focus="#ansible-membership-filter-needs_review"
+    >
+      <:title>Approve selected membership links</:title>
+
+      <div :if={@bulk.outcomes != []} id="ansible-membership-bulk-outcomes" class="space-y-1">
+        <p class="text-sm font-medium">Results</p>
+        <ul class="space-y-1 text-sm">
+          <li
+            :for={outcome <- @bulk.outcomes}
+            id={"ansible-membership-bulk-outcome-#{outcome.id}"}
+            class="flex flex-wrap items-center gap-2"
+          >
+            <.ui_badge size="sm" variant={if(outcome.approved?, do: "success", else: "error")}>
+              {if(outcome.approved?, do: "approved", else: "not approved")}
+            </.ui_badge>
+            <span class="font-medium">{outcome.host_name}</span>
+            <span class="text-sr-muted">{outcome.message}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div :if={@bulk.excluded != []} id="ansible-membership-bulk-excluded" class="space-y-1">
+        <p class="text-sm font-medium">Not included</p>
+        <ul class="space-y-1 text-sm">
+          <li
+            :for={excluded <- @bulk.excluded}
+            id={"ansible-membership-bulk-excluded-#{excluded.id}"}
+            class="text-sr-muted"
+          >
+            <span class="font-medium text-sr-ink">{excluded.host_name || excluded.id}</span>: {excluded.message}
+          </li>
+        </ul>
+      </div>
+
+      <.ui_alert
+        :if={@bulk.outcomes != [] and @bulk.items != []}
+        variant="warning"
+        id="ansible-membership-bulk-changed"
+      >
+        These memberships changed after you reviewed them, so they were not approved. This is
+        their current evidence; confirm again only if it is what you mean to approve.
+      </.ui_alert>
+
+      <p :if={@bulk.items != [] and @bulk.outcomes == []} class="text-sm text-sr-muted">
+        Approval links each AWX host below to the device shown, recorded as you. ServiceRadar
+        submits exactly the evidence shown for each one, one approval per membership; any proposal
+        that changed since it was loaded is refused and shown again.
+      </p>
+
+      <div :if={@bulk.items != []} class="overflow-x-auto rounded-lg border border-sr-line">
+        <table class={ui_table_class(size: "sm")}>
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>AWX host</th>
+              <th>Proposed device</th>
+              <th>Evidence</th>
+              <th>Source generation / fingerprint</th>
+              <th>Evidence digest</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={membership <- @bulk.items}
+              id={"ansible-membership-bulk-item-#{membership.id}"}
+            >
+              <td>
+                <div class="font-medium">{membership.host_name}</div>
+                <code :if={membership.ansible_host} class="text-xs text-sr-muted">
+                  {membership.ansible_host}
+                </code>
+              </td>
+              <td><code class="text-xs">{membership.awx_host_id}</code></td>
+              <td><code class="break-all text-xs">{membership.canonical_device_uid}</code></td>
+              <td class="text-xs">
+                {MembershipReview.evidence_kind(membership)}, {MembershipReview.match_count(
+                  membership
+                )} match
+              </td>
+              <td class="text-xs">
+                <code>{membership.source_generation}</code>
+                <code class="block break-all text-sr-muted">{membership.source_fingerprint}</code>
+              </td>
+              <td><code class="break-all text-xs">{membership.link_evidence_digest}</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p :if={@bulk.pending?} id="ansible-membership-bulk-pending" class="text-sm text-sr-muted">
+        Approving each membership with its shown evidence…
+      </p>
+
+      <div class="sr-ui-modal-action">
+        <.ui_button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={@bulk.pending?}
+          phx-click="cancel_bulk_membership_review"
+          data-dialog-autofocus
+        >
+          {if(@bulk.items == [], do: "Close", else: "Cancel")}
+        </.ui_button>
+        <.ui_button
+          :if={@bulk.items != []}
+          id="ansible-membership-bulk-approve"
+          type="button"
+          size="sm"
+          variant="primary"
+          disabled={@bulk.pending?}
+          phx-click="approve_selected_memberships"
+        >
+          Approve {length(@bulk.items)} {if(length(@bulk.items) == 1, do: "link", else: "links")}
+        </.ui_button>
+      </div>
+    </.ui_modal>
     """
   end
 
@@ -274,6 +462,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
   attr :choices, :any, required: true
   attr :choice_count, :integer, required: true
   attr :choice_notice, :string, default: nil
+  attr :inventories, :list, required: true
   attr :review, :map, default: nil
   attr :pending, :atom, default: nil
   attr :revoking, :map, default: nil
@@ -292,6 +481,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
     <datalist id="ansible-binding-template-options">
       <option :for={template <- @templates} value={template.job_template_id}>
         {template.name}
+      </option>
+    </datalist>
+    <datalist id="ansible-binding-inventory-options">
+      <option :for={inventory <- @inventories} value={inventory.inventory_id}>
+        Inventory {inventory.inventory_id}
       </option>
     </datalist>
 
@@ -361,18 +555,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
       pending={@pending}
     />
 
-    <.binding_review_panel :if={@review} review={@review} pending={@pending} />
+    <.binding_review_modal :if={@review} review={@review} pending={@pending} />
 
     <p
-      :if={@pending in [:prepare, :reprepare]}
-      id="ansible-binding-pending"
+      :if={@controller_id && is_nil(@template_id)}
+      id="ansible-binding-choose-template"
       class="text-sm text-sr-muted"
     >
-      Reading the template, project, inventory, and credentials from AWX through the
-      controller's agent…
-    </p>
-    <p :if={@pending == :create} id="ansible-binding-creating" class="text-sm text-sr-muted">
-      Repeating the AWX reads and comparing the review digest before creating…
+      Enter or pick an AWX job template ID to list its binding versions.
     </p>
 
     <div :if={@template_id} class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface">
@@ -486,7 +676,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
             list="ansible-binding-template-options"
           />
           <.binding_field form={@form} field={:project_id} label="Project ID" />
-          <.binding_field form={@form} field={:inventory_id} label="Inventory ID" />
+          <.binding_field
+            form={@form}
+            field={:inventory_id}
+            label="Inventory ID"
+            list="ansible-binding-inventory-options"
+            help="Inventories with current memberships are suggested."
+          />
           <.binding_field
             form={@form}
             field={:credential_ids}
@@ -501,8 +697,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
           />
 
           <p class="text-xs text-sr-muted md:col-span-3">
-            Project and inventory are prefilled from the catalog sync when known. Prepare re-reads
-            AWX, and its review is what you approve.
+            Picking a job template prefills its project and inventory from the catalog sync when
+            known. Prepare re-reads AWX, and its review is what you approve.
           </p>
 
           <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-3">
@@ -598,6 +794,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
             Prepare review
           </.ui_button>
         </div>
+        <p
+          :if={@pending in [:prepare, :reprepare]}
+          id="ansible-binding-pending"
+          class="pt-2 text-right text-sm text-sr-muted"
+        >
+          Reading the template, project, inventory, and credentials from AWX through the
+          controller's agent…
+        </p>
       </.form>
     </div>
     """
@@ -631,7 +835,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
   attr :review, :map, required: true
   attr :pending, :atom, default: nil
 
-  defp binding_review_panel(assigns) do
+  defp binding_review_modal(assigns) do
     assigns =
       assigns
       |> assign(:attrs, Map.get(assigns.review.review, "attributes", %{}))
@@ -640,22 +844,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
     assigns = assign(assigns, :metadata, Map.get(assigns.attrs, "review_metadata") || %{})
 
     ~H"""
-    <div
+    <.ui_modal
       id="ansible-binding-review"
-      class="space-y-3 rounded-lg border border-sr-line bg-sr-surface p-4"
+      size="xl"
+      on_cancel="discard_binding_review"
+      data-return-focus="#ansible-binding-prepare"
     >
+      <:title>Broker-observed review</:title>
+
       <.ui_alert :if={@review.changed?} variant="warning" id="ansible-binding-review-changed">
         AWX changed after the previous review, so nothing was created. This is the refreshed
         review; inspect it again before creating.
       </.ui_alert>
 
-      <div>
-        <h2 class="text-lg font-medium">Broker-observed review</h2>
-        <p class="text-sm text-sr-muted">
-          Read from AWX through the controller's agent. Create repeats these reads and refuses
-          the binding if the result no longer matches this review's digest.
-        </p>
-      </div>
+      <p class="text-sm text-sr-muted">
+        Read from AWX through the controller's agent. Create repeats these reads and refuses
+        the binding if the result no longer matches this review's digest.
+      </p>
 
       <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm md:grid-cols-3">
         <.review_row label="Job template" value={@attrs["job_template_id"]} mono />
@@ -703,13 +908,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
         <code id="ansible-binding-review-digest" class="break-all text-xs">{@review.digest}</code>
       </p>
 
-      <div class="flex justify-end gap-2">
+      <p :if={@pending == :create} id="ansible-binding-creating" class="text-sm text-sr-muted">
+        Repeating the AWX reads and comparing the review digest before creating…
+      </p>
+
+      <div class="sr-ui-modal-action">
         <.ui_button
           type="button"
           size="sm"
           variant="ghost"
           disabled={@pending == :create}
           phx-click="discard_binding_review"
+          data-dialog-autofocus
         >
           Discard
         </.ui_button>
@@ -724,7 +934,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
           Create approved binding
         </.ui_button>
       </div>
-    </div>
+    </.ui_modal>
     """
   end
 

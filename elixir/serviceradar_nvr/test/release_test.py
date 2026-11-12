@@ -181,6 +181,131 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(outside.read_bytes(), raw)
         self.assertFalse(marker.exists())
 
+    def bootstrap_acknowledgement(self, raw=None):
+        if raw is None:
+            preparation = (self.spool / ".bootstrap-preparation.json").read_bytes()
+            document = self.bootstrap_document()
+            acknowledgement = {"version": 1, "kind": "local_storage_bootstrap_installed",
+                               "operation_id": document["operation_id"], "storage_id": document["storage_id"],
+                               "preparation_sha256": hashlib.sha256(preparation).hexdigest()}
+            raw = json.dumps(acknowledgement, sort_keys=True, separators=(",", ":")).encode()
+        (self.root / "bootstrap-ack-input.json").write_bytes(raw)
+        self.run_probe("storage_bootstrap_acknowledgement")
+        return json.loads((self.root / "bootstrap-result.json").read_bytes()), raw
+
+    def bootstrap_evidence(self):
+        self.run_probe("storage_bootstrap_evidence")
+        return json.loads((self.root / "bootstrap-result.json").read_bytes())
+
+    def test_bootstrap_acknowledgement_survives_restart_with_exact_bytes_and_bounded_accounting(self):
+        installed, preparation = self.bootstrap()
+        paths = [self.spool / name for name in (".bootstrap-preparation.json", ".storage-id")]
+        before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in paths]
+        expected = {"result": "observed", "storage_id": self.bootstrap_document()["storage_id"],
+                    "operation_id": self.bootstrap_document()["operation_id"],
+                    "preparation_sha256": hashlib.sha256(preparation).hexdigest(),
+                    "preparation": preparation.decode(), "acknowledgement": None,
+                    "acknowledgement_sha256": None, "state": "prepared",
+                    "used_control_bytes": 37 + len(preparation), "pending_control_bytes": 512}
+        self.assertEqual(self.bootstrap_evidence(), expected)
+        self.assertEqual([(p.stat().st_ino, p.stat().st_mtime_ns) for p in paths], before)
+        result, acknowledgement = self.bootstrap_acknowledgement()
+        expected.update(acknowledgement=acknowledgement.decode(),
+                        acknowledgement_sha256=hashlib.sha256(acknowledgement).hexdigest(),
+                        state="installation_acknowledged", used_control_bytes=37 + len(preparation) + len(acknowledgement),
+                        pending_control_bytes=0)
+        self.assertEqual(result, expected)
+        path = self.spool / ".bootstrap-acknowledgement.json"
+        self.assertEqual(path.read_bytes(), acknowledgement)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        paths.append(path)
+        before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in paths]
+        self.assertEqual(self.bootstrap_evidence(), expected)
+        retry, _ = self.bootstrap_acknowledgement(acknowledgement)
+        self.assertEqual(retry, expected)
+        retry, _ = self.bootstrap()
+        self.assertEqual(retry, installed)
+        self.assertEqual([(p.stat().st_ino, p.stat().st_mtime_ns) for p in paths], before)
+
+    def test_bootstrap_acknowledgement_refuses_untrusted_or_mismatched_bytes_without_writing(self):
+        _, preparation = self.bootstrap()
+        document = {"version": 1, "kind": "local_storage_bootstrap_installed",
+                    "operation_id": self.bootstrap_document()["operation_id"],
+                    "storage_id": self.bootstrap_document()["storage_id"],
+                    "preparation_sha256": hashlib.sha256(preparation).hexdigest()}
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        invalid = [b"", b"x" * 513, canonical + b"\n", canonical[:-1] + b',"version":1}']
+        for change in ({"extra": True}, {"version": 2}, {"kind": "local_storage_bootstrap_prepared"},
+                       {"operation_id": "00000000-0000-4000-8000-000000000044"},
+                       {"storage_id": "00000000-0000-4000-8000-000000000055"},
+                       {"preparation_sha256": "cd" * 32}):
+            invalid.append(json.dumps(document | change, sort_keys=True, separators=(",", ":")).encode())
+        paths = list(self.spool.iterdir())
+        before = [(p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in paths]
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                result, _ = self.bootstrap_acknowledgement(raw)
+                self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_acknowledgement"})
+                self.assertFalse((self.spool / ".bootstrap-acknowledgement.json").exists())
+                self.assertEqual([(p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in paths], before)
+        reference_path = self.root / "bootstrap-reference.json"
+        original = reference_path.read_bytes()
+        reference_path.write_text(json.dumps(json.loads(original) | {"binding_sha256": "ef" * 32}))
+        result, _ = self.bootstrap_acknowledgement(canonical)
+        self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_preparation"})
+        reference_path.write_bytes(original)
+        media = self.spool / "retained-media"
+        media.write_bytes(b"synthetic retained media")
+        result, _ = self.bootstrap_acknowledgement(canonical)
+        self.assertEqual(result, {"result": "refused", "reason": ":storage_bootstrap_requires_new_root"})
+        self.assertEqual(media.read_bytes(), b"synthetic retained media")
+        self.assertFalse((self.spool / ".bootstrap-acknowledgement.json").exists())
+
+    def test_bootstrap_acknowledgement_preserves_interrupted_and_unsafe_records(self):
+        _, preparation = self.bootstrap()
+        _, acknowledgement = self.bootstrap_acknowledgement()
+        path = self.spool / ".bootstrap-acknowledgement.json"
+        # Persisted interruption states exercise restart refusal, not physical crash durability.
+        path.write_bytes(b'{"kind":')
+        for operation in (self.bootstrap_evidence, lambda: self.bootstrap_acknowledgement(acknowledgement)[0],
+                          lambda: self.bootstrap()[0]):
+            self.assertEqual(operation(), {"result": "refused", "reason": ":invalid_storage_bootstrap_acknowledgement"})
+            self.assertEqual(path.read_bytes(), b'{"kind":')
+        path.write_bytes(acknowledgement)
+        before = (path.stat().st_ino, path.stat().st_mtime_ns)
+        result, _ = self.bootstrap_acknowledgement(acknowledgement)
+        self.assertEqual(result["state"], "installation_acknowledged")
+        self.assertEqual((path.stat().st_ino, path.stat().st_mtime_ns), before)
+        for name in (".bootstrap-preparation.json", ".storage-id"):
+            target = self.spool / name
+            original = target.read_bytes()
+            target.unlink()
+            for operation in (self.bootstrap_evidence, lambda: self.bootstrap_acknowledgement(acknowledgement)[0],
+                              lambda: self.bootstrap()[0]):
+                self.assertEqual(operation()["result"], "refused")
+                self.assertFalse(target.exists())
+                self.assertEqual(path.read_bytes(), acknowledgement)
+            target.write_bytes(original)
+            target.chmod(0o600)
+        changed = self.bootstrap_document() | {"operation_id": "00000000-0000-4000-8000-000000000066"}
+        (self.spool / ".bootstrap-preparation.json").write_text(json.dumps(changed, sort_keys=True, separators=(",", ":")))
+        self.assertEqual(self.bootstrap_evidence(), {"result": "refused", "reason": ":invalid_storage_bootstrap_acknowledgement"})
+        (self.spool / ".bootstrap-preparation.json").write_bytes(preparation)
+        path.chmod(0o644)
+        result, _ = self.bootstrap_acknowledgement(acknowledgement)
+        self.assertEqual(result, {"result": "refused", "reason": ":storage_bootstrap_not_private"})
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        path.chmod(0o600)
+        outside = self.root / "retained-acknowledgement"
+        path.rename(outside)
+        for link in (lambda: path.symlink_to(outside), lambda: os.link(outside, path)):
+            link()
+            result, _ = self.bootstrap_acknowledgement(acknowledgement)
+            self.assertEqual(result, {"result": "refused", "reason": ":invalid_storage_bootstrap_file"})
+            self.assertEqual(outside.read_bytes(), acknowledgement)
+            self.assertTrue(path.exists())
+            path.unlink()
+
     def publication_server(self, actions, present_ca=False):
         self.run_probe("delivery_certificates")
         requests = []

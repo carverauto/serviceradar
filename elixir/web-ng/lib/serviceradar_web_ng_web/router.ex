@@ -889,6 +889,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/ansible-operations/:id/cancel", AnsibleAutomationController, :cancel)
     get("/ansible-memberships", AnsibleAutomationController, :memberships)
     post("/ansible-memberships/:id/approve", AnsibleAutomationController, :approve_membership)
+    post("/ansible-memberships/:id/release", AnsibleAutomationController, :release_membership)
     get("/ansible-template-bindings", AnsibleAutomationController, :bindings)
     post("/ansible-template-bindings/prepare", AnsibleAutomationController, :prepare_binding)
     post("/ansible-template-bindings", AnsibleAutomationController, :create_binding)
