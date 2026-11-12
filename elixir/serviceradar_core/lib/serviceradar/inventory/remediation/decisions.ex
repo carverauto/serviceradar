@@ -1283,7 +1283,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   end
 
   # The record's MAC rows in a partition no merge that poisoned it recorded for that value. A
-  # foreign MAC with no recorded partition (a guest NIC, a display MAC) covers every partition.
+  # recorded nil partition, or a wrong guest's NIC MAC, covers every partition.
   defp macs_in_unrecorded_partitions(rows, foreign) do
     for %{} = row <- rows,
         identifier_field(row, :type) in ["mac", :mac],
@@ -1296,16 +1296,14 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         do: entry
   end
 
-  # The partitions the merge recorded each MAC in; the display MAC has none.
+  # The partitions the merge recorded each MAC in. The display MAC records none, so a row of
+  # that value the record holds in a partition the merge did not record stays its own.
   defp recorded_mac_partitions(merge) do
-    recorded =
-      for %{} = id <- List.wrap(merge[:source_identifiers]),
-          identifier_field(id, :type) in ["mac", :mac],
-          {:mac, value} <- [mac_entry(identifier_field(id, :value))],
-          into: MapSet.new(),
-          do: {:mac_in, value, identifier_field(id, :partition)}
-
-    for {:mac, value} <- mac_set(merge[:from_mac]), into: recorded, do: {:mac_in, value, :any}
+    for %{} = id <- List.wrap(merge[:source_identifiers]),
+        identifier_field(id, :type) in ["mac", :mac],
+        {:mac, value} <- [mac_entry(identifier_field(id, :value))],
+        into: MapSet.new(),
+        do: {:mac_in, value, identifier_field(id, :partition)}
   end
 
   defp render_evidence(nil), do: []
@@ -1547,6 +1545,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         do: entry
   end
 
+  # A wrong guest's NIC MAC is foreign in every partition: an AWX update bound to that guest copied
+  # it onto the record in whatever partition the update wrote, and no merge recorded that row, so
+  # a row of it on the record is the contamination the chain rule follows.
   defp guest_mac_entries(value) do
     Enum.flat_map(mac_set(value), fn {:mac, mac} = entry -> [entry, {:mac_in, mac, :any}] end)
   end
