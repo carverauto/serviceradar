@@ -387,6 +387,7 @@ elixir_release(
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
+        "//elixir/serviceradar_recording:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
