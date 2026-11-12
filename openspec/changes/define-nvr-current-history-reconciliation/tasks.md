@@ -14,6 +14,7 @@
   - Core upload-lease checkpoint: acquisition and renewal check recovery outside transactions before work and before replies. Committed tokens, epochs and expiries survive withheld replies; release remains available and recording stop stays independent.
   - Remaining Core authority consumers, the recovery command and cross-replica quiescence verification remain pending.
 - [ ] 2.2 Implement per-storage immutable history, explicit genesis and domain-owned transactional head advancement.
+  - Core genesis checkpoint: explicit scoped provisioning retains one immutable sequence-zero record bound to the exact preparation, installation acknowledgement and trusted issuance generation. Exact retries preserve bytes and provenance; a changed generation conflicts. This offline evidence does not grant current history eligibility. Mutable head advancement and domain operations remain pending.
 - [ ] 2.3 Integrate publication, preservation and disposition serialization without changing v1 intent/S3 receipt meanings.
 - [ ] 2.4 Implement bounded NVR history persistence, control reservations, cursors and exact restart recovery.
 - [ ] 2.5 Implement provenance-checked reconciliation and current-generation completion with stale-head refusal.

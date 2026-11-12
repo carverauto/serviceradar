@@ -127,6 +127,7 @@ exports_files([
     "camera_local_storage_binding_schema.exs",
     "camera_local_storage_bootstrap_schema.exs",
     "camera_local_storage_installation_schema.exs",
+    "camera_local_storage_genesis_schema.exs",
     "camera_local_storage_report_schema.exs",
     "camera_local_storage_qualification_schema.exs",
     "component_certificate_schema.exs",

@@ -68,6 +68,20 @@ bootstrap protocol. Missing history in a retained spool is never a genesis reque
 Do not add a generic append API that lets a recorder invent authoritative holds,
 releases, deletions or publication permission.
 
+The Core genesis checkpoint exposes only explicit storage-scoped provisioning via
+`LocalStorageHistoryGenesis.establish/3`. The provisioner supplies the exact
+installation UUID/digest after verifying exclusive empty-volume installation and
+durable acknowledgement retention. Core derives both evidence digests and the
+storage/operation identity. A canonical recovery generation comes from the trusted
+provisioner actor, not a recorder document or a restored row. The bounded canonical
+sequence-zero record has a null predecessor and retains original provenance on
+exact retries; changed bytes or generation conflict. This offline record is
+issuance evidence, not current-generation completion. No runtime admission reads it,
+and missing history in a retained spool must not invoke establishment. Mutable
+head advancement, volume persistence and domain operations remain unimplemented.
+The [runtime contract](../../../docs/nvr-runtime.md#core-history-genesis) defines
+the exact record and provisioning responsibilities.
+
 Each domain owner advances history atomically with its authoritative change.
 Use one documented lock order for storage history, qualification and copy state.
 Registration, pending holds and deletion permissions serialize against that head.
