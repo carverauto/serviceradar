@@ -201,6 +201,7 @@ spec:
         - name: metrics
           containerPort: 9090
         env:
+        {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed
@@ -988,6 +989,7 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
+        {{- include "serviceradar.nvrRecoveryMount" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: edge-issuer
           mountPath: /etc/serviceradar/edge-issuer
@@ -1071,6 +1073,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      {{- include "serviceradar.nvrRecoveryVolume" . | nindent 6 }}
       {{- if $edgeIssuerSeedMounted }}
       - name: edge-issuer
         secret:
