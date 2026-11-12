@@ -32,8 +32,9 @@ A request from a 12-hour-old mismatch publishes an empty generation at full
 
 - At claim time the publisher checks whether a complete generation covering
   the scope finished after the scope was last requested
-  (`ExposureReadiness.latest_generation/1`, which already covers global
-  generations, vs the scope row's `not_before`). If so the scope completes
+  (`Scopes.fulfilled_since_request?/1`, using the same coverage rule as
+  `ExposureReadiness.latest_generation/1`, so global generations count,
+  compared against the scope row's `not_before`). If so the scope completes
   immediately with no generation, no pipeline waves, and no warehouse scan.
 - At-least-once is preserved: requests are level-triggered (the sweep
   re-requests while a device mismatches, resetting `not_before`), so a

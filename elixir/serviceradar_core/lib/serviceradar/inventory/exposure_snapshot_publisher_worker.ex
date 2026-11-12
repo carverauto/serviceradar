@@ -5,8 +5,10 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   Replaces the per-device `ExposureSnapshotWorker` Oban fan-out, whose waiting
   jobs returned `{:snooze, 5}` millions of times against one deployment-wide
   serial lock. One execution takes the session lock once, adopts orphaned
-  scopes, publishes due scopes oldest-first through the
-  `ExposureSnapshotWorker` engine, and exits when the table is quiet. No
+  scopes and legacy-format queue rows, publishes due scopes oldest-first
+  through the `ExposureSnapshotWorker` engine (completing without a
+  generation any scope a newer complete generation already fulfilled), and
+  exits when the table is quiet. No
   `{:snooze, _}` on this path: blocking states become bounded in-execution
   waits, and anything still blocked is picked up through the demand ensures
   (including the maintenance backstop) on a later pass.
