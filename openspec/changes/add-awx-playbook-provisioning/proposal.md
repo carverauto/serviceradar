@@ -70,7 +70,9 @@ specified here.
   Nothing becomes launchable otherwise.
 - **Target readiness.** For a device and a controller, one answer: launchable, or the
   specific reason it is not and the action that resolves it. Membership review gets a page.
-  Quarantine gets a reviewed exit that returns a row to `proposed`, never to `approved`.
+  Quarantine's reviewed exit, which returns a row to `proposed` (or `unlinked`), never
+  to `approved`, and the recorded quarantine reason are delivered by
+  `add-awx-membership-quarantine-release`; readiness consumes them.
 - **A first-party catalog entry as the worked example**: "Install or upgrade the
   ServiceRadar agent package", end to end.
 - **API, Terraform and UI surface; permissions; audit events** for all of the above.
@@ -114,7 +116,10 @@ must land first or be implemented under this change. Which one is an owner decis
   and the Terraform provider. This change adds requirements to that capability.
 - `harden-ansible-awx-targeting` owns the `ansible-awx-targeting` capability: memberships,
   launch planning, purpose-split credentials, per-verb endpoint mapping, dispatch markers.
-  This change adds two requirements there and consumes the rest unchanged.
+  This change adds one requirement there and consumes the rest unchanged.
+- `add-awx-membership-quarantine-release` owns the quarantine reason and the human
+  release from quarantine. Readiness reports `quarantined` with that recorded reason and
+  names the release as the remedy.
 - `harden-awx-live-launch-preflight` owns live preflight and the rule that the execution
   principal has no edit rights. Unchanged, and relied on.
 - `remove-legacy-ansible-ui` owns the Ansible pages and the statement that Ansible settings

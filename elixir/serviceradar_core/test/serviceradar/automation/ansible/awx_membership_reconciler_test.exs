@@ -241,6 +241,65 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
                     }}
   end
 
+  test "every quarantine records the rule that fired; a quarantined row keeps its first reason" do
+    observed_at = ~U[2026-07-12 20:00:00Z]
+    entered_at = ~U[2026-07-01 08:00:00.000000Z]
+    one = ["device-100"]
+    two = ["device-100", "device-101"]
+
+    approved =
+      100
+      |> membership(7, 9, old_fingerprint())
+      |> Map.merge(%{canonical_device_uid: "device-100", link_disposition: :approved})
+
+    proposed = %{approved | link_disposition: :proposed}
+
+    quarantined =
+      Map.merge(approved, %{
+        canonical_device_uid: nil,
+        link_disposition: :quarantined,
+        quarantine_reason: :approved_device_changed,
+        quarantined_at: entered_at
+      })
+
+    cases = [
+      {"new host with several devices", [], two, :ambiguous_device_match, observed_at},
+      {"approved, now another device", [approved], ["device-200"], :approved_device_changed,
+       observed_at},
+      {"approved, returned after expiry", [%{approved | current: false}], one,
+       :approved_membership_not_current, observed_at},
+      {"approved, now no device", [approved], [], :approved_link_lost_match, observed_at},
+      {"approved, now several devices", [approved], two, :ambiguous_device_match, observed_at},
+      {"proposed (for example released), now several devices", [proposed], two,
+       :ambiguous_device_match, observed_at},
+      {"quarantined, now one device", [quarantined], one, :approved_device_changed, entered_at},
+      {"quarantined, now no device", [quarantined], [], :approved_device_changed, entered_at},
+      {"proposed, still one device", [proposed], one, nil, nil},
+      {"new host with no device", [], [], nil, nil}
+    ]
+
+    for {label, existing, matches, reason, at} <- cases do
+      assert :ok =
+               reconcile_with_spies(payload([host(100, 7, "node-100")]), existing, self(),
+                 evidence: %{{@controller_id, 7, 100} => matches}
+               ),
+             label
+
+      assert_receive {:upsert, attrs}
+      assert {label, attrs.quarantine_reason, attrs.quarantined_at} == {label, reason, at}
+
+      expected_disposition =
+        cond do
+          reason -> :quarantined
+          matches == [] -> :unlinked
+          true -> :proposed
+        end
+
+      assert {label, attrs.link_disposition} == {label, expected_disposition}
+      assert attrs.link_evidence["matching_device_uids"] == matches
+    end
+  end
+
   test "dispatches collected write notifications once after the transaction commits" do
     parent = self()
     existing = [membership(200, 8, 9, old_fingerprint())]

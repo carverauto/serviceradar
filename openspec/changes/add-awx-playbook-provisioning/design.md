@@ -284,7 +284,7 @@ so the review remedy cannot succeed until the address is fixed:
 | `ambiguous` | More than one membership or more than one device matches. | Choose the membership, or fix the duplicate. |
 | `host_disabled` or `not_current` | Disabled in AWX, or absent from the last complete sync. | Fix in AWX. |
 | `no_address` | The AWX host has no usable `ansible_host`. | Set it in AWX; the next sync picks it up. |
-| `quarantined` | The membership was quarantined; the evidence says why. | Review the evidence and release it to `proposed`, then approve. |
+| `quarantined` | The membership was quarantined; its recorded reason says why. | Review the evidence and release it (`add-awx-membership-quarantine-release`), then approve the resulting proposal. |
 | `needs_membership_review` | A `proposed` membership exists. | Approve it on the membership page. |
 | `held` | An active target hold exists. | Clear the hold through its own gate. |
 | `no_approved_binding` | The template for the device's variant and the chosen run mode has no current approved binding. | Review that template's binding. |
@@ -295,9 +295,12 @@ Two additions make the table reachable:
 - **Membership review page.** Lists memberships by controller, inventory or device,
   current and not, with disposition, address, evidence and the approve action that exists
   today only in the API.
-- **Reviewed exit from quarantine.** A human with the membership permission can release a
-  quarantined row to `proposed`, recording who and why. It never returns to `approved`, so
-  the approved rule "no device that later matches the same AWX host inherits the approval"
+- **Reviewed exit from quarantine.** Delivered by `add-awx-membership-quarantine-release`:
+  a human with the membership permission releases a quarantined row, which becomes
+  `proposed` when exactly one device matches now, `unlinked` when none does, and is
+  refused when several do. Each quarantine records its reason, and each release records
+  who, when, the prior reason and the evidence. It never returns to `approved`, so the
+  approved rule "no device that later matches the same AWX host inherits the approval"
   holds: a fresh approval is always required.
 
 `not_in_inventory` still ends outside the product. That is the honest state of the
@@ -396,9 +399,10 @@ as binding review does today.
 
 Audit events, all secret-free and carrying the initiating principal: automation created,
 revision created, provisioning requested, each object created, role granted, provisioning
-completed, failed or unresolved, drift detected, replaced, released, retired, membership
-released from quarantine, and (closing an existing gap) membership approved and binding
-approved.
+completed, failed or unresolved, drift detected, replaced, released, retired, and
+(closing an existing gap) membership approved and binding approved. A membership released
+from quarantine is recorded by the release record of
+`add-awx-membership-quarantine-release`.
 
 ### Decision 14 (optional, second phase): inventory sources from the pinned project
 

@@ -17,6 +17,11 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationControllerTest do
       {:ok, %{variables: [], targets: []}}
     end
 
+    def release_membership(scope, id, params) do
+      send(self(), {:release_membership, scope.user.id, id, params})
+      {:error, {:membership_link_ambiguous, ["sr:synthetic-device-a", "sr:synthetic-device-b"]}}
+    end
+
     def request_cancel(_, _), do: {:error, :cancellation_not_implemented}
     def get_operation(_, id), do: {:ok, %{operation: %{id: id, state: :running}}}
   end
@@ -81,6 +86,29 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationControllerTest do
       assert {:error, :unreviewed_request_fields} =
                AnsibleAutomation.launch(c.scope, %{key => "forged"})
     end
+  end
+
+  test "quarantine release is a human ansible.controllers.manage action that reports ambiguous matches", c do
+    manage = %{c.scope | permissions: MapSet.new(["ansible.controllers.manage"])}
+    conn = assign(c.conn, :current_scope, manage)
+    id = "00000000-0000-4000-8000-000000000454"
+
+    refused = conn |> assign(:oauth_client_id, "synthetic-client") |> call(:release_membership, %{"id" => id})
+    assert json_response(refused, 403)["error"] == "human_principal_required"
+
+    forbidden = call(c.conn, :release_membership, %{"id" => id})
+    assert json_response(forbidden, 403)["error"] == "forbidden"
+    refute_receive {:release_membership, _, _, _}
+
+    ambiguous = call(conn, :release_membership, %{"id" => id, "controller_id" => "synthetic"})
+
+    assert json_response(ambiguous, 422) == %{
+             "error" => "membership_link_ambiguous",
+             "matching_device_uids" => ["sr:synthetic-device-a", "sr:synthetic-device-b"]
+           }
+
+    assert_receive {:release_membership, user_id, ^id, %{"controller_id" => "synthetic"}}
+    assert user_id == c.scope.user.id
   end
 
   defp call(conn, action, params), do: Controller.call(%{conn | params: params}, Controller.init(action))
