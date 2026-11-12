@@ -49,7 +49,7 @@ Kubernetes and a deployment-managed file for standalone NVR. The process pins a
 canonical generation UUID at boot and re-reads a bounded exact generation/state
 record. The [runtime contract](../../../docs/nvr-runtime.md#deployment-recovery-gate)
 defines the file format and propagation limits. NVR, Core recording new-work
-admission, archive-authority challenge/application, archive publication/playback
+admission, upload lease acquisition/renewal, archive-authority challenge/application, archive publication/playback
 and local-publication acceptance consume it; remaining recovery consumers, per-storage
 completion and the recovery command remain pending.
 

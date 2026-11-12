@@ -164,28 +164,17 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     operation = Ecto.UUID.generate()
     bytes = Fixtures.local_intent(ctx.block, operation)
-    handler = {__MODULE__, make_ref()}
-    parent = self()
-    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
-    on_exit(fn -> :telemetry.detach(handler) end)
 
-    :ok =
-      :telemetry.attach(
-        handler,
-        event,
-        fn _event, _measurements, metadata, _config ->
-          if self() == parent and String.starts_with?(metadata.query, "INSERT INTO") and
-               String.contains?(metadata.query, "camera_local_publication_intents") do
-            File.write!(ctx.recovery.path, String.replace(ctx.recovery.ready, "ready", "closed"))
-            send(parent, :recovery_closed_during_acceptance)
-          end
-        end,
-        nil
-      )
+    assert {:error, :nvr_recovery_closed} =
+             close_recovery_during_query(
+               ctx,
+               fn query ->
+                 String.starts_with?(query, "INSERT INTO") and
+                   String.contains?(query, "camera_local_publication_intents")
+               end,
+               fn -> LocalPublicationIntents.accept(bytes, ctx.opts) end
+             )
 
-    assert {:error, :nvr_recovery_closed} = LocalPublicationIntents.accept(bytes, ctx.opts)
-    assert_received :recovery_closed_during_acceptance
-    :ok = :telemetry.detach(handler)
     assert {:ok, receipt} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
     File.write!(ctx.recovery.path, ctx.recovery.ready)
     assert {:ok, acknowledgement} = LocalPublicationIntents.accept(bytes, ctx.opts)
@@ -286,6 +275,106 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
              RecordingBlocks.acquire_upload(lease.id, lease.upload_token, 30_000, ctx.opts)
   end
 
+  test "upload acquisition and renewal require ready recovery outside transactions", ctx do
+    assert {:ok, frozen} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
+    token = Ecto.UUID.generate()
+
+    assert {:ok, {:error, :ambient_transaction}} =
+             Repo.transaction(fn ->
+               RecordingBlocks.acquire_upload(frozen.id, token, 30_000, ctx.opts)
+             end)
+
+    File.rm!(ctx.recovery.path)
+
+    assert {:error, :nvr_recovery_closed} =
+             RecordingBlocks.acquire_upload(frozen.id, token, 30_000, ctx.opts)
+
+    assert {:ok, unchanged} = Ash.get(RecordingBlock, frozen.id, ctx.opts)
+    assert unchanged.state == :sealed
+    assert unchanged.upload_epoch == frozen.upload_epoch
+    assert unchanged.upload_token == nil
+    assert unchanged.upload_expires_at == nil
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, lease} = RecordingBlocks.acquire_upload(frozen.id, token, 30_000, ctx.opts)
+    File.rm!(ctx.recovery.path)
+    assert {:error, :nvr_recovery_closed} = RecordingBlocks.renew_upload(lease, 300_000, ctx.opts)
+
+    assert {:ok, {:error, :ambient_transaction}} =
+             Repo.transaction(fn -> RecordingBlocks.renew_upload(lease, 300_000, ctx.opts) end)
+
+    assert {:ok, unchanged} = Ash.get(RecordingBlock, frozen.id, ctx.opts)
+    assert unchanged.upload_token == lease.upload_token
+    assert unchanged.upload_epoch == lease.upload_epoch
+    assert unchanged.upload_expires_at == lease.upload_expires_at
+    assert {:ok, :released} = RecordingBlocks.release_upload(lease, ctx.opts)
+
+    File.write!(ctx.recovery.path, ctx.recovery.ready)
+    assert {:ok, replacement} = upload(ctx)
+    assert replacement.upload_epoch == lease.upload_epoch + 1
+    assert replacement.descriptor_sha256 == frozen.descriptor_sha256
+    assert {:ok, renewed} = RecordingBlocks.renew_upload(replacement, 300_000, ctx.opts)
+    assert DateTime.after?(renewed.upload_expires_at, replacement.upload_expires_at)
+  end
+
+  for operation <- [:acquire, :renew] do
+    test "recovery closure during upload #{operation} withholds success but retains the committed lease",
+         ctx do
+      assert {:ok, frozen} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
+      operation = unquote(operation)
+      token = Ecto.UUID.generate()
+
+      before =
+        case operation do
+          :acquire ->
+            frozen
+
+          :renew ->
+            {:ok, lease} = RecordingBlocks.acquire_upload(frozen.id, token, 30_000, ctx.opts)
+            lease
+        end
+
+      work = fn ->
+        case operation do
+          :acquire -> RecordingBlocks.acquire_upload(frozen.id, token, 300_000, ctx.opts)
+          :renew -> RecordingBlocks.renew_upload(before, 300_000, ctx.opts)
+        end
+      end
+
+      assert {:error, :nvr_recovery_closed} =
+               close_recovery_during_query(
+                 ctx,
+                 fn query ->
+                   String.starts_with?(query, "UPDATE") and
+                     String.contains?(query, "camera_recording_blocks")
+                 end,
+                 work
+               )
+
+      assert {:ok, retained} = Ash.get(RecordingBlock, frozen.id, ctx.opts)
+      assert retained.state == :uploading
+      assert retained.upload_token == token
+      assert retained.descriptor_sha256 == frozen.descriptor_sha256
+      assert {:error, :nvr_recovery_closed} = work.()
+      File.write!(ctx.recovery.path, ctx.recovery.ready)
+
+      case operation do
+        :acquire ->
+          assert retained.upload_epoch == before.upload_epoch + 1
+          assert %DateTime{} = retained.upload_expires_at
+          assert {:error, :upload_already_owned} = work.()
+          assert {:error, :upload_already_owned} = upload(ctx)
+
+        :renew ->
+          assert retained.upload_epoch == before.upload_epoch
+          assert DateTime.after?(retained.upload_expires_at, before.upload_expires_at)
+          assert {:ok, renewed} = work.()
+          assert renewed.upload_token == token
+          assert renewed.upload_epoch == before.upload_epoch
+      end
+    end
+  end
+
   test "independent upload claimants admit one winner and stale generations cannot publish",
        ctx do
     assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
@@ -316,7 +405,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, %{display_name: "upload fenced"}} = publish(ctx, current)
   end
 
-  test "upload expiry rolls back nested renewal and an executed write after recorder release",
+  test "upload expiry rolls back a resource renewal and an executed write after recorder release",
        ctx do
     binding = register_binding(ctx)
     assert {:ok, _} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
@@ -326,8 +415,18 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:error, :upload_lease_lost} =
              RecordingBlocks.with_current_upload(
                lease,
-               fn _block ->
-                 assert {:ok, _renewed} = RecordingBlocks.renew_upload(lease, 30_000, ctx.opts)
+               fn block ->
+                 assert {:error, :ambient_transaction} =
+                          RecordingBlocks.renew_upload(lease, 30_000, ctx.opts)
+
+                 assert {:ok, _renewed} =
+                          block
+                          |> Ash.Changeset.for_update(:renew_upload, %{
+                            upload_expires_at:
+                              DateTime.add(block.database_now, 30_000, :millisecond)
+                          })
+                          |> Ash.update(ctx.opts)
+
                  assert {:ok, _bound} = bind(ctx, lease, binding)
 
                  {:ok, _} =
@@ -484,6 +583,31 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, persisted} = Ash.get(RecordingBlock, lease.id, ctx.opts)
     assert persisted.archive_binding_id == winner.archive_binding_id
     assert persisted.descriptor_sha256 == lease.descriptor_sha256
+  end
+
+  defp close_recovery_during_query(ctx, query?, work) do
+    handler = {__MODULE__, make_ref()}
+    parent = self()
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if self() == parent and query?.(metadata.query) do
+            File.write!(ctx.recovery.path, String.replace(ctx.recovery.ready, "ready", "closed"))
+            send(parent, {:recovery_closed_during_query, handler})
+          end
+        end,
+        nil
+      )
+
+    result = work.()
+    assert_received {:recovery_closed_during_query, ^handler}
+    :ok = :telemetry.detach(handler)
+    result
   end
 
   defp bind(ctx, lease, binding),

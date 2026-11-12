@@ -13,10 +13,10 @@ playback access or physical source retirement.
 
 The packaged NVR release suite owns the file contract and live-state checks.
 `RecoveryGate.with_ready/2` owns the before/after success checks shared by Core's
-publication, recording-admission, archive-authority and archive-reader consumers. Each consumer
+publication, recording-admission, upload-lease, archive-authority and archive-reader consumers. Each consumer
 rejects ambient transactions and owns its database work.
 Core's recording-block integration suite owns receipt persistence and closure
-across acceptance, and its recorder-ownership integration suite owns new-work
+across acceptance and upload lease acquisition/renewal, and its recorder-ownership integration suite owns new-work
 admission closure. Core's archive-upload integration suite owns recovery closure
 during authority issuance, application, publication and archive reads; web-ng's publication DB suite owns the authenticated HTTP
 response and retry behavior, and its media-upload DB suite owns provider-grant
