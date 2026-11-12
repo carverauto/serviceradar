@@ -1047,13 +1047,13 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert [%{event_ids: ["e1"]}] = plan.units
     end
 
-    test "recorded ip evidence the survivor owns as an ip identifier is not tainted" do
-      # The poisoned record `sr:s`, carrying guest 136's address, is merged into `sr:t`, which owns
-      # that address as an ip identifier.
-      own = [ident("ip", "192.0.2.36")]
+    test "an address the poisoned merged record owns is not tainted evidence" do
+      # `sr:s` owns 192.0.2.36 and the guest bound to it brought the same address; `sr:s` is then
+      # merged into `sr:t`, which does not own it, on that address.
+      own = [awx_id(1), ident("ip", "192.0.2.36")]
 
       merges = [
-        poisoning_merge(),
+        %{poisoning_merge() | to_own_identifiers: own},
         chained(%{
           event_id: "e2",
           created_at: at(2),
@@ -1062,16 +1062,42 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           to_uid: "sr:t",
           source_identifiers: [ident("mac", "00005E005399")],
           evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
-          to_own_identifiers: own
+          to_own_identifiers: []
         })
       ]
 
-      context = put_in(poisoned_context(), [:own, "sr:t"], own)
+      context = put_in(poisoned_context(), [:own, "sr:s"], own)
       plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
       e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
 
       refute :tainted_evidence in e2.proofs
       refute e2.bad?
+    end
+
+    test "a merge in the same second as the bad merge is reported, never undone or dropped" do
+      # `sr:s` holds guest 101; in the second the AWX merge poisons it, guest 102 is merged in.
+      own = [awx_id(1), ident("integration_id", guest_ref(101))]
+      context = put_in(poisoned_context(), [:own, "sr:s"], own)
+
+      for {awx_id, guest_id} <- [{"e1", "e2"}, {"e9", "e2"}] do
+        merges = [
+          %{poisoning_merge() | event_id: awx_id},
+          chained(%{
+            event_id: guest_id,
+            created_at: at(1),
+            from_uid: "sr:g102",
+            guest_provider_ref: guest_ref(102),
+            source_identifiers: [ident("integration_id", guest_ref(102))],
+            to_own_identifiers: own
+          })
+        ]
+
+        plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
+        guest = Enum.find(plan.report, &(&1.event_id == guest_id))
+
+        assert %{disposition: :chained_unproven, bad?: false} = guest
+        assert [%{event_ids: [^awx_id]}] = plan.units
+      end
     end
 
     test "recorded ip evidence a poisoned survivor owns is not tainted by the guest's address" do

@@ -298,16 +298,6 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
                    WHERE n.guest_id = g.id
                  ),
                  ARRAY[]::text[]
-               ),
-               COALESCE(
-                 ARRAY(
-                   SELECT di.device_id
-                   FROM platform.device_identifiers di
-                   JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
-                   WHERE di.identifier_type = 'integration_id'
-                     AND di.identifier_value = g.provider_ref
-                 ),
-                 ARRAY[]::text[]
                )
         FROM platform.virtualization_guests g
         WHERE g.provider_ref = ANY($1::text[])
@@ -315,10 +305,12 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         [refs]
       )
 
+    holders = guest_holders(refs)
+
     rows
     |> Enum.group_by(&hd/1)
     |> Map.new(fn
-      {ref, [[_ref, device_uid, macs, ips, holders]]} ->
+      {ref, [[_ref, device_uid, macs, ips]]} ->
         {ref,
          %{
            provider_ref: ref,
@@ -326,7 +318,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            device_uid: device_uid,
            macs: macs || [],
            ips: ips || [],
-           holders: holders || []
+           holders: Map.get(holders, ref, [])
          }}
 
       # More than one guest row for one reference: which NICs are the guest's is not known.
@@ -342,6 +334,46 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            ambiguous?: true
          }}
     end)
+  end
+
+  # The live records holding each guest's identity: its reference, or a v2 id of the same
+  # normalized cluster and VMID.
+  defp guest_holders(refs) do
+    values = Map.new(refs, &{&1, guest_identity_values(&1)})
+
+    %{rows: rows} =
+      query!(
+        """
+        SELECT di.identifier_value, di.device_id
+        FROM platform.device_identifiers di
+        JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
+        WHERE di.identifier_type = 'integration_id'
+          AND di.identifier_value = ANY($1::text[])
+        """,
+        [values |> Map.values() |> List.flatten() |> Enum.uniq()]
+      )
+
+    by_value = Enum.group_by(rows, &hd/1, &List.last/1)
+
+    Map.new(values, fn {ref, candidates} ->
+      {ref, candidates |> Enum.flat_map(&Map.get(by_value, &1, [])) |> Enum.uniq()}
+    end)
+  end
+
+  defp guest_identity_values(ref) do
+    case Decisions.awx_guest_key(ref) do
+      {cluster, vmid} ->
+        v2 =
+          for kind <- ["vm", "lxc"],
+              id = IntegrationIdentity.proxmox_guest_id(cluster, kind, vmid),
+              is_binary(id),
+              do: id
+
+        Enum.uniq([ref | v2])
+
+      nil ->
+        [ref]
+    end
   end
 
   defp interface_macs([]), do: %{}

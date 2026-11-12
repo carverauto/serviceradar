@@ -44,13 +44,14 @@ step computes its plan when it runs, never from a fixed list.
    *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
    the guest the merge named (unless the survivor holds that guest's identity itself) and the
    merged record's address. A merge that stays carries a poisoned record's foreign set to its
-   survivor. Every later merge touching a poisoned record, of any reason, is judged too, and is
-   bad when:
+   survivor. Every merge of a later second touching a poisoned record, of any reason, is judged
+   too (`created_at` has second precision, so a merge in the same second as the bad merge that
+   shares a record with it is reported as `chained_unproven` and left), and is bad when:
 
    | Proof | Meaning |
    | --- | --- |
    | `proxmox_guest_mismatch` | the merged record holds a guest identity (or, for a non-AWX merge, the merge names one), the survivor had established another, and none is common. Distinct VMIDs or clusters are distinct machines |
-   | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is its own (an address the survivor holds as an ip identifier stays its own even when a bad merge also brought it): the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
+   | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is that record's own (an address the record holds as an ip identifier stays its own even when a bad merge also brought it): the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
 
    A survivor's established guests are its own and those of merges into it that stay. A shared
    AWX host id, guest identity or universal MAC with the survivor's own identity (display MAC

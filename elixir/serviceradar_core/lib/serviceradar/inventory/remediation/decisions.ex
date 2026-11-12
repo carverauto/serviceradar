@@ -1074,7 +1074,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   identifiers that merge recorded for the merged record, the NIC MACs and addresses of the guest
   the merge named (unless the record holds that guest's identity itself, which makes them its
   own) and the merged record's address. A record that absorbs or is absorbed into a poisoned
-  record without the merge being proved bad inherits the foreign set.
+  record without the merge being proved bad inherits the foreign set. The poison reaches merges
+  of later seconds only (`created_at` has second precision); a merge of the same second sharing a
+  record with a bad merge is `:chained_unproven`.
 
   **A merge is bad** when it is an AWX merge that `awx_merge_evidence/1` proves, or when it
   touches a record poisoned at its time and one of these holds:
@@ -1085,8 +1087,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       its own and those of merges into it that stay; distinct VMIDs or clusters are distinct
       machines;
     * `:tainted_evidence` — every identifier the match rested on is in the poisoned record's
-      foreign set and none is its own. The evidence is what the merge recorded, or else the
-      identifiers the two records shared at the merge and the address when it was both records'.
+      foreign set and none is that record's own (its own addresses included). The evidence is
+      what the merge recorded, or else the identifiers the two records shared at the merge and
+      the address when it was both records'.
 
   Either is void (`:conflicting_evidence`) when the merged record shares a universally
   administered MAC, a guest identity or an AWX host id with the survivor's own identifiers.
@@ -1111,14 +1114,18 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     {judged, _poison} =
       merges
       |> Enum.sort_by(&{created_rank(&1.created_at), &1.event_id})
-      |> Enum.map_reduce(%{}, fn merge, poison ->
-        awx_evidence = if merge.reason in @awx_merge_reasons, do: awx_merge_evidence(merge)
-        {verdict, evidence} = judge_merge(merge, awx_evidence, poison, context)
-
+      |> Enum.chunk_by(&created_second(&1.created_at))
+      |> Enum.flat_map_reduce(%{}, fn same_second, poison ->
         judged =
-          Map.merge(merge, %{verdict: verdict, awx_evidence: awx_evidence, match: evidence})
+          same_second
+          |> Enum.map(fn merge ->
+            awx_evidence = if merge.reason in @awx_merge_reasons, do: awx_merge_evidence(merge)
+            {verdict, evidence} = judge_merge(merge, awx_evidence, poison, context)
+            Map.merge(merge, %{verdict: verdict, awx_evidence: awx_evidence, match: evidence})
+          end)
+          |> unproven_beside_bad()
 
-        {judged, record_merge(poison, merge, verdict, context)}
+        {judged, Enum.reduce(judged, poison, &record_merge(&2, &1, &1.verdict, context))}
       end)
 
     bad = Enum.filter(judged, &match?({:bad, _proofs}, &1.verdict))
@@ -1182,6 +1189,23 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   # -- judgement, in time order --------------------------------------------------------------
 
+  # A bad merge poisons only later seconds: `created_at` has second precision, so a merge of the
+  # same second sharing a record with it may have come first, and is reported, not undone.
+  defp unproven_beside_bad(same_second) do
+    bad_uids =
+      for %{verdict: {:bad, _proofs}} = merge <- same_second,
+          uid <- [merge.from_uid, merge.to_uid],
+          into: MapSet.new(),
+          do: uid
+
+    Enum.map(same_second, fn merge ->
+      if merge.verdict == :unrelated and
+           (MapSet.member?(bad_uids, merge.from_uid) or MapSet.member?(bad_uids, merge.to_uid)),
+         do: %{merge | verdict: {:ambiguous, :chained_unproven}},
+         else: merge
+    end)
+  end
+
   defp judge_merge(merge, awx_evidence, poison, context) do
     tainted? = poisoned?(poison, merge.to_uid) or poisoned?(poison, merge.from_uid)
 
@@ -1207,13 +1231,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     survivor = poison_state(poison, merge.to_uid, context)
     merged = poison_state(poison, merge.from_uid, context)
 
-    own_ids = context.own |> Map.get(merge.to_uid, []) |> id_set()
-
-    own =
-      own_ids
-      |> MapSet.union(mac_set(merge[:to_mac] || Map.get(context.display_mac, merge.to_uid)))
-      |> MapSet.difference(survivor.foreign)
-      |> MapSet.union(MapSet.filter(own_ids, &match?({:ip, _}, &1)))
+    own = record_own(merge.to_uid, merge[:to_mac], survivor, context)
+    merged_own = record_own(merge.from_uid, merge[:from_mac], merged, context)
 
     merged_ids = merged_identity(merge)
     merged_guests = merged_guest_keys(merge, context)
@@ -1227,10 +1246,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         both_disjoint?(merged_guests, survivor.established) ->
           {:bad, [:proxmox_guest_mismatch]}
 
-        evidence != MapSet.new() and
-          (MapSet.subset?(evidence, survivor.foreign) or
-             MapSet.subset?(evidence, merged.foreign)) and
-            MapSet.disjoint?(evidence, own) ->
+        tainted_by?(evidence, survivor.foreign, own) or
+            tainted_by?(evidence, merged.foreign, merged_own) ->
           {:bad, [:tainted_evidence]}
 
         true ->
@@ -1238,6 +1255,22 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       end
 
     {verdict, evidence}
+  end
+
+  defp tainted_by?(evidence, foreign, own) do
+    evidence != MapSet.new() and MapSet.subset?(evidence, foreign) and
+      MapSet.disjoint?(evidence, own)
+  end
+
+  # A record's own identifiers and display MAC, less what a bad merge brought it; an address it
+  # holds as an identifier stays its own.
+  defp record_own(uid, mac, state, context) do
+    ids = context.own |> Map.get(uid, []) |> id_set()
+
+    ids
+    |> MapSet.union(mac_set(mac || Map.get(context.display_mac, uid)))
+    |> MapSet.difference(state.foreign)
+    |> MapSet.union(MapSet.filter(ids, &match?({:ip, _}, &1)))
   end
 
   defp render_evidence(nil), do: []
@@ -1569,6 +1602,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     do: at |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)
 
   defp created_rank(_at), do: 0
+
+  defp created_second(at), do: div(created_rank(at), 1_000_000)
 
   @doc """
   Replay the planned unmerges on a set of identifier rows, as the unmerges will move them: each
