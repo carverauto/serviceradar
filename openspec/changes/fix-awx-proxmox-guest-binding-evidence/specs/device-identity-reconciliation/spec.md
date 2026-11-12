@@ -37,8 +37,8 @@ unless the guest reports the AWX host's declared address or an address of the AW
 - **AND** the guest reporting B SHALL NOT be merged
 
 #### Scenario: A shared universally administered MAC binds the guest
-- **GIVEN** two Proxmox guests with node `pve01` and VMID 100 and no addresses, with different universally administered NIC MACs
-- **WHEN** an AWX host with node `pve01` and VMID 100 declares the first guest's MAC
+- **GIVEN** two Proxmox guests with node `pve01` and VMID 100, each reporting its own address, with different universally administered NIC MACs
+- **WHEN** an AWX host with node `pve01` and VMID 100 declares no address and declares the first guest's MAC
 - **THEN** the AWX record SHALL merge into the first guest's device
 
 #### Scenario: A locally administered MAC binds no guest
