@@ -948,23 +948,23 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       %{
         own: %{"sr:s" => [awx_id(1)]},
         guests: %{
-          guest_ref(136) => %{
-            key: {"cluster-x", "136"},
-            macs: ["00:00:5E:00:53:36"],
-            ips: ["192.0.2.36"]
+          guest_ref(9101) => %{
+            key: {"cluster-x", "9101"},
+            macs: ["00:00:5E:00:53:A1"],
+            ips: ["192.0.2.161"]
           }
         }
       }
     end
 
-    # The AWX host 2 record merged into the survivor of AWX host 1, the host bound to guest 136.
+    # The AWX host 2 record merged into the survivor of AWX host 1, the host bound to guest 9101.
     defp poisoning_merge do
       awx_merge(%{
         event_id: "e1",
         created_at: at(1),
         from_uid: "sr:h2",
         to_uid: "sr:s",
-        guest_provider_ref: guest_ref(136),
+        guest_provider_ref: guest_ref(9101),
         source_identifiers: [awx_id(2)],
         to_own_identifiers: [awx_id(1)]
       })
@@ -973,39 +973,39 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     test "follows the poison through merges of other reasons, and undoes them as one unit" do
       merges = [
         poisoning_merge(),
-        # Guest 136's own record matched on the guest MAC the bound AWX host left behind.
+        # Guest 9101's own record matched on the guest MAC the bound AWX host left behind.
         chained(%{
           event_id: "e2",
           created_at: at(2),
-          from_uid: "sr:g136",
-          guest_provider_ref: guest_ref(136),
+          from_uid: "sr:g9101",
+          guest_provider_ref: guest_ref(9101),
           source_identifiers: [
-            ident("integration_id", guest_ref(136)),
-            ident("mac", "00005E005336")
+            ident("integration_id", guest_ref(9101)),
+            ident("mac", "00005E0053A1")
           ]
         }),
-        # Guest 114 matched on an address the poison did not bring: it may be this machine.
+        # Guest 9102 matched on an address the poison did not bring: it may be this machine.
         chained(%{
           event_id: "e3",
           created_at: at(3),
-          from_uid: "sr:g114",
-          guest_provider_ref: guest_ref(114),
+          from_uid: "sr:g9102",
+          guest_provider_ref: guest_ref(9102),
           source_identifiers: [
-            ident("integration_id", guest_ref(114)),
-            ident("mac", "00005E005314")
+            ident("integration_id", guest_ref(9102)),
+            ident("mac", "00005E0053A2")
           ],
-          from_ip: "192.0.2.14",
-          to_ip_before: "192.0.2.14"
+          from_ip: "192.0.2.162",
+          to_ip_before: "192.0.2.162"
         }),
-        # Guest 137 is a second guest on a record that now carries guest 114.
+        # Guest 9103 is a second guest on a record that now carries guest 9102.
         chained(%{
           event_id: "e4",
           created_at: at(4),
-          from_uid: "sr:g137",
-          guest_provider_ref: guest_ref(137),
+          from_uid: "sr:g9103",
+          guest_provider_ref: guest_ref(9103),
           source_identifiers: [
-            ident("integration_id", guest_ref(137)),
-            ident("mac", "00005E005337")
+            ident("integration_id", guest_ref(9103)),
+            ident("mac", "00005E0053A3")
           ]
         }),
         # A backfill that matched on the copied guest MAC, as it recorded.
@@ -1015,7 +1015,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           reason: "identifier_backfill",
           from_uid: "sr:fresh",
           source_identifiers: [ident("mac", "00005E005399")],
-          evidence: [%{"type" => "mac_column", "value" => "00:00:5E:00:53:36"}]
+          evidence: [%{"type" => "mac_column", "value" => "00:00:5E:00:53:A1"}]
         })
       ]
 
@@ -1038,10 +1038,10 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         chained(%{
           event_id: "e2",
           created_at: at(2),
-          from_uid: "sr:g137",
-          guest_provider_ref: guest_ref(137),
+          from_uid: "sr:g9103",
+          guest_provider_ref: guest_ref(9103),
           source_identifiers: [
-            ident("integration_id", guest_ref(137)),
+            ident("integration_id", guest_ref(9103)),
             ident("mac", "00005E0053AA")
           ],
           to_own_identifiers: own
@@ -1056,9 +1056,9 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     end
 
     test "an address the poisoned merged record owns is not tainted evidence" do
-      # `sr:s` owns 192.0.2.36 and the guest bound to it brought the same address; `sr:s` is then
+      # `sr:s` owns 192.0.2.161 and the guest bound to it brought the same address; `sr:s` is then
       # merged into `sr:t`, which does not own it, on that address.
-      own = [awx_id(1), ident("ip", "192.0.2.36")]
+      own = [awx_id(1), ident("ip", "192.0.2.161")]
 
       merges = [
         %{poisoning_merge() | to_own_identifiers: own},
@@ -1069,7 +1069,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           from_uid: "sr:s",
           to_uid: "sr:t",
           source_identifiers: [ident("mac", "00005E005399")],
-          evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+          evidence: [%{"type" => "ip", "value" => "192.0.2.161"}],
           to_own_identifiers: []
         })
       ]
@@ -1083,7 +1083,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     end
 
     test "a same-second sibling carries no poison into the next second, in either id order" do
-      # The AWX merge poisons `sr:s` with guest 136's address while, in the same second, `sr:s`
+      # The AWX merge poisons `sr:s` with guest 9101's address while, in the same second, `sr:s`
       # is merged into `sr:t`. A backfill into `sr:t` a second later on that address is not tainted.
       for {awx_id, sibling_id} <- [{"e1", "e2"}, {"e9", "e2"}] do
         merges = [
@@ -1104,7 +1104,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
             from_uid: "sr:fresh",
             to_uid: "sr:t",
             source_identifiers: [ident("mac", "00005E005399")],
-            evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+            evidence: [%{"type" => "ip", "value" => "192.0.2.161"}],
             to_own_identifiers: []
           })
         ]
@@ -1179,7 +1179,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     end
 
     test "recorded ip evidence a poisoned survivor owns is not tainted by the guest's address" do
-      own = [awx_id(1), ident("ip", "192.0.2.36")]
+      own = [awx_id(1), ident("ip", "192.0.2.161")]
 
       merges = [
         %{poisoning_merge() | to_own_identifiers: own},
@@ -1189,7 +1189,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           reason: "identifier_backfill",
           from_uid: "sr:fresh",
           source_identifiers: [ident("mac", "00005E005399")],
-          evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+          evidence: [%{"type" => "ip", "value" => "192.0.2.161"}],
           to_own_identifiers: own
         })
       ]
@@ -1211,7 +1211,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           created_at: at(2),
           reason: "identifier_backfill",
           from_uid: "sr:fresh",
-          source_identifiers: [ident("ip", "192.0.2.36")]
+          source_identifiers: [ident("ip", "192.0.2.161")]
         })
       ]
 
