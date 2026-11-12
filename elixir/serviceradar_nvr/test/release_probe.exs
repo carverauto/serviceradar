@@ -966,6 +966,40 @@ case System.fetch_env!("NVR_TEST_MODE") do
     ^sealed_files = read_files.()
     {:ok, ^snapshot} = ServiceRadarNVR.sealed_block(block_id)
 
+  "recover_closed_in_flight" ->
+    {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
+    expected = Map.put(identity, :clock, clock)
+    path = System.fetch_env!("SERVICERADAR_NVR_RECOVERY_STATE_FILE")
+    ready = File.read!(path)
+    capacity = Process.whereis(Capacity)
+
+    # Close the gate from the file server when Capacity first lists the spool,
+    # after its admission check and before the repair or measurement finishes.
+    close_during_inventory = fn ->
+      hook = fn
+        _, {:in, {:"$gen_call", {^capacity, _}, {:list_dir, _}}}, _ ->
+          :ok = :prim_file.write_file(path <> ".next", String.replace(ready, "ready", "closed"))
+          :ok = :prim_file.rename(path <> ".next", path)
+          :done
+
+        state, _, _ ->
+          state
+      end
+
+      :ok = :sys.install(:file_server_2, {hook, :waiting})
+    end
+
+    close_during_inventory.()
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.recover_block(block_id, expected)
+    false = File.read!(path) == ready
+    File.write!(path <> ".next", ready)
+    File.rename!(path <> ".next", path)
+    {:ok, %{sealed?: true}} = ServiceRadarNVR.sealed_block(block_id)
+
+    close_during_inventory.()
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.capacity()
+    false = File.read!(path) == ready
+
   mode when mode in ["discover_unresolved", "recover_unresolved"] ->
     {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
 

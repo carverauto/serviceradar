@@ -286,7 +286,8 @@ defmodule ServiceRadarNVR.Capacity do
     with :ok <- RecoveryGate.check(state.config.recovery_gate),
          {:ok, inventory} <- Disk.inventory(storage),
          {:ok, free} <- Disk.available_bytes(storage.root),
-         :ok <- Storage.verify(storage) do
+         :ok <- Storage.verify(storage),
+         :ok <- RecoveryGate.check(state.config.recovery_gate) do
       {:ok,
        %{
          used_bytes: inventory.used_bytes,

@@ -1037,6 +1037,18 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(decoded, self.decode(source)[:len(decoded)])
         self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, sealed)
 
+    def test_recovery_gate_closed_during_repair_or_measurement_refuses_reply_and_keeps_seal(self):
+        self.make_media()
+        self.run_probe("interrupted")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        media = (block / "media.m4s").read_bytes()
+        journal = (block / "journal").read_bytes()
+        (block / "media.m4s").write_bytes(media + b"uncommitted synthetic tail")
+        (block / "journal").write_bytes(journal + b"\x00\x00")
+        self.run_probe("recover_closed_in_flight")
+        self.assertEqual((block / "media.m4s").read_bytes(), media)
+        self.assertEqual(self.recovery.read_bytes(), self.ready.replace(b"ready", b"closed"))
+
     def test_recovery_preserves_unresolved_blocks_and_pressure(self):
         self.make_media()
         self.run_probe("interrupted")

@@ -158,7 +158,9 @@ apply. Offline bootstrap evidence operations remain available while closed.
 
 The runtime re-reads state for admission and each writer pressure check, even
 when the disk-pressure measurement is cached. Read tasks check before work and
-before returning results; publication delivery checks before each HTTP attempt.
+before returning results; capacity measurements and explicit block recovery
+check again before replying, and a repair or seal already written remains.
+Publication delivery checks before each HTTP attempt.
 No ready result is cached. Closing the gate cannot recall bytes already returned,
 cancel kernel I/O, or retract an HTTP request already sent. ConfigMap projection
 is eventual, and API update success is not proof that replicas observed closure.

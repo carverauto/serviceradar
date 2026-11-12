@@ -215,11 +215,14 @@ defmodule ServiceRadarNVR do
   this local guard does not fence another replica. No capture or publication starts.
   Includes `init_format` as in `sealed_block/1`. Format decoding follows repair
   and sealing; a format error does not mean the files were left unchanged.
+  A closed recovery gate observed after that work returns `{:error, :nvr_recovery_closed}`;
+  any repair or seal already written remains.
   """
   def recover_block(block_id, expected_identity) do
-    with {:ok, snapshot} <- ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity) do
-      Blocks.with_format(snapshot)
-    end
+    with {:ok, snapshot} <- ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity),
+         result = Blocks.with_format(snapshot),
+         :ok <- ServiceRadarNVR.Capacity.recovery_ready(),
+         do: result
   end
 
   defp read_verified(block_id, expected_digest, read)
