@@ -292,9 +292,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
                ),
                COALESCE(
                  ARRAY(
-                   SELECT split_part(address, '/', 1)
+                   SELECT split_part(nic_ip.value, '/', 1)
                    FROM platform.virtualization_network_interfaces n,
-                        unnest(n.ip_addresses) AS address
+                        unnest(n.ip_addresses) AS nic_ip(value)
                    WHERE n.guest_id = g.id
                  ),
                  ARRAY[]::text[]

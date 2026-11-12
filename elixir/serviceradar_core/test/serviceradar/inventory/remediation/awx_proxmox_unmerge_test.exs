@@ -677,12 +677,15 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
            SELECT device_id FROM platform.device_identifiers
            WHERE identifier_type = $1 AND identifier_value = $2
            """,
-           [type, String.replace(value, ":", "")]
+           [type, identifier_value(type, value)]
          ).rows do
       [[uid]] -> uid
       [] -> nil
     end
   end
+
+  defp identifier_value("mac", value), do: String.replace(value, ":", "")
+  defp identifier_value(_type, value), do: value
 
   defp archived(id) do
     case Repo.query!(
