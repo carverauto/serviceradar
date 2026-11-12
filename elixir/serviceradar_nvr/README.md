@@ -20,8 +20,16 @@ writers retired. It syncs `.bootstrap-preparation.json` before creating
 `.storage-id`; exact retries preserve bytes, and incomplete or conflicting files
 are never repaired. Existing spools cannot be bootstrapped this way.
 
-This is local installation only. The preparation keeps inventory and write
-admission closed pending the separate two-sided completion protocol. No startup
+`ServiceRadarNVR.acknowledge_bootstrap/3` retains Core's exact correlated
+installation acknowledgement after re-syncing the preparation and marker.
+`ServiceRadarNVR.bootstrap_evidence/2` reads both bounded records and reports
+their exact bytes, digests, state and retained/pending control-byte counts. It
+does not sync or repair files. Each JSON record is at most 512 bytes; the
+37-byte marker is included in accounting. These remain offline operations on
+an exclusively attached new volume, not retained-media reconciliation.
+
+Either bootstrap record keeps inventory and write admission closed pending
+current-history reconciliation and the separate completion protocol. No startup
 path bootstraps or enables recording. See [the bootstrap contract](../../docs/nvr-runtime.md#explicit-new-volume-installation)
 for the API, persistence order and unresolved-state behavior.
 

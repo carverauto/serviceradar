@@ -395,11 +395,47 @@ confirmation. There is no update or deletion action and no network endpoint or
 automatic caller for this operation.
 
 This is Core's installation acknowledgement, not a completed two-sided history
-checkpoint or a storage qualification. NVR persistence of this acknowledgement,
-control-space accounting and completion reconciliation remain unimplemented.
+checkpoint or a storage qualification. Completion reconciliation remains
+unimplemented; the offline persistence and evidence boundary is described below.
 The volume's preparation barrier still refuses capture and inventory; Core does
 not use this row to authorize registration, playback or deletion. Physical
 provider failure recovery and retained-volume restore still need their own proof.
+
+### Volume acknowledgement and evidence
+
+After authenticating Core's response, trusted provisioning can call
+`ServiceRadarNVR.acknowledge_bootstrap(root, reference, acknowledgement)` offline.
+The recorder must remain stopped, attachment exclusive and previous writers
+retired. The configured reference is the same storage/binding reference used for
+installation. The acknowledgement must be the exact canonical Core record,
+bounded to 512 bytes and matching the retained preparation's operation UUID,
+storage UUID and SHA-256. Parsing proves correlation, not Core authentication.
+
+The operation validates the retained preparation and marker, re-syncs both files
+and the root directory, then exclusively creates `.bootstrap-acknowledgement.json`
+with mode 0600. It syncs that file and the root and verifies storage identity
+before returning evidence. Exact retries re-sync the original bytes without
+rewriting files. An initial installation retry also accepts this completed prefix;
+it cannot recreate a missing marker once an acknowledgement exists.
+
+`ServiceRadarNVR.bootstrap_evidence(root, reference)` performs read-only inspection
+of the same bounded records. It returns exact preparation and optional
+acknowledgement bytes, their SHA-256 digests, storage and operation UUIDs, and state
+`:prepared` or `:installation_acknowledged`. `used_control_bytes` counts the
+37-byte storage marker plus the actual preparation and acknowledgement lengths.
+`pending_control_bytes` reserves a maximum 512-byte acknowledgement when absent,
+and is zero once retained. The maximum combined control allowance is 1061 bytes.
+These are offline evidence counts, not a runtime capacity grant. Inspection does
+not sync or repair files; observing complete bytes is not a successful persistence
+retry or a physical durability proof.
+
+Both APIs refuse roots containing media or unknown entries, missing or conflicting
+records, non-private files, symlinks and hard links without deleting or repairing
+them. Retained media requires separate reconciliation. Either bootstrap record
+keeps inventory and recording admission closed, including an orphaned
+acknowledgement. A historical installation acknowledgement cannot prove that Core's
+current history survived a restore. Current-history reconciliation, runtime control
+reservations and provider failure qualification remain separate work.
 
 ## Local storage qualification reports
 
