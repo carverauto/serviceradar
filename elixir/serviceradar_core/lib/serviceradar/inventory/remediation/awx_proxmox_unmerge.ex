@@ -988,12 +988,12 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       |> Enum.filter(&(Map.get(&1, :decision) == :remove))
       |> Enum.group_by(& &1.device_uid)
 
-    state =
-      Enum.reduce_while(removals, state, fn {uid, rows}, state ->
-        archive_device_macs(uid, rows, state, run)
+    {state, archived_ids} =
+      Enum.reduce_while(removals, {state, []}, fn {uid, rows}, {state, ids} ->
+        {action, state, archived} = archive_device_macs(uid, rows, state, run)
+        {action, {state, archived ++ ids}}
       end)
 
-    archived_ids = removals |> Map.values() |> List.flatten() |> Enum.map(& &1.id)
     still_present = still_present(archived_ids)
 
     %{
@@ -1023,27 +1023,31 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
     with :ok <- preflight,
          {:ok, archived} <- safely(fn -> archive_transaction(uid, rows, token, run) end) do
-      committed(state, run, uid, token, fn state ->
-        %{
-          state
-          | mac_rows_archived: state.mac_rows_archived + length(archived),
-            mac_rows_stale: state.mac_rows_stale + length(ids) - length(archived)
-        }
-      end)
+      {action, state} =
+        committed(state, run, uid, token, fn state ->
+          %{
+            state
+            | mac_rows_archived: state.mac_rows_archived + length(archived),
+              mac_rows_stale: state.mac_rows_stale + length(ids) - length(archived)
+          }
+        end)
+
+      {action, state, archived}
     else
       {:error, reason} ->
         Logger.warning("#{@step}: MAC cleanup of #{uid} failed: #{inspect(reason)}")
 
         if preflight != :ok or :counters.get(run.manifest_errors, 1) > 0 do
-          {:halt,
-           %{
-             state
-             | mac_cleanup_failures: state.mac_cleanup_failures + 1,
-               manifest_failures: state.manifest_failures + 1,
-               halted: "manifest"
-           }}
+          state = %{
+            state
+            | mac_cleanup_failures: state.mac_cleanup_failures + 1,
+              manifest_failures: state.manifest_failures + 1,
+              halted: "manifest"
+          }
+
+          {:halt, state, []}
         else
-          {:cont, %{state | mac_cleanup_failures: state.mac_cleanup_failures + 1}}
+          {:cont, %{state | mac_cleanup_failures: state.mac_cleanup_failures + 1}, []}
         end
     end
   end

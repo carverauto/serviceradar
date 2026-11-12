@@ -1229,7 +1229,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
     * the record is proved not to be the guest: it holds a guest identity that is not the guest's,
       or the other side of a merge proved bad holds the guest's identity. The guest's own device
-      (`guest.device_uid`, or a record holding the guest's identity) keeps its MACs;
+      (a record holding the guest's identity, or `guest.device_uid` when nothing proves it another
+      machine: merges repoint that pointer) keeps its MACs;
     * the value is one of the guest's NIC MACs, universally administered (a locally administered
       one, such as a CNI's fixed veth MAC, is on many machines);
     * the row was last written by an AWX update (`source` `sync_ingestor`, `integration_type`
@@ -1252,13 +1253,13 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     guest_macs = guest.macs |> Enum.flat_map(&Mac.normalize_mac_list/1) |> MapSet.new()
     own_keys = device.own_guest_keys
 
-    guest_device? =
-      device.uid == guest.device_uid or (guest.key != nil and MapSet.member?(own_keys, guest.key))
+    holds_guest_key? = guest.key != nil and MapSet.member?(own_keys, guest.key)
 
     proven_other? =
-      guest.key != nil and
-        ((MapSet.size(own_keys) > 0 and not MapSet.member?(own_keys, guest.key)) or
-           device.other_side_is_guest?)
+      guest.key != nil and not holds_guest_key? and
+        (MapSet.size(own_keys) > 0 or device.other_side_is_guest?)
+
+    guest_device? = holds_guest_key? or (device.uid == guest.device_uid and not proven_other?)
 
     if guest_device? do
       []

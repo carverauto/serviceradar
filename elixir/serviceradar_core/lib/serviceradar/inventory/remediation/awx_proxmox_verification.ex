@@ -39,8 +39,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxVerification do
 
     checks = [
       check("A1", rejoined(pairs)),
-      check("A2", Enum.map(remaining, &bad_sample/1)),
-      new_bad_check(remaining, repair_started),
+      limited(check("A2", Enum.map(remaining, &bad_sample/1)), data.truncated?),
+      limited(new_bad_check(remaining, repair_started), data.truncated?),
       check("A4", returned_macs()),
       check("A5", unasserted(pairs))
     ]
@@ -68,6 +68,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxVerification do
       sample: Enum.take(findings, @sample)
     }
   end
+
+  defp limited(%{status: "not_run"} = check, _truncated?), do: check
+
+  defp limited(check, true),
+    do: Map.merge(check, %{status: "fail", reason: "candidate_limit_reached"})
+
+  defp limited(check, false), do: check
 
   defp new_bad_check(_remaining, nil), do: %{check: "A3", status: "not_run", count: 0, sample: []}
 
@@ -203,19 +210,24 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxVerification do
     %{rows: [[awx]]} =
       query!("SELECT min(observed_at) FROM platform.ansible_awx_inventory_observations", [])
 
-    %{rows: [[guests]]} =
+    %{rows: [[guests, unobserved?, guest_merges]]} =
       query!(
         """
-        SELECT min(g.observed_at)
-        FROM platform.virtualization_guests g
-        JOIN platform.merge_audit m ON m.details->>'guest_provider_ref' = g.provider_ref
+        SELECT min(g.observed_at), bool_or(g.observed_at IS NULL), count(*)
+        FROM platform.merge_audit m
+        LEFT JOIN platform.virtualization_guests g
+          ON g.provider_ref = m.details->>'guest_provider_ref'
         WHERE m.event_id::text = ANY($1::text[])
+          AND m.details->>'guest_provider_ref' IS NOT NULL
         """,
         [Enum.map(pairs, & &1.event_id)]
       )
 
-    Enum.all?([awx, guests], fn at -> is_nil(at) or DateTime.after?(utc(at), finished) end) and
-      not is_nil(awx)
+    guests_settled? =
+      guest_merges == 0 or
+        (unobserved? == false and not is_nil(guests) and DateTime.after?(utc(guests), finished))
+
+    not is_nil(awx) and DateTime.after?(utc(awx), finished) and guests_settled?
   end
 
   defp utc_or_nil(nil), do: nil

@@ -1012,6 +1012,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     test "removes a guest MAC an AWX update wrote to another machine, and keeps the rest" do
       cases = [
         {%{}, %{}, :remove, nil},
+        {%{uid: "sr:guest-b"}, %{}, :remove, nil},
         {%{own_guest_keys: MapSet.new(), other_side_is_guest?: true}, %{}, :remove, nil},
         {%{own_guest_keys: MapSet.new()}, %{}, :keep, :device_not_proven_other_machine},
         {%{}, %{source: "proxmox_enrichment"}, :keep, :not_awx_provenance},
@@ -1038,7 +1039,10 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     end
 
     test "never touches the guest's own device" do
-      assert [] = Decisions.plan_awx_wrong_guest_macs(mac_input(%{uid: "sr:guest-b"}))
+      assert [] =
+               Decisions.plan_awx_wrong_guest_macs(
+                 mac_input(%{uid: "sr:guest-b", own_guest_keys: MapSet.new()})
+               )
 
       assert [] =
                Decisions.plan_awx_wrong_guest_macs(

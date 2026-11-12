@@ -225,6 +225,9 @@ DireRemediation.run(steps: ["awx-proxmox-verify"])
 | A4 | no MAC row the step archived is back on the record it was taken from |
 | A5 | every unmerged pair is still asserted distinct |
 
+While `candidate_limit_reached` is true, A2 and A3 fail with reason `candidate_limit_reached`
+(once a repair has run, for A3): a merge outside the read window is not checked.
+
 `verification_failures` above zero fails the call. `settled` is true once every AWX controller
 and every guest the repair touched has been observed again since the repair finished; until then
 `verification_pending` is 1, and a pass says nothing about whether the result holds. Repeat after
