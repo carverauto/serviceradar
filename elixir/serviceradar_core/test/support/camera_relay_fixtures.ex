@@ -51,9 +51,9 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     prior == []
   end
 
-  # Only serial publication owners install deployment state; generic camera
+  # Only serial recording owners install deployment state; generic camera
   # fixtures must not open this gate for unrelated tests.
-  def publication_recovery_gate(directory) do
+  def recording_recovery_gate(directory) do
     prior = Application.fetch_env(:serviceradar_core, :nvr_recovery_gate)
 
     ExUnit.Callbacks.on_exit(fn ->

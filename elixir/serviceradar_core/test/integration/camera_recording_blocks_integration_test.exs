@@ -22,7 +22,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   @moduletag :tmp_dir
 
   setup %{tmp_dir: directory} do
-    recovery = Fixtures.publication_recovery_gate(directory)
+    recovery = Fixtures.recording_recovery_gate(directory)
     Fixtures.preserve_recording_control()
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)

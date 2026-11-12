@@ -13,6 +13,8 @@ playback access or physical source retirement.
 
 The packaged NVR release suite owns the file contract and live-state checks.
 Core's recording-block integration suite owns receipt persistence and closure
-across acceptance; web-ng's publication DB suite owns the authenticated HTTP
-response and retry behavior. The library's format and Credo checks run through
+across acceptance, and its recorder-ownership integration suite owns new-work
+admission closure; web-ng's publication DB suite owns the authenticated HTTP
+response and retry behavior, and its media-upload DB suite owns provider-grant
+closure. The library's format and Credo checks run through
 `//build/elixir_quality:quality_check`.

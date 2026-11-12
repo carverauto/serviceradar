@@ -48,8 +48,8 @@ The first implementation checkpoint uses an operator-owned ConfigMap for
 Kubernetes and a deployment-managed file for standalone NVR. The process pins a
 canonical generation UUID at boot and re-reads a bounded exact generation/state
 record. The [runtime contract](../../../docs/nvr-runtime.md#deployment-recovery-gate)
-defines the file format and propagation limits. NVR and Core local-publication
-acceptance consume it; remaining Core authority consumers, per-storage
+defines the file format and propagation limits. NVR, Core recording new-work
+admission and local-publication acceptance consume it; remaining Core authority consumers, per-storage
 completion and the recovery command remain pending.
 
 ## 3. Ordered authoritative history

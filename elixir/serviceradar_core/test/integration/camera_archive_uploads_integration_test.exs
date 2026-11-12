@@ -31,9 +31,11 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   }
   @moduletag :integration
   @moduletag sandbox: :unboxed
+  @moduletag :tmp_dir
   @installation %{deployment_ref: "79a7a564-aa29-40ca-8c2b-8cacb9664b6c", generation: 1}
 
   setup tags do
+    recovery = Fixtures.recording_recovery_gate(tags.tmp_dir)
     control_owned? = Fixtures.preserve_recording_control(@installation.deployment_ref)
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
@@ -51,7 +53,13 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       )
 
     ctx
-    |> Map.merge(%{owner: owner, claim: claim, relay: relay, control_owned?: control_owned?})
+    |> Map.merge(%{
+      owner: owner,
+      claim: claim,
+      relay: relay,
+      control_owned?: control_owned?,
+      recovery: recovery
+    })
     |> archive_context(tags)
   end
 
@@ -912,63 +920,79 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert {:error, :recording_installation_mismatch} = RecordingControl.status(other, ctx.opts)
   end
 
-  test "stop denies new work while frozen media and late dispatch observations remain preservable",
-       ctx do
-    assert {:ok, _} = bind(ctx)
-    assert {:ok, marked} = dispatch(ctx)
-    assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, marked.id, ctx.opts)
+  for restriction <- [:stop, :recovery] do
+    @tag restriction: restriction
+    test "#{restriction} denies new work while frozen media and late dispatch observations remain preservable",
+         ctx do
+      assert {:ok, _} = bind(ctx)
+      assert {:ok, marked} = dispatch(ctx)
+      assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, marked.id, ctx.opts)
 
-    assert {:ok, unsent} =
-             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+      assert {:ok, unsent} =
+               ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
 
-    assert {:ok, open} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+      assert {:ok, open} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
 
-    assert {:ok, %{"stop_enforced" => true}} =
-             RecordingControl.stop(@installation, stop_document(), ctx.opts)
+      reason =
+        case ctx.restriction do
+          :stop ->
+            assert {:ok, %{"stop_enforced" => true}} =
+                     RecordingControl.stop(@installation, stop_document(), ctx.opts)
 
-    assert {:error, :recording_stopped} =
-             RecorderOwnership.acquire(
-               ctx.owner,
-               Ecto.UUID.generate(),
-               ctx.relay.media_ingest_id,
-               Ecto.UUID.generate(),
-               30_000,
-               ctx.opts
-             )
+            :recording_stopped
 
-    assert {:error, :recording_stopped} =
-             RecorderOwnership.renew(ctx.owner, ctx.claim, 30_000, ctx.opts)
+          :recovery ->
+            File.rm!(ctx.recovery.path)
+            :nvr_recovery_closed
+        end
 
-    assert {:error, :recording_stopped} =
-             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+      assert {:error, ^reason} =
+               RecorderOwnership.acquire(
+                 ctx.owner,
+                 Ecto.UUID.generate(),
+                 ctx.relay.media_ingest_id,
+                 Ecto.UUID.generate(),
+                 30_000,
+                 ctx.opts
+               )
 
-    assert {:error, :recording_stopped} =
-             ArchiveUploads.mark_dispatch(ctx.lease, unsent.id, ctx.opts)
+      assert {:error, ^reason} =
+               RecorderOwnership.renew(ctx.owner, ctx.claim, 30_000, ctx.opts)
 
-    assert {:ok, %{marked_at: nil}} = Ash.get(ArchiveUploadDispatch, unsent.id, ctx.opts)
+      assert {:error, ^reason} =
+               RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
 
-    assert {:ok, frozen} =
-             RecordingBlocks.freeze(ctx.owner, ctx.claim, open, descriptor(open), ctx.opts)
+      assert {:error, ^reason} =
+               ArchiveUploads.mark_dispatch(ctx.lease, unsent.id, ctx.opts)
 
-    assert frozen.state == :sealed
-    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
-    assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, marked.id, ctx.opts)
-    assert unknown.unknown_at
+      assert {:ok, %{marked_at: nil}} = Ash.get(ArchiveUploadDispatch, unsent.id, ctx.opts)
 
-    assert {:ok, observed} =
-             ArchiveUploads.observe_response(
-               ctx.lease,
-               marked.id,
-               %{"status" => 200, "etag" => "synthetic-late-etag"},
-               ctx.opts
-             )
+      assert {:error, ^reason} =
+               ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
 
-    assert observed.response["etag"] == "synthetic-late-etag"
-    assert observed.marked_at == unknown.marked_at
-    assert observed.deadline_at == marked.deadline_at
-    assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
-    assert retained.descriptor_sha256 == ctx.block.descriptor_sha256
-    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+      assert {:ok, frozen} =
+               RecordingBlocks.freeze(ctx.owner, ctx.claim, open, descriptor(open), ctx.opts)
+
+      assert frozen.state == :sealed
+      assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+      assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, marked.id, ctx.opts)
+      assert unknown.unknown_at
+
+      assert {:ok, observed} =
+               ArchiveUploads.observe_response(
+                 ctx.lease,
+                 marked.id,
+                 %{"status" => 200, "etag" => "synthetic-late-etag"},
+                 ctx.opts
+               )
+
+      assert observed.response["etag"] == "synthetic-late-etag"
+      assert observed.marked_at == unknown.marked_at
+      assert observed.deadline_at == marked.deadline_at
+      assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+      assert retained.descriptor_sha256 == ctx.block.descriptor_sha256
+      assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+    end
   end
 
   test "stop waits for an admitted recorder transaction before acknowledging the restriction",

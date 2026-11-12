@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
   @account_token "synthetic-account-purpose-token-for-init-http-test"
 
   setup %{tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     previous = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
     storage = ArchiveStorageHTTP.installation(directory)
     installation = %{deployment_ref: storage.document["deployment_ref"], generation: 1}
