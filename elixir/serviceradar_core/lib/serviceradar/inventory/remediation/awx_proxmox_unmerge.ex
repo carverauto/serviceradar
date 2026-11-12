@@ -202,12 +202,14 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp utc(%DateTime{} = at), do: at
   defp utc(_at), do: ~U[1970-01-01 00:00:00Z]
 
+  # Each reversed merge's event id with the time of its earliest unmerge.
   defp reversed_event_ids(related) do
-    for %{reason: "unmerge", details: details} <- related,
+    for %{reason: "unmerge", details: details, created_at: at} <- related,
         id = details["original_merge_event_id"],
         is_binary(id),
-        into: MapSet.new(),
-        do: id
+        reduce: %{} do
+      acc -> Map.update(acc, id, at, &Enum.min([&1, at], DateTime))
+    end
   end
 
   defp devices([]), do: %{}
@@ -415,6 +417,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     end
   end
 
+  defp reversed_by?(data, event_id, at) do
+    case Map.fetch(data.reversed, event_id) do
+      {:ok, unmerged_at} -> DateTime.compare(unmerged_at, at) != :gt
+      :error -> false
+    end
+  end
+
   defp merge_input(audit, data) do
     from = Map.get(data.devices, audit.from_uid)
     to = Map.get(data.devices, audit.to_uid)
@@ -424,7 +433,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       |> Map.get(audit.to_uid, [])
       |> Enum.filter(
         &(&1.event_id != audit.event_id and
-            DateTime.compare(&1.created_at, audit.created_at) != :gt)
+            DateTime.compare(&1.created_at, audit.created_at) != :gt and
+            not reversed_by?(data, &1.event_id, audit.created_at))
       )
       |> Enum.flat_map(&(source_identifiers(&1.details) || []))
 
@@ -446,7 +456,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       to_absorbed_before: absorbed_before,
       to_mac: to && to.mac,
       guest_macs: guest_macs(data.guests, audit.details["guest_provider_ref"]),
-      reversed?: MapSet.member?(data.reversed, audit.event_id),
+      reversed?: Map.has_key?(data.reversed, audit.event_id),
       from_state: from_state(from),
       superseded?:
         data.merges_from
@@ -504,7 +514,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp to_state(%{deleted_reason: "merged", uid: uid}, data) do
     data.merges_from
     |> Map.get(uid, [])
-    |> Enum.reject(&MapSet.member?(data.reversed, &1.event_id))
+    |> Enum.reject(&Map.has_key?(data.reversed, &1.event_id))
     |> Enum.max_by(&DateTime.to_unix(&1.created_at, :microsecond), fn -> nil end)
     |> case do
       nil -> :deleted
@@ -532,7 +542,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   defp unreversed_merges_into(data, uid) do
     data.merges_into
     |> Map.get(uid, [])
-    |> Enum.reject(&MapSet.member?(data.reversed, &1.event_id))
+    |> Enum.reject(&Map.has_key?(data.reversed, &1.event_id))
   end
 
   # -- MAC planning -----------------------------------------------------------
@@ -686,9 +696,11 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       |> Decisions.project_awx_unmerges(plan.unmerge)
       |> Enum.group_by(& &1.device_id)
 
+    now = DateTime.utc_now()
+
     after_unmerges = %{
       data
-      | reversed: MapSet.union(data.reversed, MapSet.new(plan.unmerge, & &1.event_id))
+      | reversed: Map.merge(data.reversed, Map.new(plan.unmerge, &{&1.event_id, now}))
     }
 
     macs = plan_macs(after_unmerges, plan, projected, [:unmerge, :already_unmerged], opts)

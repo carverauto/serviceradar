@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge
   alias ServiceRadar.Inventory.Remediation.Decisions
 
   describe "valid_mac_value?/1 and purgeable_mac_value?/1 (blob detection)" do
@@ -1152,6 +1153,37 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       end
     end
 
+    test "a survivor identifier of any type in a partition the bad merge did not record stays its own" do
+      for {own_partition, tainted?} <- [{"site-b", false}, {"default", true}] do
+        own = [
+          awx_id(1),
+          %{"type" => "armis_device_id", "value" => "7001", "partition" => own_partition}
+        ]
+
+        merges = [
+          %{
+            poisoning_merge()
+            | source_identifiers: [awx_id(2), ident("armis_device_id", "7001")]
+          },
+          chained(%{
+            event_id: "e2",
+            created_at: at(2),
+            reason: "identifier_backfill",
+            from_uid: "sr:fresh",
+            source_identifiers: [ident("mac", "00005E005399")],
+            evidence: [%{"type" => "armis_device_id", "value" => "7001"}],
+            to_own_identifiers: own
+          })
+        ]
+
+        context = put_in(poisoned_context(), [:own, "sr:s"], own)
+        plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
+        e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+        assert :tainted_evidence in e2.proofs == tainted?, own_partition
+      end
+    end
+
     test "a merge in the same second as the bad merge is reported, never undone or dropped" do
       # `sr:s` holds guest 101; in the second the AWX merge poisons it, guest 102 is merged in.
       own = [awx_id(1), ident("integration_id", guest_ref(101))]
@@ -1439,6 +1471,62 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
                Decisions.plan_awx_wrong_guest_macs(
                  mac_input(%{own_guest_keys: MapSet.new([{"cluster-b", "101"}])})
                )
+    end
+  end
+
+  describe "AwxProxmoxUnmerge.plan/2" do
+    # `sr:r`, which held only a locally administered MAC, was merged into `sr:s` and later undone.
+    # At second 3 the AWX host 2 record was merged into `sr:s`, corroborated on a MAC.
+    defp absorbed_then_unmerged(unmerged_second) do
+      audit = fn event_id, second, from_uid, reason, details ->
+        %{
+          event_id: event_id,
+          from_uid: from_uid,
+          to_uid: "sr:s",
+          reason: reason,
+          details: details,
+          created_at: at(second)
+        }
+      end
+
+      merges = [
+        audit.("r1", 1, "sr:r", "identifier_backfill", %{
+          "source_identifiers" => [ident("mac", @local_mac)]
+        }),
+        audit.("a1", 3, "sr:awx", "awx_host_network_match", %{
+          "corroboration" => "mac",
+          "source_identifiers" => [awx_id(2)]
+        })
+      ]
+
+      device = fn uid, deleted_reason ->
+        %{uid: uid, deleted?: deleted_reason != nil, deleted_reason: deleted_reason, mac: nil}
+      end
+
+      %{
+        merges: merges,
+        audits: Map.new(merges, &{&1.event_id, &1}),
+        merges_into: Enum.group_by(merges, & &1.to_uid),
+        merges_from: Enum.group_by(merges, & &1.from_uid),
+        reversed: %{"r1" => at(unmerged_second)},
+        devices: %{
+          "sr:s" => device.("sr:s", nil),
+          "sr:r" => device.("sr:r", nil),
+          "sr:awx" => device.("sr:awx", "merged")
+        },
+        identifiers: %{},
+        guests: %{}
+      }
+    end
+
+    test "a merge undone before a later merge is not what the survivor held at that merge" do
+      for {unmerged_second, bad?} <- [{2, false}, {3, false}, {4, true}] do
+        plan = AwxProxmoxUnmerge.plan(absorbed_then_unmerged(unmerged_second), [])
+        a1 = Enum.find(plan.report, &(&1.event_id == "a1"))
+
+        assert a1.bad? == bad?, inspect(unmerged_second)
+        assert :laa_only_corroboration in a1.proofs == bad?
+      end
     end
   end
 end

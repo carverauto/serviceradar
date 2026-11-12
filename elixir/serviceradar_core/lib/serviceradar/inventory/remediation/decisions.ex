@@ -1298,31 +1298,29 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     |> MapSet.union(mac_set(mac || Map.get(context.display_mac, uid)))
     |> MapSet.difference(state.foreign)
     |> MapSet.union(MapSet.filter(ids, &match?({:ip, _}, &1)))
-    |> MapSet.union(macs_in_unrecorded_partitions(rows, state.foreign))
+    |> MapSet.union(held_in_unrecorded_partitions(rows, state.foreign))
   end
 
-  # The record's MAC rows in a partition no merge that poisoned it recorded for that value. A
-  # recorded nil partition, or a wrong guest's NIC MAC, covers every partition.
-  defp macs_in_unrecorded_partitions(rows, foreign) do
+  # The record's identifier rows in a partition no merge that poisoned it recorded for that value.
+  # A recorded nil partition, or a wrong guest's NIC MAC, covers every partition.
+  defp held_in_unrecorded_partitions(rows, foreign) do
     for %{} = row <- rows,
-        identifier_field(row, :type) in ["mac", :mac],
-        {:mac, value} = entry <- [mac_entry(identifier_field(row, :value))],
+        entry = id_entry(identifier_field(row, :type), identifier_field(row, :value)),
         MapSet.member?(foreign, entry),
-        not MapSet.member?(foreign, {:mac_in, value, :any}),
-        not MapSet.member?(foreign, {:mac_in, value, nil}),
-        not MapSet.member?(foreign, {:mac_in, value, identifier_field(row, :partition)}),
+        not MapSet.member?(foreign, {:in, entry, :any}),
+        not MapSet.member?(foreign, {:in, entry, nil}),
+        not MapSet.member?(foreign, {:in, entry, identifier_field(row, :partition)}),
         into: MapSet.new(),
         do: entry
   end
 
-  # The partitions the merge recorded each MAC in. The display MAC records none, so a row of
-  # that value the record holds in a partition the merge did not record stays its own.
-  defp recorded_mac_partitions(merge) do
+  # The partition the merge recorded each identifier in. The display MAC records none, so a row
+  # of that value the record holds in a partition the merge did not record stays its own.
+  defp recorded_partitions(merge) do
     for %{} = id <- List.wrap(merge[:source_identifiers]),
-        identifier_field(id, :type) in ["mac", :mac],
-        {:mac, value} <- [mac_entry(identifier_field(id, :value))],
+        entry = id_entry(identifier_field(id, :type), identifier_field(id, :value)),
         into: MapSet.new(),
-        do: {:mac_in, value, identifier_field(id, :partition)}
+        do: {:in, entry, identifier_field(id, :partition)}
   end
 
   defp render_evidence(nil), do: []
@@ -1525,7 +1523,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     foreign =
       survivor.foreign
       |> MapSet.union(merged_identity(merge))
-      |> MapSet.union(recorded_mac_partitions(merge))
+      |> MapSet.union(recorded_partitions(merge))
       |> MapSet.union(merged.foreign)
       |> MapSet.union(bound_guest_identity(merge, survivor, context))
       |> MapSet.union(address_set(merge[:from_ip]))
@@ -1585,7 +1583,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   # it onto the record in whatever partition the update wrote, and no merge recorded that row, so
   # a row of it on the record is the contamination the chain rule follows.
   defp guest_mac_entries(value) do
-    Enum.flat_map(mac_set(value), fn {:mac, mac} = entry -> [entry, {:mac_in, mac, :any}] end)
+    Enum.flat_map(mac_set(value), &[&1, {:in, &1, :any}])
   end
 
   defp address_set(value) do
