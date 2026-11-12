@@ -539,6 +539,10 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
       {:ok, nil} ->
         :ok
 
+      # Package was deleted (dangling FK) — treat the slot as unclaimed.
+      {:ok, %DashboardInstance{dashboard_package: nil}} ->
+        :ok
+
       {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: id}}}
       when id == manifest.id ->
         :ok
@@ -554,6 +558,10 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   defp check_slug_ownership_for_package(slug, %DashboardPackage{dashboard_id: id}, ash_opts) do
     case fetch_enabled_instance_for_slug(slug, ash_opts) do
       {:ok, nil} ->
+        :ok
+
+      # Package was deleted (dangling FK) — treat the slot as unclaimed.
+      {:ok, %DashboardInstance{dashboard_package: nil}} ->
         :ok
 
       {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: owner}}}
