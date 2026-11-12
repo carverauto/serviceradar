@@ -774,12 +774,12 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
   @universal_b "00005E005302"
   @local_mac "02005E0053EE"
 
-  defp guest_b_ref do
+  defp guest_b_ref(native_cluster_id \\ "cluster-b") do
     {:ok, fields} =
       IntegrationIdentity.proxmox_v3_fields(
         "00000000-0000-4000-8000-0000000000a1",
         "00000000-0000-4000-8000-0000000000a2",
-        "cluster-b",
+        native_cluster_id,
         "qemu",
         "101"
       )
@@ -854,6 +854,19 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         {"the same cluster name and VMID on both sides",
          %{source_identifiers: [ident("integration_id", "proxmox:v2:cluster-b:vm:101")]},
          :ambiguous, :no_distinguishing_evidence},
+        {"a v3 cluster-status id and the v2 id of that cluster name and VMID",
+         %{
+           source_identifiers: [ident("integration_id", "proxmox:v2:cluster-b:vm:101")],
+           to_own_identifiers: [ident("integration_id", guest_b_ref("cluster/cluster-b"))]
+         }, :ambiguous, :no_distinguishing_evidence},
+        {"a v3 standalone id and the v2 id of that node and VMID",
+         %{
+           source_identifiers: [ident("integration_id", "proxmox:v2:pve01:vm:101")],
+           to_own_identifiers: [ident("integration_id", guest_b_ref("standalone/pve01"))]
+         }, :ambiguous, :no_distinguishing_evidence},
+        {"a v3 cluster-status id of another cluster name",
+         %{to_own_identifiers: [ident("integration_id", guest_b_ref("cluster/cluster-b"))]},
+         :different_machines, [:proxmox_guest_mismatch]},
         {"a shared universal MAC voids the proof",
          %{
            to_own_identifiers: [
@@ -879,6 +892,8 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     test "keys a v2 id and a v3 reference of one cluster and VMID alike" do
       assert Decisions.awx_guest_key(guest_b_ref()) == {"cluster-b", "101"}
       assert Decisions.awx_guest_key("proxmox:v2:Cluster-B:vm:101") == {"cluster-b", "101"}
+      assert Decisions.awx_guest_key(guest_b_ref("cluster/cluster-b")) == {"cluster-b", "101"}
+      assert Decisions.awx_guest_key(guest_b_ref("standalone/pve01")) == {"pve01", "101"}
       assert Decisions.awx_guest_key("proxmox:guest:pve01:qemu:101") == nil
       assert Decisions.awx_guest_key("proxmox:v2:cluster-b:node:pve01") == nil
     end

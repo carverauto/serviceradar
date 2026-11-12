@@ -1017,6 +1017,11 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         case IntegrationIdentity.parse_v3(value) do
           {:ok, %{native_cluster_id: cluster, object_kind: kind, native_object_id: ref}}
           when kind in ["qemu", "lxc"] ->
+            cluster =
+              cluster
+              |> String.replace_prefix("cluster/", "")
+              |> String.replace_prefix("standalone/", "")
+
             {cluster, kind, ref}
 
           _ ->
