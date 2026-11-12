@@ -304,11 +304,11 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
     test "a locally administered MAC a guest reports binds no guest",
          %{actor: actor, suffix: suffix} do
       vmid = vmid(suffix)
-      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), nil)])
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
 
       guest_b =
         ingest_proxmox_guest!(actor, vmid, [
-          config_nic(mac(suffix, 2), nil),
+          config_nic(mac(suffix, 2), "198.51.100.20"),
           %{"name" => "ens19", "mac_address" => local_mac(suffix, 3), "source" => "agent"}
         ])
 
@@ -339,15 +339,15 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
       refute live?(awx_uid)
       assert integration_owner(integration_id) == guest_a
       assert [["awx_proxmox_network_match", _corroboration]] = merge_audit(awx_uid, guest_a)
-      assert_not_merged(awx_uid, guest_b)
+      assert merge_audit(awx_uid, guest_b) == []
       assert live?(guest_b)
     end
 
     test "an AWX host binds the guest that shares its universally administered MAC",
          %{actor: actor, suffix: suffix} do
       vmid = vmid(suffix)
-      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), nil)])
-      guest_b = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), nil)])
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
+      guest_b = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), "198.51.100.20")])
       {awx_uid, integration_id} = create_awx_record!(actor, suffix)
 
       ingest_awx_host!(actor, integration_id, "host#{suffix}", nil, [mac(suffix, 1)], vmid)
@@ -355,7 +355,8 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
       refute live?(awx_uid)
       assert integration_owner(integration_id) == guest_a
       assert [["awx_proxmox_network_match", _corroboration]] = merge_audit(awx_uid, guest_a)
-      assert_not_merged(awx_uid, guest_b)
+      assert merge_audit(awx_uid, guest_b) == []
+      assert live?(guest_b)
     end
   end
 
@@ -412,8 +413,6 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
 
     uid
   end
-
-  defp config_nic(mac, nil), do: %{"name" => "net0", "mac_address" => mac, "source" => "config"}
 
   defp config_nic(mac, ip) do
     %{

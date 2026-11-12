@@ -1298,7 +1298,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       )
       |> Ash.create()
 
-    # The guest reports no address (no guest agent), so nothing contradicts the AWX host either.
+    # The guest reports no address (no guest agent), so nothing contradicts the AWX host either,
+    # and an address-less guest gets no device of its own (its device_uid may be nil).
     payload = %{
       "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "details" => %{
@@ -1336,7 +1337,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                [guest_identity.provider_ref]
              ).rows
 
-    assert is_binary(guest_uid)
     refute guest_uid == awx_uid
 
     assert [[nil]] =
