@@ -292,7 +292,7 @@ A launch only targets a device through an **approved** membership. Inventory syn
 4. Click **Review** on a proposal. The panel shows the exact evidence that will be approved: controller, inventory, AWX host ID, device UID, source generation, source fingerprint, and evidence digest. Click **Approve link** to approve it as yourself.
 5. If inventory sync changed the proposal after you opened it, the approval is refused and the panel reloads with the current evidence. Review it again; nothing is approved on your behalf.
 
-Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it.
+Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it. A quarantined membership stays quarantined after the fix until someone releases it; see [A membership stays `quarantined`](#a-membership-stays-quarantined).
 
 ### 6. Review template bindings
 
