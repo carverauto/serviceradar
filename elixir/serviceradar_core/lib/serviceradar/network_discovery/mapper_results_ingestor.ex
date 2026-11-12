@@ -2142,11 +2142,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp restorable_system_delete?(reason), do: not Device.retained_reason?(reason)
 
   # The restored device keeps its recorded address unless another live device holds it now (the
-  # address was leased again while the device was gone); then the restore clears it in the same
-  # audited transition, and the ordinary address move takes the device to the polled address.
+  # address was leased again while the device was gone); then :restore clears it in the same
+  # audited transition (ReleaseContestedAddress), and the ordinary address move takes the device
+  # to the polled address.
   defp restore_polled_device(%Device{} = device, actor) do
     purged? = not is_nil(device.identity_purged_at)
-    attrs = if stale_address_taken?(device), do: %{ip: nil}, else: %{}
 
     # An update built from the primary read cannot see a tombstoned row (StaleRecord); a bulk
     # update over an include_deleted query restores it in place, as MergeEngine's unmerge does.
@@ -2154,7 +2154,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid == ^device.uid and not is_nil(deleted_at))
     |> restore_purge_scope(purged?)
-    |> Ash.bulk_update(:restore, attrs,
+    |> Ash.bulk_update(:restore, %{},
       actor: actor,
       return_records?: true,
       return_errors?: true,
@@ -2190,11 +2190,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :uid
     )
   end
-
-  defp stale_address_taken?(%Device{ip: ip} = device) when is_binary(ip) and ip != "",
-    do: live_address_holder(ip, device.partition, device.uid) != nil
-
-  defp stale_address_taken?(_device), do: false
 
   defp metadata_successor(%{metadata: metadata}) when is_map(metadata) do
     case Map.get(metadata, "_seed_successor") || Map.get(metadata, :_seed_successor) do

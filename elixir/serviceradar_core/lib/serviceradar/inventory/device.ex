@@ -35,6 +35,7 @@ defmodule ServiceRadar.Inventory.Device do
     primary_read_warning?: false
 
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
+  alias ServiceRadar.Inventory.Changes.ReleaseContestedAddress
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceFacts.Reports, as: SourceFactReports
   alias ServiceRadar.Inventory.Validations.AgentManaged
@@ -386,7 +387,8 @@ defmodule ServiceRadar.Inventory.Device do
       trigger records the tombstone it clears. Never used on a merged-away device
       (deleted_reason "merged"): AgentGatewaySync follows the merge instead. Refuses a
       retained tombstone (see retained_reasons/0): a check-in is evidence, and evidence
-      never revives one.
+      never revives one. A check-in that reports no address keeps the stored one only while
+      no other live device holds it (ReleaseContestedAddress).
       """
 
       accept @gateway_sync_fields
@@ -397,6 +399,7 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change ReleaseContestedAddress
       change BumpIdentityRevision
     end
 
@@ -530,9 +533,10 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :restore do
-      # A caller may clear a stale address in the same audited transition: a device deleted
-      # while it held an address can find that address leased to another live device, and the
-      # unique active-IP index would otherwise refuse the restore.
+      # A caller may set the restored record's address in the same audited transition. One
+      # that does not keeps the tombstone's stored address only while no other live device of
+      # the partition holds it (ReleaseContestedAddress); the unique active-IP index would
+      # otherwise refuse the restore.
       accept [:ip]
 
       # Evidence-driven restores (sweep, mapper) leave this false and are refused a
@@ -549,6 +553,7 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change ReleaseContestedAddress
 
       # The mirror of :soft_delete -- the uid names a live thing again. Covers the
       # unmerge from-device, which MergeEngine.recreate_device/3 restores through

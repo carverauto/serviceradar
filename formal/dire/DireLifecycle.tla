@@ -115,7 +115,9 @@ MarkStale(W, B) == {[target |-> w.target, stale |-> w.stale \/ w.target \in B] :
 \* ocsf_devices_unique_active_ip_idx covers live rows only; NoIp is always free.
 \* The active-IP precheck drops a contested INCOMING address to NoIp; CommitWork revivals
 \* take that incoming value (see newIp), so the tombstone's stored address is never written back.
-\* Unmerge and Restore still gate on the tombstone's stored address via this predicate.
+\* Unmerge and GatewaySync (Device :restore / :gateway_restore) keep the tombstone's stored
+\* address only while it is free for it; when another live device holds it the restore clears
+\* it to NoIp in the same UPDATE (ReleaseContestedAddress) instead of being refused.
 IpFreeFor(u, p) == p = NoIp \/ ~\E d \in Devices : d # u /\ Live(d) /\ ipOf[d] = p
 
 \* MergeAudit read :merged_to -- from_device_id = u, reason != "unmerge", newest first.
@@ -281,8 +283,11 @@ Merge(f, t, kind, S) ==
 \* any reason (:restore bumps), leaves a live row alone, or inserts a missing one;
 \* reassign_original_identifiers/4 moves back the identifiers the survivor still holds
 \* that the source owned when it was merged (details.source_identifiers); the survivor
-\* must be live. A restored tombstone is not marked, because a delete clears the mark; a live
-\* record keeps its mark unless a source or agent id moves back to it.
+\* must be live. A restored tombstone keeps its stored address only when no other live device
+\* holds it (ReleaseContestedAddress), so a chain of tombstones carrying the survivor's address
+\* unmerges without the address rather than being refused. A restored tombstone is not marked,
+\* because a delete clears the mark; a live record keeps its mark unless a source or agent id
+\* moves back to it.
 Unmerge(u) ==
     LET k    == LatestMergeRow(u)
         row  == audit[k]
@@ -293,7 +298,7 @@ Unmerge(u) ==
     /\ k # 0
     /\ Len(audit) < MaxAudit
     /\ Live(s)
-    /\ status[u] = "tomb" => IpFreeFor(u, ipOf[u])
+    /\ ipOf' = [ipOf EXCEPT ![u] = IF IpFreeFor(u, ipOf[u]) THEN ipOf[u] ELSE NoIp]
     /\ status' = [status EXCEPT ![u] = "live"]
     /\ reason' = [reason EXCEPT ![u] = "none"]
     /\ owner' = [i \in Ids |-> IF i \in back THEN u ELSE owner[i]]
@@ -302,7 +307,7 @@ Unmerge(u) ==
     /\ marked' = IF back \ MacIds # {} THEN marked \ {u} ELSE marked
     /\ work' = MarkStale(work, bump)
     /\ act' = MkAct("Unmerge", u, s, k, FALSE, bump)
-    /\ UNCHANGED <<ipOf, arch, sweepOnly>>
+    /\ UNCHANGED <<arch, sweepOnly>>
 
 \* Device :soft_delete (administrative and remediation deletes; deleted_reason /= "merged").
 SoftDelete(u) ==
@@ -406,15 +411,19 @@ SweepCreate(p, d) ==
 \* check-in to the survivor (an ordinary write to a live device, outside this action).
 \* :gateway_restore honors a source_retired or seed_released reason as well (D5). The agent's
 \* discovery source joins discovery_sources, so the record is no longer sweep-only.
+\* A check-in without an address keeps the stored one only when no other live device holds it
+\* (ReleaseContestedAddress). A check-in carrying its own address sets it explicitly; that
+\* write is not modeled here.
 GatewaySync(u) ==
-    /\ status[u] = "tomb" /\ IpFreeFor(u, ipOf[u])
+    /\ status[u] = "tomb"
     /\ reason[u] \notin {"merged"} \cup Retained
+    /\ ipOf' = [ipOf EXCEPT ![u] = IF IpFreeFor(u, ipOf[u]) THEN ipOf[u] ELSE NoIp]
     /\ status' = [status EXCEPT ![u] = "live"]
     /\ reason' = [reason EXCEPT ![u] = "none"]
     /\ work' = MarkStale(work, {u})
     /\ sweepOnly' = sweepOnly \ {u}
     /\ act' = MkAct("GatewaySync", u, NoDev, 0, FALSE, {u})
-    /\ UNCHANGED <<owner, ipOf, audit, marked, arch>>
+    /\ UNCHANGED <<owner, audit, marked, arch>>
 
 \* DeviceCleanupWorker.hard_delete_records/2: mutable inventory and identifiers go;
 \* allocated identities keep a minimal tombstone. Merge audit/archive stay. After purge reason

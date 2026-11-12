@@ -8,8 +8,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
@@ -245,6 +247,51 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     end
   end
 
+  # A tombstone keeps the address it held, so the records merged into a survivor can all still
+  # carry the survivor's address. Each restore of such a chain used to bring that address back and
+  # fail on the unique active-IP index, which rolled the whole chain back.
+  describe "addresses an unmerge restores" do
+    test "a chain undone newest first in one transaction leaves the survivor's address with it",
+         %{actor: actor} do
+      [address] = doc_ips(1)
+      {:ok, survivor} = create_device(actor, host(), address)
+      merges = for _ <- 1..3, do: merged_tombstone!(actor, survivor, address)
+
+      # As AwxProxmoxUnmerge undoes a unit: one transaction, newest merge first, by event id.
+      assert {:ok, [:ok, :ok, :ok]} =
+               Repo.transaction(fn ->
+                 for {uid, event_id} <- Enum.reverse(merges),
+                     do: MergeEngine.unmerge_device(uid, actor: actor, event_id: event_id)
+               end)
+
+      for {uid, _event_id} <- merges do
+        assert {:ok, %Device{deleted_at: nil, ip: nil}} =
+                 Device.get_by_uid(uid, false, actor: actor)
+
+        assert revival_reasons(uid) == ["merged"]
+
+        assert %{"restored_ip" => nil, "withheld_ips" => [^address]} =
+                 unmerge_details(actor, uid)
+      end
+
+      assert {:ok, [%Device{uid: survivor_uid}]} = Device.get_by_ip(address, false, actor: actor)
+      assert survivor_uid == survivor.uid
+    end
+
+    test "an unmerge takes its address back when no live device holds it", %{actor: actor} do
+      [address, survivor_address] = doc_ips(2)
+      {:ok, survivor} = create_device(actor, host(), survivor_address)
+      {uid, event_id} = merged_tombstone!(actor, survivor, address)
+
+      assert :ok = MergeEngine.unmerge_device(uid, actor: actor, event_id: event_id)
+
+      assert {:ok, %Device{deleted_at: nil, ip: ^address}} =
+               Device.get_by_uid(uid, false, actor: actor)
+
+      assert %{"restored_ip" => ^address, "withheld_ips" => []} = unmerge_details(actor, uid)
+    end
+  end
+
   test "unmerge returns error when no merge audit exists", %{actor: actor} do
     fake_device_id = "sr:" <> Ecto.UUID.generate()
 
@@ -296,6 +343,46 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     assert {:ok, _} = Device.soft_delete(source, "merged", "identity_reconciler", actor: actor)
   end
 
+  # A record merged into `survivor` whose tombstone carries `address`, which the merge also
+  # recorded as the merged record's. A tombstone is outside the active-IP index, so it may carry an
+  # address a live device holds.
+  defp merged_tombstone!(actor, survivor, address) do
+    {:ok, source} = create_device(actor, host(), nil)
+
+    assert {:ok, audit} =
+             MergeAudit.record(
+               %{
+                 from_device_id: source.uid,
+                 to_device_id: survivor.uid,
+                 reason: "identity_resolution",
+                 source: "test",
+                 details: %{"from_device_ip" => address, "to_device_ip_before" => survivor.ip}
+               },
+               actor: actor
+             )
+
+    assert {:ok, _tombstone} =
+             source
+             |> Ash.Changeset.for_update(:soft_delete, %{
+               deleted_reason: "merged",
+               deleted_by: "identity_reconciler",
+               ip: address
+             })
+             |> Ash.update(actor: actor)
+
+    {source.uid, audit.event_id}
+  end
+
+  defp revival_reasons(device_uid) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT previous_deleted_reason FROM platform.device_revival_audit WHERE device_uid = $1",
+        [device_uid]
+      )
+
+    List.flatten(rows)
+  end
+
   defp owners(actor, values) do
     DeviceIdentifier
     |> Ash.Query.filter(identifier_value in ^values)
@@ -327,6 +414,14 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
   end
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+
+  defp host, do: "#{unique("host")}.example.com"
+
+  # Consecutive invented addresses in 192.0.2.0/24 (RFC 5737).
+  defp doc_ips(count) do
+    base = rem(System.unique_integer([:positive]), 250 - count) + 1
+    for offset <- 0..(count - 1), do: "192.0.2.#{base + offset}"
+  end
 
   # Invented MAC in the IANA 00:00:5E block, normalized as stored. Every value is
   # unique for the VM and stays clear of the 00:00:5E:00:53:xx addresses other
