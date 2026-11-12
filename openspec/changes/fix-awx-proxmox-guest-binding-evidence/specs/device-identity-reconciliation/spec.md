@@ -12,7 +12,8 @@ MACs to the AWX host.
 
 A locally administered MAC SHALL NOT bind an AWX host to a guest, SHALL NOT identify an existing
 device as the AWX host's holder, and SHALL NOT count as a MAC overlap that corroborates an AWX
-host's address match. Any MAC MAY still contradict a match.
+host's address match. Any MAC MAY still contradict a match, and a shared locally administered
+MAC SHALL NOT suppress a contradiction between the universally administered MACs of both sides.
 
 When Proxmox enrichment considers existing AWX records as candidates for a guest, the same rule
 SHALL apply: a matching node name and VMID SHALL NOT let the guest adopt or merge an AWX record

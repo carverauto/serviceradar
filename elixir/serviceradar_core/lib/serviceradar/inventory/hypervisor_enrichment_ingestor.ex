@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
@@ -2495,11 +2496,19 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp classify_guest_candidate_match(cand, g_macs, g_ips, active?, g_node, g_vmid) do
-    mac_match? = MapSet.size(g_macs) > 0 and not MapSet.disjoint?(g_macs, cand.macs)
+    universal_distinct? =
+      Mac.distinct_hardware?(
+        Mac.universal_macs(MapSet.to_list(g_macs)),
+        Mac.universal_macs(MapSet.to_list(cand.macs))
+      )
+
+    mac_match? =
+      MapSet.size(g_macs) > 0 and not MapSet.disjoint?(g_macs, cand.macs) and
+        not universal_distinct?
 
     mac_contradicts? =
-      MapSet.size(g_macs) > 0 and MapSet.size(cand.macs) > 0 and
-        MapSet.disjoint?(g_macs, cand.macs)
+      (MapSet.size(g_macs) > 0 and MapSet.size(cand.macs) > 0 and
+         MapSet.disjoint?(g_macs, cand.macs)) or universal_distinct?
 
     ip_match? =
       active? and MapSet.size(g_ips) > 0 and not MapSet.disjoint?(g_ips, cand.ips) and

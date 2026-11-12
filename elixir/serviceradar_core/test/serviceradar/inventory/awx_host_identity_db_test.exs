@@ -227,6 +227,31 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
     end
   end
 
+  test "a shared locally administered MAC does not hide a universally administered contradiction",
+       %{actor: actor, suffix: suffix} do
+    ip = test_ip()
+
+    holder_uid =
+      create_device!(actor, %{
+        ip: ip,
+        hostname: "host#{suffix}",
+        mac: mac(suffix, 1),
+        discovery_sources: ["sweep", "mapper"]
+      })
+
+    # Both machines carry the fixed veth MAC a CNI gives every node, plus their own NIC.
+    register_mac!(actor, holder_uid, "EE:EE:EE:EE:EE:EE")
+    register_mac!(actor, holder_uid, mac(suffix, 1))
+    {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+    ingest_awx_host!(actor, integration_id, "host#{suffix}", ip, [
+      "EE:EE:EE:EE:EE:EE",
+      mac(suffix, 2)
+    ])
+
+    assert_not_merged(awx_uid, holder_uid)
+  end
+
   test "a shared locally administered MAC does not corroborate an AWX host's match",
        %{actor: actor, suffix: suffix} do
     agent_uid =

@@ -1343,12 +1343,17 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   # An address match alone is weak: the address may have moved to another host. It is accepted
   # when the host names agree, when the MAC sets overlap, when a Proxmox guest links the record
   # and the holder is MAC-anchored, or when the holder carries no MAC that could contradict it.
-  # Only a universally administered MAC overlap counts as a MAC match. A MAC contradiction, which
-  # every MAC can raise, refuses the match whatever else agrees.
+  # Only a universally administered MAC overlap counts as a MAC match. A MAC contradiction refuses
+  # the match whatever else agrees: disjoint MAC sets contradict, and so do disjoint universally
+  # administered subsets, so a shared locally administered MAC cannot hide distinct hardware.
   defp ip_holder_corroboration(awx_macs, holder_macs, guest_anchored?, host_name_agrees?) do
     mac_contradicts? =
-      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
-        MapSet.disjoint?(awx_macs, holder_macs)
+      (MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
+         MapSet.disjoint?(awx_macs, holder_macs)) or
+        Mac.distinct_hardware?(
+          Mac.universal_macs(MapSet.to_list(awx_macs)),
+          Mac.universal_macs(MapSet.to_list(holder_macs))
+        )
 
     macs_overlap? =
       awx_macs
