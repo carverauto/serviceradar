@@ -30,7 +30,13 @@ defmodule ServiceRadarNVR.Reads do
     {:ok, timer} = :timer.exit_after(@timeout, {:shutdown, :nvr_read_timeout})
 
     try do
-      send(reply, {reply, operation.()})
+      result =
+        with :ok <- ServiceRadarNVR.Capacity.recovery_ready(),
+             result = operation.(),
+             :ok <- ServiceRadarNVR.Capacity.recovery_ready(),
+             do: result
+
+      send(reply, {reply, result})
     after
       :timer.cancel(timer)
     end

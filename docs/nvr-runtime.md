@@ -91,6 +91,8 @@ Example values (invented storage identities):
 nvr:
   enabled: true
   replicas: 2
+  recovery:
+    existingConfigMap: synthetic-nvr-recovery
   storage:
     storageClassName: longhorn
     size: 100Gi
@@ -102,7 +104,8 @@ nvr:
 Choose fresh deployment-owned UUIDs during provisioning; do not reuse these
 example values. Adding an ordinal requires its own UUID before rendering. Never
 change an existing ordinal's UUID to make a conflicting mount pass startup.
-Chart rendering requires distinct identities and explicit storage selection; it
+Chart rendering requires distinct identities, explicit storage selection and an
+operator-owned recovery ConfigMap; it
 does not inspect or attest a live storage provider. No bucket or S3 credential is
 required for this local configuration.
 
@@ -118,6 +121,65 @@ For a host installation, configure `SERVICERADAR_NVR_SPOOL_ROOT` and
 a JSON `SERVICERADAR_NVR_STORAGE_IDS` map; the application requires an exact member
 entry and refuses simultaneous scalar/map configuration. Neither setting holds
 camera or provider credentials. Health probes listen on port 8095 by default.
+
+## Deployment recovery gate
+
+NVR requires deployment-owned recovery state before runtime admission. Kubernetes
+sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
+and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
+Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
+The container pins `generation` in `SERVICERADAR_NVR_RECOVERY_GENERATION` at boot
+and mounts the ConfigMap directory read-only, without `subPath`, so changes to
+`state.json` can propagate to existing pods.
+
+Standalone installations set `SERVICERADAR_NVR_RECOVERY_GENERATION` to a canonical
+UUID and `SERVICERADAR_NVR_RECOVERY_STATE_FILE` to an absolute, deployment-managed
+file outside the media spool and its restore set. Atomically replace this file;
+keep it writable only by trusted deployment control. Projected-volume symlinks
+are supported. Path validation rejects lexical spool descendants, but cannot
+prove independent backup provenance or resolve an operator's failure domains.
+
+The file is at most 256 bytes. Admission requires exactly the compact canonical
+JSON below, with no trailing newline or additional keys, and the generation must
+match the process's boot-pinned value. This invented example illustrates the
+format; it is not a command to open a deployed recorder:
+
+```json
+{"generation":"00000000-0000-4000-8000-000000000077","state":"ready"}
+```
+
+Use `"state":"closed"` to close the gate. Missing, unreadable, malformed,
+noncanonical, oversized or different-generation state also returns
+`:nvr_recovery_closed`. Omitting both settings permits the process to start but
+keeps admission closed; partial or invalid settings fail boot. `/healthz` remains
+live while `/readyz` refuses closed state. Valid ready state is only this gate's
+prerequisite: bootstrap/history barriers and storage/assignment authority still
+apply. Offline bootstrap evidence operations remain available while closed.
+
+The runtime re-reads state for admission and each writer pressure check, even
+when the disk-pressure measurement is cached. Read tasks check before work and
+before returning results; capacity measurements and explicit block recovery
+check again before replying, and a repair or seal already written remains.
+Publication delivery checks before each HTTP attempt.
+No ready result is cached. Closing the gate cannot recall bytes already returned,
+cancel kernel I/O, or retract an HTTP request already sent. ConfigMap projection
+is eventual, and API update success is not proof that replicas observed closure.
+
+Before deliberate CNPG PITR or volume snapshot restore, deployment recovery must
+close the gate, quiesce and retire every authority-bearing process, then establish
+a fresh generation outside the restored backup set. Old processes refuse the new
+generation even if its state later becomes ready. Ordinary process restart or
+qualified worker replacement uses the existing generation; it does not require
+manual reopening merely because a pod changed. If deployment control is also
+restored, establish fresh closed state before starting consumers.
+
+This checkpoint implements the NVR consumer and deployment file wiring only.
+The operator recovery command, Core consumers, current-history reconciliation,
+per-storage completion and cross-replica quiescence verification are pending.
+Do not use the example ready record to bypass those prerequisites or remove the
+bootstrap barrier. A coordinated rollback of every trust source cannot be
+detected from matching old data alone. Restore qualification and deployment
+remain separate explicitly approved work.
 
 ## Private publication receiver
 

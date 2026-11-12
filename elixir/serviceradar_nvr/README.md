@@ -11,6 +11,15 @@ It has no camera source connector, assignment protocol, upload worker or playbac
 catalog. Starting the service does not start recording. It does not join an
 Erlang distribution cluster or start core, a Repo, NATS or libcluster.
 
+## Deployment recovery admission
+
+Runtime admission requires an external boot-pinned recovery generation and a
+currently matching ready-state file. Missing or closed state refuses recording,
+publication, recovery and media reads; `/healthz` stays live. State is re-read
+at writer checks, publication attempts and before read replies. Offline bootstrap
+evidence remains available. This is one prerequisite, not history reconciliation
+or proof of replica quiescence. See the [file contract and restore limits](../../docs/nvr-runtime.md#deployment-recovery-gate).
+
 ## New-volume bootstrap
 
 Trusted provisioning can call `ServiceRadarNVR.bootstrap_storage/3` offline with

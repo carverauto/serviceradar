@@ -98,7 +98,7 @@ defmodule ServiceRadarNVR.Delivery do
   end
 
   defp attempt(config, bytes, number) do
-    result = DeliveryHTTP.post(config, bytes)
+    result = with :ok <- Capacity.recovery_ready(), do: DeliveryHTTP.post(config, bytes)
 
     if number < 3 and retry?(result) do
       Process.sleep(number * 100)
