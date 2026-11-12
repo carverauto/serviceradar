@@ -1250,9 +1250,9 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
   describe "project_awx_unmerges/2" do
     test "moves each recorded identifier back along the chain" do
       rows = [
-        %{id: 1, device_id: "sr:c", type: "mac", value: @universal_a},
-        %{id: 2, device_id: "sr:c", type: "mac", value: @universal_b},
-        %{id: 3, device_id: "sr:c", type: "mac", value: @local_mac}
+        %{id: 1, device_id: "sr:c", type: "mac", value: @universal_a, partition: "default"},
+        %{id: 2, device_id: "sr:c", type: "mac", value: @universal_b, partition: "default"},
+        %{id: 3, device_id: "sr:c", type: "mac", value: @local_mac, partition: "default"}
       ]
 
       unmerges = [
@@ -1267,6 +1267,29 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert rows
              |> Decisions.project_awx_unmerges(unmerges)
              |> Map.new(&{&1.id, &1.device_id}) == %{1 => "sr:a", 2 => "sr:b", 3 => "sr:c"}
+    end
+
+    test "moves only the partition the merge recorded, any partition when it recorded none" do
+      rows = [
+        %{id: 1, device_id: "sr:c", type: "mac", value: @universal_a, partition: "default"},
+        %{id: 2, device_id: "sr:c", type: "mac", value: @universal_a, partition: "site-b"},
+        %{id: 3, device_id: "sr:c", type: "mac", value: @universal_b, partition: "site-b"}
+      ]
+
+      unmerges = [
+        %{
+          from_uid: "sr:b",
+          to_uid: "sr:c",
+          source_identifiers: [
+            ident("mac", @universal_a),
+            %{"type" => "mac", "value" => @universal_b, "partition" => nil}
+          ]
+        }
+      ]
+
+      assert rows
+             |> Decisions.project_awx_unmerges(unmerges)
+             |> Map.new(&{&1.id, &1.device_id}) == %{1 => "sr:b", 2 => "sr:c", 3 => "sr:b"}
     end
   end
 
@@ -1323,6 +1346,13 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
                  Decisions.plan_awx_wrong_guest_macs(mac_input(device, row)),
                inspect({device, row})
       end
+    end
+
+    test "keeps a proved guest MAC when several live records hold the guest" do
+      input = put_in(mac_input(%{}), [:guest, :record_ambiguous?], true)
+
+      assert [%{id: 7, decision: :keep, reason: :guest_record_ambiguous, target_uid: nil}] =
+               Decisions.plan_awx_wrong_guest_macs(input)
     end
 
     test "gives a proved guest MAC back to the guest's own record when one is live" do

@@ -87,11 +87,13 @@ step computes its plan when it runs, never from a fixed list.
      variables do not declare it, and no merge still in place brought it.
 
    The row goes to the record that holds the guest's identity when exactly one live record does
-   (`move`, often the record a unit just restored). Otherwise an AWX-written row goes to
-   `device_identifier_archive` with reason `awx_wrong_guest_mac` (`remove`); a row the guest's
-   own report refreshed is never archived. Every other row of a guest MAC is kept and reported
+   (`move`, often the record a unit just restored). When none does, an AWX-written row goes to
+   `device_identifier_archive` with reason `awx_wrong_guest_mac` (`remove`); when several do,
+   the row is kept (`guest_record_ambiguous`); a row the guest's own report refreshed is never
+   archived. Every other row of a guest MAC is kept and reported
    with its reason: `device_not_proven_other_machine`, `locally_administered`,
-   `not_awx_provenance`, `refreshed_by_guest_report`, `observed_on_device`,
+   `not_awx_provenance`, `refreshed_by_guest_report`, `guest_record_ambiguous`,
+   `observed_on_device`,
    `declared_by_awx_host` or `absorbed_by_merge`. Afterwards the step re-queries every row it
    acted on; one not where it should be counts in `mac_rows_not_settled` and
    `mac_cleanup_failures`.

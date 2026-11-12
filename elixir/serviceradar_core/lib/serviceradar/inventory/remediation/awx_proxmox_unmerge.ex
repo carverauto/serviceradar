@@ -593,7 +593,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
             key: guest.key,
             device_uid: guest.device_uid,
             macs: guest.macs,
-            record_uid: single(holders -- [uid])
+            record_uid: single(holders -- [uid]),
+            record_ambiguous?: length(holders -- [uid]) > 1
           },
           device: %{
             uid: uid,

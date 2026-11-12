@@ -1641,10 +1641,16 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       keys =
         for %{} = id <- List.wrap(merge[:source_identifiers]),
             into: MapSet.new(),
-            do: {identifier_field(id, :type), identifier_field(id, :value)}
+            do:
+              {identifier_field(id, :type), identifier_field(id, :value),
+               identifier_field(id, :partition)}
 
       Enum.map(rows, fn row ->
-        if row.device_id == merge.to_uid and MapSet.member?(keys, {row.type, row.value}),
+        recorded? =
+          MapSet.member?(keys, {row.type, row.value, row[:partition]}) or
+            MapSet.member?(keys, {row.type, row.value, nil})
+
+        if row.device_id == merge.to_uid and recorded?,
           do: %{row | device_id: merge.from_uid},
           else: row
       end)
@@ -1675,11 +1681,13 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   A proved row goes back to the guest's own record when one is live (`guest.record_uid`, the
   record holding the guest's identity, often one the unmerges just restored): `:move`. Without
-  one it is archived: `:remove`. A row the guest's own Proxmox report refreshed is moved to that
+  one it is archived: `:remove`; when several live records hold the guest
+  (`guest.record_ambiguous?`) the destination is not proved and the row is kept as
+  `:guest_record_ambiguous`. A row the guest's own Proxmox report refreshed is moved to that
   record too, since its source attributes the value to that guest, but never archived.
 
   Any other row of a guest MAC is kept with its reason. `input` holds `guest` (`%{key,
-  device_uid, macs, record_uid}`), `device` (`%{uid, own_guest_keys, other_side_is_guest?,
+  device_uid, macs, record_uid, record_ambiguous?}`), `device` (`%{uid, own_guest_keys, other_side_is_guest?,
   interface_macs, awx_declared_macs, absorbed_macs}`) and `rows` (`%{id, value, source,
   integration_type, reported_guest_ref}`); `guest` also carries its `provider_ref`.
   Returns the guest-MAC rows, each with `decision` `:move` (and `target_uid`), `:remove` or
@@ -1698,6 +1706,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
     guest_device? = holds_guest_key? or (device.uid == guest.device_uid and not proven_other?)
 
+    ambiguous? = guest[:record_ambiguous?] == true
+
     if guest_device? do
       []
     else
@@ -1709,6 +1719,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         target = if target != device.uid, do: target
 
         case {reason, target} do
+          {nil, nil} when ambiguous? ->
+            Map.merge(row, %{decision: :keep, reason: :guest_record_ambiguous, target_uid: nil})
+
           {nil, nil} ->
             Map.merge(row, %{decision: :remove, reason: nil, target_uid: nil})
 
