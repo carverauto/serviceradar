@@ -1074,6 +1074,31 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       refute e2.bad?
     end
 
+    test "recorded ip evidence a poisoned survivor owns is not tainted by the guest's address" do
+      own = [awx_id(1), ident("ip", "192.0.2.36")]
+
+      merges = [
+        %{poisoning_merge() | to_own_identifiers: own},
+        chained(%{
+          event_id: "e2",
+          created_at: at(2),
+          reason: "identifier_backfill",
+          from_uid: "sr:fresh",
+          source_identifiers: [ident("mac", "00005E005399")],
+          evidence: [%{"type" => "ip", "value" => "192.0.2.36"}],
+          to_own_identifiers: own
+        })
+      ]
+
+      context = put_in(poisoned_context(), [:own, "sr:s"], own)
+      plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
+      e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+      refute :tainted_evidence in e2.proofs
+      refute e2.bad?
+      assert [%{event_ids: ["e1"]}] = plan.units
+    end
+
     test "a merged ip identifier equal to a poisoned guest address is tainted" do
       merges = [
         poisoning_merge(),

@@ -50,7 +50,7 @@ step computes its plan when it runs, never from a fixed list.
    | Proof | Meaning |
    | --- | --- |
    | `proxmox_guest_mismatch` | the merged record holds a guest identity (or, for a non-AWX merge, the merge names one), the survivor had established another, and none is common. Distinct VMIDs or clusters are distinct machines |
-   | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is its own: the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
+   | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is its own (an address the survivor holds as an ip identifier stays its own even when a bad merge also brought it): the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
 
    A survivor's established guests are its own and those of merges into it that stay. A shared
    AWX host id, guest identity or universal MAC with the survivor's own identity (display MAC

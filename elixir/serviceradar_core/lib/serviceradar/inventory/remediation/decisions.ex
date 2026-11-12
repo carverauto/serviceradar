@@ -1207,12 +1207,13 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     survivor = poison_state(poison, merge.to_uid, context)
     merged = poison_state(poison, merge.from_uid, context)
 
+    own_ids = context.own |> Map.get(merge.to_uid, []) |> id_set()
+
     own =
-      context.own
-      |> Map.get(merge.to_uid, [])
-      |> id_set()
+      own_ids
       |> MapSet.union(mac_set(merge[:to_mac] || Map.get(context.display_mac, merge.to_uid)))
       |> MapSet.difference(survivor.foreign)
+      |> MapSet.union(MapSet.filter(own_ids, &match?({:ip, _}, &1)))
 
     merged_ids = merged_identity(merge)
     merged_guests = merged_guest_keys(merge, context)
