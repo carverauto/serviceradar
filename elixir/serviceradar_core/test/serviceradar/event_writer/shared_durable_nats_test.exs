@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerReconciler
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.EventWriter.Producer
 
   @moduletag timeout: 120_000
@@ -60,7 +61,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
     with_broker(executable, dir, fn port ->
       config = config(port)
       [stream] = config.streams
-      {:ok, admin, _monitor} = ServiceRadar.EventWriter.ConsumerSetup.open(config.nats)
+      {:ok, admin, _monitor} = ConsumerSetup.open(config.nats)
       assert :ok = ConsumerReconciler.ensure_stream(admin, config, stream)
 
       # Phase 1: both producers ACK. Every message is processed exactly once,
@@ -117,7 +118,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
       stream = Config.edge_record_stream()
       stream_name = Config.jetstream_stream_name(stream)
       config = %{config(port) | streams: [stream]}
-      {:ok, admin, _monitor} = ServiceRadar.EventWriter.ConsumerSetup.open(config.nats)
+      {:ok, admin, _monitor} = ConsumerSetup.open(config.nats)
 
       created =
         js(admin, "$JS.API.STREAM.CREATE.#{stream_name}", %{
@@ -150,7 +151,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
       assert %{"config" => %{"sealed" => true, "retention" => "limits"}} = info
       assert %{"state" => %{"messages" => 1}} = info
 
-      durable = ServiceRadar.EventWriter.ConsumerSetup.durable_name(config, stream)
+      durable = ConsumerSetup.durable_name(config, stream)
       consumer = js(admin, "$JS.API.CONSUMER.INFO.#{stream_name}.#{durable}", "")
       assert %{"name" => ^durable, "num_pending" => 1} = consumer
 
