@@ -129,6 +129,8 @@ recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing 
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
 When NVR is enabled, Helm supplies the same state to NVR, Core and web-ng.
+The file reader is shared through the lightweight `serviceradar_recording_control`
+library; Core and web-ng do not need the media packaging library for this gate.
 Each process pins `generation` in `SERVICERADAR_NVR_RECOVERY_GENERATION` at boot
 and mounts the ConfigMap directory read-only, without `subPath`, so changes to
 `state.json` can propagate to existing pods.

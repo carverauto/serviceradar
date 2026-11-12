@@ -25,7 +25,7 @@ defmodule ServiceRadarNVR.Health do
 
   defp ready(config) do
     with pid when is_pid(pid) <- Process.whereis(ServiceRadarNVR.Sessions),
-         :ok <- ServiceRadarRecording.RecoveryGate.check(config.recovery_gate),
+         :ok <- ServiceRadarRecordingControl.RecoveryGate.check(config.recovery_gate),
          {:ok, _storage} <- Storage.open(config.root, config.storage_id),
          do: :ok,
          else: (_ -> :error)

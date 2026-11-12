@@ -1,4 +1,4 @@
-defmodule ServiceRadarRecording.RecoveryGate do
+defmodule ServiceRadarRecordingControl.RecoveryGate do
   @moduledoc """
   Read-only deployment recovery gate, independent of the retained media volume.
 

@@ -54,7 +54,7 @@ defmodule ServiceRadar.Application do
 
   @impl true
   def start(_type, _args) do
-    {:ok, recovery_gate} = ServiceRadarRecording.RecoveryGate.load(System.get_env(), nil)
+    {:ok, recovery_gate} = ServiceRadarRecordingControl.RecoveryGate.load(System.get_env(), nil)
     Application.put_env(:serviceradar_core, :nvr_recovery_gate, recovery_gate)
 
     ensure_started(:telemetry)

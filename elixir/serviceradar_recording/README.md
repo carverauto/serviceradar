@@ -1,15 +1,10 @@
 # Shared recording primitives
 
 `serviceradar_recording` owns the bounded recording inbox, H264 access-unit to
-CMAF packaging, storage-lifetime identity, append-only local spool, the read-only
-deployment recovery gate and the
+CMAF packaging, storage-lifetime identity, append-only local spool and the
 `ServiceRadarRecording.Writer` that packages media into a journaled block. Core's
 existing recording worker and the standalone `serviceradar_nvr` runtime (see its
 `README.md`) both consume these modules.
-
-Recovery-state encoding uses the metadata-only `serviceradar_recording_metadata`
-library. Consumers pin configuration at boot and check the shared gate at their
-own admission and reply boundaries; the library never opens or changes the gate.
 
 This library has no core, database adapter, credential, cluster or relay-manager
 dependency. Ecto supplies UUID casting only; it starts no repository.

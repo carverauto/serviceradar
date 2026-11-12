@@ -21,6 +21,7 @@ defmodule ServiceRadarNVR.MixProject do
 
   defp deps do
     [
+      {:serviceradar_recording_control, path: "../serviceradar_recording_control"},
       {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       {:serviceradar_recording, path: "../serviceradar_recording"},
       {:ecto, "~> 3.14"},

@@ -1005,6 +1005,7 @@ CORE_NATIVE_LIBS = {
 }
 
 CORE_DEPS = [
+    "//elixir/serviceradar_recording_control:erlang_app",
     "//elixir/serviceradar_recording_metadata:erlang_app",
     "//third_party/hex_vendored/connection:erlang_app",
     "//third_party/hex_vendored/elixir_uuid:erlang_app",
@@ -1092,7 +1093,7 @@ mix_app(
     extra_config = CORE_EXTRA_CONFIG,
     mix_env = "test",
     native_libs = CORE_NATIVE_LIBS,
-    deps = ["//elixir/serviceradar_recording:erlang_app"] + CORE_DEPS + CORE_DEV_DEPS,
+    deps = CORE_DEPS + CORE_DEV_DEPS,
 )
 
 # The same application compiled for release. This is not a duplicate of :erlang_app --
@@ -1107,7 +1108,7 @@ mix_app(
     extra_config = CORE_EXTRA_CONFIG,
     mix_env = "prod",
     native_libs = CORE_NATIVE_LIBS,
-    deps = ["//elixir/serviceradar_recording:erlang_app_prod"] + CORE_DEPS,
+    deps = CORE_DEPS,
 )
 
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
@@ -1691,7 +1692,7 @@ elixir_quality(
         "@hexpm//:ecto_sql",
     ],
     source_deps = ["@hexpm//:ex_dna"],
-    tool_deps = ["//elixir/serviceradar_recording:erlang_app"] + CORE_DEPS + CORE_DEV_DEPS + [
+    tool_deps = CORE_DEPS + CORE_DEV_DEPS + [
         "@hexpm//:jump_credo_checks",
         "@hexpm//:spark",
     ],

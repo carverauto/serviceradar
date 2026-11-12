@@ -1,0 +1,45 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(["lib/**"]) + [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+CONTROL_DEPS = [
+    "//elixir/serviceradar_recording_metadata:erlang_app",
+    "@hexpm//:ecto",
+    "@rules_elixir//elixir",
+]
+
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "serviceradar_recording_control",
+    mix_env = "prod",
+    deps = CONTROL_DEPS,
+)
+
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = CONTROL_DEPS + [
+        "@hexpm//:credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
+    ],
+)

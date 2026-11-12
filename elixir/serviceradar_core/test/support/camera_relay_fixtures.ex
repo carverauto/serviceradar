@@ -69,7 +69,7 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     File.write!(path, ready)
 
     {:ok, gate} =
-      ServiceRadarRecording.RecoveryGate.load(
+      ServiceRadarRecordingControl.RecoveryGate.load(
         %{
           "SERVICERADAR_NVR_RECOVERY_GENERATION" => generation,
           "SERVICERADAR_NVR_RECOVERY_STATE_FILE" => Path.expand(path)

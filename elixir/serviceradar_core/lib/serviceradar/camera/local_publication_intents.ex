@@ -12,7 +12,7 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   """
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.RecordingBlocks
-  alias ServiceRadarRecording.RecoveryGate
+  alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent, as: Codec
 

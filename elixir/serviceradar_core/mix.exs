@@ -83,7 +83,7 @@ defmodule ServiceRadarCore.MixProject do
   defp deps do
     [
       {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
-      {:serviceradar_recording, path: "../serviceradar_recording"},
+      {:serviceradar_recording_control, path: "../serviceradar_recording_control"},
       # SRQL shared library for query parsing and execution
       {:serviceradar_srql, path: "../serviceradar_srql"},
 
@@ -195,7 +195,7 @@ defmodule ServiceRadarCore.MixProject do
       # Development & Testing
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash_credo, "~> 0.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},

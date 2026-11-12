@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:oban_web, "~> 2.10"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
-      {:credo, "~> 1.7", runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash_credo, "~> 0.7", only: [:dev, :test], runtime: false},
       {:jump_credo_checks, "~> 0.1", only: [:dev], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
