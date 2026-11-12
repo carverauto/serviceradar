@@ -83,10 +83,46 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
   def complete(id, generation_id) do
     Repo.query!(
       """
-      UPDATE #{@table} SET status = 'complete', updated_at = now()
+      UPDATE #{@table} SET status = 'complete', error = NULL, updated_at = now()
       WHERE id = $1 AND status = 'publishing' AND generation_id = $2
       """,
       [id, generation_id]
+    )
+
+    :ok
+  end
+
+  @doc """
+  Adopts a legacy queue scope (nil for fleet-wide): inserts it `pending` when
+  no row exists (never touching an existing row) and ensures the publisher.
+  Queue-executed legacy jobs call this instead of publishing, so no old-format
+  row survives an upgrade by snoozing.
+  """
+  def adopt_legacy(scope) when is_nil(scope) or (is_integer(scope) and scope >= 1) do
+    Repo.query!(
+      """
+      INSERT INTO #{@table} (scope_ord, status, attempts, not_before, error, updated_at)
+      VALUES ($1, 'pending', 0, now(), NULL, now())
+      ON CONFLICT (scope_ord) DO NOTHING
+      """,
+      [scope]
+    )
+
+    ensure_publisher()
+  end
+
+  @doc """
+  Delays a due fleet-wide row by the base backoff, pacing the fleet
+  republish a gap abort requests.
+  """
+  def back_off_fleet do
+    Repo.query!(
+      """
+      UPDATE #{@table}
+      SET not_before = now() + make_interval(secs => $1), updated_at = now()
+      WHERE scope_ord IS NULL AND status = 'pending' AND not_before <= now()
+      """,
+      [@backoff_seconds]
     )
 
     :ok
