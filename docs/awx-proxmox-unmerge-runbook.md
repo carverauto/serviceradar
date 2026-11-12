@@ -32,22 +32,26 @@ step computes its plan when it runs, never from a fixed list.
    | `proxmox_guest_mismatch` | each side holds a Proxmox guest identity (v2 id or v3 reference), and no cluster and VMID is on both |
    | `laa_only_corroboration` | the merge was corroborated by a MAC, and every MAC the corroborating record held was locally administered |
 
-   "Each side" means what the merged record owned at the merge (`source_identifiers` in the
-   audit row) and what the survivor owns that no merge brought it. A proof is void when the two
-   sides share an AWX host id, a guest identity or a universally administered MAC
+   "Each side" means what the merged record owned at the merge (`source_identifiers` in the audit
+   row) and what the survivor owns that no merge brought it (a merge brought the row of the type,
+   value and partition it recorded, or of every partition when it recorded none). A proof is void
+   when the two sides share an AWX host id, a guest identity or a universally administered MAC
    (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC, and
-   the survivor also counts the MACs other merges into it had brought it, those made before or
-   in the same second as this one (`created_at` has second precision). Clusters are compared by
+   the survivor also counts the MACs other merges into it had brought it, those made before or in
+   the same second as this one (`created_at` has second precision). Clusters are compared by
    name: two clusters that share a name are never proved distinct.
 
    **The chain rule.** A bad merge *poisons* its survivor from that moment: the survivor's
    *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
    the guest the merge named (unless the survivor holds that guest's identity itself) and the
-   merged record's address. A merge that stays carries a poisoned record's foreign set to its
-   survivor, except poison introduced in its own second, which it does not carry. Every merge
-   of a later second touching a poisoned record, of any reason, is judged too (`created_at` has
-   second precision, so a merge in the same second as the bad merge that shares a record with it
-   is reported as `chained_unproven` and left), and is bad when:
+   merged record's address. A MAC row the record holds in a partition the merge did not record
+   for that value stays its own, except a wrong guest's NIC MAC, which is foreign in every
+   partition (an AWX update copied it and no merge recorded it). A merge that stays carries a
+   poisoned record's foreign set to its survivor, except poison introduced in its own second,
+   which it does not carry. Every merge of a later second touching a poisoned record, of any
+   reason, is judged too (`created_at` has second precision, so a merge in the same second as the
+   bad merge that shares a record with it is reported as `chained_unproven` and left), and is bad
+   when:
 
    | Proof | Meaning |
    | --- | --- |

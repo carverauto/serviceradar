@@ -1140,7 +1140,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         plan = Decisions.plan_awx_proxmox_unmerge(merges, context)
         e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
 
-        assert (:tainted_evidence in e2.proofs) == tainted?, inspect({own_partition, from_mac})
+        assert :tainted_evidence in e2.proofs == tainted?, inspect({own_partition, from_mac})
       end
     end
 
