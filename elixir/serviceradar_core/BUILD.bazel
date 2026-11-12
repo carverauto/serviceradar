@@ -652,6 +652,7 @@ ALL_TEST_SRCS = glob(
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
         # Runs against a disposable nats-server staged by its own target below.
         "test/serviceradar/event_writer/shared_durable_nats_test.exs",
+        "test/serviceradar/event_writer/flow_startup_warnings_nats_test.exs",
         # Real JetStream publish of flow observations. Its target stages nats-server.
         "test/serviceradar/flow_attribution/observations_nats_test.exs",
     ],
@@ -1281,6 +1282,24 @@ ex_unit_test(
     srcs = ["test/serviceradar/event_writer/shared_durable_nats_test.exs"],
     data = [
         "test/cluster_test_helper.exs",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Core startup of the EventWriter consumer reconciler, configured from the release
+# runtime config, against a disposable broker: no flow drain or stream-mismatch warning.
+ex_unit_test(
+    name = "event_writer_flow_startup_warnings_nats_test",
+    size = "medium",
+    srcs = ["test/serviceradar/event_writer/flow_startup_warnings_nats_test.exs"],
+    data = [
+        "test/cluster_test_helper.exs",
+        "//elixir/serviceradar_core_elx:runtime_config",
         "@nats_server_linux_amd64//:nats_server",
     ],
     elixir_opts = [

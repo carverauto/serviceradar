@@ -1521,7 +1521,7 @@ defmodule ServiceRadar.EventWriter.Config do
       |> String.trim("_")
 
     # "FLOW_" + readable + "_" + 8-char hash; total stream-name budget ~48 so
-    # even with long consumer base + "_EVENTS_DRAIN" we stay under 255.
+    # durable names stay well under the 255-byte JetStream limit.
     max_readable = 24
 
     readable =
