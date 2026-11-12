@@ -674,7 +674,12 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       |> Decisions.project_awx_unmerges(plan.unmerge)
       |> Enum.group_by(& &1.device_id)
 
-    macs = plan_macs(data, plan, projected, [:unmerge, :already_unmerged], opts)
+    after_unmerges = %{
+      data
+      | reversed: MapSet.union(data.reversed, MapSet.new(plan.unmerge, & &1.event_id))
+    }
+
+    macs = plan_macs(after_unmerges, plan, projected, [:unmerge, :already_unmerged], opts)
     Map.merge(base, mac_report(macs, opts))
   end
 
