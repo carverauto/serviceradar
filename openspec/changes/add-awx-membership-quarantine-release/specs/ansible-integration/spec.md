@@ -22,3 +22,7 @@ Each reason SHALL be shown as a short operator-facing explanation; `predates_rea
 #### Scenario: Evidence changed before release
 - **WHEN** the release service refuses because the row's evidence changed
 - **THEN** the page SHALL reload the row and show its current evidence for a new review
+
+#### Scenario: Quarantined and unlinked rows are counted separately
+- **WHEN** the operator filters the membership list
+- **THEN** the page SHALL offer separate Quarantined and Unlinked filters, each with its own count, and SHALL NOT group the two under one count

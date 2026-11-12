@@ -21,6 +21,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
   arrives through `bulk_approved/2`. A row whose evidence changed stays selected
   and is shown again with its fresh evidence; nothing is re-submitted on its
   own.
+
+  Releasing a membership quarantine follows the same rule. The release dialog
+  holds the freshly loaded row in `:releasing_membership` and submits exactly
+  its evidence through `release_membership/3`. The domain re-checks current
+  device inventory: one match makes the row `proposed` (it then needs the
+  normal Review and approval, which this page never chains on its own), no
+  match makes it `unlinked`, several matches refuse and the dialog lists them.
+  Evidence that changed in between is shown again and needs another explicit
+  confirmation.
   """
 
   import Phoenix.Component, only: [assign: 3]
@@ -32,7 +41,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
   alias ServiceRadarWebNG.RBAC
 
   @view_permission "ansible.runs.view"
-  @filters ~w(all needs_review approved not_linkable)
+  @filters ~w(all needs_review approved quarantined unlinked)
+  @release_stale_reasons [:membership_identity_changed, :membership_evidence_changed]
+  @release_gone_reasons [:membership_not_quarantined, :membership_not_current, :membership_not_found]
+  @quarantine_reason_labels %{
+    ambiguous_device_match: "More than one ServiceRadar device matched this AWX host.",
+    approved_device_changed: "The approved link started matching a different device.",
+    approved_link_lost_match: "The approved link stopped matching any device.",
+    approved_membership_not_current:
+      "The approved host dropped out of a complete inventory sync and was seen again; " <>
+        "its approval does not carry across the gap.",
+    canonical_device_deleted: "The approved link's device was deleted from ServiceRadar.",
+    predates_reason_recording: "Cause unknown: this host was quarantined before ServiceRadar recorded reasons."
+  }
   @stale_reasons [
     :membership_identity_changed,
     :membership_evidence_changed,
@@ -53,6 +74,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
     |> assign(:membership_notice, nil)
     |> assign(:reviewing_membership, nil)
     |> assign(:membership_review_error, nil)
+    |> assign(:releasing_membership, nil)
+    |> assign(:membership_release_error, nil)
+    |> assign(:membership_release_matches, nil)
     |> assign(:membership_approvable, %{})
     |> assign(:membership_selected, MapSet.new())
     |> assign(:membership_bulk, nil)
@@ -181,6 +205,164 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
         assign(socket, :membership_review_error, "Approval was rejected: #{format_reason(reason)}.")
     end
   end
+
+  ## Quarantine release --------------------------------------------------------
+
+  @doc """
+  Opens the release dialog for one quarantined membership from freshly loaded
+  evidence, so the dialog shows the current row rather than the table's copy.
+  """
+  def review_release(socket, id) do
+    if bulk_pending?(socket) do
+      socket
+    else
+      socket = close_dialogs(socket)
+
+      case fetch_memberships(socket) do
+        {:ok, memberships} -> socket |> put_memberships(memberships) |> open_release(find(memberships, id))
+        {:error, socket} -> socket
+      end
+    end
+  end
+
+  def cancel_release(socket) do
+    socket
+    |> assign(:releasing_membership, nil)
+    |> assign(:membership_release_error, nil)
+    |> assign(:membership_release_matches, nil)
+  end
+
+  @doc "Releases the membership shown in the release dialog as the logged-in user."
+  def release(%{assigns: %{releasing_membership: nil}} = socket) do
+    put_flash(socket, :error, "Open a quarantined membership before releasing it.")
+  end
+
+  def release(%{assigns: %{releasing_membership: membership}} = socket) do
+    scope = socket.assigns.current_scope
+
+    case automation().release_membership(scope, membership.id, release_request(membership)) do
+      {:ok, released} ->
+        socket
+        |> cancel_release()
+        |> put_flash(:info, released_message(membership, released))
+        |> load_inventories()
+        |> load_memberships()
+
+      {:error, {:membership_link_ambiguous, device_uids}} ->
+        socket
+        |> reload_release(membership.id)
+        |> assign(:membership_release_matches, device_uids)
+        |> assign(
+          :membership_release_error,
+          "Not released: #{length(device_uids)} devices carry this AWX host now, so it stays " <>
+            "quarantined. Resolve the duplicate devices, then release it again."
+        )
+
+      {:error, reason} when reason in @release_stale_reasons ->
+        socket
+        |> reload_release(membership.id)
+        |> assign(
+          :membership_release_error,
+          "The quarantined membership changed after you opened it, so it was not released. " <>
+            "This is its current evidence; confirm again only if you still mean to release it."
+        )
+
+      {:error, reason} when reason in @release_gone_reasons ->
+        socket
+        |> cancel_release()
+        |> put_flash(:error, "Not released: #{gone_message(reason)}")
+        |> load_inventories()
+        |> load_memberships()
+
+      {:error, :current_permission_denied} ->
+        socket
+        |> cancel_release()
+        |> put_flash(:error, "Release was refused: your account no longer holds ansible.controllers.manage.")
+
+      {:error, :human_approval_required} ->
+        assign(socket, :membership_release_error, "Releasing a quarantine requires a logged-in human user.")
+
+      {:error, reason} ->
+        assign(socket, :membership_release_error, "Release was rejected: #{format_reason(reason)}.")
+    end
+  end
+
+  @doc "The exact request body the API release route accepts, built from the shown row."
+  def release_request(membership) do
+    %{
+      "controller_id" => to_string(membership.controller_id),
+      "inventory_id" => membership.inventory_id,
+      "awx_host_id" => membership.awx_host_id,
+      "source_generation" => membership.source_generation,
+      "source_fingerprint" => membership.source_fingerprint,
+      "link_evidence_digest" => membership.link_evidence_digest
+    }
+  end
+
+  @doc "True when the membership is quarantined, current and carries an evidence digest to bind to."
+  def releasable?(membership) do
+    membership.link_disposition == :quarantined and Map.get(membership, :current, true) == true and
+      is_binary(membership.link_evidence_digest)
+  end
+
+  @doc "Operator-facing explanation of why a membership was quarantined."
+  def quarantine_reason_label(membership) do
+    Map.get(
+      @quarantine_reason_labels,
+      Map.get(membership, :quarantine_reason),
+      "Cause not reported for this row."
+    )
+  end
+
+  @doc "The devices the membership's current link evidence lists."
+  def matching_devices(membership), do: evidence(membership, "matching_device_uids") || []
+
+  defp open_release(socket, nil) do
+    put_flash(socket, :error, "That membership is no longer current in this inventory.")
+  end
+
+  defp open_release(socket, membership) do
+    if releasable?(membership) do
+      assign(socket, :releasing_membership, membership)
+    else
+      put_flash(socket, :error, "Only a current, quarantined membership can be released.")
+    end
+  end
+
+  # Keeps the dialog on the freshly loaded row when it can still be released;
+  # otherwise closes it and says why. Never submits anything.
+  defp reload_release(socket, id) do
+    socket = cancel_release(socket)
+
+    case fetch_memberships(socket) do
+      {:ok, memberships} ->
+        socket = put_memberships(socket, memberships)
+        membership = find(memberships, id)
+
+        if membership && releasable?(membership) do
+          assign(socket, :releasing_membership, membership)
+        else
+          put_flash(socket, :error, "The membership changed and is no longer quarantined here.")
+        end
+
+      {:error, socket} ->
+        socket
+    end
+  end
+
+  defp released_message(membership, %{link_disposition: :proposed} = released) do
+    "Released #{display(membership.host_name)}: it is now proposed for " <>
+      "#{display(released[:canonical_device_uid])}. Review and approve it before it can launch."
+  end
+
+  defp released_message(membership, _released) do
+    "Released #{display(membership.host_name)}: no device carries this AWX host now, so it is " <>
+      "unlinked. Inventory sync proposes a device when one matches."
+  end
+
+  defp gone_message(:membership_not_quarantined), do: "the membership is no longer quarantined."
+  defp gone_message(:membership_not_current), do: "the host is no longer current in this inventory."
+  defp gone_message(:membership_not_found), do: "the membership no longer exists."
 
   ## Bulk approval -------------------------------------------------------------
 
@@ -438,6 +620,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
   defp close_dialogs(socket) do
     socket
     |> cancel_review()
+    |> cancel_release()
     |> next_bulk_generation()
     |> assign(:membership_bulk, nil)
   end
@@ -620,15 +803,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
       all: length(memberships),
       needs_review: Enum.count(memberships, &needs_review?/1),
       approved: Enum.count(memberships, &(&1.link_disposition == :approved)),
-      not_linkable: Enum.count(memberships, &(&1.link_disposition in [:unlinked, :quarantined]))
+      quarantined: Enum.count(memberships, &(&1.link_disposition == :quarantined)),
+      unlinked: Enum.count(memberships, &(&1.link_disposition == :unlinked))
     }
   end
 
   defp visible?(_membership, "all"), do: true
   defp visible?(membership, "needs_review"), do: needs_review?(membership)
   defp visible?(membership, "approved"), do: membership.link_disposition == :approved
-
-  defp visible?(membership, "not_linkable"), do: membership.link_disposition in [:unlinked, :quarantined]
+  defp visible?(membership, "quarantined"), do: membership.link_disposition == :quarantined
+  defp visible?(membership, "unlinked"), do: membership.link_disposition == :unlinked
 
   defp find(memberships, id), do: Enum.find(memberships, &(to_string(&1.id) == to_string(id)))
 
@@ -663,14 +847,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReview do
   end
 
   defp quarantine_reason(membership) do
-    case match_count(membership) do
-      count when is_integer(count) and count > 1 ->
-        "Ambiguous: #{count} devices match this AWX host, so it is quarantined. " <>
-          "Resolve the duplicate devices; a link cannot be forced."
+    now =
+      case match_count(membership) do
+        count when is_integer(count) and count > 1 ->
+          " #{count} devices match this AWX host now; resolve the duplicates before releasing it."
 
-      _ ->
-        "Quarantined. It cannot be approved or force-linked here."
-    end
+        _ ->
+          ""
+      end
+
+    "Quarantined: it cannot be approved or force-linked." <>
+      now <> " Release it to re-check current devices; a released membership still needs approval."
   end
 
   defp proposal_blocked_reason(membership) do

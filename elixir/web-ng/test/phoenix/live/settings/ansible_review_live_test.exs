@@ -29,6 +29,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
   @approved_id "0190c0de-0000-7000-8000-000000000003"
   @second_id "0190c0de-0000-7000-8000-000000000004"
   @second_device_uid "sr:66666666-7777-4888-9999-000000000000"
+  @quarantined_id "0190c0de-0000-7000-8000-000000000005"
+  @legacy_id "0190c0de-0000-7000-8000-000000000006"
   @binding_id "0190c0de-0000-7000-8000-0000000000b4"
   @fingerprint_a "sha256:" <> String.duplicate("a", 64)
   @fingerprint_c "sha256:" <> String.duplicate("c", 64)
@@ -48,6 +50,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     def approve_membership(scope, id, params) do
       notify({:approve, scope.user.id, id, params})
       pop(:approve_results)
+    end
+
+    def release_membership(scope, id, params) do
+      notify({:release, scope.user.id, id, params})
+      pop(:release_results)
     end
 
     def list_binding_templates(_scope, _controller_id) do
@@ -380,6 +387,77 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
+  test "release shows the recorded reason, submits the shown tuple, and never approves or resubmits", %{
+    conn: conn,
+    controller: controller,
+    user: user
+  } do
+    Automation.put(:memberships, [
+      proposed(controller.id),
+      unlinked(controller.id),
+      quarantined(controller.id),
+      legacy_quarantined(controller.id)
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
+
+    # Quarantined and unlinked rows are counted apart, never as one bucket.
+    assert has_element?(view, "#ansible-membership-filter-quarantined", "Quarantined (2)")
+    assert has_element?(view, "#ansible-membership-filter-unlinked", "Unlinked (1)")
+    refute has_element?(view, "#ansible-membership-filter-not_linkable")
+
+    assert has_element?(
+             view,
+             "#ansible-membership-quarantine-#{@quarantined_id}",
+             "started matching a different device"
+           )
+
+    assert has_element?(view, "#ansible-membership-quarantine-#{@legacy_id}", "Cause unknown")
+    assert has_element?(view, "#ansible-membership-quarantine-#{@legacy_id}", "Quarantined at: unknown")
+    refute has_element?(view, "#ansible-membership-review-#{@quarantined_id}")
+    refute has_element?(view, "#ansible-membership-release-#{@proposed_id}")
+    refute has_element?(view, "#ansible-membership-release-#{@unlinked_id}")
+
+    view |> element("#ansible-membership-release-#{@quarantined_id}") |> render_click()
+    assert has_element?(view, "dialog#ansible-membership-release", @evidence_digest)
+    assert has_element?(view, "#ansible-membership-release-reason", "started matching a different device")
+
+    Automation.put(:release_results, [
+      {:error, {:membership_link_ambiguous, [@device_uid, @second_device_uid]}},
+      {:error, :membership_evidence_changed},
+      {:ok, released(controller.id)}
+    ])
+
+    view |> element("#ansible-membership-release-confirm") |> render_click()
+
+    assert_receive {:release, user_id, @quarantined_id, shown}
+    assert user_id == user.id
+    assert shown == controller.id |> shown_tuple(105, @device_uid) |> Map.delete("canonical_device_uid")
+    assert has_element?(view, "#ansible-membership-release-ambiguous", @second_device_uid)
+    assert has_element?(view, "#ansible-membership-release-error", "stays quarantined")
+
+    # Inventory sync re-observes the host while the operator is reading.
+    changed = %{quarantined(controller.id) | source_generation: "8", source_fingerprint: @fingerprint_c}
+    Automation.put(:memberships, [proposed(controller.id), unlinked(controller.id), changed])
+
+    view |> element("#ansible-membership-release-confirm") |> render_click()
+    assert_receive {:release, _user_id, @quarantined_id, %{"source_generation" => "7"}}
+    assert has_element?(view, "#ansible-membership-release-error", "changed after you opened it")
+    assert has_element?(view, "dialog#ansible-membership-release", String.duplicate("c", 64))
+    refute_receive {:release, _, _, _}
+
+    Automation.put(:memberships, [proposed(controller.id), unlinked(controller.id), released(controller.id)])
+    view |> element("#ansible-membership-release-confirm") |> render_click()
+
+    assert_receive {:release, _user_id, @quarantined_id, %{"source_generation" => "8"} = confirmed}
+    assert confirmed["source_fingerprint"] == @fingerprint_c
+    assert has_element?(view, "#flash-info", "now proposed")
+    refute has_element?(view, "#ansible-membership-release")
+    assert has_element?(view, "#ansible-membership-review-#{@quarantined_id}")
+    refute_receive {:approve, _, _, _}
+  end
+
+  @tag :web_ng_shared_fixture_db
   test "a manager who loses ansible.controllers.manage cannot approve, bulk approve, create or revoke by event", %{
     conn: conn,
     controller: controller,
@@ -389,6 +467,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
 
     {:ok, memberships_view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
     memberships_view |> element("#ansible-membership-review-#{@proposed_id}") |> render_click()
+
+    Automation.put(:memberships, [proposed(controller.id), unlinked(controller.id), quarantined(controller.id)])
+    {:ok, release_view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
+    release_view |> element("#ansible-membership-release-#{@quarantined_id}") |> render_click()
+    Automation.put(:memberships, [proposed(controller.id), unlinked(controller.id)])
 
     {:ok, bulk_view, _html} = live(conn, ~p"/settings/ansible?tab=memberships")
     bulk_view |> element("#ansible-membership-select-all") |> render_click()
@@ -426,6 +509,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     assert render_click(bulk_view, "approve_selected_memberships", %{}) =~
              "Your Ansible settings permissions changed"
 
+    assert render_click(release_view, "release_membership", %{}) =~
+             "Your Ansible settings permissions changed"
+
     assert render_click(bindings_view, "create_binding", %{}) =~
              "Your Ansible settings permissions changed"
 
@@ -436,6 +522,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
     render_async(bindings_view)
     render_async(bulk_view)
     refute_receive {:approve, _, _, _}
+    refute_receive {:release, _, _, _}
     refute_receive {:create, _, _}
     refute_receive {:revoke, _, _, _}
   end
@@ -476,6 +563,35 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleReviewLiveTest do
 
   defp unlinked(controller_id) do
     membership(controller_id, @unlinked_id, 102, "host02.example.com", :unlinked, nil, 0)
+  end
+
+  defp quarantined(controller_id) do
+    controller_id
+    |> membership(@quarantined_id, 105, "host05.example.com", :quarantined, nil, 1)
+    |> Map.merge(%{
+      quarantine_reason: :approved_device_changed,
+      quarantined_at: ~U[2026-01-02 03:04:05.000000Z]
+    })
+    |> put_in([:link_evidence, "matching_device_uids"], [@device_uid])
+  end
+
+  defp legacy_quarantined(controller_id) do
+    controller_id
+    |> membership(@legacy_id, 106, "host06.example.com", :quarantined, nil, 0)
+    |> Map.merge(%{quarantine_reason: :predates_reason_recording, quarantined_at: nil})
+  end
+
+  # The released row as the domain returns it: a proposal awaiting normal review.
+  defp released(controller_id) do
+    %{
+      quarantined(controller_id)
+      | link_disposition: :proposed,
+        canonical_device_uid: @device_uid,
+        quarantine_reason: nil,
+        quarantined_at: nil,
+        source_generation: "8",
+        source_fingerprint: @fingerprint_c
+    }
   end
 
   defp approved(controller_id) do

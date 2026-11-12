@@ -32,10 +32,11 @@
 - [x] 5.3 Device purge test: the trigger records `canonical_device_deleted`.
 - [x] 5.4 web-ng: OpenAPI document and controller authority for the release route.
 
-## 6. Follow-up: settings UI (after the membership review modal change merges)
+## 6. Settings UI (follow-up pull request, after the membership review modal change merged)
 
-- [ ] 6.1 In Settings -> Ansible -> Memberships, show the reason and time on quarantined rows, with an operator-facing label per reason; `predates_reason_recording` and a missing time read as unknown.
-- [ ] 6.2 Offer a **Release quarantine** control on quarantined, current rows to users holding `ansible.controllers.manage`; re-check that permission from persisted authority on the event; confirm in the review dialog showing the row's evidence; submit exactly the displayed six fields through `AnsibleAutomation.release_membership/3`.
-- [ ] 6.3 On success, reload the row (now `proposed` or `unlinked`) and offer the normal approval for a proposal. On `membership_link_ambiguous`, show the matching devices and keep the row; on changed evidence, reload and show the current evidence; never resubmit automatically.
-- [ ] 6.4 Label it "membership quarantine" and state that a released membership needs approval; do not confuse it with a device target hold.
-- [ ] 6.5 LiveView tests for the reason display, the release flow, both refusals and the authority re-check; update the operator guide's membership steps.
+- [x] 6.1 In Settings -> Ansible -> Memberships, show the reason and time on quarantined rows, with an operator-facing label per reason; `predates_reason_recording` and a missing time read as unknown.
+- [x] 6.2 Offer a **Release quarantine** control on quarantined, current rows to users holding `ansible.controllers.manage`; re-check that permission from persisted authority on the event; confirm in a release dialog showing the row's evidence, reason and time; submit exactly the displayed six fields through `AnsibleAutomation.release_membership/3`.
+- [x] 6.3 On success, reload the row (now `proposed` or `unlinked`) and offer the normal approval for a proposal. On `membership_link_ambiguous`, show the matching devices and keep the row; on changed evidence, reload and show the current evidence; never resubmit automatically.
+- [x] 6.4 Label it "membership quarantine" and state that a released membership needs approval; do not confuse it with a device target hold.
+- [x] 6.5 LiveView tests for the reason display, the release flow, both refusals and the authority re-check; update the operator guide's membership steps.
+- [x] 6.6 Split the membership filter that grouped quarantined and unlinked rows into separate **Quarantined** and **Unlinked** filters with their own counts. No bulk release.

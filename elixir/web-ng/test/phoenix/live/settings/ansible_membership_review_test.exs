@@ -9,6 +9,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReviewTest do
   canonical_device_uid, source_generation, source_fingerprint, and
   link_evidence_digest"). Only a current, single-match, enabled proposal is
   approvable; unlinked and quarantined rows state why and offer no force-link.
+  A current quarantined row offers release, which submits the documented
+  release body (`POST /ansible-memberships/{id}/release`: controller_id,
+  inventory_id, awx_host_id, source_generation, source_fingerprint and
+  link_evidence_digest, no device).
   All identifiers are invented.
   """
 
@@ -81,33 +85,63 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.MembershipReviewTest do
     assert reason =~ "cannot be forced"
   end
 
-  test "a quarantined row with at most one match states no cause it cannot support" do
-    for count <- [nil, 0, 1] do
-      row =
-        proposal(%{
-          link_disposition: :quarantined,
-          canonical_device_uid: nil,
-          link_evidence: %{"kind" => "stored_awx_source_tuple", "match_count" => count}
-        })
-
+  test "a quarantined row cannot be approved, offers release, and names a current ambiguity" do
+    for {count, ambiguous?} <- [{nil, false}, {1, false}, {3, true}] do
+      row = quarantined(%{link_evidence: %{"kind" => "stored_awx_source_tuple", "match_count" => count}})
       reason = MembershipReview.blocked_reason(row)
+
       refute MembershipReview.approvable?(row)
-      assert reason =~ "Quarantined"
+      assert MembershipReview.releasable?(row)
       assert reason =~ "cannot be approved or force-linked"
-      refute reason =~ "Ambiguous"
-      refute reason =~ "previously approved"
+      assert reason =~ "still needs approval"
+      assert String.contains?(reason, "3 devices match this AWX host now") == ambiguous?
     end
+
+    refute MembershipReview.releasable?(quarantined(%{current: false}))
+    refute MembershipReview.releasable?(proposal())
   end
 
-  test "a quarantined row with several matches names the ambiguity and its count" do
-    row =
-      proposal(%{
-        link_disposition: :quarantined,
-        canonical_device_uid: nil,
-        link_evidence: %{"kind" => "stored_awx_source_tuple", "match_count" => 3}
-      })
+  test "release submits exactly the documented six fields and never a device" do
+    assert MembershipReview.release_request(quarantined()) == %{
+             "controller_id" => @controller_id,
+             "inventory_id" => 7,
+             "awx_host_id" => 1001,
+             "source_generation" => "42",
+             "source_fingerprint" => @fingerprint,
+             "link_evidence_digest" => @digest
+           }
+  end
 
-    refute MembershipReview.approvable?(row)
-    assert MembershipReview.blocked_reason(row) =~ "Ambiguous: 3 devices match this AWX host"
+  test "every recorded reason has its own explanation and an unrecorded cause reads as unknown" do
+    reasons = [
+      :ambiguous_device_match,
+      :approved_device_changed,
+      :approved_link_lost_match,
+      :approved_membership_not_current,
+      :canonical_device_deleted,
+      :predates_reason_recording
+    ]
+
+    labels = Enum.map(reasons, &MembershipReview.quarantine_reason_label(quarantined(%{quarantine_reason: &1})))
+
+    assert length(Enum.uniq(labels)) == length(reasons)
+
+    assert MembershipReview.quarantine_reason_label(quarantined(%{quarantine_reason: :predates_reason_recording})) =~
+             "Cause unknown"
+  end
+
+  defp quarantined(overrides \\ %{}) do
+    proposal(
+      Map.merge(
+        %{
+          link_disposition: :quarantined,
+          canonical_device_uid: nil,
+          current: true,
+          quarantine_reason: :ambiguous_device_match,
+          quarantined_at: ~U[2026-01-02 03:04:05.000000Z]
+        },
+        overrides
+      )
+    )
   end
 end

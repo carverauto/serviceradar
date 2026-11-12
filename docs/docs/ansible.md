@@ -287,13 +287,19 @@ No manual "mark Ansible-managed" toggle exists — the state is fully derived.
 A launch only targets a device through an **approved** membership. Inventory sync proposes links; a person approves them.
 
 1. Open **Settings → Ansible → Memberships** (requires `ansible.controllers.manage`; listing also requires `ansible.runs.view`).
-2. Pick the controller and AWX inventory. Inventories with pending proposals show how many need review; **Needs review** filters the table to them.
-3. Each row shows host name, address, AWX host ID, link disposition, the proposed device (linked to its device page), the link evidence kind and match count, and when the host was last seen.
+2. Pick the controller and AWX inventory. Inventories with pending proposals show how many need review; **Needs review** filters the table to them. **Quarantined** and **Unlinked** filter to those dispositions separately, each with its own count.
+3. Each row shows host name, address, AWX host ID, link disposition, the proposed device (linked to its device page), the link evidence kind and match count, and when the host was last seen. A quarantined row also says why it was quarantined and when; a row quarantined before ServiceRadar recorded reasons says the cause and time are unknown.
 4. Click **Review** on a proposal. A dialog shows the exact evidence that will be approved: controller, inventory, AWX host ID, device UID, source generation, source fingerprint, and evidence digest. Click **Approve link** to approve it as yourself, or press Escape to close it.
 5. If inventory sync changed the proposal after you opened it, the approval is refused and the dialog reloads with the current evidence. Review it again; nothing is approved on your behalf.
 6. To approve several proposals at once, tick their checkboxes (the header checkbox selects every approvable row in the current view) and click **Approve selected**. The dialog reloads and lists each membership's current evidence; nothing is submitted until you confirm. ServiceRadar then approves each membership separately with the evidence shown for it and reports each result. A membership whose proposal changed in between is not approved; it stays selected and is shown again with its current evidence for you to confirm. Changing the controller, inventory, or filter clears the selection.
 
-Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it. A quarantined membership stays quarantined after the fix until someone releases it; see [A membership stays `quarantined`](#a-membership-stays-quarantined).
+Unlinked, quarantined, disabled, and ambiguous memberships show why they cannot be approved. There is no way to force a link: fix the host's address or MAC in AWX, or resolve duplicate devices, and let the next sync propose it. A quarantined membership stays quarantined after the fix until someone releases it:
+
+1. Click **Release quarantine** on the quarantined row. A dialog shows the recorded reason and time, the source tuple, and the evidence from the last sync.
+2. Click **Release quarantine** in the dialog. ServiceRadar re-checks which devices carry the AWX host now. If exactly one does, the row becomes `proposed` and you approve it with **Review** as usual; the release does not approve it. If none does, the row becomes `unlinked`. If several do, nothing changes and the dialog lists those devices; resolve the duplicates and try again.
+3. If the membership changed after you opened the dialog, nothing is released and the dialog shows its current evidence; confirm again only if you still mean to release it.
+
+See [A membership stays `quarantined`](#a-membership-stays-quarantined) for what each reason means.
 
 ### 6. Review template bindings
 
@@ -466,7 +472,7 @@ Services page keeps the last failed card are in
 
 Synchronization quarantines a membership when more than one device carries its AWX host (`ambiguous_device_match`), when an approved link now matches a different device (`approved_device_changed`) or no device (`approved_link_lost_match`), when an approved host returns after dropping out of a complete sync (`approved_membership_not_current`), and when the approved link's device is deleted or purged (`canonical_device_deleted`). The reason and time are stored on the row and returned by the [memberships API](./ansible-provisioning-api.md#exact-membership-and-binding-review). Rows quarantined before reasons were recorded read `predates_reason_recording`: their cause was never stored.
 
-A quarantine never clears by itself, even after the cause is fixed. Fix the cause first (remove duplicate devices, or correct the host in AWX), then release the membership with `POST /api/admin/ansible-memberships/{id}/release` as a user with `ansible.controllers.manage`. ServiceRadar checks current device inventory: one match makes the membership `proposed`, which you then approve as usual; no match makes it `unlinked`; several matches refuse the release and list the devices. A release never approves a membership.
+A quarantine never clears by itself, even after the cause is fixed. Fix the cause first (remove duplicate devices, or correct the host in AWX), then release the membership with **Release quarantine** under **Settings → Ansible → Memberships**, or with `POST /api/admin/ansible-memberships/{id}/release`, as a user with `ansible.controllers.manage`. ServiceRadar checks current device inventory: one match makes the membership `proposed`, which you then approve as usual; no match makes it `unlinked`; several matches refuse the release and list the devices. A release never approves a membership.
 
 A membership quarantine is not a target hold. A target hold blocks a device after a failed or unproven mutation and is cleared through its own gate; releasing a membership does not clear it.
 

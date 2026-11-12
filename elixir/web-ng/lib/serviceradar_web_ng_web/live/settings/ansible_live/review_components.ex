@@ -29,6 +29,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
   attr :approvable_count, :integer, required: true
   attr :selected, :any, required: true
   attr :bulk, :map, default: nil
+  attr :releasing, :map, default: nil
+  attr :release_error, :string, default: nil
+  attr :release_matches, :list, default: nil
   attr :timezone, :string, required: true
 
   def memberships_panel(assigns) do
@@ -190,6 +193,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
                   disabled
                 </.ui_badge>
               </div>
+              <.quarantine_note
+                :if={membership.link_disposition == :quarantined}
+                membership={membership}
+                timezone={@timezone}
+              />
             </td>
             <td>
               <.link
@@ -230,6 +238,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
               >
                 Review
               </.ui_button>
+              <.ui_button
+                :if={MembershipReview.releasable?(membership)}
+                id={"ansible-membership-release-#{membership.id}"}
+                type="button"
+                size="xs"
+                variant="neutral"
+                phx-click="review_membership_release"
+                phx-value-id={membership.id}
+              >
+                Release quarantine
+              </.ui_button>
               <p
                 :if={!MembershipReview.approvable?(membership)}
                 id={"ansible-membership-reason-#{membership.id}"}
@@ -245,6 +264,138 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
 
     <.membership_review_modal :if={@reviewing} membership={@reviewing} error={@review_error} />
     <.membership_bulk_modal :if={@bulk} bulk={@bulk} />
+    <.membership_release_modal
+      :if={@releasing}
+      membership={@releasing}
+      error={@release_error}
+      matches={@release_matches}
+      timezone={@timezone}
+    />
+    """
+  end
+
+  attr :membership, :map, required: true
+  attr :timezone, :string, required: true
+
+  defp quarantine_note(assigns) do
+    ~H"""
+    <div id={"ansible-membership-quarantine-#{@membership.id}"} class="mt-1 max-w-xs text-xs">
+      <div>{MembershipReview.quarantine_reason_label(@membership)}</div>
+      <div class="text-sr-muted">
+        <span :if={is_nil(@membership[:quarantined_at])}>Quarantined at: unknown</span>
+        <span :if={@membership[:quarantined_at]}>
+          Quarantined
+          <.user_time
+            id={"ansible-membership-#{@membership.id}-quarantined-at"}
+            value={@membership.quarantined_at}
+            timezone={@timezone}
+            style={:compact}
+          />
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :membership, :map, required: true
+  attr :error, :string, default: nil
+  attr :matches, :list, default: nil
+  attr :timezone, :string, required: true
+
+  defp membership_release_modal(assigns) do
+    assigns = assign(assigns, :current_matches, MembershipReview.matching_devices(assigns.membership))
+
+    ~H"""
+    <.ui_modal
+      id="ansible-membership-release"
+      size="lg"
+      on_cancel="cancel_membership_release"
+      data-return-focus={"#ansible-membership-release-#{@membership.id}"}
+    >
+      <:title>Release membership quarantine</:title>
+
+      <.ui_alert :if={@error} variant="error" id="ansible-membership-release-error">
+        {@error}
+      </.ui_alert>
+
+      <div :if={@matches} id="ansible-membership-release-ambiguous" class="space-y-1">
+        <p class="text-sm font-medium">Devices carrying this AWX host now</p>
+        <ul class="space-y-1 text-sm">
+          <li :for={uid <- @matches}>
+            <.link navigate={~p"/devices/#{uid}"} class="font-mono text-xs underline">{uid}</.link>
+          </li>
+        </ul>
+      </div>
+
+      <p class="text-sm text-sr-muted">
+        Releasing re-checks which ServiceRadar devices carry AWX host
+        <strong>{@membership.host_name}</strong>
+        now, recorded as you. If exactly one does, the membership becomes proposed and still
+        needs a normal Review and approval before it can launch. If none does, it becomes
+        unlinked. If several do, nothing changes. A release never approves a link, and it does
+        not clear a device target hold.
+      </p>
+
+      <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm md:grid-cols-2">
+        <div class="flex min-w-0 flex-col md:col-span-2">
+          <dt class="text-xs text-sr-muted">Why it was quarantined</dt>
+          <dd id="ansible-membership-release-reason">
+            {MembershipReview.quarantine_reason_label(@membership)}
+          </dd>
+        </div>
+        <div class="flex min-w-0 flex-col">
+          <dt class="text-xs text-sr-muted">Quarantined at</dt>
+          <dd id="ansible-membership-release-quarantined-at">
+            <span :if={is_nil(@membership[:quarantined_at])}>unknown</span>
+            <.user_time
+              :if={@membership[:quarantined_at]}
+              id="ansible-membership-release-quarantined-at-time"
+              value={@membership.quarantined_at}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </dd>
+        </div>
+        <.review_row label="Controller" value={@membership.controller_id} mono />
+        <.review_row label="AWX inventory" value={@membership.inventory_id} mono />
+        <.review_row label="AWX host ID" value={@membership.awx_host_id} mono />
+        <.review_row label="Host address" value={@membership.ansible_host} mono />
+        <.review_row
+          label="Last synced evidence"
+          value={"#{MembershipReview.evidence_kind(@membership)}, #{MembershipReview.match_count(@membership) || 0} match"}
+        />
+        <div class="flex min-w-0 flex-col md:col-span-2">
+          <dt class="text-xs text-sr-muted">Devices in the last synced evidence</dt>
+          <dd id="ansible-membership-release-evidence-devices" class="break-all font-mono text-xs">
+            {if(@current_matches == [], do: "none", else: Enum.join(@current_matches, ", "))}
+          </dd>
+        </div>
+        <.review_row label="Source generation" value={@membership.source_generation} mono />
+        <.review_row label="Source fingerprint" value={@membership.source_fingerprint} mono />
+        <.review_row label="Evidence digest" value={@membership.link_evidence_digest} mono />
+      </dl>
+
+      <div class="sr-ui-modal-action">
+        <.ui_button
+          type="button"
+          size="sm"
+          variant="ghost"
+          phx-click="cancel_membership_release"
+          data-dialog-autofocus
+        >
+          Cancel
+        </.ui_button>
+        <.ui_button
+          id="ansible-membership-release-confirm"
+          type="button"
+          size="sm"
+          variant="primary"
+          phx-click="release_membership"
+        >
+          Release quarantine
+        </.ui_button>
+      </div>
+    </.ui_modal>
     """
   end
 
@@ -1000,7 +1151,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive.ReviewComponents do
       {"all", "All", :all},
       {"needs_review", "Needs review", :needs_review},
       {"approved", "Approved", :approved},
-      {"not_linkable", "Cannot link", :not_linkable}
+      {"quarantined", "Quarantined", :quarantined},
+      {"unlinked", "Unlinked", :unlinked}
     ]
   end
 

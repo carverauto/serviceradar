@@ -82,6 +82,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "review_selected_memberships" => :read,
       "cancel_bulk_membership_review" => :read,
       "approve_selected_memberships" => :read,
+      "review_membership_release" => :read,
+      "cancel_membership_release" => :read,
+      "release_membership" => :read,
       "select_binding_scope" => :read,
       "new_binding_review" => :read,
       "cancel_binding_form" => :read,
@@ -371,6 +374,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   def handle_event("approve_selected_memberships", _params, socket) do
     with_current_permission(socket, @controller_permission, fn socket ->
       {:noreply, MembershipReview.approve_selected(socket)}
+    end)
+  end
+
+  def handle_event("review_membership_release", %{"id" => id}, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.review_release(socket, id)}
+    end)
+  end
+
+  def handle_event("cancel_membership_release", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.cancel_release(socket)}
+    end)
+  end
+
+  def handle_event("release_membership", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, MembershipReview.release(socket)}
     end)
   end
 
@@ -726,6 +747,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             approvable_count={map_size(@membership_approvable)}
             selected={@membership_selected}
             bulk={@membership_bulk}
+            releasing={@releasing_membership}
+            release_error={@membership_release_error}
+            release_matches={@membership_release_matches}
             timezone={user_timezone(@current_scope)}
           />
         </section>
