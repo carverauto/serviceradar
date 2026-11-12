@@ -505,7 +505,6 @@ defmodule ServiceRadar.EventWriter.Config do
     streams =
       config
       |> load_flow_streams()
-      |> maybe_append_events_drain_streams()
       |> Enum.map(fn stream ->
         stream
         |> put_flow_tuning(:consumer_pull_batch_size, pull_batch, pull_batch_override?)
@@ -1428,15 +1427,8 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
-  # Dual-consume drain: keep reading residual flows.raw.* from the legacy
-  # `events` stream until pending is zero / MaxAge expires. New publishes land
-  # on `flows`. Disable with EVENT_WRITER_FLOW_DRAIN_EVENTS=false after drain.
-  #
-  # Critical: reuse the pre-cutover durable name (durable_source_name) so JetStream
-  # resumes the existing ACK cursor. A brand-new durable with deliver_policy:all
-  # would replay retained history that the old durable already ACKed (duplicate
-  # ocsf_network_activity rows; on_conflict does not dedupe).
-  # Shared source of truth for extension raw-flow subjects (live + drain).
+  # Shared source of truth for extension raw-flow subjects (live only:
+  # the events-stream residual drains are removed).
   # EVENT_WRITER_FLOW_EXTRA_SUBJECTS is preferred; legacy
   # EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS is still accepted.
   @doc false
@@ -1572,8 +1564,8 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc false
   def assert_no_canonical_consumer_collisions!(streams, consumer_base)
       when is_list(streams) and is_binary(consumer_base) do
-    # Durables are per JetStream stream: live (flows) and drain (events) may
-    # intentionally share durable_source_name so the legacy ACK cursor resumes.
+    # Durables are per JetStream stream: entries on different streams may
+    # intentionally share durable_source_name so a pre-existing ACK cursor resumes.
     streams
     |> Enum.group_by(&jetstream_stream_name/1)
     |> Enum.each(fn {js_stream, group} ->
@@ -1609,57 +1601,6 @@ defmodule ServiceRadar.EventWriter.Config do
     end
 
     :ok
-  end
-
-  defp maybe_append_events_drain_streams(streams) do
-    if System.get_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "true") in ~w(true 1 yes) do
-      drain_base = %{
-        stream_name: "events",
-        processor: Flows,
-        batch_size: 100,
-        batch_timeout: 500,
-        allow_stream_fallback: false,
-        reconcile_stream_shape: false,
-        ensure_stream: false,
-        # Best effort: these read leftover flow messages out of the shared
-        # `events` stream from before flows got their own. Whether `events`
-        # still carries a given flow subject depends on how long ago that
-        # deployment cut over, and a subject it never carried makes NATS reject
-        # the consumer with 10093 ("filter subject is not a valid subset of the
-        # interest subjects"). A backlog reader must never be able to take the
-        # live pipeline down with it -- see setup_jetstream_consumers/2.
-        best_effort: true
-      }
-
-      # Drain every live flows.* entry (defaults + EXTRA subjects).
-      live =
-        streams
-        |> Enum.filter(&flow_stream?/1)
-        |> Enum.reject(fn s -> Map.get(s, :stream_name) == "events" end)
-
-      live
-      |> Enum.map(fn stream ->
-        # Legacy NETFLOW/SFLOW durables used deliver_policy:all; if missing, :new
-        # avoids replaying ACKed history. Extension extras never had a pre-cutover
-        # durable, so absent INFO must use :all to drain retained backlog.
-        if_absent =
-          if stream.name in ["NETFLOW_RAW", "SFLOW_RAW"] do
-            :new
-          else
-            :all
-          end
-
-        Map.merge(drain_base, %{
-          name: "#{stream.name}_EVENTS_DRAIN",
-          subject: stream.subject,
-          durable_source_name: stream.name,
-          consumer_deliver_policy_if_absent: if_absent
-        })
-      end)
-      |> then(&(streams ++ &1))
-    else
-      streams
-    end
   end
 
   defp put_flow_tuning(stream, key, value, true = _override?), do: Map.put(stream, key, value)

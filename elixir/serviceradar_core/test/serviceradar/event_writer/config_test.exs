@@ -209,20 +209,16 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
-    test "load_flow gives every live flow consumer the 1 GiB fallback and the claim" do
-      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+    test "load_flow gives every flow consumer the 1 GiB fallback and the claim" do
+      streams = Config.load_flow().streams
+      assert streams != []
 
-      for stream <- Config.load_flow().streams do
-        if stream.stream_name == "flows" do
-          assert stream.stream_max_bytes == 1_073_741_824
-          assert stream.stream_replicas == 1
-          assert stream.stream_owner_claim == "event-writer"
-          refute Map.has_key?(stream, :reconcile_stream_shape)
-        else
-          # Drain consumers never create or reshape the shared `events` stream.
-          assert stream.ensure_stream == false
-          refute Map.has_key?(stream, :stream_owner_claim)
-        end
+      for stream <- streams do
+        assert stream.stream_name == "flows"
+        assert stream.stream_max_bytes == 1_073_741_824
+        assert stream.stream_replicas == 1
+        assert stream.stream_owner_claim == "event-writer"
+        refute Map.has_key?(stream, :reconcile_stream_shape)
       end
     end
 
@@ -290,44 +286,19 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
-    test "load_flow dual-consumes residual events backlog by default" do
-      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+    test "load_flow declares no events-stream residual drains" do
       flow = Config.load_flow()
-      drain = Enum.filter(flow.streams, &(&1.stream_name == "events"))
-      names = Enum.map(drain, & &1.name)
+      assert flow.streams != []
 
-      assert "NETFLOW_RAW_EVENTS_DRAIN" in names
-      assert "SFLOW_RAW_EVENTS_DRAIN" in names
-
-      for stream <- drain do
-        assert stream.allow_stream_fallback == false
-        assert stream.ensure_stream == false
-        assert stream.reconcile_stream_shape == false
-        assert String.starts_with?(stream.subject, "flows.raw.")
-        # Resume pre-cutover durable (not a brand-new deliver_policy:all name).
-        assert stream.durable_source_name in ["NETFLOW_RAW", "SFLOW_RAW"]
-        refute Map.has_key?(stream, :consumer_deliver_policy)
-
-        assert Config.durable_name("serviceradar-event-writer", stream.durable_source_name) ==
-                 Config.durable_name("serviceradar-event-writer", stream.durable_source_name)
+      for stream <- flow.streams do
+        assert stream.stream_name == "flows"
+        refute Map.get(stream, :best_effort, false)
+        refute String.ends_with?(stream.name, "_EVENTS_DRAIN")
       end
 
-      netflow_drain = Enum.find(drain, &(&1.name == "NETFLOW_RAW_EVENTS_DRAIN"))
-      assert netflow_drain.durable_source_name == "NETFLOW_RAW"
-
+      # The pre-cutover durables stay addressable by their live names.
       assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
                "serviceradar-event-writer-netflow-raw"
-    end
-
-    test "legacy NETFLOW/SFLOW drains use :new if absent; extras use :all" do
-      System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS")
-      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
-      flow = Config.load_flow()
-
-      netflow_drain =
-        Enum.find(flow.streams, &(&1.name == "NETFLOW_RAW_EVENTS_DRAIN"))
-
-      assert netflow_drain.consumer_deliver_policy_if_absent == :new
     end
 
     test "flow_subject_stream_name is collision-free for similar subjects" do
@@ -619,7 +590,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert byte_size(a) <= 255
     end
 
-    test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do
+    test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows only, no events drain" do
       System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.ipfix")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
@@ -631,26 +602,19 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
           &(&1.subject == "flows.raw.ipfix" and &1.stream_name == "flows")
         )
 
-      drain =
-        Enum.filter(
-          flow.streams,
-          &(&1.subject == "flows.raw.ipfix" and &1.stream_name == "events")
-        )
-
       assert length(live) == 1
-      assert length(drain) == 1
-      expected = Config.flow_subject_stream_name("flows.raw.ipfix")
-      assert hd(live).name == expected
-      assert hd(drain).durable_source_name == expected
-      assert hd(drain).consumer_deliver_policy_if_absent == :all
+      assert hd(live).name == Config.flow_subject_stream_name("flows.raw.ipfix")
+      refute Enum.any?(flow.streams, &(&1.stream_name == "events"))
+      refute Enum.any?(flow.streams, &String.ends_with?(&1.name, "_EVENTS_DRAIN"))
     end
 
-    test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do
-      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
+    test "EVENT_WRITER_FLOW_DRAIN_EVENTS is ignored" do
+      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "true")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS") end)
 
       flow = Config.load_flow()
       refute Enum.any?(flow.streams, &(&1.stream_name == "events"))
+      refute Enum.any?(flow.streams, &String.ends_with?(&1.name, "_EVENTS_DRAIN"))
     end
 
     test "load_flow preserves explicit per-stream pull/ack tuning without env override" do
@@ -691,8 +655,6 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       System.delete_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE")
       System.delete_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING")
-      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
-      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS") end)
 
       flow = Config.load_flow()
       netflow = Enum.find(flow.streams, &(&1.name == "NETFLOW_RAW"))
@@ -726,12 +688,10 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       System.put_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE", "99")
       System.put_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING", "777")
-      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
 
       on_exit(fn ->
         System.delete_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE")
         System.delete_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING")
-        System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
 
         if previous == [] do
           Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
