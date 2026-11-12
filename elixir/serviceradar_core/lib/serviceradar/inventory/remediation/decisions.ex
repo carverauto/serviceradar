@@ -843,7 +843,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     * `to_own_identifiers` — the survivor's identifiers that no unreversed merge brought it;
     * `to_absorbed_before` — the identifiers the merges into the survivor before this one
       brought it (what it also held at the merge);
-    * `to_mac` — the survivor's display MAC.
+    * `to_mac` — the survivor's display MAC;
+    * `guest_macs` — the NIC MACs of the guest the merge bound (`guest_provider_ref`).
 
   The merge joined different machines only on one of these proofs:
 
@@ -858,7 +859,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       under `awx_host_network_match`; otherwise it is not known and the proof is unavailable.
 
   A proof is void when the two sides share an AWX host id, a guest identity or a universally
-  administered MAC: the result is `:conflicting_evidence`. Without the merged record's
+  administered MAC: the result is `:conflicting_evidence`. The bound guest's NIC MACs do not count
+  on the side that does not hold that guest's identity: there they are the AWX update's copy, and
+  the guest's own record shows them too. Without the merged record's
   identifiers it is `:source_identifiers_unrecorded`; without any proof,
   `:no_distinguishing_evidence`. Every ambiguous merge is reported and left in place.
 
@@ -869,24 +872,34 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     from_ids = merge[:source_identifiers]
     to_ids = merge[:to_own_identifiers] || []
     guest = awx_guest_key(merge[:guest_provider_ref])
+    from_guests = awx_guest_keys(from_ids || [])
+    to_guests = awx_guest_keys(to_ids)
+    to_is_guest = guest != nil and MapSet.member?(to_guests, guest)
+    from_is_guest = guest != nil and MapSet.member?(from_guests, guest)
+
+    # The bound guest's NIC MACs on the record that is not that guest are the AWX update's copy,
+    # not an identity the two records share.
+    guest_macs = Mac.universal_macs(List.wrap(merge[:guest_macs]))
 
     facts = %{
       from_awx_hosts: awx_hosts(from_ids || []),
       to_awx_hosts: awx_hosts(to_ids),
-      from_guests: awx_guest_keys(from_ids || []),
-      to_guests: awx_guest_keys(to_ids),
+      from_guests: from_guests,
+      to_guests: to_guests,
       guest: guest,
+      to_is_guest: to_is_guest,
       from_universal_macs:
-        Mac.universal_macs(identifier_mac_values(from_ids) ++ List.wrap(merge[:from_mac])),
+        (identifier_mac_values(from_ids) ++ List.wrap(merge[:from_mac]))
+        |> Mac.universal_macs()
+        |> drop_macs(to_is_guest, guest_macs),
       to_universal_macs:
-        Mac.universal_macs(
-          identifier_mac_values(to_ids) ++
-            identifier_mac_values(merge[:to_absorbed_before]) ++ List.wrap(merge[:to_mac])
-        ),
+        (identifier_mac_values(to_ids) ++
+           identifier_mac_values(merge[:to_absorbed_before]) ++ List.wrap(merge[:to_mac]))
+        |> Mac.universal_macs()
+        |> drop_macs(from_is_guest, guest_macs),
       holder: awx_corroborating_holder(merge[:reason], from_ids || [])
     }
 
-    facts = Map.put(facts, :to_is_guest, guest != nil and MapSet.member?(facts.to_guests, guest))
     proofs = if is_list(from_ids), do: awx_proofs(merge, facts), else: []
 
     cond do
@@ -896,6 +909,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       true -> %{verdict: :different_machines, proofs: proofs, reason: nil, facts: facts}
     end
   end
+
+  defp drop_macs(macs, true, drop), do: MapSet.difference(macs, drop)
+  defp drop_macs(macs, false, _drop), do: macs
 
   defp awx_ambiguous(reason, facts),
     do: %{verdict: :ambiguous, proofs: [], reason: reason, facts: facts}
@@ -1247,7 +1263,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
     verdict =
       cond do
-        shares_identity?(merged_ids, merged_guests, own) ->
+        shares_identity?(merge, merged_ids, merged_guests, own, context) ->
           {:ambiguous, :conflicting_evidence}
 
         both_disjoint?(merged_guests, survivor.established) ->
@@ -1318,16 +1334,29 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     |> Enum.sort()
   end
 
-  defp shares_identity?(merged_ids, merged_guests, own) do
+  # A NIC MAC of a guest the merge names or the merged record holds is not shared identity on
+  # the side that does not hold that guest's identity: there it is an AWX update's copy.
+  defp shares_identity?(merge, merged_ids, merged_guests, own, context) do
     own_guests =
       for {:id, "integration_id", value} <- own,
           key = awx_guest_key(value),
           into: MapSet.new(),
           do: key
 
-    universal = fn ids ->
+    guests = for ref <- guest_refs(merge), guest = Map.get(context.guests, ref), do: guest
+
+    nic_macs = fn holders ->
+      for guest <- guests,
+          MapSet.member?(holders, guest.key),
+          value <- Enum.flat_map(List.wrap(guest.macs), &Mac.normalize_mac_list/1),
+          into: MapSet.new(),
+          do: value
+    end
+
+    universal = fn ids, drop ->
       for {:mac, value} <- ids,
           not Mac.locally_administered_mac?(value),
+          not MapSet.member?(drop, value),
           into: MapSet.new(),
           do: value
     end
@@ -1336,7 +1365,10 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       for {:id, "integration_id", "awx:v2:" <> _ = value} <- ids, into: MapSet.new(), do: value
     end
 
-    not MapSet.disjoint?(universal.(merged_ids), universal.(own)) or
+    not MapSet.disjoint?(
+      universal.(merged_ids, nic_macs.(own_guests)),
+      universal.(own, nic_macs.(merged_guests))
+    ) or
       not MapSet.disjoint?(merged_guests, own_guests) or
       not MapSet.disjoint?(awx_hosts.(merged_ids), awx_hosts.(own))
   end
@@ -1522,19 +1554,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   # The NIC MACs and addresses of the guests the merge named or the merged record held, unless
   # the survivor holds that guest's identity itself.
   defp bound_guest_identity(merge, survivor, context) do
-    refs =
-      [
-        merge[:guest_provider_ref]
-        | for(
-            %{} = id <- List.wrap(merge[:source_identifiers]),
-            identifier_field(id, :type) == "integration_id",
-            do: identifier_field(id, :value)
-          )
-      ]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-
-    for ref <- refs,
+    for ref <- guest_refs(merge),
         guest = Map.get(context.guests, ref),
         not is_nil(guest),
         not MapSet.member?(survivor.established, guest.key),
@@ -1543,6 +1563,19 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
             Enum.map(List.wrap(guest.ips), &{:ip, &1}),
         into: MapSet.new(),
         do: entry
+  end
+
+  defp guest_refs(merge) do
+    [
+      merge[:guest_provider_ref]
+      | for(
+          %{} = id <- List.wrap(merge[:source_identifiers]),
+          identifier_field(id, :type) == "integration_id",
+          do: identifier_field(id, :value)
+        )
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   # A wrong guest's NIC MAC is foreign in every partition: an AWX update bound to that guest copied

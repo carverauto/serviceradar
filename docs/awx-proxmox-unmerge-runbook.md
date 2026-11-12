@@ -38,7 +38,9 @@ step computes its plan when it runs, never from a fixed list.
    when the two sides share an AWX host id, a guest identity or a universally administered MAC
    (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC, and
    the survivor also counts the MACs other merges into it had brought it, those made before or in
-   the same second as this one (`created_at` has second precision). Clusters are compared by
+   the same second as this one (`created_at` has second precision). The NIC MACs of the guest the
+   merge bound do not count on the side that does not hold that guest's identity: there they are
+   the AWX update's copy, and the guest's own record shows the same MACs. Clusters are compared by
    name: two clusters that share a name are never proved distinct.
 
    **The chain rule.** A bad merge *poisons* its survivor from that moment: the survivor's
@@ -60,7 +62,9 @@ step computes its plan when it runs, never from a fixed list.
 
    A survivor's established guests are its own and those of merges into it that stay. A shared
    AWX host id, guest identity or universal MAC with the survivor's own identity (display MAC
-   included) voids the proof (`conflicting_evidence`). A merge on a poisoned record that proves
+   included) voids the proof (`conflicting_evidence`); as above, a NIC MAC of a guest the merge
+   names or the merged record holds does not count on the side without that guest's identity.
+   A merge on a poisoned record that proves
    nothing stays and is reported (`chained_unproven`). That includes the first guest merged
    into a record with no guest identity of its own, which may be that record's machine; every
    later guest with a different VMID is then a second machine.

@@ -408,6 +408,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     )
   end
 
+  defp guest_macs(guests, ref) do
+    case Map.get(guests, ref) do
+      %{macs: macs} -> macs
+      _none -> []
+    end
+  end
+
   defp merge_input(audit, data) do
     from = Map.get(data.devices, audit.from_uid)
     to = Map.get(data.devices, audit.to_uid)
@@ -438,6 +445,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       to_own_identifiers: own_identifiers(data, audit.to_uid, to),
       to_absorbed_before: absorbed_before,
       to_mac: to && to.mac,
+      guest_macs: guest_macs(data.guests, audit.details["guest_provider_ref"]),
       reversed?: MapSet.member?(data.reversed, audit.event_id),
       from_state: from_state(from),
       superseded?:

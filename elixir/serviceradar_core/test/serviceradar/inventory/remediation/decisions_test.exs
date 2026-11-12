@@ -881,6 +881,14 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
            to_own_identifiers: [ident("integration_id", guest_b_ref())],
            to_mac: @universal_a
          }, :ambiguous, :conflicting_evidence},
+        {"the bound guest's NIC MAC an AWX update copied onto the holder does not void the proof",
+         %{
+           corroboration: "mac",
+           source_identifiers: [ident("integration_id", @guest_a), ident("mac", @universal_b)],
+           to_own_identifiers: [ident("integration_id", guest_b_ref())],
+           to_mac: @universal_b,
+           guest_macs: [@universal_b]
+         }, :different_machines, [:proxmox_guest_mismatch]},
         {"a universal MAC an earlier merge brought the survivor voids the proof",
          %{to_absorbed_before: [ident("mac", @universal_a)]}, :ambiguous, :conflicting_evidence},
         {"a merge that recorded no source identifiers", %{source_identifiers: nil}, :ambiguous,
