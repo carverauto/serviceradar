@@ -529,16 +529,38 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     domain = Keyword.get(opts, :domain)
     request = fn topic, body -> Util.request(connection_ref, topic, body) end
 
-    with {:ok, config, stored} <- stream_info(request, stream_name, domain),
-         {:ok, payload} <- reconciled_stream_payload(config, stream_name, subject, opts) do
-      payload = hold_discard_new_max_bytes(stream_name, config, payload, stored)
-      update_stream_if_changed(request, stream_name, config, payload, stored, domain)
-    else
+    case stream_info(request, stream_name, domain) do
+      {:ok, config, stored} ->
+        if sealed?(config) do
+          # A sealed stream is mid-cutover: its shape belongs to the cutover,
+          # which unseals or deletes it. Reshaping it here would fail (JetStream
+          # refuses updates on sealed streams) and would report a healthy stream
+          # as failed, so the shape update is skipped and the caller still sets
+          # up the durable.
+          Logger.debug("Skipping shape reconcile of sealed stream; the cutover owns it",
+            stream: stream_name
+          )
+
+          :ok
+        else
+          with {:ok, payload} <-
+                 reconciled_stream_payload(config, stream_name, subject, opts) do
+            payload = hold_discard_new_max_bytes(stream_name, config, payload, stored)
+            update_stream_if_changed(request, stream_name, config, payload, stored, domain)
+          end
+        end
+
       # CREATE just reported the stream exists; it was deleted in between.
-      :absent -> {:error, {:stream_not_found, stream_name}}
-      {:error, _reason} = error -> error
+      :absent ->
+        {:error, {:stream_not_found, stream_name}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  defp sealed?(%{"sealed" => true}), do: true
+  defp sealed?(_config), do: false
 
   @doc """
   Reads `STREAM.INFO` for `stream_name` through `request`, a function performing

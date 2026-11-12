@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerReconciler
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.EventWriter.Producer
 
   @moduletag timeout: 120_000
@@ -60,7 +61,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
     with_broker(executable, dir, fn port ->
       config = config(port)
       [stream] = config.streams
-      {:ok, admin, _monitor} = ServiceRadar.EventWriter.ConsumerSetup.open(config.nats)
+      {:ok, admin, _monitor} = ConsumerSetup.open(config.nats)
       assert :ok = ConsumerReconciler.ensure_stream(admin, config, stream)
 
       # Phase 1: both producers ACK. Every message is processed exactly once,
@@ -99,6 +100,69 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
       assert Process.alive?(alpha)
       Gnat.stop(admin)
     end)
+  end
+
+  # A cutover seals a limits-retention edge-record stream while it drains. A
+  # core starting mid-cutover still runs ensure on that stream: the real broker
+  # refuses to reshape a sealed stream, so ensure must leave its shape to the
+  # cutover, report the stream healthy, and still bind the durable.
+  @tag :tmp_dir
+  test "ensure on a stream sealed mid-cutover leaves it sealed and binds the durable",
+       %{tmp_dir: dir} do
+    {:ok, _} = Application.ensure_all_started(:gnat)
+
+    [executable] =
+      Path.wildcard(Path.join(System.fetch_env!("TEST_TMPDIR"), "external/*/nats-server"))
+
+    with_broker(executable, dir, fn port ->
+      stream = Config.edge_record_stream()
+      stream_name = Config.jetstream_stream_name(stream)
+      config = %{config(port) | streams: [stream]}
+      {:ok, admin, _monitor} = ConsumerSetup.open(config.nats)
+
+      created =
+        js(admin, "$JS.API.STREAM.CREATE.#{stream_name}", %{
+          name: stream_name,
+          subjects: [stream.subject],
+          retention: "limits",
+          storage: "file"
+        })
+
+      refute Map.has_key?(created, "error"), inspect(created)
+
+      {:ok, _} =
+        Gnat.request(admin, "telemetry.edge-record.v1.bulk.synthetic", "pending-record",
+          receive_timeout: 5_000
+        )
+
+      %{"config" => live} = js(admin, "$JS.API.STREAM.INFO.#{stream_name}", "")
+      sealed = js(admin, "$JS.API.STREAM.UPDATE.#{stream_name}", Map.put(live, "sealed", true))
+      assert %{"config" => %{"sealed" => true}} = sealed
+
+      {result, log} =
+        ExUnit.CaptureLog.with_log(fn ->
+          ConsumerReconciler.ensure_stream(admin, config, stream)
+        end)
+
+      assert result == :ok, inspect(result)
+      refute log =~ "Failed"
+
+      info = js(admin, "$JS.API.STREAM.INFO.#{stream_name}", "")
+      assert %{"config" => %{"sealed" => true, "retention" => "limits"}} = info
+      assert %{"state" => %{"messages" => 1}} = info
+
+      durable = ConsumerSetup.durable_name(config, stream)
+      consumer = js(admin, "$JS.API.CONSUMER.INFO.#{stream_name}.#{durable}", "")
+      assert %{"name" => ^durable, "num_pending" => 1} = consumer
+
+      Gnat.stop(admin)
+    end)
+  end
+
+  defp js(conn, topic, body) do
+    payload = if is_binary(body), do: body, else: Jason.encode!(body)
+    {:ok, %{body: reply}} = Gnat.request(conn, topic, payload, receive_timeout: 5_000)
+    Jason.decode!(reply)
   end
 
   defp config(port) do

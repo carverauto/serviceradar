@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerReconciler
+  alias ServiceRadar.EventWriter.EdgeRecordStreamCutover
 
   @moduletag :db_free
 
@@ -78,6 +79,147 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
         true ->
           raise "unexpected JetStream request: #{topic}"
       end
+    end
+  end
+
+  defmodule EdgeCutoverServer do
+    @moduledoc false
+    # A JetStream server holding edge-record source streams in `limits`
+    # retention with scripted consumer backlogs. DELETE removes the stream; a
+    # later CREATE restores it with the created retention. CONSUMER.INFO
+    # reports the scripted backlog while the stream and its durable exist.
+
+    use GenServer
+
+    def child_spec({test_pid, streams}) do
+      %{
+        id: __MODULE__,
+        start: {__MODULE__, :start_link, [{test_pid, streams}]},
+        restart: :temporary
+      }
+    end
+
+    def start_link(args), do: GenServer.start_link(__MODULE__, args)
+
+    @impl true
+    def init({test_pid, streams}), do: {:ok, %{test_pid: test_pid, streams: streams}}
+
+    @impl true
+    def handle_call({:request, request}, _from, state) do
+      {body, state} = respond(request.topic, request.body, state)
+      inbox = "_INBOX.cutover-test.#{System.unique_integer([:positive])}"
+      send(request.recipient, {:msg, %{topic: inbox, body: Jason.encode!(body)}})
+      send(state.test_pid, {:jetstream_request, request.topic, request.body})
+      {:reply, {:ok, inbox}, state}
+    end
+
+    def handle_call({:unsub, _sid, _opts}, _from, state), do: {:reply, :ok, state}
+
+    defp respond("$JS.API.STREAM.NAMES", body, state) do
+      %{"subject" => subject} = Jason.decode!(body)
+
+      names =
+        for {name, stream} <- state.streams,
+            not stream.deleted and stream.subject == subject,
+            do: name
+
+      {%{"streams" => if(names == [], do: nil, else: names)}, state}
+    end
+
+    defp respond("$JS.API.STREAM.INFO." <> name, _body, state) do
+      case Map.fetch!(state.streams, name) do
+        %{deleted: true} ->
+          {%{"error" => %{"code" => 404, "description" => "stream not found"}}, state}
+
+        stream ->
+          {%{
+             "config" => %{
+               "name" => name,
+               "retention" => stream.retention,
+               "sealed" => stream.sealed
+             },
+             "state" => %{"bytes" => stream.stored}
+           }, state}
+      end
+    end
+
+    defp respond("$JS.API.STREAM.UPDATE." <> name, body, state) do
+      decoded = Jason.decode!(body)
+
+      # Like JetStream, the fake refuses to reshape a sealed stream: only the
+      # cutover unseals it. Updates on an unsealed stream apply normally.
+      case Map.fetch!(state.streams, name) do
+        %{sealed: true} ->
+          {%{"error" => %{"code" => 400, "description" => "stream is sealed"}}, state}
+
+        _stream ->
+          streams = Map.update!(state.streams, name, &%{&1 | sealed: decoded["sealed"]})
+          {%{"config" => decoded}, %{state | streams: streams}}
+      end
+    end
+
+    defp respond("$JS.API.STREAM.DELETE." <> name, _body, state) do
+      streams =
+        Map.update!(state.streams, name, &%{&1 | deleted: true, consumer_exists: false})
+
+      {%{"success" => true}, %{state | streams: streams}}
+    end
+
+    defp respond("$JS.API.STREAM.CREATE." <> name, body, state) do
+      case Map.fetch!(state.streams, name) do
+        %{create_error: message} when is_binary(message) ->
+          {%{"error" => %{"description" => message}}, state}
+
+        _stream ->
+          %{"retention" => retention} = Jason.decode!(body)
+
+          streams =
+            Map.update!(state.streams, name, fn stream ->
+              %{
+                stream
+                | deleted: false,
+                  retention: retention,
+                  sealed: false,
+                  stored: 0,
+                  consumer_exists: false
+              }
+            end)
+
+          {%{"type" => "io.nats.jetstream.api.v1.stream_create_response"},
+           %{state | streams: streams}}
+      end
+    end
+
+    defp respond("$JS.API.CONSUMER.DURABLE.CREATE." <> rest, _body, state) do
+      {name, _durable} = split_consumer(rest)
+      streams = Map.update!(state.streams, name, &%{&1 | consumer_exists: true})
+
+      {%{"type" => "io.nats.jetstream.api.v1.consumer_create_response"},
+       %{state | streams: streams}}
+    end
+
+    defp respond("$JS.API.CONSUMER.INFO." <> rest, _body, state) do
+      {name, _durable} = split_consumer(rest)
+
+      case Map.fetch!(state.streams, name) do
+        %{deleted: true} ->
+          {%{"error" => %{"code" => 404, "description" => "consumer not found"}}, state}
+
+        %{consumer_exists: false} ->
+          {%{"error" => %{"code" => 404, "description" => "consumer not found"}}, state}
+
+        stream ->
+          {%{"num_pending" => stream.pending, "num_ack_pending" => 0}, state}
+      end
+    end
+
+    defp respond(topic, _body, _state) do
+      raise "unexpected JetStream request: #{topic}"
+    end
+
+    defp split_consumer(rest) do
+      [stream_name, durable] = String.split(rest, ".", parts: 2)
+      {stream_name, durable}
     end
   end
 
@@ -190,6 +332,163 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
 
     assert_receive :edge_retention_reconcile, 1_000
     assert topics() == []
+  end
+
+  # One process holds at most one global cutover lock: OTP logs
+  # "registered under several names" and refuses the second registration,
+  # which the reconciler would misread as "another core holds it". While this
+  # core drains one stream, the other stream waits for the next tick.
+  test "a second stream cutover waits while this core holds a cutover lock",
+       %{config: config} do
+    {bulk_name, audit_name, state} = cutover_state(config, 5)
+
+    {{:noreply, state}, log} =
+      with_log(fn -> ConsumerReconciler.handle_info(:edge_retention_reconcile, state) end)
+
+    assert Map.keys(state.edge_cutovers) == [bulk_name]
+    assert :global.whereis_name({EdgeRecordStreamCutover, bulk_name}) == self()
+    assert :global.whereis_name({EdgeRecordStreamCutover, audit_name}) == :undefined
+    refute log =~ "registered under several names"
+
+    assert [{"$JS.API.STREAM.UPDATE." <> ^bulk_name, body}] =
+             for({"$JS.API.STREAM.UPDATE." <> _, _} = request <- requests(), do: request)
+
+    assert Jason.decode!(body)["sealed"] == true
+    refute Enum.any?(topics(), &String.starts_with?(&1, "$JS.API.STREAM.DELETE."))
+    refute Enum.any?(topics(), &String.contains?(&1, ".CONSUMER."))
+
+    on_exit(fn -> :global.unregister_name({EdgeRecordStreamCutover, bulk_name}) end)
+  end
+
+  # The wait is not a stall: once the first stream cuts over and releases its
+  # lock, the next tick starts the waiting stream, which then cuts over too.
+  test "a waiting stream cutover starts once the first stream cuts over",
+       %{config: config} do
+    {bulk_name, audit_name, state} = cutover_state(config, 0)
+
+    {{:noreply, state}, log1} =
+      with_log(fn -> ConsumerReconciler.handle_info(:edge_retention_reconcile, state) end)
+
+    assert Map.keys(state.edge_cutovers) == [bulk_name]
+
+    {{:noreply, state}, _log2} =
+      with_log(fn ->
+        ConsumerReconciler.handle_info({:edge_cutover_poll, state.conn, bulk_name}, state)
+      end)
+
+    assert state.edge_cutovers == %{}
+    assert :global.whereis_name({EdgeRecordStreamCutover, bulk_name}) == :undefined
+
+    {{:noreply, state}, log3} =
+      with_log(fn -> ConsumerReconciler.handle_info(:edge_retention_reconcile, state) end)
+
+    assert Map.keys(state.edge_cutovers) == [audit_name]
+    assert :global.whereis_name({EdgeRecordStreamCutover, audit_name}) == self()
+
+    {{:noreply, state}, _log4} =
+      with_log(fn ->
+        ConsumerReconciler.handle_info({:edge_cutover_poll, state.conn, audit_name}, state)
+      end)
+
+    assert state.edge_cutovers == %{}
+    assert :global.whereis_name({EdgeRecordStreamCutover, audit_name}) == :undefined
+
+    refute log1 <> log3 =~ "registered under several names"
+
+    deletes =
+      for {"$JS.API.STREAM.DELETE." <> name, _} <- requests(), do: name
+
+    assert Enum.sort(deletes) == Enum.sort([bulk_name, audit_name])
+  end
+
+  # A sealed stream is mid-cutover: its shape belongs to the cutover, so
+  # ensure must not reshape it (JetStream refuses the update) and must not
+  # report the stream as failed. The durable is still set up, and the cutover
+  # finishes the conversion on its next pass.
+  test "ensure on a sealed stream skips the shape update and still sets up the durable",
+       %{config: config} do
+    bulk = Config.edge_record_stream()
+    bulk_name = Config.jetstream_stream_name(bulk)
+
+    servers = %{
+      bulk_name => %{
+        subject: bulk.subject,
+        retention: "limits",
+        sealed: true,
+        stored: 1_024,
+        deleted: false,
+        pending: 0,
+        consumer_exists: false,
+        create_error: "stream name is already in use"
+      }
+    }
+
+    conn = start_supervised!({EdgeCutoverServer, {self(), servers}})
+
+    config = %{
+      config
+      | consumer_name: "cutover-test-writer",
+        streams: [bulk],
+        retired_consumers: []
+    }
+
+    log = capture_log(fn -> assert :ok = ConsumerReconciler.ensure_stream(conn, config, bulk) end)
+
+    refute log =~ "Failed to initialize"
+
+    reqs = requests()
+
+    assert Enum.empty?(for {"$JS.API.STREAM.UPDATE." <> _, _} <- reqs, do: :update)
+
+    refute Enum.any?(reqs, fn {topic, _} ->
+             String.starts_with?(topic, "$JS.API.STREAM.DELETE.")
+           end)
+
+    assert Enum.any?(reqs, fn {topic, _} ->
+             String.starts_with?(topic, "$JS.API.CONSUMER.DURABLE.CREATE.#{bulk_name}.")
+           end)
+  end
+
+  defp cutover_state(config, pending) do
+    streams = [Config.edge_record_stream(), Config.edge_record_audit_stream()]
+    bulk_name = Config.jetstream_stream_name(hd(streams))
+    audit_name = Config.jetstream_stream_name(hd(tl(streams)))
+
+    servers =
+      Map.new(streams, fn stream ->
+        {Config.jetstream_stream_name(stream),
+         %{
+           subject: stream.subject,
+           retention: "limits",
+           sealed: false,
+           stored: 1_024,
+           deleted: false,
+           pending: pending,
+           consumer_exists: true,
+           create_error: nil
+         }}
+      end)
+
+    conn = start_supervised!({EdgeCutoverServer, {self(), servers}})
+
+    config = %{
+      config
+      | consumer_name: "cutover-test-writer",
+        streams: streams,
+        retired_consumers: [],
+        ownership_reconcile_interval_ms: 20
+    }
+
+    state = %ConsumerReconciler{
+      config: config,
+      conn: conn,
+      monitor: make_ref(),
+      connected: true,
+      stream_health: RecordingStreamHealth,
+      owned_streams: %{}
+    }
+
+    {bulk_name, audit_name, state}
   end
 
   # One health event per transition for the whole deployment, however many
