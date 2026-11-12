@@ -2,8 +2,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   @moduledoc "Bounded end-manifest scan. Dispatching repairs is not completion evidence."
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: Warehouse
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs, as: Repairs
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
-  alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Publisher
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
 
@@ -254,10 +254,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   defp bucket_clause({:bucket, bucket}, index), do: {"AND bucket = $#{index}", [bucket]}
 
   defp queue_full_generation do
-    case %{} |> Publisher.new() |> Oban.insert() do
-      {:ok, _job} -> :ok
-      {:error, _reason} -> :ok
-    end
+    ExposureSnapshotScopes.request(nil)
   end
 
   defp device_bucket(nil), do: :deployment

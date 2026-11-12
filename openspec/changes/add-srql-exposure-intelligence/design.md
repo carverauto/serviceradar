@@ -2065,6 +2065,20 @@ snapshot/reconciliation and the remaining lifecycle scenarios are still open.
 CVE and package dimension ingestion is Decision 22. No exposure query entity
 is enabled by this slice.
 
+### Decision 27: Publish snapshots through one singleton job over a scopes table
+
+The per-device `ExposureSnapshotWorker` Oban fan-out is replaced by one
+`ExposureSnapshotPublisherWorker` draining `platform.exposure_snapshot_scopes`
+(see `redesign-exposure-snapshot-publisher` for the mechanics). Publication
+semantics are unchanged: serial fenced generations, envelope-hash idempotency,
+receipts, and finalization stay exactly as specified. The per-scope engine is
+reused unchanged; only job plumbing becomes loop control flow, and the engine
+keeps its direct-drive `perform/1` contract while nothing enqueues it.
+Demand (reconciliation, finalizer, maintenance backstop, prepare completion)
+writes scope rows and ensures the singleton. Queued pre-deploy Oban rows are
+converted by migration; `executing` rows stay for Oban lifeline through the
+retained `perform/1`.
+
 ## Open Questions
 
 1. Resolved: the product owner approved the StarRocks-required exception for exposure

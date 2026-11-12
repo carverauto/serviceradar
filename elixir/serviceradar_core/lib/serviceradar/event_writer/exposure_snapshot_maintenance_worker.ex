@@ -8,6 +8,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.ExposureSnapshotIngestion, as: Ingestion
   alias ServiceRadar.Inventory.ExposureSnapshotFinalizer, as: Finalizer
+  alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
   alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Publisher
   alias ServiceRadar.Repo
@@ -15,8 +16,6 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
   @impl Oban.Worker
   def perform(_job) do
     if Destination.enabled?() do
-      recovery = Publisher.recover_reader()
-
       pending =
         Repo.query!("""
         SELECT id, jsonb_object_keys(control->'pending')
@@ -34,7 +33,9 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
           _ -> :ok
         end
 
-      results = [recovery, result | results]
+      backstop = ensure_publisher_backstop()
+
+      results = [backstop, result | results]
 
       Enum.each(results, fn
         :ok ->
@@ -61,7 +62,15 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
     if missing == [] do
       :ok
     else
-      with {:ok, _} <- %{} |> Publisher.new() |> Oban.insert(), do: :ok
+      Scopes.request(nil)
     end
+  end
+
+  # Backstop for a publisher that exited before its table drained (wait budget
+  # out, crash, or deploy): pending scope work with no live publish in flight
+  # ensures a fresh pass. Over-ensuring is free — a run that finds the session
+  # lock held or the table quiet exits immediately.
+  defp ensure_publisher_backstop do
+    if Scopes.pending?(), do: Scopes.ensure_publisher(), else: :ok
   end
 end
