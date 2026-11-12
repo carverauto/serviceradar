@@ -6,7 +6,9 @@ The proof SHALL be one of: AWX v2 host ids of one controller that differ between
 records, Proxmox guest identities whose cluster or VMID differ between the two records, or a
 merge corroborated by a MAC when every MAC the corroborating record held was locally
 administered. A shared AWX host id, guest identity or universally administered MAC SHALL void the
-proof, and a merge without a proof SHALL be reported and left in place.
+proof, and a merge without a proof SHALL be reported and left in place. A NIC MAC of the guest the
+merge bound SHALL NOT count as shared on the side that does not hold that guest's identity,
+because there it is the AWX update's copy.
 
 A bad merge SHALL poison its survivor with the identifiers the merge recorded for the merged
 record, the NIC MACs and addresses of the guest the merge named (unless the survivor holds that
@@ -14,8 +16,10 @@ guest's identity) and the merged record's address. A later merge of any reason t
 poisoned record SHALL be bad when the merged record holds a Proxmox guest identity and the
 survivor had established a different one, or when every identifier its match rested on is foreign
 to the poisoned record and none is that record's own; a shared universally administered MAC,
-guest identity or AWX host id with the survivor's own identity SHALL void that proof. Any other
-merge on a poisoned record SHALL be reported and left in place.
+guest identity or AWX host id with the survivor's own identity SHALL void that proof, except
+that a NIC MAC of a guest the merge names or the merged record holds does not count on the side
+without that guest's identity. Any other merge on a poisoned record SHALL be reported and left in
+place.
 
 The repair SHALL be dry run by default, SHALL compute its plan when it runs, and SHALL refuse to
 execute unless the release runtime configuration enables it. Bad merges that share records SHALL
