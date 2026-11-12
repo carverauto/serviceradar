@@ -55,3 +55,46 @@ unless the guest reports the AWX host's declared address or an address of the AW
 - **GIVEN** an AWX record declaring node `pve01`, VMID 100 and `ansible_host` A
 - **WHEN** Proxmox enrichment reports a guest with node `pve01` and VMID 100 and no address
 - **THEN** the guest SHALL NOT adopt or merge the AWX record
+
+### Requirement: AWX Inventory Sync Reports Hosts Without Asserting Machine Identity
+The AWX inventory sync producer SHALL emit an AWX host whose variables declare an IP
+`ansible_host` or `ansible_ssh_host`, a configured NIC MAC, or a Proxmox guest reference (node name
+and VMID), and SHALL skip a host that declares none of them. Emitting a host SHALL NOT assert
+machine identity: only a declared IP and a universally administered MAC are machine evidence. The
+producer SHALL emit a Proxmox node name and VMID only as descriptive metadata, which core uses to
+narrow guest candidates. A host whose only declarations are a Proxmox guest reference or a locally
+administered MAC SHALL still be emitted, because leaving it out of a complete aggregate would
+expire its AWX membership and retire its record; core keeps it as its own AWX record.
+
+#### Scenario: A host that declares only a Proxmox guest reference
+- **GIVEN** an AWX host whose variables declare node `pve01` and VMID 104 and no address or MAC
+- **WHEN** AWX inventory sync runs
+- **THEN** the host SHALL be emitted with the node name and VMID as metadata
+- **AND** it SHALL NOT be bound to a Proxmox guest on that pair
+
+#### Scenario: A host that declares only a locally administered MAC
+- **GIVEN** an AWX host whose only NIC MAC is locally administered and that declares no address
+- **WHEN** AWX inventory sync runs
+- **THEN** the host SHALL be emitted
+
+#### Scenario: A host known by name alone
+- **GIVEN** an AWX host whose variables declare no IP, no NIC MAC and no Proxmox guest reference
+- **WHEN** AWX inventory sync runs
+- **THEN** the host SHALL NOT be emitted
+
+### Requirement: Proxmox Guest Node Names Come From Node References
+When the system reads a Proxmox node name from a v3 provider reference, it SHALL parse the
+reference as `IntegrationIdentity` renders it, `proxmox:v3:<integration-uuid>:<controller-uuid>:<cluster>:<kind>:<native-id>`,
+and SHALL take the node name only from a `node` reference. A v3 guest reference names no node, so
+a guest's node name SHALL come from the guest's metadata or its host's node reference. A child
+reference, such as a disk or NIC reference, SHALL NOT yield a node name.
+
+#### Scenario: A guest whose host is in a cluster named like a reference kind
+- **GIVEN** a Proxmox guest on node `pve01` whose cluster is named `host`
+- **WHEN** the system reads the guest's node name from its host reference
+- **THEN** the node name SHALL be `pve01`
+
+#### Scenario: A v3 guest reference
+- **GIVEN** the v3 reference of a QEMU guest with VMID 100
+- **WHEN** the system reads a node name from it
+- **THEN** it SHALL find none

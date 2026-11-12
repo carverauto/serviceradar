@@ -67,6 +67,53 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
       assert guest.provider_ref == "#{cluster.provider_instance_ref}:qemu:100"
     end
 
+    test "reads the node name from a node ref only" do
+      v3_ref = fn cluster, kind, native_id ->
+        {:ok, fields} =
+          IntegrationIdentity.proxmox_v3_fields(
+            @farm_integration_id,
+            @farm_controller_id,
+            cluster,
+            kind,
+            native_id
+          )
+
+        fields.provider_ref
+      end
+
+      assert IntegrationIdentity.proxmox_v3_node_name(v3_ref.("cluster/lab", :node, "pve01")) ==
+               "pve01"
+
+      assert IntegrationIdentity.proxmox_v3_node_name(v3_ref.("cluster/lab", :node, "pve:a")) ==
+               "pve:a"
+
+      # A cluster may itself be named like a ref kind; the node is still the node component.
+      assert IntegrationIdentity.proxmox_v3_node_name(v3_ref.("host", :node, "pve01")) == "pve01"
+
+      # A guest ref carries no node name.
+      assert IntegrationIdentity.proxmox_v3_node_name(v3_ref.("cluster/lab", :qemu, 100)) == nil
+      assert IntegrationIdentity.proxmox_v3_node_name(v3_ref.("node", :lxc, 101)) == nil
+
+      {:ok, instance} =
+        IntegrationIdentity.proxmox_v3_fields(
+          @farm_integration_id,
+          @farm_controller_id,
+          "cluster/lab",
+          :cluster,
+          "cluster/lab"
+        )
+
+      {:ok, disk_ref} =
+        IntegrationIdentity.proxmox_v3_child_ref(instance.provider_instance_ref, "disk", [
+          "pve01",
+          "sda"
+        ])
+
+      assert IntegrationIdentity.proxmox_v3_node_name(disk_ref) == nil
+      assert IntegrationIdentity.proxmox_v3_node_name("proxmox:node:pve01") == nil
+      assert IntegrationIdentity.proxmox_v3_node_name(nil) == nil
+    end
+
     test "keeps identical native identifiers distinct across integration/controller scopes" do
       assert {:ok, farm} =
                IntegrationIdentity.proxmox_v3_fields(

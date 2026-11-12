@@ -50,7 +50,7 @@ func TestAWXLegacyIDsBridgeTheHostnameKey(t *testing.T) {
 	}
 }
 
-func TestAWXHostHasStrongAnchor(t *testing.T) {
+func TestAWXHostIsReportable(t *testing.T) {
 	cases := map[string]struct {
 		variables string
 		want      bool
@@ -71,8 +71,8 @@ func TestAWXHostHasStrongAnchor(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := awxHostHasStrongAnchor(awxHostRow{Variables: tc.variables}); got != tc.want {
-				t.Fatalf("awxHostHasStrongAnchor(%q) = %v, want %v", tc.variables, got, tc.want)
+			if got := awxHostIsReportable(awxHostRow{Variables: tc.variables}); got != tc.want {
+				t.Fatalf("awxHostIsReportable(%q) = %v, want %v", tc.variables, got, tc.want)
 			}
 		})
 	}

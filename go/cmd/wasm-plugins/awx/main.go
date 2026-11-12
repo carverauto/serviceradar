@@ -3853,7 +3853,7 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 				complete = false
 				continue
 			}
-			if !awxHostHasStrongAnchor(host) {
+			if !awxHostIsReportable(host) {
 				continue
 			}
 			discovery.AddDevice(buildDiscoveredHost(cfg, inv, host))

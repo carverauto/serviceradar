@@ -2299,7 +2299,10 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 	}
 }
 
-func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
+// Only an IP and a universally administered MAC are machine evidence, but a host
+// declaring just a Proxmox guest reference or a locally administered MAC is still
+// reported: leaving it out of a complete aggregate would retire its AWX record.
+func TestRunInventorySyncSkipsOnlyHostnameOnlyHosts(t *testing.T) {
 	inventories := []byte(`{
 		"count": 1,
 		"next": null,
@@ -2308,13 +2311,16 @@ func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
 		]
 	}`)
 	hosts := []byte(`{
-		"count": 4,
+		"count": 7,
 		"next": null,
 		"results": [
 			{"id": 100, "name": "node-a", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"192.0.2.10\"}"},
 			{"id": 101, "name": "node-b", "inventory": 7, "enabled": true, "variables": "{\"proxmox_net0\":\"virtio=BC:24:11:53:84:67,bridge=vmbr0\"}"},
 			{"id": 102, "name": "hostname-only", "inventory": 7, "enabled": true, "variables": ""},
-			{"id": 103, "name": "dns-only", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"host.example.org\"}"}
+			{"id": 103, "name": "dns-only", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"host.example.org\"}"},
+			{"id": 104, "name": "guest-ref-only", "inventory": 7, "enabled": true, "variables": "{\"proxmox_vmid\":104,\"proxmox_node\":\"pve01\"}"},
+			{"id": 105, "name": "local-mac-only", "inventory": 7, "enabled": true, "variables": "{\"proxmox_net0\":\"virtio=02:00:00:00:01:05,bridge=vmbr0\"}"},
+			{"id": 106, "name": "vmid-without-node", "inventory": 7, "enabled": true, "variables": "{\"proxmox_vmid\":106}"}
 		]
 	}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
@@ -2341,14 +2347,18 @@ func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
 	for _, d := range disc.Devices {
 		got[d.DeviceID] = true
 	}
-	if !got["awx:ctrl-1:host:100"] || !got["awx:ctrl-1:host:101"] {
-		t.Fatalf("anchored hosts must be emitted, got %#v", got)
+	for _, id := range []string{"100", "101", "104", "105"} {
+		if !got["awx:ctrl-1:host:"+id] {
+			t.Fatalf("host %s declares more than its name and must be emitted, got %#v", id, got)
+		}
 	}
-	if got["awx:ctrl-1:host:102"] || got["awx:ctrl-1:host:103"] {
-		t.Fatalf("hostname-only hosts must not be emitted, got %#v", got)
+	for _, id := range []string{"102", "103", "106"} {
+		if got["awx:ctrl-1:host:"+id] {
+			t.Fatalf("hostname-only host %s must not be emitted, got %#v", id, got)
+		}
 	}
-	if res.Labels["hosts"] != "2" {
-		t.Errorf("hosts label = %q, want 2", res.Labels["hosts"])
+	if res.Labels["hosts"] != "4" {
+		t.Errorf("hosts label = %q, want 4", res.Labels["hosts"])
 	}
 }
 

@@ -264,6 +264,22 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
 
   def parse_v3(_value), do: :error
 
+  @doc """
+  The Proxmox node name a v3 node reference carries, or `nil`.
+
+  Only a node reference (`<provider-instance>:node:<node-name>`) names a node. A guest
+  reference (`<provider-instance>:qemu:<vmid>`) does not: a guest's node is where it runs, not
+  part of its identity, so a caller reads it from the guest's host reference instead. Child
+  references minted by `proxmox_v3_child_ref/3` are not object references and return `nil`.
+  """
+  @spec proxmox_v3_node_name(term()) :: String.t() | nil
+  def proxmox_v3_node_name(value) do
+    case parse_v3(value) do
+      {:ok, %{object_kind: "node", native_object_id: node}} -> node
+      _ -> nil
+    end
+  end
+
   @doc "Validate that structured v3 fields exactly render the supplied ref."
   @spec validate_v3_record(map()) :: :ok | {:error, atom()}
   def validate_v3_record(record) when is_map(record) do
