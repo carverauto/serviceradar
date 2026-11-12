@@ -1047,6 +1047,11 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   as `:merge_superseded` when the device merged again since, and as `:not_merged` unless the
   device is still the merge's tombstone, so that a rollback replayed over a changed inventory
   does nothing.
+
+  The restored record never takes an address another live device holds; an unmerge chain
+  whose merged records all kept the survivor's address restores each of them without one. The
+  unmerge audit row records the address the record holds afterwards (`restored_ip`) and the
+  addresses it carried but did not take back (`withheld_ips`).
   """
   @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
   def unmerge_device(from_device_id, opts \\ []) do
@@ -1120,7 +1125,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            :ok <- check_merged(from_device_id, unmerge, actor),
            # Before the restore, which reclaims the merged record's address when it is free.
            :ok <- revert_succession(audit, to_device_id, actor),
-           {:ok, _device} <- recreate_device(from_device_id, audit, actor),
+           {:ok, recreated, withheld_ips} <- recreate_device(from_device_id, audit, actor),
            {:ok, restored} <-
              reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
            {:ok, restored_archived} <-
@@ -1138,7 +1143,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                    unmerged_by: unmerge.unmerged_by,
                    restored_identifiers: Enum.sort_by(restored.restored, &{&1.type, &1.value}),
                    restored_identifiers_source: restored.provenance,
-                   restored_archived_identifiers: restored_archived
+                   restored_archived_identifiers: restored_archived,
+                   restored_ip: recreated.ip,
+                   withheld_ips: withheld_ips
                  }
                },
                actor: actor
@@ -1278,55 +1285,61 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   defp assert_succession_distinct(_audit, _from, _to), do: :ok
 
+  # Returns the record and the addresses it carried (its tombstone's, and the merge's
+  # `from_device_ip`) that it did not take back because another live device held them. The
+  # unmerge audit records both, so an address the record gave up stays discoverable.
   defp recreate_device(from_device_id, audit, actor) do
     details = audit.details || %{}
     ip = details["from_device_ip"] || details[:from_device_ip]
     hostname = details["from_device_hostname"] || details[:from_device_hostname]
 
-    # The merge soft-deleted the from-device, so its row still exists —
-    # restore it in place instead of inserting a duplicate uid. The original
-    # IP is only reclaimed when no live device holds it (the survivor
-    # usually does; unique-active-IP would reject the restore otherwise).
+    # The merge soft-deleted the from-device, so its row still exists -- restore it in place
+    # instead of inserting a duplicate uid. A tombstone keeps the address it held, which a live
+    # device may hold now (the survivor, or a record this unmerge chain restored before it):
+    # :restore keeps it only while no other live device holds it, and the merge's address is
+    # reclaimed afterwards under the same rule.
     case Device.get_by_uid(from_device_id, true, actor: actor) do
-      {:ok, %Device{deleted_at: %_{}}} ->
-        # Atomic updates on tombstoned rows raise StaleRecord (the update
-        # query is built from the primary read, which filters deleted rows);
-        # bulk_update over an include_deleted query restores in place. An
-        # unmerge is an administrative restore, so a retained tombstone is
-        # restored too (Device.retained_reasons/0).
-        restore_result =
-          Device
-          |> Ash.Query.for_read(:read, %{include_deleted: true})
-          |> Ash.Query.filter(uid == ^from_device_id)
-          |> Ash.bulk_update(:restore, %{allow_retained: true},
-            actor: actor,
-            return_records?: true,
-            return_errors?: true,
-            strategy: [:atomic, :stream]
-          )
-
-        case restore_result do
-          %Ash.BulkResult{status: :success, records: [restored | _]} ->
-            restore_device_attributes(restored, ip, hostname, actor)
-
-          %Ash.BulkResult{status: :success} ->
-            Device.get_by_uid(from_device_id, false, actor: actor)
-
-          %Ash.BulkResult{errors: errors} ->
-            {:error, errors}
+      {:ok, %Device{deleted_at: %_{}} = tombstone} ->
+        with {:ok, restored} <- restore_tombstone(from_device_id, actor),
+             {:ok, device} <- restore_device_attributes(restored, ip, hostname, actor) do
+          {:ok, device, withheld_ips([tombstone.ip, ip], device)}
         end
 
       {:ok, %Device{} = live} ->
-        {:ok, live}
+        {:ok, live, []}
 
       _ ->
         attrs = %{uid: from_device_id}
         attrs = if ip && ip_unclaimed?(ip, actor), do: Map.put(attrs, :ip, ip), else: attrs
         attrs = if hostname, do: Map.put(attrs, :hostname, hostname), else: attrs
 
-        Device
-        |> Ash.Changeset.for_create(:create, attrs)
-        |> Ash.create(actor: actor)
+        with {:ok, device} <-
+               Device
+               |> Ash.Changeset.for_create(:create, attrs)
+               |> Ash.create(actor: actor) do
+          {:ok, device, withheld_ips([ip], device)}
+        end
+    end
+  end
+
+  # Atomic updates on tombstoned rows raise StaleRecord (the update query is built from the
+  # primary read, which filters deleted rows); bulk_update over an include_deleted query restores
+  # in place. An unmerge is an administrative restore, so a retained tombstone is restored too
+  # (Device.retained_reasons/0).
+  defp restore_tombstone(from_device_id, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid == ^from_device_id)
+    |> Ash.bulk_update(:restore, %{allow_retained: true},
+      actor: actor,
+      return_records?: true,
+      return_errors?: true,
+      strategy: [:atomic, :stream]
+    )
+    |> case do
+      %Ash.BulkResult{status: :success, records: [restored | _]} -> {:ok, restored}
+      %Ash.BulkResult{status: :success} -> Device.get_by_uid(from_device_id, false, actor: actor)
+      %Ash.BulkResult{errors: errors} -> {:error, errors}
     end
   end
 
@@ -1342,6 +1355,14 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.update(actor: actor)
     end
+  end
+
+  defp withheld_ips(carried, %Device{ip: restored_ip}) do
+    carried
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.reject(&(&1 == restored_ip))
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp ip_unclaimed?(ip, actor) do

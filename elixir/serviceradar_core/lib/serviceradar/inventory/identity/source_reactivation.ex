@@ -963,14 +963,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
     end
   end
 
+  # :restore clears an address another live record holds (ReleaseContestedAddress); the check
+  # under the holder's lock only reports that it will.
   defp revive(%Device{uid: device_uid}, actor) do
     cleared_ip = ip_conflict?(device_uid)
-    input = if cleared_ip, do: %{allow_retained: true, ip: nil}, else: %{allow_retained: true}
 
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid == ^device_uid)
-    |> Ash.bulk_update(:restore, input,
+    |> Ash.bulk_update(:restore, %{allow_retained: true},
       actor: actor,
       return_records?: true,
       return_errors?: true,
