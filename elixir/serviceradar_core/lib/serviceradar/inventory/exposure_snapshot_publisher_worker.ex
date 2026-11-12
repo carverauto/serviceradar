@@ -5,8 +5,10 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   Replaces the per-device `ExposureSnapshotWorker` Oban fan-out, whose waiting
   jobs returned `{:snooze, 5}` millions of times against one deployment-wide
   serial lock. One execution takes the session lock once, adopts orphaned
-  scopes, publishes due scopes oldest-first through the
-  `ExposureSnapshotWorker` engine, and exits when the table is quiet. No
+  scopes and legacy-format queue rows, publishes due scopes oldest-first
+  through the `ExposureSnapshotWorker` engine (completing without a
+  generation any scope a newer complete generation already fulfilled), and
+  exits when the table is quiet. No
   `{:snooze, _}` on this path: blocking states become bounded in-execution
   waits, and anything still blocked is picked up through the demand ensures
   (including the maintenance backstop) on a later pass.
@@ -55,12 +57,14 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
   end
 
   defp adopt_orphans do
-    Enum.reduce_while(Scopes.expired_publishing(), :ok, fn [id, scope, generation_id], :ok ->
-      case adopt(id, scope, generation_id) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    with {:ok, _swept} <- Scopes.sweep_legacy_queue() do
+      Enum.reduce_while(Scopes.expired_publishing(), :ok, fn [id, scope, generation_id], :ok ->
+        case adopt(id, scope, generation_id) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
   end
 
   defp adopt(id, _scope, nil), do: Scopes.requeue(id)
@@ -127,7 +131,18 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
     )
   end
 
-  defp drive_scope(session, id, scope), do: drive_scope(session, id, scope, 0)
+  # A scope fulfilled by a newer complete generation needs no new
+  # publication: complete it without a generation, serial order unchanged.
+  # Nil scopes never report fulfilled (the query excludes them), so global
+  # re-publication always publishes.
+  defp drive_scope(session, id, scope) do
+    if Scopes.fulfilled_since_request?(id) do
+      Scopes.complete_fulfilled(id)
+      :ok
+    else
+      drive_scope(session, id, scope, 0)
+    end
+  end
 
   defp drive_scope(session, id, scope, waits) do
     case Engine.publish_scope(session, scope) do

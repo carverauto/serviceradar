@@ -93,6 +93,114 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
   end
 
   @doc """
+  True when a complete generation covering the scope finished after the scope
+  was last requested. A stale request fulfilled by a newer generation needs
+  no new publication; the publisher completes such scopes without a
+  generation. Nil (global) scopes always publish; aborted generations never
+  fulfill.
+  """
+  def fulfilled_since_request?(id) do
+    case Repo.query(
+           """
+           SELECT EXISTS (
+             SELECT 1 FROM platform.exposure_snapshot_generations g
+             JOIN #{@table} s ON s.id = $1
+             WHERE g.status = 'complete'
+               AND (g.control->>'scope' IS NULL OR (g.control->>'scope')::bigint = s.scope_ord)
+               AND g.updated_at > s.not_before
+               AND s.scope_ord IS NOT NULL
+           )
+           """,
+           [id]
+         ) do
+      {:ok, %{rows: [[fulfilled]]}} -> fulfilled
+      {:error, _reason} -> false
+    end
+  end
+
+  @doc """
+  Completes a claimed row whose scope was fulfilled by a newer generation.
+  Requires the `publishing` claim like `complete/2`, so a concurrently
+  re-pended row stays pending.
+  """
+  def complete_fulfilled(id) do
+    Repo.query!(
+      """
+      UPDATE #{@table} SET status = 'complete', error = NULL, updated_at = now()
+      WHERE id = $1 AND status = 'publishing'
+      """,
+      [id]
+    )
+
+    :ok
+  end
+
+  @doc """
+  Terminates legacy-format `ExposureSnapshotWorker` queue rows with the same
+  rule the queue clause applies at execution: an integer `device_ord` adopts
+  that scope if absent, a missing `device_ord` adopts the fleet-wide scope,
+  and the row completes; a row naming an invalid scope cancels. Rows already
+  executing are left for their owner. Idempotent and safe to repeat: adoption
+  never modifies an existing scope row, and only rows no production code
+  enqueues anymore match.
+  """
+  def sweep_legacy_queue do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id, args->>'device_ord' FROM platform.oban_jobs
+        WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
+          AND state IN ('available', 'scheduled', 'retryable')
+        ORDER BY id
+        """,
+        []
+      )
+
+    rows
+    |> Enum.reduce(%{adopted: 0, terminated: 0}, fn [job_id, device_ord], acc ->
+      case parse_scope(device_ord) do
+        {:ok, scope} ->
+          adopt_legacy(scope)
+          terminate_legacy_job(job_id, "completed")
+          %{acc | adopted: acc.adopted + 1, terminated: acc.terminated + 1}
+
+        :error ->
+          terminate_legacy_job(job_id, "cancelled")
+          %{acc | terminated: acc.terminated + 1}
+      end
+    end)
+    |> then(&{:ok, &1})
+  end
+
+  defp parse_scope(nil), do: {:ok, nil}
+
+  defp parse_scope(value) when is_integer(value) and value >= 1, do: {:ok, value}
+
+  defp parse_scope(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {ordinal, ""} when ordinal >= 1 -> {:ok, ordinal}
+      _ -> :error
+    end
+  end
+
+  defp parse_scope(_value), do: :error
+
+  defp terminate_legacy_job(job_id, state) do
+    Repo.query!(
+      """
+      UPDATE platform.oban_jobs
+      SET state = $2::oban_job_state,
+          completed_at = CASE WHEN $2::oban_job_state = 'completed' THEN now() ELSE completed_at END,
+          cancelled_at = CASE WHEN $2::oban_job_state = 'cancelled' THEN now() ELSE cancelled_at END
+      WHERE id = $1 AND state IN ('available', 'scheduled', 'retryable')
+      """,
+      [job_id, state]
+    )
+
+    :ok
+  end
+
+  @doc """
   Adopts a legacy queue scope (nil for fleet-wide): inserts it `pending` when
   no row exists (never touching an existing row) and ensures the publisher.
   Queue-executed legacy jobs call this instead of publishing, so no old-format

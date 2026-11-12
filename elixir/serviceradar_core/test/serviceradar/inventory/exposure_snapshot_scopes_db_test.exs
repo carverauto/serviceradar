@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
 
   alias Ecto.Migration.Runner
   alias ServiceRadar.Inventory.ExposureSnapshotScopes, as: Scopes
+  alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.AddExposureSnapshotScopes, as: ScopesMigration
 
@@ -27,9 +28,16 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
 
     [[job_floor]] = Repo.query!("SELECT COALESCE(max(id), 0) FROM oban_jobs").rows
 
+    [[gen_floor]] =
+      Repo.query!("SELECT COALESCE(max(id), 0) FROM platform.exposure_snapshot_generations").rows
+
     on_exit(fn ->
       Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE id > $1", [scope_floor])
       Repo.query!("DELETE FROM oban_jobs WHERE id > $1", [job_floor])
+
+      Repo.query!("DELETE FROM platform.exposure_snapshot_generations WHERE id > $1", [
+        gen_floor
+      ])
     end)
 
     base = 9_100_000 + System.unique_integer([:positive, :monotonic])
@@ -289,6 +297,120 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
     )
   end
 
+  # A scope requested before a covering generation completed is fulfilled: the
+  # publisher must complete it without publishing a new generation.
+  @tag sandbox: :unboxed
+  test "a scope older than its covering generation is fulfilled", %{base: base} do
+    assert :ok = Scopes.request(base)
+    backdate_request(base)
+    _generation = create_generation(base, "complete")
+
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    assert Scopes.fulfilled_since_request?(id)
+    assert :ok = Scopes.complete_fulfilled(id)
+
+    assert [[status]] =
+             Repo.query!("SELECT status FROM platform.exposure_snapshot_scopes WHERE id = $1", [
+               id
+             ]).rows
+
+    assert status == "complete"
+  end
+
+  # A scope with no newer complete generation still needs its publication.
+  @tag sandbox: :unboxed
+  test "a scope with no covering generation is not fulfilled", %{base: base} do
+    assert :ok = Scopes.request(base)
+
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    refute Scopes.fulfilled_since_request?(id)
+  end
+
+  # An aborted generation never fulfills its scope.
+  @tag sandbox: :unboxed
+  test "an aborted generation does not fulfill its scope", %{base: base} do
+    assert :ok = Scopes.request(base)
+    backdate_request(base)
+    _generation = create_generation(base, "aborted")
+
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    refute Scopes.fulfilled_since_request?(id)
+  end
+
+  # Global scopes always publish: the fulfillment check excludes them.
+  @tag sandbox: :unboxed
+  test "a nil scope is never fulfilled", %{job_floor: _floor} do
+    assert :ok = Scopes.request(nil)
+
+    [[id]] =
+      Repo.query!(
+        "SELECT id FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL AND status = 'pending' ORDER BY id DESC LIMIT 1",
+        []
+      ).rows
+
+    Repo.query!(
+      "UPDATE platform.exposure_snapshot_scopes SET not_before = now() - interval '1 minute', updated_at = now() WHERE id = $1",
+      [id]
+    )
+
+    _generation = create_generation(nil, "complete")
+
+    assert {:ok, %{id: ^id, scope_ord: nil}} = Scopes.claim(job_id())
+    refute Scopes.fulfilled_since_request?(id)
+  end
+
+  # Global generations cover every device scope.
+  @tag sandbox: :unboxed
+  test "a newer global generation fulfills a device scope", %{base: base} do
+    assert :ok = Scopes.request(base)
+    backdate_request(base)
+    _generation = create_generation(nil, "complete")
+
+    assert {:ok, %{id: id}} = Scopes.claim(job_id())
+    assert Scopes.fulfilled_since_request?(id)
+  end
+
+  # The startup sweep terminates legacy queue rows with the execution-time
+  # rule: adopt-if-absent, then complete the row; scopeless rows cancel.
+  # Executing rows are left for their owner.
+  @tag sandbox: :unboxed
+  test "the legacy sweep adopts scopes and terminates their rows", %{
+    base: base,
+    job_floor: floor
+  } do
+    insert_legacy_job(%{"device_ord" => base}, "available")
+    insert_legacy_job(%{"device_ord" => base + 1}, "scheduled")
+    insert_legacy_job(%{"device_ord" => base + 2}, "retryable")
+    insert_legacy_job(%{}, "available")
+    insert_legacy_job(%{"device_ord" => 0}, "available")
+    insert_legacy_job(%{"device_ord" => base + 3}, "executing")
+
+    assert {:ok, %{adopted: 4, terminated: 5}} = Scopes.sweep_legacy_queue()
+
+    assert Repo.query!(
+             "SELECT state FROM platform.oban_jobs WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker' AND id > $1 ORDER BY id",
+             [floor]
+           ).rows == [
+             ["completed"],
+             ["completed"],
+             ["completed"],
+             ["completed"],
+             ["cancelled"],
+             ["executing"]
+           ]
+
+    assert Repo.query!(
+             "SELECT scope_ord, status FROM platform.exposure_snapshot_scopes WHERE scope_ord IN ($1, $2, $3) ORDER BY scope_ord",
+             [base, base + 1, base + 2]
+           ).rows == [[base, "pending"], [base + 1, "pending"], [base + 2, "pending"]]
+
+    assert [[nil, "pending"]] =
+             Repo.query!(
+               "SELECT scope_ord, status FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL AND status = 'pending'",
+               []
+             ).rows
+  end
+
   defp job_id, do: System.unique_integer([:positive, :monotonic])
 
   defp expire_backoff(id) do
@@ -312,6 +434,28 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopesDbTest do
       """,
       [args, state]
     )
+  end
+
+  defp backdate_request(scope_ord) do
+    Repo.query!(
+      "UPDATE platform.exposure_snapshot_scopes SET not_before = now() - interval '1 minute', updated_at = now() WHERE scope_ord = $1",
+      [scope_ord]
+    )
+  end
+
+  defp create_generation(scope, status) do
+    owner = Ecto.UUID.generate()
+    [[snapshot]] = Repo.query!("SELECT pg_current_snapshot()::text", []).rows
+
+    {:ok, generation} =
+      State.create(scope, snapshot, owner, System.system_time(:millisecond) + 30_000)
+
+    {:ok, :ok} =
+      State.change(generation["id"], fn current ->
+        {:ok, Map.put(current, "status", status), :ok}
+      end)
+
+    generation["id"]
   end
 
   defp migrate(direction) do
