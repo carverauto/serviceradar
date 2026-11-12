@@ -26,9 +26,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
      the pair's merge cooldown, and the step records the pair as distinct
      (`Deduplication.assert_distinct/4`).
   3. **Wrong-guest MACs.** After the unmerges, the MAC rows an AWX update copied from the wrong
-     guest (`Decisions.plan_awx_wrong_guest_macs/1`) go back to the guest's own record when one
-     is live, and are archived (`device_identifier_archive`, reason `awx_wrong_guest_mac`)
-     otherwise; both are re-queried afterwards.
+     guest (`Decisions.plan_awx_wrong_guest_macs/1`) go back to the guest's own record when
+     exactly one live record holds the guest, are archived (`device_identifier_archive`, reason
+     `awx_wrong_guest_mac`) when none does, and are kept when several do; moved and archived rows
+     are re-queried afterwards.
 
   Dry run by default and explicit-only: the step is never in the default run, and its execute is
   refused unless the release runtime configuration sets `enable_awx_proxmox_unmerge_execute`.

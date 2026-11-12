@@ -4,7 +4,7 @@
   planning code (`Decisions.awx_merge_evidence/1`, `Decisions.plan_awx_proxmox_unmerge/3`), with
   units and newest-first ordering.
 - [x] 1.2 Add the explicit-only `awx-proxmox-unmerge` step: dry-run report of every action, gated
-  execute, synced write-ahead manifest, one transaction per merge with a recheck under the locks,
+  execute, synced write-ahead manifest, one transaction per unit with a recheck under the locks,
   the unmerge by audit id and a distinct assertion per pair.
 - [x] 1.3 Move the MAC rows copied from the wrong guest to the guest's own record, or archive them
   when no live record holds the guest (`Decisions.plan_awx_wrong_guest_macs/1`), and re-query

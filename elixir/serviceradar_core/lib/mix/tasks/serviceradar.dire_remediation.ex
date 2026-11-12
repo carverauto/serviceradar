@@ -42,8 +42,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       its own runtime signoff gate is enabled.
       `armis-dups` is disabled unless separately enabled by runtime config.
       `awx-proxmox-unmerge` is explicit-only: dry-run reports every AWX merge
-      with its evidence, the planned unmerges and MAC removals, while execute
-      is disabled until its runtime gate is enabled. `awx-proxmox-verify` is
+      with its evidence, the planned unmerges and MAC moves and archives, while
+      execute is disabled until its runtime gate is enabled. `awx-proxmox-verify` is
       explicit-only and read-only (see `docs/awx-proxmox-unmerge-runbook.md`).
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)

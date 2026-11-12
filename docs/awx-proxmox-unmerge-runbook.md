@@ -44,9 +44,10 @@ step computes its plan when it runs, never from a fixed list.
    *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
    the guest the merge named (unless the survivor holds that guest's identity itself) and the
    merged record's address. A merge that stays carries a poisoned record's foreign set to its
-   survivor, except poison introduced in its own second, which it does not carry. Every merge of a later second touching a poisoned record, of any reason, is judged
-   too (`created_at` has second precision, so a merge in the same second as the bad merge that
-   shares a record with it is reported as `chained_unproven` and left), and is bad when:
+   survivor, except poison introduced in its own second, which it does not carry. Every merge
+   of a later second touching a poisoned record, of any reason, is judged too (`created_at` has
+   second precision, so a merge in the same second as the bad merge that shares a record with it
+   is reported as `chained_unproven` and left), and is bad when:
 
    | Proof | Meaning |
    | --- | --- |
@@ -70,8 +71,8 @@ step computes its plan when it runs, never from a fixed list.
 4. **Unmerges each unit in one transaction**: it locks every record of the unit, plans again
    from the same full read as the dry run on the state under the locks (one full read per unit,
    so a unit poisoned through a merge outside it is still seen), and requires the same unit; it
-   then undoes each merge by audit id and records each pair as
-   distinct. A refusal anywhere rolls the whole unit back.
+   then undoes each merge by audit id and records each pair as distinct. A refusal anywhere
+   rolls the whole unit back.
 
 5. **Returns or archives the wrong-guest MACs.** An AWX update bound to the wrong guest wrote
    that guest's NIC MACs onto whichever record it landed on. No merge recorded them, so no
@@ -92,10 +93,9 @@ step computes its plan when it runs, never from a fixed list.
    (`move`, often the record a unit just restored). When none does, an AWX-written row goes to
    `device_identifier_archive` with reason `awx_wrong_guest_mac` (`remove`); when several do,
    the row is kept (`guest_record_ambiguous`); a row the guest's own report refreshed is never
-   archived. Every other row of a guest MAC is kept and reported
-   with its reason: `device_not_proven_other_machine`, `locally_administered`,
-   `not_awx_provenance`, `refreshed_by_guest_report`, `guest_record_ambiguous`,
-   `observed_on_device`,
+   archived. Every other row of a guest MAC is kept and reported with its reason:
+   `device_not_proven_other_machine`, `locally_administered`, `not_awx_provenance`,
+   `refreshed_by_guest_report`, `guest_record_ambiguous`, `observed_on_device`,
    `declared_by_awx_host` or `absorbed_by_merge`. Afterwards the step re-queries every row it
    acted on; one not where it should be counts in `mac_rows_not_settled` and
    `mac_cleanup_failures`.
@@ -240,9 +240,10 @@ kubectl cp -n <namespace> -c core-elx <pod>:/tmp/awx_proxmox_unmerge_1.ndjson ./
 Read `units_applied`, `unmerged`, `distinct_asserted`, `units_skipped` (per reason: the plan
 under the locks no longer gave the same unit, or an unmerge refused; the whole unit rolled back),
 `unit_failures`, `mac_rows_moved`, `mac_rows_archived`, `mac_rows_stale` (rows that changed
-between the plan and the lock), `mac_rows_not_settled` and `mac_cleanup_failures`. Any `*_failures` above zero, or `execution_blocked`, makes the call
-return `{:error, {:step_failures, result}}`. `halted` `"manifest"` means a manifest entry could
-not be written and the step stopped there.
+between the plan and the lock), `mac_rows_not_settled` and `mac_cleanup_failures`. Any
+`*_failures` above zero, or `execution_blocked`, makes the call return
+`{:error, {:step_failures, result}}`. `halted` `"manifest"` means a manifest entry could not be
+written and the step stopped there.
 
 The step is idempotent: a re-run with a new manifest acts only on what is left.
 
@@ -310,11 +311,12 @@ first:
 | unmerge | the distinct assertion the step recorded is removed, and the pair is merged again, the merged record into the survivor, as an administrative merge (reason `manual_awx_unmerge_rollback`); skipped as `not_unmerged`, `record_changed` or `merged_since` when the pair is no longer as the unmerge left it |
 
 Reading last first re-merges a chain in its original order. When undoing an unmerge, a MAC
-archive or a MAC move fails, the rollback stops there (`halted` names the action, `rollback_failures` counts
-it): going on would re-merge a later pair of the chain and take away the record the failed entry
-needs. Fix the cause and run the rollback again; entries already undone are skipped. The re-merge is a new merge: it
-records its own audit row and moves what the merged record holds now. The rollback does not
-remove an assertion that existed before the step ran.
+archive or a MAC move fails, the rollback stops there (`halted` names the action,
+`rollback_failures` counts it): going on would re-merge a later pair of the chain and take away
+the record the failed entry needs. Fix the cause and run the rollback again; entries already
+undone are skipped. The re-merge is a new merge: it records its own audit row and moves what the
+merged record holds now. The rollback does not remove an assertion that existed before the step
+ran.
 
 ## Cooldown and re-merge
 
@@ -357,9 +359,9 @@ remove an assertion that existed before the step ran.
   kubectl cp -n <namespace> -c core-elx <pod>:/tmp/awx_proxmox_unmerge_1.ndjson ./awx_proxmox_unmerge_1.ndjson
   ```
 
-- Each unmerge writes a `candidate_preflight` entry before its transaction, an `awx_unmerge`
-  entry inside it and a `candidate_committed` marker after it. Each record's MAC cleanup writes
-  the same three, with `archive_wrong_guest_mac` (an archive) or `reassign_wrong_guest_mac` (a
-  move to the guest's record) in the middle. An `awx_unmerge` entry without a
-  committed marker means the transaction may not have committed; the rollback checks the state
-  before it acts.
+- Each unit writes a `candidate_preflight` entry before its transaction, one `awx_unmerge`
+  entry per merge inside it and a `candidate_committed` marker after it. Each record's MAC
+  cleanup writes the same three, with `archive_wrong_guest_mac` (an archive) or
+  `reassign_wrong_guest_mac` (a move to the guest's record) in the middle. An `awx_unmerge` entry
+  without a committed marker means the transaction may not have committed; the rollback checks
+  the state before it acts.
