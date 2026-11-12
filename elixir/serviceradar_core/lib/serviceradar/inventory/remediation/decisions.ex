@@ -842,7 +842,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     * `from_mac` — the merged record's display MAC;
     * `to_own_identifiers` — the survivor's identifiers that no unreversed merge brought it;
     * `to_absorbed_before` — the identifiers the merges into the survivor before this one
-      brought it (what it also held at the merge);
+      brought it, less merges already unmerged at this merge's time (what it also held at the
+      merge);
     * `to_mac` — the survivor's display MAC;
     * `guest_macs` — the NIC MACs of the guest the merge bound (`guest_provider_ref`).
 

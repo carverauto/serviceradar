@@ -38,22 +38,23 @@ step computes its plan when it runs, never from a fixed list.
    when the two sides share an AWX host id, a guest identity or a universally administered MAC
    (`conflicting_evidence`). For that MAC comparison each side also counts its display MAC, and
    the survivor also counts the MACs other merges into it had brought it, those made before or in
-   the same second as this one (`created_at` has second precision). The NIC MACs of the guest the
-   merge bound do not count on the side that does not hold that guest's identity: there they are
-   the AWX update's copy, and the guest's own record shows the same MACs. Clusters are compared by
-   name: two clusters that share a name are never proved distinct.
+   the same second as this one (`created_at` has second precision) and not already unmerged by
+   then. The NIC MACs of the guest the merge bound do not count on the side that does not hold
+   that guest's identity: there they are the AWX update's copy, and the guest's own record shows
+   the same MACs. Clusters are compared by name: two clusters that share a name are never proved
+   distinct.
 
    **The chain rule.** A bad merge *poisons* its survivor from that moment: the survivor's
    *foreign* set is what the merge recorded for the merged record, the NIC MACs and addresses of
    the guest the merge named (unless the survivor holds that guest's identity itself) and the
-   merged record's address. A MAC row the record holds in a partition the merge did not record
-   for that value stays its own, except a wrong guest's NIC MAC, which is foreign in every
-   partition (an AWX update copied it and no merge recorded it). A merge that stays carries a
-   poisoned record's foreign set to its survivor, except poison introduced in its own second,
-   which it does not carry. Every merge of a later second touching a poisoned record, of any
-   reason, is judged too (`created_at` has second precision, so a merge in the same second as the
-   bad merge that shares a record with it is reported as `chained_unproven` and left), and is bad
-   when:
+   merged record's address. An identifier row of any type the record holds in a partition the
+   merge did not record for that value stays its own, except a wrong guest's NIC MAC, which is
+   foreign in every partition (an AWX update copied it and no merge recorded it). A merge that
+   stays carries a poisoned record's foreign set to its survivor, except poison introduced in its
+   own second, which it does not carry. Every merge of a later second touching a poisoned record,
+   of any reason, is judged too (`created_at` has second precision, so a merge in the same second
+   as the bad merge that shares a record with it is reported as `chained_unproven` and left), and
+   is bad when:
 
    | Proof | Meaning |
    | --- | --- |
