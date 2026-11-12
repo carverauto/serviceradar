@@ -180,8 +180,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
         :done
 
       {:ok, %{"status" => "aborted"}} ->
-        Scopes.fail(id, :exposure_snapshot_generation_aborted)
-        :done
+        fail_aborted(id)
 
       {:ok, generation} ->
         if steppable?(generation), do: settle_step(id, generation_id), else: :wait
@@ -252,12 +251,17 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
         :wait
 
       {:error, :exposure_snapshot_input_missing} ->
-        Scopes.fail(id, :exposure_snapshot_generation_aborted)
-        :done
+        fail_aborted(id)
 
       {:error, _reason} ->
         :wait
     end
+  end
+
+  defp fail_aborted(id) do
+    Scopes.fail(id, :exposure_snapshot_generation_aborted)
+    Scopes.back_off_fleet()
+    :done
   end
 
   defp pipeline_busy? do

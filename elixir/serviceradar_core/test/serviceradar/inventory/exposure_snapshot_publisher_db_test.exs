@@ -298,6 +298,38 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherDbTest do
              ]).rows
   end
 
+  # A gap abort re-requests the fleet scope; settling must not leave that row
+  # due now, or the same pass republishes it in a tight loop.
+  @tag sandbox: :unboxed
+  test "settle backs off the re-requested fleet scope after an abort" do
+    Repo.query!("DELETE FROM platform.exposure_snapshot_scopes WHERE scope_ord IS NULL")
+    generation = create_generation(nil, "aborted")
+
+    [[id]] =
+      Repo.query!(
+        """
+        INSERT INTO platform.exposure_snapshot_scopes
+          (scope_ord, status, generation_id, claimed_by, lease_expires_at)
+        VALUES (NULL, 'publishing', $1, 12345, now() + interval '1 minute')
+        RETURNING id
+        """,
+        [generation]
+      ).rows
+
+    assert :ok = Scopes.request(nil)
+
+    assert :done = PublisherWorker.settle_scope(id, generation)
+
+    assert [["pending", true]] =
+             Repo.query!(
+               """
+               SELECT status, not_before > now()
+               FROM platform.exposure_snapshot_scopes WHERE id = $1
+               """,
+               [id]
+             ).rows
+  end
+
   # A generation still draining waits without touching the warehouse: the
   # scan runs only once receipts match the manifest.
   @tag sandbox: :unboxed

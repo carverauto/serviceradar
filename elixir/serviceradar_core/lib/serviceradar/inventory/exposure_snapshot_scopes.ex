@@ -111,6 +111,23 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotScopes do
     ensure_publisher()
   end
 
+  @doc """
+  Delays a due fleet-wide row by the base backoff, pacing the fleet
+  republish a gap abort requests.
+  """
+  def back_off_fleet do
+    Repo.query!(
+      """
+      UPDATE #{@table}
+      SET not_before = now() + make_interval(secs => $1), updated_at = now()
+      WHERE scope_ord IS NULL AND status = 'pending' AND not_before <= now()
+      """,
+      [@backoff_seconds]
+    )
+
+    :ok
+  end
+
   @doc "Parks a scope for preparation with backoff; the prepare completion re-ensures."
   def defer_preparing(id) do
     Repo.query!(

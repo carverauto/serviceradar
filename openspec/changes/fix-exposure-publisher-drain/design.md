@@ -23,6 +23,9 @@ calls `Finalizer.step` directly and maps the result:
 - `incomplete` (warehouse still draining) keeps waiting with the remaining
   budget.
 - `input_missing` (gap abort) fails the scope as aborted (today's semantics).
+  The abort re-requests the fleet scope due now, so the pass backs that row
+  off by the base failure backoff; otherwise it would be reclaimed and
+  republished in the same pass until the gap clears.
 - Any other error (warehouse scan failure, custody conflict, step race)
   waits with the remaining budget and never fails the scope directly; the
   maintenance tick still converges it.
