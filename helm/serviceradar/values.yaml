@@ -3316,6 +3316,11 @@ analytics:
 nvr:
   enabled: false
   replicas: 2
+  recovery:
+    # Operator-owned state, outside the CNPG/PVC restore set. Keys: generation
+    # (canonical UUID) and state.json (canonical generation/state JSON).
+    # This chart never creates or opens the restore gate. See docs/nvr-runtime.md.
+    existingConfigMap: ""
   maxSessions: 1
   maxDurationMs: 30000
   # Per-replica logical spool budget and physical free-space floor. Size these
