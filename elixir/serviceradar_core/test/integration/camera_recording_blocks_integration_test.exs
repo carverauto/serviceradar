@@ -50,6 +50,16 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, frozen} = freeze(ctx, Fixtures.recording_descriptor(ctx.block))
     assert {:error, _} = LocalPublicationIntents.accept(bytes, actor: %{role: :viewer})
 
+    assert {:ok, {:error, :ambient_transaction}} =
+             Repo.transaction(fn -> LocalPublicationIntents.accept(bytes, ctx.opts) end)
+
+    assert {:ok, nil} =
+             Ash.get(
+               LocalPublicationIntent,
+               operation,
+               Keyword.put(ctx.opts, :not_found_error?, false)
+             )
+
     for altered <- [
           %{ctx.block | storage_id: Ecto.UUID.generate()},
           %{ctx.block | clock: Map.put(@clock, "clock_epoch", "substituted-clock")}

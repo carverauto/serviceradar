@@ -168,6 +168,8 @@ Publication delivery checks before each HTTP attempt. Core checks before its
 intent-acceptance transaction and again before returning the acknowledgement;
 these filesystem reads stay outside the transaction. Closure during the
 transaction can leave a committed receipt but withholds the acknowledgement.
+Acceptance rejects ambient transactions so an outer rollback cannot invalidate
+an acknowledgement already returned to the caller.
 The private HTTP receiver returns 503, and reopening the same generation allows
 an exact retry to recover the same immutable acknowledgement. This still means
 only v1 intent acceptance, not local-copy availability or current-history approval.
@@ -179,6 +181,13 @@ successful result but preserves committed claims, burned block sequences and
 one-shot dispatch markers; callers must not treat the refusal as a rollback or
 rearm an uncertain dispatch. Reopening does not override existing lease, token,
 sequence or dispatch retry rules.
+
+Core also requires ready recovery state when issuing or applying init, media or
+manifest archive-authority windows. It checks before and after each transaction,
+outside the database locks. Closure can withhold a reply after a revision commits;
+an exact retry after reopening retains the original window and cannot renew its
+deadline. Authority status and revocation remain available while closed. The
+storage challenge and media-administration endpoints return 503 for refused work.
 
 Stop and status, recorder/upload release, freezing already allocated blocks,
 media preparation and late observations remain available for preservation.
@@ -196,8 +205,9 @@ qualified worker replacement uses the existing generation; it does not require
 manual reopening merely because a pod changed. If deployment control is also
 restored, establish fresh closed state before starting consumers.
 
-This checkpoint implements NVR admission, Core new-work and publication consumers,
-and deployment file wiring. The operator recovery command, remaining Core authority consumers,
+This checkpoint implements NVR admission, Core new-work, archive-authority issuance
+and application, publication consumers, and deployment file wiring. The operator
+recovery command, remaining recovery consumers,
 current-history reconciliation, per-storage completion and cross-replica
 quiescence verification are pending.
 Do not use the example ready record to bypass those prerequisites or remove the

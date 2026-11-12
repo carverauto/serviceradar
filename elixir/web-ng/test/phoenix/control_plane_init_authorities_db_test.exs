@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
   @account_token "synthetic-account-purpose-token-for-init-http-test"
 
   setup %{tmp_dir: directory} do
-    Fixtures.recording_recovery_gate(directory)
+    recovery = Fixtures.recording_recovery_gate(directory)
     previous = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
     storage = ArchiveStorageHTTP.installation(directory)
     installation = %{deployment_ref: storage.document["deployment_ref"], generation: 1}
@@ -101,7 +101,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
       block: block,
       lease: lease,
       binding: binding,
-      actor: actor
+      actor: actor,
+      recovery: recovery
     }
   end
 
@@ -119,6 +120,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
       "nonce" => Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
     }
 
+    File.rm!(context.recovery.path)
+
+    assert {:ok, %{status: 503, body: %{"status" => "storage_control_unavailable"}}} =
+             ArchiveStorageHTTP.request(storage, "/v1/init-authorities/challenge", Jason.encode!(challenge))
+
+    assert %{"state" => "not_configured"} = admin_body(:get, installation, binding.id)
+    File.write!(context.recovery.path, context.recovery.ready)
+
     assert {:ok, %{status: 200, body: pending}} =
              ArchiveStorageHTTP.request(storage, "/v1/init-authorities/challenge", Jason.encode!(challenge))
 
@@ -133,6 +142,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
     wrong_path = admin(:put, installation, Ecto.UUID.generate(), application)
     assert wrong_path.status == 400
     assert %{"state" => "pending"} = admin_body(:get, installation, binding.id)
+
+    File.rm!(context.recovery.path)
+    refused = admin(:put, installation, binding.id, application)
+    assert refused.status == 503
+    assert Jason.decode!(refused.resp_body) == %{"status" => "storage_control_unavailable"}
+    assert get_resp_header(refused, "cache-control") == ["no-store"]
+    assert %{"state" => "pending"} = admin_body(:get, installation, binding.id)
+    File.write!(context.recovery.path, context.recovery.ready)
 
     applied_response = admin(:put, installation, binding.id, application)
     assert applied_response.status == 200
@@ -195,13 +212,15 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
              storage_request(storage, "grant", grant_request)
 
     revoke = %{"schema_version" => 1, "binding_id" => binding.id, "revision" => "2"}
+    File.rm!(context.recovery.path)
     revoked = admin_body(:post, installation, binding.id <> "/revoke", revoke)
 
     assert %{"state" => "revoked", "revision" => "2", "applied_revision" => nil, "archive_readiness" => "unavailable"} =
              revoked
 
-    assert admin(:put, installation, binding.id, application).status == 409
     assert %{"state" => "revoked", "revision" => "2"} = admin_body(:get, installation, binding.id)
+    File.write!(context.recovery.path, context.recovery.ready)
+    assert admin(:put, installation, binding.id, application).status == 409
     # Revocation stops admission; the original authenticated sender can still
     # retain its already-dispatched outcome and exact verification evidence.
     observation = %{

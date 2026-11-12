@@ -60,24 +60,17 @@ defmodule ServiceRadar.Camera.RecordingControl do
   def with_admission(fun, opts) when is_function(fun, 0) do
     gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
 
-    with :ok <- outside_transaction(),
-         :ok <- RecoveryGate.check(gate),
-         result =
-           transaction(fn ->
-             with {:ok, current} <- locked(opts),
-                  :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
-               fun.()
-             end
-           end),
-         :ok <- admitted(result),
-         :ok <- RecoveryGate.check(gate) do
-      result
+    with :ok <- outside_transaction() do
+      RecoveryGate.with_ready(gate, fn ->
+        transaction(fn ->
+          with {:ok, current} <- locked(opts),
+               :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
+            fun.()
+          end
+        end)
+      end)
     end
   end
-
-  defp admitted(:ok), do: :ok
-  defp admitted({:ok, _}), do: :ok
-  defp admitted(error), do: error
 
   defp locked(opts) do
     with {:ok, _baseline} <-
