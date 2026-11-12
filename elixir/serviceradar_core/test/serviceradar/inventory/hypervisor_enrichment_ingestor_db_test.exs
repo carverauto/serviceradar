@@ -1234,6 +1234,121 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     assert legacy_retired_at
   end
 
+  # Proxmox clusters reuse node names and VMIDs, and an AWX host does not say which cluster it
+  # came from, so the pair alone must not hand a guest of one cluster the AWX host of another.
+  test "a Proxmox guest does not adopt an AWX host that shares only its node name and VMID",
+       %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    node_name = "pve01"
+    vmid = 100 + rem(suffix, 900_000)
+    awx_uid = "sr:" <> Ecto.UUID.generate()
+    awx_integration_id = "awx:v2:ctrl-#{suffix}:host:#{suffix}"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    {:ok, guest_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        source_scope.integration_id,
+        source_scope.controller_id,
+        "cluster01",
+        "qemu",
+        vmid
+      )
+
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: awx_uid,
+          type: "Server",
+          type_id: 1,
+          name: "host#{suffix}",
+          hostname: "host#{suffix}",
+          discovery_sources: ["awx"],
+          metadata: %{
+            "integration_id" => awx_integration_id,
+            "awx" => %{
+              "ansible_host" => "192.0.2.10",
+              "proxmox_vmid" => Integer.to_string(vmid),
+              "proxmox_node" => node_name
+            }
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: awx_uid,
+          identifier_type: :integration_id,
+          identifier_value: awx_integration_id,
+          partition: "default",
+          source: "awx"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    # The guest reports no address (no guest agent), so nothing contradicts the AWX host either,
+    # and an address-less guest gets no device of its own (its device_uid may be nil).
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "cluster01"}],
+            "nodes" => [%{"node" => node_name, "status" => "online"}],
+            "guests" => [
+              %{
+                "node" => node_name,
+                "type" => "qemu",
+                "vmid" => vmid,
+                "name" => "vm#{vmid}",
+                "status" => "running",
+                "interfaces" => [
+                  %{"name" => "net0", "mac_address" => "00:00:5E:00:53:01", "source" => "config"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
+
+    assert [[guest_uid]] =
+             Repo.query!(
+               "SELECT device_uid FROM platform.virtualization_guests WHERE provider_ref = $1",
+               [guest_identity.provider_ref]
+             ).rows
+
+    refute guest_uid == awx_uid
+
+    assert [[nil]] =
+             Repo.query!("SELECT deleted_at FROM platform.ocsf_devices WHERE uid = $1", [awx_uid]).rows
+
+    assert [] =
+             Repo.query!(
+               "SELECT to_device_id FROM platform.merge_audit WHERE from_device_id = $1",
+               [awx_uid]
+             ).rows
+  end
+
   test "ArchiveDisplacedBridgeIdentityAliases archives only non-config host-internal replaced_primary_address aliases and is idempotent",
        %{actor: actor} do
     if !Code.ensure_loaded?(ArchiveDisplacedBridgeIdentityAliases) do

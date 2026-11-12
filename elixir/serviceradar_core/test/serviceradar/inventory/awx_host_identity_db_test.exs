@@ -5,6 +5,11 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
   agreement on the first DNS label, or a MAC the device holds. The address alone does not
   identify a MAC-anchored device, the host name alone never identifies one, and a MAC
   contradiction refuses the match.
+
+  An AWX host carrying a Proxmox node name and VMID binds to a guest only when the guest reports
+  the host's address or shares a universally administered MAC with it. Proxmox clusters reuse
+  node names and VMIDs, so the pair alone binds nothing, and a locally administered MAC neither
+  binds a guest nor corroborates a holder.
   """
   use ServiceRadar.DataCase, async: true
 
@@ -12,9 +17,14 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Repo
 
   @moduletag :integration
+
+  @proxmox_cluster "cluster01"
+  @proxmox_node "pve01"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -217,6 +227,204 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
     end
   end
 
+  test "a shared locally administered MAC does not hide a universally administered contradiction",
+       %{actor: actor, suffix: suffix} do
+    ip = test_ip()
+
+    holder_uid =
+      create_device!(actor, %{
+        ip: ip,
+        hostname: "host#{suffix}",
+        mac: mac(suffix, 1),
+        discovery_sources: ["sweep", "mapper"]
+      })
+
+    # Both machines carry the fixed veth MAC a CNI gives every node, plus their own NIC.
+    register_mac!(actor, holder_uid, "EE:EE:EE:EE:EE:EE")
+    register_mac!(actor, holder_uid, mac(suffix, 1))
+    {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+    ingest_awx_host!(actor, integration_id, "host#{suffix}", ip, [
+      "EE:EE:EE:EE:EE:EE",
+      mac(suffix, 2)
+    ])
+
+    assert_not_merged(awx_uid, holder_uid)
+  end
+
+  test "a shared locally administered MAC does not corroborate an AWX host's match",
+       %{actor: actor, suffix: suffix} do
+    agent_uid =
+      create_device!(actor, %{
+        ip: test_ip(),
+        hostname: "agentbox#{suffix}.example.com",
+        agent_id: "agent-#{suffix}",
+        discovery_sources: ["agent", "sysmon"],
+        is_managed: true
+      })
+
+    # The fixed address a CNI gives every node's container veth.
+    register_mac!(actor, agent_uid, "EE:EE:EE:EE:EE:EE")
+    {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+    ingest_awx_host!(actor, integration_id, "host#{suffix}", nil, ["EE:EE:EE:EE:EE:EE"])
+
+    assert_not_merged(awx_uid, agent_uid)
+  end
+
+  describe "Proxmox guest binding across clusters that reuse node names and VMIDs" do
+    test "an AWX host is not bound to another cluster's lone guest with its node name and VMID",
+         %{actor: actor, suffix: suffix} do
+      vmid = vmid(suffix)
+
+      other_guest_uid =
+        ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), "198.51.100.20")])
+
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", "192.0.2.10", [], vmid)
+
+      assert_not_merged(awx_uid, other_guest_uid)
+      assert integration_owner(integration_id) == awx_uid
+    end
+
+    test "an AWX host is bound to no guest when guests of two clusters both report its address",
+         %{actor: actor, suffix: suffix} do
+      vmid = vmid(suffix)
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
+      guest_b = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), "198.51.100.10")])
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", "198.51.100.10", [], vmid)
+
+      assert_not_merged(awx_uid, guest_a)
+      assert_not_merged(awx_uid, guest_b)
+    end
+
+    test "a locally administered MAC a guest reports binds no guest",
+         %{actor: actor, suffix: suffix} do
+      vmid = vmid(suffix)
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
+
+      guest_b =
+        ingest_proxmox_guest!(actor, vmid, [
+          config_nic(mac(suffix, 2), "198.51.100.20"),
+          %{"name" => "ens19", "mac_address" => local_mac(suffix, 3), "source" => "agent"}
+        ])
+
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(
+        actor,
+        integration_id,
+        "host#{suffix}",
+        "192.0.2.10",
+        [local_mac(suffix, 3)],
+        vmid
+      )
+
+      assert_not_merged(awx_uid, guest_a)
+      assert_not_merged(awx_uid, guest_b)
+    end
+
+    test "an AWX host binds the guest of its own cluster that reports its address",
+         %{actor: actor, suffix: suffix} do
+      vmid = vmid(suffix)
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
+      guest_b = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), "198.51.100.20")])
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", "198.51.100.10", [], vmid)
+
+      refute live?(awx_uid)
+      assert integration_owner(integration_id) == guest_a
+      assert [["awx_proxmox_network_match", _corroboration]] = merge_audit(awx_uid, guest_a)
+      assert merge_audit(awx_uid, guest_b) == []
+      assert live?(guest_b)
+    end
+
+    test "an AWX host binds the guest that shares its universally administered MAC",
+         %{actor: actor, suffix: suffix} do
+      vmid = vmid(suffix)
+      guest_a = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 1), "198.51.100.10")])
+      guest_b = ingest_proxmox_guest!(actor, vmid, [config_nic(mac(suffix, 2), "198.51.100.20")])
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", nil, [mac(suffix, 1)], vmid)
+
+      refute live?(awx_uid)
+      assert integration_owner(integration_id) == guest_a
+      assert [["awx_proxmox_network_match", _corroboration]] = merge_audit(awx_uid, guest_a)
+      assert merge_audit(awx_uid, guest_b) == []
+      assert live?(guest_b)
+    end
+  end
+
+  # One Proxmox cluster, reported by its own integration, holding one node and one QEMU guest.
+  # Every call reports the same cluster name, node name and the given VMID, as two clusters
+  # built the same way do. Returns the guest's device.
+  defp ingest_proxmox_guest!(actor, vmid, interfaces) do
+    scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => @proxmox_cluster}],
+            "nodes" => [%{"node" => @proxmox_node, "status" => "online"}],
+            "guests" => [
+              %{
+                "node" => @proxmox_node,
+                "type" => "qemu",
+                "vmid" => vmid,
+                "name" => "vm#{vmid}",
+                "status" => "running",
+                "interfaces" => interfaces
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{}, actor: actor, source_scope: scope)
+
+    {:ok, identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        scope.integration_id,
+        scope.controller_id,
+        @proxmox_cluster,
+        "qemu",
+        vmid
+      )
+
+    [[uid]] =
+      Repo.query!(
+        "SELECT device_uid FROM platform.virtualization_guests WHERE provider_ref = $1",
+        [identity.provider_ref]
+      ).rows
+
+    uid
+  end
+
+  defp config_nic(mac, ip) do
+    %{
+      "name" => "eth0",
+      "mac_address" => mac,
+      "ip_addresses" => ["#{ip}/24"],
+      "source" => "config+agent"
+    }
+  end
+
+  defp vmid(suffix), do: 100 + rem(suffix, 900_000)
+
   defp create_device!(actor, attrs) do
     uid = "sr:" <> Ecto.UUID.generate()
 
@@ -267,11 +475,15 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
       |> Ash.create()
   end
 
-  defp ingest_awx_host!(actor, integration_id, host_name, ip, macs \\ []) do
-    metadata = %{
-      "integration_id" => integration_id,
-      "awx" => %{"host_name" => host_name, "ansible_host" => ip}
-    }
+  defp ingest_awx_host!(actor, integration_id, host_name, ip, macs \\ [], vmid \\ nil) do
+    awx = %{"host_name" => host_name, "ansible_host" => ip}
+
+    awx =
+      if vmid,
+        do: Map.merge(awx, %{"proxmox_node" => @proxmox_node, "proxmox_vmid" => vmid}),
+        else: awx
+
+    metadata = %{"integration_id" => integration_id, "awx" => awx}
 
     metadata = if macs == [], do: metadata, else: Map.put(metadata, "mac_addresses", macs)
 
@@ -343,11 +555,15 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
 
   defp test_ip(prefix \\ "203.0.113"), do: "#{prefix}.#{Enum.random(1..254)}"
 
-  defp mac(suffix, nic) do
-    Enum.map_join(
-      [0x02, 0x00, div(rem(suffix, 65_536), 256), rem(suffix, 256), 0x5E, nic],
-      ":",
-      &(&1 |> Integer.to_string(16) |> String.pad_leading(2, "0"))
-    )
+  # A universally administered MAC: bit 1 of the first octet is clear.
+  defp mac(suffix, nic), do: format_mac([0x00, 0x00 | mac_tail(suffix, nic)])
+
+  # A locally administered MAC: bit 1 of the first octet is set.
+  defp local_mac(suffix, nic), do: format_mac([0x02, 0x00 | mac_tail(suffix, nic)])
+
+  defp mac_tail(suffix, nic), do: [div(rem(suffix, 65_536), 256), rem(suffix, 256), 0x5E, nic]
+
+  defp format_mac(octets) do
+    Enum.map_join(octets, ":", &(&1 |> Integer.to_string(16) |> String.pad_leading(2, "0")))
   end
 end

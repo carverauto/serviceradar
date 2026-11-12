@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
@@ -2352,17 +2353,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> Enum.filter(&present?/1)
       |> Enum.uniq()
 
-    node_vmid_counts =
-      Enum.reduce(records.guests, %{}, fn guest, acc ->
-        key = {guest_node_name(guest), normalize_guest_vmid(Map.get(guest, :vmid))}
-
-        if elem(key, 1) do
-          Map.update(acc, key, 1, &(&1 + 1))
-        else
-          acc
-        end
-      end)
-
     Enum.reduce(
       all_guest_refs,
       %{by_ref: %{}, merge_sources: %{}, inferred_ips: %{}},
@@ -2375,7 +2365,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         active? = not stopped_guest_status?(Map.get(guest, :status))
         g_vmid = normalize_guest_vmid(Map.get(guest, :vmid))
         g_node = guest_node_name(guest)
-        unique_node_vmid? = Map.get(node_vmid_counts, {g_node, g_vmid}, 0) <= 1
 
         other_guest_uids =
           integration_identity
@@ -2395,8 +2384,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
                    g_ips,
                    active?,
                    g_node,
-                   g_vmid,
-                   unique_node_vmid?
+                   g_vmid
                  ) do
               nil -> []
               rank -> [{rank, cand}]
@@ -2507,36 +2495,27 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp classify_guest_candidate_match(
-         cand,
-         g_macs,
-         g_ips,
-         active?,
-         g_node,
-         g_vmid,
-         unique_node_vmid?
-       ) do
-    mac_match? = MapSet.size(g_macs) > 0 and not MapSet.disjoint?(g_macs, cand.macs)
+  defp classify_guest_candidate_match(cand, g_macs, g_ips, active?, g_node, g_vmid) do
+    universal_distinct? =
+      Mac.distinct_hardware?(
+        Mac.universal_macs(MapSet.to_list(g_macs)),
+        Mac.universal_macs(MapSet.to_list(cand.macs))
+      )
+
+    mac_match? =
+      MapSet.size(g_macs) > 0 and not MapSet.disjoint?(g_macs, cand.macs) and
+        not universal_distinct?
 
     mac_contradicts? =
-      MapSet.size(g_macs) > 0 and MapSet.size(cand.macs) > 0 and
-        MapSet.disjoint?(g_macs, cand.macs)
+      (MapSet.size(g_macs) > 0 and MapSet.size(cand.macs) > 0 and
+         MapSet.disjoint?(g_macs, cand.macs)) or universal_distinct?
 
     ip_match? =
       active? and MapSet.size(g_ips) > 0 and not MapSet.disjoint?(g_ips, cand.ips) and
         not mac_contradicts?
 
     awx_match? =
-      awx_candidate_matches_guest?(
-        cand.awx,
-        g_node,
-        g_vmid,
-        g_ips,
-        mac_match?,
-        ip_match?,
-        mac_contradicts?,
-        unique_node_vmid?
-      )
+      awx_candidate_matches_guest?(cand.awx, g_node, g_vmid, g_ips, ip_match?, mac_contradicts?)
 
     cond do
       mac_match? -> 0
@@ -2547,40 +2526,17 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp awx_candidate_matches_guest?(
-         nil,
-         _g_node,
-         _g_vmid,
-         _g_ips,
-         _mac_match?,
-         _ip_match?,
-         _mac_contradicts?,
-         _unique_node_vmid?
-       ),
-       do: false
+  # An AWX host's (node, VMID) narrows it to this guest but never identifies it: Proxmox clusters
+  # reuse node names and VMIDs, and an AWX host does not say which cluster it came from. The
+  # guest must also report the address the AWX host declares, or hold an address of the
+  # candidate's record, and no address or MAC may contradict it.
+  defp awx_candidate_matches_guest?(nil, _g_node, _g_vmid, _g_ips, _ip_match?, _mac_contradicts?),
+    do: false
 
-  defp awx_candidate_matches_guest?(
-         _awx,
-         _g_node,
-         nil,
-         _g_ips,
-         _mac_match?,
-         _ip_match?,
-         _mac_contradicts?,
-         _unique_node_vmid?
-       ),
-       do: false
+  defp awx_candidate_matches_guest?(_awx, _g_node, nil, _g_ips, _ip_match?, _mac_contradicts?),
+    do: false
 
-  defp awx_candidate_matches_guest?(
-         awx,
-         g_node,
-         g_vmid,
-         g_ips,
-         mac_match?,
-         ip_match?,
-         mac_contradicts?,
-         unique_node_vmid?
-       ) do
+  defp awx_candidate_matches_guest?(awx, g_node, g_vmid, g_ips, ip_match?, mac_contradicts?) do
     vmid_matches? = awx.vmid == g_vmid
 
     node_matches? =
@@ -2593,12 +2549,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     ip_contradicts? =
       MapSet.size(g_ips) > 0 and present?(awx.ip) and not MapSet.member?(g_ips, awx.ip)
 
-    corroborated_or_unique? =
-      mac_match? or ip_match? or awx_ip_matches? or
-        (unique_node_vmid? and present?(g_node) and present?(awx.node))
-
     vmid_matches? and node_matches? and not mac_contradicts? and not ip_contradicts? and
-      corroborated_or_unique?
+      (ip_match? or awx_ip_matches?)
   end
 
   defp stopped_guest_status?(status) when is_binary(status) do

@@ -42,6 +42,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
@@ -984,6 +985,10 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
+  # The guest's (node, VMID) only narrows the candidates: Proxmox clusters reuse node names and
+  # VMIDs, and an AWX host does not say which cluster it came from. The host binds to a guest
+  # only on evidence unique to the machine (see `select_matching_guest/3`), and the binding
+  # carries over only the guest's universally administered MACs.
   defp attach_matching_virtualization_guest(update, guests_by_vmid) do
     metadata = Map.get(update, "metadata") || %{}
     info = HypervisorEnrichmentIngestor.extract_awx_proxmox_info(metadata, Map.get(update, "ip"))
@@ -1010,7 +1015,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
               end
 
             macs =
-              ([Map.get(update, "mac") | existing_macs] ++ guest.macs)
+              ([Map.get(update, "mac") | existing_macs] ++ hardware_macs(guest.macs))
               |> Enum.map(&IdentityReconciler.normalize_mac/1)
               |> Enum.filter(&present?/1)
               |> Enum.uniq()
@@ -1038,23 +1043,42 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
-  defp select_matching_guest([single], _update, _info), do: single
-
+  # A guest is the AWX host's machine when the guest reports the address the host declares, or
+  # shares a universally administered MAC with it, and no universally administered MAC
+  # contradicts it. That holds for a lone candidate too. No such guest, or more than one, binds
+  # none: the AWX record stays unlinked rather than guessing.
   defp select_matching_guest(candidates, update, info) when is_list(candidates) do
-    update_ip = Map.get(update, "ip") || (info && info.ip)
+    update_ip = Map.get(update, "ip") || info.ip
 
     update_macs =
       ([Map.get(update, "mac") | List.wrap(get_in(update, ["metadata", "mac_addresses"]))] ++
-         ((info && info.macs) || []))
-      |> Enum.map(&IdentityReconciler.normalize_mac/1)
-      |> Enum.filter(&present?/1)
+         info.macs)
+      |> hardware_macs()
       |> MapSet.new()
 
-    Enum.find(candidates, fn guest ->
-      (present?(update_ip) and update_ip in guest.ips) or
-        (MapSet.size(update_macs) > 0 and
-           not MapSet.disjoint?(update_macs, MapSet.new(guest.macs)))
-    end)
+    case Enum.filter(candidates, &guest_identifies_host?(&1, update_ip, update_macs)) do
+      [guest] -> guest
+      _none_or_ambiguous -> nil
+    end
+  end
+
+  defp guest_identifies_host?(guest, update_ip, update_macs) do
+    guest_macs = guest.macs |> hardware_macs() |> MapSet.new()
+    macs_overlap? = not MapSet.disjoint?(update_macs, guest_macs)
+    address_reported? = present?(update_ip) and update_ip in guest.ips
+
+    (macs_overlap? or address_reported?) and not Mac.distinct_hardware?(update_macs, guest_macs)
+  end
+
+  # Universally administered MACs only, normalized. A locally administered MAC is not unique to a
+  # machine (a CNI gives every node's veth the same one), so it never binds or corroborates.
+  defp hardware_macs(macs) do
+    macs
+    |> List.wrap()
+    |> Enum.map(&IdentityReconciler.normalize_mac/1)
+    |> Enum.filter(&present?/1)
+    |> Enum.reject(&Mac.locally_administered_mac?/1)
+    |> Enum.uniq()
   end
 
   defp reconcile_awx_device_links(enriched_updates, actor) do
@@ -1180,17 +1204,16 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
+  # Only a universally administered MAC finds a holder by MAC. Every MAC still counts against an
+  # address holder whose MACs it contradicts.
   defp lookup_corroborated_network_holder(ip, macs, context) do
-    cond do
-      macs != [] ->
-        lookup_mac_holder(macs, context) ||
+    case hardware_macs(macs) do
+      [_ | _] = hardware ->
+        lookup_mac_holder(hardware, context) ||
           if(present?(ip), do: lookup_ip_holder(ip, macs, context))
 
-      present?(ip) ->
-        lookup_ip_holder(ip, [], context)
-
-      true ->
-        nil
+      [] ->
+        if present?(ip), do: lookup_ip_holder(ip, macs, context)
     end
   end
 
@@ -1320,15 +1343,22 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   # An address match alone is weak: the address may have moved to another host. It is accepted
   # when the host names agree, when the MAC sets overlap, when a Proxmox guest links the record
   # and the holder is MAC-anchored, or when the holder carries no MAC that could contradict it.
-  # A MAC contradiction refuses the match whatever else agrees.
+  # Only a universally administered MAC overlap counts as a MAC match. A MAC contradiction refuses
+  # the match whatever else agrees: disjoint MAC sets contradict, and so do disjoint universally
+  # administered subsets, so a shared locally administered MAC cannot hide distinct hardware.
   defp ip_holder_corroboration(awx_macs, holder_macs, guest_anchored?, host_name_agrees?) do
     mac_contradicts? =
-      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
-        MapSet.disjoint?(awx_macs, holder_macs)
+      (MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
+         MapSet.disjoint?(awx_macs, holder_macs)) or
+        Mac.distinct_hardware?(
+          Mac.universal_macs(MapSet.to_list(awx_macs)),
+          Mac.universal_macs(MapSet.to_list(holder_macs))
+        )
 
     macs_overlap? =
-      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
-        not MapSet.disjoint?(awx_macs, holder_macs)
+      awx_macs
+      |> MapSet.intersection(holder_macs)
+      |> Enum.any?(&(not Mac.locally_administered_mac?(&1)))
 
     cond do
       mac_contradicts? -> nil
