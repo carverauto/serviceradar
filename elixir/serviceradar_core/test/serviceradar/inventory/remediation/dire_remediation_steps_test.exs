@@ -136,6 +136,44 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
     refute "armis-unmerge" in DireRemediation.steps()
   end
 
+  test "awx-proxmox-unmerge is explicit-only with a gated execute, and its checks are read-only" do
+    Application.delete_env(:serviceradar_core, DireRemediation)
+
+    for step <- ["awx-proxmox-unmerge", "awx-proxmox-verify"] do
+      refute step in DireRemediation.steps()
+      assert step in DireRemediation.available_steps(:dry_run)
+      refute step in DireRemediation.available_steps(:execute)
+    end
+
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "blocked_awx_proxmox_unmerge_#{System.unique_integer([:positive])}.ndjson"
+      )
+
+    # A caller cannot pass the gate in place of the runtime configuration.
+    assert {:error, {:execute_disabled, ["awx-proxmox-unmerge"]}} =
+             DireRemediation.run(
+               steps: ["awx-proxmox-unmerge"],
+               mode: :execute,
+               manifest_path: manifest_path,
+               awx_proxmox_unmerge_execute_enabled: true
+             )
+
+    assert {:error, {:read_only_steps, ["awx-proxmox-verify"]}} =
+             DireRemediation.run(
+               steps: ["awx-proxmox-verify"],
+               mode: :execute,
+               manifest_path: manifest_path
+             )
+
+    refute File.exists?(manifest_path)
+
+    put_remediation_config(:enable_awx_proxmox_unmerge_execute, true)
+    assert "awx-proxmox-unmerge" in DireRemediation.available_steps(:execute)
+    refute "awx-proxmox-unmerge" in DireRemediation.steps()
+  end
+
   test "retirement runs before succession, and succession before the shells" do
     Application.delete_env(:serviceradar_core, DireRemediation)
     steps = DireRemediation.steps()

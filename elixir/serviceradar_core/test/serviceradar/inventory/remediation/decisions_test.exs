@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.Remediation.Decisions
 
   describe "valid_mac_value?/1 and purgeable_mac_value?/1 (blob detection)" do
@@ -762,6 +763,287 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
       assert {:skip, :no_addresses} =
                Decisions.plan_netprobe_alias_purge(collector(%{addresses_with_own_device: []}))
+    end
+  end
+
+  # Invented fixtures: two Proxmox clusters that reuse a VMID, one AWX controller, MACs under the
+  # IANA documentation OUI (00-00-5E) and its locally administered twin.
+  @controller "00000000-0000-4000-8000-0000000000c1"
+  @guest_a "proxmox:v2:cluster-a:vm:101"
+  @universal_a "00005E005301"
+  @universal_b "00005E005302"
+  @local_mac "02005E0053EE"
+
+  defp guest_b_ref do
+    {:ok, fields} =
+      IntegrationIdentity.proxmox_v3_fields(
+        "00000000-0000-4000-8000-0000000000a1",
+        "00000000-0000-4000-8000-0000000000a2",
+        "cluster-b",
+        "qemu",
+        "101"
+      )
+
+    fields.provider_ref
+  end
+
+  defp ident(type, value), do: %{"type" => type, "value" => value, "partition" => "default"}
+  defp awx_id(host), do: ident("integration_id", "awx:v2:#{@controller}:host:#{host}")
+
+  # The merged record is the holder: a guest of cluster A with its own universal MAC. The survivor
+  # is the guest of cluster B the AWX host was bound to.
+  defp awx_merge(overrides) do
+    Map.merge(
+      %{
+        event_id: "m1",
+        created_at: ~U[2026-01-01 00:00:10Z],
+        reason: "awx_proxmox_network_match",
+        from_uid: "sr:a",
+        to_uid: "sr:b",
+        guest_provider_ref: guest_b_ref(),
+        corroboration: "ip_proxmox",
+        source_identifiers: [ident("integration_id", @guest_a), ident("mac", @universal_a)],
+        from_mac: nil,
+        to_own_identifiers: [ident("integration_id", guest_b_ref()), ident("mac", @universal_b)],
+        to_absorbed_before: [],
+        to_mac: nil,
+        reversed?: false,
+        from_state: :merged,
+        superseded?: false,
+        to_state: :live
+      },
+      overrides
+    )
+  end
+
+  describe "awx_merge_evidence/1 (awx-proxmox-unmerge)" do
+    test "proves different machines only on the evidence the owner approved" do
+      cases = [
+        {"guest of another cluster, same VMID", %{}, :different_machines,
+         [:proxmox_guest_mismatch]},
+        {"two AWX hosts of one controller",
+         %{
+           source_identifiers: [awx_id(11)],
+           to_own_identifiers: [awx_id(12)],
+           guest_provider_ref: nil
+         }, :different_machines, [:different_awx_hosts]},
+        {"AWX hosts of two controllers are not comparable",
+         %{
+           source_identifiers: [ident("integration_id", "awx:v2:ctrl-x:host:11")],
+           to_own_identifiers: [awx_id(12)],
+           guest_provider_ref: nil
+         }, :ambiguous, :no_distinguishing_evidence},
+        {"a holder that only matched on a locally administered MAC",
+         %{
+           corroboration: "mac",
+           source_identifiers: [ident("mac", @local_mac)],
+           to_own_identifiers: []
+         }, :different_machines, [:laa_only_corroboration]},
+        {"a holder with a universal MAC was a real MAC match",
+         %{
+           corroboration: "mac",
+           source_identifiers: [ident("mac", @local_mac), ident("mac", @universal_a)],
+           to_own_identifiers: []
+         }, :ambiguous, :no_distinguishing_evidence},
+        {"an AWX record is not the holder, so its MACs prove nothing",
+         %{
+           corroboration: "mac",
+           source_identifiers: [awx_id(11), ident("mac", @local_mac)],
+           to_own_identifiers: []
+         }, :ambiguous, :no_distinguishing_evidence},
+        {"the same cluster name and VMID on both sides",
+         %{source_identifiers: [ident("integration_id", "proxmox:v2:cluster-b:vm:101")]},
+         :ambiguous, :no_distinguishing_evidence},
+        {"a shared universal MAC voids the proof",
+         %{
+           to_own_identifiers: [
+             ident("integration_id", guest_b_ref()),
+             ident("mac", @universal_a)
+           ]
+         }, :ambiguous, :conflicting_evidence},
+        {"a merge that recorded no source identifiers", %{source_identifiers: nil}, :ambiguous,
+         :source_identifiers_unrecorded}
+      ]
+
+      for {name, overrides, verdict, expected} <- cases do
+        evidence = Decisions.awx_merge_evidence(awx_merge(overrides))
+        assert evidence.verdict == verdict, name
+
+        case verdict do
+          :different_machines -> assert evidence.proofs == expected, name
+          :ambiguous -> assert evidence.reason == expected, name
+        end
+      end
+    end
+
+    test "keys a v2 id and a v3 reference of one cluster and VMID alike" do
+      assert Decisions.awx_guest_key(guest_b_ref()) == {"cluster-b", "101"}
+      assert Decisions.awx_guest_key("proxmox:v2:Cluster-B:vm:101") == {"cluster-b", "101"}
+      assert Decisions.awx_guest_key("proxmox:guest:pve01:qemu:101") == nil
+      assert Decisions.awx_guest_key("proxmox:v2:cluster-b:node:pve01") == nil
+    end
+  end
+
+  describe "plan_awx_proxmox_unmerge/3" do
+    test "undoes a chain newest first, the survivor's own merge away before the merge into it" do
+      # A merged into B, then B into C, in one second, under ids that sort the other way: B's
+      # merge away still runs first.
+      m9 = awx_merge(%{event_id: "m9", to_state: {:merged, "m1"}})
+
+      m1 =
+        awx_merge(%{
+          event_id: "m1",
+          from_uid: "sr:b",
+          to_uid: "sr:c",
+          source_identifiers: [ident("integration_id", @guest_a)],
+          to_own_identifiers: [ident("integration_id", "proxmox:v2:cluster-c:vm:101")]
+        })
+
+      plan = Decisions.plan_awx_proxmox_unmerge([m9, m1])
+
+      assert Enum.map(plan.unmerge, & &1.event_id) == ["m1", "m9"]
+    end
+
+    test "reports instead of undoing what a non-qualifying merge blocks or follows" do
+      blocked = awx_merge(%{event_id: "m1", to_state: {:merged, "other-away"}})
+      ambiguous = awx_merge(%{event_id: "m3", from_uid: "sr:d", source_identifiers: nil})
+
+      follower = %{
+        event_id: "other-in",
+        created_at: ~U[2026-01-01 00:01:00Z],
+        reason: "identity_resolution",
+        from_uid: "sr:e",
+        to_uid: "sr:b"
+      }
+
+      plan = Decisions.plan_awx_proxmox_unmerge([blocked, ambiguous], [follower])
+      by_id = Map.new(plan.report, &{&1.event_id, &1})
+
+      assert plan.unmerge == []
+      assert %{disposition: :blocked_by_later_merge, blocked_by: "other-away"} = by_id["m1"]
+      assert %{disposition: :source_identifiers_unrecorded, bad?: false} = by_id["m3"]
+      assert %{disposition: :follows_bad_merge, follows_bad_merges: ["m1"]} = by_id["other-in"]
+    end
+
+    test "refuses a merge whose state no longer allows the unmerge" do
+      cases = [
+        {%{reversed?: true}, :already_unmerged},
+        {%{from_state: :live}, :not_merged},
+        {%{superseded?: true}, :merge_superseded},
+        {%{to_state: :deleted}, :survivor_not_live}
+      ]
+
+      for {overrides, disposition} <- cases do
+        %{unmerge: [], report: [entry]} =
+          Decisions.plan_awx_proxmox_unmerge([awx_merge(overrides)])
+
+        assert entry.disposition == disposition
+        assert entry.bad?
+      end
+    end
+
+    test "executes only the selected merges, and a selected merge waits for its dependency" do
+      m1 = awx_merge(%{event_id: "m1", to_state: {:merged, "m2"}})
+      m2 = awx_merge(%{event_id: "m2", from_uid: "sr:b", to_uid: "sr:c"})
+
+      plan = Decisions.plan_awx_proxmox_unmerge([m1, m2], [], event_ids: ["m1"])
+      by_id = Map.new(plan.report, &{&1.event_id, &1})
+
+      assert plan.unmerge == []
+      assert by_id["m1"].disposition == :blocked_by_later_merge
+      assert by_id["m2"].disposition == :not_selected
+    end
+  end
+
+  describe "project_awx_unmerges/2" do
+    test "moves each recorded identifier back along the chain" do
+      rows = [
+        %{id: 1, device_id: "sr:c", type: "mac", value: @universal_a},
+        %{id: 2, device_id: "sr:c", type: "mac", value: @universal_b},
+        %{id: 3, device_id: "sr:c", type: "mac", value: @local_mac}
+      ]
+
+      unmerges = [
+        %{
+          from_uid: "sr:b",
+          to_uid: "sr:c",
+          source_identifiers: [ident("mac", @universal_a), ident("mac", @universal_b)]
+        },
+        %{from_uid: "sr:a", to_uid: "sr:b", source_identifiers: [ident("mac", @universal_a)]}
+      ]
+
+      assert rows
+             |> Decisions.project_awx_unmerges(unmerges)
+             |> Map.new(&{&1.id, &1.device_id}) == %{1 => "sr:a", 2 => "sr:b", 3 => "sr:c"}
+    end
+  end
+
+  describe "plan_awx_wrong_guest_macs/1" do
+    defp mac_input(device_overrides, row_overrides \\ %{}) do
+      %{
+        guest: %{
+          provider_ref: "proxmox:v2:cluster-b:vm:101",
+          key: {"cluster-b", "101"},
+          device_uid: "sr:guest-b",
+          macs: ["00:00:5E:00:53:02", "02:00:5E:00:53:EE"]
+        },
+        device:
+          Map.merge(
+            %{
+              uid: "sr:a",
+              own_guest_keys: MapSet.new([{"cluster-a", "101"}]),
+              other_side_is_guest?: false,
+              interface_macs: [],
+              awx_declared_macs: [],
+              absorbed_macs: []
+            },
+            device_overrides
+          ),
+        rows: [
+          Map.merge(
+            %{id: 7, value: @universal_b, source: "sync_ingestor", integration_type: "awx"},
+            row_overrides
+          ),
+          %{id: 8, value: @universal_a, source: "sync_ingestor", integration_type: "awx"}
+        ]
+      }
+    end
+
+    test "removes a guest MAC an AWX update wrote to another machine, and keeps the rest" do
+      cases = [
+        {%{}, %{}, :remove, nil},
+        {%{own_guest_keys: MapSet.new(), other_side_is_guest?: true}, %{}, :remove, nil},
+        {%{own_guest_keys: MapSet.new()}, %{}, :keep, :device_not_proven_other_machine},
+        {%{}, %{source: "proxmox_enrichment"}, :keep, :not_awx_provenance},
+        {%{}, %{integration_type: "armis"}, :keep, :not_awx_provenance},
+        {%{},
+         %{integration_type: "hypervisor", reported_guest_ref: "proxmox:v2:cluster-b:vm:101"},
+         :keep, :refreshed_by_guest_report},
+        {%{interface_macs: ["00005E005302"]}, %{}, :keep, :observed_on_device},
+        {%{awx_declared_macs: ["00:00:5e:00:53:02"]}, %{}, :keep, :declared_by_awx_host},
+        {%{absorbed_macs: ["00005E005302"]}, %{}, :keep, :absorbed_by_merge}
+      ]
+
+      for {device, row, decision, reason} <- cases do
+        # Row 8 is not a MAC of the guest and is never considered.
+        assert [%{id: 7, decision: ^decision, reason: ^reason}] =
+                 Decisions.plan_awx_wrong_guest_macs(mac_input(device, row)),
+               inspect({device, row})
+      end
+    end
+
+    test "keeps a locally administered guest MAC, which many machines carry" do
+      assert [%{decision: :keep, reason: :locally_administered}] =
+               Decisions.plan_awx_wrong_guest_macs(mac_input(%{}, %{value: @local_mac}))
+    end
+
+    test "never touches the guest's own device" do
+      assert [] = Decisions.plan_awx_wrong_guest_macs(mac_input(%{uid: "sr:guest-b"}))
+
+      assert [] =
+               Decisions.plan_awx_wrong_guest_macs(
+                 mac_input(%{own_guest_keys: MapSet.new([{"cluster-b", "101"}])})
+               )
     end
   end
 end

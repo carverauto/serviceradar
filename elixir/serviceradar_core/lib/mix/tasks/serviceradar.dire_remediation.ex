@@ -28,7 +28,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       `link-local-alias-archive`, `broadcast-alias-archive`,
       `netprobe-alias-debris`, `agent-links`, `proxmox-dups`, `source-id-retire`, `source-succession`,
       `released-seed-shells`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
-      `source-id-verify`, `source-id-rollback`, `all` (default `all`).
+      `awx-proxmox-unmerge`, `awx-proxmox-verify`, `source-id-verify`,
+      `source-id-rollback`, `all` (default `all`).
       `all` cannot be combined with another step.
       `source-id-verify` is explicit-only and read-only: it is refused with
       `--execute`.
@@ -40,6 +41,10 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       per-cluster MAC attribution for review, while execute is disabled until
       its own runtime signoff gate is enabled.
       `armis-dups` is disabled unless separately enabled by runtime config.
+      `awx-proxmox-unmerge` is explicit-only: dry-run reports every AWX merge
+      with its evidence, the planned unmerges and MAC removals, while execute
+      is disabled until its runtime gate is enabled. `awx-proxmox-verify` is
+      explicit-only and read-only (see `docs/awx-proxmox-unmerge-runbook.md`).
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)
     * `--debris-date <yyyy-mm-dd>` — test debris creation date (default 2026-04-25)
@@ -87,6 +92,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       Every v2/MAC identifier row that would move must come from a permitted
       source; a row with missing or foreign provenance excludes its candidate.
       Known faker-backed sources remain ineligible inside the remediation step.
+    * `--awx-proxmox-unmerge-event <uuid>` — execute only this reviewed merge
+      audit id (repeatable; a merge whose survivor another, unselected merge took
+      away stays blocked)
+    * `--awx-proxmox-unmerge-candidate-limit <n>` — maximum AWX merges read, newest
+      first (1..50000; default 5000); execute refuses when more exist
+    * `--awx-proxmox-unmerge-report-limit <n>` — maximum reported merges and kept
+      MAC rows printed (0..50000; default 500); planned actions are always printed
     * `--source-batch-size <n>` — records per batch of `source-id-retire`,
       `source-succession` and `released-seed-shells` (1..10000; default 500);
       the harm checks run after each batch
@@ -100,7 +112,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   Every `--armis-unmerge-*` option requires an explicit
   `--step armis-unmerge` selection. Every `--proxmox-unfuse-*` option
-  requires an explicit `--step proxmox-unfuse` selection.
+  requires an explicit `--step proxmox-unfuse` selection. Every
+  `--awx-proxmox-unmerge-*` option requires `--step awx-proxmox-unmerge` or
+  `--step awx-proxmox-verify`.
 
   `armis-unmerge --execute` is rejected unless live scoping has been reviewed
   and the release runtime configuration deliberately sets:
@@ -120,6 +134,12 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   The gate does not add the step to `all`; execute still requires an explicit
   `--step proxmox-unfuse`.
+
+  `awx-proxmox-unmerge --execute` is rejected unless the dry-run plan has been
+  reviewed and the release runtime configuration deliberately sets:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_awx_proxmox_unmerge_execute: true
 
   ## Examples
 
@@ -179,6 +199,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
   @max_proxmox_unfuse_candidate_limit 5_000
   @max_proxmox_unfuse_plan_sample_limit 5_000
   @max_source_batch_size 10_000
+  @max_awx_proxmox_limit 50_000
+
+  @awx_proxmox_switches [
+    :awx_proxmox_unmerge_event,
+    :awx_proxmox_unmerge_candidate_limit,
+    :awx_proxmox_unmerge_report_limit
+  ]
 
   @armis_unmerge_switches [
     :armis_unmerge_candidate_limit,
@@ -209,6 +236,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "proxmox-unfuse",
     "armis-unmerge",
     "armis-dups",
+    "awx-proxmox-unmerge",
+    "awx-proxmox-verify",
     "source-id-verify",
     "source-id-rollback"
   ]
@@ -240,6 +269,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     proxmox_unfuse_plan_sample_limit: :integer,
     proxmox_unfuse_live_device: :keep,
     proxmox_unfuse_live_source: :keep,
+    awx_proxmox_unmerge_event: :keep,
+    awx_proxmox_unmerge_candidate_limit: :integer,
+    awx_proxmox_unmerge_report_limit: :integer,
     source_batch_size: :integer,
     reviewed_source_id: :keep,
     verify_manifest: :keep,
@@ -266,6 +298,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     validate_step_selection!(opts)
     validate_armis_unmerge_selection!(opts)
     validate_proxmox_unfuse_selection!(opts)
+    validate_awx_proxmox_selection!(opts)
     validate_source_id_selection!(opts)
 
     engine_opts = build_engine_opts(opts)
@@ -306,6 +339,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
           "proxmox-unfuse execute mode is disabled pending split-plan review. " <>
             "Run without --execute to review the cluster/MAC attribution plan; only then enable " <>
             ":enable_proxmox_unfuse_execute in the DireRemediation runtime config."
+        )
+
+      {:error, {:execute_disabled, ["awx-proxmox-unmerge"]}} ->
+        Mix.raise(
+          "awx-proxmox-unmerge execute mode is disabled pending plan review. " <>
+            "Run without --execute to review every planned unmerge and MAC removal; only then " <>
+            "enable :enable_awx_proxmox_unmerge_execute in the DireRemediation runtime config."
         )
 
       {:error, {:disabled_steps, disabled}} ->
@@ -387,6 +427,28 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       )
     )
     |> put_proxmox_unfuse_live_scope(opts)
+    |> put_if_nonempty(
+      :awx_proxmox_unmerge_event_ids,
+      validate_nonempty_values(opts, :awx_proxmox_unmerge_event)
+    )
+    |> put_if(
+      :awx_proxmox_unmerge_candidate_limit,
+      validate_range(
+        opts[:awx_proxmox_unmerge_candidate_limit],
+        "--awx-proxmox-unmerge-candidate-limit",
+        1,
+        @max_awx_proxmox_limit
+      )
+    )
+    |> put_if(
+      :awx_proxmox_unmerge_report_limit,
+      validate_range(
+        opts[:awx_proxmox_unmerge_report_limit],
+        "--awx-proxmox-unmerge-report-limit",
+        0,
+        @max_awx_proxmox_limit
+      )
+    )
     |> put_if(
       :source_batch_size,
       validate_range(opts[:source_batch_size], "--source-batch-size", 1, @max_source_batch_size)
@@ -426,6 +488,19 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     if unfuse_opts? and not unfuse_step? do
       Mix.raise("Proxmox unfuse options require an explicit --step proxmox-unfuse selection")
+    end
+  end
+
+  defp validate_awx_proxmox_selection!(opts) do
+    awx_opts? = Enum.any?(@awx_proxmox_switches, &Keyword.has_key?(opts, &1))
+    steps = Keyword.get_values(opts, :step)
+    awx_step? = Enum.any?(["awx-proxmox-unmerge", "awx-proxmox-verify"], &(&1 in steps))
+
+    if awx_opts? and not awx_step? do
+      Mix.raise(
+        "AWX/Proxmox unmerge options require an explicit --step awx-proxmox-unmerge " <>
+          "or --step awx-proxmox-verify selection"
+      )
     end
   end
 
@@ -595,7 +670,11 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
         :retire_sample,
         :class_5_sample,
         :class_7_sample,
-        :class_8_sample
+        :class_8_sample,
+        :unmerge_plan,
+        :reported_merges,
+        :mac_cleanup_plan,
+        :mac_kept_sample
       ])
 
     counts

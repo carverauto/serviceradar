@@ -9,4 +9,4 @@
 - [x] 1.7 Read v3 node names through `IntegrationIdentity.proxmox_v3_node_name/1` instead of a split that was one component short; cover node, guest, child and kind-named-cluster references.
 
 ## 2. Follow-up (not in this change)
-- [ ] 2.1 Plan the repair of records merged by the old rule, from `platform.merge_audit` and `platform.device_identifier_archive`, with the owner.
+- [x] 2.1 Plan the repair of records merged by the old rule, from `platform.merge_audit` and `platform.device_identifier_archive`, with the owner: change `remediate-awx-proxmox-guest-merges` (step `awx-proxmox-unmerge`, `docs/awx-proxmox-unmerge-runbook.md`).

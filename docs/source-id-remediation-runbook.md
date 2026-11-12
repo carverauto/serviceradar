@@ -328,3 +328,7 @@ The rollback does not reverse:
 
 The rollback writes what it reversed to its own manifest. Keep that manifest with the
 others.
+
+`source-id-rollback` also reverses the manifests of `awx-proxmox-unmerge`, the repair of the AWX
+merges that bound hosts to guests of another cluster. Its procedure, checks and rollback are in
+[awx-proxmox-unmerge-runbook.md](awx-proxmox-unmerge-runbook.md).
