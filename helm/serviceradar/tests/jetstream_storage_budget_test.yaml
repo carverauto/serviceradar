@@ -90,7 +90,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'nats\.jetstream\.profile "huge" is not a JetStream sizing profile; use one of: large, medium, small, tenant-2g'
+          errorPattern: 'nats\.jetstream\.profile "huge" is not a JetStream sizing profile; use one of: compact, large, medium, small, tenant-2g'
 
   # --- every profile renders, with and without the optional producers (D8) --
   - it: small renders with flow-collector, bmp-collector and the trivy sidecar enabled
@@ -120,6 +120,26 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: "max_file_store: 36000000000\n"
+
+  - it: compact renders on three NATS servers with a 10Gi PVC
+    set:
+      nats.replicas: 3
+      nats.jetstream.profile: compact
+      nats.persistence.size: 10Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 9000000000\n"
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
 
   - it: medium renders on a 100Gi PVC with every optional producer enabled
     set:
@@ -333,9 +353,10 @@ tests:
           errorPattern: 'exceeds 94% of nats\.persistence\.size 36Gi .*nats\.jetstream\.allowOvercommit does not skip this check'
 
   # --- single-server and two-server NATS --------------------------------------
-  # With nats.replicas below 3 every shipped profile uses its single-server
-  # table (the Compose sizes). On one server every stream counts in full, so the
-  # three-server small table (29.3125 GiB) and medium table (84.5625 GiB) would fail.
+  # With nats.replicas below 3, small, medium and large use their single-server
+  # table (the Compose sizes). Profiles without that table reuse `sizes`. On one
+  # server every stream counts in full, so the three-server small table
+  # (29.3125 GiB) and medium table (84.5625 GiB) would fail.
   - it: small renders on a single NATS server with defaults
     set:
       nats.replicas: 1
@@ -347,6 +368,23 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: "max_file_store: 36000000000\n"
+
+  - it: compact renders on a single NATS server with a 10Gi PVC
+    set:
+      nats.replicas: 1
+      nats.jetstream.profile: compact
+      nats.persistence.size: 10Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 9000000000\n"
 
   - it: medium renders on a single NATS server with a 100Gi PVC
     set:

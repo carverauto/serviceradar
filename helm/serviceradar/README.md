@@ -272,7 +272,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 
 | Parameter | Purpose | Default |
 |-----------|---------|---------|
-| `nats.jetstream.profile` | JetStream sizing profile (`small`, `medium`, `large`, `tenant-2g`) supplying `max_file_store` and every stream size below; the chart fails at render time when the reservations exceed 85% of `max_file_store` or `max_file_store` exceeds 94% of `nats.persistence.size`. See [JetStream sizing values](../../docs/docs/helm-configuration.md) and `docs/nats-jetstream-profile-runbook.md` | `small` |
+| `nats.jetstream.profile` | JetStream sizing profile (`compact`, `small`, `medium`, `large`, `tenant-2g`) supplying `max_file_store` and every stream size below; the chart fails at render time when the reservations exceed 85% of `max_file_store` or `max_file_store` exceeds 94% of `nats.persistence.size`. See [JetStream sizing values](../../docs/docs/helm-configuration.md) and `docs/nats-jetstream-profile-runbook.md` | `small` |
 | `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `3` |
 | `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | unset (`nats.jetstream.profile` supplies it; 1 GiB in `small`) |
 | `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
