@@ -437,7 +437,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       Repo.query!(
         """
         DELETE FROM platform.identity_distinct_assertions
-        WHERE id = CAST($1 AS uuid) AND device_a = $2 AND device_b = $3
+        WHERE id::text = $1 AND device_a = $2 AND device_b = $3
         """,
         [id, device_a, device_b]
       )
