@@ -1,3 +1,125 @@
+# ServiceRadar v1.5.3
+
+This release fixes publishing a dashboard into a slot whose previous
+package was deleted. It moves the edge-record streams to work-queue
+retention, stops AWX hosts from being merged into the wrong Proxmox
+guest and adds a repair step for records that already were, and caps
+SNMP targets per profile. Rolling upgrades no longer fail cross-node
+calls to peers that are still on the previous release.
+
+## Upgrade Notes
+
+- **The edge-record source streams are recreated once.**
+  `TELEMETRY_EDGE_RECORD_V1_BULK` and its audit stream now keep only
+  records EventWriter has not yet written (WorkQueue retention, one
+  owning consumer, no age limit). On the first core start, the 5-minute
+  reconcile seals the old stream, waits for it to drain, then deletes
+  and recreates it. While it is sealed, agents keep records in their
+  spool and publish them afterwards, so nothing is lost. A new alert,
+  `ServiceRadarEdgeRecordBacklogPressure`, fires when either stream
+  stays above 80% of its byte limit for 5 minutes (#6501, #6552).
+- **Each SNMP profile is limited to 10,000 targets per agent.** The
+  limit is the `snmp_max_targets` runtime setting (agent, partition or
+  global). A profile over the limit is refused, not truncated: it
+  contributes no targets, the rest of the agent's configuration still
+  compiles, and core logs a warning. An enabled profile over the limit
+  cannot be saved (#6523).
+- **SNMPv3 credentials accept only the listed security levels and
+  protocols.** The form, rotation, the REST API and the SNMP profile
+  promote path reject any other value with a field error (#6522).
+- **Queued exposure snapshot jobs move to a scopes table.** The
+  migration turns pending `ExposureSnapshotWorker` jobs into scope rows
+  that one publisher drains (#6547, #6562).
+- **AWX/Proxmox merge repair.** Installs where AWX hosts were merged
+  into the wrong Proxmox guest can run the `awx-proxmox-unmerge`
+  remediation step, then `awx-proxmox-verify`. Execution is off by
+  default; see `docs/awx-proxmox-unmerge-runbook.md` (#6558, #6565,
+  #6572).
+- **New migrations:** `20261110233000`, `20261111030000`,
+  `20261111040000`, `20261111090000`, `20261111160000`,
+  `20261111190000`, `20261111230000`, `20261111234313`,
+  `20261111235445`, `20261112193000`.
+
+## Whats New
+
+**Dashboards**
+
+- Publishing a dashboard no longer crashes when the slug's existing
+  instance points at a deleted package. The slot is treated as free
+  (#6570).
+
+**Durable edge pipeline**
+
+- Edge-record source streams hold only unwritten records (#6501), with
+  one cutover lock per core and no shape reconcile on sealed streams
+  (#6552).
+- Default alerts fire for stuck or full agent spools and for held dead
+  letters (#6508).
+- EventWriter waits for its streams and consumers at startup instead
+  of logging errors (#6515).
+- Misrouted flow drain consumers are removed (#6571).
+
+**Device identity and Ansible**
+
+- AWX hosts bind to a Proxmox guest only on machine evidence. Node name
+  plus VM ID is no longer treated as identity, and Proxmox v3 node
+  references are parsed (#6551, #6555).
+- Automatic merges of records that hold different hypervisor guests are
+  refused (#6557).
+- Restoring a merged record no longer takes an address another device
+  holds (#6565).
+- Settings > Ansible reviews AWX memberships and template bindings, with
+  bulk approval (#6539, #6544). Quarantined memberships show their
+  reason and can be released (#6546, #6549).
+
+**SNMP**
+
+- Target devices are read a page at a time and credential lookups are
+  batched per page (#6520, #6523).
+- SNMPv3 security level and protocols are chosen from lists (#6522).
+- The Cisco AES-192-C and AES-256-C privacy variants work end to end
+  (#6531).
+
+**Core reliability**
+
+- Cross-node calls between agent-gateway, core and web-ng survive a
+  rolling upgrade. When a peer still running the previous release lacks
+  the called function, the caller tries the other peers and waits
+  briefly for a capable one (#6498, #6500).
+- Exposure snapshots publish from one worker over a scopes table, and
+  stale scopes are skipped (#6547, #6562, #6567).
+- AshOban schedules run at priority 0 so they no longer go stale, and
+  superseded AWX observations are acknowledged (#6505).
+- Sweep lease refresh and re-issue no longer stall the maintenance
+  queue or deadlock (#6504, #6527, #6534).
+- Topology rebuild and graph reads stay under the gRPC receive limit
+  (#6528, #6533).
+- Withdrawn Proxmox results are acknowledged and duplicate cron ticks
+  stop (#6519).
+- StarRocks Stream Load separates DNS lookup from the connect timer
+  (#6518).
+- Release consoles print allowlisted Logger metadata, and three core
+  warnings now include their reason (#6532, #6535).
+
+**Integrations and plugins**
+
+- Armis retries transient request failures within a sync run (#6550).
+- Add-on rollouts re-check agent compatibility before launch (#6513).
+- v2 API endpoints accept the JSON:API media type (#6503).
+
+**Helm and release**
+
+- Optional compact JetStream profile for 10Gi volumes (#6543).
+- Release packages ship signed SHA256 checksums (#6507).
+
+**NVR (disabled by default)**
+
+- Local storage bindings, qualification and bootstrap records, history
+  genesis, publication-intent delivery over mTLS, and gates on the
+  deployment recovery state (#6499, #6502, #6506, #6509, #6516, #6521,
+  #6524, #6530, #6538, #6540, #6542, #6545, #6553, #6556, #6559, #6560,
+  #6561, #6563, #6566).
+
 # ServiceRadar v1.5.2
 
 This release finishes hardening the durable edge pipeline. Agents now
@@ -132,10 +254,6 @@ adds the standalone NVR recording service, disabled by default.
 - Topology projects CONTAINS edges from virtualization inventory (#6454).
 - The MTR daily comparison stays aligned just after midnight UTC (#6476).
 - Agent release imports and publishing run in the background (#6409).
-- Cross-node calls between agent-gateway, core and web-ng survive a
-  rolling upgrade. When a peer still running the previous release lacks
-  the called function, the caller tries the other peers and waits briefly
-  for a capable one instead of failing or logging an error.
 
 # ServiceRadar v1.5.1
 
