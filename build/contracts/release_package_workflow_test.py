@@ -184,6 +184,30 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
         self.assertEqual(dispatcher["permissions"], {"contents": "write", "actions": "write"})
         self.assertEqual(self.scan["jobs"]["image-security"]["steps"][0]["with"]["ref"], "${{ inputs.tag }}")
 
+    def test_failed_macos_installer_cannot_skip_jobs_downstream_of_it(self):
+        # GitHub prefixes an `if` without a status function with `success() &&`, and
+        # success() is false when any upstream job failed, transitively. Each job after
+        # the optional macOS job must therefore opt out with !cancelled() and require
+        # its other direct needs itself, or a macOS failure leaves the release a draft.
+        jobs = self.release["jobs"]
+
+        def needs(name):
+            value = jobs[name].get("needs", [])
+            return [value] if isinstance(value, str) else list(value)
+
+        def downstream_of_macos(name):
+            return any(n == "macos" or downstream_of_macos(n) for n in needs(name))
+
+        downstream = [name for name in jobs if downstream_of_macos(name)]
+        self.assertIn("finalize", downstream)
+        for name in downstream:
+            condition = jobs[name].get("if", "")
+            with self.subTest(job=name):
+                self.assertIn("!cancelled()", condition)
+                for need in needs(name):
+                    if need != "macos":
+                        self.assertIn(f"needs.{need}.result == 'success'", condition)
+
     def run_dispatch(self, *, assets=(), release_tag="v9.8.7", draft=True, fail_post=False):
         step = next(s for s in self.release["jobs"]["image-security-dispatch"]["steps"] if "run" in s)
         with tempfile.TemporaryDirectory() as directory:
