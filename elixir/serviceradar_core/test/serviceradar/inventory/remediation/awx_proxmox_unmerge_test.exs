@@ -371,6 +371,133 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     assert archived(copied_row) == {holder.uid, AwxProxmoxUnmerge.archive_reason()}
   end
 
+  test "accounts for a unit whose plan a write changed after an earlier unit ran", ctx do
+    # Two units: C into D (newer, runs first) and B1 into B2, each two guests of different
+    # clusters. B1 holds a universal MAC of its own.
+    b_mac = mac(ctx.n, 9)
+    [c, d, b1, b2] = for label <- ~w(c d b1 b2), do: guest_record!(ctx, label)
+    identifier!(ctx.actor, b1.uid, :mac, String.replace(b_mac, ":", ""), %{})
+    first = historical_merge!(ctx, c, d, minutes_ago: 10)
+    second = historical_merge!(ctx, b1, b2, minutes_ago: 30)
+    scope = [awx_proxmox_unmerge_event_ids: [first, second]]
+
+    assert {:ok, %{reports: %{@step => plan}}} = DireRemediation.run([steps: [@step]] ++ scope)
+    assert Enum.map(plan.unmerge_plan, &hd(&1.merges).event_id) == [first, second]
+
+    # A sync lands between the two units and gives B2 the MAC B1 held: the pair can no longer be
+    # told apart, so the second unit must not run, and must be reported.
+    deadline = System.monotonic_time(:millisecond) + 60_000
+    writer = Task.async(fn -> write_after_unmerge(first, b2.uid, b_mac, deadline) end)
+
+    assert {:ok, %{reports: %{@step => report}}} =
+             DireRemediation.run(
+               [
+                 mode: :execute,
+                 steps: [@step],
+                 manifest_path: Path.join(ctx.dir, "replanned.ndjson"),
+                 actor: ctx.actor
+               ] ++ scope
+             )
+
+    assert Task.await(writer, 65_000) == :written
+
+    assert %{
+             planned_units: 2,
+             units_applied: 1,
+             unit_failures: 0,
+             units_not_run: 0,
+             unit_accounting_failures: 0,
+             units_skipped: %{"disposition_changed" => 1},
+             skipped_units: [
+               %{
+                 event_ids: [^second],
+                 reason: "disposition_changed",
+                 replanned: %{^second => "conflicting_evidence"}
+               }
+             ]
+           } = report
+
+    refute merged?(c.uid)
+    assert merged?(b1.uid)
+  end
+
+  test "verify passes after the same machine joins again, and fails on a bad merge after the repair",
+       ctx do
+    w = guest_world!(ctx)
+    scope = [awx_proxmox_unmerge_event_ids: [w.merge]]
+
+    assert {:error, {:step_failures, %{reports: %{"awx-proxmox-verify" => before}}}} =
+             DireRemediation.run([steps: ["awx-proxmox-verify"]] ++ scope)
+
+    assert %{status: "fail", sample: sample} = check(before, "A2")
+    assert Enum.any?(sample, &(&1.event_id == w.merge))
+
+    assert {:ok, _result} =
+             DireRemediation.run(
+               [
+                 mode: :execute,
+                 steps: [@step],
+                 manifest_path: Path.join(ctx.dir, "repair.ndjson"),
+                 actor: ctx.actor
+               ] ++ scope
+             )
+
+    # Four minutes after the repair a backfill joins another record of guest B's machine to guest
+    # B's record, on the NIC MAC the repair gave back to it.
+    [[unmerged_at]] =
+      Repo.query!(
+        """
+        SELECT created_at FROM platform.merge_audit
+        WHERE reason = 'unmerge' AND details->>'original_merge_event_id' = $1
+        """,
+        [w.merge]
+      ).rows
+
+    repaired_at = DateTime.from_naive!(unmerged_at, "Etc/UTC")
+    agent = device!(ctx.actor, "agent#{ctx.n}")
+    identifier!(ctx.actor, agent, :mac, String.replace(mac(ctx.n, 8), ":", ""), %{})
+
+    rejoin =
+      historical_merge!(ctx, %{uid: agent}, %{uid: w.guest_device},
+        at: DateTime.shift(repaired_at, minute: 4),
+        reason: "identifier_backfill",
+        details: %{"evidence" => [%{"type" => "mac", "value" => w.copied_mac}]}
+      )
+
+    assert {:ok, %{reports: %{"awx-proxmox-verify" => after_rejoin}}} =
+             DireRemediation.run([steps: ["awx-proxmox-verify"]] ++ scope)
+
+    for name <- ["A2", "A3"] do
+      assert %{status: "pass"} = check(after_rejoin, name), name
+    end
+
+    # The step does not judge the rejoin at all: the poison of the undone merge has ended.
+    assert {:ok, %{reports: %{@step => replan}}} = DireRemediation.run(steps: [@step])
+
+    judged =
+      Enum.map(replan.reported_merges, & &1.event_id) ++
+        Enum.flat_map(replan.unmerge_plan, fn unit -> Enum.map(unit.merges, & &1.event_id) end)
+
+    refute rejoin in judged
+
+    # A holder of another cluster merged into guest B's record after the repair is still caught.
+    late = guest_record!(ctx, "late")
+
+    bad =
+      historical_merge!(ctx, late, %{uid: w.guest_device},
+        at: DateTime.shift(repaired_at, minute: 6),
+        details: %{"guest_provider_ref" => w.guest_ref}
+      )
+
+    assert {:error, {:step_failures, %{reports: %{"awx-proxmox-verify" => after_bad}}}} =
+             DireRemediation.run([steps: ["awx-proxmox-verify"]] ++ scope)
+
+    for name <- ["A2", "A3"] do
+      assert %{status: "fail", sample: sample} = check(after_bad, name)
+      assert Enum.map(sample, & &1.event_id) == [bad], name
+    end
+  end
+
   # -- worlds -------------------------------------------------------------------------------
 
   # A guest of cluster B, reported by its own Proxmox integration, and a guest of cluster A with the
@@ -599,10 +726,14 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
   # A merge as the AWX reconciliation recorded it before the fix: the merged record's identifiers
   # move to the survivor and are listed in `source_identifiers`, and the merged record becomes a
-  # `merged` tombstone. The audit time is set, so a test can order merges.
+  # `merged` tombstone. The audit time is set (`minutes_ago`, or `at`), so a test can order merges.
   defp historical_merge!(ctx, from, to, opts) do
     reason = Keyword.get(opts, :reason, @guest_reason)
-    created_at = DateTime.shift(DateTime.utc_now(), minute: -Keyword.fetch!(opts, :minutes_ago))
+
+    created_at =
+      Keyword.get_lazy(opts, :at, fn ->
+        DateTime.shift(DateTime.utc_now(), minute: -Keyword.fetch!(opts, :minutes_ago))
+      end)
 
     source_identifiers =
       Enum.map(
@@ -662,7 +793,34 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     event_id
   end
 
+  # A sync that lands while the step runs: once `event_id` has been undone, `uid` shows `mac` as
+  # its display MAC. Each try is one statement, and a unit's transaction holds the module's shared
+  # sandbox connection while it runs, so the write lands after the unit that undid `event_id`
+  # commits and before the next unit's transaction begins.
+  defp write_after_unmerge(event_id, uid, mac, deadline) do
+    %{num_rows: written} =
+      Repo.query!(
+        """
+        UPDATE platform.ocsf_devices SET mac = $2
+        WHERE uid = $1
+          AND EXISTS (
+            SELECT 1 FROM platform.merge_audit
+            WHERE reason = 'unmerge' AND details->>'original_merge_event_id' = $3
+          )
+        """,
+        [uid, mac, event_id]
+      )
+
+    cond do
+      written == 1 -> :written
+      System.monotonic_time(:millisecond) > deadline -> :timed_out
+      true -> write_after_unmerge(event_id, uid, mac, deadline)
+    end
+  end
+
   # -- reads --------------------------------------------------------------------------------
+
+  defp check(report, name), do: Enum.find(report.checks, &(&1.check == name))
 
   defp merged?(uid) do
     [[deleted_reason]] =

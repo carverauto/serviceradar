@@ -15,6 +15,12 @@
   ordering and units, a chained `hypervisor_guest_network_match` merge, MAC moves and archive only
   with proof, idempotent replay and rollback.
 - [x] 1.7 Runbook `docs/awx-proxmox-unmerge-runbook.md`.
+- [x] 1.8 End a bad merge's poison at its unmerge (path-tagged poison, judged at each merge's
+  time), and void `tainted_evidence` on a guest identity the survivor established through a merge
+  that stays, so correct merges after a repair are not judged bad.
+- [x] 1.9 Account for every planned unit in execute: skip reasons `disposition_changed` and
+  `unit_changed` with each merge's disposition now, a log line per skip, `units_not_run` after a
+  halt, and `unit_accounting_failures` when the outcomes do not add up.
 
 ## 2. Operation (owner)
 - [ ] 2.1 Dry run on the demo deployment and review every planned unmerge and MAC removal.

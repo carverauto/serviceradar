@@ -808,7 +808,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         to_own_identifiers: [ident("integration_id", guest_b_ref()), ident("mac", @universal_b)],
         to_absorbed_before: [],
         to_mac: nil,
-        reversed?: false,
+        unmerged_at: nil,
         from_state: :merged,
         superseded?: false,
         to_state: :live
@@ -933,7 +933,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           to_own_identifiers: [awx_id(1)],
           to_absorbed_before: [],
           to_mac: nil,
-          reversed?: false,
+          unmerged_at: nil,
           from_state: :merged,
           superseded?: false,
           to_state: :live
@@ -1029,6 +1029,99 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert by_id["e4"].proofs == [:proxmox_guest_mismatch]
       assert by_id["e5"].proofs == [:tainted_evidence]
       assert %{disposition: :chained_unproven, bad?: false} = by_id["e3"]
+    end
+
+    test "a bad merge's poison ends when it is undone" do
+      # The holder of cluster A, carrying a copy of guest B's NIC MAC, was merged into guest B's
+      # record at second 1. A backfill then joined another record of guest B's machine to guest
+      # B's record on that MAC, which the bad merge had recorded as the holder's.
+      bad =
+        awx_merge(%{
+          event_id: "e1",
+          created_at: at(1),
+          source_identifiers: [ident("integration_id", @guest_a), ident("mac", @universal_b)],
+          to_own_identifiers: [ident("integration_id", guest_b_ref())],
+          to_mac: @universal_b,
+          guest_macs: [@universal_b]
+        })
+
+      context = %{own: %{"sr:b" => [ident("integration_id", guest_b_ref())]}}
+
+      cases = [
+        {nil, 14, true},
+        {at(10), 5, true},
+        {at(10), 10, false},
+        {at(10), 14, false}
+      ]
+
+      for {unmerged_at, second, bad?} <- cases do
+        rejoin =
+          chained(%{
+            event_id: "e2",
+            created_at: at(second),
+            reason: "identifier_backfill",
+            from_uid: "sr:agent-b",
+            to_uid: "sr:b",
+            source_identifiers: [ident("mac", "00005E005399")],
+            evidence: [%{"type" => "mac", "value" => "00:00:5E:00:53:02"}],
+            to_own_identifiers: [ident("integration_id", guest_b_ref())],
+            to_mac: @universal_b
+          })
+
+        plan =
+          Decisions.plan_awx_proxmox_unmerge([%{bad | unmerged_at: unmerged_at}, rejoin], context)
+
+        e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+        label = inspect({unmerged_at, second})
+
+        if bad? do
+          assert %{bad?: true, proofs: [:tainted_evidence]} = e2, label
+        else
+          assert e2 == nil, label
+        end
+      end
+    end
+
+    test "a merge onto a record holding the same guest is never tainted" do
+      # AWX host 2, bound by mistake to guest 9101, was merged into AWX host 1's record at second
+      # 1; the AWX update had copied guest 9101's NIC MAC onto host 2's record. At second 2 a
+      # record holding that MAC was joined to host 1's record as guest 9101's.
+      guest_mac = "00005E0053A1"
+
+      poisoning = %{
+        poisoning_merge()
+        | source_identifiers: [awx_id(2), ident("mac", guest_mac)]
+      }
+
+      rejoin =
+        chained(%{
+          event_id: "e2",
+          created_at: at(2),
+          from_uid: "sr:nic9101",
+          guest_provider_ref: guest_ref(9101),
+          source_identifiers: [%{"type" => "mac", "value" => guest_mac, "partition" => "site-b"}]
+        })
+
+      # Guest 9101's own record, merged into host 1's record before the bad merge: host 1's record
+      # is guest 9101's machine. Without it, host 1's record holds no guest at all.
+      guest_record =
+        chained(%{
+          event_id: "e0",
+          created_at: at(0),
+          reason: "identity_resolution",
+          from_uid: "sr:g9101",
+          source_identifiers: [ident("integration_id", guest_ref(9101))]
+        })
+
+      for {merges, expected} <- [
+            {[guest_record, poisoning, rejoin], {:conflicting_evidence, false}},
+            {[poisoning, rejoin], {:unmerge, true}}
+          ] do
+        plan = Decisions.plan_awx_proxmox_unmerge(merges, poisoned_context())
+        e2 = Enum.find(plan.report, &(&1.event_id == "e2"))
+
+        assert {e2.disposition, e2.bad?} == expected, inspect(Enum.map(merges, & &1.event_id))
+      end
     end
 
     test "a merged record sharing the survivor's own identity is never chained" do
@@ -1294,7 +1387,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
     test "refuses a merge whose state no longer allows the unmerge" do
       cases = [
-        {%{reversed?: true}, :already_unmerged},
+        {%{unmerged_at: at(9)}, :already_unmerged},
         {%{from_state: :live}, :not_merged},
         {%{superseded?: true}, :merge_superseded},
         {%{to_state: :deleted}, :survivor_not_live}

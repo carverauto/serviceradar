@@ -15,18 +15,27 @@ record, the NIC MACs and addresses of the guest the merge named (unless the surv
 guest's identity) and the merged record's address. A later merge of any reason that touches a
 poisoned record SHALL be bad when the merged record holds a Proxmox guest identity and the
 survivor had established a different one, or when every identifier its match rested on is foreign
-to the poisoned record and none is that record's own; a shared universally administered MAC,
-guest identity or AWX host id with the survivor's own identity SHALL void that proof, except
-that a NIC MAC of a guest the merge names or the merged record holds does not count on the side
-without that guest's identity. Any other merge on a poisoned record SHALL be reported and left in
-place.
+to the poisoned record and none is that record's own; a shared universally administered MAC
+or AWX host id with the survivor's own identity, or a guest identity the survivor has established
+(its own, or brought by a merge that stays), SHALL void that proof, except that a NIC MAC of a
+guest the merge names or the merged record holds does not count on the side without that guest's
+identity. Any other merge on a poisoned record SHALL be reported and left in place.
+
+What a merge put on a record SHALL apply to a later merge only while every merge it came through
+is in place at that later merge's time: from the time an unmerge of one of them is recorded, the
+poison it brought SHALL no longer apply. The verdict of a merge SHALL therefore depend only on the
+history up to that merge.
 
 The repair SHALL be dry run by default, SHALL compute its plan when it runs, and SHALL refuse to
 execute unless the release runtime configuration enables it. Bad merges that share records SHALL
 form a unit that is undone newest first, by merge audit id, in one transaction after locking its
 records and planning the unit again; a merge whose survivor a later merge took away SHALL wait
 for that merge. When any merge of a unit cannot be undone, the whole unit SHALL be reported and
-none of it undone. Each unmerged pair SHALL be recorded as distinct.
+none of it undone. Each unmerged pair SHALL be recorded as distinct. Every planned unit SHALL end
+in exactly one reported outcome (applied, skipped with its reason, failed, or not run after a
+halt); a unit planned differently under its locks SHALL be skipped with each of its merges'
+disposition now and logged, and outcomes that do not add up to the planned units SHALL fail the
+run.
 
 After the unmerges, the repair SHALL act on a MAC identifier row only when its provenance proves
 that it came from the wrong guest: the value is a universally administered NIC MAC of the guest,
@@ -67,6 +76,23 @@ written to a rollback manifest before it commits, and the rollback SHALL reverse
 - **WHEN** the repair plans
 - **THEN** the later merge SHALL be bad
 - **AND** the first SHALL be reported for review and left in place
+
+#### Scenario: A correct merge after the repair is not judged on undone poison
+- **GIVEN** a bad merge into a guest's record that has been undone, and a later merge that joins another record of the same machine to that record on an identifier the undone merge had brought
+- **WHEN** the repair plans, or `awx-proxmox-verify` runs
+- **THEN** the later merge SHALL NOT be judged bad
+- **AND** a merge proved bad after the repair SHALL still fail A2 and A3
+
+#### Scenario: A merge onto a record holding the same guest
+- **GIVEN** a poisoned record that holds a Proxmox guest's identity through a merge that stays, and a later merge that joins a record of that same guest to it on evidence the poison brought
+- **WHEN** the repair plans
+- **THEN** the later merge SHALL be reported as `conflicting_evidence` and left in place
+
+#### Scenario: A unit planned differently under its locks
+- **GIVEN** two planned units, and a write that lands after the first unit is undone and changes the second unit's verdict
+- **WHEN** the second unit is planned again under its locks
+- **THEN** the second unit SHALL be rolled back, counted as skipped with reason `disposition_changed` and each merge's new disposition, and logged
+- **AND** the applied, skipped, failed and not-run units SHALL add up to the planned units
 
 #### Scenario: A wrong-guest MAC without AWX provenance is kept
 - **GIVEN** a record proved not to be the bound guest, holding a MAC of that guest last written by another source
