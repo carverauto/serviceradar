@@ -42,8 +42,8 @@ jobs:
       - name: Install OSV-Scanner
         run: ./scripts/install-osv-scanner.sh
 
-      - name: Install skopeo
-        run: ./scripts/install-skopeo.sh
+      - name: Install crane
+        run: ./scripts/install-crane.sh
 
       - name: Resolve image tag
         id: release
@@ -69,6 +69,7 @@ jobs:
             exit 1
           fi
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+          echo "${OCI_TOKEN}" | crane auth login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
 
       - name: Wait for release images
         env:
@@ -104,19 +105,35 @@ jobs:
           mkdir -p "${archive_dir}"
           findings=0
           scan_failures=()
+          # One image's failure must not hide the others: record it, keep scanning,
+          # and fail once after the loop naming every image and the tool that failed.
+          record_failure() {
+            echo "::error title=Image scan failed::$1: $2 exited $3"
+            scan_failures+=("$1: $2 exited $3")
+          }
           while IFS= read -r repository; do
             image_ref="${repository}:${RELEASE_TAG}"
             image_name="$(basename "${repository}")"
             echo "Scanning ${image_ref}"
 
+            syft_exit=0
             syft scan "registry:${image_ref}" \
               -o "spdx-json=out/security/images/${image_name}.spdx.json" \
-              -o "syft-text=out/security/images/${image_name}.sbom.txt"
+              -o "syft-text=out/security/images/${image_name}.sbom.txt" || syft_exit=$?
+            if [[ "${syft_exit}" -ne 0 ]]; then
+              record_failure "${image_ref}" syft "${syft_exit}"
+            fi
 
             # Given a registry reference, osv-scanner shells out to `docker pull`, and
-            # ARC runners have no docker daemon. Hand it an image archive instead.
+            # ARC runners have no docker daemon. Hand it an image tarball instead.
             archive="${archive_dir}/${image_name}.tar"
-            skopeo copy --quiet "docker://${image_ref}" "docker-archive:${archive}:${image_ref}"
+            pull_exit=0
+            crane pull "${image_ref}" "${archive}" || pull_exit=$?
+            if [[ "${pull_exit}" -ne 0 ]]; then
+              rm -f "${archive}"
+              record_failure "${image_ref}" "crane pull" "${pull_exit}"
+              continue
+            fi
 
             # osv-scanner exits 1 when it found vulnerabilities and 127/128 when it
             # could not scan. Only the first is a scan result.
@@ -128,14 +145,11 @@ jobs:
             case "${image_osv_exit}" in
               0) ;;
               1) findings=1 ;;
-              *)
-                echo "::error title=OSV scan failed::${image_ref}: osv-scanner exited ${image_osv_exit}"
-                scan_failures+=("${image_ref}")
-                ;;
+              *) record_failure "${image_ref}" osv-scanner "${image_osv_exit}" ;;
             esac
           done < <(./scripts/list-publishable-oci-repositories.sh)
           if [[ "${#scan_failures[@]}" -ne 0 ]]; then
-            printf 'OSV scan failed for %s\n' "${scan_failures[@]}" >&2
+            printf 'Image scan failed for %s\n' "${scan_failures[@]}" >&2
             exit 1
           fi
           echo "OSV_EXIT=${findings}" >> "${GITHUB_ENV}"

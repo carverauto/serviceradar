@@ -312,7 +312,7 @@ class ImageSecurityScanStepTest(unittest.TestCase):
         steps = workflow["jobs"]["image-security"]["steps"]
         cls.step = next(s for s in steps if s["name"] == "Generate image SBOMs and OSV reports")
 
-    def run_scan(self, osv_exit_by_image):
+    def run_scan(self, osv_exit_by_image, failing_pulls=(), failing_sboms=()):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bin_dir, work, runner_temp = root / "bin", root / "work", root / "runner-temp"
@@ -320,9 +320,15 @@ class ImageSecurityScanStepTest(unittest.TestCase):
                 path.mkdir(parents=True)
             fakes = {
                 "list-publishable-oci-repositories.sh": "printf '%s\\n' " + " ".join(self.REPOSITORIES),
-                "syft": "exit 0",
-                # Like skopeo: write the archive named by the docker-archive destination.
-                "skopeo": 'dest="${@: -1}"; dest="${dest#docker-archive:}"; : > "${dest%%:*}"',
+                # Like `syft scan registry:<ref> ...`: fail for an image it cannot catalog.
+                "syft": 'for failing in ${SYFT_FAILS}; do [[ "$2" == "registry:${failing}" ]] && exit 1; done; exit 0',
+                # Like `crane pull <ref> <tarball>`: write the tarball, or fail for an
+                # image the registry cannot serve.
+                "crane": textwrap.dedent("""\
+                    [[ "$1" == pull ]] || exit 2
+                    for failing in ${CRANE_FAILS}; do [[ "$2" == "${failing}" ]] && exit 1; done
+                    : > "$3"
+                """),
                 # Like osv-scanner: a registry reference needs dockerd, which this host
                 # lacks (127); an archive is scanned and reports the image's result.
                 "osv-scanner": textwrap.dedent("""\
@@ -347,7 +353,8 @@ class ImageSecurityScanStepTest(unittest.TestCase):
             calls.touch()
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RELEASE_TAG="v9.8.7",
                        RUNNER_TEMP=str(runner_temp), GITHUB_ENV=str(github_env), OSV_CALLS=str(calls),
-                       OSV_EXITS=json.dumps(osv_exit_by_image))
+                       OSV_EXITS=json.dumps(osv_exit_by_image), CRANE_FAILS=" ".join(failing_pulls),
+                       SYFT_FAILS=" ".join(failing_sboms))
             result = subprocess.run(["bash", "-c", self.step["run"]], cwd=work, env=env,
                                     capture_output=True, text=True, timeout=20)
             return result, github_env.read_text(), calls.read_text().splitlines()
@@ -364,9 +371,30 @@ class ImageSecurityScanStepTest(unittest.TestCase):
     def test_scanner_error_fails_the_scan_instead_of_counting_as_findings(self):
         result, github_env, _ = self.run_scan({"alpha": 0, "beta": 127})
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("OSV scan failed for registry.example.test/sr/beta:v9.8.7", result.stderr)
+        self.assertIn("Image scan failed for registry.example.test/sr/beta:v9.8.7: osv-scanner exited 127",
+                      result.stderr)
         self.assertNotIn("OSV_EXIT", github_env)
 
+    def failure_lines(self, result):
+        return [line for line in result.stderr.splitlines() if line.startswith("Image scan failed for")]
+
+    def test_failed_image_fetch_fails_the_scan_after_scanning_the_other_images(self):
+        result, github_env, calls = self.run_scan({"alpha": 0, "beta": 0},
+                                                  failing_pulls=("registry.example.test/sr/alpha:v9.8.7",))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([Path(call.split("--archive ")[1].split()[0]).name for call in calls], ["beta.tar"])
+        self.assertEqual(self.failure_lines(result),
+                         ["Image scan failed for registry.example.test/sr/alpha:v9.8.7: crane pull exited 1"])
+        self.assertNotIn("OSV_EXIT", github_env)
+
+    def test_failed_sbom_fails_the_scan_but_still_scans_every_image(self):
+        result, github_env, calls = self.run_scan({"alpha": 0, "beta": 0},
+                                                  failing_sboms=("registry.example.test/sr/alpha:v9.8.7",))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.failure_lines(result),
+                         ["Image scan failed for registry.example.test/sr/alpha:v9.8.7: syft exited 1"])
+        self.assertNotIn("OSV_EXIT", github_env)
 
 if __name__ == "__main__":
     unittest.main()
