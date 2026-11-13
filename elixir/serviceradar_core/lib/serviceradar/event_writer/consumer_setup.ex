@@ -95,8 +95,8 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
   def not_ready_reason?(_reason), do: false
 
   @doc """
-  The durable a configured stream consumes from. Drain streams name the
-  pre-cutover stream in `:durable_source_name`, so JetStream resumes the existing
+  The durable a configured stream consumes from. A stream may name a
+  pre-existing durable in `:durable_source_name`, so JetStream resumes the existing
   ACK cursor instead of creating a new durable.
   """
   @spec durable_name(Config.t(), map()) :: String.t()

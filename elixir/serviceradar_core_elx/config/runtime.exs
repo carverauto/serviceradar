@@ -6,7 +6,6 @@ alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
-alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Inventory.ExposureDimensionRelay
 alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.AlertsRetentionWorker
@@ -1741,15 +1740,11 @@ if config_env() == :prod do
         Config.edge_record_audit_stream(),
         Config.edge_record_security_quarantine_stream(),
         Config.edge_record_recovery_stream(),
-        Config.edge_record_dead_letter_stream(),
-        %{
-          name: "ATTRIBUTED_FLOW",
-          stream_name: "events",
-          subject: "flow.attributed.>",
-          processor: Flows,
-          batch_size: 50,
-          batch_timeout: 500
-        }
+        Config.edge_record_dead_letter_stream()
+        # No ATTRIBUTED_FLOW registration: flow.attributed.> is a retired
+        # demo-canary route with no production publisher (see
+        # remove-flow-events-drain-consumers). Do not re-add an
+        # attributed-flow subject, stream, or durable here.
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

@@ -693,13 +693,13 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert Process.alive?(self())
     end
 
-    test "durable_source_name drives durable_name for drain consumers" do
-      # Config.durable_name must match the pre-cutover events durable.
+    test "durable_name stays distinct per stream entry" do
+      # Config.durable_name must match the live flows durable.
       assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
                "serviceradar-event-writer-netflow-raw"
 
-      # Drain stream names differ for pull-inbox uniqueness only.
-      assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW_EVENTS_DRAIN") !=
+      # Stream entries differ for pull-inbox uniqueness.
+      assert Config.durable_name("serviceradar-event-writer", "SFLOW_RAW") !=
                Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW")
     end
   end

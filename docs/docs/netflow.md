@@ -421,10 +421,10 @@ nats stream info flows
 #
 # Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
 #
-# Cutover (coordinated):
-# 1. Deploy core EventWriter with flow pipeline dual-consume enabled
-#    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default). Drain durables reuse the
-#    pre-cutover durable names so ACK cursors continue (no full-history replay).
+# Cutover (coordinated; historical record — the events-stream residual
+# drains are removed, see remove-flow-events-drain-consumers):
+# 1. Deploy core EventWriter with the flow pipeline. Drain durables reused the
+#    pre-cutover durable names so ACK cursors continued (no full-history replay).
 # 2. Helm uses Deployment strategy Recreate for flow-collector so the legacy
 #    publisher is terminated before the new pod starts. Helm readiness is an
 #    exec probe of the publisher marker file, which exists only after the
@@ -432,8 +432,9 @@ nats stream info flows
 #    rehome_state_path (/var/lib/serviceradar/flow-collector-rehome.json).
 # 3. New collector detaches subjects from events, attaches them on flows, then
 #    publishes with Nats-Msg-Id retries (preferred dedup window 120s, capped by stream max_age and the NATS server limit).
-# 4. When events drain consumers report num_pending=0, set
-#    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
+# 4. Events residuals aged out under the events stream MaxAge once every
+#    deployment ran a drain-capable build; the dual-consume drains were then
+#    deleted at the source.
 ```
 
 #### Downgrading across the stream-ownership cutover
