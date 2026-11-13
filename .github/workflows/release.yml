@@ -1107,9 +1107,14 @@ jobs:
           echo "Verified required platform packages, runtimes, checksums, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
+  # `publish` tolerates a failed macOS job, but a job whose `if` carries no status
+  # function is implicitly `success() && ...`, and success() fails when ANY job
+  # upstream of it failed, transitively. Without the explicit status checks below,
+  # a failed macOS installer silently skips everything after publish and strands
+  # the release as a draft.
   image-security-dispatch:
     needs: publish
-    if: ${{ needs.publish.outputs.dry_run != 'true' }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.dry_run != 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       # The job reads the *draft* release (identity and asset check). Draft
@@ -1155,7 +1160,7 @@ jobs:
   # is visible before making the draft immutable.
   finalize:
     needs: [publish, image-security-dispatch]
-    if: ${{ needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.image-security-dispatch.result == 'success' && needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     environment: release

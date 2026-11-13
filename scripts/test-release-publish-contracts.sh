@@ -536,7 +536,9 @@ if "timeout-minutes: 95" not in finalize_job or "environment: release" not in fi
     raise SystemExit("release finalizer must have a bounded wait and release credentials")
 
 finalizer_guard = (
-    "if: ${{ needs.publish.outputs.dry_run != 'true' && "
+    "if: ${{ !cancelled() && needs.publish.result == 'success' && "
+    "needs.image-security-dispatch.result == 'success' && "
+    "needs.publish.outputs.dry_run != 'true' && "
     "needs.publish.outputs.draft != 'true' }}"
 )
 if finalizer_guard not in finalize_job:
