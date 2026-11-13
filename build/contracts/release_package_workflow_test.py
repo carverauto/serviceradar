@@ -3,6 +3,7 @@
 import os
 import json
 import platform
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -167,6 +168,31 @@ def _pinned_jq_binary():
     raise FileNotFoundError("declared jq runfile is unavailable")
 
 
+def _macos_tolerance_violations(condition, direct_needs):
+    """Return why a job `if` would let a failed macOS job skip it, or [] if none.
+
+    The expression must be a pure `&&` conjunction: `!cancelled()` replaces the
+    implicit success(), no term may reintroduce success() or always(), macOS must
+    not be required, and every other direct need must be required to succeed.
+    """
+    expression = condition.strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2]
+    if "||" in expression:
+        return ["condition is not a pure && conjunction"]
+    terms = {" ".join(term.split()) for term in expression.split("&&")}
+    violations = []
+    if "!cancelled()" not in terms:
+        violations.append("missing !cancelled()")
+    violations += [f"status function term {t!r}" for t in sorted(terms)
+                   if re.search(r"\b(success|always)\s*\(", t)]
+    if "needs.macos.result == 'success'" in terms:
+        violations.append("requires macos to succeed")
+    violations += [f"does not require {need} to succeed" for need in direct_needs
+                   if need != "macos" and f"needs.{need}.result == 'success'" not in terms]
+    return violations
+
+
 class ReleaseAssetWorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -201,12 +227,10 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
         downstream = [name for name in jobs if downstream_of_macos(name)]
         self.assertIn("finalize", downstream)
         for name in downstream:
-            condition = jobs[name].get("if", "")
             with self.subTest(job=name):
-                self.assertIn("!cancelled()", condition)
-                for need in needs(name):
-                    if need != "macos":
-                        self.assertIn(f"needs.{need}.result == 'success'", condition)
+                self.assertEqual(
+                    _macos_tolerance_violations(jobs[name].get("if", ""), needs(name)), []
+                )
 
     def run_dispatch(self, *, assets=(), release_tag="v9.8.7", draft=True, fail_post=False):
         step = next(s for s in self.release["jobs"]["image-security-dispatch"]["steps"] if "run" in s)
