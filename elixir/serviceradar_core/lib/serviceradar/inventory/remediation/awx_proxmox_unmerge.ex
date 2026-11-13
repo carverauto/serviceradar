@@ -24,7 +24,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
      state under the locks; a refusal anywhere rolls the whole unit back. Each unmerge
      (`MergeEngine.unmerge_device/2` with `:event_id`) writes the `unmerge` audit row that arms
      the pair's merge cooldown, and the step records the pair as distinct
-     (`Deduplication.assert_distinct/4`).
+     (`Deduplication.assert_distinct/4`). Every planned unit ends in one reported outcome
+     (applied, skipped with its reason, failed, or not run after a halt), and outcomes that do
+     not add up to the planned units fail the run (`unit_accounting_failures`).
   3. **Wrong-guest MACs.** After the unmerges, the MAC rows an AWX update copied from the wrong
      guest (`Decisions.plan_awx_wrong_guest_macs/1`) go back to the guest's own record when
      exactly one live record holds the guest, are archived (`device_identifier_archive`, reason
@@ -456,7 +458,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       to_absorbed_before: absorbed_before,
       to_mac: to && to.mac,
       guest_macs: guest_macs(data.guests, audit.details["guest_provider_ref"]),
-      reversed?: Map.has_key?(data.reversed, audit.event_id),
+      unmerged_at: Map.get(data.reversed, audit.event_id),
       from_state: from_state(from),
       superseded?:
         data.merges_from
@@ -911,9 +913,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         merges = Map.new(plan.unmerge, &{&1.event_id, &1})
 
         state =
-          Enum.reduce_while(plan.units, initial_state(), fn unit, state ->
-            unmerge_unit(Enum.map(unit.event_ids, &Map.fetch!(merges, &1)), state, run)
-          end)
+          plan.units
+          |> Enum.map(fn unit -> Enum.map(unit.event_ids, &Map.fetch!(merges, &1)) end)
+          |> run_units(initial_state(), run)
+          |> check_unit_accounting(length(plan.units))
 
         state = if state.halted, do: state, else: clean_macs(state, opts, run)
 
@@ -930,7 +933,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       unmerged: 0,
       distinct_asserted: 0,
       units_skipped: %{},
+      skipped_units: [],
       unit_failures: 0,
+      units_not_run: 0,
+      unit_accounting_failures: 0,
       mac_rows_moved: 0,
       mac_rows_archived: 0,
       mac_rows_stale: 0,
@@ -958,6 +964,35 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       |> Keyword.get(:enable_awx_proxmox_unmerge_execute, false)
 
     runtime? and Keyword.get(opts, :awx_proxmox_unmerge_execute_enabled, false)
+  end
+
+  # Units in plan order. Each ends in exactly one outcome: applied, skipped (with its reason),
+  # failed, or not run because an earlier unit halted the step.
+  defp run_units([], state, _run), do: state
+
+  defp run_units([merges | rest], state, run) do
+    case unmerge_unit(merges, state, run) do
+      {:cont, state} -> run_units(rest, state, run)
+      {:halt, state} -> %{state | units_not_run: length(rest)}
+    end
+  end
+
+  # Every planned unit must be counted once; a gap is a defect of the step and fails the run.
+  defp check_unit_accounting(state, planned) do
+    skipped = state.units_skipped |> Map.values() |> Enum.sum()
+    accounted = state.units_applied + skipped + state.unit_failures + state.units_not_run
+
+    if accounted == planned do
+      state
+    else
+      Logger.error(
+        "#{@step}: #{planned} unit(s) planned but #{accounted} accounted for " <>
+          "(applied #{state.units_applied}, skipped #{skipped}, failed #{state.unit_failures}, " <>
+          "not run #{state.units_not_run})"
+      )
+
+      %{state | unit_accounting_failures: 1}
+    end
   end
 
   defp unmerge_unit(merges, state, run) do
@@ -989,8 +1024,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         }
       end)
     else
-      {:error, {:refused, reason}} ->
-        {:cont, skip(state, reason)}
+      {:error, {:refused, reason, replanned}} ->
+        {:cont, skip(state, event_ids, reason, replanned)}
 
       {:error, reason} ->
         Logger.warning("#{@step}: unit #{inspect(event_ids)} failed: #{inspect(reason)}")
@@ -1034,8 +1069,19 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
     end
   end
 
-  defp skip(state, reason) do
-    %{state | units_skipped: Map.update(state.units_skipped, to_string(reason), 1, &(&1 + 1))}
+  defp skip(state, event_ids, reason, replanned) do
+    Logger.warning(
+      "#{@step}: unit #{inspect(event_ids)} skipped and rolled back: #{reason}" <>
+        if(replanned == %{}, do: "", else: ", planned again as #{inspect(replanned)}")
+    )
+
+    %{
+      state
+      | units_skipped: Map.update(state.units_skipped, to_string(reason), 1, &(&1 + 1)),
+        skipped_units:
+          state.skipped_units ++
+            [%{event_ids: event_ids, reason: to_string(reason), replanned: replanned}]
+    }
   end
 
   defp safely(fun) do
@@ -1090,6 +1136,13 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   # under the unit's locks: it must still hold one runnable unit of exactly these merges. A unit's
   # poison can arrive through merges outside it, so a read of its own records is not enough. This
   # costs one full read per unit.
+  #
+  # Units share no record and each verdict is judged on the history up to its merge, so the order
+  # the units run in is not what changes a unit's plan; a write that landed since the plan (a
+  # sync, an operator) is. The unit is then refused: `disposition_changed` when a merge of it is no longer
+  # planned for an unmerge, with each merge's disposition now (`unrelated` when it is no longer
+  # judged at all), or `unit_changed` when its merges are all still bad but the unit they form
+  # differs.
   defp revalidate_unit(merges, opts) do
     ids = merges |> Enum.map(& &1.event_id) |> Enum.sort()
     data = load(opts)
@@ -1097,18 +1150,21 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
 
     cond do
       data.truncated? ->
-        Repo.rollback({:refused, :candidate_limit_reached})
+        Repo.rollback({:refused, :candidate_limit_reached, %{}})
 
       Enum.any?(fresh.units, &(Enum.sort(&1.event_ids) == ids)) ->
         :ok
 
       true ->
-        reason =
-          Enum.find_value(fresh.report, :stale_plan, fn entry ->
-            if entry.event_id in ids and entry.disposition != :unmerge, do: entry.disposition
-          end)
+        dispositions = Map.new(fresh.report, &{&1.event_id, to_string(&1.disposition)})
+        replanned = Map.new(ids, &{&1, Map.get(dispositions, &1, "unrelated")})
 
-        Repo.rollback({:refused, reason})
+        reason =
+          if Enum.all?(replanned, fn {_id, disposition} -> disposition == "unmerge" end),
+            do: :unit_changed,
+            else: :disposition_changed
+
+        Repo.rollback({:refused, reason, replanned})
     end
   end
 
@@ -1119,7 +1175,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
            event_id: merge.event_id
          ) do
       :ok -> :ok
-      {:error, reason} when is_atom(reason) -> Repo.rollback({:refused, reason})
+      {:error, reason} when is_atom(reason) -> Repo.rollback({:refused, reason, %{}})
       {:error, error} -> Repo.rollback({:unmerge_failed, merge.event_id, error})
     end
   end

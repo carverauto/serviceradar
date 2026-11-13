@@ -62,9 +62,23 @@ step computes its plan when it runs, never from a fixed list.
    | `tainted_evidence` | everything the match rested on is in the poisoned record's foreign set and none is that record's own (an address the record holds as an ip identifier stays its own even when a bad merge also brought it): the evidence the merge recorded (`identifier_backfill`'s `evidence`), or else the identifiers the two records shared and the address when it was both records' |
 
    A survivor's established guests are its own and those of merges into it that stay. A shared
-   AWX host id, guest identity or universal MAC with the survivor's own identity (display MAC
-   included) voids the proof (`conflicting_evidence`); as above, a NIC MAC of a guest the merge
-   names or the merged record holds does not count on the side without that guest's identity.
+   AWX host id or universal MAC with the survivor's own identity (display MAC included), or a
+   guest identity the survivor has established, voids the proof (`conflicting_evidence`): two
+   records holding one guest's identity are one machine, whichever of them a merge that stays
+   gave it. As above, a NIC MAC of a guest the merge names or the merged record holds does not
+   count on the side without that guest's identity.
+
+   **Poison ends with the undo.** What a merge put on a record (a bad merge's foreign set, or
+   what a merge that stays carried or established) applies to a later merge only while every
+   merge it came through is still in place at that merge's time. Once one of them has an
+   `unmerge` audit row (any unmerge, the step's or an operator's), what it brought went back with
+   that unmerge, and merges made in the same second as the unmerge or later are judged without
+   it. A correct merge after a repair, such as a guest record joining the record that holds its
+   own guest identity, or a backfill joining two records of one machine, is therefore not judged
+   bad on what the undone merge had brought. Rows no merge recorded and so no unmerge returned
+   (the wrong guest's NIC MACs) are the MAC cleanup's, step 5; a merge made on such a leftover row
+   after the undo is not judged by the chain rule. The verdict of a merge depends only on what
+   happened up to it, so undoing a merge never changes the verdict of a merge made before.
    A merge on a poisoned record that proves
    nothing stays and is reported (`chained_unproven`). That includes the first guest merged
    into a record with no guest identity of its own, which may be that record's machine; every
@@ -81,7 +95,11 @@ step computes its plan when it runs, never from a fixed list.
    from the same full read as the dry run on the state under the locks (one full read per unit,
    so a unit poisoned through a merge outside it is still seen), and requires the same unit; it
    then undoes each merge by audit id and records each pair as distinct. A refusal anywhere
-   rolls the whole unit back.
+   rolls the whole unit back. Units share no record and a verdict depends only on the history
+   up to its merge, so one unit's unmerges never change another unit's plan, and the order the
+   units run in does not matter; what can change a unit's plan between the dry run and its lock
+   is a write that landed since, such as a sync. Every planned unit ends in exactly one outcome
+   (applied, skipped, failed, or not run after a halt), and the step checks that they add up.
 
 5. **Returns or archives the wrong-guest MACs.** An AWX update bound to the wrong guest wrote
    that guest's NIC MACs onto whichever record it landed on. No merge recorded them, so no
@@ -247,13 +265,29 @@ kubectl exec -n <namespace> <pod> -c core-elx -- /app/bin/serviceradar_core_elx 
 kubectl cp -n <namespace> -c core-elx <pod>:/tmp/awx_proxmox_unmerge_1.ndjson ./awx_proxmox_unmerge_1.ndjson
 ```
 
-Read `units_applied`, `unmerged`, `distinct_asserted`, `units_skipped` (per reason: the plan
-under the locks no longer gave the same unit, or an unmerge refused; the whole unit rolled back),
-`unit_failures`, `mac_rows_moved`, `mac_rows_archived`, `mac_rows_stale` (rows that changed
-between the plan and the lock), `mac_rows_not_settled` and `mac_cleanup_failures`. Any
-`*_failures` above zero, or `execution_blocked`, makes the call return
+Read:
+
+- `planned_units`, and the outcome of each: `units_applied`, `units_skipped`, `unit_failures`
+  and `units_not_run`. They add up to `planned_units`; when they do not, the step logs an error
+  and sets `unit_accounting_failures` to 1.
+- `units_skipped`, per reason, and `skipped_units`, one entry per skipped unit with its
+  `event_ids`, `reason` and, for a unit planned differently under the locks, `replanned` (each
+  merge's disposition now; `unrelated` when the plan no longer judges it). A skipped unit rolled
+  back whole, and each skip is logged with the same detail. The reasons:
+  - `disposition_changed`: a merge of the unit is no longer planned for an unmerge;
+  - `unit_changed`: its merges are all still bad, but the unit they form is a different one;
+  - `candidate_limit_reached`: the read under the locks did not reach every AWX merge;
+  - a refusal of the unmerge itself (`not_merged`, `merge_superseded`, `already_unmerged`, ...).
+
+  A skipped unit is reported, not lost: dry run again to see why its merges are judged as they
+  are now.
+- `unmerged`, `distinct_asserted`, `mac_rows_moved`, `mac_rows_archived`, `mac_rows_stale`
+  (rows that changed between the plan and the lock), `mac_rows_not_settled` and
+  `mac_cleanup_failures`.
+
+Any `*_failures` above zero, or `execution_blocked`, makes the call return
 `{:error, {:step_failures, result}}`. `halted` `"manifest"` means a manifest entry could not be
-written and the step stopped there.
+written and the step stopped there; the units after it count in `units_not_run`.
 
 The step is idempotent: a re-run with a new manifest acts only on what is left.
 
@@ -282,6 +316,11 @@ DireRemediation.run(steps: ["awx-proxmox-verify"])
 | A3 | no such merge was made after the repair started (`not_run` before any repair) |
 | A4 | no MAC row the step archived is back on the record it was taken from |
 | A5 | every unmerged pair is still asserted distinct |
+
+A2 and A3 judge with the same plan as the step, so the poison of an undone merge has ended at
+its unmerge: the syncs that join a restored record to its own machine's record again after the
+repair (a guest record and the record holding the same guest identity, two records of one
+machine) do not fail them, and a merge proved bad after the repair still does.
 
 While `candidate_limit_reached` is true, A2 and A3 fail with reason `candidate_limit_reached`
 (once a repair has run, for A3): a merge outside the read window is not checked.
@@ -357,6 +396,11 @@ ran.
   own source corrects it; such later merges are judged on the next run.
 - **`chained_unproven` merges**, among them the first guest merged into a record with no guest
   identity of its own.
+- **Merges after an undo on what no unmerge returned.** Once a bad merge is undone its poison
+  ends. A merge made after that on a wrong-guest MAC row the MAC cleanup has not moved or
+  archived yet (step 5 runs right after the unmerges of the same run; after an unmerge by hand it
+  has not run) is not judged by the chain rule. Run the step after an unmerge by hand so its MAC
+  cleanup acts on the restored records.
 - **Rows the step cannot prove**, listed in `mac_kept_sample` and `reported_merges`.
 
 ## Manifests
