@@ -1084,8 +1084,10 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       was itself merged away by that unreversed merge.
 
   `context` holds, per record uid, its own identifiers (`own`: what no unreversed merge brought
-  it) and display MAC (`display_mac`), and the guests by provider reference (`guests`:
-  `%{key, macs, ips}`).
+  it), display MAC (`display_mac`) and the time this step's earliest unmerge separated it
+  (`repaired_at`), and the guests by provider reference (`guests`: `%{key, macs, ips}`). A merge
+  also carries `from_awx_claim`, the AWX v2 id the merged record's `awx` metadata named at the
+  merge, or `nil`.
 
   **A record is poisoned** from its first bad merge on: from then on its *foreign* set holds the
   identifiers that merge recorded for the merged record, the NIC MACs and addresses of the guest
@@ -1125,6 +1127,15 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   guest merged into a record with no guest identity of its own is one, since it may be that
   record's machine.
 
+  **After the repair.** A merge of another reason made after this step's unmerge separated one of
+  its records (`context.repaired_at`, per record uid) is judged on the AWX host the merged record
+  represents: the AWX id it held, or, holding none, the host its own `awx` metadata named at the
+  merge (`from_awx_claim`). It is bad (`:different_awx_hosts`) when the survivor held another
+  host id of that controller and the two shared no guest identity or universally administered
+  MAC (`awx_merge_evidence/1`); anything short of that is not judged. A record the repair
+  restored can still show what was projected onto it while it was joined with another machine,
+  and such a merge is what `awx-proxmox-verify` A2 and A3 must be able to see.
+
   **Units.** The bad merges that share records form a unit, undone in one transaction or not at
   all: newest first, every merge after the merge that took its survivor away. A unit runs only
   when every merge in it is in place and reversible (not superseded, survivor live or taken away
@@ -1139,7 +1150,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     selected = opts |> Keyword.get(:event_ids, []) |> MapSet.new()
 
     context =
-      %{own: %{}, display_mac: %{}, guests: %{}}
+      %{own: %{}, display_mac: %{}, guests: %{}, repaired_at: %{}}
       |> Map.merge(context)
       |> Map.put(:unmerged_at, Map.new(merges, &{&1.event_id, &1[:unmerged_at]}))
 
@@ -1262,10 +1273,52 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       awx_evidence != nil ->
         {{:ambiguous, awx_evidence.reason}, nil}
 
+      repaired_before?(merge, context) ->
+        {judge_after_repair(merge), nil}
+
       true ->
         {:unrelated, nil}
     end
   end
+
+  # A merge made after this step's unmerge separated one of its records.
+  defp repaired_before?(merge, context) do
+    Enum.any?([merge.from_uid, merge.to_uid], fn uid ->
+      case Map.get(context.repaired_at, uid) do
+        nil -> false
+        repaired_at -> created_rank(merge.created_at) > created_rank(repaired_at)
+      end
+    end)
+  end
+
+  # Judged on the AWX host the merged record represents: the AWX id it held, or, when it held
+  # none, the host its own `awx` metadata named at the merge (`from_awx_claim`, from the metadata
+  # the merge dropped), against the AWX hosts the survivor held then, its own and those merges
+  # that stay brought it. A record the repair restored can still show what was projected onto it
+  # while it was joined with another machine, and any such projection (a display MAC, a guest
+  # binding) is no proof of identity; its AWX host is. Anything short of a proof is not judged.
+  defp judge_after_repair(%{source_identifiers: ids} = merge) when is_list(ids) do
+    claim = merge[:from_awx_claim]
+
+    ids =
+      if awx_ids(ids) == [] and is_binary(claim),
+        do: ids ++ [%{type: "integration_id", value: claim}],
+        else: ids
+
+    held = List.wrap(merge[:to_own_identifiers]) ++ List.wrap(merge[:to_absorbed_before])
+
+    case awx_merge_evidence(
+           Map.merge(merge, %{source_identifiers: ids, to_own_identifiers: held})
+         ) do
+      %{verdict: :different_machines, proofs: proofs} ->
+        if :different_awx_hosts in proofs, do: {:bad, [:different_awx_hosts]}, else: :unrelated
+
+      _ambiguous ->
+        :unrelated
+    end
+  end
+
+  defp judge_after_repair(_merge), do: :unrelated
 
   defp judge_chained(%{source_identifiers: nil}, _poison, _context),
     do: {{:ambiguous, :source_identifiers_unrecorded}, nil}

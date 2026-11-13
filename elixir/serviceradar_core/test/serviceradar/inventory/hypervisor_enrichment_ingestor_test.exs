@@ -231,6 +231,58 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
     assert ip_values == ["192.0.2.20", "192.0.2.10"]
   end
 
+  # An unmerge restores a record with whatever was projected onto it while it was joined with
+  # another machine: that guest's NIC MAC in `mac_addresses`, its integration id and VMID. Only
+  # identifier rows, and an AWX claim the record backs with its own row, are a candidate's evidence.
+  # Invented values: one AWX controller, MACs under the IANA documentation OUI.
+  test "guest_candidate/1 takes evidence from identifier rows and a row-backed AWX claim only" do
+    controller = "00000000-0000-4000-8000-0000000000c1"
+    own_host = "awx:v2:#{controller}:host:71"
+
+    echoes = %{
+      "mac_addresses" => ["00005E005317"],
+      "integration_id" => "proxmox:v2:cluster-x:vm:9217",
+      "hypervisor_vmid" => 9217,
+      "awx" => %{
+        "controller_id" => controller,
+        "host_id" => 71,
+        "proxmox_vmid" => 9213,
+        "proxmox_node" => "node-b",
+        "ansible_host" => "192.0.2.44",
+        "variables" => %{"proxmox_net0" => "virtio=00:00:5E:00:53:13,bridge=vmbr0"}
+      }
+    }
+
+    candidate = fn macs, integration_ids ->
+      HypervisorEnrichmentIngestor.guest_candidate([
+        "sr:r",
+        nil,
+        "host71.example.com",
+        "default",
+        echoes,
+        ["awx"],
+        nil,
+        macs,
+        [],
+        integration_ids
+      ])
+    end
+
+    # No rows: the echoes are no evidence and the AWX claim is unbacked.
+    assert %{macs: macs, awx: nil} = candidate.([], [])
+    assert MapSet.size(macs) == 0
+
+    # The `awx` metadata names a host the record does not hold: another host's last update.
+    assert %{awx: nil} = candidate.([], ["awx:v2:#{controller}:host:72"])
+
+    # Its own AWX row backs the claim, which brings the VMID and the MAC the host declares.
+    assert %{awx: %{vmid: 9213, ip: "192.0.2.44"}, macs: macs} = candidate.([], [own_host])
+    assert macs == MapSet.new(["00005E005313"])
+
+    assert %{macs: macs} = candidate.(["00005E005301"], [])
+    assert macs == MapSet.new(["00005E005301"])
+  end
+
   test "rejects partial or mismatched Proxmox v3 records before persistence" do
     provider_ref =
       "proxmox:v3:11111111-1111-4111-8111-111111111111:" <>

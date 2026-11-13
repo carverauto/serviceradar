@@ -1082,6 +1082,45 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       end
     end
 
+    test "a merge after the repair is judged on the AWX host the merged record represents" do
+      # The repair separated `sr:r` at second 10. `sr:r` holds no identifier any more (its AWX
+      # row went to its own machine's record) but still shows guest 9101's NIC MAC, which it
+      # carried while it was joined with that guest. Enrichment then merged it into `sr:s`, the
+      # record of AWX host 1, on that MAC.
+      context = %{own: %{"sr:s" => [awx_id(1)]}, repaired_at: %{"sr:r" => at(10)}}
+
+      cases = [
+        {"its own AWX host is another host of the controller", 20, "2", true},
+        {"its own AWX host is the survivor's", 20, "1", false},
+        {"it names no AWX host", 20, nil, false},
+        {"the merge came before the repair", 5, "2", false}
+      ]
+
+      for {name, second, host, bad?} <- cases do
+        claim = if host, do: "awx:v2:#{@controller}:host:#{host}"
+
+        merge =
+          chained(%{
+            event_id: "e1",
+            created_at: at(second),
+            from_uid: "sr:r",
+            guest_provider_ref: guest_ref(9101),
+            source_identifiers: [],
+            from_mac: "00:00:5E:00:53:A1",
+            from_awx_claim: claim
+          })
+
+        plan = Decisions.plan_awx_proxmox_unmerge([merge], context)
+
+        if bad? do
+          assert [%{event_ids: ["e1"]}] = plan.units, name
+          assert [%{proofs: [:different_awx_hosts], bad?: true}] = plan.report, name
+        else
+          assert plan.report == [], name
+        end
+      end
+    end
+
     test "a merge onto a record holding the same guest is never tainted" do
       # AWX host 2, bound by mistake to guest 9101, was merged into AWX host 1's record at second
       # 1; the AWX update had copied guest 9101's NIC MAC onto host 2's record. At second 2 a
@@ -1602,6 +1641,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         merges_into: Enum.group_by(merges, & &1.to_uid),
         merges_from: Enum.group_by(merges, & &1.from_uid),
         reversed: %{"r1" => at(unmerged_second)},
+        repaired: %{},
         devices: %{
           "sr:s" => device.("sr:s", nil),
           "sr:r" => device.("sr:r", nil),

@@ -22,6 +22,16 @@
   `unit_changed` with each merge's disposition now, a log line per skip, `units_not_run` after a
   halt, and `unit_accounting_failures` when the outcomes do not add up.
 
+- [x] 1.10 Proxmox enrichment matches guest candidates on identifier rows, the current address and
+  a row-backed AWX claim only; the display MAC column and metadata projections are not evidence.
+- [x] 1.11 An unmerge removes the identity projections naming the other record's identifiers from
+  both records and records them in the unmerge audit row (`dropped_projections`).
+- [x] 1.12 The planner judges merges after the repair that join a record it restored to another
+  record on the merged record's AWX host; A2/A3 report them.
+- [x] 1.13 Database tests: a bad merge, the repair, and an enrichment pass that does not merge the
+  restored record back while a same-machine record rejoins; a restored record carrying another
+  guest's projections is not matched; the post-repair merge is planned and fails A2/A3.
+
 ## 2. Operation (owner)
 - [ ] 2.1 Dry run on the demo deployment and review every planned unmerge and MAC removal.
 - [ ] 2.2 Execute with the runtime gate enabled, then disable the gate.

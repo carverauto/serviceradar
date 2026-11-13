@@ -45,6 +45,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.Identity.Deduplication
+  alias ServiceRadar.Inventory.Identity.IdentityProjections
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -153,6 +154,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       merges_into: Enum.group_by(merges, & &1.to_uid),
       merges_from: Enum.group_by(merges, & &1.from_uid),
       reversed: reversed_event_ids(related),
+      repaired: repaired_records(related),
       devices: devices(uids),
       identifiers: identifiers,
       guests: guests(refs),
@@ -211,6 +213,16 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
         is_binary(id),
         reduce: %{} do
       acc -> Map.update(acc, id, at, &Enum.min([&1, at], DateTime))
+    end
+  end
+
+  # Each record this step's unmerges separated, with the time of the earliest such unmerge.
+  defp repaired_records(related) do
+    for %{reason: "unmerge", details: details, created_at: at} = row <- related,
+        details["unmerged_by"] == @unmerged_by,
+        uid <- [row.from_uid, row.to_uid],
+        reduce: %{} do
+      acc -> Map.update(acc, uid, at, &Enum.min([&1, at], DateTime))
     end
   end
 
@@ -404,7 +416,8 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
           {uid, own_identifiers(data, uid, device)}
         end),
       display_mac: Map.new(data.devices, fn {uid, device} -> {uid, device.mac} end),
-      guests: data.guests
+      guests: data.guests,
+      repaired_at: data.repaired
     }
 
     Decisions.plan_awx_proxmox_unmerge(merges, context,
@@ -449,6 +462,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       guest_provider_ref: audit.details["guest_provider_ref"],
       corroboration: audit.details["corroboration"],
       awx_integration_id: audit.details["awx_integration_id"],
+      from_awx_claim:
+        IdentityProjections.claimed_awx_id(
+          get_in(audit.details, ["dropped_source_metadata", "awx"])
+        ),
       evidence: recorded_evidence(audit.details["evidence"]),
       from_ip: audit.details["from_device_ip"],
       to_ip_before: audit.details["to_device_ip_before"],

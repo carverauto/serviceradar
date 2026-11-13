@@ -25,6 +25,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
   alias ServiceRadar.Inventory.Identity.GuestIdentityGuard
+  alias ServiceRadar.Inventory.Identity.IdentityProjections
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
@@ -1052,6 +1053,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   whose merged records all kept the survivor's address restores each of them without one. The
   unmerge audit row records the address the record holds afterwards (`restored_ip`) and the
   addresses it carried but did not take back (`withheld_ips`).
+
+  Each record of the pair also loses the identity projections (display MAC, `mac_addresses`
+  entries, guest binding metadata, `awx` metadata) naming the other record's identifiers
+  (`IdentityProjections`); the audit row lists them by side under `dropped_projections`.
   """
   @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
   def unmerge_device(from_device_id, opts \\ []) do
@@ -1130,6 +1135,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
            {:ok, restored_archived} <-
              restore_archived_identifiers(from_device_id, to_device_id, audit),
+           {:ok, dropped_projections} <-
+             drop_foreign_projections(from_device_id, to_device_id, audit),
            {:ok, _} <-
              MergeAudit.record(
                %{
@@ -1145,7 +1152,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                    restored_identifiers_source: restored.provenance,
                    restored_archived_identifiers: restored_archived,
                    restored_ip: recreated.ip,
-                   withheld_ips: withheld_ips
+                   withheld_ips: withheld_ips,
+                   dropped_projections: dropped_projections
                  }
                },
                actor: actor
@@ -1178,6 +1186,49 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       {:ok, {:refused, reason}} -> {:error, reason}
       {:ok, other} -> other
       {:error, _} = error -> error
+    end
+  end
+
+  # The unmerge declares the pair two machines, so neither record may go on repeating the other's
+  # identity (`IdentityProjections`): the restored record (the merge's tombstone, which kept what
+  # was projected onto it while it was itself an earlier merge's survivor) loses what names an
+  # identifier the survivor holds, and the survivor loses what names an identifier the merge
+  # recorded as the merged record's and it no longer holds (what enrichment and sync wrote onto it
+  # because it held them). Returns the removed values by side, for the unmerge audit row.
+  defp drop_foreign_projections(from_device_id, to_device_id, audit) do
+    recorded =
+      case detail(audit.details || %{}, :source_identifiers) do
+        list when is_list(list) -> IdentityProjections.foreign(list)
+        _unrecorded -> IdentityProjections.foreign([])
+      end
+
+    with {:ok, held} <- held_identifiers(to_device_id),
+         survivor_holds = IdentityProjections.foreign(held),
+         {:ok, restored} <- IdentityProjections.drop(from_device_id, survivor_holds),
+         {:ok, survivor} <-
+           IdentityProjections.drop(to_device_id, %{
+             macs: MapSet.difference(recorded.macs, survivor_holds.macs),
+             integration_ids:
+               MapSet.difference(recorded.integration_ids, survivor_holds.integration_ids)
+           }) do
+      {:ok, %{restored: restored, survivor: survivor}}
+    end
+  end
+
+  defp held_identifiers(device_id) do
+    case Repo.query(
+           """
+           SELECT identifier_type::text, identifier_value
+           FROM platform.device_identifiers
+           WHERE device_id = $1 AND identifier_type IN ('mac', 'integration_id')
+           """,
+           [device_id]
+         ) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, fn [type, value] -> %{type: type, value: value} end)}
+
+      {:error, _} = error ->
+        error
     end
   end
 

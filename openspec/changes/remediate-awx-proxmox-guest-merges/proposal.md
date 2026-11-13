@@ -46,11 +46,33 @@ state. The MAC rows the AWX updates wrote are in no merge audit row and need the
   invocations for a release pod.
 - No merge guard changes here; the guard between records with distinct Proxmox guest identities
   is a separate change.
+- Running the repair showed that a record it restored was merged into the wrong guest's device by
+  Proxmox enrichment (`hypervisor_guest_network_match`) seconds later. The restored record had held
+  the wrong guest's identifier rows as the survivor of an earlier bad merge. Enrichment had written
+  that guest's binding metadata, NIC MAC and display MAC onto it, and the tombstone kept them.
+  Enrichment then matched it to the guest on its display MAC column and its metadata
+  `mac_addresses`, values no identifier row backed. Its own AWX host declared another VMID, and the
+  guest identity guard did not apply because the record held no guest identity row. Three changes
+  close it:
+  - Proxmox enrichment matches a record to a guest only on its identifier rows, its current address
+    and an AWX host claim it backs with that host's identifier row. Display MACs and metadata
+    projections are not evidence.
+  - An unmerge removes from each record the identity projections (display MAC, `mac_addresses`
+    entries, guest binding metadata, AWX metadata) that name the other record's identifiers, and
+    records what it removed.
+  - The repair judges merges made after it that join a record it restored to another record, on
+    the AWX host the merged record represents. A2 and A3 report them, and the repair can undo them.
+- The guest identity guard is unchanged. It compares identifier rows only, and an AWX host's VMID
+  names no cluster, so it is not a guest identity. Enforcing the AWX host's own claim belongs to
+  the ingest-side binding rule (`add-distinct-guest-identity-merge-guard`, design D6).
 
 ## Impact
 - Affected specs: device-identity-reconciliation
 - Affected code: `ServiceRadar.Inventory.Remediation.{AwxProxmoxUnmerge, AwxProxmoxVerification,
-  Decisions, DireRemediation, SourceIdRollback}`, `Mix.Tasks.Serviceradar.DireRemediation`,
+  Decisions, DireRemediation, SourceIdRollback}`,
+  `ServiceRadar.Inventory.HypervisorEnrichmentIngestor` (guest candidate evidence),
+  `ServiceRadar.Inventory.Identity.{MergeEngine, IdentityProjections}` (unmerge projections),
+  `Mix.Tasks.Serviceradar.DireRemediation`,
   `ServiceRadar.Inventory.Identity.SourceRetirement.archive_identifiers/4` (archive reason
   argument)
 - Follows `fix-awx-proxmox-guest-binding-evidence` (task 2.1), which closed the path that created

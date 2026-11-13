@@ -84,6 +84,15 @@ step computes its plan when it runs, never from a fixed list.
    into a record with no guest identity of its own, which may be that record's machine; every
    later guest with a different VMID is then a second machine.
 
+   **After the repair.** A merge of any other reason made after one of the step's unmerges
+   separated one of its records is judged on the AWX host the merged record represents: the AWX
+   id it held, or, when it held none, the host its own `awx` metadata named at the merge (the
+   audit row's `dropped_source_metadata.awx`). It is bad (`different_awx_hosts`) when the
+   survivor held another host id of that controller, its own or brought by a merge that stays,
+   and the two shared no guest identity or universally administered MAC. Anything short of that
+   is not judged. A restored record can carry what was projected onto it while it was joined with
+   another machine; this is how a merge on such a projection shows in the plan, in A2 and in A3.
+
 3. **Groups the bad merges into units.** Bad merges that share records form one unit. A unit is
    undone as a whole or not at all: newest first, a merge after the merge that took its survivor
    away. When any merge of a unit cannot be undone (`not_merged`, `merge_superseded`,
@@ -320,7 +329,9 @@ DireRemediation.run(steps: ["awx-proxmox-verify"])
 A2 and A3 judge with the same plan as the step, so the poison of an undone merge has ended at
 its unmerge: the syncs that join a restored record to its own machine's record again after the
 repair (a guest record and the record holding the same guest identity, two records of one
-machine) do not fail them, and a merge proved bad after the repair still does.
+machine) do not fail them, and a merge proved bad after the repair still does, including a merge
+that joins a record the repair separated to a record of another AWX host (step 2, "After the
+repair").
 
 While `candidate_limit_reached` is true, A2 and A3 fail with reason `candidate_limit_reached`
 (once a repair has run, for A3): a merge outside the read window is not checked.
@@ -391,9 +402,15 @@ ran.
 - **What a merge moved besides identifiers.** An unmerge returns identifiers and archived
   identifiers. Interfaces, service checks, alerts and availability the merge moved stay on the
   survivor.
-- **Display fields.** The display MAC and the address an AWX update set on a record are not
-  changed. A survivor that kept a wrong address can still match by address until a sync of its
-  own source corrects it; such later merges are judged on the next run.
+- **Display fields.** Every unmerge removes from each record of the pair the projections that
+  name the other record's identifiers: the display MAC, `mac_addresses` entries, the guest
+  binding metadata (`integration_id`, `integration_type`, `hypervisor_*`) and the `awx` metadata.
+  The unmerge audit row lists them under `dropped_projections`. A display MAC no identifier row
+  of either record names, and the address, are not changed. A survivor that kept a wrong address
+  can still match by address until a sync of its own source corrects it; such later merges are
+  judged on the next run. Proxmox enrichment never matches on a display MAC or a metadata
+  projection, only on identifier rows, the address and an AWX claim backed by the record's own
+  AWX row.
 - **`chained_unproven` merges**, among them the first guest merged into a record with no guest
   identity of its own.
 - **Merges after an undo on what no unmerge returned.** Once a bad merge is undone its poison

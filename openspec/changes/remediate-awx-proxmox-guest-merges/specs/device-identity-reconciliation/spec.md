@@ -47,6 +47,15 @@ last, to the identifier archive. Any other such row SHALL be reported and kept. 
 SHALL be re-queried. Every action SHALL be
 written to a rollback manifest before it commits, and the rollback SHALL reverse them.
 
+A merge of any other reason made after the repair unmerged a pair, that joins a record of that pair
+to another record, SHALL be judged on the merged record's AWX host: the AWX id it held, or, when it
+held none, the AWX host its own `awx` metadata named at the merge (as the merge audit row recorded
+the metadata the merge dropped). The merge SHALL be bad, with proof `different_awx_hosts`, when the
+survivor held an AWX host id of that controller and not that one, unless the two records shared a
+guest identity or a universally administered MAC; otherwise it SHALL NOT be judged. A record the
+repair restored can still carry projections of the machine it was joined with, so the repair and
+A2/A3 SHALL see such a merge.
+
 #### Scenario: A merge with a guest of another cluster is undone
 - **GIVEN** an AWX merge whose merged record holds the guest identity of cluster A, VMID 101, and whose survivor holds the guest identity of cluster B, VMID 101
 - **WHEN** an operator executes the repair with its runtime gate enabled
@@ -98,3 +107,64 @@ written to a rollback manifest before it commits, and the rollback SHALL reverse
 - **GIVEN** a record proved not to be the bound guest, holding a MAC of that guest last written by another source
 - **WHEN** the repair cleans MAC identifiers
 - **THEN** the row SHALL be kept and reported
+
+#### Scenario: A record the repair restored is merged into another machine after the repair
+- **GIVEN** a record the repair restored, holding no AWX identifier row, whose own AWX metadata names AWX host 2 of a controller
+- **WHEN** after the repair a merge of another reason joins it to a record holding AWX host 1 of that controller
+- **THEN** the repair SHALL judge that merge bad with proof `different_awx_hosts` and plan its unmerge
+- **AND** `awx-proxmox-verify` SHALL fail A2 and A3 on it
+- **AND** a merge after the repair that joins it to the record holding AWX host 2 SHALL NOT be judged
+
+### Requirement: Hypervisor Guest Matching Rests On Identifier Rows
+The system SHALL let Proxmox enrichment match an existing record to a guest, and merge it into the guest's device, only on the record's identifier rows, its current address, and an AWX host claim the record backs with that AWX host's identifier row.
+A record's display MAC column, the `mac_addresses` list in its metadata and the metadata that
+describes a guest binding (`integration_id`, `integration_type` and the `hypervisor_*` keys)
+SHALL NOT count as evidence: a merge copies them onto a survivor, enrichment writes them onto
+whatever record held a guest's identifier rows at the time, and an unmerge does not move them, so
+they can name a machine the record is not. The AWX host claim SHALL be read only from the record's
+`awx` metadata and the variables it carries, never from other metadata keys. It SHALL count only
+when the record holds an AWX integration id row and, when the claim names its controller and
+host, holds that host's id.
+
+#### Scenario: A restored AWX record carrying another guest's MAC in its metadata
+- **GIVEN** an AWX host's record that holds no identifier row, whose display MAC and metadata `mac_addresses` name guest G's NIC MAC and whose metadata names guest G's integration id, and whose `awx` metadata declares another VMID
+- **WHEN** Proxmox enrichment reports guest G with that NIC MAC
+- **THEN** the record SHALL NOT be matched to guest G
+- **AND** it SHALL NOT be merged into guest G's device
+
+#### Scenario: An AWX record backing its claim with its own identifier row
+- **GIVEN** an AWX host's record holding the host's AWX integration id row, whose `awx` metadata declares guest G's node, VMID and address
+- **WHEN** Proxmox enrichment reports guest G with that address
+- **THEN** the record SHALL be merged into guest G's device
+
+### Requirement: An Unmerge Leaves Neither Record Describing The Other's Identity
+The system SHALL, when it reverses a merge, remove from the restored record every identity projection that names an identifier the survivor holds after the unmerge, and from the survivor every identity projection that names an identifier the merge recorded as the merged record's and the survivor no longer holds.
+An identity projection is a value on the device row that repeats an identifier: the display MAC
+column, an entry of the metadata `mac_addresses` list, the guest binding metadata
+(`integration_id` and `integration_type`, with the `hypervisor_*` keys) when its `integration_id`
+or `hypervisor_provider_ref` names the identifier, and the `awx` metadata when the AWX host id it
+names is the identifier. An unmerge declares the two records different machines, so a projection
+on one naming the other's identifier is false. The restored record is the merge's tombstone, which
+keeps whatever was projected onto it while it was itself the survivor of an earlier merge, and a
+survivor keeps what enrichment and sync wrote onto it because it held the merged record's
+identifiers.
+
+Nothing else SHALL change: other metadata, and a MAC or id neither record's identifiers name,
+stay. The unmerge audit row SHALL record every value removed (`dropped_projections`).
+
+#### Scenario: The survivor of an undone merge forgets the merged guest
+- **GIVEN** a record that absorbed guest G's record, after which enrichment wrote guest G's integration id, `hypervisor_*` keys and NIC MAC onto it
+- **WHEN** the merge is reversed, and guest G's identifier rows are no longer on the survivor
+- **THEN** the survivor SHALL no longer show guest G's MAC as its display MAC or in `mac_addresses`
+- **AND** its metadata SHALL no longer name guest G's integration id or carry the `hypervisor_*` keys
+- **AND** the unmerge audit row SHALL record the removed values
+
+#### Scenario: A restored record does not repeat the survivor's MAC
+- **GIVEN** a merged record whose tombstone shows, as its display MAC, a MAC whose identifier row the survivor holds
+- **WHEN** the merge is reversed
+- **THEN** the restored record's display MAC SHALL be cleared
+
+#### Scenario: A MAC no identifier names is kept
+- **GIVEN** a merged record whose display MAC no identifier row of either record holds
+- **WHEN** the merge is reversed
+- **THEN** the restored record SHALL keep its display MAC

@@ -498,7 +498,178 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
     end
   end
 
+  test "an undone merge leaves the survivor nothing of the merged guest, so enrichment does not merge it back",
+       ctx do
+    w = restored_survivor_world!(ctx)
+
+    # Under the repair, the survivor gave back what was projected onto it with guest G's rows,
+    # and kept its own AWX host; the unmerge audit row says what it removed.
+    assert survivor_projections(w.awx_record) == {nil, nil, nil, nil, w.awx_record_host}
+
+    assert %{"mac" => _mac, "metadata" => %{"integration_id" => guest_ref}} =
+             dropped_projections(w.merge)["survivor"]
+
+    assert guest_ref == w.guest_ref
+
+    # The next Proxmox report of guest G: its device is the record that holds its identity now.
+    # The AWX record whose own claim is another VMID is not merged into it; guest G's own AWX
+    # host, restored by the repair, is.
+    ingest_proxmox_guest!(ctx.actor, w.cluster, w.vmid, [w.guest_mac], w.scope)
+
+    refute merged?(w.awx_record)
+    assert merged_into(w.awx_record) == nil
+    assert merged_into(w.guest_awx) == w.guest_record
+
+    assert {:ok, %{reports: %{"awx-proxmox-verify" => verify}}} =
+             DireRemediation.run(
+               steps: ["awx-proxmox-verify"],
+               awx_proxmox_unmerge_event_ids: [w.merge]
+             )
+
+    for name <- ["A1", "A2", "A3"], do: assert(%{status: "pass"} = check(verify, name), name)
+  end
+
+  test "a merge after the repair that joins a restored record to another AWX host's record is planned and fails verify",
+       ctx do
+    w = restored_survivor_world!(ctx)
+    ingest_proxmox_guest!(ctx.actor, w.cluster, w.vmid, [w.guest_mac], w.scope)
+    assert merged_into(w.guest_awx) == w.guest_record
+
+    # As an older core did after the repair: the AWX record's own row had gone to its machine's
+    # record, and enrichment merged it into guest G's record on what was still projected onto it.
+    elsewhere = device!(ctx.actor, "own#{ctx.n}")
+
+    Repo.query!(
+      "UPDATE platform.device_identifiers SET device_id = $2 WHERE device_id = $1",
+      [w.awx_record, elsewhere]
+    )
+
+    late =
+      historical_merge!(ctx, %{uid: w.awx_record}, %{uid: w.guest_record},
+        at: DateTime.shift(w.repaired_at, minute: 5),
+        reason: "hypervisor_guest_network_match",
+        details: %{
+          "guest_provider_ref" => w.guest_ref,
+          "dropped_source_metadata" => %{"awx" => w.awx_record_awx}
+        }
+      )
+
+    assert {:ok, %{reports: %{@step => plan}}} = DireRemediation.run(steps: [@step])
+    planned = Enum.flat_map(plan.unmerge_plan, & &1.merges)
+    assert %{proofs: ["different_awx_hosts"]} = Enum.find(planned, &(&1.event_id == late))
+
+    assert {:error, {:step_failures, %{reports: %{"awx-proxmox-verify" => verify}}}} =
+             DireRemediation.run(
+               steps: ["awx-proxmox-verify"],
+               awx_proxmox_unmerge_event_ids: [w.merge]
+             )
+
+    for name <- ["A2", "A3"] do
+      assert %{status: "fail", sample: sample} = check(verify, name)
+      assert Enum.map(sample, & &1.event_id) == [late], name
+    end
+  end
+
   # -- worlds -------------------------------------------------------------------------------
+
+  # The shape the repair met: guest G's record, carrying the AWX row of G's own AWX host, was
+  # merged into the record of AWX host 1 (whose own claim is another VMID). While that record held
+  # G's rows, enrichment and sync wrote G's binding, VMID and NIC MAC onto it. A later sync gave
+  # G's identity to a record of its own. Then the repair undid the merge.
+  defp restored_survivor_world!(ctx) do
+    vmid = 100 + rem(ctx.n, 800_000)
+    cluster = "cluster-g-#{ctx.n}"
+    scope = proxmox_scope()
+    guest_mac = mac(ctx.n, 21)
+    normalized_guest_mac = String.replace(guest_mac, ":", "")
+
+    {guest_ref, guest_awx} = ingest_proxmox_guest!(ctx.actor, cluster, vmid, [guest_mac], scope)
+    identifier!(ctx.actor, guest_awx, :integration_id, guest_ref, hypervisor(guest_ref))
+    identifier!(ctx.actor, guest_awx, :mac, normalized_guest_mac, hypervisor(guest_ref))
+    identifier!(ctx.actor, guest_awx, :integration_id, awx_id(2, ctx), awx_metadata())
+
+    merge_metadata!(guest_awx, %{
+      "awx" =>
+        awx_claim(ctx, 2, %{
+          "proxmox_vmid" => vmid,
+          "proxmox_node" => "pve01",
+          "ansible_host" => guest_ip(vmid, 0)
+        })
+    })
+
+    awx_record_awx =
+      awx_claim(ctx, 1, %{
+        "proxmox_vmid" => vmid + 1,
+        "proxmox_node" => "node-b",
+        "ansible_host" => "198.51.100.#{rem(ctx.n, 200) + 20}"
+      })
+
+    awx_record = awx_record!(ctx, 1)
+    merge_metadata!(awx_record, %{"awx" => awx_record_awx})
+
+    merge =
+      historical_merge!(ctx, %{uid: guest_awx}, %{uid: awx_record},
+        minutes_ago: 30,
+        details: %{"guest_provider_ref" => guest_ref}
+      )
+
+    Repo.query!("UPDATE platform.ocsf_devices SET mac = $2 WHERE uid = $1", [
+      awx_record,
+      guest_mac
+    ])
+
+    merge_metadata!(awx_record, %{
+      "integration_id" => guest_ref,
+      "integration_type" => "hypervisor",
+      "hypervisor_provider" => "proxmox",
+      "hypervisor_provider_ref" => guest_ref,
+      "hypervisor_vmid" => vmid,
+      "mac_addresses" => [normalized_guest_mac]
+    })
+
+    guest_record = device!(ctx.actor, "guest#{ctx.n}")
+
+    Repo.query!(
+      """
+      UPDATE platform.device_identifiers SET device_id = $2
+      WHERE device_id = $1 AND identifier_value = ANY($3::text[])
+      """,
+      [awx_record, guest_record, [guest_ref, normalized_guest_mac]]
+    )
+
+    assert {:ok, %{reports: %{@step => %{unmerged: 1}}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: [@step],
+               manifest_path: Path.join(ctx.dir, "restored.ndjson"),
+               actor: ctx.actor,
+               awx_proxmox_unmerge_event_ids: [merge]
+             )
+
+    [[unmerged_at]] =
+      Repo.query!(
+        """
+        SELECT created_at FROM platform.merge_audit
+        WHERE reason = 'unmerge' AND details->>'original_merge_event_id' = $1
+        """,
+        [merge]
+      ).rows
+
+    %{
+      vmid: vmid,
+      cluster: cluster,
+      scope: scope,
+      guest_ref: guest_ref,
+      guest_mac: guest_mac,
+      guest_awx: guest_awx,
+      guest_record: guest_record,
+      awx_record: awx_record,
+      awx_record_awx: awx_record_awx,
+      awx_record_host: "#{ctx.n}1",
+      merge: merge,
+      repaired_at: DateTime.from_naive!(unmerged_at, "Etc/UTC")
+    }
+  end
 
   # A guest of cluster B, reported by its own Proxmox integration, and a guest of cluster A with the
   # same VMID (the holder) that the AWX reconciliation merged into it. Before the merge the holder
@@ -579,17 +750,19 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
   # -- fixtures -----------------------------------------------------------------------------
 
-  defp ingest_proxmox_guest!(actor, cluster, vmid, macs) do
-    scope = %{
+  defp proxmox_scope do
+    %{
       integration_id: Ecto.UUID.generate(),
       controller_id: Ecto.UUID.generate(),
       partition_id: "default"
     }
+  end
 
-    # The ingestor skips a guest with no address, so each NIC gets an invented one, distinct per
-    # test (the VMID follows the test's number) and per NIC.
-    host_base = rem(vmid, 84) * 3 + 1
+  # The ingestor skips a guest with no address, so each NIC gets an invented one, distinct per
+  # test (the VMID follows the test's number) and per NIC.
+  defp guest_ip(vmid, nic), do: "192.0.2.#{rem(vmid, 84) * 3 + 1 + nic}"
 
+  defp ingest_proxmox_guest!(actor, cluster, vmid, macs, scope \\ proxmox_scope()) do
     interfaces =
       macs
       |> Enum.with_index()
@@ -597,7 +770,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
         %{
           "name" => "eth#{i}",
           "mac_address" => mac,
-          "ip_addresses" => ["192.0.2.#{host_base + i}/24"],
+          "ip_addresses" => [guest_ip(vmid, i) <> "/24"],
           "source" => "config+agent"
         }
       end)
@@ -671,6 +844,24 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
   end
 
   defp awx_id(host, ctx), do: "awx:v2:00000000-0000-4000-8000-0000000000c1:host:#{ctx.n}#{host}"
+
+  # The `awx` metadata an AWX update writes for host `host` of `awx_id/2`'s controller.
+  defp awx_claim(ctx, host, declared) do
+    Map.merge(
+      %{
+        "controller_id" => "00000000-0000-4000-8000-0000000000c1",
+        "host_id" => "#{ctx.n}#{host}"
+      },
+      declared
+    )
+  end
+
+  defp merge_metadata!(uid, metadata) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb WHERE uid = $1",
+      [uid, metadata]
+    )
+  end
 
   defp soft_delete!(ctx, uid, reason) do
     {:ok, device} = Device.get_by_uid(uid, false, actor: ctx.actor)
@@ -821,6 +1012,54 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
   # -- reads --------------------------------------------------------------------------------
 
   defp check(report, name), do: Enum.find(report.checks, &(&1.check == name))
+
+  # The record's display MAC, its `mac_addresses`, the guest binding it names and its AWX host.
+  defp survivor_projections(uid) do
+    [[mac, macs, integration_id, provider_ref, awx_host]] =
+      Repo.query!(
+        """
+        SELECT mac, metadata->'mac_addresses', metadata->>'integration_id',
+               metadata->>'hypervisor_provider_ref', metadata->'awx'->>'host_id'
+        FROM platform.ocsf_devices WHERE uid = $1
+        """,
+        [uid]
+      ).rows
+
+    {mac, macs, integration_id, provider_ref, awx_host}
+  end
+
+  defp dropped_projections(event_id) do
+    [[dropped]] =
+      Repo.query!(
+        """
+        SELECT details->'dropped_projections' FROM platform.merge_audit
+        WHERE reason = 'unmerge' AND details->>'original_merge_event_id' = $1
+        """,
+        [event_id]
+      ).rows
+
+    dropped
+  end
+
+  # The record the newest merge of `uid` took it into, or nil.
+  defp merged_into(uid) do
+    case Repo.query!(
+           """
+           SELECT to_device_id FROM platform.merge_audit
+           WHERE from_device_id = $1 AND reason <> 'unmerge'
+             AND NOT EXISTS (
+               SELECT 1 FROM platform.merge_audit u
+               WHERE u.reason = 'unmerge'
+                 AND u.details->>'original_merge_event_id' = merge_audit.event_id::text
+             )
+           ORDER BY created_at DESC LIMIT 1
+           """,
+           [uid]
+         ).rows do
+      [[to]] -> to
+      [] -> nil
+    end
+  end
 
   defp merged?(uid) do
     [[deleted_reason]] =
