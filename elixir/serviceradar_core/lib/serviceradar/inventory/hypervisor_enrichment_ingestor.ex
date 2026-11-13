@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.IdentityProjections
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceRetirement
@@ -2169,7 +2170,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     sql = """
     SELECT d.uid,
            d.ip,
-           d.mac,
            d.hostname,
            COALESCE(d.partition, 'default') AS partition,
            COALESCE(d.metadata, '{}'::jsonb) AS metadata,
@@ -2206,18 +2206,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     --
     -- The uid list finds the candidates through indexes, and the conditions after it are the
     -- match itself. The address arm reads the live-address index: every writer of `ip` trims
-    -- it. The MAC arm reads the MAC token index (migration 20260709210000; the expression must
-    -- match it): the MACs are normalized 12-hex values, which a MAC equal to one, separators
-    -- replaced, carries as a token. The AWX arm reads the partial index of AWX records
-    -- (migration 20261026070000; its condition must match the index predicate).
+    -- it. MACs match only through identifier rows: the display `mac` column is a projection a
+    -- merge or an earlier binding can leave naming another machine (`guest_candidate/1`).
+    -- The AWX arm reads the partial index of AWX records (migration 20261026070000; its
+    -- condition must match the index predicate).
     WHERE d.uid IN (
         SELECT i.uid FROM platform.ocsf_devices i
         WHERE i.deleted_at IS NULL AND i.ip = ANY($1::text[]) AND i.ip <> ''
-        UNION
-        SELECT m.uid FROM platform.ocsf_devices m
-        WHERE m.mac IS NOT NULL
-          AND regexp_split_to_array(upper(translate(m.mac, ':-.', '')), '[,;[:space:]]+')
-              && $2::text[]
         UNION
         SELECT di.device_id FROM platform.device_identifiers di
         WHERE (di.identifier_type = 'mac' AND di.identifier_value = ANY($2::text[]))
@@ -2236,7 +2231,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       AND d.source_retired_at IS NULL
       AND (
         btrim(COALESCE(d.ip, '')) = ANY($1::text[])
-        OR upper(replace(replace(btrim(COALESCE(d.mac, '')), '-', ':'), '.', ':')) = ANY($2::text[])
         OR EXISTS (
           SELECT 1
           FROM platform.device_identifiers di
@@ -2259,7 +2253,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     case query_without_jit(sql, [all_ips, all_macs, has_vmids?]) do
       {:ok, %{rows: rows}} ->
-        {:ok, Enum.map(rows, &row_to_guest_candidate/1)}
+        {:ok, Enum.map(rows, &guest_candidate/1)}
 
       {:error, reason} ->
         Logger.warning("Hypervisor enrichment guest candidate lookup failed: #{inspect(reason)}")
@@ -2284,24 +2278,32 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp row_to_guest_candidate([
-         uid,
-         ip,
-         mac,
-         hostname,
-         partition,
-         metadata,
-         discovery_sources,
-         agent_id,
-         mac_identifiers,
-         ip_identifiers,
-         integration_identifiers
-       ]) do
+  @doc false
+  # The pure half of `query_guest_candidate_devices/3`, one candidate per row, so that the evidence
+  # bar is testable without a database. A candidate's evidence is what it holds as identifier rows,
+  # its current address, and the AWX host claim it backs with that host's row
+  # (`backed_awx_claim/3`). Its display MAC column and the metadata that repeats identifiers
+  # (`mac_addresses`, `integration_id`, `hypervisor_*`) are not evidence: a merge copies them onto
+  # a survivor, a binding writes them onto whatever record held a guest's rows at the time, and an
+  # unmerge does not move them, so they can name another machine.
+  def guest_candidate([
+        uid,
+        ip,
+        hostname,
+        partition,
+        metadata,
+        discovery_sources,
+        agent_id,
+        mac_identifiers,
+        ip_identifiers,
+        integration_identifiers
+      ]) do
     metadata = if is_map(metadata), do: metadata, else: %{}
-    awx_info = extract_awx_proxmox_info(metadata, ip)
+    integration_identifiers = List.wrap(integration_identifiers)
+    awx_info = backed_awx_claim(metadata, ip, integration_identifiers)
 
     macs =
-      ([mac | List.wrap(mac_identifiers)] ++ ((awx_info && awx_info.macs) || []))
+      (List.wrap(mac_identifiers) ++ ((awx_info && awx_info.macs) || []))
       |> Enum.map(&normalize_mac_identifier/1)
       |> Enum.filter(&present?/1)
       |> MapSet.new()
@@ -2315,7 +2317,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     %{
       uid: uid,
       ip: normalize_ip_identifier(ip),
-      mac: normalize_mac_identifier(mac),
       hostname: hostname,
       partition: partition || "default",
       metadata: metadata,
@@ -2323,10 +2324,29 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       agent_id: agent_id,
       macs: macs,
       ips: ips,
-      integration_identifiers: List.wrap(integration_identifiers),
+      integration_identifiers: integration_identifiers,
       awx: awx_info
     }
   end
+
+  # The AWX host a record represents, read from its `awx` metadata (and the variables it carries)
+  # alone, and only while the record holds an AWX integration id row: the host the claim names
+  # when it names one, otherwise any. The `awx` metadata is the last AWX update written to the
+  # record, which after a merge can be another host's.
+  defp backed_awx_claim(metadata, ip, integration_identifiers) do
+    awx = Map.get(metadata, "awx")
+    held = Enum.filter(integration_identifiers, &awx_integration_id?/1)
+
+    with %{} <- awx,
+         [_ | _] <- held,
+         true <- IdentityProjections.claimed_awx_id(awx) in [nil | held] do
+      extract_awx_proxmox_info(%{"awx" => awx}, ip)
+    else
+      _ -> nil
+    end
+  end
+
+  defp awx_integration_id?(value), do: is_binary(value) and String.starts_with?(value, "awx:")
 
   defp build_guest_resolution(
          records,
