@@ -13,15 +13,13 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
 
   ## Segment-by choice
 
-  `compress_segmentby` is `gateway_id` — a low-cardinality column that groups
-  all metrics from the same gateway into one segment per chunk. Using `series_key`
-  would create one segment per unique time series, which is far too many segments
-  and degrades both compression ratio and segment exclusion.
+  `compress_segmentby` is `device_id, metric_type, metric_name` — groups rows
+  by the logical identity of the metric series, giving good segment exclusion
+  when queries filter by device or metric type.
 
-  TimescaleDB warns that `series_key` (part of the primary key with `timestamp`
-  and `gateway_id`) should appear in segmentby or orderby. The warning is advisory:
-  it matters only when rows in a compressed chunk need to be updated in place.
-  Timeseries metrics are append-only, so the warning can be disregarded here.
+  `compress_orderby` appends `gateway_id, series_key` to `timestamp DESC` so
+  all primary-key columns are covered, satisfying TimescaleDB's recommendation
+  for append-only tables.
 
   ## Policy intervals
 
@@ -29,8 +27,10 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   `DataRetentionWorker` reconciles it to the operator-configured lag
   (default 2 hours) on startup, so the effective window is short-lived.
 
-  `retention_interval` is 30 days — enough to cover dashboards' last_30d windows
-  while preventing unbounded growth.
+  `retention_days` is 30 — enough to cover dashboards' last_30d windows
+  while preventing unbounded growth. Routed through `RetentionFence` so the
+  cold-tier offload path removes the policy rather than letting the background
+  worker drop un-exported chunks.
 
   Hand-written, matching the hypertable policy pattern in this directory.
   Every step is guarded on the TimescaleDB extension and hypertable existing,
@@ -38,16 +38,18 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   """
   use Ecto.Migration
 
+  alias ServiceRadar.ColdTier.RetentionFence
+
   @table "timeseries_metrics"
-  @segmentby "gateway_id"
-  @orderby ~s("timestamp" DESC)
+  @segmentby "device_id, metric_type, metric_name"
+  @orderby ~s("timestamp" DESC, "gateway_id", "series_key")
   @compression_after "6 days"
-  @retention_interval "30 days"
+  @retention_days 30
 
   def up do
     set_compression(@table, @segmentby, @orderby)
     add_compression_policy(@table, @compression_after)
-    add_retention_policy(@table, @retention_interval)
+    RetentionFence.reconcile_policy(@table, @retention_days, repo: repo())
   end
 
   def down do
@@ -118,13 +120,6 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
     timescale_policy(
       table_name,
       "add_compression_policy(%L::regclass, INTERVAL ''#{interval}'', if_not_exists => true)"
-    )
-  end
-
-  defp add_retention_policy(table_name, interval) do
-    timescale_policy(
-      table_name,
-      "add_retention_policy(%L::regclass, INTERVAL ''#{interval}'', if_not_exists => true)"
     )
   end
 
