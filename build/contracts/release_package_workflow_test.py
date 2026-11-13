@@ -300,5 +300,73 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
                     self.assertEqual(output, "")
 
 
+
+class ImageSecurityScanStepTest(unittest.TestCase):
+    """Run the image scan step against fake scanners on a host with no docker daemon."""
+
+    REPOSITORIES = ("registry.example.test/sr/alpha", "registry.example.test/sr/beta")
+
+    @classmethod
+    def setUpClass(cls):
+        workflow = yaml.load((ROOT / ".github/workflows/image-security.yml").read_text(), Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["image-security"]["steps"]
+        cls.step = next(s for s in steps if s["name"] == "Generate image SBOMs and OSV reports")
+
+    def run_scan(self, osv_exit_by_image):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir, work, runner_temp = root / "bin", root / "work", root / "runner-temp"
+            for path in (bin_dir, work / "scripts", runner_temp):
+                path.mkdir(parents=True)
+            fakes = {
+                "list-publishable-oci-repositories.sh": "printf '%s\\n' " + " ".join(self.REPOSITORIES),
+                "syft": "exit 0",
+                # Like skopeo: write the archive named by the docker-archive destination.
+                "skopeo": 'dest="${@: -1}"; dest="${dest#docker-archive:}"; : > "${dest%%:*}"',
+                # Like osv-scanner: a registry reference needs dockerd, which this host
+                # lacks (127); an archive is scanned and reports the image's result.
+                "osv-scanner": textwrap.dedent("""\
+                    echo "$*" >> "${OSV_CALLS}"
+                    archive=""; out=""
+                    while [[ $# -gt 0 ]]; do
+                      case "$1" in --archive) archive="$2"; shift ;; --output-file) out="$2"; shift ;; esac
+                      shift
+                    done
+                    [[ -n "${archive}" && -f "${archive}" ]] || exit 127
+                    echo '{"results":[]}' > "${out}"
+                    name="$(basename "${archive}" .tar)"
+                    exit "$(python3 -c 'import json,os,sys; print(json.loads(os.environ["OSV_EXITS"])[sys.argv[1]])' "${name}")"
+                """),
+            }
+            for name, body in fakes.items():
+                target = work / "scripts" / name if name.endswith(".sh") else bin_dir / name
+                target.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body + "\n")
+                target.chmod(0o755)
+            github_env, calls = root / "github_env", root / "osv_calls"
+            github_env.touch()
+            calls.touch()
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RELEASE_TAG="v9.8.7",
+                       RUNNER_TEMP=str(runner_temp), GITHUB_ENV=str(github_env), OSV_CALLS=str(calls),
+                       OSV_EXITS=json.dumps(osv_exit_by_image))
+            result = subprocess.run(["bash", "-c", self.step["run"]], cwd=work, env=env,
+                                    capture_output=True, text=True, timeout=20)
+            return result, github_env.read_text(), calls.read_text().splitlines()
+
+    def test_scans_archives_and_reports_findings_without_a_docker_daemon(self):
+        for exits, reported in (({"alpha": 0, "beta": 0}, "OSV_EXIT=0\n"),
+                                ({"alpha": 1, "beta": 0}, "OSV_EXIT=1\n")):
+            with self.subTest(exits=exits):
+                result, github_env, calls = self.run_scan(exits)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(github_env, reported)
+
+    def test_scanner_error_fails_the_scan_instead_of_counting_as_findings(self):
+        result, github_env, _ = self.run_scan({"alpha": 0, "beta": 127})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OSV scan failed for registry.example.test/sr/beta:v9.8.7", result.stderr)
+        self.assertNotIn("OSV_EXIT", github_env)
+
+
 if __name__ == "__main__":
     unittest.main()
