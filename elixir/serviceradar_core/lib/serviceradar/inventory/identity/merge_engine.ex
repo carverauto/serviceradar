@@ -1053,6 +1053,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   whose merged records all kept the survivor's address restores each of them without one. The
   unmerge audit row records the address the record holds afterwards (`restored_ip`) and the
   addresses it carried but did not take back (`withheld_ips`).
+
+  Each record of the pair also loses the identity projections (display MAC, `mac_addresses`
+  entries, guest binding metadata, `awx` metadata) naming the other record's identifiers
+  (`IdentityProjections`); the audit row lists them by side under `dropped_projections`.
   """
   @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
   def unmerge_device(from_device_id, opts \\ []) do

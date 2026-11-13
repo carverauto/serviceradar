@@ -69,8 +69,10 @@ state. The MAC rows the AWX updates wrote are in no merge audit row and need the
 ## Impact
 - Affected specs: device-identity-reconciliation
 - Affected code: `ServiceRadar.Inventory.Remediation.{AwxProxmoxUnmerge, AwxProxmoxVerification,
-  Decisions, DireRemediation, SourceIdRollback}`, `ServiceRadar.Inventory.HypervisorEnrichmentIngestor`
-  (guest candidate evidence), `ServiceRadar.Inventory.Identity.MergeEngine` (unmerge projections), `Mix.Tasks.Serviceradar.DireRemediation`,
+  Decisions, DireRemediation, SourceIdRollback}`,
+  `ServiceRadar.Inventory.HypervisorEnrichmentIngestor` (guest candidate evidence),
+  `ServiceRadar.Inventory.Identity.{MergeEngine, IdentityProjections}` (unmerge projections),
+  `Mix.Tasks.Serviceradar.DireRemediation`,
   `ServiceRadar.Inventory.Identity.SourceRetirement.archive_identifiers/4` (archive reason
   argument)
 - Follows `fix-awx-proxmox-guest-binding-evidence` (task 2.1), which closed the path that created
