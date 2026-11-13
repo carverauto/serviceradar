@@ -1139,10 +1139,10 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   #
   # Units share no record and each verdict is judged on the history up to its merge, so the order
   # the units run in is not what changes a unit's plan; a write that landed since the plan (a
-  # sync, an operator) is. The unit is then refused: `disposition_changed` when a merge of it is no longer
-  # planned for an unmerge, with each merge's disposition now (`unrelated` when it is no longer
-  # judged at all), or `unit_changed` when its merges are all still bad but the unit they form
-  # differs.
+  # sync, an operator) is. The unit is then refused: `disposition_changed` when a merge of it is
+  # no longer planned for an unmerge, with each merge's disposition now (`unrelated` when it is no
+  # longer judged at all), or `unit_changed` when its merges are all still bad but the unit they
+  # form differs.
   defp revalidate_unit(merges, opts) do
     ids = merges |> Enum.map(& &1.event_id) |> Enum.sort()
     data = load(opts)
