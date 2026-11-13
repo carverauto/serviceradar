@@ -598,6 +598,10 @@ jobs:
             cp scripts/install-skopeo.sh "${RUNNER_TEMP}/install-skopeo.sh"
             chmod +x "${RUNNER_TEMP}/install-skopeo.sh"
           fi
+          if [[ -x scripts/install-crane.sh ]]; then
+            cp scripts/install-crane.sh "${RUNNER_TEMP}/install-crane.sh"
+            chmod +x "${RUNNER_TEMP}/install-crane.sh"
+          fi
           if [[ -f scripts/install-download-integrity.sh ]]; then
             cp scripts/install-download-integrity.sh "${RUNNER_TEMP}/install-download-integrity.sh"
           fi

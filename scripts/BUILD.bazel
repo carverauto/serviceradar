@@ -41,6 +41,7 @@ sh_test(
         "check-oci-chart-version-available.sh",
         "cosign_common.sh",
         "cut-release.sh",
+        "install-crane.sh",
         "install-skopeo.sh",
         "oci_registry.sh",
         "run-helm.sh",
