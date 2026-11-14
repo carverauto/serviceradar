@@ -40,7 +40,8 @@ even the binding constraint today:
   target only for a stated reason: the owner left, failed, is over capacity, or
   cannot reach the target, or a bounded rebalance moves load between agents
   without taking any agent past its effective capacity. A target short of its
-  redundancy gains owners when an eligible agent joins. Assignments are persisted with an authority
+  redundancy gains owners when an eligible agent joins, with the room left
+  after uncovered targets, reachability moves and over-capacity sheds. Assignments are persisted with an authority
   generation that follows the sweep producer-assignment fencing pattern.
 - **Each device resolves to one profile.** That is its highest-priority matching
   profile, or the default profile when none matches, as the existing "Profile

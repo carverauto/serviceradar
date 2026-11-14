@@ -289,9 +289,18 @@ Rejected:
 ### D2. A device belongs to exactly one profile
 
 The placement pass resolves each device to its highest-priority matching
-profile, or the default, with `SrqlTargetResolver.resolve_for_devices/3`
-called without an agent id, so pinned profiles compete on priority like any
-other. Pins are applied only when choosing owners (D3). This is what the existing "Profile priority ordering" requirement states.
+profile, or the default. It walks each enabled targeting profile's query in
+priority order with the interface-aware page walk
+(`SNMPCompiler.reduce_target_pages/4`), so an `in:interfaces` query selects
+only devices that have a matching interface. A device takes the first profile
+whose walk selects it, and devices no walk selects take the default profile.
+The single-device fast path (D12) applies the same rule to one device and
+evaluates interface queries against that device's interfaces; it does not use
+the any-device-in-service shortcut that
+`SrqlTargetResolver.resolve_for_devices/3` applies to interface queries. No
+agent id filters which profiles compete: pinned profiles compete on priority
+like any other, and pins apply only when choosing owners (D3). This is what
+the existing "Profile priority ordering" requirement states.
 
 Today the choice is made once per agent from the agent's own device, so the
 same device can be polled under the default profile by some agents and under a
@@ -335,9 +344,12 @@ Rendezvous hashing moves only about 1/n of targets when an agent leaves. With
 stickiness, an agent joining moves no existing owner. It does fill
 shortfalls: an `under_replicated` target, including a `replicate` target the
 agent is newly eligible for, gains the joining agent as an additional owner.
-A pass assigns free capacity in a fixed order: `uncovered` targets first,
-then `under_replicated` and `replicate` shortfalls, then bounded rebalance.
-Each step uses only the capacity the earlier ones left.
+A pass assigns free capacity in a fixed order: (1) `uncovered` targets,
+including re-placement after `owner_lost` and `owner_ineligible`; (2)
+`unreachable_on_owner` moves; (3) `over_capacity` sheds; (4)
+`under_replicated` and `replicate` shortfalls; (5) bounded rebalance. Each
+step uses only the capacity the earlier ones left. An agent that cannot shed
+for lack of room stays reported over capacity.
 
 Rejected:
 - **Least-loaded at arrival.** It depends on arrival order, is not
@@ -380,9 +392,11 @@ candidates fail, the target stays on the owner that reached the limit and is
 reported unreachable. Without that limit, a device
 that is down for everyone would rotate through the fleet forever.
 
-The `C` limit bounds how many agents try a dead device: at most `F` x `C`
-failed polls, then the target holds on one agent until a poll succeeds or the
-backoff expires. The values of `F`, `C` and the backoff are open question 6.
+The `C` limit bounds how many agents try a dead device in one cycle: at most
+`F` x `C` failed polls, then the target holds on the agent that reached the
+limit. When the backoff expires without a successful poll, a new cycle of at
+most `C` agents may run, so a permanently down device costs at most `F` x `C`
+failed polls per backoff period. The values of `F`, `C` and the backoff are open question 6.
 
 ### D7. Delivery: profile definitions in config, targets as revisioned deltas
 
@@ -465,7 +479,8 @@ keeps `TargetLimit` alive.
   capacity is set to the achieved on-time point rate, which is below the
   recomputed placed cost, so the next pass sheds load with `over_capacity`. Until the first report, only
   the target-count ceiling applies.
-- **Effective capacity:** two limits that must both hold. The count of targets
+- **Effective capacity:** two limits that must both hold. Active and draining
+  placements both count until the draining row is revoked. The count of targets
   placed on the agent stays at or under its resolved `snmp_max_targets`, and
   the summed point-rate cost of those targets stays at or under its measured
   point rate. The two are in different units and are not compared with each
@@ -599,7 +614,7 @@ Behavior changes operators will see:
 | Hint lost | Config poll reports the revision | One poll interval (300 s) |
 | Revision history compacted | Snapshot | One snapshot |
 | Credential store read fails at serve time | Page refused, delivery fails, agent keeps its set | Until store recovers |
-| All candidates fail a device | Stays placed, reported unreachable, no rotation | `F` x `C` failed polls, then hold until success or backoff expiry |
+| All candidates fail a device | Stays placed, reported unreachable, no rotation | `F` x `C` failed polls per backoff period |
 | Fleet out of capacity | Newest targets `uncovered`, alerted | Until capacity added |
 | Planned move | Duplicate samples for at most one interval plus grace | Per move |
 | Thundering herd after restart | Jittered phases, bounded workers | Worker limit |

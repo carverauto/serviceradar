@@ -36,7 +36,7 @@ The system SHALL resolve every device to exactly one SNMP profile: the highest-p
 - **THEN** the agent polls them with the default profile's OIDs
 
 ### Requirement: SNMP profile placement mode and redundancy
-Each SNMP profile SHALL carry a `placement_mode` of `distribute` or `replicate`, and a `redundancy` of at least 1. A `distribute` profile SHALL place each target on `redundancy` eligible agents. The desired owners of a `replicate` profile's target SHALL be every currently eligible pinned agent, and an owner is added when a pinned agent becomes eligible later. For both modes, placement stays within each agent's effective capacity: a target with fewer owners than desired is `under_replicated`, and one with none is `uncovered`. A `replicate` profile SHALL be allowed only when the profile is pinned to a non-empty agent set.
+Each SNMP profile SHALL carry a `placement_mode` of `distribute` or `replicate`, and a `redundancy` of at least 1. A `distribute` profile SHALL place each target on `redundancy` eligible agents. The desired owners of a `replicate` profile's target SHALL be every currently eligible pinned agent, and an owner is added when a pinned agent becomes eligible later, using only the capacity left after `uncovered` targets and the other earlier steps of the placement order. For both modes, placement stays within each agent's effective capacity: a target with fewer owners than desired is `under_replicated`, and one with none is `uncovered`. A `replicate` profile SHALL be allowed only when the profile is pinned to a non-empty agent set.
 Pinning (`agent_ids`) restricts which agents are eligible. Pinning SHALL NOT, by itself, make every pinned agent poll every target.
 
 #### Scenario: Pinned distribute profile divides targets
@@ -108,7 +108,7 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 - **AND** the agent is reported over capacity
 
 ### Requirement: SNMP targets move away from an owner that cannot reach them
-The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it.
+The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it in that cycle. When the backoff expires without a successful poll, a new cycle of at most the configured number of agents MAY run, so a target costs at most the failure threshold times the candidate limit in failed polls per backoff period.
 
 #### Scenario: Another agent can reach the device
 - **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls
@@ -121,3 +121,4 @@ The system SHALL move an SNMP target to another eligible agent when its owner re
 - **WHEN** the placement pass runs
 - **THEN** the device stays placed and is reported unreachable
 - **AND** it is not moved again until an agent reports a successful poll or the backoff expires
+- **AND** after the backoff expires, a new cycle tries at most the configured number of agents
