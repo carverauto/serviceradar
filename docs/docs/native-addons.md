@@ -618,6 +618,15 @@ unaffected flags, so affected agents can self-update; the installed updater need
 no change. On restart, the fixed agent re-applies configuration and retries add-on
 installation because its per-add-on failure state is held in memory.
 
+A permanent add-on install refusal (an updater flag or validation refusal, an
+unsupported layout, or an artifact checksum or signature failure) does not
+block the rest of the agent configuration: the agent applies and acknowledges
+the other sections and reports the add-on as failed. It does not repeat the
+identical install on every poll. It retries as soon as the assignment changes
+(version, artifact, or config) or the host's
+`/usr/local/bin/serviceradar-agent-updater` is replaced, for example by an
+agent package upgrade.
+
 An add-on install or delivery failure, and a systemd unit stuck in
 `auto-restart`, fail the canary immediately with `candidate_install_failed` or
 `candidate_reported_unhealthy` and record the error on the rollout target,
