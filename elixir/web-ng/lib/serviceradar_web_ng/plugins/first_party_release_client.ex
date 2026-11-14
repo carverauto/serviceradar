@@ -365,7 +365,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   defp parse_oci_name(name, reference) do
     case String.split(name, "/", parts: 2) do
       [registry, repository] when registry != "" and repository != "" and reference != "" ->
-        {:ok, %{registry: registry, repository: repository, reference: reference}}
+        with :ok <- durable_registry_source("https://#{registry}/v2/#{repository}") do
+          {:ok, %{registry: registry, repository: repository, reference: reference}}
+        end
 
       _ ->
         {:error, :invalid_oci_ref}
@@ -467,6 +469,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   # --- HTTP + registry auth -----------------------------------------------------
 
   def request(url, opts) do
+    with :ok <- durable_registry_source(url) do
+      do_request(url, opts)
+    end
+  end
+
+  defp do_request(url, opts) do
     request_opts =
       opts
       |> Keyword.put(:redirect, false)
@@ -782,12 +790,29 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def validate_provider_asset_url(_repo, url) do
-    with {:ok, uri} <- validate_url(url),
+    with :ok <- durable_registry_source(url),
+         {:ok, uri} <- validate_url(url),
          true <- uri.host in [@oci_registry | @github_asset_hosts] do
       {:ok, URI.to_string(uri)}
     else
       false -> {:error, "plugin import asset URL is not trusted"}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Build artifacts have bounded retention and are never durable import sources.
+  # Check transport URLs as well as parsed refs: callers can supply ref maps or
+  # registry asset URLs directly, and redirects pass through the same boundary.
+  defp durable_registry_source(url) do
+    uri = url |> to_string() |> String.trim() |> URI.parse()
+    host = uri.host |> to_string() |> String.downcase() |> String.trim_trailing(".")
+    path = uri.path |> to_string() |> URI.decode() |> Path.expand("/")
+
+    if host == @oci_registry and
+         (path == "/v2/serviceradar-builds" or String.starts_with?(path, "/v2/serviceradar-builds/")) do
+      {:error, :disposable_oci_source}
+    else
+      :ok
     end
   end
 

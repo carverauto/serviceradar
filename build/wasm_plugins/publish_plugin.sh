@@ -52,6 +52,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# This credential-bearing launcher must run on the publisher host. Reuse the
+# checksum-verified tool installed by harbor-publish.py setup, including when
+# release.yml has checked out an older release after setup.
+export OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
+if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
+  echo "error: direct protected publication is forbidden; use the verified GitHub publishing workflow" >&2
+  exit 2
+fi
+capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
+python3 "${capacity_tool}" --check-capacity-only
+
 [[ -n "${bundle}" ]] || { echo "error: --bundle is required" >&2; exit 1; }
 [[ -n "${metadata}" ]] || { echo "error: --metadata is required" >&2; exit 1; }
 [[ -n "${oras_bin}" ]] || { echo "error: --oras is required" >&2; exit 1; }
@@ -149,7 +160,7 @@ bundle_media_type="${meta[3]}"
 upload_signature_media_type="${meta[4]}"
 
 registry="${OCI_REGISTRY:-registry.carverauto.dev}"
-project="${OCI_PROJECT:-serviceradar}"
+project="${OCI_PROJECT:-serviceradar-builds}"
 repo="${registry}/${project}/${repository_name}"
 if [[ -z "${commit_sha}" ]]; then
   commit_sha="$(git -C "${BUILD_WORKSPACE_DIRECTORY:-$(pwd)}" rev-parse HEAD)"

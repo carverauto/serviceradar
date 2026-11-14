@@ -15,7 +15,7 @@ oci_push(
     ],
     image = "//docker/images:core_elx_image_amd64",
     remote_tags = "//docker/images:core_elx_image_amd64_commit_tag",
-    repository = "registry.carverauto.dev/serviceradar/serviceradar-core-elx",
+    repository = "registry.carverauto.dev/serviceradar-builds/serviceradar-core-elx",
     tags = ["manual"],
 )
 

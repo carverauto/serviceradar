@@ -82,6 +82,63 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
     end)
   end
 
+  describe "durable artifact sources" do
+    test "rejects disposable OCI references and direct ref maps before HTTP", %{repo: repo} do
+      for registry <- [Client.oci_registry(), String.upcase(Client.oci_registry()), Client.oci_registry() <> ":443"],
+          repository <- [
+            "serviceradar-builds/wasm-plugin-example",
+            "serviceradar-builds/native-addon-example",
+            "/serviceradar-builds/example",
+            "serviceradar-builds%2Fexample",
+            "serviceradar/../serviceradar-builds/example"
+          ] do
+        assert {:error, :disposable_oci_source} = Client.parse_oci_ref("#{registry}/#{repository}:v1")
+        ref = %{registry: registry, repository: repository, reference: "v1"}
+        assert {:error, :disposable_oci_source} = Client.fetch_oci_manifest(repo, ref)
+        assert {:error, :disposable_oci_source} = Client.fetch_oci_blob(repo, ref, "sha256:" <> String.duplicate("a", 64))
+      end
+
+      assert collect_requests() == []
+    end
+
+    test "rejects disposable registry asset URLs at every public download boundary", %{repo: repo} do
+      for host <- [
+            Client.oci_registry(),
+            String.upcase(Client.oci_registry()),
+            Client.oci_registry() <> ":443",
+            Client.oci_registry() <> "."
+          ],
+          path <- [
+            "/v2/serviceradar-builds/example/blobs/sha256:abc",
+            "/v2/%73erviceradar-builds/example/manifests/v1",
+            "/v2//serviceradar-builds/example/blobs/sha256:abc",
+            "/v2/serviceradar/../serviceradar-builds/example/blobs/sha256:abc"
+          ] do
+        url = "https://#{host}#{path}"
+        assert {:error, :disposable_oci_source} = Client.fetch_binary_asset(repo, %{"browser_download_url" => url})
+        assert {:error, :disposable_oci_source} = Client.fetch_url_binary(repo, url)
+        assert {:error, :disposable_oci_source} = Client.request(url, [])
+        assert {:error, :disposable_oci_source} = Client.fetch_url_binary(repo, "  #{url}  ")
+      end
+
+      assert collect_requests() == []
+    end
+
+    test "keeps protected registry artifacts and external release assets usable", %{repo: repo} do
+      assert {:ok, %{repository: "serviceradar/wasm-plugin-example"}} =
+               Client.parse_oci_ref("#{Client.oci_registry()}/serviceradar/wasm-plugin-example:v1")
+
+      for url <- [
+            "https://#{Client.oci_registry()}/v2/serviceradar/example/blobs/sha256:abc",
+            "https://github.com/acme/serviceradar-builds/releases/download/v1/example.zip"
+          ] do
+        assert {:ok, "BUNDLE"} = Client.fetch_binary_asset(repo, %{"browser_download_url" => url})
+      end
+
+      assert [{_, _}, {_, _}, {_, _}, {_, _}] = collect_requests()
+    end
+  end
+
   describe "private repository asset download" do
     test "uses the API asset URL, not browser_download_url", %{repo: repo} do
       repo = Client.with_token(repo, "ghp_secret")

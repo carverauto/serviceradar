@@ -3,6 +3,10 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "sign-oci-publish.sh",
+    "sign-native-addon-publish.sh",
+    "sign-wasm-plugin-publish.sh",
+    "build-images.sh",
     "check-oci-image-tags-exist.sh",
     "ci/publish-helm-bundle.py",
     "ci/harbor-publish.py",

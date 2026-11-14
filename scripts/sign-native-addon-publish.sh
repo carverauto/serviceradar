@@ -9,6 +9,17 @@
 # signature over the OCI artifact.
 set -euo pipefail
 
+# This credential-bearing launcher must run on the publisher host. Reuse the
+# checksum-verified tool installed by harbor-publish.py setup, including when
+# release.yml has checked out an older release after setup.
+export OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
+if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
+  echo "error: direct protected publication is forbidden; use the verified GitHub publishing workflow" >&2
+  exit 2
+fi
+capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
+python3 "${capacity_tool}" --check-capacity-only
+
 # shellcheck source=scripts/cosign_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
 trap cosign_cleanup_temp_files EXIT
@@ -29,7 +40,7 @@ read -r -a BAZEL_BUILD_FLAGS <<<"${BAZEL_BUILD_FLAGS:--c opt}"
 BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info "${BAZEL_BUILD_FLAGS[@]}" bazel-bin 2>/dev/null)}"
 METADATA_DIR="${METADATA_DIR:-${BAZEL_BIN_DIR}/build/native_addons}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
-OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
+OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
 COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"

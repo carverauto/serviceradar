@@ -1014,6 +1014,9 @@ esac
 EOF
 chmod +x "${sign_test_dir}/bin/cosign"
 
+mkdir -p "${sign_test_dir}/lifecycle/tool/k8s/harbor"
+printf '# synthetic capacity endpoint\n' >"${sign_test_dir}/lifecycle/tool/k8s/harbor/promote-artifacts.py"
+
 run_fake_sign_oci() {
   local mode="$1"
   local log_file="$2"
@@ -1027,7 +1030,8 @@ run_fake_sign_oci() {
     SERVICERADAR_REPO_ROOT="${sign_test_dir}" \
     BAZEL_BIN="${sign_test_dir}/bazel-bin" \
     OCI_REGISTRY="registry.example" \
-    OCI_PROJECT="serviceradar" \
+    OCI_PROJECT="serviceradar-builds" \
+    HARBOR_LIFECYCLE_DIR="${sign_test_dir}/lifecycle" \
     COSIGN_KEY_REF="hashivault://cosign-release" \
     COSIGN_PUBLIC_KEY_FILE="${sign_test_dir}/cosign.pub" \
     COSIGN_SIGN_MAX_ATTEMPTS=3 \
@@ -1041,7 +1045,7 @@ if ! grep -q "^verify .*--key " "${sign_test_dir}/conflict-verified.log"; then
   echo "sign-oci-publish did not verify existing signature with cosign verify --key on Rekor 409" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
   echo "sign-oci-publish retried cosign sign after cosign verify --key already succeeded" >&2
   exit 1
 fi
@@ -1052,7 +1056,7 @@ if [[ -f "${sign_test_dir}/state-2/unlogged-sign-called" ]]; then
   echo "sign-oci-publish attempted an unlogged cosign sign after Rekor 409" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
+if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
   echo "sign-oci-publish did not retry full signing when existing signature verification failed after Rekor 409" >&2
   exit 1
 fi
@@ -1070,25 +1074,25 @@ if run_fake_sign_oci "partial_failure_and_transient_retry" "${sign_test_dir}/par
   echo "sign-oci-publish succeeded despite image signing failures" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
   echo "sign-oci-publish retried a permanent authentication failure" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
   echo "sign-oci-publish did not retry a transient 503 failure on second image" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
   echo "sign-oci-publish did not attempt third image after first image failed" >&2
   exit 1
 fi
-if ! grep -q "registry.example/serviceradar/first@sha256:" "${sign_test_dir}/partial.out" \
-  || ! grep -q "registry.example/serviceradar/third@sha256:" "${sign_test_dir}/partial.out"; then
+if ! grep -q "registry.example/serviceradar-builds/first@sha256:" "${sign_test_dir}/partial.out" \
+  || ! grep -q "registry.example/serviceradar-builds/third@sha256:" "${sign_test_dir}/partial.out"; then
   echo "sign-oci-publish did not list every failed image at the end" >&2
   cat "${sign_test_dir}/partial.out" >&2
   exit 1
 fi
-if grep -q "  - registry.example/serviceradar/second@sha256:" "${sign_test_dir}/partial.out"; then
+if grep -q "  - registry.example/serviceradar-builds/second@sha256:" "${sign_test_dir}/partial.out"; then
   echo "sign-oci-publish listed a recovered image as failed" >&2
   exit 1
 fi

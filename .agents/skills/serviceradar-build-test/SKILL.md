@@ -27,6 +27,6 @@ metadata:
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
   `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
-- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
+- First-party Wasm plugins: build with `make build_wasm_plugins`; publish through the verified `wasm-plugins.yml` GitHub workflow. Image publication uses `publish-oci.yml`. The old Makefile push entrypoints fail closed. Raw Bazel upload targets only write disposable build artifacts and do not constitute a release.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).

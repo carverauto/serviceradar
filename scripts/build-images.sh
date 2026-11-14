@@ -1,12 +1,20 @@
 #!/bin/bash
 
 # ServiceRadar Docker Image Build Script
-# Build and push ServiceRadar Docker images with multi-platform support
+# Build ServiceRadar Docker images for local use
 
 set -euo pipefail
 
+# Reject publication before probing Docker or building anything. Local builds
+# remain available; registry credentials belong to the verified workflow.
+for argument in "$@"; do
+    if [[ "$argument" == "--push" || "$argument" == "-p" ]]; then
+        echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+        exit 2
+    fi
+done
+
 # Configuration
-REGISTRY="registry.carverauto.dev"
 IMAGE_PREFIX="registry.carverauto.dev/serviceradar/serviceradar"
 DEFAULT_TAG="latest"
 DEFAULT_PLATFORM="linux/amd64,linux/arm64"
@@ -57,11 +65,11 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS] [SERVICES...]
 
-Build and push ServiceRadar Docker images to the Harbor OCI registry
+Build ServiceRadar Docker images locally
 
 OPTIONS:
   -t, --tag TAG             Tag for the images (default: $DEFAULT_TAG)
-  -p, --push                Push images after building (requires docker login)
+  -p, --push                Retired; use the verified publish-oci.yml workflow
   --platform PLATFORM       Target platform (default: $DEFAULT_PLATFORM)
   --platform-amd64          Build for linux/amd64 only
   --platform-arm64          Build for linux/arm64 only
@@ -86,34 +94,19 @@ SERVICES:
   rperf-client, tools
 
 EXAMPLES:
-  # Build and push all images
-  $0 --push
-
-  # Build and push only rperf-client for amd64
-  $0 --platform-amd64 --push rperf-client
-
-  # Build core services group
-  $0 --group core --push
-
-  # Build specific services
-  $0 --push core web agent
-
-  # Build all images with specific tag
-  $0 --tag v1.0.53 --push
-
-  # Build locally without push (current platform only)
   $0 --local core
+  $0 --platform-amd64 rperf-client
+  $0 --group core
+  $0 --tag local-test core web agent
 
-AUTHENTICATION:
-  Before pushing, login to Harbor:
-  echo \$HARBOR_ROBOT_SECRET | docker login ${REGISTRY} -u \$HARBOR_ROBOT_USERNAME --password-stdin
+PUBLICATION:
+  gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>
 
 EOF
 }
 
 # Parse command line arguments
 TAG="$DEFAULT_TAG"
-PUSH=false
 NO_CACHE=""
 PLATFORM="$DEFAULT_PLATFORM"
 LOCAL_BUILD=false
@@ -125,10 +118,6 @@ while [[ $# -gt 0 ]]; do
         -t|--tag)
             TAG="$2"
             shift 2
-            ;;
-        -p|--push)
-            PUSH=true
-            shift
             ;;
         --platform)
             PLATFORM="$2"
@@ -201,7 +190,6 @@ log "Version: $VERSION"
 log "Build ID: $BUILD_ID"
 log "Tag: $TAG"
 log "Platform: $PLATFORM"
-log "Push: $PUSH"
 log "Services to build: $(echo $SERVICES_TO_BUILD | tr ' ' '\n' | wc -l) service(s)"
 
 # Check if we're in the right directory
@@ -259,44 +247,25 @@ build_image() {
             $NO_CACHE \
             . || return 1
         
-        if [[ "$PUSH" == true ]]; then
-            log "Pushing $full_image_name..."
-            docker push "$full_image_name" || return 1
-        fi
     else
         # Multi-arch build with buildx
-        local push_flag=""
         local build_platform="$PLATFORM"
-        
-        if [[ "$PUSH" == true ]]; then
-            push_flag="--push"
-        else
-            push_flag="--load"
-            # For multi-platform builds without push, we need to use single platform
-            if [[ "$PLATFORM" == *","* ]]; then
-                warn "Multi-platform builds require --push flag. Using linux/amd64 only for local load."
-                build_platform="linux/amd64"
-            fi
+        if [[ "$PLATFORM" == *","* ]]; then
+            warn "Local image loading uses one platform; selecting linux/amd64."
+            build_platform="linux/amd64"
         fi
-        
+
         docker buildx build \
             --platform "$build_platform" \
             --file "$dockerfile" \
             --tag "$full_image_name" \
             $build_args \
             $NO_CACHE \
-            $push_flag \
+            --load \
             . || return 1
     fi
     
-    if [[ "$PUSH" == true ]]; then
-        success "Built and pushed: $full_image_name"
-        if [[ "$PLATFORM" == *","* ]]; then
-            log "  Platforms: $(echo $PLATFORM | sed 's/linux\///g' | sed 's/,/, /g')"
-        fi
-    else
-        success "Built: $full_image_name"
-    fi
+    success "Built: $full_image_name"
     return 0
 }
 
@@ -405,21 +374,7 @@ else
     success "Successfully built $BUILT_COUNT service(s)!"
 fi
 
-if [[ "$PUSH" == false ]]; then
-    echo ""
-    warn "Images were built locally but not pushed."
-    log "To push images, run with --push flag after logging in:"
-    log "  echo \$HARBOR_ROBOT_SECRET | docker login $REGISTRY -u \$HARBOR_ROBOT_USERNAME --password-stdin"
-    log "  $0 --push --tag $TAG"
-fi
-
 echo ""
-if [[ "$PUSH" == true ]]; then
-    # When pushing multi-arch images with buildx, nothing is loaded locally.
-    # Avoid failing the script due to grep returning 1 with pipefail enabled.
-    log "Images were pushed to $REGISTRY; skipping local image list."
-else
-    log "ServiceRadar images created:"
-    # Use grep -E with a pattern that always matches something to avoid pipefail issues
-    docker images | { grep "serviceradar" || true; } | head -20
-fi
+log "Images are local. Publish deployable artifacts with the verified GitHub workflow."
+log "ServiceRadar images created:"
+docker images | { grep "serviceradar" || true; } | head -20

@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This credential-bearing launcher must run on the publisher host. Reuse the
+# checksum-verified tool installed by harbor-publish.py setup, including when
+# release.yml has checked out an older release after setup.
+export OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
+if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
+  echo "error: direct protected publication is forbidden; use the verified GitHub publishing workflow" >&2
+  exit 2
+fi
+capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
+python3 "${capacity_tool}" --check-capacity-only
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1090,SC1091
 source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"
@@ -28,7 +39,7 @@ fi
 
 REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
-OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
+OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"
 
 if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then

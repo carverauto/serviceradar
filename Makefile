@@ -182,60 +182,19 @@ verify-agent-ebpf: ## Verify checked-in agent eBPF probe artifacts are current
 	@./scripts/generate-agent-ebpf.sh --check
 
 .PHONY: push-web-ng
-push-web-ng: ## Build and push just web-ng on Linux/CI (macOS must use make push_all)
-	@if [ "$(HOST_OS)" = "Darwin" ]; then \
-		echo "error: the single-image launcher is Linux-only; use 'make push_all' on macOS" >&2; \
-		exit 2; \
-	fi
-	@$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:web_ng_image_amd64_push
+push-web-ng: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: push_all
-push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
-	@set -eu; \
-	effective_tag="$(PUSH_TAG)"; \
-	if [ -z "$${effective_tag}" ]; then \
-		effective_tag="sha-$$(git rev-parse HEAD)"; \
-	fi; \
-	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
-		if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
-			COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
-			if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
-				printf 'Cosign password: ' >&2; \
-				stty -echo; \
-				IFS= read -r COSIGN_PASSWORD; \
-				stty echo; \
-				printf '\n' >&2; \
-				export COSIGN_PASSWORD; \
-			fi; \
-			if [ -f "$${COSIGN_KEY_FILE}" ]; then \
-				cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
-					echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
-					exit 1; \
-				}; \
-			fi; \
-		fi; \
-	fi; \
-	if [ "$(HOST_OS)" = "Darwin" ]; then \
-		./scripts/push_all_images.sh --tag "$${effective_tag}"; \
-	else \
-		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //:push -- --tag "$${effective_tag}"; \
-	fi; \
-	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
-		./scripts/sign-oci-publish.sh; \
-		$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"; \
-	else \
-		echo "skipping local cosign sign+verify; in-cluster signer (openbao) will sign after push"; \
-	fi
+push_all: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: push_all_release
-push_all_release: ## Build, sign, and verify all OCI container images and first-party Wasm plugin OCI artifacts
-	@set -eu; \
-	effective_tag="$(PUSH_TAG)"; \
-	if [ -z "$${effective_tag}" ]; then \
-		effective_tag="sha-$$(git rev-parse HEAD)"; \
-	fi; \
-	$(MAKE) push_all LOCAL_COSIGN_SIGN=1 PUSH_TAG="$${effective_tag}"; \
-	$(MAKE) push_wasm_plugins LOCAL_COSIGN_SIGN=1 PUSH_TAG="$${effective_tag}"
+push_all_release: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: verify_publish
 verify_publish: ## Verify published OCI image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
@@ -251,30 +210,9 @@ build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally wi
 	@bazel build //build/wasm_plugins:all_bundles
 
 .PHONY: push_wasm_plugins
-push_wasm_plugins: ## Build and publish first-party Wasm plugin OCI artifacts (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
-	@set -eu; \
-	effective_tag="$(PUSH_TAG)"; \
-	if [ -z "$${effective_tag}" ]; then \
-		effective_tag="sha-$$(git rev-parse HEAD)"; \
-	fi; \
-	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ] && [ -z "$${COSIGN_KEY_REF:-}" ]; then \
-		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
-		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
-			printf 'Cosign password: ' >&2; \
-			stty -echo; \
-			IFS= read -r COSIGN_PASSWORD; \
-			stty echo; \
-			printf '\n' >&2; \
-			export COSIGN_PASSWORD; \
-		fi; \
-	fi; \
-	./scripts/push_all_wasm_plugins.sh --tag "$${effective_tag}"; \
-	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
-		./scripts/sign-wasm-plugin-publish.sh "$${effective_tag}"; \
-		$(MAKE) verify_wasm_plugins VERIFY_TAG="$${effective_tag}"; \
-	else \
-		echo "skipping local cosign sign+verify for wasm plugins; in-cluster signer will sign after push"; \
-	fi
+push_wasm_plugins: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run wasm-plugins.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: verify_wasm_plugins
 verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signatures (set VERIFY_TAG=<tag> to include an extra tag)
@@ -345,26 +283,14 @@ demo-staging-canary: ## Configure demo-staging ArgoCD app for canary tags (web=l
 	@./scripts/demo-staging-canary.py --app serviceradar-demo-staging --base-tag v1.0.75 --web-tag latest
 
 .PHONY: demo-staging-web
-demo-staging-web: ## Push web-ng image (latest) and restart serviceradar-web-ng in demo-staging
-	@if [ "$(HOST_OS)" = "Darwin" ]; then \
-		$(MAKE) push_all; \
-	else \
-		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:web_ng_image_amd64_push; \
-	fi
-	@kubectl -n demo-staging rollout restart deployment/serviceradar-web-ng
-	@kubectl -n demo-staging rollout status deployment/serviceradar-web-ng --timeout=300s
-	@kubectl -n demo-staging get deploy serviceradar-web-ng -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+demo-staging-web: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: demo-staging-core
-demo-staging-core: ## Push core image (latest) and restart serviceradar-core in demo-staging
-	@if [ "$(HOST_OS)" = "Darwin" ]; then \
-		$(MAKE) push_all; \
-	else \
-		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:core_image_amd64_push; \
-	fi
-	@kubectl -n demo-staging rollout restart deployment/serviceradar-core
-	@kubectl -n demo-staging rollout status deployment/serviceradar-core --timeout=300s
-	@kubectl -n demo-staging get deploy serviceradar-core -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+demo-staging-core: ## Publish through the verified GitHub workflow
+	@echo "Direct publication is retired. Use: gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@exit 2
 
 .PHONY: cnpg-smoke
 cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-staging)

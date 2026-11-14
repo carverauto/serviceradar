@@ -67,6 +67,90 @@ class HarborPublishTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPT), *args], env=self.env,
                               text=True, capture_output=True)
 
+    def test_retired_operator_entrypoints_refuse_before_tools_or_uploads(self):
+        calls = self.root / "calls"
+        for tool in ("bazel", "docker", "crane", "oras", "kubectl", "helm"):
+            self.fake(tool, f"open({str(calls)!r}, 'a').write({tool!r})\n")
+        commands = [["bash", str(REPO / script), *args] for script, args in (
+            ("scripts/push_all_images.sh", []),
+            ("scripts/build-images.sh", ["--push"]),
+            ("build/buildbuddy/release_pipeline.sh", []))]
+        commands += [["make", "-f", str(REPO / "Makefile"), target] for target in
+                     ("push_all", "push-web-ng", "push_all_release", "push_wasm_plugins",
+                      "demo-staging-web", "demo-staging-core")]
+        for command in commands:
+            with self.subTest(command=command):
+                result = subprocess.run(command, cwd=self.root, env=self.env,
+                                        text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("gh workflow run", result.stderr)
+                self.assertFalse(calls.exists(), result.stdout + result.stderr)
+
+    def test_low_level_publishers_require_capacity_and_only_write_builds(self):
+        events = self.root / "events"
+        tool = self.root / "tool/k8s/harbor/promote-artifacts.py"
+        tool.write_text("import os,sys\n"
+                        f"open({str(events)!r}, 'a').write('capacity\\n')\n"
+                        "assert sys.argv[1:] == ['--check-capacity-only']\n"
+                        "sys.exit(int(os.environ.get('CAPACITY_EXIT', '0')))\n")
+        self.fake("oras", f"open({str(events)!r}, 'a').write('upload ' + ' '.join(sys.argv[1:]) + '\\n')\n")
+        self.fake("git", "print('a' * 40)\n")
+        host_bin = self.root / ".local/bin"
+        host_bin.mkdir(parents=True)
+        (host_bin / "git").symlink_to(self.bin / "git")
+        self.fake("signature", f"open({str(events)!r}, 'a').write('sign\\n')\n"
+                  "pathlib.Path(sys.argv[sys.argv.index('--out') + 1]).write_text('{}')\n")
+        bundle = self.root / "example.zip"
+        bundle.write_bytes(b"synthetic bundle")
+        metadata = self.root / "example.metadata.json"
+        metadata.write_text(json.dumps({"addon_id": "example", "plugin_id": "example",
+                                       "repository_name": "example", "artifact_type": "application/example",
+                                       "bundle_media_type": "application/zip",
+                                       "upload_signature_media_type": "application/example-signature"}))
+        env = self.env | {"OCI_REGISTRY": "registry.example", "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY": "synthetic",
+                          "HOME": str(self.root)}
+        env.pop("OCI_PROJECT", None)
+        for script, signing_flag in (("native_addons/publish_addon.sh", "--artifact-signature-tool"),
+                                     ("wasm_plugins/publish_plugin.sh", "--upload-signature-tool")):
+            command = ["bash", str(REPO / "build" / script), "--bundle", str(bundle),
+                       "--metadata", str(metadata), "--oras", str(self.bin / "oras"),
+                       signing_flag, str(self.bin / "signature")]
+            with self.subTest(script=script):
+                events.unlink(missing_ok=True)
+                result = subprocess.run(command, cwd=self.root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                observed = events.read_text().splitlines()
+                self.assertEqual(observed[0], "capacity")
+                uploads = [event for event in observed if event.startswith("upload ")]
+                self.assertEqual(len(uploads), 1)
+                self.assertIn("registry.example/serviceradar-builds/example:sha-" + "a" * 40, uploads[0])
+                for override in ({"CAPACITY_EXIT": "17"}, {"OCI_PROJECT": "serviceradar"},
+                                 {"HARBOR_LIFECYCLE_DIR": str(self.root / "missing")}):
+                    events.unlink()
+                    result = subprocess.run(command, cwd=self.root, env=env | override,
+                                            text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    observed = events.read_text().splitlines() if events.exists() else []
+                    self.assertEqual(observed, ["capacity"] if "CAPACITY_EXIT" in override else [])
+                    events.touch()
+
+    def test_signers_refuse_protected_writes_and_missing_capacity_tool(self):
+        calls = self.root / "calls"
+        for tool in ("cosign", "oras", "curl"):
+            self.fake(tool, f"open({str(calls)!r}, 'a').write({tool!r})\n")
+        for script in ("sign-oci-publish.sh", "sign-native-addon-publish.sh", "sign-wasm-plugin-publish.sh"):
+            for override in ({"OCI_PROJECT": "serviceradar"},
+                             {"OCI_PROJECT": "serviceradar-builds", "HARBOR_LIFECYCLE_DIR": str(self.root / "missing")}):
+                with self.subTest(script=script, override=override):
+                    result = subprocess.run(["bash", str(REPO / "scripts" / script)],
+                                            env=self.env | override, text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(calls.exists(), result.stdout + result.stderr)
+                    if override["OCI_PROJECT"] == "serviceradar":
+                        self.assertIn("direct protected publication is forbidden", result.stderr)
+                    else:
+                        self.assertIn("promote-artifacts.py", result.stderr)
+
     def test_each_command_receives_only_its_scoped_registry_identity(self):
         for action, project, user in (("build", "serviceradar-builds", "build"),
                                       ("protected", "serviceradar", "promotion")):

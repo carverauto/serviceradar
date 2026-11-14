@@ -6,3 +6,5 @@ sh_binary(
     name = "release_pipeline",
     srcs = ["release_pipeline.sh"],
 )
+
+exports_files(["release_pipeline.sh"])
