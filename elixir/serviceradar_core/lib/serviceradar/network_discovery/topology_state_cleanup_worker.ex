@@ -6,7 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   import Ecto.Query, only: [from: 2]
 

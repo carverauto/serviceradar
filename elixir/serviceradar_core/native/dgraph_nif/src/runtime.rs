@@ -108,7 +108,7 @@ pub async fn client_for(url: &str, deadline: Duration) -> Result<TopologyClient,
             return Err(Failure::Timeout(format!(
                 "dgraph connect timed out after {}ms",
                 deadline.as_millis()
-            )))
+            )));
         }
     };
     let mut guard = cache

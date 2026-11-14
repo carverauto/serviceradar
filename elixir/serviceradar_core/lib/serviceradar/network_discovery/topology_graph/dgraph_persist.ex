@@ -170,23 +170,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
       if_index_ab: int_or_nil(payload.local_if_index),
       if_index_ba: 0,
       confidence_tier: payload.confidence_tier,
-      last_seen: payload.observed_at
+      last_seen: normalize_rfc3339_observed_at(payload.observed_at)
     }
   end
 
   @doc "Project a device's management relationship as `MANAGED_BY` and its inverse `MANAGES`."
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(child, mgmt) when is_binary(child) and is_binary(mgmt) do
+    observed_at = now_rfc3339()
+
     maybe(fn ->
       with :ok <- Dgraph.upsert_device(%{id: child}),
            :ok <- Dgraph.upsert_device(%{id: mgmt}),
-           :ok <- Dgraph.upsert_edge(management_edge(child, mgmt, :managed_by)) do
-        Dgraph.upsert_edge(management_edge(mgmt, child, :manages))
+           :ok <- Dgraph.upsert_edge(management_edge(child, mgmt, :managed_by, observed_at)) do
+        Dgraph.upsert_edge(management_edge(mgmt, child, :manages, observed_at))
       end
     end)
   end
 
-  defp management_edge(source, target, kind) do
+  defp management_edge(source, target, kind, observed_at) do
     %{
       source: source,
       target: target,
@@ -194,7 +196,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
       protocol: "management",
       evidence_class: "managed-by",
       ingestor: "management_device_v1",
-      telemetry_eligible: false
+      telemetry_eligible: false,
+      last_seen: observed_at
     }
   end
 
@@ -316,7 +319,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
           evidence_class: "path",
           ingestor: "mtr_path_v1",
           agent_id: Map.get(attrs, :agent_id),
-          last_seen: Map.get(attrs, :observed_at),
+          last_seen: normalize_rfc3339_observed_at(Map.get(attrs, :observed_at)),
           mtr: Map.get(attrs, :mtr)
         })
       end
@@ -326,6 +329,32 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @spec projection_relation(map()) :: String.t()
   def projection_relation(payload) when is_map(payload) do
     Projection.evidence_relation_type(payload)
+  end
+
+  defp normalize_rfc3339_observed_at(%DateTime{} = dt) do
+    dt
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
+
+  defp normalize_rfc3339_observed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(String.trim(value)) do
+      {:ok, dt, _} ->
+        dt
+        |> DateTime.truncate(:second)
+        |> DateTime.to_iso8601()
+
+      _ ->
+        now_rfc3339()
+    end
+  end
+
+  defp normalize_rfc3339_observed_at(_), do: now_rfc3339()
+
+  defp now_rfc3339 do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
   end
 
   defp upsert_mtr_node(:hop, ip) when is_binary(ip), do: Dgraph.upsert_hop(%{ip: ip})

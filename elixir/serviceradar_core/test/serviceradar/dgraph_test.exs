@@ -434,10 +434,29 @@ defmodule ServiceRadar.DgraphTest do
                    protocol: "management",
                    evidence_class: "managed-by",
                    ingestor: "management_device_v1",
-                   telemetry_eligible: false
+                   telemetry_eligible: false,
+                   last_seen: "2030-01-02T00:00:00Z"
                  })
 
         assert reason =~ "connect"
+      end
+    end
+
+    test "edge writes without a valid RFC3339 last_seen are rejected before connecting" do
+      for invalid_last_seen <- [nil, "", "not-an-rfc3339-timestamp"] do
+        assert {:error, reason} =
+                 Dgraph.upsert_edge(%{
+                   source: "sr:host01.example.com",
+                   target: "sr:host02.example.com",
+                   kind: :attached_to,
+                   protocol: "lldp",
+                   evidence_class: "direct-physical",
+                   ingestor: "mapper_topology_v1",
+                   last_seen: invalid_last_seen
+                 })
+
+        assert reason =~ "topo.last_seen"
+        refute_received {:telemetry, [:serviceradar, :dgraph, :call, :retry], _, _}
       end
     end
 

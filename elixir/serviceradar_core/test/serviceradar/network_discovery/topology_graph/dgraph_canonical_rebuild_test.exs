@@ -176,6 +176,64 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
              DgraphRebuild.decode_inputs([Map.put(row, "last_seen", "invalid")])
   end
 
+  test "legacy undated CANONICAL_TOPOLOGY rows are replaced when covered by fresh evidence and pruned when uncovered without epoch defaults" do
+    undated_covered =
+      "sr:switch-a"
+      |> evidence("sr:switch-b", "port1", "port7")
+      |> Map.merge(%{
+        "relation" => "CANONICAL_TOPOLOGY",
+        "flow_pps_ab" => 40,
+        "flow_pps_ba" => 60,
+        "flow_bps_ab" => 4_000,
+        "flow_bps_ba" => 6_000,
+        "capacity_bps" => 1_000_000_000,
+        "telemetry_eligible" => true
+      })
+      |> Map.delete("last_seen")
+
+    undated_uncovered_nil =
+      "sr:switch-c"
+      |> evidence("sr:switch-d", "port1", "port7")
+      |> Map.put("relation", "CANONICAL_TOPOLOGY")
+      |> Map.delete("last_seen")
+
+    undated_uncovered_blank =
+      "sr:switch-e"
+      |> evidence("sr:switch-f", "port1", "port7")
+      |> Map.merge(%{"relation" => "CANONICAL_TOPOLOGY", "last_seen" => ""})
+
+    fresh_ab = evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
+
+    assert {:ok, inputs} =
+             DgraphRebuild.decode_inputs([
+               undated_covered,
+               undated_uncovered_nil,
+               undated_uncovered_blank,
+               fresh_ab
+             ])
+
+    {edges, stats} = DgraphRebuild.plan(inputs, @cutoff)
+
+    assert [
+             %{
+               source: "sr:switch-a",
+               target: "sr:switch-b",
+               last_seen: @observed,
+               flow_pps_ab: 40,
+               flow_pps_ba: 60,
+               flow_bps_ab: 4_000,
+               flow_bps_ba: 6_000,
+               capacity_bps: 1_000_000_000,
+               telemetry_eligible: true
+             }
+           ] = edges
+
+    assert stats.after_prune_edges == 1
+    assert stats.undated_replaced_edges == 1
+    assert stats.undated_pruned_edges == 2
+    refute Enum.any?(edges, &(&1.last_seen in [nil, "", "1970-01-01T00:00:00Z"]))
+  end
+
   test "self and unresolved mapper observations do not prevent valid links from reconciling" do
     valid = evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
     self_link = evidence("sr:switch-a", "sr:switch-a", "port1", "port7")

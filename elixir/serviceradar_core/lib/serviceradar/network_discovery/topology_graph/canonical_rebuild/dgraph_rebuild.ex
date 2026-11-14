@@ -212,6 +212,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
       fresh |> Enum.group_by(&identity/1) |> Enum.map(fn {_key, group} -> select(group) end)
 
     current = Map.new(existing, &{identity(&1), &1})
+    undated_existing_keys = for {key, edge} <- current, is_nil(edge.last_seen), do: key
 
     replacements =
       Map.new(selected, fn edge ->
@@ -221,6 +222,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
 
     eligible = Map.filter(replacements, fn {_key, edge} -> edge.relation in @canonical_kinds end)
     merged = Map.merge(current, eligible)
+    undated_replaced_keys = Enum.filter(undated_existing_keys, &Map.has_key?(eligible, &1))
+    undated_pruned_keys = for {key, edge} <- merged, is_nil(edge.last_seen), do: key
 
     demotions =
       merged
@@ -244,7 +247,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
 
     stale_keys =
       for {key, edge} <- merged,
-          edge.ingestor == "mapper_topology_v1" and edge.last_seen < stale_cutoff,
+          not is_nil(edge.last_seen) and edge.ingestor == "mapper_topology_v1" and
+            edge.last_seen < stale_cutoff,
           do: key
 
     guard =
@@ -263,7 +267,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
       end
 
     # A fresh, explicitly reclassified relation leaves canonical adjacency even
-    # before TTL.
+    # before TTL. Legacy undated canonical edges not covered by fresh eligible
+    # evidence are pruned explicitly rather than stamped with an epoch default.
     rejected_keys =
       for {key, edge} <- replacements, edge.relation not in @canonical_kinds, do: key
 
@@ -271,7 +276,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
       for {key, edge} <- merged, MapSet.member?(demotions, {edge.source, edge.target}), do: key
 
     pruned = if prune_result == :ok, do: Map.drop(merged, stale_keys), else: merged
-    final = Map.drop(pruned, rejected_keys ++ demoted_keys)
+    final = Map.drop(pruned, rejected_keys ++ demoted_keys ++ undated_pruned_keys)
 
     edges =
       Enum.map(final, fn {_key, edge} ->
@@ -284,6 +289,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
        mapper_evidence_edges: length(evidence),
        after_upsert_edges: map_size(merged),
        after_prune_edges: length(edges),
+       undated_replaced_edges: length(undated_replaced_keys),
+       undated_pruned_edges: length(undated_pruned_keys),
        same_port_demotions: {:ok, MapSet.size(demotions)},
        stale_cutoff: stale_cutoff,
        evidence_max_last_observed_at: max_seen,
@@ -301,13 +308,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
          %{
            "source" => [%{"id" => "sr:" <> _ = source} = src],
            "target" => [%{"id" => "sr:" <> _ = target} = dst],
-           "relation" => relation,
-           "last_seen" => timestamp
+           "relation" => relation
          } = row
        )
-       when source != target and is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, observed, _} ->
+       when source != target and is_binary(relation) do
+    case decode_edge_last_seen(relation, Map.get(row, "last_seen")) do
+      {:ok, last_seen} ->
         edge = Map.new(@fields, &{&1, Map.get(row, Atom.to_string(&1))})
 
         edge =
@@ -316,19 +322,44 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
             source: source,
             target: target,
             relation: relation,
-            last_seen: observed |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+            last_seen: last_seen
           })
           |> Map.update!(:pair_support_rank, &(&1 || 0))
 
         edge = edge |> attribute_interface(:ab, src) |> attribute_interface(:ba, dst)
         {:ok, normalize_direction(edge)}
 
-      _ ->
-        {:error, :invalid_dgraph_edge_timestamp}
+      {:error, _} = error ->
+        error
     end
   end
 
   defp decode_edge(_), do: {:error, :invalid_dgraph_edge_identity}
+
+  defp decode_edge_last_seen("CANONICAL_TOPOLOGY", nil), do: {:ok, nil}
+
+  defp decode_edge_last_seen(relation, timestamp) when is_binary(timestamp) do
+    trimmed = String.trim(timestamp)
+
+    cond do
+      trimmed == "" and relation == "CANONICAL_TOPOLOGY" ->
+        {:ok, nil}
+
+      trimmed == "" ->
+        {:error, :invalid_dgraph_edge_timestamp}
+
+      true ->
+        case DateTime.from_iso8601(trimmed) do
+          {:ok, observed, _} ->
+            {:ok, observed |> DateTime.truncate(:second) |> DateTime.to_iso8601()}
+
+          _ ->
+            {:error, :invalid_dgraph_edge_timestamp}
+        end
+    end
+  end
+
+  defp decode_edge_last_seen(_relation, _timestamp), do: {:error, :invalid_dgraph_edge_timestamp}
 
   defp attribute_interface(edge, direction, endpoint) do
     {name_key, index_key} =

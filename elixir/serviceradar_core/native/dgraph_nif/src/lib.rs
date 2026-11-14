@@ -185,6 +185,9 @@ fn upsert_hop(env: Env<'_>, url: String, hop: NifHopWrite, deadline_ms: u64) -> 
 #[rustler::nif]
 fn upsert_edge(env: Env<'_>, url: String, edge: NifEdgeWrite, deadline_ms: u64) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_edge(&write).await
     })
@@ -218,6 +221,11 @@ fn upsert_device_graphs(
 #[rustler::nif]
 fn upsert_edges(env: Env<'_>, url: String, edges: Vec<NifEdgeWrite>, deadline_ms: u64) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    for write in &writes {
+        if let Err(err) = write.validate_last_seen() {
+            return rejected(env, err.to_string());
+        }
+    }
     keys_call(env, url, deadline_ms, move |client| async move {
         client.upsert_edges(&writes).await
     })
@@ -295,6 +303,9 @@ fn upsert_canonical_edge(
     deadline_ms: u64,
 ) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_canonical_edge(&write).await
     })
@@ -316,6 +327,9 @@ fn update_canonical_edge_telemetry(
 #[rustler::nif]
 fn upsert_mtr_path(env: Env<'_>, url: String, edge: NifEdgeWrite, deadline_ms: u64) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_mtr_path(&write).await
     })
@@ -352,6 +366,11 @@ fn upsert_canonical_edges(
     deadline_ms: u64,
 ) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    for write in &writes {
+        if let Err(err) = write.validate_last_seen() {
+            return rejected(env, err.to_string());
+        }
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_canonical_edges(&writes).await
     })

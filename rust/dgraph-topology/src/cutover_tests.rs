@@ -35,7 +35,8 @@ async fn rebuild_is_idempotent_and_stale_mtr_prunes() {
         "lldp",
         "direct-physical",
     )
-    .with_interfaces("eth0", 1, "eth1", 2)];
+    .with_interfaces("eth0", 1, "eth1", 2)
+    .with_last_seen("2030-01-01T00:00:00Z")];
 
     for endpoint in ["sr:host01.example.com", "sr:host02.example.com"] {
         client
