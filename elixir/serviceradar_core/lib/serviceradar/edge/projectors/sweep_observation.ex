@@ -11,6 +11,10 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   does not project (a replay or a late-fenced delivery) still locks the sweep execution slot
   before its batch coordinate commits. Conflicting coordinates roll back the whole transaction.
 
+  After a primary delivery commits, `committed/3` publishes the batch's per-host gauges on the
+  metrics stream (`ServiceRadar.Edge.SweepHostMetrics`): a leased execution emits no metric
+  batch of its own, so core derives them.
+
   The service state is a health report about data that is already stored, so it never refuses
   the batch: when neither the publishing gateway's header nor the agent's gateway column names a
   gateway, or the registry declines the status, the batch commits and the refusal is logged.
@@ -21,6 +25,7 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.SweepCorrelate
+  alias ServiceRadar.Edge.SweepHostMetrics
   alias ServiceRadar.Edge.SweepProjection
   alias ServiceRadar.Edge.SweepServiceState
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -72,6 +77,23 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
       :ok
     end
   end
+
+  @doc """
+  Publishes the per-host gauges of a batch whose projection committed
+  (`ServiceRadar.Edge.SweepHostMetrics`). The EdgeRecord processor calls this only after
+  the ledger transaction commits, for a fresh primary delivery, so a replay, a late-fenced
+  delivery or a refused projection derives nothing.
+  """
+  @impl true
+  def committed(
+        %EdgeRecordV1{} = record,
+        %SweepObservationBatchV1{} = batch,
+        %{primary?: true} = context
+      ) do
+    SweepHostMetrics.publish(record, batch, Map.get(context, :gateway_id))
+  end
+
+  def committed(_record, _batch, _context), do: :ok
 
   defp record_service_state(repo, progress, gateway_header) do
     with {:ok, gateway_id} <- SweepServiceState.gateway(repo, progress.agent_id, gateway_header),
