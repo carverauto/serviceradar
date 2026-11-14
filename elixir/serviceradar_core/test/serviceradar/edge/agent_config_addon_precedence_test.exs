@@ -232,6 +232,7 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
     addon_id = Keyword.fetch!(opts, :addon_id)
     version = Keyword.fetch!(opts, :version)
     supervision = Keyword.fetch!(opts, :supervision)
+
     requires =
       case Keyword.get(opts, :base_agent) do
         nil -> %{"platforms" => ["linux"]}

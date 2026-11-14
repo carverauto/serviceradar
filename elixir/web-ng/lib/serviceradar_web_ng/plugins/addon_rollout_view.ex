@@ -68,8 +68,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "every_target_canceled" => "every targeted agent was withdrawn before it ran the candidate",
     "agent_updater_outdated" =>
       "the ServiceRadar agent package on this host is too old to install systemd add-ons; upgrade the package on the host (agent self-update does not replace its updater)",
-    "unsupported_agent_version" =>
-      "this agent is too old to install systemd add-ons; upgrade the agent",
+    "unsupported_agent_version" => "this agent is too old to install systemd add-ons; upgrade the agent",
     "operator_canceled" => "canceled by an operator"
   }
 

@@ -412,8 +412,12 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     {eligible, skipped} =
       Enum.reduce(targets, {[], []}, fn target, {eligible_acc, skipped_acc} ->
         case target_skip(profile, target) do
-          nil -> {[target | eligible_acc], skipped_acc}
-          {reason, detail} -> {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+          nil ->
+            {[target | eligible_acc], skipped_acc}
+
+          {reason, detail} ->
+            {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+
           {reason, detail, extra} ->
             {eligible_acc, [Map.merge(skip_target(target, reason, detail), extra) | skipped_acc]}
         end
