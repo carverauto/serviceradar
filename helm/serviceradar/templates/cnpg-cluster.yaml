@@ -64,7 +64,7 @@
        Override any of them with cnpg.maxSlotWalKeepSize / cnpg.maxWalSize /
        cnpg.minWalSize, or set the parameter directly in cnpg.postgresqlParameters.
        PostgreSQL accepts GB/MB units here, not Kubernetes-style Gi/Mi resource units. */ -}}
-{{- $cnpgStorageSize := default "100Gi" $cnpg.storageSize -}}
+{{- $cnpgStorageSize := default "250Gi" $cnpg.storageSize -}}
 {{- $walBudget := fromJson (include "serviceradar.walBudget" $cnpgStorageSize) -}}
 {{- $walCap := default $walBudget.maxSlotWalKeepSize $cnpg.maxSlotWalKeepSize -}}
 {{- $maxWal := default $walBudget.maxWalSize $cnpg.maxWalSize -}}

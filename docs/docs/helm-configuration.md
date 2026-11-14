@@ -429,8 +429,9 @@ three parameters derive from `cnpg.storageSize` and are bounded relative to it:
 | 20Gi | 1GB | 256MB | 10GB |
 | 30Gi | 2GB | 256MB | 10GB |
 | 50Gi | 3GB | 384MB | 15GB |
-| 100Gi (default) | 7GB | 896MB | 30GB |
+| 100Gi | 7GB | 896MB | 30GB |
 | 200Gi | 8GB | 1024MB | 60GB |
+| 250Gi (default) | 8GB | 1024MB | 75GB |
 | 1Ti | 8GB | 1024MB | 307GB |
 
 `max_wal_size` is 7% of the volume clamped to `[1GB, 8GB]`; `min_wal_size` is an eighth
@@ -463,8 +464,8 @@ Use PostgreSQL units (`GB`, `MB`), not Kubernetes resource units (`Gi`, `Mi`).
 
 ### Cost and rollout
 
-Worst-case `pg_wal` use is roughly `2 x max_wal_size` plus the slot cap. On the 100Gi
-default that moves from about 32GB to about 44GB of the volume, so check free space on
+Worst-case `pg_wal` use is roughly `2 x max_wal_size` plus the slot cap. On the 250Gi
+default that amounts to about 91GB of the volume at worst case, so check free space on
 the data volume before upgrading an install already near its high-water mark.
 
 All of these parameters, plus `checkpoint_timeout`, `checkpoint_completion_target`,

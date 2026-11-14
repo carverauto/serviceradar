@@ -968,7 +968,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261112193000"
+    expectedVersion: "20261112200000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1200,7 +1200,7 @@ cnpg:
   namespace: null # release namespace
   instances: null # 3
   storageClass: null # global storage policy
-  storageSize: null # 100Gi
+  storageSize: null # 250Gi
   # Hosted control plane always sets this. Leave empty for OSS installs that
   # still want CNPG to inherit node RAM; set requireResources=true to fail
   # closed instead of scheduling with no requests.
