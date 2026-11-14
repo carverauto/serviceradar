@@ -3,7 +3,7 @@
 - [x] 1.2 `BatchResolver`: refuse a final target that would gain a second guest, resolve to the guest's own reseeded uid, claim in-batch, record a `guard_block` decision and telemetry.
 - [x] 1.3 Attach backstop in `IdentifierRecords.bulk_upsert_identifiers/1` and `Registrar.register_identifiers/3`.
 - [x] 1.4 Merge guard: refuse a merge that gives the survivor a second guest.
-- [x] 1.5 Database tests: resolution across two integrations and within one, the device-id hint, the same guest again, a guest-less record taking a guest, a retired reference; the attach backstop; the merge survivor rule. The cross-integration resolution test fails on the code before 1.2.
+- [x] 1.5 Database tests: resolution across two integrations and within one, the device-id hint and an earlier update of the batch, a guest-less record taking a guest, a retired reference; the attach backstop; the merge survivor rule. The cross-integration resolution test fails on the code before 1.2.
 
 ## 2. Repair
 - [x] 2.1 `MultiGuestSplit` planner: candidates, ownership proofs, keeper, unproven rows.
