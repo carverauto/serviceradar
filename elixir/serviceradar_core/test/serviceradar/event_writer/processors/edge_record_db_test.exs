@@ -1845,21 +1845,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     test "quarantine-writing declines commit the ledger row, unresolved sweep groups retry, and permanent failures dead-letter on first delivery" do
       conflict_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
-      actor = SystemActor.system(:edge_record_test)
 
-      SweepGroupExecution
-      |> Ash.Changeset.for_create(
-        :record_from_ingest,
-        %{
-          id: conflict_frame.execution_id,
-          sweep_group_id: conflict_frame.group_id,
-          agent_id: "conflicting-agent-#{System.unique_integer([:positive])}",
-          partition: conflict_frame.partition_slug,
-          started_at: DateTime.utc_now()
-        },
-        actor: actor
-      )
-      |> Ash.create!()
+      # An execution with this id already belongs to another agent, so the ingest declines
+      # it as :conflicting_execution_reporter and writes a quarantine row instead.
+      Ash.Seed.seed!(SweepGroupExecution, %{
+        id: conflict_frame.execution_id,
+        sweep_group_id: conflict_frame.group_id,
+        agent_id: "conflicting-agent-#{System.unique_integer([:positive])}",
+        status: :running,
+        started_at: DateTime.utc_now()
+      })
 
       conflict_message = %{
         data: conflict_frame.record_bytes,
