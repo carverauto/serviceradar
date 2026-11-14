@@ -313,6 +313,7 @@ impl TopologyClient {
     ///
     /// [`TopologyError::ConditionSkipped`] when source or target is missing.
     pub async fn upsert_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
+        edge.validate_last_seen()?;
         let query = format!("{{\n{}}}", edge_query_blocks(edge, "")?);
         let node = edge_node(edge, "");
         let blocks: NamedUidBlocks = self
@@ -551,6 +552,9 @@ impl TopologyClient {
     ) -> Result<Vec<EndpointMatches>, TopologyError> {
         if edges.is_empty() {
             return Ok(Vec::new());
+        }
+        for edge in edges {
+            edge.validate_last_seen()?;
         }
         let mut query = String::from("{\n");
         let mut mutations = Vec::with_capacity(edges.len());
@@ -1278,10 +1282,8 @@ fn edge_node(edge: &EdgeWrite, suffix: &str) -> Value {
         "topo.if_name_ba": edge.if_name_ba(),
         "topo.pair_support_rank": edge.pair_support_rank(),
         "topo.stale": false,
+        "topo.last_seen": edge.last_seen(),
     });
-    if !edge.last_seen().is_empty() {
-        node["topo.last_seen"] = json!(edge.last_seen());
-    }
     if !edge.mutation_id().is_empty() {
         node["topo.mutation_id"] = json!(edge.mutation_id());
     }

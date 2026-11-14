@@ -128,22 +128,25 @@ async fn canonical_graph_pages_devices_and_edges_in_one_backend_snapshot() {
                 .expect("write invented vertex");
         }
         topology
-            .upsert_config_edge(&EdgeWrite::config_declared(
-                "sr:host0001.example.com",
-                "sr:host0002.example.com",
-            ))
+            .upsert_config_edge(
+                &EdgeWrite::config_declared("sr:host0001.example.com", "sr:host0002.example.com")
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+            )
             .await
             .expect("write a noncanonical relation before the canonical pages");
         // The last vertex stays isolated. A ring among the others supplies
         // enough relations to cross the independent edge page boundary too.
         for index in 1..=257 {
             topology
-                .upsert_canonical_edge(&EdgeWrite::canonical(
-                    format!("sr:host{index:04}.example.com"),
-                    format!("sr:host{:04}.example.com", index % 257 + 1),
-                    "lldp",
-                    "direct-physical",
-                ))
+                .upsert_canonical_edge(
+                    &EdgeWrite::canonical(
+                        format!("sr:host{index:04}.example.com"),
+                        format!("sr:host{:04}.example.com", index % 257 + 1),
+                        "lldp",
+                        "direct-physical",
+                    )
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+                )
                 .await
                 .expect("write invented canonical relation");
         }
@@ -225,6 +228,7 @@ async fn canonical_edges_are_rebuilt_in_batched_transactions() {
                     "lldp",
                     "direct-physical",
                 )
+                .with_last_seen("2030-01-01T00:00:00Z")
             })
             .collect();
 
@@ -455,12 +459,10 @@ async fn mtr_paths_return_their_measurements_newest_first() {
             .await
             .expect("older path without measurements");
         topology
-            .upsert_canonical_edge(&EdgeWrite::canonical(
-                agent,
-                "sr:host02.example.com",
-                "lldp",
-                "direct-physical",
-            ))
+            .upsert_canonical_edge(
+                &EdgeWrite::canonical(agent, "sr:host02.example.com", "lldp", "direct-physical")
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+            )
             .await
             .expect("a canonical edge is not an MTR path");
 
@@ -539,14 +541,16 @@ async fn device_neighborhood_resolves_peer_interfaces_from_connects_to() {
         topology
             .upsert_mapper_edge(
                 &EdgeWrite::mapper_evidence(switch, router, EdgeKind::ConnectsTo, "lldp", "direct")
-                    .with_interfaces("ge-0/0/1", 1, "xe-1/0/0", 0),
+                    .with_interfaces("ge-0/0/1", 1, "xe-1/0/0", 0)
+                    .with_last_seen("2030-01-01T00:00:00Z"),
             )
             .await
             .expect("outbound evidence");
         topology
             .upsert_mapper_edge(
                 &EdgeWrite::mapper_evidence(server, switch, EdgeKind::ConnectsTo, "lldp", "direct")
-                    .with_interfaces("eth0", 2, "ge-0/0/2", 2),
+                    .with_interfaces("eth0", 2, "ge-0/0/2", 2)
+                    .with_last_seen("2030-01-01T00:00:00Z"),
             )
             .await
             .expect("inbound evidence");
@@ -635,24 +639,25 @@ async fn management_edges_are_stored_by_kind_and_stay_out_of_canonical_reads() {
             (controller, child, EdgeKind::Manages),
         ] {
             topology
-                .upsert_edge(&EdgeWrite::new(
-                    source,
-                    target,
-                    kind,
-                    "management",
-                    "managed-by",
-                    "management_device_v1",
-                ))
+                .upsert_edge(
+                    &EdgeWrite::new(
+                        source,
+                        target,
+                        kind,
+                        "management",
+                        "managed-by",
+                        "management_device_v1",
+                    )
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+                )
                 .await
                 .expect("management edge");
         }
         topology
-            .upsert_canonical_edge(&EdgeWrite::canonical(
-                child,
-                controller,
-                "lldp",
-                "direct-physical",
-            ))
+            .upsert_canonical_edge(
+                &EdgeWrite::canonical(child, controller, "lldp", "direct-physical")
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+            )
             .await
             .expect("canonical backbone between the same devices");
 

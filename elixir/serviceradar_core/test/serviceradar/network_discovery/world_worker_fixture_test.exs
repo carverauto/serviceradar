@@ -686,7 +686,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       if_name_ab: "eth1",
       if_name_ba: "eth2",
       if_index_ab: 1,
-      if_index_ba: 2
+      if_index_ba: 2,
+      last_seen: "2030-01-02T00:00:00Z"
     }
   end
 

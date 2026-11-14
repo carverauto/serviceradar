@@ -28,6 +28,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
+  test "uniqueness states exclude :executing so perform/1 can schedule the next run" do
+    changeset = TopologyStateCleanupWorker.new(%{}, schedule_in: 3_600)
+
+    assert changeset.changes.unique.states == [:available, :scheduled, :retryable]
+    refute :executing in changeset.changes.unique.states
+  end
+
   test "recovery_needed?/2 is true only when canonical count is below threshold and mapper evidence is present" do
     assert TopologyStateCleanupWorker.recovery_needed?(
              %{after_prune_edges: 0, mapper_evidence_edges: 5},

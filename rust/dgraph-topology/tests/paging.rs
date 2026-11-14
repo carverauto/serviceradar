@@ -686,11 +686,11 @@ async fn canonical_edges_page_past_the_grpc_limit_and_an_unadmitted_page() {
 }
 
 #[tokio::test]
-async fn edge_upsert_preserves_only_supplied_observation_time() {
+async fn edge_upsert_requires_valid_rfc3339_observation_time() {
     use dgraph_topology::{EdgeKind, EdgeWrite};
 
     let server = RunningServer::start(Fixture::default()).await;
-    server
+    let missing_ts = server
         .client
         .upsert_edge(&EdgeWrite::new(
             "synthetic-source",
@@ -700,8 +700,31 @@ async fn edge_upsert_preserves_only_supplied_observation_time() {
             "physical",
             "synthetic-test",
         ))
-        .await
-        .expect("upsert edge without observation time");
+        .await;
+    assert!(
+        missing_ts.is_err(),
+        "edge write without RFC3339 last_seen must be rejected: {missing_ts:?}"
+    );
+
+    let invalid_ts = server
+        .client
+        .upsert_edge(
+            &EdgeWrite::new(
+                "synthetic-source",
+                "synthetic-target",
+                EdgeKind::AttachedTo,
+                "fixture",
+                "physical",
+                "synthetic-test",
+            )
+            .with_last_seen("not-an-rfc3339-timestamp"),
+        )
+        .await;
+    assert!(
+        invalid_ts.is_err(),
+        "edge write with invalid RFC3339 last_seen must be rejected: {invalid_ts:?}"
+    );
+
     server
         .client
         .upsert_edge(
@@ -716,14 +739,13 @@ async fn edge_upsert_preserves_only_supplied_observation_time() {
             .with_last_seen("2030-01-02T03:04:05Z"),
         )
         .await
-        .expect("upsert edge with observation time");
+        .expect("upsert edge with valid RFC3339 observation time");
 
     let fixture = server.fixture.lock().expect("fixture lock");
-    assert_eq!(fixture.mutations.len(), 2);
+    assert_eq!(fixture.mutations.len(), 1);
     assert_eq!(fixture.mutations[0]["topo.stale"], false);
-    assert!(fixture.mutations[0].get("topo.last_seen").is_none());
     assert_eq!(
-        fixture.mutations[1]["topo.last_seen"],
+        fixture.mutations[0]["topo.last_seen"],
         "2030-01-02T03:04:05Z"
     );
 }

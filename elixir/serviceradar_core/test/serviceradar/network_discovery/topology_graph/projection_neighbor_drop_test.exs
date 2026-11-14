@@ -73,6 +73,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ProjectionNeighborDropTest
       assert Projection.projection_payload(link) == nil
       assert Projection.drop_reason(link) == :missing_local_id
     end
+
+    test "blank or non-RFC3339 link timestamp normalizes to a valid RFC3339 observed_at" do
+      for bad_ts <- ["", "   ", "not-a-timestamp", nil] do
+        payload =
+          Projection.projection_payload(
+            fdb_link(%{neighbor_device_id: "sr:endpoint-a", timestamp: bad_ts})
+          )
+
+        assert {:ok, _dt, 0} = DateTime.from_iso8601(payload.observed_at)
+      end
+    end
   end
 
   describe "projection_diagnostics/1" do

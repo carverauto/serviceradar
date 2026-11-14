@@ -160,12 +160,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
         |> DateTime.to_iso8601()
 
       value when is_binary(value) ->
-        value
+        case DateTime.from_iso8601(String.trim(value)) do
+          {:ok, dt, _} ->
+            dt
+            |> DateTime.truncate(:second)
+            |> DateTime.to_iso8601()
+
+          _ ->
+            now_rfc3339()
+        end
 
       _ ->
-        DateTime.utc_now()
-        |> DateTime.truncate(:second)
-        |> DateTime.to_iso8601()
+        now_rfc3339()
     end
+  end
+
+  defp now_rfc3339 do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
   end
 end

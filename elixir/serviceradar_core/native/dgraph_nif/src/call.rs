@@ -25,7 +25,7 @@
 //! late reply in its mailbox.
 
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,7 +37,7 @@ use rustler::{Atom, Encoder, Env, LocalPid, Monitor, Resource, ResourceArc, Term
 use tokio::sync::Semaphore;
 use tokio::task::AbortHandle;
 
-use crate::runtime::{in_flight, runtime, Failure, Pool};
+use crate::runtime::{Failure, Pool, in_flight, runtime};
 
 mod atoms {
     rustler::atoms! {
@@ -307,7 +307,7 @@ mod tests {
 
     use tokio::sync::Semaphore;
 
-    use super::{execute, CallHandle, Kind};
+    use super::{CallHandle, Kind, execute};
     use crate::runtime::Failure;
 
     fn block_on<F: std::future::Future>(future: F) -> F::Output {

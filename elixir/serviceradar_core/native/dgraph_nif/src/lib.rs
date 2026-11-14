@@ -20,18 +20,19 @@ mod call;
 mod runtime;
 
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use dgraph_topology::{wrap_dql_value, DownstreamFact, TopologyClient, TopologyError};
+use dgraph_topology::{DownstreamFact, TopologyClient, TopologyError, wrap_dql_value};
 use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
-    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge,
-    NifCanonicalGraph, NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite,
-    NifHopWrite, NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult, JsonResult,
+    KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph,
+    NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite,
+    NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    refuses_mutation,
 };
-use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
+use crate::runtime::{CONNECT_DEADLINE, Failure, Pool, client_for, require_url};
 
 mod atoms {
     rustler::atoms! { error }
@@ -185,6 +186,9 @@ fn upsert_hop(env: Env<'_>, url: String, hop: NifHopWrite, deadline_ms: u64) -> 
 #[rustler::nif]
 fn upsert_edge(env: Env<'_>, url: String, edge: NifEdgeWrite, deadline_ms: u64) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_edge(&write).await
     })
@@ -218,6 +222,11 @@ fn upsert_device_graphs(
 #[rustler::nif]
 fn upsert_edges(env: Env<'_>, url: String, edges: Vec<NifEdgeWrite>, deadline_ms: u64) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    for write in &writes {
+        if let Err(err) = write.validate_last_seen() {
+            return rejected(env, err.to_string());
+        }
+    }
     keys_call(env, url, deadline_ms, move |client| async move {
         client.upsert_edges(&writes).await
     })
@@ -295,6 +304,9 @@ fn upsert_canonical_edge(
     deadline_ms: u64,
 ) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_canonical_edge(&write).await
     })
@@ -316,6 +328,9 @@ fn update_canonical_edge_telemetry(
 #[rustler::nif]
 fn upsert_mtr_path(env: Env<'_>, url: String, edge: NifEdgeWrite, deadline_ms: u64) -> Term<'_> {
     let write = edge.into_write();
+    if let Err(err) = write.validate_last_seen() {
+        return rejected(env, err.to_string());
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_mtr_path(&write).await
     })
@@ -352,6 +367,11 @@ fn upsert_canonical_edges(
     deadline_ms: u64,
 ) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    for write in &writes {
+        if let Err(err) = write.validate_last_seen() {
+            return rejected(env, err.to_string());
+        }
+    }
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_canonical_edges(&writes).await
     })
@@ -605,8 +625,8 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::abi::refuses_mutation;
-    use crate::call::{execute, Kind};
-    use crate::runtime::{client_for, Failure};
+    use crate::call::{Kind, execute};
+    use crate::runtime::{Failure, client_for};
 
     /// A listener that completes the TCP handshake from its backlog but never
     /// accepts or answers: the shape of a black-holed or wedged Dgraph.

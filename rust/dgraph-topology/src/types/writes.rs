@@ -395,11 +395,28 @@ pub struct EdgeWrite {
 }
 
 impl EdgeWrite {
+    #[must_use]
+    pub fn has_valid_rfc3339_last_seen(&self) -> bool {
+        let trimmed = self.last_seen.trim();
+        !trimmed.is_empty() && chrono::DateTime::parse_from_rfc3339(trimmed).is_ok()
+    }
+
+    pub fn validate_last_seen(&self) -> Result<(), TopologyError> {
+        if !self.has_valid_rfc3339_last_seen() {
+            return Err(TopologyError::InvalidValue(format!(
+                "TopologyEdge {} requires a valid RFC3339 topo.last_seen timestamp, got {:?}",
+                self.link_key(),
+                self.last_seen
+            )));
+        }
+        Ok(())
+    }
+
     pub fn validate_hosted_replacement(&self) -> Result<(), TopologyError> {
         if self.kind() != EdgeKind::HostedOn
             || self.ingestor() != "hypervisor_enrichment_v1"
             || self.source() == self.target()
-            || self.last_seen().is_empty()
+            || !self.has_valid_rfc3339_last_seen()
         {
             return Err(TopologyError::ConditionSkipped(
                 "hosted replacement".to_owned(),
@@ -413,7 +430,7 @@ impl EdgeWrite {
         if self.kind() != EdgeKind::Contains
             || self.ingestor() != "hypervisor_enrichment_v1"
             || self.source() == self.target()
-            || self.last_seen().is_empty()
+            || !self.has_valid_rfc3339_last_seen()
         {
             return Err(TopologyError::ConditionSkipped(
                 "contained replacement".to_owned(),
