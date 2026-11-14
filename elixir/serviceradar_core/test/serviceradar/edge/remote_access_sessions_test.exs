@@ -2018,7 +2018,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
           audit_writer: AuditSink
         )
 
-      assert_receive {:remote_access_audit, %{action: :remote_access_session_create}}
+      assert_receive {:remote_access_audit, audit}
+      assert audit[:action] == :remote_access_session_create
       s
     end
 
@@ -2032,7 +2033,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                audit_writer: AuditSink
              )
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_close_requested}}
+    assert_receive {:remote_access_audit, audit}
+    assert audit[:action] == :remote_access_session_close_requested
 
     assert {:ok, %RemoteAccessSession{status: :closing, close_reason: "browser_disconnected"}} =
              RemoteAccessSessions.request_close(fresh_closing.id,
@@ -2040,7 +2042,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                audit_writer: AuditSink
              )
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_close_requested}}
+    assert_receive {:remote_access_audit, audit}
+    assert audit[:action] == :remote_access_session_close_requested
 
     past = DateTime.utc_now() |> DateTime.shift(minute: -5) |> DateTime.truncate(:second)
 

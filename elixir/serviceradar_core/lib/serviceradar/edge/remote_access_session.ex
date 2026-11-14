@@ -151,7 +151,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       accept [:close_reason, :outcome]
       change transition_state(:closed)
       change set_attribute(:closed_at, &__MODULE__.utc_now/0)
-      change &__MODULE__.preserve_existing_close_reason/2
     end
 
     update :fail do
@@ -164,7 +163,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       accept [:close_reason, :outcome]
       change transition_state(:expired)
       change set_attribute(:closed_at, &__MODULE__.utc_now/0)
-      change &__MODULE__.preserve_existing_close_reason/2
     end
   end
 
@@ -446,17 +444,5 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
 
   def utc_now do
     DateTime.truncate(DateTime.utc_now(), :second)
-  end
-
-  @doc false
-  def preserve_existing_close_reason(changeset, _context) do
-    case {Ash.Changeset.changing_attribute?(changeset, :close_reason),
-          Ash.Changeset.get_attribute(changeset, :close_reason), changeset.data.close_reason} do
-      {true, nil, existing} when is_binary(existing) and existing != "" ->
-        Ash.Changeset.force_change_attribute(changeset, :close_reason, existing)
-
-      _other ->
-        changeset
-    end
   end
 end
