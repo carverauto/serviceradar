@@ -162,6 +162,8 @@ Note: the chart and its images are published together and pull anonymously. If y
 
 ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](docs/cosign.pub).
 
+Publisher operations and artifact promotion are documented in the [release publishing guide](docs/RELEASE_PUBLISHING.md).
+
 For the self-hosted keyless migration path, keep custom Sigstore trust
 material under [docs/sigstore/README.md](docs/sigstore/README.md).
 The release scripts now support both legacy key-based verification and

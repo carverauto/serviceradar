@@ -13,8 +13,10 @@ The primary workflow is `.github/workflows/release.yml`. It:
 
 1. Validates the tag, `VERSION`, and staging ancestry. Changelog validation is
    performed by `scripts/cut-release.sh` before the tag is published.
-2. Builds or verifies all release images and their immutable digests.
-3. Signs and verifies the image set, then packages and publishes the Helm chart.
+2. Builds or verifies all release images and their immutable digests in the disposable build project.
+3. Signs and verifies the build image set, promotes its complete OCI dependency
+   graph into the protected project, verifies the protected signatures, then
+   packages and publishes the Helm chart.
 4. Creates or updates a draft GitHub release and uploads packages, the managed
    agent archive, and its signed manifest.
 5. Dispatches image security for the same release tag if its bundle is missing,
@@ -39,6 +41,39 @@ release Bazel commands, so a stale dependency lockfile fails the release
 instead of being silently regenerated. Fix it with
 `bazel mod deps --lockfile_mode=update`, commit the lockfile, and cut a new
 release commit.
+
+## Harbor publication boundary
+
+Image, native add-on and Wasm publishers use `scripts/ci/harbor-publish.py`.
+The build robot can push only `serviceradar-builds` and can read protected base
+images. A separate promotion robot reads builds and writes `serviceradar`.
+No deployment or import index is published with disposable image references.
+
+Setup downloads the shared GitOps promotion tool from an OCI artifact pinned by
+manifest digest and checks its file checksum. Keep that protected tooling
+artifact for as long as any supported workflow references its digest. Updating
+the tool requires reviewing both pins in the helper; no floating tool tag is
+executed. The current helper is copied into the job's private temporary directory
+before release retries check out an older commit.
+
+Before uploads and promotion, the shared tool requires fresh registry capacity
+metrics and less than 85% physical-volume usage. Harbor project quotas are a
+separate backstop. Missing metrics, failed source copies, missing architecture
+children, missing signatures/SBOMs or quota errors fail publication. The build
+and promotion credentials live in separate temporary Docker configs and are
+removed by the final cleanup step.
+
+Promotion carries all OCI referrers plus explicit legacy Cosign attachment tags.
+Protected legacy attachment tags must be immutable before these workflows are
+enabled. Existing signature verification remains mandatory before and after
+promotion. Fixed protected tags are never replaced with a different digest;
+`latest` is updated only after the entire bundle has passed availability checks.
+The successful receipt records verified root digests and tags in `published`,
+separate from accessory artifacts, for chart packaging.
+
+The separate GitOps rollout gate still controls retention activation: do not
+enable disposable deletion until all deployment paths reject that project and
+the build/promotion/rollback and retention dry-run exercises pass.
 
 ## Prepare Release Metadata
 
@@ -270,7 +305,8 @@ prune and self-heal off. Image Updater stays disabled. Do not patch
 
 The GitHub `release` environment must provide:
 
-- Harbor robot credentials (`HARBOR_ROBOT_USERNAME` / `HARBOR_ROBOT_SECRET`)
+- Build robot credentials (`HARBOR_BUILD_ROBOT_USERNAME` / `HARBOR_BUILD_ROBOT_SECRET`)
+- Promotion robot credentials (`HARBOR_PROMOTION_ROBOT_USERNAME` / `HARBOR_PROMOTION_ROBOT_SECRET`)
 - BuildBuddy credentials used by remote Bazel builds
 - the release signing identity and OpenBao Transit access (in-cluster
   `github-signing-runner` Kubernetes auth)

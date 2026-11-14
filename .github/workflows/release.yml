@@ -350,8 +350,8 @@ jobs:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
       OCI_CHART_REPOSITORY: serviceradar/charts
-      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      OCI_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
       # Harbor above is where this job PUSHES, and every oci pull in //MODULE.bazel resolves to
       # registry.carverauto.dev as well, so no upstream registry credential is needed.
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
@@ -507,6 +507,14 @@ jobs:
       - name: Install ORAS
         run: ./scripts/install-oras.sh
 
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
       - name: Resolve release metadata
         id: release
         env:
@@ -660,7 +668,7 @@ jobs:
           }
 
           if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            echo "Missing Harbor robot credentials. Set HARBOR_BUILD_ROBOT_USERNAME and HARBOR_BUILD_ROBOT_SECRET." >&2
             exit 1
           fi
 
@@ -734,7 +742,7 @@ jobs:
           release_sha_tag="sha-${RELEASE_COMMIT}"
           extra_args=()
           if [[ -n "${RELEASE_TAG}" ]]; then
-            extra_args+=(-- --tag "${RELEASE_TAG}")
+            extra_args+=(--tag "${RELEASE_TAG}")
           fi
 
           if ! command -v oras >/dev/null 2>&1; then
@@ -749,7 +757,7 @@ jobs:
 
           skip_push=false
           if [[ -n "${RELEASE_TAG}" ]]; then
-            if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+            if python3 "${HARBOR_PUBLISH_TOOL}" build "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
               echo "All release image tags match the immutable release digest; skipping image push and continuing to signing/verification."
               skip_push=true
             else
@@ -766,7 +774,7 @@ jobs:
           if [[ "${skip_push}" != "true" ]]; then
             # BAZEL_BUILD_FLAGS is defined once at job level -- see the comment there.
             run_remote_publish() {
-              bazel run ${BAZEL_BUILD_FLAGS} //:push "${extra_args[@]}"
+              python3 "${HARBOR_PUBLISH_TOOL}" push-images "${extra_args[@]}"
             }
 
             # ONE RETRY, THEN FAIL. 
@@ -781,7 +789,7 @@ jobs:
           fi
 
           echo "Rechecking release image digest equality after publish/build handling."
-          if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+          if python3 "${HARBOR_PUBLISH_TOOL}" build "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
             echo "Post-publish release image digests match the immutable release digest."
           else
             tag_check_status=$?
@@ -801,14 +809,20 @@ jobs:
           SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
             SERVICERADAR_REPO_ROOT="${PWD}" \
             SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
-            "${sign_script}"
+            python3 "${HARBOR_PUBLISH_TOOL}" build "${sign_script}"
           verify_script="./scripts/verify-oci-publish.sh"
           if [[ -x "${RUNNER_TEMP}/verify-oci-publish.sh" ]]; then
             verify_script="${RUNNER_TEMP}/verify-oci-publish.sh"
           fi
           SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
             SERVICERADAR_REPO_ROOT="${PWD}" \
-            "${verify_script}" "${verify_tags[@]}"
+            python3 "${HARBOR_PUBLISH_TOOL}" build "${verify_script}" "${verify_tags[@]}"
+          promotion_args=(--kind images)
+          for tag in "${verify_tags[@]}"; do promotion_args+=(--tag "${tag}"); done
+          python3 "${HARBOR_PUBLISH_TOOL}" promote "${promotion_args[@]}"
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            python3 "${HARBOR_PUBLISH_TOOL}" protected "${verify_script}" "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Publish Helm chart to OCI registry
@@ -1083,6 +1097,10 @@ jobs:
   # upstream of it failed, transitively. Without the explicit status checks below,
   # a failed macOS installer silently skips everything after publish and strands
   # the release as a draft.
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup
+
   image-security-dispatch:
     needs: publish
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.dry_run != 'true' }}

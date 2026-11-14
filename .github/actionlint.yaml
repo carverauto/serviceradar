@@ -2,3 +2,4 @@
 self-hosted-runner:
   labels:
     - arc-runner-set
+    - serviceradar-signing
