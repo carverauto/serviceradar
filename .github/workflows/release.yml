@@ -352,18 +352,8 @@ jobs:
       OCI_CHART_REPOSITORY: serviceradar/charts
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      # Harbor above is where this job PUSHES. The pair below is where Bazel still PULLS from
-      # upstream, and it is now down to a SINGLE image.
-      #
-      # The base images were mirrored into Harbor: of the oci pulls in //MODULE.bazel, 11 now
-      # resolve to registry.carverauto.dev and exactly one does not --
-      #   image = "docker.io/pgduckdb/pgduckdb"   (@pgduckdb_18, base of the analytics head)
-      # DOCKERHUB_* stays for that one pull. Anonymous fetches hit Docker Hub's
-      # 100-per-6h-per-IP limit, and a throttled fetch surfaces as a Bazel "no such package"
-      # loading error rather than anything resembling a rate limit.
-      # buildbuddy_setup_docker_auth.sh writes an entry per registry.
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Harbor above is where this job PUSHES, and every oci pull in //MODULE.bazel resolves to
+      # registry.carverauto.dev as well, so no upstream registry credential is needed.
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}

@@ -130,16 +130,16 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     assert interval_under_days?(refresh_start_offset("otel_metrics_hourly_stats"), 7)
   end
 
-  test "unset traces stats and the ceiling leave a fence-widened window alone" do
+  test "unset traces stats returns a wider installed window to the migration default" do
     set_cagg_retention("traces_stats_5m", 90)
 
     assert :ok =
              DataRetentionWorker.reconcile_migration_tables(cnpg_telemetry_default_days: 7)
 
-    assert cagg_drop_after("traces_stats_5m") == "90 days"
+    assert cagg_drop_after("traces_stats_5m") == "14 days"
   end
 
-  test "explicit traces stats retention narrows a widened window with the cold tier off" do
+  test "explicit traces stats retention narrows a wider installed window" do
     set_cagg_retention("traces_stats_5m", 90)
 
     assert :ok =
@@ -157,7 +157,7 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     assert cagg_drop_after("traces_stats_5m") == "14 days"
   end
 
-  test "an explicit traces stats value is not ceiling-capped on a widened window" do
+  test "an explicit traces stats value is not ceiling-capped on a wider installed window" do
     set_cagg_retention("traces_stats_5m", 90)
 
     assert :ok =
@@ -199,7 +199,7 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     end
   end
 
-  test "an explicit traces stats value above the fence target is written" do
+  test "an explicit traces stats value above the installed window is written" do
     set_cagg_retention("traces_stats_5m", 90)
 
     assert :ok =
@@ -298,7 +298,7 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     start_offset
   end
 
-  # Simulate the cold-tier fence having widened the window in an earlier run.
+  # Install a prior window, as an earlier run or an operator would have.
   defp set_cagg_retention(view, days) do
     SQL.query!(
       Repo,

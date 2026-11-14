@@ -2,7 +2,6 @@
 mod filters_common;
 
 mod cagg;
-mod cold;
 mod counter_rate;
 mod engine;
 pub mod interface_rates;

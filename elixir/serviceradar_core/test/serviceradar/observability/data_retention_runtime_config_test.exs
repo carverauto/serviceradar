@@ -209,8 +209,7 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert worker[:service_status_retention_days] == 14
     assert worker[:endpoint_inventory_history_retention_days] == 395
     assert worker[:spans_red_retention_days] == 90
-    # Nil, not the 14-day default: the worker must tell an explicit
-    # tracesStatsDays from an unset one to protect a fence-widened window.
+    # Nil: the worker applies the 14-day migration default.
     assert worker[:traces_stats_retention_days] == nil
     assert worker[:otel_metrics_hourly_stats_retention_days] == 90
   end

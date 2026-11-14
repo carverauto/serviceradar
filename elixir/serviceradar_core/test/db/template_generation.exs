@@ -410,8 +410,8 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         if database != manifest["database"],
           do: raise("Repo connected to the wrong candidate")
 
-        # The cold-tier export-role migration gates cluster-wide CREATE/ALTER
-        # ROLE on these attributes. Never replay it with the administrator DSN.
+        # The cold-tier role migrations gate cluster-wide CREATE, ALTER and DROP
+        # ROLE on these attributes. Never replay them with the administrator DSN.
         repo
         |> sql!(
           """

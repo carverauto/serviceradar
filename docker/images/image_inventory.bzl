@@ -24,11 +24,6 @@ PUBLISHABLE_IMAGES = [
         "repository": "registry.carverauto.dev/serviceradar/serviceradar-cnpg",
         "static_tags": ["18.4.0-sr4"],
     },
-    {
-        "image": "cnpg_analytics_image_amd64",
-        "repository": "registry.carverauto.dev/serviceradar/serviceradar-cnpg-analytics",
-        "static_tags": ["18-pgduckdb-1.1.1-sr1"],
-    },
 ]
 
 def publishable_image_labels():

@@ -608,8 +608,6 @@ config :serviceradar_core,
        ServiceRadar.Analytics.StarRocks,
        ServiceRadar.Analytics.StarRocks.Env.config()
 
-config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.from_env()
-
 # Terminal agent_command pruning (platform.agent_commands has a documented
 # bloat history, so these are incident-response levers).
 config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
@@ -1101,9 +1099,8 @@ if config_env() == :prod do
   otel_metrics_hourly_stats_retention_days =
     "SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
-  # Unset stays nil: the worker must tell an explicit tracesStatsDays from
-  # the shipped default, because only an explicit value may narrow the
-  # cold-tier fence's widened traces_stats_5m window.
+  # Unset or invalid stays nil, and the worker applies the 14-day migration
+  # default.
   traces_stats_retention_days =
     case System.get_env("SERVICERADAR_TRACES_STATS_RETENTION_DAYS") do
       value when value in [nil, ""] ->
