@@ -33,8 +33,9 @@ The bootstrap script itself supports four input modes for the primary registry:
 3. `OCI_USERNAME` and `OCI_TOKEN` - the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
 4. `HARBOR_USERNAME` and `HARBOR_TOKEN` - the BuildBuddy secret-store names, accepted as mode 3
    when neither `OCI_USERNAME` nor `OCI_TOKEN` is set. The GitHub Actions workflows do the same mapping
-   declaratively in their job-level `env:` block, from `HARBOR_ROBOT_USERNAME` /
-   `HARBOR_ROBOT_SECRET`; BuildBuddy has no equivalent, which is why the script accepts both.
+   declaratively in their job-level `env:` block, from scoped robot secrets such as
+   `HARBOR_BUILD_ROBOT_USERNAME` / `HARBOR_BUILD_ROBOT_SECRET`; BuildBuddy has no equivalent,
+   which is why the script accepts both.
 
 Modes 3 and 4 write only the primary registry. `GHCR_*` and `DOCKERHUB_*` are handled separately
 and get their own entries, so one run can authenticate several registries at once.
