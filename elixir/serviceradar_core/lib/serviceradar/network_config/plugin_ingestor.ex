@@ -15,7 +15,12 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     * `:artifact_fetcher` - `(object_key -> {:ok, binary} | {:error, term})`.
       Defaults to the datasvc object-store download. Override in tests.
     * `:artifact_deleter` - deletes a staged object after every ingest attempt,
-      including invalid results and failed downloads or parsing.
+      including invalid results and failed downloads or parsing, unless
+      `:defer_artifact_cleanup` is set.
+    * `:defer_artifact_cleanup` - skips that deletion. The edge-record path
+      (`ServiceRadar.Edge.Projectors.WasmPluginResult`) sets it so a staged
+      object survives retries and dead-letter replay, and deletes it in
+      `committed/3` only after the ledger commits.
   """
 
   @behaviour ServiceRadar.Observability.PluginResultHandler
