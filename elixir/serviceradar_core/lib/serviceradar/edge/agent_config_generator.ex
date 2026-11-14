@@ -1107,9 +1107,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
         false
 
-      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(package, profile) ->
+      not AddonRolloutArtifact.agent_supports_systemd_addon_package?(
+        package.supervision,
+        profile.version
+      ) ->
         Logger.warning(
-          "Skipping addon assignment #{assignment.id}: package #{package.id} (#{package.addon_id}@#{package.version}) predates the privileged-boundary systemd unit layout required by agent updater"
+          "Skipping addon assignment #{assignment.id}: systemd package #{package.id} requires agent #{AddonRolloutArtifact.systemd_addon_min_agent_version()} or newer, got #{inspect(profile.version)}"
         )
 
         false
@@ -1154,9 +1157,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
         false
 
-      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(package, profile) ->
+      not AddonRolloutArtifact.agent_supports_systemd_addon_package?(
+        package.supervision,
+        profile.version
+      ) ->
         Logger.warning(
-          "Skipping required add-on #{package.addon_id}: package #{package.id} (#{package.addon_id}@#{package.version}) predates the privileged-boundary systemd unit layout required by agent updater"
+          "Skipping required add-on #{package.addon_id}: systemd package #{package.id} requires agent #{AddonRolloutArtifact.systemd_addon_min_agent_version()} or newer, got #{inspect(profile.version)}"
         )
 
         false

@@ -123,3 +123,18 @@ func TestAgentUpdaterExitsPermanentRefusalCodeForDeterministicAddonContractError
 		t.Fatalf("exit code for missing artifact = %d, want 1", transientCode)
 	}
 }
+
+func TestAgentUpdaterExitsPermanentRefusalCodeForUnusableCommandLines(t *testing.T) {
+	cases := map[string][]string{
+		"unknown flag":           {"--addon-flag-from-a-future-agent", "x"},
+		"invalid flag value":     {"--" + updaterflags.Version, "1.0.0", "--" + updaterflags.RollbackDeadline, "bogus"},
+		"no operation requested": {},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			if code, out := runUpdaterSubprocess(t, args...); code != wantPermanentExit {
+				t.Fatalf("exit code = %d, want %d; output: %s", code, wantPermanentExit, out)
+			}
+		})
+	}
+}

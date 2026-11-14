@@ -2360,6 +2360,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
          %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       {:ok, _agent} =
         create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.47",
           capabilities: ["host-network-visibility"]
         })
 

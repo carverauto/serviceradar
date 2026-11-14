@@ -31,26 +31,36 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 )
 
-var errVersionRequired = errors.New("version is required")
+var (
+	errInvalidUsage    = errors.New("invalid agent-updater invocation")
+	errVersionRequired = fmt.Errorf("%w: version is required", errInvalidUsage)
+)
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		log.Printf("Fatal error: %v", err)
 		os.Exit(exitCodeForError(err))
 	}
 }
 
 func exitCodeForError(err error) int {
-	if agent.IsPermanentAddonInstallError(err) {
+	if errors.Is(err, errInvalidUsage) || agent.IsPermanentAddonInstallError(err) {
 		return updaterflags.ExitPermanentRefusal
 	}
 
 	return 1
 }
 
-func run() error {
-	opts := updaterflags.Register(flag.CommandLine)
-	flag.Parse()
+func run(args []string) error {
+	fs := flag.NewFlagSet("serviceradar-agent-updater", flag.ContinueOnError)
+	opts := updaterflags.Register(fs)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+
+		return fmt.Errorf("%w: %w", errInvalidUsage, err)
+	}
 
 	ctx := context.Background()
 

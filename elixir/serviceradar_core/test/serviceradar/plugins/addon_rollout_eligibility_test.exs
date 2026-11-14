@@ -195,47 +195,35 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              )
   end
 
-  test "pre-privileged-boundary systemd add-on packages are incompatible with privileged-updater agents" do
+  test "systemd add-on packages need agent 1.2.47 or newer" do
     now = ~U[2026-07-18 17:00:00Z]
-    privileged_agent = agent(now, capabilities: ["addon.native.host", "addon.systemd.updater"])
-    legacy_agent = agent(now, capabilities: ["addon.native.host"])
 
-    legacy_versions = [
-      {"bumblebee", "0.1.6", :systemd_timer},
-      {"netprobe", "0.2.64", :systemd_service},
-      {"scalibr-endpoint-inventory", "0.1.8", :systemd_timer},
-      {"scalibr-endpoint-inventory", "0.1.9", :systemd_timer},
-      {"workload-identity", "0.1.9", :systemd_service}
-    ]
-
-    for {addon_id, version, supervision} <- legacy_versions do
-      pkg = package(addon_id: addon_id, version: version, supervision: supervision)
-
-      assert {:incompatible, "legacy_writable_exec_systemd_package"} =
-               Eligibility.classify_target(pkg, privileged_agent, now),
-             "expected #{addon_id}@#{version} to be incompatible on privileged-updater agent"
-
-      assert {:eligible, nil} =
-               Eligibility.classify_target(pkg, legacy_agent, now),
-             "expected #{addon_id}@#{version} to stay eligible when privileged updater is not advertised"
+    for supervision <- [:systemd_service, :systemd_timer],
+        agent_version <- ["1.2.46", "1.0.0", nil, ""] do
+      assert {:incompatible, "unsupported_agent_version"} =
+               Eligibility.classify_target(
+                 package(supervision: supervision, requires: %{"platforms" => ["linux"]}),
+                 agent(now, version: agent_version),
+                 now
+               ),
+             "expected #{supervision} to be incompatible with agent #{inspect(agent_version)}"
     end
 
-    migrated_versions = [
-      {"bumblebee", "0.1.7", :systemd_timer},
-      {"bumblebee", "0.1.8", :systemd_timer},
-      {"netprobe", "0.2.65", :systemd_service},
-      {"scalibr-endpoint-inventory", "0.1.10", :systemd_timer},
-      {"scalibr-endpoint-inventory", "0.1.12", :systemd_timer},
-      {"workload-identity", "0.1.10", :systemd_service}
-    ]
-
-    for {addon_id, version, supervision} <- migrated_versions do
-      pkg = package(addon_id: addon_id, version: version, supervision: supervision)
-
+    for agent_version <- ["1.2.47", "v1.2.47", "1.3.0"] do
       assert {:eligible, nil} =
-               Eligibility.classify_target(pkg, privileged_agent, now),
-             "expected migrated #{addon_id}@#{version} to be eligible on privileged-updater agent"
+               Eligibility.classify_target(
+                 package(supervision: :systemd_service),
+                 agent(now, version: agent_version),
+                 now
+               )
     end
+
+    assert {:eligible, nil} =
+             Eligibility.classify_target(
+               package(supervision: :agent_sidecar, requires: %{"platforms" => ["linux"]}),
+               agent(now, version: "1.2.46"),
+               now
+             )
   end
 
   test "uses supervision-specific readiness instead of requiring every add-on to be active" do
@@ -430,7 +418,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
 
     %{
       uid: "agent-1",
-      version: "1.4.23",
+      version: Keyword.get(overrides, :version, "1.4.23"),
       capabilities: Keyword.get(overrides, :capabilities, []),
       status: Keyword.get(overrides, :status, :connected),
       is_healthy: true,

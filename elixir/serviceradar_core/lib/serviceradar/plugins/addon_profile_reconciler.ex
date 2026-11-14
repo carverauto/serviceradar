@@ -414,6 +414,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         case target_skip(profile, target) do
           nil -> {[target | eligible_acc], skipped_acc}
           {reason, detail} -> {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+          {reason, detail, extra} ->
+            {eligible_acc, [Map.merge(skip_target(target, reason, detail), extra) | skipped_acc]}
         end
       end)
 
@@ -466,12 +468,15 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         {"agent_updater_outdated",
          "target agent updater does not support systemd add-on installs"}
 
-      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(
-        compatibility_package(profile),
-        compatibility_row
+      not AddonRolloutArtifact.agent_supports_systemd_addon_package?(
+        package_supervision(profile),
+        target_agent_version(compatibility_row)
       ) ->
-        {"legacy_writable_exec_systemd_package",
-         "add-on package predates the privileged-boundary systemd unit layout required by this agent's updater"}
+        required = AddonRolloutArtifact.systemd_addon_min_agent_version()
+
+        {"unsupported_agent_version",
+         "systemd add-ons require agent #{required} or newer, target reports #{inspect(target_agent_version(compatibility_row))}",
+         %{agent_version_required: required}}
 
       true ->
         nil
@@ -701,24 +706,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       _ ->
         ValueUtils.string_value(profile, [:supervision, "supervision"])
     end
-  end
-
-  defp compatibility_package(profile) do
-    package = profile_package(profile)
-
-    addon_id =
-      (is_map(package) && ValueUtils.string_value(package, [:addon_id, "addon_id"])) ||
-        ValueUtils.string_value(profile, [:addon_id, "addon_id"])
-
-    version =
-      (is_map(package) && ValueUtils.string_value(package, [:version, "version"])) ||
-        ValueUtils.string_value(profile, [:version, "version"])
-
-    %{
-      addon_id: addon_id,
-      version: version,
-      supervision: package_supervision(profile)
-    }
   end
 
   defp package_requires(profile) do

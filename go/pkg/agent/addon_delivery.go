@@ -243,6 +243,7 @@ func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, er
 		version:     version,
 		disposition: configSectionDispositionPermanent,
 	}
+	delete(p.systemdInstallFailures, id)
 }
 
 // recordTransientAddonApplyFailure stores/refreshes the latest transient apply failure for
@@ -285,7 +286,11 @@ func (p *PushLoop) addonDeliveryInBackoff(a *proto.AddonAssignmentConfig, now ti
 	p.addonDeliveryMu.Lock()
 	defer p.addonDeliveryMu.Unlock()
 
-	failure, ok := p.addonDeliveryFailures[strings.TrimSpace(a.GetAddonId())]
+	id := strings.TrimSpace(a.GetAddonId())
+	if _, systemdFailure := p.systemdInstallFailures[id]; systemdFailure {
+		return false
+	}
+	failure, ok := p.addonDeliveryFailures[id]
 	if !ok {
 		return false
 	}
@@ -325,10 +330,11 @@ func statFileIdentity(path string) string {
 
 	info, err := os.Stat(trimmed)
 	if err != nil {
-		return "missing"
+		return "path=" + trimmed + ":missing"
 	}
 
-	return fmt.Sprintf("mode=%o:size=%d:mtime=%d", info.Mode(), info.Size(), info.ModTime().UnixNano())
+	return fmt.Sprintf("path=%s:%s:mode=%o:size=%d:mtime=%d",
+		trimmed, fileDeviceInode(info), info.Mode(), info.Size(), info.ModTime().UnixNano())
 }
 
 // systemdInstallAttemptKey captures every input that can change the outcome of a

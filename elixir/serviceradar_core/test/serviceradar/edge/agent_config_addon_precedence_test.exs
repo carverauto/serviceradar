@@ -140,41 +140,49 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
     refute log =~ "Duplicate enabled add-on assignments"
   end
 
-  test "an undeliverable legacy systemd assignment does not shadow a deliverable newer-package assignment" do
-    legacy_newer =
+  test "a systemd assignment a pre-1.2.47 agent cannot install does not shadow a compatible profile assignment" do
+    direct_systemd =
       assignment_with_package(
-        source: :profile,
-        profile_name: "Legacy scanner profile",
-        priority: 100,
-        addon_id: "scalibr-endpoint-inventory",
-        version: "0.1.8",
-        supervision: :systemd_timer,
+        source: :manual,
+        addon_id: "netprobe",
+        version: "0.3.0",
+        supervision: :systemd_service,
         updated_at: ~U[2026-07-10 00:00:00.000000Z]
       )
 
-    migrated_older =
+    profile_sidecar =
       assignment_with_package(
         source: :profile,
-        profile_name: "Current scanner profile",
+        profile_name: "Fleet default",
         priority: 100,
-        addon_id: "scalibr-endpoint-inventory",
-        version: "0.1.12",
-        supervision: :systemd_timer,
+        addon_id: "netprobe",
+        version: "0.2.0",
+        supervision: :agent_sidecar,
         updated_at: ~U[2026-07-01 00:00:00.000000Z]
       )
 
-    profile = %{
-      os: "linux",
-      arch: "amd64",
-      version: "1.5.0",
-      capabilities: ["addon.native.host", "addon.systemd.updater"]
-    }
+    for agent_version <- ["1.2.46", nil] do
+      profile = %{
+        os: "linux",
+        arch: "amd64",
+        version: agent_version,
+        capabilities: ["addon.native.host"]
+      }
+
+      capture_log(fn ->
+        assert [%{addon_id: "netprobe", version: "0.2.0"}] =
+                 AgentConfigGenerator.compile_deliverable_addon_assignments(
+                   [direct_systemd, profile_sidecar],
+                   profile
+                 )
+      end)
+    end
 
     capture_log(fn ->
-      assert [%{addon_id: "scalibr-endpoint-inventory", version: "0.1.12"}] =
+      assert [%{addon_id: "netprobe", version: "0.3.0"}] =
                AgentConfigGenerator.compile_deliverable_addon_assignments(
-                 [legacy_newer, migrated_older],
-                 profile
+                 [direct_systemd, profile_sidecar],
+                 %{os: "linux", arch: "amd64", version: "1.2.47", capabilities: []}
                )
     end)
   end
@@ -224,7 +232,11 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
     addon_id = Keyword.fetch!(opts, :addon_id)
     version = Keyword.fetch!(opts, :version)
     supervision = Keyword.fetch!(opts, :supervision)
-    base_agent = Keyword.get(opts, :base_agent, ">= 1.2.0")
+    requires =
+      case Keyword.get(opts, :base_agent) do
+        nil -> %{"platforms" => ["linux"]}
+        base_agent -> %{"platforms" => ["linux"], "base_agent" => base_agent}
+      end
 
     pkg = %AddonPackage{
       id: Ecto.UUID.generate(),
@@ -234,7 +246,7 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
       status: :approved,
       delivery: :pushed_artifact,
       supervision: supervision,
-      requires: %{"platforms" => ["linux"], "base_agent" => base_agent},
+      requires: requires,
       artifacts: %{
         "linux/amd64" => %{
           "object_key" => "native-addons/#{addon_id}/#{version}/linux/amd64/addon.tar.gz",

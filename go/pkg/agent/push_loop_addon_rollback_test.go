@@ -201,7 +201,10 @@ func TestSystemdPermanentRefusalViaUpdaterExitCodeSuppressesRetriesUntilInputOrU
 		DownloadToken:     "ephemeral-token-1",
 	}
 
-	deliver := func(_ context.Context, a *proto.AddonAssignmentConfig, _ string, _ time.Time) (string, addonDeliveryDisposition, error) {
+	deliver := func(_ context.Context, a *proto.AddonAssignmentConfig, _ string, at time.Time) (string, addonDeliveryDisposition, error) {
+		if pl.addonDeliveryInBackoff(a, at) {
+			return "", addonDeliveryPermanentFailure, errAddonDeliveryBackoff
+		}
 		return filepath.Join(root, a.GetAddonId(), addonVersionsDir, a.GetVersion(), "serviceradar-bumblebee-scan"), addonDeliverySucceeded, nil
 	}
 	installViaSubprocess := func(ctx context.Context, req AddonSystemdInstallRequest) error {
@@ -304,6 +307,38 @@ func TestSystemdPermanentRefusalViaUpdaterExitCodeSuppressesRetriesUntilInputOrU
 		t.Fatalf("updater hits after updater binary changed on disk = %d, want 2", got)
 	}
 
+	// A replacement with identical bytes, size, and mtime is still a different executable
+	// (new inode), and it must retry on the very next poll, inside the artifact backoff
+	// window opened by the refusal one second earlier.
+	priorInfo, err := os.Stat(updaterPath)
+	if err != nil {
+		t.Fatalf("stat fake updater: %v", err)
+	}
+	replacement := updaterPath + ".new"
+	if err := os.WriteFile(replacement, []byte(scriptV2), 0o755); err != nil {
+		t.Fatalf("write replacement updater: %v", err)
+	}
+	if err := os.Chtimes(replacement, priorInfo.ModTime(), priorInfo.ModTime()); err != nil {
+		t.Fatalf("preserve replacement mtime: %v", err)
+	}
+	if err := os.Rename(replacement, updaterPath); err != nil {
+		t.Fatalf("install replacement updater: %v", err)
+	}
+	_ = pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignmentRotatedToken,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		now.Add(10*time.Minute+2*time.Second),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		deliver,
+		installViaSubprocess,
+	)
+	if got := hitCount(); got != 3 {
+		t.Fatalf("updater hits after same-size, same-mtime updater replacement = %d, want 3", got)
+	}
+
 	// Changing the assigned package version must immediately retry the updater.
 	keyV2, shaV2 := stageVersion("0.1.8")
 	assignmentUpgraded := &proto.AddonAssignmentConfig{
@@ -328,8 +363,8 @@ func TestSystemdPermanentRefusalViaUpdaterExitCodeSuppressesRetriesUntilInputOrU
 		deliver,
 		installViaSubprocess,
 	)
-	if got := hitCount(); got != 3 {
-		t.Fatalf("updater hits after version change = %d, want 3", got)
+	if got := hitCount(); got != 4 {
+		t.Fatalf("updater hits after version change = %d, want 4", got)
 	}
 }
 

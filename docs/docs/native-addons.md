@@ -625,7 +625,10 @@ instead of waiting for `candidate_health_timeout`. An agent that advertises
 `addon.systemd.updater.unavailable` is marked incompatible
 (`agent_updater_outdated`) for systemd add-ons. The privileged updater is
 installed by the agent's OS package, and agent self-update does not replace it,
-so the fix is to upgrade the agent package on that host.
+so the fix is to upgrade the agent package on that host. Systemd add-ons also
+require agent 1.2.47 or newer: an agent reporting an older version, or no
+version, is marked incompatible (`unsupported_agent_version`), is not sent the
+package, and the fleet view shows "Agent upgrade required".
 
 A rollout checks compatibility again each time it is about to start targets:
 when it is created, before every batch, and when a paused rollout is resumed

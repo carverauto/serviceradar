@@ -214,20 +214,19 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutViewTest do
     assert health.action == :review_rollout
   end
 
-  test "an agent skipped for a legacy systemd add-on package tells the operator to upgrade the add-on package" do
-    assert AddonRolloutView.reason_label("legacy_writable_exec_systemd_package") =~
-             "privileged-boundary"
+  test "an agent too old for systemd add-ons tells the operator to upgrade the agent" do
+    assert AddonRolloutView.reason_label("unsupported_agent_version") =~ "upgrade the agent"
 
     health =
       AddonRolloutView.fleet_health(%{
         category: :action_required,
-        reason_code: "legacy_writable_exec_systemd_package",
-        assigned_version: "0.1.6",
-        latest_approved_version: "0.1.8"
+        reason_code: "unsupported_agent_version",
+        rollout_id: "rollout-old-agent",
+        running_version: "1.0.0"
       })
 
-    assert health.title == "Add-on package outdated"
-    assert health.detail =~ "0.1.6"
-    assert health.detail =~ "0.1.8"
+    assert health.title == "Agent upgrade required"
+    assert health.detail =~ "stays on 1.0.0"
+    assert health.action == :review_rollout
   end
 end

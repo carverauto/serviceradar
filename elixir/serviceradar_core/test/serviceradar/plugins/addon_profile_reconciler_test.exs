@@ -218,7 +218,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     defp agent(uid, overrides \\ []) do
       %{
         uid: uid,
-        version: Keyword.get(overrides, :version, "1.2.3"),
+        version: Keyword.get(overrides, :version, "1.2.47"),
         capabilities: Keyword.get(overrides, :capabilities, ["endpoint-inventory"]),
         status: Keyword.get(overrides, :status, :connected),
         metadata: Keyword.get(overrides, :metadata, %{"os" => "linux", "arch" => "amd64"})
@@ -677,8 +677,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.skip_counts == %{"unsupported_platform" => 1}
   end
 
-  test "a legacy systemd add-on package is skipped for an agent advertising the privileged updater" do
-    defmodule ResolverPrivilegedUpdaterAgent do
+  test "a systemd add-on profile skips agents older than 1.2.47 as unsupported_agent_version" do
+    defmodule ResolverPreBoundaryAgent do
       @moduledoc false
 
       def resolve([%{entity: entity, query: query} | _], _opts) do
@@ -689,33 +689,30 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
              entity: entity,
              query: query,
              rows: [
-               %{
-                 "uid" => "agent-privileged",
-                 "os" => "linux",
-                 "arch" => "amd64",
-                 "agent_version" => "1.5.0",
-                 "capabilities" => ["addon.native.host", "addon.systemd.updater"]
-               }
+               %{"uid" => "agent-old", "os" => "linux", "arch" => "amd64"},
+               %{"uid" => "agent-current", "os" => "linux", "arch" => "amd64"}
              ]
            }
          ]}
       end
     end
 
-    defmodule PrivilegedUpdaterAgentLoader do
+    defmodule PreBoundaryAgentLoader do
       @moduledoc false
 
-      def load(["agent-privileged"], _actor) do
+      def load(uids, _actor) do
+        versions = %{"agent-old" => "1.2.46", "agent-current" => "1.2.47"}
+
         {:ok,
-         [
+         Enum.map(uids, fn uid ->
            %{
-             uid: "agent-privileged",
-             version: "1.5.0",
-             capabilities: ["addon.native.host", "addon.systemd.updater"],
+             uid: uid,
+             version: Map.fetch!(versions, uid),
+             capabilities: ["addon.native.host"],
              status: :connected,
              metadata: %{"os" => "linux", "arch" => "amd64"}
            }
-         ]}
+         end)}
       end
     end
 
@@ -731,13 +728,12 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
       enabled: true,
       addon_package: %{
         addon_id: "bumblebee",
-        version: "0.1.6",
+        version: "0.2.0",
         status: :approved,
         supervision: "systemd_timer",
         artifacts: %{"linux/amd64" => %{}},
         requires: %{
           "platforms" => ["linux"],
-          "base_agent" => ">=1.2.0",
           "agent_capabilities" => [],
           "os_capabilities" => []
         }
@@ -746,13 +742,16 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverPrivilegedUpdaterAgent,
-               agent_loader: PrivilegedUpdaterAgentLoader,
+               resolver: ResolverPreBoundaryAgent,
+               agent_loader: PreBoundaryAgentLoader,
                store: MemoryStore
              )
 
-    assert preview.summary.desired_assignments == 0
-    assert preview.summary.skip_counts == %{"legacy_writable_exec_systemd_package" => 1}
+    assert preview.summary.desired_assignments == 1
+    assert preview.summary.skip_counts == %{"unsupported_agent_version" => 1}
+
+    assert [%{agent_uid: "agent-old", agent_version_required: "1.2.47"}] =
+             preview.summary.skipped_targets
   end
 
   defp endpoint_inventory_profile do

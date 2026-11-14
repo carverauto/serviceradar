@@ -36,17 +36,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # guess below.
   @native_addon_host_capability "addon.native.host"
   @native_addon_host_unavailable_capability "addon.native.host.unavailable"
-  @systemd_addon_updater_capability "addon.systemd.updater"
   @systemd_addon_updater_unavailable_capability "addon.systemd.updater.unavailable"
 
-  # Minimum versions that execute systemd units from /usr/lib/serviceradar/addons
-  # instead of the agent-writable /var/lib/serviceradar/agent/addons tree (#5472).
-  @privileged_systemd_exec_min_versions %{
-    "bumblebee" => "0.1.7",
-    "netprobe" => "0.2.65",
-    "scalibr-endpoint-inventory" => "0.1.10",
-    "workload-identity" => "0.1.10"
-  }
+  # First agent release carrying the privileged systemd add-on install boundary
+  # (#5472 shipped after 1.2.46).
+  @systemd_addon_min_agent_version "1.2.47"
 
   @containerized_deployment_types ~w(kubernetes docker lxc container)
 
@@ -205,8 +199,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
       systemd_updater_unavailable?(package.supervision, agent) ->
         "agent_updater_outdated"
 
-      legacy_writable_exec_systemd_package?(package, agent) ->
-        "legacy_writable_exec_systemd_package"
+      not agent_supports_systemd_addon_package?(package.supervision, value(agent, :version)) ->
+        "unsupported_agent_version"
 
       true ->
         nil
@@ -675,31 +669,38 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   @doc """
-  Whether `package` is a legacy systemd-supervised add-on build that executes from
-  the agent-writable staging tree and is therefore refused by an agent advertising
-  `addon.systemd.updater`.
+  Minimum agent version that can install systemd-supervised add-on packages.
   """
-  @spec legacy_writable_exec_systemd_package?(map() | nil, map() | nil) :: boolean()
-  def legacy_writable_exec_systemd_package?(package, agent)
-      when is_map(package) and is_map(agent) do
-    supervision = value(package, :supervision)
-    addon_id = package |> value(:addon_id, "") |> to_string() |> String.trim()
-    version = package |> value(:version, "") |> to_string() |> String.trim()
-    capabilities = agent_capabilities_set(agent)
+  @spec systemd_addon_min_agent_version() :: String.t()
+  def systemd_addon_min_agent_version, do: @systemd_addon_min_agent_version
 
-    with true <- systemd_supervised?(supervision),
-         true <- MapSet.member?(capabilities, @systemd_addon_updater_capability),
-         min_version when is_binary(min_version) <-
-           Map.get(@privileged_systemd_exec_min_versions, addon_id),
-         {:ok, parsed_version} <- Eligibility.parse_version(version),
-         {:ok, parsed_min} <- Eligibility.parse_version(min_version) do
-      Version.compare(parsed_version, parsed_min) == :lt
+  @doc """
+  Whether an agent reporting `agent_version` can install a package with the given
+  `supervision`. Systemd-supervised packages require at least
+  `required_version` (default #{@systemd_addon_min_agent_version}); a missing or
+  unparseable agent version cannot. Every other supervision model is supported.
+  """
+  @spec agent_supports_systemd_addon_package?(
+          atom() | String.t() | nil,
+          String.t() | nil,
+          String.t()
+        ) :: boolean()
+  def agent_supports_systemd_addon_package?(
+        supervision,
+        agent_version,
+        required_version \\ @systemd_addon_min_agent_version
+      ) do
+    if systemd_supervised?(supervision) do
+      with {:ok, parsed_agent} <- Eligibility.parse_version(agent_version),
+           {:ok, parsed_required} <- Eligibility.parse_version(required_version) do
+        Version.compare(parsed_agent, parsed_required) != :lt
+      else
+        _ -> false
+      end
     else
-      _ -> false
+      true
     end
   end
-
-  def legacy_writable_exec_systemd_package?(_, _), do: false
 
   defp managed_assignments(actor) do
     AddonAssignment
