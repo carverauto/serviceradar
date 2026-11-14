@@ -188,16 +188,33 @@ class PublishOciWorkflowContractTest(unittest.TestCase):
         verify = workflow_step(self.workflow, "Verify web stack commit images")
 
         self.assertIn(SELECTIVE_CONDITION, publish)
+        sha = "1" * 40
+        with tempfile.TemporaryDirectory() as temp_dir:
+            calls = Path(temp_dir) / "calls"
+            result, _summary = run_workflow_step(
+                self.workflow,
+                "Publish web stack commit images",
+                {
+                    "GITHUB_SHA": sha,
+                    "HARBOR_PUBLISH_TOOL": "/synthetic/harbor-publish.py",
+                    "PUBLISHER_CALLS": str(calls),
+                },
+                {"python3": 'printf "%s\\n" "$*" >> "${PUBLISHER_CALLS}"\n'},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            recorded = calls.read_text(encoding="utf-8").splitlines()
+        # Only the two web-stack repositories reach build storage, untagged
+        # beyond their commit-only target, and only the commit tag is promoted.
         self.assertEqual(
-            re.findall(r"^          bazel run .+$", publish, re.MULTILINE),
+            recorded,
             [
-                "          bazel run -c opt --config=remote --stamp "
-                "//docker/images:core_elx_image_amd64_push_commit_only",
-                "          bazel run -c opt --config=remote --stamp "
-                "//docker/images:web_ng_image_amd64_push_commit_only",
+                "/synthetic/harbor-publish.py push-images --only "
+                "serviceradar-core-elx serviceradar-web-ng",
+                "/synthetic/harbor-publish.py promote --repositories "
+                f"serviceradar-core-elx serviceradar-web-ng --tag sha-{sha}",
             ],
         )
-        for forbidden in ("--tag", "//:images", "//:push", "cosign", "latest"):
+        for forbidden in ("//:images", "//:push", "cosign", "latest"):
             self.assertNotIn(forbidden, publish)
 
         self.assertIn(SELECTIVE_CONDITION, verify)
@@ -275,9 +292,10 @@ esac
         def guard(ref: str) -> subprocess.CompletedProcess[str]:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp = Path(temp_dir)
-                bazel = temp / "bazel"
-                bazel.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-                bazel.chmod(0o755)
+                # Stand-in for the build-storage push that precedes signing.
+                publisher = temp / "python3"
+                publisher.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+                publisher.chmod(0o755)
                 env = {
                     key: value
                     for key, value in os.environ.items()
@@ -289,6 +307,7 @@ esac
                     "PATH": str(temp),
                     "GITHUB_SHA": "1" * 40,
                     "GITHUB_REF": ref,
+                    "HARBOR_PUBLISH_TOOL": str(temp / "harbor-publish.py"),
                     "OPENBAO_K8S_TOKEN_FILE": str(temp / "missing-token"),
                 })
                 return subprocess.run(
@@ -326,17 +345,15 @@ esac
                     result.stderr,
                 )
 
-    def test_release_environment_uses_canonical_harbor_credentials(self):
-        self.assertIn("    environment: release", self.workflow)
-        self.assertIn(
-            "      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}",
-            self.workflow,
+    def test_release_environment_uses_build_storage_credentials(self):
+        job = yaml.safe_load(self.workflow)["jobs"]["publish"]
+        self.assertEqual(job["environment"], "release")
+        self.assertEqual(
+            job["env"]["OCI_USERNAME"], "${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}"
         )
-        self.assertIn(
-            "      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}",
-            self.workflow,
+        self.assertEqual(
+            job["env"]["OCI_TOKEN"], "${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}"
         )
-
 
 if __name__ == "__main__":
     unittest.main()
