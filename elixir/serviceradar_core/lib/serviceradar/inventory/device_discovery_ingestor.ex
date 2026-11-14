@@ -499,12 +499,12 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp preflight_source_observation_batches(batches, context, preflight) do
     batches
-    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, {:ok, acc} ->
+    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, acc ->
       case preflight.(envelope, updates, context) do
-        :ok -> {:cont, {:ok, [batch | acc]}}
-        {:ok, :process} -> {:cont, {:ok, [batch | acc]}}
-        {:ok, :idempotent} -> {:cont, {:ok, acc}}
-        {:error, _} = error -> {:halt, error}
+        :ok -> {:cont, keep_preflight_batch(acc, batch)}
+        {:ok, :process} -> {:cont, keep_preflight_batch(acc, batch)}
+        {:ok, :idempotent} -> {:cont, acc}
+        {:error, _} = error -> defer_or_halt(acc, error)
         _other -> {:halt, {:error, :invalid_source_observation_preflight_result}}
       end
     end)
@@ -515,14 +515,30 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp sync_source_observation_batches(batches, context, source_observation_sync) do
-    Enum.reduce_while(batches, :ok, fn {envelope, updates}, :ok ->
+    Enum.reduce_while(batches, :ok, fn {envelope, updates}, acc ->
       case source_observation_sync.(envelope, updates, context) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
+        :ok -> {:cont, acc}
+        {:error, _} = error -> defer_or_halt(acc, error)
         _other -> {:halt, {:error, :invalid_source_observation_result}}
       end
     end)
   end
+
+  defp keep_preflight_batch({:ok, batches}, batch), do: {:ok, [batch | batches]}
+  defp keep_preflight_batch(deferred_error, _batch), do: deferred_error
+
+  defp defer_or_halt(acc, {:error, reason} = error) do
+    case {deferred_outcome(acc), classify_discovery_error(reason, nil)} do
+      {_deferred, {:error, _reason}} -> {:halt, error}
+      {:refused, _outcome} -> {:cont, acc}
+      {:settled, {:settled, _reason, _meta}} -> {:cont, acc}
+      {_deferred, _outcome} -> {:cont, error}
+    end
+  end
+
+  defp deferred_outcome({:error, reason}), do: reason |> classify_discovery_error(nil) |> elem(0)
+
+  defp deferred_outcome(_acc), do: nil
 
   defp sync_awx_memberships(payload, context) do
     AwxMembershipReconciler.reconcile(payload,

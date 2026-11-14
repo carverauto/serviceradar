@@ -80,44 +80,45 @@ defmodule ServiceRadar.Camera.EventIngestor do
         load_source = Keyword.get(opts, :load_source, &load_source/2)
 
         events
-        |> Enum.reduce_while({0, 0}, fn event, {published_count, suppressed_count} ->
+        |> Enum.reduce_while({0, 0, nil}, fn event,
+                                             {published_count, suppressed_count, refused} ->
           correlation = resolve_event_correlation(event, payload, actor, load_source)
           attrs = build_event_attrs(event, correlation, observed_at, status)
 
           case publish_event.(attrs) do
             {:ok, :suppressed} ->
-              {:cont, {published_count, suppressed_count + 1}}
+              {:cont, {published_count, suppressed_count + 1, refused}}
 
             {:ok, _event} ->
-              {:cont, {published_count + 1, suppressed_count}}
+              {:cont, {published_count + 1, suppressed_count, refused}}
 
             # An out-of-service camera's event is dropped by design, not a failure.
             {:error, :suppressed} ->
-              {:cont, {published_count, suppressed_count + 1}}
+              {:cont, {published_count, suppressed_count + 1, refused}}
 
             {:error, :invalid_event} ->
-              {:halt, {:refused, :invalid_camera_event, status_metadata(status)}}
+              {:cont, {published_count, suppressed_count, refused || invalid_event(status)}}
 
             {:error, {:invalid_event, _detail}} ->
-              {:halt, {:refused, :invalid_camera_event, status_metadata(status)}}
+              {:cont, {published_count, suppressed_count, refused || invalid_event(status)}}
 
             {:error, reason} ->
               {:halt, {:error, reason}}
           end
         end)
         |> case do
-          {0, suppressed_count} when suppressed_count > 0 ->
+          {:error, reason} ->
+            {:error, reason}
+
+          {_published_count, _suppressed_count, {:refused, _, _} = refused} ->
+            refused
+
+          {0, suppressed_count, nil} when suppressed_count > 0 ->
             {:settled, :device_out_of_service,
              Map.put(status_metadata(status), :suppressed_count, suppressed_count)}
 
-          {published_count, _suppressed_count} when is_integer(published_count) ->
+          {_published_count, _suppressed_count, nil} ->
             :ok
-
-          {:refused, _, _} = refused ->
-            refused
-
-          {:error, reason} ->
-            {:error, reason}
         end
     end
   rescue
@@ -127,6 +128,8 @@ defmodule ServiceRadar.Camera.EventIngestor do
   end
 
   def ingest(_payload, _status, _opts), do: :ok
+
+  defp invalid_event(status), do: {:refused, :invalid_camera_event, status_metadata(status)}
 
   defp extract_events_envelope(payload) when is_map(payload) do
     cond do

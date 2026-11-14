@@ -81,37 +81,42 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       descriptors = context.descriptors
 
       descriptors
-      |> Enum.reduce_while({0, 0}, fn descriptor, {applied_count, skipped_count} ->
+      |> Enum.reduce_while({0, 0, nil}, fn descriptor, {applied_count, skipped_count, refused} ->
         case ingest_descriptor(descriptor, context) do
           {:applied, :ok} ->
-            {:cont, {applied_count + 1, skipped_count}}
+            {:cont, {applied_count + 1, skipped_count, refused}}
 
           {:skipped_missing_identity, _reason} ->
-            {:cont, {applied_count, skipped_count + 1}}
+            {:cont, {applied_count, skipped_count + 1, refused}}
 
           {:error, :agent_managed_source_device} ->
-            {:halt, {:refused, :agent_managed_source_device, status_metadata(status)}}
+            {:cont,
+             {applied_count, skipped_count,
+              refused || {:refused, :agent_managed_source_device, status_metadata(status)}}}
 
           {:error, {:invalid_camera_update_target, _device, _attrs}} ->
-            {:halt, {:refused, :invalid_camera_update_target, status_metadata(status)}}
+            {:cont,
+             {applied_count, skipped_count,
+              refused || {:refused, :invalid_camera_update_target, status_metadata(status)}}}
 
           {:error, reason} ->
             {:halt, {:error, reason}}
         end
       end)
       |> case do
-        {0, skipped_count} when skipped_count > 0 and skipped_count == length(descriptors) ->
+        {:error, reason} ->
+          {:error, reason}
+
+        {_applied_count, _skipped_count, {:refused, _, _} = refused} ->
+          refused
+
+        {0, skipped_count, nil}
+        when skipped_count > 0 and skipped_count == length(descriptors) ->
           {:refused, :missing_camera_identity,
            Map.put(status_metadata(status), :skipped_count, skipped_count)}
 
-        {applied_count, _skipped_count} when is_integer(applied_count) ->
+        {_applied_count, _skipped_count, nil} ->
           :ok
-
-        {:refused, _, _} = refused ->
-          refused
-
-        {:error, reason} ->
-          {:error, reason}
       end
     end
   end

@@ -183,6 +183,45 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
     refute_received {:deleted, @object_key}
   end
 
+  test "a refused entry does not hide a later retryable entry in the same result" do
+    second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
+
+    batch = %{
+      "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
+      "details" => %{
+        "running_configs" => [
+          %{
+            "device_uid" => "sr:host01.example.com",
+            "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}
+          },
+          %{
+            "device_uid" => "sr:host02.example.com",
+            "artifact" => %{"object_key" => second_key, "sha256" => @sha256}
+          }
+        ]
+      }
+    }
+
+    fetcher = fn
+      @object_key -> {:ok, "tampered"}
+      ^second_key -> {:error, :timeout}
+    end
+
+    assert {:error, {:running_config_artifact_fetch_failed, :timeout}} =
+             PluginIngestor.ingest(batch, @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fetcher
+             )
+
+    reversed = update_in(batch, ["details", "running_configs"], &Enum.reverse/1)
+
+    assert {:error, {:running_config_artifact_fetch_failed, :timeout}} =
+             PluginIngestor.ingest(reversed, @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fetcher
+             )
+  end
+
   test "an incomplete staging result deletes references without ingesting them" do
     {:ok, ref} = PluginIngestor.extract(payload())
 

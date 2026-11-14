@@ -116,12 +116,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
   defp ingest_payload(payload, status, opts) when is_list(payload) do
     payload
     |> Enum.filter(&supports?(&1, status))
-    |> Enum.reduce_while(:ok, fn item, :ok ->
-      case ingest_payload(item, status, opts) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    |> reduce_entry_results(&ingest_payload(&1, status, opts))
   end
 
   defp ingest_payload(payload, status, opts) do
@@ -130,14 +125,22 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     else
       payload
       |> config_entries()
-      |> Enum.reduce_while(:ok, fn entry, :ok ->
-        case ingest_entry(entry, status, opts) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      |> reduce_entry_results(&ingest_entry(&1, status, opts))
     end
   end
+
+  defp reduce_entry_results(entries, ingest_fun) do
+    Enum.reduce_while(entries, :ok, fn entry, acc ->
+      case ingest_fun.(entry) do
+        :ok -> {:cont, acc}
+        {:error, reason} when reason in @refused_reasons -> {:cont, first_refusal(acc, reason)}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp first_refusal(:ok, reason), do: {:error, reason}
+  defp first_refusal(refusal, _reason), do: refusal
 
   defp ingest_entry(payload, status, opts) do
     with {:ok, ref} <- extract(payload),

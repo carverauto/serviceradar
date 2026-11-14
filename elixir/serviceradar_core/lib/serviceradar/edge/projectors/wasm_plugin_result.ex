@@ -144,20 +144,25 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
       |> Keyword.put(:defer_artifact_cleanup, true)
 
     batch.results
-    |> Enum.reduce_while({:initial, nil}, fn item, {acc_state, acc_settled} ->
+    |> Enum.reduce_while({:initial, nil}, fn item, {acc_state, acc_reason} ->
       payload = result_payload(item)
       status = result_status(item, provenance, agent_id, partition, capabilities)
 
       case PluginResultIngestor.ingest_durable(payload, status, ingestor_opts) do
         :ok ->
-          {:cont, {:applied, acc_settled}}
+          {:cont, if(acc_state == :refused, do: {acc_state, acc_reason}, else: {:applied, nil})}
 
         {:settled, settled_reason} ->
-          next_state = if acc_state == :applied, do: :applied, else: :settled
-          {:cont, {next_state, acc_settled || settled_reason}}
+          case acc_state do
+            :initial -> {:cont, {:settled, settled_reason}}
+            _other -> {:cont, {acc_state, acc_reason}}
+          end
 
         {:refused, refused_reason} ->
-          {:halt, {:refused, refused_reason}}
+          case acc_state do
+            :refused -> {:cont, {acc_state, acc_reason}}
+            _other -> {:cont, {:refused, refused_reason}}
+          end
 
         {:error, reason} ->
           {:halt, {:error, {:plugin_result_ingest_failed, reason}}}
@@ -167,7 +172,7 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
       {:applied, _} -> :ok
       {:initial, _} -> :ok
       {:settled, settled_reason} -> {:settled, settled_reason}
-      {:refused, _} = refused -> refused
+      {:refused, refused_reason} -> {:refused, refused_reason}
       {:error, _} = error -> error
     end
   end
