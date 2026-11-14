@@ -12,15 +12,44 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @console_permissions ["devices.console.open", "devices.console.credentials.use"]
+  @credential_manage_permission "settings.credentials.manage"
   @create_request_fields MapSet.new(["device_uid", "terminal"])
   @terminal_fields MapSet.new(["cols", "rows"])
 
+  @console_unavailable_reasons [
+    :unsupported_console_target,
+    :unsupported_console_mode,
+    :no_console_credential_rule,
+    :not_console_credential_rule,
+    :console_credential_source_mismatch,
+    :proxmox_tls_verification_required,
+    :unsupported_proxmox_ssh_console_target,
+    :proxmox_ssh_host_key_verification_required,
+    :unsupported_proxmox_console_auth_method,
+    :credential_rule_scope_denied,
+    :credential_rule_target_denied,
+    :ambiguous_console_target,
+    :console_inventory_unavailable,
+    :console_controller_not_found,
+    :console_controller_endpoint_missing,
+    :controller_origin_mismatch,
+    :invalid_controller_origin,
+    :console_assignment_unavailable,
+    :ambiguous_console_assignment,
+    :credential_use_policy_missing,
+    :credential_use_policy_invalid,
+    :credential_use_policy_denied,
+    :missing_agent_scope
+  ]
+
   def create(conn, params) do
+    scope = get_scope(conn)
+
     with :ok <- require_authenticated(conn),
          :ok <- require_permissions(conn),
          {:ok, request} <- normalize_create_request(params),
          {:ok, %{session: %ProxmoxConsoleSession{} = session, ticket: ticket}} <-
-           console_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
+           console_session_manager().request_open(request.device_uid, request, scope: scope) do
       conn
       |> put_status(:created)
       |> json(%{data: session_json(session, ticket)})
@@ -40,35 +69,57 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
         |> put_status(:not_found)
         |> json(%{error: "console_session_not_found", message: "console session target was not found"})
 
-      {:error, reason}
-      when reason in [
-             :unsupported_console_target,
-             :unsupported_console_mode,
-             :no_console_credential_rule,
-             :not_console_credential_rule,
-             :credential_rule_scope_denied,
-             :credential_rule_target_denied,
-             :ambiguous_console_target,
-             :console_inventory_unavailable,
-             :console_controller_not_found,
-             :console_controller_endpoint_missing,
-             :controller_origin_mismatch,
-             :invalid_controller_origin,
-             :console_assignment_unavailable,
-             :ambiguous_console_assignment,
-             :credential_use_policy_missing,
-             :credential_use_policy_invalid,
-             :credential_use_policy_denied,
-             :missing_agent_scope
-           ] ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "console_session_unavailable", message: format_reason(reason)})
+      {:error, error} ->
+        case error_response(error, scope) do
+          {:unprocessable_entity, body} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(body)
 
-      {:error, other} ->
-        {:error, other}
+          :unhandled ->
+            {:error, error}
+        end
     end
   end
+
+  @doc false
+  def error_response({:console_rule_denied, reason, rule_detail}, scope) when reason in @console_unavailable_reasons do
+    body = %{
+      error: "console_session_unavailable",
+      reason: Atom.to_string(reason),
+      message: format_reason(reason)
+    }
+
+    case sanitize_rule_detail(rule_detail, scope) do
+      nil -> {:unprocessable_entity, body}
+      sanitized -> {:unprocessable_entity, Map.put(body, :rule, sanitized)}
+    end
+  end
+
+  def error_response(reason, _scope) when reason in @console_unavailable_reasons do
+    {:unprocessable_entity,
+     %{
+       error: "console_session_unavailable",
+       reason: Atom.to_string(reason),
+       message: format_reason(reason)
+     }}
+  end
+
+  def error_response(_error, _scope), do: :unhandled
+
+  defp sanitize_rule_detail(rule_detail, scope) when is_map(rule_detail) do
+    if not is_nil(scope) and RBAC.can?(scope, @credential_manage_permission) do
+      %{
+        rule_id: Map.get(rule_detail, :rule_id) || Map.get(rule_detail, "rule_id"),
+        rule_name: Map.get(rule_detail, :rule_name) || Map.get(rule_detail, "rule_name"),
+        scope_type: Map.get(rule_detail, :scope_type) || Map.get(rule_detail, "scope_type"),
+        scope_value: Map.get(rule_detail, :scope_value) || Map.get(rule_detail, "scope_value"),
+        target_query: Map.get(rule_detail, :target_query) || Map.get(rule_detail, "target_query")
+      }
+    end
+  end
+
+  defp sanitize_rule_detail(_rule_detail, _scope), do: nil
 
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
@@ -219,7 +270,23 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
   defp format_reason(:unsupported_console_target), do: "device does not expose a Proxmox console target"
   defp format_reason(:unsupported_console_mode), do: "requested console mode is not supported for this target"
   defp format_reason(:no_console_credential_rule), do: "no scoped console credential rule matches this device"
-  defp format_reason(:not_console_credential_rule), do: "credential rule is not a Proxmox console rule"
+  defp format_reason(:not_console_credential_rule), do: "credential rule does not enable console_access purpose"
+
+  defp format_reason(:console_credential_source_mismatch),
+    do: "credential rule belongs to a different Proxmox integration or controller"
+
+  defp format_reason(:proxmox_tls_verification_required),
+    do: "credential rule must verify TLS to open a native Proxmox console"
+
+  defp format_reason(:unsupported_proxmox_ssh_console_target),
+    do: "SSH key Proxmox console rules apply only to Proxmox VE hosts"
+
+  defp format_reason(:proxmox_ssh_host_key_verification_required),
+    do: "SSH key Proxmox console rule must verify SSH host keys"
+
+  defp format_reason(:unsupported_proxmox_console_auth_method),
+    do: "credential rule uses an unsupported Proxmox console authentication method"
+
   defp format_reason(:credential_rule_scope_denied), do: "credential rule scope does not include this device"
   defp format_reason(:credential_rule_target_denied), do: "credential rule target query does not include this device"
   defp format_reason(:ambiguous_console_target), do: "console target identity is ambiguous"

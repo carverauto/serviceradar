@@ -63,7 +63,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       transition :request_close, from: [:requested, :attached, :opening, :active], to: :closing
       transition :close, from: [:requested, :attached, :opening, :active, :closing], to: :closed
       transition :fail, from: [:requested, :attached, :opening, :active, :closing], to: :failed
-      transition :expire, from: [:requested, :attached, :opening, :active], to: :expired
+      transition :expire, from: [:requested, :attached, :opening, :active, :closing], to: :expired
     end
   end
 
@@ -100,6 +100,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+    end
+
+    read :non_terminal do
+      filter expr(status in [:requested, :attached, :opening, :active, :closing])
     end
 
     read :by_attach_ticket_hash do

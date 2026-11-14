@@ -136,7 +136,54 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       body = json_response(conn, 422)
 
       assert body["error"] == "console_session_unavailable"
+      assert body["reason"] == "no_console_credential_rule"
       assert body["message"] =~ "credential rule"
+    end
+
+    test "returns classified denial reason and gates rule detail on settings.credentials.manage", %{
+      conn: conn
+    } do
+      rule_detail = %{
+        rule_id: "018f3f56-1111-7666-8777-123456789abc",
+        rule_name: "sentinel-proxmox-rule-api",
+        scope_type: "agent",
+        scope_value: "agent-alpha",
+        target_query: "in:devices hostname:sentinel-pve"
+      }
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :proxmox_console_session_manager_open_result,
+        {:error, {:console_rule_denied, :not_console_credential_rule, rule_detail}}
+      )
+
+      manager_conn = post(conn, ~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
+      manager_body = json_response(manager_conn, 422)
+
+      assert manager_body["error"] == "console_session_unavailable"
+      assert manager_body["reason"] == "not_console_credential_rule"
+      assert manager_body["message"] =~ "console_access"
+      assert manager_body["rule"]["rule_name"] == "sentinel-proxmox-rule-api"
+
+      console_only_user =
+        persist_role_profile!(viewer_user_fixture(), [
+          "devices.console.open",
+          "devices.console.credentials.use"
+        ])
+
+      {:ok, operator_token, _claims} = Guardian.create_access_token(console_only_user)
+
+      operator_conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{operator_token}")
+        |> post(~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
+
+      operator_body = json_response(operator_conn, 422)
+
+      assert operator_body["error"] == "console_session_unavailable"
+      assert operator_body["reason"] == "not_console_credential_rule"
+      refute Map.has_key?(operator_body, "rule")
+      refute inspect(operator_body) =~ "sentinel-proxmox-rule-api"
     end
   end
 

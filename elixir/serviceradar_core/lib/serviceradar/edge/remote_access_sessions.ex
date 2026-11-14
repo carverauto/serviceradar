@@ -26,6 +26,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   @default_attach_ttl_seconds 60
   @default_idle_timeout_seconds 900
   @default_absolute_timeout_seconds 3600
+  @default_closing_grace_seconds 60
+  @default_timeout_grace_seconds 60
+  @default_stale_batch_size 500
   @supported_protocols [
     :ssh,
     :proxmox_console,
@@ -408,8 +411,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       RemoteAccessSession.close(
         session,
         %{
-          close_reason: normalize_close_reason(Keyword.get(opts, :reason)),
-          outcome: normalize_outcome(Keyword.get(opts, :outcome)) || :completed
+          close_reason: effective_close_reason(session, Keyword.get(opts, :reason)),
+          outcome: normalize_outcome(Keyword.get(opts, :outcome)) || session.outcome || :completed
         },
         actor: SystemActor.system(:remote_access_close)
       )
@@ -460,12 +463,154 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       RemoteAccessSession.expire(
         session,
         %{
-          close_reason: normalize_close_reason(Keyword.get(opts, :reason)),
-          outcome: normalize_outcome(Keyword.get(opts, :outcome)) || :idle_timeout
+          close_reason: effective_close_reason(session, Keyword.get(opts, :reason)),
+          outcome:
+            normalize_outcome(Keyword.get(opts, :outcome)) || session.outcome || :idle_timeout
         },
         actor: SystemActor.system(:remote_access_expire)
       )
     end)
+  end
+
+  @doc """
+  Expires stale non-terminal remote-access sessions whose attach window,
+  closing grace window, or idle/absolute timeout grace window has elapsed.
+  """
+  @spec expire_stale(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def expire_stale(opts \\ []) do
+    now = Keyword.get_lazy(opts, :now, &RemoteAccessSession.utc_now/0)
+    batch_size = Keyword.get(opts, :batch_size, @default_stale_batch_size)
+    system_opts = [actor: SystemActor.system(:remote_access_session_reaper)]
+
+    query =
+      RemoteAccessSession
+      |> Ash.Query.for_read(:non_terminal, %{}, system_opts)
+      |> Ash.Query.sort(updated_at: :asc)
+      |> Ash.Query.limit(batch_size)
+
+    case Ash.read(query, Keyword.put(system_opts, :page, false)) do
+      {:ok, candidates} when is_list(candidates) ->
+        Enum.reduce_while(candidates, {:ok, 0}, fn session, {:ok, expired_count} ->
+          case maybe_expire_stale_session(session, now, opts, system_opts) do
+            {:ok, :expired} -> {:cont, {:ok, expired_count + 1}}
+            {:ok, :skipped} -> {:cont, {:ok, expired_count}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec stale_session_expiry(RemoteAccessSession.t(), DateTime.t(), keyword()) ::
+          {:expire, String.t(), atom()} | :fresh
+  def stale_session_expiry(%RemoteAccessSession{} = session, %DateTime{} = now, opts \\ []) do
+    case session.status do
+      :closing ->
+        closing_grace = Keyword.get(opts, :closing_grace_seconds, @default_closing_grace_seconds)
+        anchor = session.close_requested_at || session.updated_at || session.inserted_at
+
+        if elapsed_at_least?(now, anchor, closing_grace) do
+          {:expire, blank_to_nil(session.close_reason) || "closing_timeout",
+           session.outcome || :idle_timeout}
+        else
+          :fresh
+        end
+
+      :requested ->
+        if is_struct(session.attach_expires_at, DateTime) and
+             DateTime.after?(now, session.attach_expires_at) do
+          {:expire, blank_to_nil(session.close_reason) || "attach_expired",
+           session.outcome || :idle_timeout}
+        else
+          :fresh
+        end
+
+      status when status in [:attached, :opening, :active] ->
+        timeout_grace = Keyword.get(opts, :timeout_grace_seconds, @default_timeout_grace_seconds)
+
+        idle_limit =
+          (session.idle_timeout_seconds || @default_idle_timeout_seconds) + timeout_grace
+
+        abs_limit =
+          (session.absolute_timeout_seconds || @default_absolute_timeout_seconds) + timeout_grace
+
+        idle_anchor =
+          session.last_activity_at || session.opened_at || session.attached_at ||
+            session.inserted_at
+
+        abs_anchor = session.opened_at || session.attached_at || session.inserted_at
+
+        cond do
+          elapsed_at_least?(now, idle_anchor, idle_limit) ->
+            {:expire, blank_to_nil(session.close_reason) || "idle_timeout", :idle_timeout}
+
+          elapsed_at_least?(now, abs_anchor, abs_limit) ->
+            {:expire, blank_to_nil(session.close_reason) || "absolute_timeout", :absolute_timeout}
+
+          true ->
+            :fresh
+        end
+
+      _terminal ->
+        :fresh
+    end
+  end
+
+  defp maybe_expire_stale_session(session, now, opts, system_opts) do
+    case stale_session_expiry(session, now, opts) do
+      :fresh ->
+        {:ok, :skipped}
+
+      {:expire, reason, outcome} ->
+        expire_opts =
+          opts
+          |> Keyword.take([:audit_writer])
+          |> Keyword.merge(reason: reason, outcome: outcome)
+
+        case expire_session(session.id, expire_opts) do
+          {:ok, %RemoteAccessSession{}} ->
+            {:ok, :expired}
+
+          {:error, error} ->
+            case RemoteAccessSession.get_by_id(session.id, system_opts) do
+              {:ok, %RemoteAccessSession{status: status}}
+              when status in [:closed, :failed, :expired] ->
+                {:ok, :skipped}
+
+              {:ok, nil} ->
+                {:ok, :skipped}
+
+              _other ->
+                {:error, error}
+            end
+        end
+    end
+  end
+
+  defp elapsed_at_least?(%DateTime{} = now, %DateTime{} = anchor, threshold_seconds)
+       when is_integer(threshold_seconds) do
+    DateTime.diff(now, anchor, :second) >= threshold_seconds
+  end
+
+  defp elapsed_at_least?(_now, _anchor, _threshold_seconds), do: false
+
+  defp effective_close_reason(%RemoteAccessSession{close_reason: existing}, incoming_reason) do
+    existing = blank_to_nil(existing)
+    incoming = normalize_close_reason(incoming_reason)
+
+    cond do
+      not is_nil(existing) and incoming in [nil, "normal", "shutdown", "closed", "broker_stopped"] ->
+        existing
+
+      not is_nil(incoming) ->
+        incoming
+
+      true ->
+        existing
+    end
   end
 
   @doc """

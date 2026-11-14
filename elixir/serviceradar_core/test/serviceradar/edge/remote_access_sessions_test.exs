@@ -2005,6 +2005,89 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute_receive {:remote_access_audit, %{action: :remote_access_recording_created}}, 50
   end
 
+  test "expire_stale reaps stranded closing and expired requested sessions while preserving close_reason and sparing fresh rows" do
+    uid = unique_uid("reap-stale")
+    insert_device!(uid, agent_id: "agent-reap-stale", gateway_id: "gateway-reap-stale")
+
+    open_for_reap! = fn ->
+      {:ok, %{session: s}} =
+        RemoteAccessSessions.request_open(
+          uid,
+          %{protocol: "ssh", credential_custody_mode: "user_present"},
+          actor: @system_actor,
+          audit_writer: AuditSink
+        )
+
+      assert_receive {:remote_access_audit, audit}
+      assert audit[:action] == :remote_access_session_create
+      s
+    end
+
+    stuck_closing = open_for_reap!.()
+    fresh_closing = open_for_reap!.()
+    expired_requested = open_for_reap!.()
+
+    assert {:ok, %RemoteAccessSession{status: :closing, close_reason: "browser_disconnected"}} =
+             RemoteAccessSessions.request_close(stuck_closing.id,
+               reason: "browser_disconnected",
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, audit}
+    assert audit[:action] == :remote_access_session_close_requested
+
+    assert {:ok, %RemoteAccessSession{status: :closing, close_reason: "browser_disconnected"}} =
+             RemoteAccessSessions.request_close(fresh_closing.id,
+               reason: "browser_disconnected",
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, audit}
+    assert audit[:action] == :remote_access_session_close_requested
+
+    past = DateTime.utc_now() |> DateTime.shift(minute: -5) |> DateTime.truncate(:second)
+
+    Repo.query!(
+      "UPDATE platform.remote_access_sessions SET close_requested_at = $2, updated_at = $2 WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(stuck_closing.id), past]
+    )
+
+    Repo.query!(
+      "UPDATE platform.remote_access_sessions SET attach_expires_at = $2, updated_at = $2 WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(expired_requested.id), past]
+    )
+
+    assert {:ok, expired_count} =
+             RemoteAccessSessions.expire_stale(
+               closing_grace_seconds: 60,
+               timeout_grace_seconds: 60,
+               audit_writer: AuditSink
+             )
+
+    assert expired_count >= 2
+
+    assert {:ok, %RemoteAccessSession{} = reaped_closing} =
+             RemoteAccessSession.get_by_id(stuck_closing.id, actor: @system_actor)
+
+    assert reaped_closing.status == :expired
+    assert reaped_closing.close_reason == "browser_disconnected"
+    assert %DateTime{} = reaped_closing.closed_at
+
+    assert {:ok, %RemoteAccessSession{} = reaped_requested} =
+             RemoteAccessSession.get_by_id(expired_requested.id, actor: @system_actor)
+
+    assert reaped_requested.status == :expired
+    assert reaped_requested.close_reason == "attach_expired"
+    assert %DateTime{} = reaped_requested.closed_at
+
+    assert {:ok, %RemoteAccessSession{} = untouched_closing} =
+             RemoteAccessSession.get_by_id(fresh_closing.id, actor: @system_actor)
+
+    assert untouched_closing.status == :closing
+    assert untouched_closing.close_reason == "browser_disconnected"
+    assert is_nil(untouched_closing.closed_at)
+  end
+
   defp run_committed_race!(lock_sql, lock_params, operation)
        when is_binary(lock_sql) and is_list(lock_params) and is_function(operation, 0) do
     parent = self()

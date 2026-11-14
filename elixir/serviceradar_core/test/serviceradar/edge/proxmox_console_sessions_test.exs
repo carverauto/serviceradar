@@ -565,7 +565,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
 
     Process.put(:proxmox_console_test_device_uid, uid)
 
-    assert {:error, :no_console_credential_rule} =
+    assert {:error, :credential_use_policy_missing} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{},
@@ -619,7 +619,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
 
     Process.put(:proxmox_console_test_device_uid, uid)
 
-    assert {:error, :no_console_credential_rule} =
+    assert {:error, :unsupported_proxmox_console_auth_method} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{},
@@ -627,6 +627,53 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
                assignment_resolver: AssignmentResolver,
                actor: @console_actor
              )
+  end
+
+  test "rule denial returns rule detail only when persisted authority holds settings.credentials.manage" do
+    uid = unique_uid("rule-detail-rbac")
+    secret = create_secret!("rule-detail-rbac")
+
+    rule =
+      create_rule!(secret,
+        scope_value: "agent-rule-detail-rbac",
+        purpose: :inventory_enrichment,
+        metadata: %{"purposes" => ["inventory_enrichment"]}
+      )
+
+    insert_device!(uid,
+      agent_id: "agent-rule-detail-rbac",
+      gateway_id: "gateway-rule-detail-rbac",
+      source_rule: rule
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+
+    assert {:error, :not_console_credential_rule} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               assignment_resolver: AssignmentResolver,
+               actor: @console_actor
+             )
+
+    manager_actor = insert_console_manager_actor!()
+
+    assert {:error, {:console_rule_denied, :not_console_credential_rule, detail}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               assignment_resolver: AssignmentResolver,
+               actor: manager_actor
+             )
+
+    assert detail.rule_id == to_string(rule.id)
+    assert detail.rule_name == rule.name
+    assert detail.scope_type == "agent"
+    assert detail.scope_value == "agent-rule-detail-rbac"
+    assert detail.target_query == "in:devices"
+    refute Map.has_key?(detail, :secret_id)
   end
 
   defp insert_device!(uid, opts) do
@@ -794,6 +841,51 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     ])
   end
 
+  defp insert_console_manager_actor! do
+    now = DateTime.utc_now()
+    profile_id = Ecto.UUID.generate()
+    actor_id = Ecto.UUID.generate()
+
+    permissions = [
+      "devices.view",
+      "devices.console.open",
+      "devices.console.credentials.use",
+      "settings.credentials.manage"
+    ]
+
+    Repo.insert_all("role_profiles", [
+      %{
+        id: Ecto.UUID.dump!(profile_id),
+        system_name: nil,
+        name: "Proxmox Console Manager #{System.unique_integer([:positive])}",
+        description: "Persistence-backed credential manager authority for console tests",
+        permissions: permissions,
+        system: false,
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("ng_users", [
+      %{
+        id: Ecto.UUID.dump!(actor_id),
+        email: "console-manager-#{System.unique_integer([:positive])}@example.test",
+        display_name: "Console Manager",
+        role: "admin",
+        role_profile_id: Ecto.UUID.dump!(profile_id),
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    %{
+      id: actor_id,
+      email: "console-manager@example.test",
+      role: :admin,
+      permissions: MapSet.new(permissions)
+    }
+  end
+
   defp create_secret!(suffix) do
     {:ok, secret} =
       NetworkCredentialSecret
@@ -819,7 +911,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
           name: "pve-console-rule-#{System.unique_integer([:positive])}",
           provider: "proxmox",
           auth_method: Keyword.get(attrs, :auth_method, :proxmox_api_token),
-          purpose: :console_access,
+          purpose: Keyword.get(attrs, :purpose, :console_access),
           target_query: "in:devices",
           scope_type: Keyword.get(attrs, :scope_type, :agent),
           scope_value: Keyword.fetch!(attrs, :scope_value),

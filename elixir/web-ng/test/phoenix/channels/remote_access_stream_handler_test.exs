@@ -1227,6 +1227,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert opts[:reason] == "permission_revoked"
 
     RemoteAccessStreamHandler.terminate(:normal, closed_state)
+
+    refute_receive {:request_close, "session-revoked-periodic", _opts}
+    assert_receive {:close_session, "session-revoked-periodic", close_opts}
+    assert close_opts[:reason] == "permission_revoked"
   end
 
   test "broker output is not released after current permission revocation" do
@@ -1680,6 +1684,44 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
 
     RemoteAccessStreamHandler.terminate(:normal, closed_state)
     refute_receive {:request_close, "session-4", _opts}
+  end
+
+  test "browser disconnect closes the session row before tearing down the broker, live or dead" do
+    {:ok, state} = init_state("session-browser-disconnect")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in(
+        {attach_payload("session-browser-disconnect"), [opcode: :text]},
+        state
+      )
+
+    RemoteAccessStreamHandler.terminate(:remote, attached)
+
+    assert_receive {:request_close, "session-browser-disconnect", request_opts}
+    assert request_opts[:reason] == "browser_disconnected"
+    assert_receive {:close_session, "session-browser-disconnect", close_opts}
+    assert close_opts[:reason] == "browser_disconnected"
+    assert_receive {:broker_close, _caller, "browser_disconnected"}
+
+    {:ok, dead_broker_state} = init_state("session-dead-broker")
+
+    {:push, _response, attached_dead} =
+      RemoteAccessStreamHandler.handle_in(
+        {attach_payload("session-dead-broker"), [opcode: :text]},
+        dead_broker_state
+      )
+
+    Process.unlink(attached_dead.broker)
+    ref = Process.monitor(attached_dead.broker)
+    Process.exit(attached_dead.broker, :kill)
+    assert_receive {:DOWN, ^ref, :process, _, :killed}
+
+    RemoteAccessStreamHandler.terminate(:remote, attached_dead)
+
+    assert_receive {:request_close, "session-dead-broker", dead_request_opts}
+    assert dead_request_opts[:reason] == "browser_disconnected"
+    assert_receive {:close_session, "session-dead-broker", dead_close_opts}
+    assert dead_close_opts[:reason] == "browser_disconnected"
   end
 
   defp init_state(session_id, opts \\ []) do

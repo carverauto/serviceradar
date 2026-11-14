@@ -296,16 +296,40 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     _ = cancel_timeout_timers(state)
     maybe_close_desktop_viewers(state, reason)
 
-    if state.broker do
-      state.broker_module.close(state.broker, reason)
-    end
+    cond do
+      state.session && state.closing_action in [nil, :revoked] ->
+        close_reason = disconnect_close_reason(state.closing_action)
 
-    if state.session && is_nil(state.closing_action) do
-      _ = state.sessions_module.request_close(state.session.id, reason: "browser_disconnected", scope: state.scope)
+        if is_nil(state.closing_action) do
+          _ =
+            state.sessions_module.request_close(state.session.id,
+              reason: close_reason,
+              scope: state.scope
+            )
+        end
+
+        _ =
+          state.sessions_module.close_session(state.session.id,
+            reason: close_reason,
+            scope: state.scope
+          )
+
+        if state.broker do
+          state.broker_module.close(state.broker, close_reason)
+        end
+
+      state.broker ->
+        state.broker_module.close(state.broker, reason)
+
+      true ->
+        :ok
     end
 
     :ok
   end
+
+  defp disconnect_close_reason(:revoked), do: "permission_revoked"
+  defp disconnect_close_reason(nil), do: "browser_disconnected"
 
   defp maybe_close_desktop_viewers(%{session: session} = state, reason) when not is_nil(session) do
     if protocol(session) == "rdp" do

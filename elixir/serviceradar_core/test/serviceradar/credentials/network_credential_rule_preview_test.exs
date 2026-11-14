@@ -53,6 +53,17 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
     assert preview.rule_id == "rule-a"
     assert preview.matched_devices == 4
     assert preview.scoped_devices == 3
+
+    assert MapSet.equal?(
+             preview.matched_device_uids,
+             MapSet.new(["device-1", "device-2", "device-unmanaged", "device-3"])
+           )
+
+    assert MapSet.equal?(
+             preview.scoped_device_uids,
+             MapSet.new(["device-1", "device-2", "device-unmanaged"])
+           )
+
     assert [%{agent_id: "agent-a", device_count: 2}] = preview.agents
     assert [%{"uid" => "device-1"}] = preview.sample_devices
     assert preview.conflicts == []

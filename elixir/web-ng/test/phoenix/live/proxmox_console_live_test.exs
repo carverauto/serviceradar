@@ -106,6 +106,49 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
     refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
   end
 
+  test "renders classified credential-rule denial copy and gates rule detail on settings.credentials.manage", %{
+    conn: conn
+  } do
+    rule_detail = %{
+      rule_id: "018f3f56-1111-7666-8777-123456789abc",
+      rule_name: "sentinel-proxmox-rule-live",
+      scope_type: "agent",
+      scope_value: "agent-alpha",
+      target_query: "in:devices hostname:sentinel-pve"
+    }
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :proxmox_console_session_manager_open_result,
+      {:error, {:console_rule_denied, :not_console_credential_rule, rule_detail}}
+    )
+
+    {:ok, _view, manager_html} = live(conn, ~p"/devices/pve-guest-1/proxmox-console")
+
+    assert manager_html =~
+             "A Proxmox credential rule exists for this scope, but its purposes do not include console_access."
+
+    assert manager_html =~ "sentinel-proxmox-rule-live"
+    assert manager_html =~ "in:devices hostname:sentinel-pve"
+
+    console_only_user =
+      persist_role_profile!(AshTestHelpers.viewer_user_fixture(), [
+        "devices.console.open",
+        "devices.console.credentials.use"
+      ])
+
+    {:ok, _view, operator_html} =
+      conn
+      |> log_in_user(console_only_user)
+      |> live(~p"/devices/pve-guest-1/proxmox-console")
+
+    assert operator_html =~
+             "A Proxmox credential rule exists for this scope, but its purposes do not include console_access."
+
+    refute operator_html =~ "sentinel-proxmox-rule-live"
+    refute operator_html =~ "in:devices hostname:sentinel-pve"
+  end
+
   defp persist_role_profile!(user, permissions) do
     actor = AshTestHelpers.system_actor()
 

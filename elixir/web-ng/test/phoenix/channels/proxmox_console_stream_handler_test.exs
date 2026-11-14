@@ -3,7 +3,9 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
 
   alias ServiceRadar.Edge.ProxmoxConsoleSession
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController
   alias ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler
+  alias ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show
 
   @moduletag :db_free
 
@@ -668,6 +670,67 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
       broker_module: BrokerStub,
       authorization_module: AuthorizationStub
     )
+  end
+
+  test "ProxmoxConsoleLive.Show and ProxmoxConsoleSessionController classify denials and gate rule detail on settings.credentials.manage" do
+    rule_detail = %{
+      rule_id: "018f3f56-1111-7666-8777-123456789abc",
+      rule_name: "sentinel-proxmox-console-rule",
+      scope_type: "agent",
+      scope_value: "agent-sentinel",
+      target_query: "in:devices hostname:sentinel-node"
+    }
+
+    console_only_scope =
+      Scope.for_user(
+        %{id: "console-only-user", email: "console@example.test", role: :operator},
+        permissions: MapSet.new(@console_permissions)
+      )
+
+    manager_scope =
+      Scope.for_user(
+        %{id: "cred-manager-user", email: "manager@example.test", role: :admin},
+        permissions: MapSet.new(@console_permissions ++ ["settings.credentials.manage"])
+      )
+
+    denied_error = {:console_rule_denied, :not_console_credential_rule, rule_detail}
+
+    assert {msg_non_mgr, nil} =
+             Show.present_console_error(
+               denied_error,
+               console_only_scope
+             )
+
+    assert msg_non_mgr =~ "console_access"
+    refute msg_non_mgr =~ "sentinel-proxmox-console-rule"
+
+    assert {msg_mgr, rendered_rule} =
+             Show.present_console_error(
+               denied_error,
+               manager_scope
+             )
+
+    assert msg_mgr == msg_non_mgr
+    assert rendered_rule.rule_name == "sentinel-proxmox-console-rule"
+
+    assert {:unprocessable_entity, non_mgr_body} =
+             ProxmoxConsoleSessionController.error_response(
+               denied_error,
+               console_only_scope
+             )
+
+    assert non_mgr_body.reason == "not_console_credential_rule"
+    refute Map.has_key?(non_mgr_body, :rule)
+    refute inspect(non_mgr_body) =~ "sentinel-proxmox-console-rule"
+
+    assert {:unprocessable_entity, mgr_body} =
+             ProxmoxConsoleSessionController.error_response(
+               denied_error,
+               manager_scope
+             )
+
+    assert mgr_body.reason == "not_console_credential_rule"
+    assert mgr_body.rule.rule_name == "sentinel-proxmox-console-rule"
   end
 
   defp attach_payload(session_id) do
