@@ -298,8 +298,28 @@ defmodule ServiceRadar.EventWriter.Config do
       ownership_grace_period_ms: load_ownership_grace_period_ms(config),
       startup_wait_bound_ms: load_startup_wait_bound_ms(config),
       workers: worker_count(),
-      retired_consumers: @retired_consumers
+      retired_consumers: retired_consumers_for(consumer_name)
     }
+  end
+
+  defp retired_consumers_for(consumer_name) when is_binary(consumer_name) do
+    flow_drain_sources =
+      ["SFLOW_RAW", "NETFLOW_RAW"] ++
+        Enum.map(extra_flow_subjects(), &flow_subject_stream_name/1)
+
+    events_flow_drains =
+      Enum.map(flow_drain_sources, fn source_name ->
+        %{stream_name: "events", consumer_name: durable_name(consumer_name, source_name)}
+      end)
+
+    attributed_durable = durable_name(consumer_name, "ATTRIBUTED_FLOW")
+
+    attributed_retired = [
+      %{stream_name: "events", consumer_name: attributed_durable},
+      %{stream_name: "attributed_flow", consumer_name: attributed_durable}
+    ]
+
+    Enum.uniq(@retired_consumers ++ events_flow_drains ++ attributed_retired)
   end
 
   # WorkQueue permits only one durable whose filter covers a subject. Every worker

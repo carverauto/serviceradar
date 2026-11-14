@@ -931,6 +931,23 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
+    test "retires orphan raw-flow drain and attributed-flow durables on events and attributed_flow" do
+      config = Config.load()
+      retired = MapSet.new(config.retired_consumers, &{&1.stream_name, &1.consumer_name})
+
+      assert MapSet.member?(retired, {"events", "serviceradar-event-writer-sflow-raw"})
+      assert MapSet.member?(retired, {"events", "serviceradar-event-writer-netflow-raw"})
+      assert MapSet.member?(retired, {"events", "serviceradar-event-writer-attributed-flow"})
+
+      assert MapSet.member?(
+               retired,
+               {"attributed_flow", "serviceradar-event-writer-attributed-flow"}
+             )
+
+      refute MapSet.member?(retired, {"flows", "serviceradar-event-writer-sflow-raw"})
+      refute MapSet.member?(retired, {"flows", "serviceradar-event-writer-netflow-raw"})
+    end
+
     test "uses default batch settings" do
       config = Config.load()
 

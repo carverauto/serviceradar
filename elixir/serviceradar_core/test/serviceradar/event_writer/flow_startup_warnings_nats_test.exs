@@ -147,6 +147,84 @@ defmodule ServiceRadar.EventWriter.FlowStartupWarningsNatsTest do
   end
 
   @tag :tmp_dir
+  test "reconciler deletes pre-existing orphan flow drain durables on events and attributed_flow while keeping flows durables live",
+       %{executable: executable, tmp_dir: dir} do
+    with_broker(executable, dir, fn port ->
+      config = startup_config(port)
+      admin = seed_broker(config)
+
+      events_created =
+        js(admin, "$JS.API.STREAM.CREATE.events", %{
+          name: "events",
+          subjects: ["events.>", "logs.>"],
+          retention: "limits",
+          storage: "file"
+        })
+
+      refute Map.has_key?(events_created, "error"), inspect(events_created)
+
+      for durable <- [
+            "serviceradar-event-writer-sflow-raw",
+            "serviceradar-event-writer-netflow-raw",
+            "serviceradar-event-writer-attributed-flow"
+          ] do
+        assert %{"name" => ^durable} =
+                 js(admin, "$JS.API.CONSUMER.DURABLE.CREATE.events.#{durable}", %{
+                   stream_name: "events",
+                   config: %{durable_name: durable, ack_policy: "explicit"}
+                 })
+      end
+
+      assert %{"name" => "serviceradar-event-writer-attributed-flow"} =
+               js(
+                 admin,
+                 "$JS.API.CONSUMER.DURABLE.CREATE.attributed_flow.serviceradar-event-writer-attributed-flow",
+                 %{
+                   stream_name: "attributed_flow",
+                   config: %{
+                     durable_name: "serviceradar-event-writer-attributed-flow",
+                     ack_policy: "explicit"
+                   }
+                 }
+               )
+
+      {status, log} = with_log([level: :info], fn -> start_reconciler(config) end)
+      assert status.ready, inspect(status)
+
+      assert log =~
+               "EventWriter deleted retired JetStream consumer events/serviceradar-event-writer-sflow-raw"
+
+      assert log =~
+               "EventWriter deleted retired JetStream consumer events/serviceradar-event-writer-netflow-raw"
+
+      assert log =~
+               "EventWriter deleted retired JetStream consumer events/serviceradar-event-writer-attributed-flow"
+
+      assert log =~
+               "EventWriter deleted retired JetStream consumer attributed_flow/serviceradar-event-writer-attributed-flow"
+
+      %{"consumers" => events_consumers} = js(admin, "$JS.API.CONSUMER.LIST.events", "")
+      events_names = Enum.map(events_consumers, & &1["name"])
+      refute "serviceradar-event-writer-sflow-raw" in events_names
+      refute "serviceradar-event-writer-netflow-raw" in events_names
+      refute "serviceradar-event-writer-attributed-flow" in events_names
+
+      %{"consumers" => attributed_consumers} =
+        js(admin, "$JS.API.CONSUMER.LIST.attributed_flow", "")
+
+      assert attributed_consumers == []
+
+      %{"consumers" => flows_consumers} = js(admin, "$JS.API.CONSUMER.LIST.flows", "")
+      flows_names = Enum.map(flows_consumers, & &1["name"])
+      assert "serviceradar-event-writer-sflow-raw" in flows_names
+      assert "serviceradar-event-writer-netflow-raw" in flows_names
+
+      stop_reconciler()
+      Gnat.stop(admin)
+    end)
+  end
+
+  @tag :tmp_dir
   test "control: the removed drain and ATTRIBUTED_FLOW entries do produce the warnings",
        %{executable: executable, tmp_dir: dir} do
     with_broker(executable, dir, fn port ->
