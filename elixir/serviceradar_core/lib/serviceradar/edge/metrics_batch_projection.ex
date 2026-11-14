@@ -148,9 +148,14 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   defp source(%MetricBatch{ingest_identity: %IngestIdentity{source: source}}), do: source
   defp source(_batch), do: nil
 
-  # Same subject the gateway derives: the family, then the first metric's type and name as
-  # safe subject tokens.
-  defp subject(family, %MetricBatch{metrics: [metric | _]}) do
+  @doc """
+  The metrics stream subject of `batch` in `family`: the family, then the first metric's
+  type and name as safe subject tokens, the same subject the gateway derives.
+  `ServiceRadar.Edge.SweepHostMetrics` publishes the gauges core derives for a leased
+  sweep under it, so they reach the stream the unleased gauges use.
+  """
+  @spec subject(String.t(), MetricBatch.t()) :: String.t()
+  def subject(family, %MetricBatch{metrics: [metric | _]}) do
     type = token(metric.metric_type) || "custom"
     name = token(metric.name) || "unknown"
     "metrics.#{family}.#{type}.#{name}"

@@ -22,6 +22,9 @@ defmodule ServiceRadar.NATS.DurablePublish do
   change that may still roll back. There the message is only stored as the
   retry job, in the same transaction: it commits or rolls back with the
   caller, and the worker publishes it after commit.
+
+  A body need not be text: one that is not valid UTF-8, or holds a NUL byte (an encoded
+  protobuf `MetricBatch`), is stored in the retry job base64-encoded.
   """
 
   alias ServiceRadar.NATS.DurablePublishWorker
@@ -152,12 +155,13 @@ defmodule ServiceRadar.NATS.DurablePublish do
 
   defp enqueue_retry(subject, body, msg_id, on_published, opts) do
     job =
-      DurablePublishWorker.new(%{
+      %{
         "subject" => subject,
-        "body" => body,
         "msg_id" => msg_id,
         "on_published" => on_published && Atom.to_string(on_published)
-      })
+      }
+      |> Map.merge(job_body(body))
+      |> DurablePublishWorker.new()
 
     case Keyword.get(opts, :enqueue, &default_enqueue/1).(job) do
       {:ok, _job} ->
@@ -174,6 +178,20 @@ defmodule ServiceRadar.NATS.DurablePublish do
         {:error, {:publish_and_enqueue_failed, reason}}
     end
   end
+
+  # Job args are JSON in a jsonb column, which holds a UTF-8 body without NUL as is. Any
+  # other body, such as an encoded protobuf, is stored base64-encoded under its own key.
+  defp job_body(body) do
+    if String.valid?(body) and not String.contains?(body, <<0>>),
+      do: %{"body" => body},
+      else: %{"body_base64" => Base.encode64(body)}
+  end
+
+  @doc false
+  # The body a retry job stored (`job_body/1`).
+  @spec job_body!(map()) :: binary()
+  def job_body!(%{"body_base64" => encoded}), do: Base.decode64!(encoded)
+  def job_body!(%{"body" => body}), do: body
 
   defp default_enqueue(job) do
     if core_repo_enabled?() do

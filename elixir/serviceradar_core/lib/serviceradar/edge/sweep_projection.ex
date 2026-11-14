@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PlanValidate
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
+  alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepMode
   alias Serviceradar.Edge.V1.TransportProtocol
   alias ServiceRadar.Edge.WireDecode
@@ -264,9 +265,9 @@ defmodule ServiceRadar.Edge.SweepProjection do
       open_ports = Enum.map(host.open_ports, &elem(checks, &1.tested_check_index).port)
 
       %{
-        "host_ip" => address(host.address),
+        "host_ip" => host_address(host),
         "hostname" => host.hostname,
-        "available" => icmp_available?(host.icmp) or open_ports != [],
+        "available" => host_available?(host),
         "icmp_status" => icmp_status(host.icmp),
         "icmp_response_time_ns" => icmp_response_time(host.icmp),
         "tcp_ports_open" => open_ports,
@@ -283,7 +284,22 @@ defmodule ServiceRadar.Edge.SweepProjection do
     end)
   end
 
-  defp address(bytes), do: bytes |> address_tuple() |> :inet.ntoa() |> to_string()
+  @doc """
+  The host's address as a string: the `host_ip` its projected result is stored under.
+  """
+  @spec host_address(SweepHostObservationV1.t()) :: String.t()
+  def host_address(%SweepHostObservationV1{address: bytes}),
+    do: bytes |> address_tuple() |> :inet.ntoa() |> to_string()
+
+  @doc """
+  Whether a host observation counts as available under the `any-success-v1` policy the
+  projection accepts: the ICMP target was reached or any tested TCP port is open. The
+  projected result and the per-host gauges core derives for a leased sweep
+  (`ServiceRadar.Edge.SweepHostMetrics`) both use this rule.
+  """
+  @spec host_available?(SweepHostObservationV1.t()) :: boolean()
+  def host_available?(%SweepHostObservationV1{icmp: icmp, open_ports: open_ports}),
+    do: icmp_available?(icmp) or open_ports != []
 
   defp address_tuple(<<a, b, c, d>>), do: {a, b, c, d}
 

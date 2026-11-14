@@ -21,7 +21,9 @@ defmodule ServiceRadar.NATS.DurablePublishWorker do
   alias ServiceRadar.NATS.DurablePublish
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"subject" => subject, "body" => body, "msg_id" => msg_id} = args}) do
+  def perform(%Oban.Job{args: %{"subject" => subject, "msg_id" => msg_id} = args}) do
+    body = DurablePublish.job_body!(args)
+
     case DurablePublish.publisher().publish(subject, body, msg_id: msg_id) do
       :ok ->
         DurablePublish.run_on_published(Map.get(args, "on_published"), body)

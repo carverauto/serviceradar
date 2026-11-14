@@ -64,6 +64,52 @@ defmodule ServiceRadar.NATS.DurablePublishTest do
              )
   end
 
+  defmodule CapturePublisher do
+    @moduledoc false
+    def publish(subject, body, opts) do
+      send(ServiceRadar.NATS.DurablePublishTest, {:retried, subject, body, opts})
+      :ok
+    end
+  end
+
+  # A binary body (an encoded protobuf MetricBatch) must survive the JSON job args and be
+  # republished byte for byte.
+  test "a failed binary publish is retried with the exact bytes" do
+    parent = self()
+    body = <<10, 0, 255, 128, 0, 1>>
+
+    assert {:ok, :enqueued} =
+             DurablePublish.publish("metrics.sweep.sweep.sweep_host_available", body,
+               msg_id: "f",
+               in_transaction?: fn -> false end,
+               publish: fn _subject, _body, _opts -> {:error, :timeout} end,
+               enqueue: fn job ->
+                 send(parent, {:enqueued, job.changes.args})
+                 {:ok, job}
+               end
+             )
+
+    assert_received {:enqueued, args}
+    stored = args |> Jason.encode!() |> Jason.decode!()
+
+    previous = Application.fetch_env(:serviceradar_core, :internal_telemetry_publisher)
+    Application.put_env(:serviceradar_core, :internal_telemetry_publisher, CapturePublisher)
+    Process.register(self(), __MODULE__)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} ->
+          Application.put_env(:serviceradar_core, :internal_telemetry_publisher, value)
+
+        :error ->
+          Application.delete_env(:serviceradar_core, :internal_telemetry_publisher)
+      end
+    end)
+
+    assert :ok = ServiceRadar.NATS.DurablePublishWorker.perform(%Oban.Job{args: stored})
+    assert_received {:retried, "metrics.sweep.sweep.sweep_host_available", ^body, [msg_id: "f"]}
+  end
+
   test "messages with no post-publish work run nothing" do
     assert :ok = DurablePublish.run_on_published(nil, "{}")
   end
