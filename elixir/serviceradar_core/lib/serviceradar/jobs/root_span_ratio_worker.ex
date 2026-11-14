@@ -10,6 +10,13 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   dropping `parent_span_id`, context propagation failures), which silently
   degrades trace assembly.
 
+  Per OpenTelemetry messaging conventions, asynchronous/batch consumer spans
+  (`kind = 5`, `SPAN_KIND_CONSUMER`) legitimately start a new trace with
+  `parent_span_id IS NULL` while linking upstream producer spans in `links`.
+  Consumer root spans that carry non-empty `links` are therefore excluded from
+  both `total_spans` and `root_spans`; unlinked consumer roots still count as
+  unparented roots.
+
   Behavior:
 
   - When total spans in the window are below the configured floor the run
@@ -45,6 +52,7 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   @window_minutes 15
   @default_min_spans 1000
   @default_threshold 0.85
+  @span_kind_consumer 5
 
   @counts_sql """
   SELECT
@@ -52,12 +60,19 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     (count(*) FILTER (WHERE parent_span_id IS NULL))::bigint AS root_spans
   FROM otel_traces
   WHERE timestamp > NOW() - ($1::int * INTERVAL '1 minute')
+    AND (
+      parent_span_id IS NOT NULL
+      OR COALESCE(kind, 0) <> 5
+      OR links IS NULL
+      OR TRIM(links) IN ('', '[]', 'null')
+    )
   """
 
   @telemetry_event [:serviceradar, :observability, :root_span_ratio]
 
   def telemetry_event, do: @telemetry_event
   def window_minutes, do: @window_minutes
+  def counts_sql, do: @counts_sql
 
   @impl Oban.Worker
   def perform(_job) do
@@ -126,6 +141,18 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     :ok
   end
 
+  @doc """
+  Counts `{total_spans, root_spans}` over parsed `OtelTraces` span maps using
+  the same linked-consumer-root exclusion as `counts_sql/0` and
+  `warehouse_counts_sql/1`.
+  """
+  @spec count_spans([map()]) :: {non_neg_integer(), non_neg_integer()}
+  def count_spans(rows) when is_list(rows) do
+    eligible = Enum.reject(rows, &linked_consumer_root?/1)
+    roots = Enum.count(eligible, &is_nil(&1[:parent_span_id]))
+    {length(eligible), roots}
+  end
+
   @doc false
   # The warehouse form of @counts_sql. The Frontend evaluates NOW() in its own
   # time zone while spans are stored in UTC, so the cutoff is a UTC literal.
@@ -140,8 +167,21 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
 
     "SELECT COUNT(*) AS total_spans, " <>
       "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans " <>
-      "FROM #{StarRocksEnv.table("otel_traces")} WHERE `timestamp` > '#{cutoff}'"
+      "FROM #{StarRocksEnv.table("otel_traces")} WHERE `timestamp` > '#{cutoff}' " <>
+      "AND (parent_span_id IS NOT NULL OR COALESCE(kind, 0) <> #{@span_kind_consumer} " <>
+      "OR links IS NULL OR TRIM(links) IN ('', '[]', 'null'))"
   end
+
+  defp linked_consumer_root?(row) do
+    is_nil(row[:parent_span_id]) and row[:kind] == @span_kind_consumer and
+      non_empty_links?(row[:links])
+  end
+
+  defp non_empty_links?(links) when is_binary(links) do
+    String.trim(links) not in ["", "[]", "null"]
+  end
+
+  defp non_empty_links?(_links), do: false
 
   defp fetch_counts do
     if Destination.enabled?(), do: fetch_warehouse_counts(), else: fetch_cnpg_counts()
