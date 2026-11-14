@@ -83,7 +83,7 @@ class HarborPublishTest(unittest.TestCase):
                 result = subprocess.run(command, cwd=self.root, env=self.env,
                                         text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("gh workflow run", result.stderr)
+                self.assertRegex(result.stderr, r"gh (workflow run publish-oci\.yml|run rerun) ")
                 self.assertFalse(calls.exists(), result.stdout + result.stderr)
 
     def test_low_level_publishers_require_capacity_and_only_write_builds(self):
@@ -199,6 +199,39 @@ class HarborPublishTest(unittest.TestCase):
                 result = self.call(action, str(REPO / "scripts/verify-oci-publish.sh"), "--list-image-specs")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), [f"{base}|single"])
+
+    def test_signing_and_verification_cover_only_the_selected_repositories(self):
+        (self.bin / "jq").symlink_to(pinned_jq())
+        inventory = self.root / "docker/images/image_inventory.bzl"
+        inventory.write_text('PUBLISHABLE_IMAGES = [\n'
+                             '  {"image":"worker","repository":"registry.carverauto.dev/serviceradar/example-worker"},\n'
+                             '  {"image":"other","repository":"registry.carverauto.dev/serviceradar/example-other"},\n]\n\n')
+        lookups = self.root / "lookups"
+        self.fake("oras", f"open({str(lookups)!r}, 'a').write(sys.argv[-1] + '\\n')\nraise SystemExit(1)\n")
+        for tool in ("cosign", "curl"):
+            self.fake(tool, "raise SystemExit(1)\n")
+        base = "registry.carverauto.dev/serviceradar-builds"
+        self.env.update(SERVICERADAR_SIGN_REGISTRY_TAG="sha-example", COSIGN_KEY_REF="hashivault://example")
+        for selection, specs in (("example-other", [f"{base}/example-other|single"]),
+                                 ("", [f"{base}/example-worker|single", f"{base}/example-other|single"])):
+            with self.subTest(selection=selection):
+                self.env["SERVICERADAR_OCI_REPOSITORIES"] = selection
+                result = self.call("build", str(REPO / "scripts/verify-oci-publish.sh"), "--list-image-specs")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), specs)
+                lookups.unlink(missing_ok=True)
+                result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(lookups.read_text().splitlines(),
+                                 [spec.split("|")[0] + ":sha-example" for spec in specs])
+        self.env["SERVICERADAR_OCI_REPOSITORIES"] = "example-other not-in-inventory"
+        lookups.unlink()
+        for script in ("verify-oci-publish.sh", "sign-oci-publish.sh"):
+            with self.subTest(script=script):
+                result = self.call("build", str(REPO / "scripts" / script), "--list-image-specs")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("not-in-inventory", result.stderr)
+                self.assertFalse(lookups.exists())
 
     def setup_environment(self):
         runner = self.root / "runner"

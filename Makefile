@@ -211,7 +211,7 @@ build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally wi
 
 .PHONY: push_wasm_plugins
 push_wasm_plugins: ## Publish through the verified GitHub workflow
-	@echo "Direct publication is retired. Use: gh workflow run wasm-plugins.yml --repo carverauto/serviceradar --ref <reviewed-branch>" >&2
+	@echo "Direct publication is retired. Wasm plugins publish only from the v* release tag push; to recover, rerun the failed Publish Wasm Plugins run: gh run rerun <run-id> --failed --repo carverauto/serviceradar" >&2
 	@exit 2
 
 .PHONY: verify_wasm_plugins

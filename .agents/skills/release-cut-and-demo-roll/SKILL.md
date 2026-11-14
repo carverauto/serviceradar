@@ -129,11 +129,8 @@ Do not roll `demo` until the release artifacts for the target semver tag exist.
 The GitHub Actions `release.yml` workflow is the supported formal publisher
 because the complete release also includes packages, the Helm chart,
 managed-agent assets, native add-ons, Wasm plugins, signatures, both import
-catalogs, and source/image security bundles. `make push_all_release` only covers
-the container/Wasm portion, is not a complete release recovery, and is a
-workstation image-set build: it pulls large CAS blobs through
-`cache-proxy.carverauto.dev` and can OOMKill the shared Envoy gateway, so do not
-run it. Re-run the failed `release.yml` job at the release tag
+catalogs, and source/image security bundles. `make push_all_release` is
+retired and exits without publishing. Re-run the failed `release.yml` job at the release tag
 (`gh run rerun <run-id> --failed`) when recovery is required.
 
 ## Recovery: Release Published But `demo/prod-release` Was Not Advanced

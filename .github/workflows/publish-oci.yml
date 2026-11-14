@@ -143,7 +143,6 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Cosign
-        if: ${{ github.event.inputs.publish_scope == 'full' }}
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
@@ -285,10 +284,23 @@ jobs:
 
       - name: Publish web stack commit images
         if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        env:
+          SERVICERADAR_OCI_REPOSITORIES: serviceradar-core-elx serviceradar-web-ng
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|test/demo-test-[0-9]+)$'
+          COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          python3 "${HARBOR_PUBLISH_TOOL}" push-images --only serviceradar-core-elx serviceradar-web-ng
-          python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories serviceradar-core-elx serviceradar-web-ng --tag "sha-${GITHUB_SHA}"
+          tag="sha-${GITHUB_SHA}"
+          read -r -a repositories <<<"${SERVICERADAR_OCI_REPOSITORIES}"
+          python3 "${HARBOR_PUBLISH_TOOL}" push-images --only "${repositories[@]}"
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          SERVICERADAR_SIGN_REGISTRY_TAG="${tag}" python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-oci-publish.sh "${tag}"
+          python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories "${repositories[@]}" --tag "${tag}"
+          python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-oci-publish.sh "${tag}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Verify web stack commit images
         if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}

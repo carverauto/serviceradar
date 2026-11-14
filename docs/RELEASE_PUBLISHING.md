@@ -339,10 +339,8 @@ build remains an optional publish dependency: its failure must not prevent
 the successful Linux/image and Windows artifacts from being published.
 
 Wasm plugin recovery is GitHub Actions: rerun **Publish Wasm Plugins** at the
-release tag (`runs-on: serviceradar-signing`). `make push_all_release` covers
-container images and Wasm plugins only; it does not publish the Helm chart,
-packages, managed-agent manifest, or native add-on catalog, so it must not be
-treated as a complete formal release.
+release tag (`runs-on: serviceradar-signing`). `make push_all_release` and
+`make push_wasm_plugins` are retired: they exit without publishing anything.
 
 Keep the GitHub release draft until all package, image, native add-on, Wasm,
 and security verification succeeds. Never work around a failed parallel asset

@@ -383,6 +383,7 @@ sign_image_ref() {
 mapfile -t image_rows < <(
   python3 - <<'PY2' "${REPO_ROOT}/docker/images/image_inventory.bzl" "${REGISTRY_HOST}" "${OCI_PROJECT}"
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -395,7 +396,13 @@ match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
 if not match:
     raise SystemExit(f"unable to parse {inventory_path}")
 images = ast.literal_eval(match.group(1))
+selected = set(os.environ.get("SERVICERADAR_OCI_REPOSITORIES", "").split())
+names = {entry["repository"].split("/")[-1] for entry in images}
+if selected - names:
+    raise SystemExit(f"unknown OCI repository selection: {' '.join(sorted(selected - names))}")
 for entry in images:
+    if selected and entry["repository"].split("/")[-1] not in selected:
+        continue
     push_image = entry.get("push_image", entry["image"])
     digest_label = entry.get("digest_label", f":{push_image}.digest")
     if not (digest_label.startswith(":") and digest_label.endswith(".digest")):

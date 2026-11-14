@@ -39,6 +39,15 @@ def workflow_run_script(source: str, name: str) -> str:
     return textwrap.dedent(step.split(marker, 1)[1])
 
 
+def parsed_step(source: str, name: str) -> dict:
+    return next(
+        step
+        for job in yaml.safe_load(source)["jobs"].values()
+        for step in job["steps"]
+        if step.get("name") == name
+    )
+
+
 def run_workflow_step(
     source: str,
     name: str,
@@ -173,7 +182,6 @@ class PublishOciWorkflowContractTest(unittest.TestCase):
     def test_full_publish_steps_are_skipped_in_selective_mode(self):
         for name in (
             "Setup Go",
-            "Install Cosign",
             "Derive managed agent release public key",
             "Build (no publish)",
             "Verify managed agent release key stamp",
@@ -183,59 +191,95 @@ class PublishOciWorkflowContractTest(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertIn(FULL_CONDITION, workflow_step(self.workflow, name))
 
-    def test_selective_mode_pushes_and_verifies_only_commit_tags(self):
-        publish = workflow_step(self.workflow, "Publish web stack commit images")
-        verify = workflow_step(self.workflow, "Verify web stack commit images")
-
-        self.assertIn(SELECTIVE_CONDITION, publish)
+    def run_selective_publish(self, ref="refs/heads/test/demo-test-7", fail=None, token=True):
+        step = parsed_step(self.workflow, "Publish web stack commit images")
         sha = "1" * 40
         with tempfile.TemporaryDirectory() as temp_dir:
-            calls = Path(temp_dir) / "calls"
-            result, _summary = run_workflow_step(
-                self.workflow,
-                "Publish web stack commit images",
-                {
-                    "GITHUB_SHA": sha,
-                    "HARBOR_PUBLISH_TOOL": "/synthetic/harbor-publish.py",
-                    "PUBLISHER_CALLS": str(calls),
-                },
-                {"python3": 'printf "%s\\n" "$*" >> "${PUBLISHER_CALLS}"\n'},
+            temp = Path(temp_dir)
+            bin_dir = temp / "bin"
+            bin_dir.mkdir()
+            calls = temp / "calls"
+            fakes = {
+                # Records each publisher action with the signing state it saw.
+                "python3": f"""
+shift
+printf '%s|%s|%s|%s\\n' "$*" "${{SERVICERADAR_SIGN_REGISTRY_TAG:-}}" \\
+  "${{SERVICERADAR_OCI_REPOSITORIES:-}}" "${{VAULT_TOKEN:+vault}}" >> {calls}
+case "$*" in
+  "{fail or '-'}"*) exit 9 ;;
+esac
+""",
+                "curl": "printf 'synthetic-login-response\\n'\n",
+                "jq": "cat >/dev/null\nprintf 'synthetic\\n'\n",
+            }
+            for command, body in fakes.items():
+                path = bin_dir / command
+                path.write_text("#!/bin/bash\nset -euo pipefail\n" + body, encoding="utf-8")
+                path.chmod(0o755)
+            token_file = temp / "token"
+            if token:
+                token_file.write_text("synthetic-jwt", encoding="utf-8")
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith(("VAULT_", "COSIGN_", "OPENBAO_", "SERVICERADAR_", "BASH_FUNC_"))
+                and key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")
+            }
+            env.update(step["env"])
+            env.update({
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "GITHUB_SHA": sha,
+                "GITHUB_REF": ref,
+                "HARBOR_PUBLISH_TOOL": "/synthetic/harbor-publish.py",
+                "OPENBAO_K8S_TOKEN_FILE": str(token_file),
+            })
+            result = subprocess.run(
+                ["/bin/bash", "-c", step["run"]],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                env=env,
+                text=True,
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            recorded = calls.read_text(encoding="utf-8").splitlines()
-        # Only the two web-stack repositories reach build storage, untagged
-        # beyond their commit-only target, and only the commit tag is promoted.
+            recorded = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+        return result, [tuple(line.split("|")) for line in recorded], sha
+
+    def test_selective_mode_signs_and_verifies_before_promoting_commit_tags(self):
+        result, calls, sha = self.run_selective_publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tag = f"sha-{sha}"
+        web_stack = "serviceradar-core-elx serviceradar-web-ng"
         self.assertEqual(
-            recorded,
+            calls,
             [
-                "/synthetic/harbor-publish.py push-images --only "
-                "serviceradar-core-elx serviceradar-web-ng",
-                "/synthetic/harbor-publish.py promote --repositories "
-                f"serviceradar-core-elx serviceradar-web-ng --tag sha-{sha}",
+                (f"push-images --only {web_stack}", "", web_stack, ""),
+                ("build ./scripts/sign-oci-publish.sh", tag, web_stack, "vault"),
+                (f"build ./scripts/verify-oci-publish.sh {tag}", "", web_stack, "vault"),
+                (f"promote --repositories {web_stack} --tag {tag}", "", web_stack, "vault"),
+                (f"protected ./scripts/verify-oci-publish.sh {tag}", "", web_stack, "vault"),
             ],
         )
-        for forbidden in ("//:images", "//:push", "cosign", "latest"):
-            self.assertNotIn(forbidden, publish)
+        for call in calls:
+            self.assertNotIn("latest", call[0].split())
 
-        self.assertIn(SELECTIVE_CONDITION, verify)
-        self.assertIn('tag="sha-${GITHUB_SHA}"', verify)
-        self.assertIn(
-            'core_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-core-elx:${tag}"',
-            verify,
+    def test_selective_mode_never_promotes_without_verified_signatures(self):
+        for fail in (
+            "build ./scripts/sign-oci-publish.sh",
+            "build ./scripts/verify-oci-publish.sh",
+        ):
+            with self.subTest(fail=fail):
+                result, calls, _sha = self.run_selective_publish(fail=fail)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse([call for call in calls if call[0].startswith("promote")])
+
+        result, calls, _sha = self.run_selective_publish(token=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([call[0].split()[0] for call in calls], ["push-images"])
+
+        result, calls, _sha = self.run_selective_publish(
+            fail="protected ./scripts/verify-oci-publish.sh"
         )
-        self.assertIn(
-            'web_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-web-ng:${tag}"',
-            verify,
-        )
-        self.assertEqual(verify.count("oras manifest fetch --descriptor"), 1)
-        self.assertIn(
-            'if ! core_digest="$(resolve_digest "${core_ref}")"; then', verify
-        )
-        self.assertIn(
-            'if ! web_digest="$(resolve_digest "${web_ref}")"; then', verify
-        )
-        self.assertIn("GITHUB_STEP_SUMMARY", verify)
-        self.assertNotIn("HARBOR_ROBOT_SECRET", verify)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_digest_verification_propagates_external_failures(self):
         fake_commands = {
@@ -279,16 +323,18 @@ esac
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary.count(VALID_DIGEST), 2)
+        for repository in ("serviceradar-core-elx", "serviceradar-web-ng"):
+            self.assertIn(
+                f"registry.example/serviceradar/{repository}:sha-{'1' * 40} -> {VALID_DIGEST}",
+                summary,
+            )
 
-    def test_full_publish_signs_on_the_demo_test_build_branch(self):
-        workflow = yaml.safe_load(self.workflow)
-        step = next(
-            step
-            for job in workflow["jobs"].values()
-            for step in job["steps"]
-            if step.get("name") == "Publish images"
-        )
+    def test_publish_signs_only_on_the_signing_branches(self):
+        for name in ("Publish images", "Publish web stack commit images"):
+            with self.subTest(step=name):
+                self.assert_signing_branch_guard(parsed_step(self.workflow, name))
 
+    def assert_signing_branch_guard(self, step):
         def guard(ref: str) -> subprocess.CompletedProcess[str]:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp = Path(temp_dir)
@@ -302,7 +348,7 @@ esac
                     if not key.startswith(("VAULT_", "COSIGN_", "OPENBAO_", "BASH_FUNC_"))
                     and key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")
                 }
-                env.update(step["env"])
+                env.update(step.get("env", {}))
                 env.update({
                     "PATH": str(temp),
                     "GITHUB_SHA": "1" * 40,
