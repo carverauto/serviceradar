@@ -1333,7 +1333,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     series_key = "synthetic:forecast-same-time-batch:#{System.unique_integer([:positive])}"
     time = 1_812_456_000_000
-    earlier = capacity_forecast_message(series_key, "forecast-earlier", "forecast-earlier", time)
+
+    # The event id hashes the series and the producer's event id, so it is random per run.
+    # The producer id with the higher event id goes first, so message order and event-id
+    # order disagree in every run.
+    [later_source, earlier_source] =
+      Enum.sort_by(["forecast-a", "forecast-b"], fn source_id ->
+        forecast_event_id(capacity_forecast_message(series_key, source_id, "", time))
+      end)
+
+    earlier = capacity_forecast_message(series_key, earlier_source, "forecast-earlier", time)
+    later = capacity_forecast_message(series_key, later_source, "forecast-later", time)
 
     delete_episode_fixture!(series_key)
 
@@ -1341,16 +1351,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
       delete_episode_fixture!(series_key)
     end)
-
-    {earlier, later} =
-      Enum.find_value(1..80, fn n ->
-        later =
-          capacity_forecast_message(series_key, "forecast-later-#{n}", "forecast-later", time)
-
-        if forecast_event_id(later) < forecast_event_id(earlier) do
-          {earlier, later}
-        end
-      end) || flunk("no same-time forecast pair inverted event-id order")
 
     assert forecast_event_id(later) < forecast_event_id(earlier)
 

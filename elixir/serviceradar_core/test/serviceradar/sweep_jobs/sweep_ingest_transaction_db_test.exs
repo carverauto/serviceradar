@@ -23,8 +23,8 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
   @moduletag sandbox: :unboxed
 
   @wait_ms 15_000
-  # An ingest of a thousand results, which may first wait for another of the same size.
-  @large_ingest_wait_ms 120_000
+  # SweepResultsIngestor's internal batch size.
+  @ingest_batch_size 500
 
   setup_all do
     TestSupport.start_core!()
@@ -133,28 +133,34 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
              )
   end
 
-  # Two ingests for one agent, each larger than one internal batch of 500 results, share their
-  # hosts in the opposite batch order: `a` then `b` for one, `b` then `a` for the other. When
-  # each batch locked its own availability rows before the next batch's, each ingest held one
-  # half while it waited for the other's, and Postgres aborted one of them with a deadlock. An
-  # ingest takes all its availability rows in one key order, so the second waits for the first.
+  # Two ingests for one agent, each larger than one internal batch, report two shared devices in
+  # the opposite batch order: `a` in the first batch and `b` in the second for one, `b` then `a`
+  # for the other. When each batch locked its own availability rows before the next batch's, each
+  # ingest held one shared row while it waited for the other's, and Postgres aborted one of them
+  # with a deadlock. An ingest takes all its availability rows in one key order, so the second
+  # waits for the first.
   #
-  # A third transaction holds the availability row each ingest has ahead of the shared hosts in
+  # Unanswered addresses with no device fill the rest of each first batch and take no
+  # availability row. The second ingest's transaction includes its wait for the first to
+  # commit, and the Repo timeout bounds that whole transaction, so the serialized part is a
+  # few devices rather than a thousand.
+  #
+  # A third transaction holds the availability row each ingest has ahead of the shared device in
   # its second batch, so both have finished their first batch before either goes on.
-  @tag timeout: 300_000
   test "two ingests sharing hosts in a different batch order both commit", ctx do
     agent_id = "agent-lock-order-#{System.unique_integer([:positive])}"
 
     ip_by_uid =
-      Map.new(1..1_002, fn _ -> {"sr:#{Ash.UUID.generate()}", TestSupport.unique_device_ip()} end)
+      Map.new(1..4, fn _ -> {"sr:#{Ash.UUID.generate()}", TestSupport.unique_device_ip()} end)
 
     ips = Map.values(ip_by_uid)
     on_exit(fn -> cleanup_devices!(ips) end)
     insert_devices!(ip_by_uid)
 
-    [first_held, second_held | shared_uids] = ip_by_uid |> Map.keys() |> Enum.sort()
-    {a, b} = shared_uids |> Enum.map(&ip_by_uid[&1]) |> Enum.split(500)
+    # The held devices sort ahead of the shared ones in every availability upsert.
+    [first_held, second_held, a, b] = uids = ip_by_uid |> Map.keys() |> Enum.sort()
     held_uids = [first_held, second_held]
+    filler = unanswered_results(@ingest_batch_size - 1)
 
     # Only the held hosts have the agent's availability rows, so both ingests insert the shared
     # rows, as two concurrent first sightings do.
@@ -168,7 +174,9 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
     first =
       start_ingest_transaction(ctx, agent_id,
         hold?: false,
-        results: available_results(a ++ [ip_by_uid[first_held]] ++ b)
+        results:
+          available_results([ip_by_uid[a]]) ++
+            filler ++ available_results([ip_by_uid[first_held], ip_by_uid[b]])
       )
 
     send(first.task.pid, :go)
@@ -177,7 +185,9 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
     second =
       start_ingest_transaction(%{ctx | group: ctx.other_group}, agent_id,
         hold?: false,
-        results: available_results(b ++ [ip_by_uid[second_held]] ++ a)
+        results:
+          available_results([ip_by_uid[b]]) ++
+            filler ++ available_results([ip_by_uid[second_held], ip_by_uid[a]])
       )
 
     send(second.task.pid, :go)
@@ -186,10 +196,8 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
     send(holder.pid, :release)
     Task.await(holder, @wait_ms)
 
-    assert {:ok, {:ok, _stats}} = Task.await(first.task, @large_ingest_wait_ms)
-    assert {:ok, {:ok, _stats}} = Task.await(second.task, @large_ingest_wait_ms)
-
-    all_uids = Enum.sort(Map.keys(ip_by_uid))
+    assert {:ok, {:ok, _stats}} = Task.await(first.task, @wait_ms)
+    assert {:ok, {:ok, _stats}} = Task.await(second.task, @wait_ms)
 
     %{rows: rows} =
       Repo.query!(
@@ -197,10 +205,10 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
         SELECT device_uid FROM platform.device_agent_availability
         WHERE agent_id = $1 AND device_uid = ANY($2)
         """,
-        [agent_id, all_uids]
+        [agent_id, uids]
       )
 
-    assert rows |> List.flatten() |> Enum.sort() == all_uids
+    assert rows |> List.flatten() |> Enum.sort() == uids
   end
 
   # The caller's transaction runs the whole ingest. `hold?` keeps it open after the ingest until
@@ -274,6 +282,14 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
 
   defp available_results(ips), do: Enum.map(ips, &%{"host_ip" => &1, "available" => true})
 
+  # Addresses that did not answer and have no device: no device is created for them and they take
+  # no availability row.
+  defp unanswered_results(count) do
+    Enum.map(1..count, fn _ ->
+      %{"host_ip" => TestSupport.unique_device_ip(), "available" => false}
+    end)
+  end
+
   defp insert_devices!(ip_by_uid) do
     Repo.query!(
       """
@@ -299,7 +315,7 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
   # Waits until backend `waiter` waits on backend `holder` in a statement LIKE `statement`, not
   # on anything taken earlier.
   defp await_blocked!(waiter, holder, statement, deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + @large_ingest_wait_ms
+    deadline = deadline || System.monotonic_time(:millisecond) + @wait_ms
 
     %{rows: [[blocked]]} =
       Repo.query!(
