@@ -225,6 +225,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/rules_live_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live/provenance_test.exs",
+    "test/phoenix/live/settings/snmp_profiles_live/target_preview_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live_test.exs",
     "test/phoenix/live/settings/sysmon_profiles_live_test.exs",
     "test/phoenix/live/settings/telemetry_onboarding_live_test.exs",
