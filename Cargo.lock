@@ -1426,7 +1426,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ultragraph",
+ "ultragraph 0.10.0",
 ]
 
 [[package]]
@@ -1736,7 +1736,7 @@ dependencies = [
  "deep_causality_data_structures",
  "deep_causality_haft",
  "deep_causality_uncertain",
- "ultragraph",
+ "ultragraph 0.9.9",
 ]
 
 [[package]]
@@ -1767,7 +1767,7 @@ dependencies = [
  "deep_causality_metric",
  "deep_causality_num",
  "deep_causality_uncertain",
- "ultragraph",
+ "ultragraph 0.9.9",
 ]
 
 [[package]]
@@ -2820,7 +2820,7 @@ dependencies = [
  "roaring",
  "rustler",
  "serde_json",
- "ultragraph",
+ "ultragraph 0.10.0",
 ]
 
 [[package]]
@@ -8477,9 +8477,24 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ultragraph"
-version = "0.9.5"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65cb4e3e0bd8a54b400543e2a3d7f5715b42d86ebc240e54e1fc12be57cad9ce"
+checksum = "1c38a01074834b31b0b0b7857962072d6d97218fa689849db93a556710974f9c"
+
+[[package]]
+name = "ultragraph"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf1bfa4ef34d14a71fd74935d05dd63267dd94eaaa5a98595598095400c5624"
+dependencies = [
+ "ultragraph_traits",
+]
+
+[[package]]
+name = "ultragraph_traits"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0359fbc554dca687f8f04b29d10197cfa9941aeda86fbd90f0c4e73b0e278c0f"
 
 [[package]]
 name = "unarray"
