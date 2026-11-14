@@ -750,7 +750,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     assert by_origin_v2["https://192.0.2.10:8006"]["binding_id"] == pve01_binding_id
   end
 
-  test "console binding_id stays stable across device_uid and sibling changes while isolating guest scopes" do
+  test "console binding_id stays stable across target changes and every public target keeps a matching binding" do
     guest_155 = fn uid, controller_uid, cluster ->
       %{
         "uid" => uid,
@@ -808,13 +808,26 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     {_pub1, %{"bindings" => [b1]}} =
       partition("proxmox-console", "run_console", params_v1, "assignment-console-stable")
 
-    {_pub2, %{"bindings" => bindings_v2}} =
+    {pub2, %{"bindings" => [b2]}} =
       partition("proxmox-console", "run_console", params_v2, "assignment-console-stable")
 
-    assert length(bindings_v2) == 2
-    by_vmid = Map.new(bindings_v2, &{&1["target_ids"]["vmid"], &1})
-    assert by_vmid["155"]["binding_id"] == b1["binding_id"]
-    refute by_vmid["156"]["binding_id"] == b1["binding_id"]
+    assert b2["binding_id"] == b1["binding_id"]
+
+    assert [%{"vmid" => public_vmid}] = Enum.flat_map(pub2["inputs"], & &1["items"])
+
+    assert public_vmid == b2["target_ids"]["vmid"]
+
+    rotated_secret =
+      put_in(
+        params_v2,
+        ["template", "credential_broker", "credential_secret_ref"],
+        "credentialref:network-credential-secret:secret-2"
+      )
+
+    {_pub3, %{"bindings" => [b3]}} =
+      partition("proxmox-console", "run_console", rotated_secret, "assignment-console-stable")
+
+    refute b3["binding_id"] == b1["binding_id"]
   end
 
   test "live_target_scope_contains_binding?/6 verifies live scope membership separately from binding_id" do
@@ -957,7 +970,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
       "grant_id" => "grant-inventory",
       "grant_type" => "proxmox_api_token",
       "credential_rule_id" => "rule-inventory",
-      "credential_secret_ref" => "secretref:network_credential:secret-1",
+      "credential_secret_ref" => "credentialref:network-credential-secret:secret-1",
       "consumer" => %{
         "kind" => "plugin",
         "id" => "proxmox-inventory",
@@ -984,7 +997,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
       "grant_id" => "grant-console",
       "grant_type" => "proxmox_console",
       "credential_rule_id" => "rule-console",
-      "credential_secret_ref" => "secretref:network_credential:secret-1",
+      "credential_secret_ref" => "credentialref:network-credential-secret:secret-1",
       "consumer" => %{
         "kind" => "plugin",
         "id" => "proxmox-console",

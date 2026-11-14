@@ -6,7 +6,7 @@ Previously, `ProxmoxHostAuthority.binding_id/4` included the sorted `target_ids`
 ## Goals / Non-Goals
 - **Goals**:
   - Keep `binding_id` invariant across sibling target additions/removals and per-device inventory metadata updates for as long as the authority scope remains in the assignment's live target scope.
-  - Preserve distinct `binding_id`s for distinct console authority scopes (per `(target_kind, node, vmid)` guest path ACL or per `node` controller target on a shared VIP).
+  - Never offer the agent a console target that no delivered binding authorizes.
   - Verify live target-scope membership explicitly and separately from `binding_id` during `plugin_host_binding_for_resolution/3`.
   - Ensure gateway credential-grant denial warnings print `failure_code`, `failure_kind`, `assignment_id`, and `binding_id` through `ServiceRadar.Logging.ConsoleFormatter`.
 - **Non-Goals**:
@@ -14,14 +14,12 @@ Previously, `ProxmoxHostAuthority.binding_id/4` included the sorted `target_ids`
 
 ## Decisions
 - **Decision 1: Stable `binding_id` derivation**
-  - `proxmox-inventory` (`run_check`): `SHA-256(assignment_id | credential_rule_id | origin)` (first 32 lowercase hex chars, prefixed with `proxmox-`).
-  - `proxmox-console` (`run_console`):
-    - Guest target (`target_kind` in `["qemu_guest", "lxc_guest"]`): `SHA-256(assignment_id | credential_rule_id | origin | "guest" | target_kind | node | vmid)`.
-    - Host target (`node` present): `SHA-256(assignment_id | credential_rule_id | origin | "node" | node)` (falling back to `assignment_id | credential_rule_id | origin` when `node` is absent).
-  - Candidate bindings are sorted deterministically by `{binding_id, canonical_target_ids}` and deduplicated via `Enum.uniq_by(& &1["binding_id"])` so Go's `decodePluginHostAuthority` never encounters duplicate `binding_id`s when multiple target rows map to the same controller origin.
+  - Both plugins: `SHA-256(assignment_id | credential_secret_id | origin | auth_method | verify_tls)` (first 32 lowercase hex chars, prefixed with `proxmox-`). `credential_secret_id` is resolved from the grant's `credential_secret_ref`; `auth_method` is the effective `api_token` or `ssh` mode; `verify_tls` is false only when `insecure_skip_verify` is set. A grant whose secret reference does not resolve builds no binding.
+  - Candidate bindings are sorted deterministically by `{binding_id, canonical_target_ids}` and deduplicated via `Enum.uniq_by` on `binding_id` so Go's `decodePluginHostAuthority` never encounters duplicate `binding_id`s when multiple target rows map to the same controller origin.
+  - The agent authorizes a console session only when the binding's `target_ids` match the session, so a console assignment keeps one target per binding: target rows whose candidate lost deduplication are removed from the public params. Inventory selects bindings by origin only and keeps every target.
 
 - **Decision 2: Separate live target-scope membership verification**
-  - `ProxmoxHostAuthority.live_target_scope_contains_binding?/6` evaluates the current assignment parameters (after source-scope enrichment and node-certificate SAN reconciliation) and confirms at least one live target resolves to `binding["origin"]` under `binding["credential_rule_id"]` and matches the binding's console target scope (`node`, `integration_id`, `controller_id`, and guest `{target_kind, vmid}` when applicable).
+  - `ProxmoxHostAuthority.live_target_scope_contains_binding?/6` evaluates the current assignment parameters (after source-scope enrichment and node-certificate SAN reconciliation) and confirms at least one live target resolves to `binding["origin"]` and, for console bindings, matches the binding's node or guest `{target_kind, node, vmid}` scope. Policy, credential-rule, SSH host-key and single-origin checks are already enforced when the bindings are rebuilt through `partition/5`.
   - `AgentConfigGenerator.plugin_host_binding_for_resolution/3` checks `live_target_scope_contains_binding?/6` explicitly; once all targets for an origin (or console guest/node) leave the live scope, credential resolution is denied.
 
 - **Decision 3: Console Logger allowlist and gateway denial metadata**
