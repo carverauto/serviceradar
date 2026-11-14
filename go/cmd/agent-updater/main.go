@@ -35,8 +35,17 @@ var errVersionRequired = errors.New("version is required")
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("Fatal error: %v", err)
+		log.Printf("Fatal error: %v", err)
+		os.Exit(exitCodeForError(err))
 	}
+}
+
+func exitCodeForError(err error) int {
+	if agent.IsPermanentAddonInstallError(err) {
+		return updaterflags.ExitPermanentRefusal
+	}
+
+	return 1
 }
 
 func run() error {

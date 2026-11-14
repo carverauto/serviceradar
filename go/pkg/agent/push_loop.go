@@ -133,9 +133,11 @@ type PushLoop struct {
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
 
-	addonDeliveryMu       sync.Mutex
-	addonDeliveryFailures map[string]addonDeliveryFailure // permanent add-on artifact delivery failure, by addon id (drives backoff + status)
-	addonApplyFailures    map[string]addonApplyFailure    // latest per-add-on apply/install/delivery failure, by addon id (drives candidate failure status)
+	addonDeliveryMu            sync.Mutex
+	addonDeliveryFailures      map[string]addonDeliveryFailure // permanent add-on artifact delivery failure, by addon id (drives backoff + status)
+	addonApplyFailures         map[string]addonApplyFailure    // latest per-add-on apply/install/delivery failure, by addon id (drives candidate failure status)
+	systemdInstallFailures     map[string]string               // permanent systemd install suppression key, by addon id
+	systemdUpdaterPathOverride string                          // test-only updater path override; empty uses AgentUpdaterPath()
 
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)

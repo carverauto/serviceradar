@@ -137,8 +137,8 @@ func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
 			return nil
 		},
 	)
-	if disposition != addonDeliveryTransientFailure {
-		t.Fatalf("disposition = %v, want transient failure", disposition)
+	if disposition != addonDeliveryPermanentFailure {
+		t.Fatalf("disposition = %v, want permanent failure for supervision unit contract mismatch", disposition)
 	}
 	if installed {
 		t.Fatal("supervision mismatch reached install")
@@ -146,6 +146,190 @@ func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
 	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
 	if state["mode"] != "v1" {
 		t.Fatalf("pre-install failure left candidate state in place: %#v", state)
+	}
+}
+
+func TestSystemdPermanentRefusalViaUpdaterExitCodeSuppressesRetriesUntilInputOrUpdaterChanges(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	hitsFile := filepath.Join(t.TempDir(), "updater-hits")
+	updaterPath := filepath.Join(t.TempDir(), "fake-agent-updater")
+	// Opaque stderr proves classification uses subprocess exit code 78, never error-text matching.
+	scriptV1 := "#!/bin/sh\nprintf 'x\\n' >> '" + hitsFile + "'\nprintf 'opaque refusal\\n' >&2\nexit 78\n"
+	if err := os.WriteFile(updaterPath, []byte(scriptV1), 0o755); err != nil {
+		t.Fatalf("write fake updater: %v", err)
+	}
+
+	stageVersion := func(version string) (string, string) {
+		t.Helper()
+		tgz := makeAddonTarGz(t, map[string][]byte{
+			"serviceradar-bumblebee-scan": []byte("#!/bin/sh\nexit 0\n"),
+			"bumblebee-scan.json":         []byte("{\n  \"mode\": \"v1\"\n}\n"),
+			"serviceradar-bumblebee-scan.service": []byte(
+				"[Service]\nExecStart=/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan\n",
+			),
+		})
+		key := "addons/bumblebee/" + version
+		store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+		sha := sha256Hex(tgz)
+		if _, err := stageAddonArtifact(context.Background(), store, root, &proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           version,
+			BinaryPath:        "/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan",
+			ArtifactObjectKey: key,
+			ArtifactSha256:    sha,
+		}, ""); err != nil {
+			t.Fatalf("stage %s: %v", version, err)
+		}
+		return key, sha
+	}
+
+	keyV1, shaV1 := stageVersion("0.1.6")
+	pl := newSystemdAddonPushLoop(t)
+	pl.systemdUpdaterPathOverride = updaterPath
+	now := time.Now()
+	assignment := &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Enabled:           true,
+		Version:           "0.1.6",
+		Delivery:          addonDeliveryPushedArtifact,
+		Supervision:       addonSupervisionSystemdService,
+		ArtifactObjectKey: keyV1,
+		ArtifactSha256:    shaV1,
+		ArtifactSignature: "sig-v1",
+		BinaryPath:        "/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan",
+		DownloadToken:     "ephemeral-token-1",
+	}
+
+	deliver := func(_ context.Context, a *proto.AddonAssignmentConfig, _ string, _ time.Time) (string, addonDeliveryDisposition, error) {
+		return filepath.Join(root, a.GetAddonId(), addonVersionsDir, a.GetVersion(), "serviceradar-bumblebee-scan"), addonDeliverySucceeded, nil
+	}
+	installViaSubprocess := func(ctx context.Context, req AddonSystemdInstallRequest) error {
+		cmd, err := systemdInstallUpdaterArgs(req)
+		if err != nil {
+			return err
+		}
+		if err := runAgentUpdaterCommand(ctx, updaterPath, cmd.args...); err != nil {
+			return fmt.Errorf("agent-updater systemd install failed: %w", err)
+		}
+		return nil
+	}
+	hitCount := func() int {
+		data, err := os.ReadFile(hitsFile)
+		if os.IsNotExist(err) {
+			return 0
+		}
+		if err != nil {
+			t.Fatalf("read hits: %v", err)
+		}
+		return len(data) / 2
+	}
+
+	// First attempt: exits 78 -> permanent failure, recorded for per-addon status.
+	disp := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignment,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		now,
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		deliver,
+		installViaSubprocess,
+	)
+	if disp != addonDeliveryPermanentFailure {
+		t.Fatalf("first disposition = %v, want permanent failure", disp)
+	}
+	if got := hitCount(); got != 1 {
+		t.Fatalf("updater hits after first attempt = %d, want 1", got)
+	}
+	statuses := pl.addonDeliveryFailureStatuses(nil)
+	if len(statuses) != 1 || statuses[0].GetName() != "addon:bumblebee" || statuses[0].GetApplyDisposition() != configSectionDispositionPermanent {
+		t.Fatalf("per-addon failure status = %+v, want addon:bumblebee with permanent_failure", statuses)
+	}
+
+	// Second attempt 10 minutes later (past the 5-minute artifact backoff) with a rotated
+	// DownloadToken: must STILL be suppressed without spawning the setuid updater again.
+	assignmentRotatedToken := &proto.AddonAssignmentConfig{
+		AddonId:           assignment.GetAddonId(),
+		Enabled:           true,
+		Version:           assignment.GetVersion(),
+		Delivery:          assignment.GetDelivery(),
+		Supervision:       assignment.GetSupervision(),
+		ArtifactObjectKey: assignment.GetArtifactObjectKey(),
+		ArtifactSha256:    assignment.GetArtifactSha256(),
+		ArtifactSignature: assignment.GetArtifactSignature(),
+		BinaryPath:        assignment.GetBinaryPath(),
+		DownloadToken:     "ephemeral-token-2",
+	}
+	disp2 := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignmentRotatedToken,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		now.Add(10*time.Minute),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		deliver,
+		installViaSubprocess,
+	)
+	if disp2 != addonDeliveryPermanentFailure {
+		t.Fatalf("suppressed disposition = %v, want permanent failure", disp2)
+	}
+	if got := hitCount(); got != 1 {
+		t.Fatalf("updater hits past 5m with unchanged assignment and updater = %d, want 1 (suppressed)", got)
+	}
+
+	// Replacing the package-owned updater binary on disk changes its stat identity and
+	// must immediately retry even with the same assignment.
+	scriptV2 := "#!/bin/sh\n# upgraded updater build\nprintf 'x\\n' >> '" + hitsFile + "'\nprintf 'still refused\\n' >&2\nexit 78\n"
+	if err := os.WriteFile(updaterPath, []byte(scriptV2), 0o755); err != nil {
+		t.Fatalf("rewrite fake updater: %v", err)
+	}
+	dispUpdaterChanged := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignmentRotatedToken,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		now.Add(10*time.Minute+time.Second),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		deliver,
+		installViaSubprocess,
+	)
+	if dispUpdaterChanged != addonDeliveryPermanentFailure {
+		t.Fatalf("disposition after updater replacement = %v, want permanent failure", dispUpdaterChanged)
+	}
+	if got := hitCount(); got != 2 {
+		t.Fatalf("updater hits after updater binary changed on disk = %d, want 2", got)
+	}
+
+	// Changing the assigned package version must immediately retry the updater.
+	keyV2, shaV2 := stageVersion("0.1.8")
+	assignmentUpgraded := &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Enabled:           true,
+		Version:           "0.1.8",
+		Delivery:          addonDeliveryPushedArtifact,
+		Supervision:       addonSupervisionSystemdService,
+		ArtifactObjectKey: keyV2,
+		ArtifactSha256:    shaV2,
+		ArtifactSignature: "sig-v2",
+		BinaryPath:        "/usr/lib/serviceradar/addons/bumblebee/current/serviceradar-bumblebee-scan",
+	}
+	_ = pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignmentUpgraded,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		now.Add(11*time.Minute),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		deliver,
+		installViaSubprocess,
+	)
+	if got := hitCount(); got != 3 {
+		t.Fatalf("updater hits after version change = %d, want 3", got)
 	}
 }
 
@@ -177,7 +361,12 @@ func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
 			if disposition != tc.wantDisposition {
 				t.Fatalf("disposition = %v, want %v", disposition, tc.wantDisposition)
 			}
-			if got := pl.assignedAddonPermanentFailureSummary(); got != tc.wantReported {
+			got := ""
+			var addonPermErr *addonAssignmentsPermanentError
+			if permErr := pl.assignedAddonPermanentFailureError(); errors.As(permErr, &addonPermErr) {
+				got = addonPermErr.summary
+			}
+			if got != tc.wantReported {
 				t.Fatalf("reported failure = %q, want %q", got, tc.wantReported)
 			}
 			state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))

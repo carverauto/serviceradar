@@ -547,8 +547,8 @@ func (p *PushLoop) finishEffectiveAddonAssignments(
 
 	// Surface still-standing permanent per-add-on failures as the section status carried
 	// on the config ack (the per-add-on detail also rides the AddonStatus read model).
-	if reason := p.assignedAddonPermanentFailureSummary(); reason != "" {
-		return addonDeliveryPermanentFailure, fmt.Errorf("%w: %s", errAddonAssignmentsPermanent, reason)
+	if permErr := p.assignedAddonPermanentFailureError(); permErr != nil {
+		return addonDeliveryPermanentFailure, permErr
 	}
 
 	return addonDeliverySucceeded, nil
@@ -590,13 +590,13 @@ func activationHeldOnly(deferred []string, held map[string]struct{}) bool {
 	return true
 }
 
-// assignedAddonPermanentFailureSummary aggregates the recorded permanent delivery
-// failures for currently-assigned add-ons into one human-readable reason string (empty
-// when there are none). pruneAddonDeliveryFailures has already dropped unassigned ids.
-func (p *PushLoop) assignedAddonPermanentFailureSummary() string {
+// assignedAddonPermanentFailureError aggregates the recorded permanent delivery/install
+// failures for currently-assigned add-ons into an attributed error (nil when there are
+// none). pruneAddonDeliveryFailures has already dropped unassigned ids.
+func (p *PushLoop) assignedAddonPermanentFailureError() error {
 	failures := p.addonDeliveryFailureSnapshot()
 	if len(failures) == 0 {
-		return ""
+		return nil
 	}
 
 	ids := make([]string, 0, len(failures))
@@ -610,7 +610,10 @@ func (p *PushLoop) assignedAddonPermanentFailureSummary() string {
 		parts = append(parts, id+": "+failures[id].reason)
 	}
 
-	return strings.Join(parts, "; ")
+	return &addonAssignmentsPermanentError{
+		addonIDs: ids,
+		summary:  strings.Join(parts, "; "),
+	}
 }
 
 // buildSidecarAddonSpec stages an agent-sidecar add-on and returns its supervised
@@ -779,6 +782,15 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		return addonDeliverySucceeded
 	}
 
+	if p.systemdInstallSuppressed(a, supervision) {
+		p.logger.Debug().
+			Str("addon", a.GetAddonId()).
+			Str("version", a.GetVersion()).
+			Msg("Skipping systemd add-on activation; identical assignment and updater already failed permanently")
+
+		return addonDeliveryPermanentFailure
+	}
+
 	root := resolveAddonArtifactRoot(runtimeRoot)
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
@@ -816,8 +828,11 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		// A staged runtime-config write failure (e.g. ambiguous/missing config) will not
 		// fix itself on the next poll; record it and let the ack proceed.
 		disposition := classifyAddonDeliveryError(err)
+		if IsPermanentAddonInstallError(err) {
+			disposition = addonDeliveryPermanentFailure
+		}
 		if disposition == addonDeliveryPermanentFailure {
-			p.recordAddonDeliveryFailure(a, err, now)
+			p.recordSystemdPermanentFailure(a, supervision, err, now)
 		} else {
 			p.recordTransientAddonApplyFailure(a, err, now)
 		}
@@ -828,12 +843,14 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	}
 
 	if err := p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install); err != nil {
-		// The package-owned updater lacks a flag this agent needs, and the agent's
-		// self-update never replaces it; only a host package upgrade does. Retrying
-		// cannot succeed, so record the failure: the rest of the config commits and
-		// acks, and this add-on reports why it is not running.
-		if errors.Is(err, errReleaseUpdaterFlagUnsupported) {
-			p.recordAddonDeliveryFailure(a, err, now)
+		// Deterministic contract, signature, path, unit, capability, or missing-flag
+		// refusals cannot succeed until an assignment input or the package-owned updater
+		// binary changes. Record the failure and suppress repeat setuid invocations so
+		// the rest of the config commits and acks immediately.
+		if IsPermanentAddonInstallError(err) {
+			p.recordSystemdPermanentFailure(a, supervision, err, now)
+			p.logSidecarDeliveryFailure(a, err, addonDeliveryPermanentFailure,
+				"Systemd add-on activation refused permanently; leaving current state unchanged")
 			return addonDeliveryPermanentFailure
 		}
 

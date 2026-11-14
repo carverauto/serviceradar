@@ -2375,6 +2375,92 @@ func TestTransientAddonFailureEscalatesAndCommitsWhenUnrelatedAddonUpdates(t *te
 	}
 }
 
+func TestTransientAddonFailureEscalatesDespiteRotatingDownloadToken(t *testing.T) {
+	srv, _ := statusServer(t, http.StatusServiceUnavailable)
+	manager := &recordingAddonManager{}
+	pl := newAddonManagerPushLoop(t, manager)
+	pl.setConfigVersion(testOldConfigVersion)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+
+	makeCfg := func(version, anomalyBaseline, freshToken string) *proto.AgentConfigResponse {
+		healthy := osPackageSidecarAssignment("anomaly", "/usr/local/lib/serviceradar/bin/serviceradar-anomaly-addon")
+		healthy.ConfigJson = []byte(`{"baseline": "` + anomalyBaseline + `"}`)
+		failing := sidecar404Assignment("netprobe", srv.URL)
+		failing.DownloadToken = freshToken
+		return &proto.AgentConfigResponse{
+			ConfigVersion: version,
+			Addons:        []*proto.AddonAssignmentConfig{healthy, failing},
+			Checks:        []*proto.AgentCheckConfig{testICMPCheck()},
+		}
+	}
+
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV1, "b1", "tok-1"), sender)
+	firstFailure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if firstFailure.disposition != addonDeliveryTransientFailure || firstFailure.attempts != 1 {
+		t.Fatalf("v1 addons failure = %+v, want transient attempt 1", firstFailure)
+	}
+
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV2, "b2", "tok-2"), sender)
+	secondFailure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if secondFailure.attempts != 2 || !secondFailure.since.Equal(firstFailure.since) {
+		t.Fatalf("v2 addons failure = %+v, want attempts=2 and since=%v preserved across DownloadToken mint", secondFailure, firstFailure.since)
+	}
+
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV3, "b3", "tok-3"), sender)
+	thirdFailure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if thirdFailure.attempts != 3 || !thirdFailure.since.Equal(firstFailure.since) {
+		t.Fatalf("v3 addons failure = %+v, want attempts=3 and since=%v preserved across DownloadToken mint", thirdFailure, firstFailure.since)
+	}
+
+	backdateConfigSectionFailure(t, pl, configSectionAddons)
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV4, "b4", "tok-4"), sender)
+	if got := pl.getConfigVersion(); got != testCfgV4 {
+		t.Fatalf("committed version at bound = %q, want cfg-v4", got)
+	}
+}
+
+func TestPermanentAddonFailureCommitsImmediatelyAndPreservesSinceAcrossHealthyAddonUpdates(t *testing.T) {
+	srv, _ := statusServer(t, http.StatusNotFound)
+	manager := &recordingAddonManager{}
+	pl := newAddonManagerPushLoop(t, manager)
+	pl.setConfigVersion(testOldConfigVersion)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+
+	makeCfg := func(version, anomalyBaseline, freshToken string) *proto.AgentConfigResponse {
+		healthy := osPackageSidecarAssignment("anomaly", "/usr/local/lib/serviceradar/bin/serviceradar-anomaly-addon")
+		healthy.ConfigJson = []byte(`{"baseline": "` + anomalyBaseline + `"}`)
+		failing := sidecar404Assignment("bumblebee", srv.URL)
+		failing.DownloadToken = freshToken
+		return &proto.AgentConfigResponse{
+			ConfigVersion: version,
+			Addons:        []*proto.AddonAssignmentConfig{healthy, failing},
+			Checks:        []*proto.AgentCheckConfig{testICMPCheck()},
+		}
+	}
+
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV1, "b1", "tok-1"), sender)
+	if got := pl.getConfigVersion(); got != testCfgV1 {
+		t.Fatalf("committed version on permanent failure = %q, want %q", got, testCfgV1)
+	}
+	firstFailure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if firstFailure.disposition != addonDeliveryPermanentFailure || len(firstFailure.addonIDs) != 1 || firstFailure.addonIDs[0] != "bumblebee" {
+		t.Fatalf("v1 permanent addons failure = %+v, want permanent attributed to [bumblebee]", firstFailure)
+	}
+
+	// Updating healthy anomaly's ConfigJson and rotating DownloadToken must commit v2
+	// while keeping the permanent failure's original since timestamp unchanged.
+	pl.applyControlConfig(t.Context(), makeCfg(testCfgV2, "b2", "tok-2"), sender)
+	if got := pl.getConfigVersion(); got != testCfgV2 {
+		t.Fatalf("committed version after healthy add-on update = %q, want %q", got, testCfgV2)
+	}
+	secondFailure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if !secondFailure.since.Equal(firstFailure.since) || secondFailure.version != testCfgV1 {
+		t.Fatalf("healthy add-on update reset permanent failure record: got %+v, want since=%v version=%s", secondFailure, firstFailure.since, testCfgV1)
+	}
+}
+
 func TestTransientVisibilityFailureEscalatesAndCommitsWhenUnrelatedAddonUpdates(t *testing.T) {
 	dir := t.TempDir()
 	lifecycle := &recordingSidecarLifecycleManager{

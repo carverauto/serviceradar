@@ -68,6 +68,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "every_target_canceled" => "every targeted agent was withdrawn before it ran the candidate",
     "agent_updater_outdated" =>
       "the ServiceRadar agent package on this host is too old to install systemd add-ons; upgrade the package on the host (agent self-update does not replace its updater)",
+    "legacy_writable_exec_systemd_package" =>
+      "this add-on package predates the privileged-boundary systemd unit layout required by the agent updater; upgrade or promote a newer approved add-on package",
     "operator_canceled" => "canceled by an operator"
   }
 
@@ -217,6 +219,23 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
             "Agent package outdated",
             "Upgrade the ServiceRadar agent package on this host. Its privileged updater is too old to install systemd add-ons, and agent self-update does not replace it. Until then this agent is skipped and stays on #{current}.",
             if(field(row, :rollout_id), do: :review_rollout)
+          )
+
+        {:action_required, "legacy_writable_exec_systemd_package"} ->
+          assigned = present_string(field(row, :assigned_version)) || current
+          latest = present_string(field(row, :latest_approved_version))
+
+          upgrade_hint =
+            if is_binary(latest) and latest != assigned do
+              "Upgrade or promote this source to #{latest} (or newer)."
+            else
+              "Import and approve a newer package built for the privileged add-on boundary."
+            end
+
+          action(
+            "Add-on package outdated",
+            "Assigned version #{assigned} predates the privileged-boundary systemd unit layout and cannot be installed by this agent's updater. #{upgrade_hint}",
+            if(field(row, :rollout_id), do: :review_rollout, else: :open_package)
           )
 
         {:action_required, reason} when reason in ["rollout_failed", "rollout_target_incompatible"] ->

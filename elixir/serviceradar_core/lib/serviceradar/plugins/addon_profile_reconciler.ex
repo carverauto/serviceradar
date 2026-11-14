@@ -466,6 +466,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         {"agent_updater_outdated",
          "target agent updater does not support systemd add-on installs"}
 
+      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(
+        compatibility_package(profile),
+        compatibility_row
+      ) ->
+        {"legacy_writable_exec_systemd_package",
+         "add-on package predates the privileged-boundary systemd unit layout required by this agent's updater"}
+
       true ->
         nil
     end
@@ -694,6 +701,24 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       _ ->
         ValueUtils.string_value(profile, [:supervision, "supervision"])
     end
+  end
+
+  defp compatibility_package(profile) do
+    package = profile_package(profile)
+
+    addon_id =
+      (is_map(package) && ValueUtils.string_value(package, [:addon_id, "addon_id"])) ||
+        ValueUtils.string_value(profile, [:addon_id, "addon_id"])
+
+    version =
+      (is_map(package) && ValueUtils.string_value(package, [:version, "version"])) ||
+        ValueUtils.string_value(profile, [:version, "version"])
+
+    %{
+      addon_id: addon_id,
+      version: version,
+      supervision: package_supervision(profile)
+    }
   end
 
   defp package_requires(profile) do

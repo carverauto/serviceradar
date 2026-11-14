@@ -66,6 +66,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
@@ -612,23 +613,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Enum.map(&apply_rollout_package_override/1)
       |> Enum.reject(&retired_addon_assignment?/1)
       |> Enum.filter(&approved_addon_package?/1)
-      |> select_effective_addon_assignments()
 
-    assigned_addon_ids = MapSet.new(assignments, &logical_addon_id/1)
-    required_addons = required_agent_addon_specs(assigned_addon_ids)
+    has_default_required? = required_agent_addon_specs(MapSet.new()) != []
 
-    if assignments == [] and required_addons == [] do
+    if assignments == [] and not has_default_required? do
       []
     else
       profile = resolve_agent_addon_profile(agent_id, actor)
-
-      assignment_configs =
-        assignments
-        |> Enum.map(&build_deliverable_addon_assignment_config(&1, profile))
-        |> Enum.reject(&is_nil/1)
+      assignment_configs = compile_deliverable_addon_assignments(assignments, profile)
+      assigned_addon_ids = MapSet.new(assignment_configs, & &1.addon_id)
 
       required_configs =
-        required_addons
+        assigned_addon_ids
+        |> required_agent_addon_specs()
         |> Enum.map(&build_deliverable_required_addon_config(&1, profile, actor))
         |> Enum.reject(&is_nil/1)
 
@@ -741,6 +738,36 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     else
       false
     end
+  end
+
+  @doc false
+  # Filters undeliverable assignments BEFORE effective precedence selection so a
+  # higher-precedence or newer assignment whose package is incompatible with this
+  # agent cannot shadow a lower-precedence assignment that is deliverable.
+  def compile_deliverable_addon_assignments(assignments, profile) do
+    ranked_deliverable =
+      assignments
+      |> Enum.flat_map(fn assignment ->
+        case build_deliverable_addon_assignment_config(assignment, profile) do
+          nil -> []
+          config -> [{assignment, config}]
+        end
+      end)
+      |> Enum.sort_by(fn {assignment, _config} -> addon_assignment_precedence(assignment) end)
+
+    ranked_deliverable
+    |> Enum.group_by(fn {assignment, _config} -> logical_addon_id(assignment) end)
+    |> Enum.each(fn
+      {_addon_id, [_winner]} ->
+        :ok
+
+      {addon_id, [{winner, _} | shadowed]} ->
+        Enum.each(shadowed, fn {s, _} -> warn_shadowed_addon_assignment(addon_id, s, winner) end)
+    end)
+
+    ranked_deliverable
+    |> Enum.uniq_by(fn {assignment, _config} -> logical_addon_id(assignment) end)
+    |> Enum.map(fn {_assignment, config} -> config end)
   end
 
   @doc false
@@ -961,7 +988,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp build_deliverable_required_addon_config(%{addon_id: addon_id} = spec, profile, actor) do
-    with %AddonPackage{} = package <- load_required_addon_package(addon_id, actor) do
+    addon_id
+    |> load_required_addon_packages(actor)
+    |> Enum.find_value(fn %AddonPackage{} = package ->
       artifact = select_addon_artifact(package.artifacts, profile.os, profile.arch)
 
       if deliverable_required_addon_package?(package, profile, artifact) do
@@ -971,10 +1000,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           params: spec.params
         )
       end
-    end
+    end)
   end
 
-  defp load_required_addon_package(addon_id, actor) do
+  defp load_required_addon_packages(addon_id, actor) do
     AddonPackage
     |> Ash.Query.for_read(:by_addon_id, %{addon_id: addon_id}, actor: actor)
     |> Ash.Query.filter(status == :approved)
@@ -982,24 +1011,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, packages} ->
-        packages
-        |> Enum.reject(&(&1.verification_status == "blob_missing"))
-        |> List.first()
+        case Enum.reject(packages, &(&1.verification_status == "blob_missing")) do
+          [] ->
+            Logger.debug("Skipping required add-on #{addon_id}: no approved package is available")
+            []
+
+          available ->
+            available
+        end
 
       {:error, error} ->
         Logger.warning(
           "Skipping required add-on #{addon_id}: package lookup failed: #{inspect(error)}"
         )
 
-        nil
-    end
-    |> case do
-      nil ->
-        Logger.debug("Skipping required add-on #{addon_id}: no approved package is available")
-        nil
-
-      %AddonPackage{} = package ->
-        package
+        []
     end
   end
 
@@ -1081,6 +1107,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
         false
 
+      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(package, profile) ->
+        Logger.warning(
+          "Skipping addon assignment #{assignment.id}: package #{package.id} (#{package.addon_id}@#{package.version}) predates the privileged-boundary systemd unit layout required by agent updater"
+        )
+
+        false
+
       true ->
         true
     end
@@ -1117,6 +1150,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       package.delivery == :pushed_artifact and not artifact_selected?(artifact) ->
         Logger.warning(
           "Skipping required add-on #{package.addon_id}: package #{package.id} has no verified artifact for #{inspect(profile.os)}/#{inspect(profile.arch)}"
+        )
+
+        false
+
+      AddonRolloutArtifact.legacy_writable_exec_systemd_package?(package, profile) ->
+        Logger.warning(
+          "Skipping required add-on #{package.addon_id}: package #{package.id} (#{package.addon_id}@#{package.version}) predates the privileged-boundary systemd unit layout required by agent updater"
         )
 
         false

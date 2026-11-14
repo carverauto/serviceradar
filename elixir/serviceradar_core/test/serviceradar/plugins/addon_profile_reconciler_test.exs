@@ -677,6 +677,84 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.skip_counts == %{"unsupported_platform" => 1}
   end
 
+  test "a legacy systemd add-on package is skipped for an agent advertising the privileged updater" do
+    defmodule ResolverPrivilegedUpdaterAgent do
+      @moduledoc false
+
+      def resolve([%{entity: entity, query: query} | _], _opts) do
+        {:ok,
+         [
+           %{
+             name: "targets",
+             entity: entity,
+             query: query,
+             rows: [
+               %{
+                 "uid" => "agent-privileged",
+                 "os" => "linux",
+                 "arch" => "amd64",
+                 "agent_version" => "1.5.0",
+                 "capabilities" => ["addon.native.host", "addon.systemd.updater"]
+               }
+             ]
+           }
+         ]}
+      end
+    end
+
+    defmodule PrivilegedUpdaterAgentLoader do
+      @moduledoc false
+
+      def load(["agent-privileged"], _actor) do
+        {:ok,
+         [
+           %{
+             uid: "agent-privileged",
+             version: "1.5.0",
+             capabilities: ["addon.native.host", "addon.systemd.updater"],
+             status: :connected,
+             metadata: %{"os" => "linux", "arch" => "amd64"}
+           }
+         ]}
+      end
+    end
+
+    profile = %{
+      id: Ecto.UUID.generate(),
+      name: "Exposure scanner",
+      addon_id: "bumblebee",
+      addon_package_id: Ecto.UUID.generate(),
+      target_query: "in:agents",
+      params: %{},
+      args: [],
+      priority: 100,
+      enabled: true,
+      addon_package: %{
+        addon_id: "bumblebee",
+        version: "0.1.6",
+        status: :approved,
+        supervision: "systemd_timer",
+        artifacts: %{"linux/amd64" => %{}},
+        requires: %{
+          "platforms" => ["linux"],
+          "base_agent" => ">=1.2.0",
+          "agent_capabilities" => [],
+          "os_capabilities" => []
+        }
+      }
+    }
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverPrivilegedUpdaterAgent,
+               agent_loader: PrivilegedUpdaterAgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skip_counts == %{"legacy_writable_exec_systemd_package" => 1}
+  end
+
   defp endpoint_inventory_profile do
     %{
       id: Ecto.UUID.generate(),

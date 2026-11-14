@@ -36,7 +36,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # guess below.
   @native_addon_host_capability "addon.native.host"
   @native_addon_host_unavailable_capability "addon.native.host.unavailable"
+  @systemd_addon_updater_capability "addon.systemd.updater"
   @systemd_addon_updater_unavailable_capability "addon.systemd.updater.unavailable"
+
+  # Minimum versions that execute systemd units from /usr/lib/serviceradar/addons
+  # instead of the agent-writable /var/lib/serviceradar/agent/addons tree (#5472).
+  @privileged_systemd_exec_min_versions %{
+    "bumblebee" => "0.1.7",
+    "netprobe" => "0.2.65",
+    "scalibr-endpoint-inventory" => "0.1.10",
+    "workload-identity" => "0.1.10"
+  }
 
   @containerized_deployment_types ~w(kubernetes docker lxc container)
 
@@ -177,13 +187,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def incompatibility(%AddonPackage{} = package, agent) do
     cond do
-      not platform_allowed?(package, agent) -> "unsupported_platform"
-      not artifact_available?(package, agent) -> "missing_platform_artifact"
-      not agent_version_allowed?(package, agent) -> "incompatible_base_agent_version"
-      missing_required_capabilities(package, agent) != [] -> "missing_required_agent_capability"
-      not hostable_addon?(package.supervision, agent) -> "agent_cannot_host_native_addons"
-      systemd_updater_unavailable?(package.supervision, agent) -> "agent_updater_outdated"
-      true -> nil
+      not platform_allowed?(package, agent) ->
+        "unsupported_platform"
+
+      not artifact_available?(package, agent) ->
+        "missing_platform_artifact"
+
+      not agent_version_allowed?(package, agent) ->
+        "incompatible_base_agent_version"
+
+      missing_required_capabilities(package, agent) != [] ->
+        "missing_required_agent_capability"
+
+      not hostable_addon?(package.supervision, agent) ->
+        "agent_cannot_host_native_addons"
+
+      systemd_updater_unavailable?(package.supervision, agent) ->
+        "agent_updater_outdated"
+
+      legacy_writable_exec_systemd_package?(package, agent) ->
+        "legacy_writable_exec_systemd_package"
+
+      true ->
+        nil
     end
   end
 
@@ -642,11 +668,38 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   """
   @spec systemd_updater_unavailable?(atom() | String.t() | nil, map()) :: boolean()
   def systemd_updater_unavailable?(supervision, agent) do
-    capabilities = agent |> value(:capabilities, []) |> normalize_strings() |> MapSet.new()
+    capabilities = agent_capabilities_set(agent)
 
     systemd_supervised?(supervision) and
       MapSet.member?(capabilities, @systemd_addon_updater_unavailable_capability)
   end
+
+  @doc """
+  Whether `package` is a legacy systemd-supervised add-on build that executes from
+  the agent-writable staging tree and is therefore refused by an agent advertising
+  `addon.systemd.updater`.
+  """
+  @spec legacy_writable_exec_systemd_package?(map() | nil, map() | nil) :: boolean()
+  def legacy_writable_exec_systemd_package?(package, agent)
+      when is_map(package) and is_map(agent) do
+    supervision = value(package, :supervision)
+    addon_id = package |> value(:addon_id, "") |> to_string() |> String.trim()
+    version = package |> value(:version, "") |> to_string() |> String.trim()
+    capabilities = agent_capabilities_set(agent)
+
+    with true <- systemd_supervised?(supervision),
+         true <- MapSet.member?(capabilities, @systemd_addon_updater_capability),
+         min_version when is_binary(min_version) <-
+           Map.get(@privileged_systemd_exec_min_versions, addon_id),
+         {:ok, parsed_version} <- Eligibility.parse_version(version),
+         {:ok, parsed_min} <- Eligibility.parse_version(min_version) do
+      Version.compare(parsed_version, parsed_min) == :lt
+    else
+      _ -> false
+    end
+  end
+
+  def legacy_writable_exec_systemd_package?(_, _), do: false
 
   defp managed_assignments(actor) do
     AddonAssignment
@@ -779,7 +832,20 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   defp systemd_supervised?(supervision) do
-    supervision in [:systemd_service, :systemd_timer, "systemd_service", "systemd_timer"]
+    supervision in [
+      :systemd_service,
+      :systemd_timer,
+      "systemd_service",
+      "systemd_timer",
+      "systemd-service",
+      "systemd-timer"
+    ]
+  end
+
+  defp agent_capabilities_set(agent) do
+    metadata = value(agent, :metadata, %{}) || %{}
+    raw = value(agent, :capabilities) || value(metadata, :capabilities) || []
+    raw |> normalize_strings() |> MapSet.new()
   end
 
   # Only a deployment type the agent actually reported as containerized blocks.

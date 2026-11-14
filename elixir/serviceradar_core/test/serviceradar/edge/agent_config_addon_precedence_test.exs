@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
 
   test "manual assignments win over profile assignments" do
     manual = assignment(source: :manual, updated_at: ~U[2026-07-01 00:00:00.000000Z])
@@ -137,6 +138,116 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
       end)
 
     refute log =~ "Duplicate enabled add-on assignments"
+  end
+
+  test "an undeliverable legacy systemd assignment does not shadow a deliverable newer-package assignment" do
+    legacy_newer =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Legacy scanner profile",
+        priority: 100,
+        addon_id: "scalibr-endpoint-inventory",
+        version: "0.1.8",
+        supervision: :systemd_timer,
+        updated_at: ~U[2026-07-10 00:00:00.000000Z]
+      )
+
+    migrated_older =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Current scanner profile",
+        priority: 100,
+        addon_id: "scalibr-endpoint-inventory",
+        version: "0.1.12",
+        supervision: :systemd_timer,
+        updated_at: ~U[2026-07-01 00:00:00.000000Z]
+      )
+
+    profile = %{
+      os: "linux",
+      arch: "amd64",
+      version: "1.5.0",
+      capabilities: ["addon.native.host", "addon.systemd.updater"]
+    }
+
+    capture_log(fn ->
+      assert [%{addon_id: "scalibr-endpoint-inventory", version: "0.1.12"}] =
+               AgentConfigGenerator.compile_deliverable_addon_assignments(
+                 [legacy_newer, migrated_older],
+                 profile
+               )
+    end)
+  end
+
+  test "an incompatible higher-precedence assignment does not shadow a compatible assignment" do
+    incompatible_high =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Future agent override",
+        priority: 10,
+        addon_id: "anomaly",
+        version: "0.4.0",
+        supervision: :agent_sidecar,
+        base_agent: ">= 2.0.0",
+        updated_at: ~U[2026-07-10 00:00:00.000000Z]
+      )
+
+    compatible_low =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Fleet default",
+        priority: 100,
+        addon_id: "anomaly",
+        version: "0.3.18",
+        supervision: :agent_sidecar,
+        base_agent: ">= 1.2.0",
+        updated_at: ~U[2026-07-01 00:00:00.000000Z]
+      )
+
+    profile = %{
+      os: "linux",
+      arch: "amd64",
+      version: "1.5.0",
+      capabilities: ["addon.native.host"]
+    }
+
+    capture_log(fn ->
+      assert [%{addon_id: "anomaly", version: "0.3.18"}] =
+               AgentConfigGenerator.compile_deliverable_addon_assignments(
+                 [incompatible_high, compatible_low],
+                 profile
+               )
+    end)
+  end
+
+  defp assignment_with_package(opts) do
+    addon_id = Keyword.fetch!(opts, :addon_id)
+    version = Keyword.fetch!(opts, :version)
+    supervision = Keyword.fetch!(opts, :supervision)
+    base_agent = Keyword.get(opts, :base_agent, ">= 1.2.0")
+
+    pkg = %AddonPackage{
+      id: Ecto.UUID.generate(),
+      addon_id: addon_id,
+      name: addon_id,
+      version: version,
+      status: :approved,
+      delivery: :pushed_artifact,
+      supervision: supervision,
+      requires: %{"platforms" => ["linux"], "base_agent" => base_agent},
+      artifacts: %{
+        "linux/amd64" => %{
+          "object_key" => "native-addons/#{addon_id}/#{version}/linux/amd64/addon.tar.gz",
+          "sha256" => String.duplicate("a", 64),
+          "signature" => "sig-#{version}"
+        }
+      },
+      config_schema: %{},
+      resources: %{}
+    }
+
+    base = assignment(opts)
+    %{base | addon_package_id: pkg.id, addon_package: pkg}
   end
 
   defp assignment(opts) do

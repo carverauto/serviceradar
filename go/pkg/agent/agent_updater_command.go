@@ -18,12 +18,20 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 )
 
 const maxAgentUpdaterOutputBytes = 65_536
+
+// ErrAgentUpdaterPermanentRefusal marks an agent-updater invocation that exited
+// with updaterflags.ExitPermanentRefusal (78), allowing callers to classify a
+// deterministic refusal across the subprocess boundary without matching stderr text.
+var ErrAgentUpdaterPermanentRefusal = errors.New("agent-updater permanent install refusal")
 
 // agentUpdaterArgs is an agent-updater command line together with the names of
 // the flags it passes, so the flags probed on the installed updater are exactly
@@ -49,6 +57,11 @@ func runAgentUpdaterCommand(ctx context.Context, updaterPath string, args ...str
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == updaterflags.ExitPermanentRefusal {
+		err = fmt.Errorf("%w: %w", ErrAgentUpdaterPermanentRefusal, err)
 	}
 
 	output := strings.TrimSpace(string(out))
