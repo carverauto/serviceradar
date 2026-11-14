@@ -32,6 +32,17 @@ packaging boundary. Pool enrollment, authenticated transport, aggregate disk
 admission, archive publication, automated journal recovery and physical node-loss
 qualification remain pending; task 2.1 is not yet complete.
 
+Private network input checkpoint for 2.1/2.3: an opt-in NVR HTTPS listener admits
+one finite H264 stream from an installed, certificate-pinned coordinator. The
+storage lifetime and recovery generation must match; the existing capacity,
+bootstrap and writer gates remain authoritative. Explicit stream completion
+returns local sealed block IDs, while incomplete bodies and expired requests
+retire the producer and preserve retained bytes. Shipped-release coverage sends
+synthetic frames across mutual TLS and independently decodes them after restart.
+See [the transport contract](../../../docs/nvr-ingest.md). Camera source selection,
+authenticated assignment, the agent/gateway sender and local-copy playback remain
+open; this checkpoint does not enable an inventory camera or complete 2.3.
+
 Shared-library extraction checkpoint for 2.1: `serviceradar_recording` owns the
 existing bounded inbox, H264/CMAF packaging, storage identity and journaled spool.
 Core consumes this library instead of owning duplicate implementations. Remote

@@ -25,7 +25,10 @@ defmodule ServiceRadarNVR.Application do
       ]
 
       scheduler = if config.auto_delivery, do: [{ServiceRadarNVR.PublicationScheduler, []}], else: []
-      children = children ++ scheduler ++ [{Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}]
+      ingest = if config.ingest, do: [{ServiceRadarNVR.IngestListener, config}], else: []
+
+      children =
+        children ++ scheduler ++ ingest ++ [{Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}]
 
       # Losing identity or reservation accounting retires every dependent writer
       # before replacement accounting can admit work against the retained files.
