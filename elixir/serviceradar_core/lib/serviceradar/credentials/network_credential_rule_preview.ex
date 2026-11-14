@@ -16,6 +16,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreview do
           rule_id: String.t() | nil,
           matched_devices: non_neg_integer(),
           scoped_devices: non_neg_integer(),
+          matched_device_uids: MapSet.t(String.t()),
+          scoped_device_uids: MapSet.t(String.t()),
           agents: [map()],
           sample_devices: [map()],
           conflicts: [map()]
@@ -49,6 +51,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreview do
          rule_id: value_string(rule, [:id, "id"]),
          matched_devices: length(rows),
          scoped_devices: length(scoped_rows),
+         matched_device_uids:
+           rows |> Enum.map(&device_uid/1) |> Enum.reject(&is_nil/1) |> MapSet.new(),
+         scoped_device_uids:
+           scoped_rows |> Enum.map(&device_uid/1) |> Enum.reject(&is_nil/1) |> MapSet.new(),
          agents: agent_distribution(scoped_rows),
          sample_devices: Enum.take(scoped_rows, sample_limit),
          conflicts: detect_conflicts(rule, scoped_rows, opts)

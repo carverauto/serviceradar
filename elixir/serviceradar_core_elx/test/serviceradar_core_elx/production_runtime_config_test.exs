@@ -30,6 +30,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.CompositeChecks.TickWorker,
     ServiceRadar.Edge.EdgeLedgerRetentionWorker,
     ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
+    ServiceRadar.Edge.RemoteAccessSessionReaperWorker,
     ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
     ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Inventory.ExposureReconciliationWorker,

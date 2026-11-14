@@ -63,7 +63,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       transition :request_close, from: [:requested, :attached, :opening, :active], to: :closing
       transition :close, from: [:requested, :attached, :opening, :active, :closing], to: :closed
       transition :fail, from: [:requested, :attached, :opening, :active, :closing], to: :failed
-      transition :expire, from: [:requested, :attached, :opening, :active], to: :expired
+      transition :expire, from: [:requested, :attached, :opening, :active, :closing], to: :expired
     end
   end
 
@@ -100,6 +100,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+    end
+
+    read :non_terminal do
+      filter expr(status in [:requested, :attached, :opening, :active, :closing])
     end
 
     read :by_attach_ticket_hash do
@@ -147,6 +151,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       accept [:close_reason, :outcome]
       change transition_state(:closed)
       change set_attribute(:closed_at, &__MODULE__.utc_now/0)
+      change &__MODULE__.preserve_existing_close_reason/2
     end
 
     update :fail do
@@ -159,6 +164,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       accept [:close_reason, :outcome]
       change transition_state(:expired)
       change set_attribute(:closed_at, &__MODULE__.utc_now/0)
+      change &__MODULE__.preserve_existing_close_reason/2
     end
   end
 
@@ -440,5 +446,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
 
   def utc_now do
     DateTime.truncate(DateTime.utc_now(), :second)
+  end
+
+  @doc false
+  def preserve_existing_close_reason(changeset, _context) do
+    case {Ash.Changeset.changing_attribute?(changeset, :close_reason),
+          Ash.Changeset.get_attribute(changeset, :close_reason), changeset.data.close_reason} do
+      {true, nil, existing} when is_binary(existing) and existing != "" ->
+        Ash.Changeset.force_change_attribute(changeset, :close_reason, existing)
+
+      _other ->
+        changeset
+    end
   end
 end

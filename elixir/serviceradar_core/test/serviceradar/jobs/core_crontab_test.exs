@@ -41,6 +41,14 @@ defmodule ServiceRadar.Jobs.CoreCrontabTest do
     end
   end
 
+  test "schedules RemoteAccessSessionReaperWorker every five minutes on the maintenance queue" do
+    assert Enum.any?(entries(), fn {expr, worker, opts} ->
+             expr == "*/5 * * * *" and
+               worker == ServiceRadar.Edge.RemoteAccessSessionReaperWorker and
+               Keyword.get(opts, :queue) == :maintenance
+           end)
+  end
+
   defp entries do
     Enum.map(CoreCrontab.cron_entries(fn _name, default -> default end), fn
       {expr, worker} -> {expr, worker, []}

@@ -15,6 +15,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Edge.EdgeLedgerRetentionWorker
   alias ServiceRadar.Edge.ManagedCertificateReconcileWorker
   alias ServiceRadar.Edge.RemoteAccessRecordingReaperWorker
+  alias ServiceRadar.Edge.RemoteAccessSessionReaperWorker
   alias ServiceRadar.Edge.RemoteAccessVersionRetentionWorker
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureTerminalCompactionWorker
@@ -86,6 +87,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
       {"29 * * * *", SAMLAssertionCleanupWorker, queue: :maintenance},
       {"*/10 * * * *", RemoteAccessRecordingReaperWorker, queue: :maintenance},
+      {"*/5 * * * *", RemoteAccessSessionReaperWorker, queue: :maintenance},
       {"31 3 * * *", RemoteAccessVersionRetentionWorker, queue: :maintenance},
       {"41 * * * *", EdgeLedgerRetentionWorker, queue: :maintenance},
       {"*/2 * * * *", RelaySessionReaperWorker, queue: :maintenance},

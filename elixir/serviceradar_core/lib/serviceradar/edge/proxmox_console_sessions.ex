@@ -20,6 +20,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.CurrentUserAuthority
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Plugins.PluginAssignment
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @max_terminal_cols 500
   @max_terminal_rows 200
   @console_permissions ["devices.console.open", "devices.console.credentials.use"]
+  @credential_manage_permission "settings.credentials.manage"
   @safe_failure_reasons ~w(console_broker_unavailable invalid_size invalid_data invalid_data_size agent_unavailable gateway_unavailable timeout)
 
   @type create_request :: %{
@@ -63,7 +65,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
          {:ok, rule} <- resolve_credential_rule(device, target, request, opts),
          {:ok, target} <- apply_rule_console_mode(target, rule),
          {:ok, agent_id} <- resolve_agent_id(target, rule),
-         {:ok, assignment} <- resolve_active_assignment(rule, agent_id, opts),
+         {:ok, assignment} <- resolve_active_assignment_for_open(rule, agent_id, opts),
          {:ok, partition_id} <- assignment_partition_id(assignment),
          :ok <- authenticate_edge_principal(partition_id, agent_id, opts),
          {:ok, ticket, ticket_hash} <- new_ticket(),
@@ -291,46 +293,95 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     system_actor = SystemActor.system(:proxmox_console_rule_resolver)
     controller_device = credential_target_device(target)
 
-    resolve_first_matching_rule(controller_device, target, system_actor, opts)
-  end
-
-  defp resolve_first_matching_rule(controller_device, target, system_actor, opts) do
-    controller_device
-    |> rule_scopes()
-    |> Enum.reduce_while({:error, :no_console_credential_rule}, fn {scope_type, scope_value},
-                                                                   _acc ->
-      case NetworkCredentialRule.list_enabled_for_scope(@provider, scope_type, scope_value,
-             actor: system_actor
-           ) do
-        {:ok, rules} ->
-          case Enum.find(rules, &matching_console_rule?(&1, target, controller_device, opts)) do
-            nil -> {:cont, {:error, :no_console_credential_rule}}
-            rule -> {:halt, {:ok, rule}}
-          end
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, :no_console_credential_rule} ->
-        resolve_first_targeted_rule(target, controller_device, system_actor, opts)
-
-      result ->
-        result
+    with {:ok, candidate_rules} <- load_candidate_rules(controller_device, system_actor) do
+      evaluate_console_candidate_rules(candidate_rules, target, controller_device, opts)
     end
   end
 
-  defp resolve_first_targeted_rule(target, device, system_actor, opts) do
-    case enabled_provider_rules(system_actor) do
-      {:ok, rules} ->
-        case Enum.find(rules, &matching_console_rule?(&1, target, device, opts)) do
-          nil -> {:error, :no_console_credential_rule}
-          rule -> {:ok, rule}
+  defp load_candidate_rules(controller_device, system_actor) do
+    scoped_result =
+      controller_device
+      |> rule_scopes()
+      |> Enum.reduce_while({:ok, []}, fn {scope_type, scope_value}, {:ok, acc} ->
+        case NetworkCredentialRule.list_enabled_for_scope(@provider, scope_type, scope_value,
+               actor: system_actor
+             ) do
+          {:ok, rules} -> {:cont, {:ok, acc ++ rules}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+
+    with {:ok, scoped_rules} <- scoped_result,
+         {:ok, provider_rules} <- enabled_provider_rules(system_actor) do
+      {:ok, Enum.uniq_by(scoped_rules ++ provider_rules, &value_string(&1, [:id, "id"]))}
+    end
+  end
+
+  @doc false
+  def evaluate_console_candidate_rules([], _target, _device, _opts),
+    do: {:error, :no_console_credential_rule}
+
+  def evaluate_console_candidate_rules(rules, target, device, opts) when is_list(rules) do
+    rules
+    |> Enum.with_index()
+    |> Enum.reduce_while({:misses, []}, fn {rule, idx}, {:misses, misses} ->
+      case evaluate_single_candidate_rule(rule, target, device, opts) do
+        :ok ->
+          {:halt, {:ok, rule}}
+
+        {:miss, depth, reason} ->
+          {:cont, {:misses, [{:miss, depth, reason, rule, idx} | misses]}}
+      end
+    end)
+    |> case do
+      {:ok, rule} ->
+        {:ok, rule}
+
+      {:misses, []} ->
+        {:error, :no_console_credential_rule}
+
+      {:misses, misses} ->
+        {:miss, _depth, reason, rule, _idx} =
+          Enum.max_by(misses, fn {:miss, depth, _reason, _rule, idx} -> {depth, -idx} end)
+
+        format_rule_denial(reason, rule, opts)
+    end
+  end
+
+  defp evaluate_single_candidate_rule(rule, target, device, opts) do
+    cond do
+      value_string(rule, [:provider, "provider"]) != @provider ->
+        {:miss, 1, :not_console_credential_rule}
+
+      (source_check = ensure_rule_source_binding(rule, target)) != :ok ->
+        {:error, reason} = source_check
+        {:miss, 1, reason}
+
+      not rule_has_purpose?(rule, :console_access) ->
+        {:miss, 2, :not_console_credential_rule}
+
+      (transport_check = ensure_console_transport_policy(rule, target)) != :ok ->
+        {:error, reason} = transport_check
+        {:miss, 3, reason}
+
+      true ->
+        evaluate_candidate_targeting_and_policy(rule, device, opts)
+    end
+  end
+
+  defp evaluate_candidate_targeting_and_policy(rule, device, opts) do
+    case ensure_rule_targets_device(rule, device, opts) do
+      :ok ->
+        case ensure_rule_actor_allowed(rule, opts) do
+          :ok -> :ok
+          {:error, reason} -> {:miss, 6, reason}
         end
 
+      {:error, :credential_rule_scope_denied} ->
+        {:miss, 5, :credential_rule_scope_denied}
+
       {:error, reason} ->
-        {:error, reason}
+        {:miss, 4, reason}
     end
   end
 
@@ -340,13 +391,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     |> Ash.Query.filter(provider == @provider and enabled == true)
     |> Ash.Query.sort(priority: :asc, inserted_at: :asc)
     |> Ash.read(actor: system_actor)
-  end
-
-  defp matching_console_rule?(rule, target, device, opts) do
-    ensure_console_rule(rule, target) == :ok and
-      ensure_rule_source_binding(rule, target) == :ok and
-      ensure_rule_actor_allowed(rule, opts) == :ok and
-      ensure_rule_targets_device(rule, device, opts) == :ok
   end
 
   defp ensure_console_rule(rule, target), do: ensure_explicit_console_rule(rule, target)
@@ -443,17 +487,38 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
   defp ensure_rule_targets_device(rule, device, opts) do
     previewer = Keyword.get(opts, :previewer, NetworkCredentialRulePreview)
+    target_uid = value_string(device, [:uid, "uid", :device_uid, "device_uid"])
 
     case previewer.preview_rule(rule,
            sample_limit: Keyword.get(opts, :target_sample_limit, 5_000),
            detect_conflicts?: false
          ) do
+      {:ok,
+       %{
+         matched_device_uids: %MapSet{} = matched_uids,
+         scoped_device_uids: %MapSet{} = scoped_uids
+       }} ->
+        cond do
+          is_binary(target_uid) and MapSet.member?(scoped_uids, target_uid) ->
+            :ok
+
+          is_binary(target_uid) and MapSet.member?(matched_uids, target_uid) ->
+            {:error, :credential_rule_scope_denied}
+
+          true ->
+            {:error, :credential_rule_target_denied}
+        end
+
       {:ok, %{sample_devices: sample_devices}} ->
         if Enum.any?(
              sample_devices,
-             &(value_string(&1, [:uid, "uid", :device_uid, "device_uid"]) == device.uid)
+             &(value_string(&1, [:uid, "uid", :device_uid, "device_uid"]) == target_uid)
            ) do
-          :ok
+          if device_matches_rule_scope?(device, rule) do
+            :ok
+          else
+            {:error, :credential_rule_scope_denied}
+          end
         else
           {:error, :credential_rule_target_denied}
         end
@@ -461,6 +526,80 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp device_matches_rule_scope?(device, rule) do
+    case {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} do
+      {:agent, scope} ->
+        case device_agent_id(device) do
+          nil -> true
+          "" -> true
+          device_scope -> device_scope == scope
+        end
+
+      {:gateway, scope} ->
+        value_string(device, [:gateway_id, "gateway_id"]) == scope
+
+      {:partition, scope} ->
+        partition_value(device) == scope
+
+      _ ->
+        false
+    end
+  end
+
+  defp resolve_active_assignment_for_open(rule, agent_id, opts) do
+    case resolve_active_assignment(rule, agent_id, opts) do
+      {:ok, assignment} ->
+        {:ok, assignment}
+
+      {:error, reason}
+      when reason in [:console_assignment_unavailable, :ambiguous_console_assignment] ->
+        format_rule_denial(reason, rule, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp format_rule_denial(reason, rule, opts) do
+    if caller_can_manage_credentials?(opts) do
+      {:error, {:console_rule_denied, reason, rule_detail(rule)}}
+    else
+      {:error, reason}
+    end
+  end
+
+  defp caller_can_manage_credentials?(opts) do
+    permissions =
+      cond do
+        not is_nil(Keyword.get(opts, :current_permissions)) ->
+          Keyword.get(opts, :current_permissions)
+
+        match?(%{permissions: perms} when not is_nil(perms), Keyword.get(opts, :scope)) ->
+          Keyword.get(opts, :scope).permissions
+
+        match?(%{user: %{permissions: perms}} when not is_nil(perms), Keyword.get(opts, :scope)) ->
+          Keyword.get(opts, :scope).user.permissions
+
+        match?(%{permissions: perms} when not is_nil(perms), Keyword.get(opts, :actor)) ->
+          Keyword.get(opts, :actor).permissions
+
+        true ->
+          []
+      end
+
+    Catalog.holds?(permissions, @credential_manage_permission)
+  end
+
+  defp rule_detail(rule) do
+    %{
+      rule_id: value_string(rule, [:id, "id"]),
+      rule_name: value_string(rule, [:name, "name"]),
+      scope_type: rule |> rule_scope_type() |> format_atom(),
+      scope_value: value_string(rule, [:scope_value, "scope_value"]),
+      target_query: value_string(rule, [:target_query, "target_query"])
+    }
   end
 
   defp ensure_rule_actor_allowed(rule, opts) do
@@ -966,6 +1105,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp refresh_authority_opts(opts, current_user, current_permissions) do
+    opts = Keyword.put(opts, :current_permissions, current_permissions)
+
     case Keyword.fetch(opts, :scope) do
       {:ok, scope} when is_map(scope) ->
         refreshed_scope =

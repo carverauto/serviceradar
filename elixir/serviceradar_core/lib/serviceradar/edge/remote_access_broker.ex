@@ -264,7 +264,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @impl true
   def handle_cast({:close, reason}, state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
-    lifecycle(state, :request_close, [[reason: format_reason(reason)]])
+    lifecycle(state, :close_session, [[reason: format_reason(reason), outcome: :completed]])
 
     write_audit(state, :remote_access_session_close_requested, %{
       close_reason: format_reason(reason)
@@ -486,11 +486,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
     cond do
+      reason in [:normal, :shutdown] or match?({:shutdown, _}, reason) ->
+        lifecycle(state, :close_session, [[reason: format_reason(reason), outcome: :completed]])
+
+        if not state.recording_completed? do
+          _ = complete_recording(state)
+        end
+
       state.recording_completed? ->
         :ok
-
-      reason in [:normal, :shutdown] ->
-        _ = complete_recording(state)
 
       true ->
         lifecycle(state, :fail_session, [reason])
