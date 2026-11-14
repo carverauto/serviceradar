@@ -53,4 +53,27 @@ defmodule ServiceRadar.CoordinatorManagerTest do
     larger_opts = CoordinatorManager.coordinator_connection_opts([timeout: 30_000], "")
     assert Keyword.fetch!(larger_opts, :timeout) == 30_000
   end
+
+  test "coordinator connection drops repo pool and queue options for standalone Postgrex sessions" do
+    opts = [
+      url: "ecto://serviceradar:secret@cnpg-rw.example.svc.cluster.local:5432/serviceradar",
+      pool: Ecto.Adapters.SQL.Sandbox,
+      pool_size: 16,
+      name: ServiceRadar.Repo,
+      queue_target: 1_000,
+      queue_interval: 1_000,
+      ownership_timeout: 120_000,
+      ssl: true
+    ]
+
+    new_opts = CoordinatorManager.coordinator_connection_opts(opts, nil)
+
+    assert Keyword.fetch!(new_opts, :pool_size) == 1
+    assert Keyword.fetch!(new_opts, :ssl) == true
+    refute Keyword.has_key?(new_opts, :pool)
+    refute Keyword.has_key?(new_opts, :name)
+    refute Keyword.has_key?(new_opts, :queue_target)
+    refute Keyword.has_key?(new_opts, :queue_interval)
+    refute Keyword.has_key?(new_opts, :ownership_timeout)
+  end
 end

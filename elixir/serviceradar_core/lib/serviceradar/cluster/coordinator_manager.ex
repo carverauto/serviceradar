@@ -279,6 +279,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   @doc false
   def coordinator_connection_opts(opts, host) when is_list(opts) do
     opts
+    |> DirectSession.repo_opts()
     |> DirectSession.put_host(host)
     |> Keyword.put(:pool_size, 1)
     |> Keyword.put(:timeout, normalize_heartbeat_timeout(Keyword.get(opts, :timeout)))

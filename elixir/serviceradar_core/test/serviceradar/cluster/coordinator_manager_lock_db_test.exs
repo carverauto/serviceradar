@@ -4,7 +4,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManagerLockDbTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Cluster.CoordinatorManager
-  alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.DirectSession
 
   @moduletag :integration
 
@@ -249,15 +249,21 @@ defmodule ServiceRadar.Cluster.CoordinatorManagerLockDbTest do
   end
 
   defp connect! do
-    config =
-      Repo.config()
-      |> Keyword.drop([:pool, :pool_size, :name])
-      |> CoordinatorManager.coordinator_connection_opts(nil)
+    tag = make_ref()
 
-    start_supervised!(
-      {Postgrex, config},
-      id: System.unique_integer([:positive]),
-      restart: :temporary
-    )
+    config =
+      DirectSession.repo_opts()
+      |> CoordinatorManager.coordinator_connection_opts(nil)
+      |> Keyword.put(:connection_listeners, {[self()], tag})
+
+    conn =
+      start_supervised!(
+        {Postgrex, config},
+        id: tag,
+        restart: :temporary
+      )
+
+    assert_receive {:connected, ^conn, ^tag}, 30_000
+    conn
   end
 end
