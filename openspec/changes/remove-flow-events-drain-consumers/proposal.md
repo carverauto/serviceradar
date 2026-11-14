@@ -50,11 +50,13 @@ longer live there.
   their subjects, demand domain, fencing, and StarRocks persistence: untouched.
   Their placement, migration, and cleanup stay owned by
   `scale-netflow-ingest-isolation`.
-- Server-side orphan durables and the `attributed_flow` stream itself:
-  deletion stays an ops step alongside `scale-netflow-ingest-isolation` 6.3
-  (drain and delete obsolete netflow durables on `events`). This change stops
-  declaring the consumers; it deletes no server-side state and drops no
-  messages.
+- The `attributed_flow` stream itself: deletion stays an ops step alongside
+  `scale-netflow-ingest-isolation` 6.3. The orphan durables are not left to
+  ops: `Config.load/0` lists the legacy `<consumer>-sflow-raw`,
+  `<consumer>-netflow-raw` and `<consumer>-attributed-flow` durables on
+  `events` (and `<consumer>-attributed-flow` on `attributed_flow`) in
+  `retired_consumers`, so `ConsumerReconciler` deletes them on startup
+  (design D3). Durables on `flows` are never retired.
 - The generic `best_effort` producer/reconciler machinery: it remains the
   documented contract for any future backlog reader. Only its last users go
   away.

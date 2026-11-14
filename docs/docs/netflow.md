@@ -434,7 +434,9 @@ nats stream info flows
 #    publishes with Nats-Msg-Id retries (preferred dedup window 120s, capped by stream max_age and the NATS server limit).
 # 4. Events residuals aged out under the events stream MaxAge once every
 #    deployment ran a drain-capable build; the dual-consume drains were then
-#    deleted at the source.
+#    deleted at the source. On startup EventWriter deletes any lingering
+#    sflow-raw / netflow-raw / attributed-flow durables on `events` and the
+#    attributed-flow durable on `attributed_flow`; durables on `flows` stay.
 ```
 
 #### Downgrading across the stream-ownership cutover
