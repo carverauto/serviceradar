@@ -6,10 +6,10 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
   `ServiceRadar.Edge.Projectors.SweepObservation` records a pending marker
   (`platform.sweep_host_gauge_pending`, one row per batch) in the same ledger transaction
   that projects the batch, so the marker commits or rolls back with the projection. After
-  the commit, `publish_committed/4` publishes the gauges and deletes the marker. If the node
-  dies or the publish fails in between, the marker stays, and
-  `ServiceRadar.Edge.SweepHostGaugeSweeper` republishes every marker older than the grace
-  period through `republish_stale/1`, a bounded number per pass.
+  the commit, `publish_committed/3` publishes the gauges under the marker's identity and
+  deletes the marker. If the node dies or the publish fails in between, the marker stays,
+  and `ServiceRadar.Edge.SweepHostGaugeSweeper` republishes every marker older than the
+  grace period through `republish_stale/1`, a bounded number per pass.
 
   The marker holds the batch itself, compressed, because the gauges must be rebuilt exactly:
   the same messages under the same `Nats-Msg-Id`s and the same points under the same storage
@@ -20,11 +20,9 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
   marker is deleted once every message is stored or queued.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.SweepHostMetrics
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
-  alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Repo
 
   require Logger
@@ -36,6 +34,12 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
   INSERT INTO platform.sweep_host_gauge_pending (event_id, agent_id, gateway_id, partition, batch)
   VALUES ($1::uuid, $2, $3, $4, $5)
   ON CONFLICT (event_id) DO NOTHING
+  """
+
+  @marker_identity """
+  SELECT agent_id, gateway_id, partition
+  FROM platform.sweep_host_gauge_pending
+  WHERE event_id = $1::uuid
   """
 
   @delete_marker "DELETE FROM platform.sweep_host_gauge_pending WHERE event_id = $1::uuid"
@@ -87,30 +91,21 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
   end
 
   @doc """
-  Publishes the gauges of a batch whose projection just committed and deletes its marker.
-  A publish that fails leaves the marker for the sweeper.
+  Publishes the gauges of a batch whose projection just committed and deletes its marker,
+  under the identity the marker recorded. Without a marker the batch has already been
+  published and cleared, so nothing is published. A marker read or publish that fails
+  leaves the marker for the sweeper.
   """
-  @spec publish_committed(
-          EdgeRecordV1.t(),
-          SweepObservationBatchV1.t(),
-          String.t() | nil,
-          keyword()
-        ) ::
+  @spec publish_committed(EdgeRecordV1.t(), SweepObservationBatchV1.t(), keyword()) ::
           :ok | {:error, term()}
-  def publish_committed(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        gateway_id,
-        opts \\ []
-      ) do
-    identity = %{
-      event_id: Ecto.UUID.load!(record.event_id),
-      agent_id: record.producer_context.origin_principal_id,
-      gateway_id: gateway_id,
-      partition: partition(record.network_scope_id)
-    }
+  def publish_committed(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch, opts \\ []) do
+    event_id = Ecto.UUID.load!(record.event_id)
 
-    publish_and_clear(identity, batch, opts)
+    case marker_identity(event_id) do
+      {:ok, nil} -> :ok
+      {:ok, identity} -> publish_and_clear(identity, batch, opts)
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc """
@@ -169,15 +164,19 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
     error -> {:error, error}
   end
 
-  # The projection that just committed resolved this partition, so a failed read is
-  # transient; the gauges still publish, without a partition, rather than not at all.
-  defp partition(network_scope_id) do
-    with {:ok, scope_id} <- Ecto.UUID.load(network_scope_id),
-         {:ok, %Partition{slug: slug}} <-
-           Partition.get_by_id(scope_id, actor: SystemActor.system(:sweep_host_metrics)) do
-      slug
-    else
-      _ -> nil
+  defp marker_identity(event_id) do
+    case Repo.query(@marker_identity, [Ecto.UUID.dump!(event_id)]) do
+      {:ok, %{rows: [[agent_id, gateway_id, partition]]}} ->
+        {:ok,
+         %{event_id: event_id, agent_id: agent_id, gateway_id: gateway_id, partition: partition}}
+
+      {:ok, %{rows: []}} ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
     end
+  rescue
+    error -> {:error, error}
   end
 end

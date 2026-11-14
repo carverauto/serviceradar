@@ -91,18 +91,14 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
 
   @doc """
   Publishes the per-host gauges of a batch whose projection committed
-  (`ServiceRadar.Edge.SweepHostGauges.publish_committed/4`) and clears its pending marker.
+  (`ServiceRadar.Edge.SweepHostGauges.publish_committed/3`) and clears its pending marker.
   The EdgeRecord processor calls this only after the ledger transaction commits, for a fresh
   primary delivery, so a replay, a late-fenced delivery or a refused projection derives
   nothing. A publish that fails leaves the marker for `ServiceRadar.Edge.SweepHostGaugeSweeper`.
   """
   @impl true
-  def committed(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        %{primary?: true} = context
-      ) do
-    _ = SweepHostGauges.publish_committed(record, batch, Map.get(context, :gateway_id))
+  def committed(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch, %{primary?: true}) do
+    _ = SweepHostGauges.publish_committed(record, batch)
     :ok
   end
 
