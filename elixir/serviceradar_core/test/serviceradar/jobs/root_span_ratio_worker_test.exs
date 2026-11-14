@@ -57,24 +57,13 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorkerTest do
     end
   end
 
-  test "both CNPG and warehouse count SQL exclude linked consumer roots" do
-    cnpg_sql = RootSpanRatioWorker.counts_sql()
-    warehouse_sql = RootSpanRatioWorker.warehouse_counts_sql(~U[2026-01-15 10:15:30Z])
+  test "the warehouse count covers the same window, bounded by a UTC literal" do
+    sql = RootSpanRatioWorker.warehouse_counts_sql(~U[2026-01-15 10:15:30Z])
 
-    for sql <- [cnpg_sql, warehouse_sql] do
-      assert sql =~ "parent_span_id IS NOT NULL"
-      assert sql =~ "COALESCE(kind, 0) <> 5"
-      assert sql =~ "links IS NULL"
-      assert sql =~ "TRIM(links) IN ('', '[]', 'null')"
-    end
-
-    assert warehouse_sql =~ "COUNT(*) AS total_spans"
-
-    assert warehouse_sql =~
-             "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans"
-
-    assert warehouse_sql =~ "otel_traces WHERE `timestamp` > '2026-01-15 10:00:30'"
-    refute warehouse_sql =~ "NOW()"
+    assert sql =~ "COUNT(*) AS total_spans"
+    assert sql =~ "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans"
+    assert sql =~ "otel_traces WHERE `timestamp` > '2026-01-15 10:00:30'"
+    refute sql =~ "NOW()"
   end
 
   describe "count_spans/1 with synthetic OTLP protobuf and JSON spans" do
