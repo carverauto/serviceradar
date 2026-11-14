@@ -61,6 +61,11 @@ The image list is derived from:
 
 - `docker/images/image_inventory.bzl`
 
+The scan reads that list from the scanned tag's own tree, but runs the scanner
+and upload tooling from the commit the workflow was dispatched on. A manual
+rescan of an older tag therefore uses the current scanners against only the
+images that tag published.
+
 ## Local Verification
 
 ### Install Tools
