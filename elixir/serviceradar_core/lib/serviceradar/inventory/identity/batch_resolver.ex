@@ -145,17 +145,17 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
           )
     }
 
-    preloads =
-      Map.merge(preloads, %{
-        guests: preload_guest_refs(candidates, canonical, actor),
-        guest_claims: %{}
-      })
-
     # Phase 3: if this batch already owns both sides of a UAA/LAA NIC pair
     # on different devices, merge the LAA sibling into the UAA survivor
     # before upsert. Identifier ownership is never stolen by upsert.
     candidates =
       heal_hardware_mac_siblings(candidates, preloads, actor)
+
+    preloads =
+      Map.merge(preloads, %{
+        guests: preload_guest_refs(candidates, canonical, actor),
+        guest_claims: %{}
+      })
 
     unrevivable = unrevivable_source_targets(candidates, canonical, preloads.reissued, actor)
 
