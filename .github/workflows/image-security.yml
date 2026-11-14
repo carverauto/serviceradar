@@ -27,11 +27,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout
+      # How we scan and upload comes from this workflow's own commit; which images
+      # to scan comes from the tag. A manual rescan of an older tag therefore runs
+      # the current tooling (the tag's tree may predate it), and asks only for the
+      # images that tag published. Release publication dispatches with ref=<tag>,
+      # so there both checkouts are the tag.
+      - name: Checkout workflow tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag }}
 
       - name: Install ORAS
         run: ./scripts/install-oras.sh
@@ -61,6 +63,31 @@ jobs:
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          path: release-tag
+          persist-credentials: false
+
+      - name: List release images
+        id: images
+        working-directory: release-tag
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          repositories="$(./scripts/list-publishable-oci-repositories.sh)"
+          if [[ -z "${repositories}" ]]; then
+            echo "No publishable images listed at ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          {
+            echo "repositories<<REPOSITORIES_EOF"
+            echo "${repositories}"
+            echo "REPOSITORIES_EOF"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Authenticate Docker for Harbor
         run: |
           set -euo pipefail
@@ -74,9 +101,10 @@ jobs:
       - name: Wait for release images
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_REPOSITORIES: ${{ steps.images.outputs.repositories }}
         run: |
           set -euo pipefail
-          mapfile -t repositories < <(./scripts/list-publishable-oci-repositories.sh)
+          mapfile -t repositories <<<"${RELEASE_REPOSITORIES}"
           for attempt in $(seq 1 180); do
             missing=()
             for repository in "${repositories[@]}"; do
@@ -98,6 +126,7 @@ jobs:
       - name: Generate image SBOMs and OSV reports
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_REPOSITORIES: ${{ steps.images.outputs.repositories }}
         run: |
           set -euo pipefail
           mkdir -p out/security/images
@@ -147,7 +176,7 @@ jobs:
               1) findings=1 ;;
               *) record_failure "${image_ref}" osv-scanner "${image_osv_exit}" ;;
             esac
-          done < <(./scripts/list-publishable-oci-repositories.sh)
+          done <<<"${RELEASE_REPOSITORIES}"
           if [[ "${#scan_failures[@]}" -ne 0 ]]; then
             printf 'Image scan failed for %s\n' "${scan_failures[@]}" >&2
             exit 1
