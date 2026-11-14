@@ -55,6 +55,9 @@ artifact for as long as any supported workflow references its digest. Updating
 the tool requires reviewing both pins in the helper; no floating tool tag is
 executed. The current helper is copied into the job's private temporary directory
 before release retries check out an older commit.
+Release setup also snapshots the chart helper and the SHA-pinned PyYAML package
+already declared in `MODULE.bazel`. Chart validation parses rendered YAML with
+the safe loader, including image fields in lists and multiple documents.
 
 Before uploads and promotion, the shared tool requires fresh registry capacity
 metrics and less than 85% physical-volume usage. Harbor project quotas are a

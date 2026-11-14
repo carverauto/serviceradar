@@ -11,6 +11,32 @@ import subprocess
 import sys
 import tempfile
 
+if os.environ.get("HARBOR_LIFECYCLE_DIR"):
+    sys.path.insert(0, str(Path(os.environ["HARBOR_LIFECYCLE_DIR"]) / "vendor"))
+import yaml
+
+
+def rendered_images(rendered):
+    images, visited = set(), set()
+
+    def collect(value):
+        if not isinstance(value, (dict, list)) or id(value) in visited:
+            return
+        visited.add(id(value))
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in ("image", "imageName") and isinstance(item, str):
+                    images.add(item)
+                collect(item)
+        else:
+            for item in value:
+                collect(item)
+
+    for document in yaml.safe_load_all(rendered):
+        visited.clear()
+        collect(document)
+    return images
+
 
 def load_publisher():
     path = os.environ.get("HARBOR_PUBLISH_TOOL", str(Path(__file__).with_name("harbor-publish.py")))
@@ -72,7 +98,9 @@ def publish(version, release_tag):
         chart = Path(work) / "serviceradar"
         stage_chart(publisher.ROOT / "helm/serviceradar", chart, pins)
         rendered = subprocess.check_output([helm, "template", "release-bundle", str(chart)], text=True)
-        images = set(re.findall(r'^\s*(?:image|imageName):\s*[\"\']?([^\s\"\']+)', rendered, flags=re.M))
+        images = rendered_images(rendered)
+        if not images:
+            raise ValueError("rendered chart contains no image references")
         protected_prefix = publisher.REGISTRY + "/serviceradar/"
         for image in sorted(images):
             if image.startswith(publisher.REGISTRY + "/"):
@@ -109,7 +137,7 @@ def main():
         if args.release_tag != "v" + args.version:
             raise ValueError("release tag and chart version disagree")
         publish(args.version, args.release_tag)
-    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError, yaml.YAMLError) as error:
         print(f"Helm bundle publication failed: {error}", file=sys.stderr)
         return 1
     return 0

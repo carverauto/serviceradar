@@ -248,4 +248,5 @@ py_test(
     size = "small",
     srcs = ["helm_bundle_pins_test.py"],
     data = ["//scripts:ci/publish-helm-bundle.py"],
+    deps = ["@pyyaml//:yaml"],
 )

@@ -25,7 +25,7 @@ def run(*command, **kwargs):
     return subprocess.check_output(command, **kwargs).decode().strip()
 
 
-def setup():
+def setup(include_chart=False):
     directory = Path(tempfile.mkdtemp(prefix="harbor-lifecycle-", dir=os.environ.get("RUNNER_TEMP")))
     for role in ("BUILD", "PROMOTION"):
         username = os.environ[f"HARBOR_{role}_ROBOT_USERNAME"]
@@ -44,8 +44,25 @@ def setup():
         raise ValueError("promotion tool checksum mismatch")
     subprocess.run([sys.executable, str(tool), "--check-capacity-only"], check=True)
     shutil.copy2(__file__, directory / "harbor-publish.py")
+    if include_chart:
+        # Reuse the SHA-pinned PyYAML archive already declared in MODULE.bazel.
+        # Snapshot it before an older release checkout changes that module graph.
+        location = run("bazel", "query", "--lockfile_mode=error", "--output=location", "@pyyaml//:yaml")
+        match = re.fullmatch(r"(.+)/BUILD(?:\.bazel)?:\d+:\d+:.*", location)
+        if not match:
+            raise ValueError("cannot locate the declared PyYAML dependency")
+        source = Path(match[1]) / "lib/yaml"
+        if not (source / "__init__.py").is_file():
+            raise ValueError("declared PyYAML package is incomplete")
+        vendor = directory / "vendor/yaml"
+        vendor.mkdir(parents=True)
+        for module in source.glob("*.py"):
+            shutil.copy2(module, vendor / module.name)
+        shutil.copy2(ROOT / "scripts/ci/publish-helm-bundle.py", directory / "publish-helm-bundle.py")
     with open(os.environ["GITHUB_ENV"], "a") as output:
         output.write(f"HARBOR_LIFECYCLE_DIR={directory}\nHARBOR_PUBLISH_TOOL={directory / 'harbor-publish.py'}\n")
+        if include_chart:
+            output.write(f"HARBOR_CHART_PUBLISH_TOOL={directory / 'publish-helm-bundle.py'}\n")
 
 
 def role_environment(directory, role):
@@ -143,7 +160,7 @@ def promote(directory, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
-    commands.add_parser("setup")
+    commands.add_parser("setup").add_argument("--chart", action="store_true")
     commands.add_parser("cleanup")
     for role in ("build", "protected"):
         commands.add_parser(role).add_argument("command", nargs=argparse.REMAINDER)
@@ -159,7 +176,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.action == "setup":
-            setup()
+            setup(args.chart)
             return 0
         directory = Path(os.environ["HARBOR_LIFECYCLE_DIR"])
         if args.action == "cleanup":

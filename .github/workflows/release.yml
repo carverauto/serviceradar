@@ -513,7 +513,7 @@ jobs:
           HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
           HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
           HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
-        run: python3 ./scripts/ci/harbor-publish.py setup
+        run: python3 ./scripts/ci/harbor-publish.py setup --chart
 
       - name: Resolve release metadata
         id: release

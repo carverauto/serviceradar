@@ -413,32 +413,8 @@ if not remote_tag_check < oci_occupancy_check < first_release_mutation:
         "cut-release must verify remote Git and OCI occupancy before changing metadata"
     )
 
-chart_step_start = workflow.index("- name: Publish Helm chart to OCI registry")
-chart_step_end = workflow.index("# Wasm plugins are published", chart_step_start)
-chart_step = workflow[chart_step_start:chart_step_end]
-for fragment in (
-    "HARBOR_CHART_ROBOT_USERNAME",
-    "HARBOR_CHART_ROBOT_SECRET",
-    './scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}"',
-    './scripts/check-oci-chart-version-available.sh "${VERSION}"',
-):
-    if fragment not in chart_step:
-        raise SystemExit(f"Helm publication is missing protected contract: {fragment}")
-if "\n          OCI_USERNAME:" in chart_step or "\n          OCI_TOKEN:" in chart_step:
-    raise SystemExit("Helm publication still consumes general image-publisher credentials")
-if "run-helm.sh" not in chart_step:
-    raise SystemExit("Helm publication does not use run-helm.sh")
-if 'helm_runner}" package' not in chart_step or 'helm_runner}" push' not in chart_step:
-    raise SystemExit("Helm publication must invoke the daemonless helm runner for package and push")
-if not (
-    chart_step.index("validate-release-metadata.sh")
-    < chart_step.index("check-oci-chart-version-available.sh")
-    < chart_step.index('helm_runner}" package')
-    < chart_step.index('helm_runner}" push')
-):
-    raise SystemExit("Helm publication guards must run immediately before package and push")
-if "already published; skipping OCI push" not in chart_step:
-    raise SystemExit("Helm publication must skip an already-published chart on retry")
+# Chart credential scope, package ordering and promotion failures are exercised
+# through the executable publisher by //build/contracts:helm_bundle_pins_test.
 
 digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:
