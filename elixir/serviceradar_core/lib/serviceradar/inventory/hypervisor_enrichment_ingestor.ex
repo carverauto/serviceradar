@@ -8,6 +8,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Dgraph
@@ -36,6 +38,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -241,6 +244,25 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       OR d.metadata -> 'mac_addresses' IS DISTINCT FROM u.macs)
   """
 
+  @refused_reasons [
+    :proxmox_v3_identity_required,
+    :invalid_proxmox_v3_identity,
+    :missing_authoritative_proxmox_identity,
+    :proxmox_source_scope_mismatch,
+    :invalid_trusted_proxmox_source_scope,
+    :missing_trusted_proxmox_source_scope,
+    :invalid_uuid,
+    :incomplete_hosted_projection_page,
+    :invalid_hosted_projection_cursor
+  ]
+
+  @impl true
+  def settled_reasons, do: []
+
+  @impl true
+  def refused_reasons, do: @refused_reasons
+
+  @impl true
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -257,10 +279,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl true
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
+    opts =
+      Keyword.put_new_lazy(opts, :actor, fn -> SystemActor.system(:hypervisor_enrichment) end)
+
     payload
     |> Enum.filter(&supports?(&1, status))
     |> case do
@@ -275,11 +301,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           |> dedupe_records()
 
         persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
-        persist.(records)
+        classify_persist_result(persist.(records), status)
     end
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
+    opts =
+      Keyword.put_new_lazy(opts, :actor, fn -> SystemActor.system(:hypervisor_enrichment) end)
+
     case details(payload) do
       %{"schema" => @schema} ->
         records =
@@ -288,7 +317,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           |> dedupe_records()
 
         persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
-        persist.(records)
+        classify_persist_result(persist.(records), status)
 
       _ ->
         :ok
@@ -300,6 +329,59 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   def ingest(_payload, _status, _opts), do: :ok
+
+  @doc false
+  @spec classify_persist_result(term(), term()) :: PluginResultHandlerOutcome.t()
+  def classify_persist_result(:ok, _status), do: :ok
+  def classify_persist_result({:settled, _, _} = settled, _status), do: settled
+  def classify_persist_result({:refused, _, _} = refused, _status), do: refused
+
+  def classify_persist_result({:error, {reason, provider_ref}}, status)
+      when reason in @refused_reasons do
+    {:refused, reason,
+     %{
+       agent_id: status_agent_id(status),
+       partition: status_partition(status),
+       provider_ref: provider_ref
+     }}
+  end
+
+  def classify_persist_result({:error, reason}, status) when reason in @refused_reasons do
+    {:refused, reason,
+     %{
+       agent_id: status_agent_id(status),
+       partition: status_partition(status)
+     }}
+  end
+
+  def classify_persist_result({:error, _reason} = error, _status), do: error
+  def classify_persist_result(other, _status), do: {:error, other}
+
+  defp status_agent_id(status) when is_map(status) do
+    case Map.get(status, :agent_id) || Map.get(status, "agent_id") do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed != "", do: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp status_agent_id(_status), do: nil
+
+  defp status_partition(status) when is_map(status) do
+    case Map.get(status, :partition) || Map.get(status, "partition") do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed != "", do: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp status_partition(_status), do: nil
 
   def empty_records do
     %{

@@ -152,6 +152,10 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
       assert {:error, ^expected} = resolve(assignment: assignment)
       assert ProxmoxSourceScopeResolver.assignment_withdrawn?(expected) == withdrawn?
     end
+
+    refute ProxmoxSourceScopeResolver.assignment_withdrawn?(:plugin_assignment_not_found)
+    assert :plugin_assignment_not_found in ProxmoxSourceScopeResolver.refused_reasons()
+    assert :plugin_assignment_disabled in ProxmoxSourceScopeResolver.settled_reasons()
   end
 
   test "a disabled assignment that contradicts the delivering agent is refused, not withdrawn" do

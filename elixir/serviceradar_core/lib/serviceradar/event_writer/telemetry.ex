@@ -6,6 +6,8 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   not create one series per device, partition, or metric name.
   """
 
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+
   @retention_warning_byte_ratio 0.75
   @retention_critical_byte_ratio 0.90
   @retention_warning_age_ratio 0.25
@@ -96,9 +98,22 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   @spec failure_class(term()) :: String.t()
   def failure_class(nil), do: "error"
   def failure_class({:failed, reason}), do: failure_class(reason)
+  def failure_class({:refused, inner}), do: failure_class(inner)
+
+  def failure_class(%EdgeRecordRefusedError{reason: reason}) do
+    reason
+    |> EdgeRecordRefusedError.normalize_reason()
+    |> failure_class()
+  end
+
   def failure_class(reason) when is_atom(reason), do: Atom.to_string(reason)
   def failure_class(%_{} = reason), do: reason.__struct__ |> Module.split() |> List.last()
   def failure_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
+
+  def failure_class(tuple)
+      when is_tuple(tuple) and tuple_size(tuple) >= 3 and is_atom(elem(tuple, 0)),
+      do: Atom.to_string(elem(tuple, 0))
+
   def failure_class(_reason), do: "error"
 
   @doc """

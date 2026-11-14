@@ -22,26 +22,119 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
     "proxmox-identity:v3"
   ]
   @withdrawn_reasons [
-    :plugin_assignment_not_found,
     :plugin_assignment_disabled,
     :plugin_assignment_package_not_approved,
     :credential_rule_not_found,
     :credential_rule_disabled
   ]
 
-  @doc """
-  Whether a `resolve/3` refusal means the operator withdrew the authority the result was
-  produced under: the assignment is disabled or deleted, its package is no longer approved,
-  or its credential rule is disabled or deleted.
+  @refused_reasons [
+    :plugin_assignment_not_found,
+    :invalid_proxmox_result_envelope,
+    :invalid_plugin_assignment,
+    :missing_trusted_assignment_id,
+    :conflicting_trusted_assignment_ids,
+    :missing_authenticated_agent_id,
+    :missing_authenticated_partition_id,
+    :proxmox_inventory_plugin_mismatch,
+    :missing_proxmox_identity_delivery_capabilities,
+    :plugin_assignment_id_mismatch,
+    :plugin_assignment_not_policy_managed,
+    :plugin_assignment_agent_mismatch,
+    :plugin_assignment_partition_mismatch,
+    :plugin_assignment_plugin_mismatch,
+    :plugin_assignment_package_mismatch,
+    :plugin_assignment_policy_mismatch,
+    :invalid_proxmox_inventory_policy_id,
+    :invalid_proxmox_console_policy_id,
+    :unsupported_proxmox_assignment_plugin,
+    :credential_rule_id_mismatch,
+    :credential_rule_provider_mismatch,
+    :credential_rule_purpose_mismatch,
+    :proxmox_tls_verification_required,
+    :unsupported_proxmox_inventory_auth_method,
+    :proxmox_ssh_host_key_verification_required,
+    :unsupported_proxmox_console_auth_method,
+    :unsupported_proxmox_rule_purpose,
+    :invalid_uuid
+  ]
 
-  Such a result was legitimate when the agent produced it, cannot be applied now, and fails
-  the same way on every later delivery, so a result consumer settles it instead of retrying
-  it. Every other refusal stays a failure: a lookup that did not complete may succeed next
-  time, and an envelope or assignment that contradicts the authenticated agent is not
-  something an operator's change explains.
+  @doc false
+  @spec settled_reasons() :: [atom()]
+  def settled_reasons, do: @withdrawn_reasons
+
+  @doc false
+  @spec refused_reasons() :: [atom()]
+  def refused_reasons, do: @refused_reasons
+
+  @doc """
+  Whether a `resolve/3` refusal means the operator withdrew the authority a verified
+  policy-managed assignment was produced under: the assignment is disabled, its package
+  is no longer approved, or its credential rule is disabled or deleted.
+
+  `:plugin_assignment_not_found` is excluded because policy-owned `PluginAssignment` rows
+  are retracted in place (`:retract`), never hard-deleted; without the assignment row, core
+  cannot verify `:policy` source, `agent_uid`, `partition_id`, or `plugin_id`, so unknown
+  assignment UUIDs are classified as `refused` rather than `settled`.
   """
   @spec assignment_withdrawn?(term()) :: boolean()
   def assignment_withdrawn?(reason), do: reason in @withdrawn_reasons
+
+  @doc """
+  Classifies a `resolve/3` failure into `PluginResultHandlerOutcome.t()` for
+  `ProxmoxEnrichmentIngestor`.
+  """
+  @spec classify_error(term(), term(), term()) ::
+          {:settled, atom(), map()} | {:refused, atom(), map()} | {:error, term()}
+  def classify_error(reason, payload, status) do
+    meta = scope_error_metadata(payload, status)
+
+    cond do
+      reason in @withdrawn_reasons ->
+        {:settled, reason, meta}
+
+      match?({:missing_proxmox_identity_delivery_capabilities, _}, reason) ->
+        {:missing_proxmox_identity_delivery_capabilities, missing} = reason
+
+        {:refused, :missing_proxmox_identity_delivery_capabilities,
+         Map.put(meta, :missing_capabilities, missing)}
+
+      reason in @refused_reasons ->
+        {:refused, reason, meta}
+
+      true ->
+        {:error, reason}
+    end
+  end
+
+  defp scope_error_metadata(payload, status) do
+    assignment_id =
+      Enum.find_value(
+        [
+          field(status, :assignment_id),
+          status |> field(:plugin_provenance) |> field(:assignment_id),
+          status |> labels() |> field(:assignment_id),
+          payload |> labels() |> field(:assignment_id)
+        ],
+        &optional_trimmed_string/1
+      )
+
+    %{
+      assignment_id: assignment_id,
+      agent_id: optional_trimmed_string(field(status, :agent_id)),
+      partition:
+        optional_trimmed_string(field(status, :partition) || field(status, :partition_id))
+    }
+  end
+
+  defp optional_trimmed_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp optional_trimmed_string(_value), do: nil
 
   @spec resolve(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def resolve(payload, status, opts) when is_map(payload) and is_map(status) do

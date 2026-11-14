@@ -404,7 +404,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
       ]
     }
 
-    assert {:error, :stale_source_snapshot} =
+    assert {:settled, :stale_source_snapshot,
+            %{partition: "default", agent_id: nil, assignment_id: nil}} =
              DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
                actor: :actor,
                source_observation_preflight: fn _envelope, _updates, _context ->
@@ -597,28 +598,15 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     @controller_id "11111111-2222-4333-8444-555555555555"
     @superseded {:stale_awx_membership_generation, @controller_id, 10, 20}
 
-    setup do
-      event = [:serviceradar, :inventory, :awx_observation, :superseded]
-      handler = "awx-observation-superseded-#{System.unique_integer([:positive])}"
+    test "returns {:settled, :stale_awx_membership_generation, metadata} instead of failing into redelivery" do
       parent = self()
 
-      :ok =
-        :telemetry.attach(
-          handler,
-          event,
-          fn ^event, measurements, metadata, _config ->
-            send(parent, {:superseded, measurements, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler) end)
-    end
-
-    test "is acknowledged and counted once instead of failing into redelivery" do
-      parent = self()
-
-      assert :ok =
+      assert {:settled, :stale_awx_membership_generation,
+              %{
+                controller_id: @controller_id,
+                source_generation: 10,
+                recorded_generation: 20
+              }} =
                DeviceDiscoveryIngestor.ingest(
                  %{"device_discovery" => [versioned_awx_envelope()]},
                  %{},
@@ -630,27 +618,23 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
                  retire_absent: fn _controller_id -> send(parent, :unexpected_retirement) end
                )
 
-      assert_receive {:superseded, %{count: 1},
-                      %{
-                        source: "awx",
-                        source_instance: @controller_id,
-                        source_generation: 10,
-                        recorded_generation: 20
-                      }}
-
-      refute_received {:superseded, _measurements, _metadata}
       refute_received :unexpected_state_events
       refute_received :unexpected_retirement
     end
 
-    test "still fails when its payload carries another envelope that was not ruled on" do
+    test "refuses when its payload carries another envelope that was not ruled on" do
       other_source = %{
         "schema" => "serviceradar.device_discovery.v1",
         "source" => "synthetic-inventory",
         "devices" => [%{"device_id" => "synthetic:host:1", "hostname" => "host02.example.com"}]
       }
 
-      assert {:error, @superseded} =
+      assert {:refused, :mixed_superseded_awx_observation,
+              %{
+                controller_id: @controller_id,
+                source_generation: 10,
+                recorded_generation: 20
+              }} =
                DeviceDiscoveryIngestor.ingest(
                  %{"device_discovery" => [versioned_awx_envelope(), other_source]},
                  %{},
@@ -659,8 +643,6 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
                    {:ok, {:superseded, [@superseded]}}
                  end
                )
-
-      refute_received {:superseded, _measurements, _metadata}
     end
 
     defp versioned_awx_envelope do

@@ -381,13 +381,13 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
       log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
 
       assert [{:publish, _subject, @record_bytes, opts}, {:ack, :ack}] = steps()
-      assert header(opts, "Sr-Edge-Dlq-Reason") == "refused"
+      assert header(opts, "Sr-Edge-Dlq-Reason") == "gateway_unknown"
 
       assert header(opts, "Sr-Edge-Dlq-Reason-Detail") ==
-               "edge record refused: {:refused, :gateway_unknown}"
+               "edge record refused: :gateway_unknown"
 
       assert_received {:dead_letter_event, %{count: 1, attempts: 1},
-                       %{reason_class: "refused", result: "stored"}}
+                       %{reason_class: "gateway_unknown", result: "stored"}}
 
       assert log =~ ~r/\[warning\][^\n]*Edge record dead-lettered/
     end

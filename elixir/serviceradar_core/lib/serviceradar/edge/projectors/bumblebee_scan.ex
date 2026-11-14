@@ -60,12 +60,23 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
       scan
       |> scan_payload(agent_id)
       |> BumblebeeIngestor.ingest_scan()
-      |> case do
-        {:ok, _result} -> :ok
-        {:error, reason} -> {:error, {:bumblebee_scan_ingest_failed, reason}}
-      end
+      |> classify_ingest_result()
     end)
   end
+
+  @doc false
+  @spec classify_ingest_result(term()) :: :ok | {:refused, term()} | {:error, term()}
+  def classify_ingest_result(:ok), do: :ok
+  def classify_ingest_result({:ok, _result}), do: :ok
+
+  def classify_ingest_result({:error, {:missing_required_key, key}}) when is_atom(key),
+    do: {:refused, {:bumblebee_missing_required_key, key}}
+
+  def classify_ingest_result({:error, :invalid_payload}),
+    do: {:refused, :bumblebee_invalid_payload}
+
+  def classify_ingest_result({:error, reason}),
+    do: {:error, {:bumblebee_scan_ingest_failed, reason}}
 
   defp check_findings(findings) do
     Enum.reduce_while(findings, :ok, fn %BumblebeeFindingV1{} = finding, :ok ->

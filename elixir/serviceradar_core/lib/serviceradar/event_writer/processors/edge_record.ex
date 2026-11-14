@@ -10,10 +10,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     * A projector's side effect outside the database (`publish/3`, for example a republish to
       the metrics stream) runs BEFORE the transaction, only for a fresh primary delivery, so no
       network call runs inside a database transaction. A replay or a late-fenced delivery is
-      not published. A refusal is returned; any other failure raises so JetStream redelivers.
-      A republish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`, which the
-      pipeline dead-letters at once (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.due?/1`):
-      redelivering it cannot succeed until the grant changes.
+      not published. `{:settled, reason}` skips domain writes, commits the delivery slot and
+      ledger row, and counts `:settled` in `PipelineStats`. `{:refused, reason}` fails with
+      `EdgeRecordRefusedError` for first-delivery dead-lettering; any `{:error, reason}` raises
+      so JetStream redelivers. A republish the broker denied raises
+      `ServiceRadar.NATS.PublishDeniedError`, which the pipeline dead-letters at once
+      (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.due?/1`).
 
   Each record of a batch succeeds or fails on its own (`process_batch/1`). A record that raises
   is the only one redelivered; the records before and after it are acknowledged. A record
@@ -91,10 +93,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   records ingested.
   """
   @impl true
-  def process_batch(messages) do
+  def process_batch(messages, batch_opts \\ []) do
     {count, failures} =
       Enum.reduce(messages, {0, []}, fn message, {count, failures} ->
-        case process_one(message) do
+        case process_one(message, batch_opts) do
           {:ok, ingested} -> {count + ingested, failures}
           {:failed, reason} -> {count, [{message, reason} | failures]}
         end
@@ -107,24 +109,31 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   end
 
   # Each outcome is also counted per output contract (`ServiceRadar.Edge.PipelineStats`).
-  defp process_one(%{data: data} = message) when is_binary(data) do
+  defp process_one(%{data: data} = message, batch_opts) when is_binary(data) do
     decoded = WireDecode.decode_record(data)
-    process_one(message, decoded, contract_of(decoded))
+    process_one(message, decoded, contract_of(decoded), batch_opts)
   end
 
-  defp process_one(_message), do: {:ok, 0}
+  defp process_one(_message, _batch_opts), do: {:ok, 0}
 
-  defp process_one(%{data: data, metadata: metadata} = message, decoded, contract) do
+  defp process_one(%{data: data, metadata: metadata} = message, decoded, contract, batch_opts) do
     headers = Map.get(metadata || %{}, :headers, %{})
-    opts = [test_hook: test_hook(), publication: publication_of(metadata)]
+    repo = Keyword.get(batch_opts, :repo, Repo)
+    extra_opts = Keyword.get(batch_opts, :projector_opts, [])
 
-    case ingest_decoded(data, decoded, headers, Repo, opts) do
+    opts =
+      Keyword.merge(extra_opts,
+        test_hook: test_hook(),
+        publication: publication_of(metadata)
+      )
+
+    case ingest_decoded_with_disposition(data, decoded, headers, repo, opts) do
       {:ok, {:deferred, state}} ->
         {:failed, %EdgeRecordDeferredError{state: state}}
 
-      {:ok, outcome} ->
+      {:ok, disposition, outcome} when disposition in [:projected, :settled] ->
         if outcome == :inserted and opts[:publication] == :primary,
-          do: PipelineStats.record(:projected, contract)
+          do: PipelineStats.record(disposition, contract)
 
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],
@@ -140,7 +149,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         end
 
         PipelineStats.record(:projector_refused, contract)
-        refused(message, %EdgeRecordRefusedError{reason: reason})
+        refused(message, EdgeRecordRefusedError.exception(reason: reason))
     end
   rescue
     # The broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), not
@@ -204,37 +213,26 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   the idempotent ledger/delivery-slot/sweep-batch-slot/domain-projection
   transaction described in the moduledoc.
 
-  The gateway has already authenticated the enclosing capabilities. This
-  boundary independently validates the sweep body and its source correlation,
-  then binds domain writes to the persisted assignment and scheduled slot.
-
   Returns `{:ok, :inserted | :replay}`, `{:ok, {:deferred, :pending | :blocked}}`
-  after committed retryable work, or `{:error, reason}`. `reason` is
-  `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
-  `{:sweep_batch_slot_conflict, existing}`, `:output_grant_not_current`,
-  `{:refused, :gateway_unknown}`, a header/slot decode reason, or a wire-decode
-  reason from `ServiceRadar.Edge.WireDecode`. A metrics publish failure other than
-  `:output_grant_not_current` raises before the ledger transaction, so no
-  ledger row is written and `process_batch/1` fails the record for JetStream
-  redelivery; a publish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`. A
-  domain projection failure that is not an authority refusal raises after the transaction
-  rolls back, with the same redelivery. That includes a write an Ash action rolled the
-  transaction back with (its changeset or error is the rollback value, not a refusal) and a
-  database error such as a deadlock.
-
-  `opts[:test_hook]` is the test-only hook described in the moduledoc; it
-  defaults to `nil`, which disables it. `opts[:publication]` is `:audit` for a
-  record read from the audit route, which must be stamped
-  `LATE_FENCED_DELIVERY` and is otherwise refused `:audit_not_late_fenced`
-  before anything is written; it defaults to `:primary`.
+  after committed retryable work, or `{:error, reason}`.
   """
   @spec ingest(binary(), map() | list(), module(), keyword()) ::
           {:ok, :inserted | :replay | {:deferred, :pending | :blocked}} | {:error, term()}
   def ingest(record_bytes, headers, repo \\ Repo, opts \\ []) when is_binary(record_bytes) do
-    ingest_decoded(record_bytes, WireDecode.decode_record(record_bytes), headers, repo, opts)
+    case ingest_decoded_with_disposition(
+           record_bytes,
+           WireDecode.decode_record(record_bytes),
+           headers,
+           repo,
+           opts
+         ) do
+      {:ok, _disposition, outcome} -> {:ok, outcome}
+      {:ok, {:deferred, _state}} = deferred -> deferred
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp ingest_decoded(record_bytes, decoded, headers, repo, opts) do
+  defp ingest_decoded_with_disposition(record_bytes, decoded, headers, repo, opts) do
     with {:ok, header_set} <- PublicationIdentity.extract_header_set(headers),
          {:ok, provenance} <-
            PublicationIdentity.decode_transport_provenance(header_set.provenance),
@@ -244,7 +242,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          :ok <- check_slot_matches_record(slot, record),
          {:ok, projector} <- projector_for(record),
          {:ok, body} <- projector.decode(record),
-         :ok <-
+         {:ok, publish_disposition} <-
            publish_fresh(
              repo,
              provenance,
@@ -260,9 +258,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         provenance,
         record,
         {projector, body},
+        publish_disposition,
         record_sha256,
         header_set.gateway_id,
-        Keyword.get(opts, :test_hook)
+        opts
       )
     else
       {:service, _slot} -> {:error, :unsupported_slot_kind}
@@ -314,24 +313,36 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # raises, so the record fails and JetStream redelivers it.
   defp publish_opts(repo, opts) do
     [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++
-      Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
+      Keyword.take(opts, [
+        :request,
+        :flow_attribution_publisher,
+        :otlp_relay_publisher,
+        :check_grant_fn,
+        :partition_lookup_fn,
+        :agent_lookup_fn,
+        :ingestor_opts,
+        :cleanup_artifacts_fn,
+        :persist_snapshot_fn,
+        :ingest_scan_fn
+      ])
   end
 
   defp publish_fresh(repo, provenance, record, projector, body, opts) do
     cond do
       not function_exported?(projector, :publish, 3) ->
-        :ok
+        {:ok, :projected}
 
       provenance.delivery_mode == PublicationIdentity.mode_late_fenced() ->
-        :ok
+        {:ok, :projected}
 
       fetch_ledger(repo, record.network_scope_id, record.event_id) != nil ->
-        :ok
+        {:ok, :projected}
 
       true ->
         case projector.publish(record, body, publish_opts(repo, opts)) do
-          :ok -> :ok
-          {:refused, reason} -> {:error, reason}
+          :ok -> {:ok, :projected}
+          {:settled, _reason} -> {:ok, :settled}
+          {:refused, reason} -> {:error, EdgeRecordRefusedError.normalize_reason(reason)}
           {:error, reason} -> raise_publish_failure(reason)
         end
     end
@@ -349,13 +360,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          provenance,
          record,
          {projector, body},
+         publish_disposition,
          record_sha256,
          gateway_id,
-         test_hook
+         opts
        ) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
+    test_hook = Keyword.get(opts, :test_hook)
 
     # Ash actions a projector runs here queue their notifications until this
     # transaction commits (`NotificationQueue`).
@@ -373,11 +386,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                {:ok, ledger_outcome} <-
                  upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
                {:ok, outcome} <-
-                 projection_outcome(
-                   project(repo, provenance, record, projector, body, ledger_outcome, gateway_id),
-                   ledger_outcome
+                 transaction_projection_step(
+                   repo,
+                   provenance,
+                   record,
+                   projector,
+                   body,
+                   publish_disposition,
+                   ledger_outcome,
+                   gateway_id
                  ) do
-            run_test_hook(test_hook, :before_commit, event_id, {:ok, outcome})
+            run_test_hook(test_hook, :before_commit, event_id, {:ok, hook_outcome(outcome)})
             outcome
           else
             {:error, reason} -> repo.rollback(reason)
@@ -385,35 +404,86 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         end)
       end)
 
-    run_test_hook(test_hook, :transaction_result, event_id, result)
+    run_test_hook(test_hook, :transaction_result, event_id, normalize_hook_result(result))
 
     case result do
-      {:ok, ledger_outcome} ->
+      {:ok, {:deferred, _state}} = deferred ->
+        deferred
+
+      {:ok, {disposition, ledger_outcome}} when disposition in [:projected, :settled] ->
         if primary?(provenance, ledger_outcome) and function_exported?(projector, :committed, 3) do
           projector.committed(record, body, %{
             ledger: ledger_outcome,
             primary?: true,
             late_fenced?: false,
-            gateway_id: gateway_id
+            gateway_id: gateway_id,
+            projection: disposition,
+            projector_opts: opts
           })
         end
 
-        result
+        {:ok, disposition, ledger_outcome}
+
+      {:error, {:__projector_refused__, normalized_reason}} ->
+        {:error, normalized_reason}
+
+      {:error, %EdgeRecordTransientError{} = transient} ->
+        raise transient
 
       {:error, :rollback} ->
         raise "edge record transaction #{inspect(event_id)} rolled back"
 
-      {:error, reason} = result ->
+      {:error, reason} ->
         if write_failure?(reason) do
           raise "edge record transaction #{inspect(event_id)} failed: #{describe_failure(reason)}"
         else
-          result
+          {:error, EdgeRecordRefusedError.normalize_reason(reason)}
         end
     end
   end
 
+  defp transaction_projection_step(
+         _repo,
+         _provenance,
+         _record,
+         _projector,
+         _body,
+         :settled,
+         ledger_outcome,
+         _gateway_id
+       ) do
+    {:ok, {:settled, ledger_outcome}}
+  end
+
+  defp transaction_projection_step(
+         repo,
+         provenance,
+         record,
+         projector,
+         body,
+         :projected,
+         ledger_outcome,
+         gateway_id
+       ) do
+    projection_outcome(
+      project(repo, provenance, record, projector, body, ledger_outcome, gateway_id),
+      ledger_outcome
+    )
+  end
+
+  defp hook_outcome({disposition, ledger_outcome}) when disposition in [:projected, :settled],
+    do: ledger_outcome
+
+  defp hook_outcome(other), do: other
+
+  defp normalize_hook_result({:ok, outcome}), do: {:ok, hook_outcome(outcome)}
+
+  defp normalize_hook_result({:error, {:__projector_refused__, reason}}), do: {:error, reason}
+
+  defp normalize_hook_result(other), do: other
+
   # A refusal names why the record cannot project: an atom, or a tuple tagged with one
-  # (`{:delivery_slot_conflict, existing}`, `{:refused, :gateway_unknown}`). A write that failed
+  # (`{:delivery_slot_conflict, existing}`, `:gateway_unknown`). A write that failed
   # is an exception or the changeset, query or input an Ash action rolled the transaction back
   # with (a constraint race, a deadlock, a timeout): the same record can succeed on redelivery,
   # so it raises and JetStream redelivers it with backoff, then dead-letters it at its threshold.
@@ -448,10 +518,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp projection_outcome(:ok, ledger_outcome), do: {:ok, ledger_outcome}
+  defp projection_outcome(:ok, ledger_outcome), do: {:ok, {:projected, ledger_outcome}}
+
+  defp projection_outcome({:settled, _reason}, ledger_outcome),
+    do: {:ok, {:settled, ledger_outcome}}
 
   defp projection_outcome({:defer, state}, _ledger_outcome) when state in [:pending, :blocked],
     do: {:ok, {:deferred, state}}
+
+  defp projection_outcome({:refused, reason}, _ledger_outcome),
+    do: {:error, {:__projector_refused__, EdgeRecordRefusedError.normalize_reason(reason)}}
 
   defp projection_outcome({:error, _} = error, _ledger_outcome), do: error
 

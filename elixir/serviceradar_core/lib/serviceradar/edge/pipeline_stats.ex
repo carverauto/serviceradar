@@ -14,9 +14,10 @@ defmodule ServiceRadar.Edge.PipelineStats do
       message (`:gateway_duplicate`), and publish attempts that did not store
       (`:gateway_publish_retry`);
     * the EventWriter edge-record processor (`ServiceRadar.EventWriter.Processors.EdgeRecord`):
-      first primary deliveries committed through the ledger and projector (`:projected`), refused without a
-      projection (`:projector_refused`), and failed attempts JetStream will redeliver
-      (`:failed`);
+      first primary deliveries committed through the ledger and projector (`:projected`),
+      settled without domain writes because authority was withdrawn or superseded (`:settled`),
+      refused without a projection (`:projector_refused`), and failed attempts JetStream will
+      redeliver (`:failed`);
     * `ServiceRadar.EventWriter.EdgeRecordDeadLetter`: records stored on the dead-letter stream
       (`:dead_lettered`), also counted per failure reason (`record_dead_letter/2`) so the panel
       shows why records were dead-lettered and which reason to replay once it is fixed;
@@ -49,6 +50,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
     :gateway_refused,
     :gateway_withheld,
     :projected,
+    :settled,
     :projector_refused,
     :failed,
     :dead_lettered
@@ -72,6 +74,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
           required(:gateway_refused) => non_neg_integer(),
           required(:gateway_withheld) => non_neg_integer(),
           required(:projected) => non_neg_integer(),
+          required(:settled) => non_neg_integer(),
           required(:projector_refused) => non_neg_integer(),
           required(:failed) => non_neg_integer(),
           required(:dead_lettered) => non_neg_integer(),

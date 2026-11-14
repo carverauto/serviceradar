@@ -4,15 +4,29 @@ defmodule ServiceRadar.Camera.EventIngestor do
   camera inventory when the plugin payload includes camera descriptors.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Observability.PluginResultHandler
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
 
   require Ash.Query
   require Logger
 
+  @settled_reasons [:device_out_of_service]
+  @refused_reasons [:invalid_camera_events_payload, :invalid_camera_event]
+
+  @impl PluginResultHandler
+  def settled_reasons, do: @settled_reasons
+
+  @impl PluginResultHandler
+  def refused_reasons, do: @refused_reasons
+
+  @impl PluginResultHandler
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -21,19 +35,22 @@ defmodule ServiceRadar.Camera.EventIngestor do
   end
 
   def supports?(payload, _status) when is_map(payload) do
-    payload
-    |> extract_events()
-    |> Enum.any?()
+    case extract_events_envelope(payload) do
+      {:events, [_ | _]} -> true
+      {:invalid, _reason} -> true
+      _ -> false
+    end
   end
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl PluginResultHandler
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
     payload
-    |> Enum.find(&is_map/1)
+    |> Enum.find(&supports?(&1, status))
     |> case do
       nil -> :ok
       entry -> ingest(entry, status, opts)
@@ -41,35 +58,67 @@ defmodule ServiceRadar.Camera.EventIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:camera_event_ingestor))
-    observed_at = Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status)
-    publish_event = Keyword.get(opts, :publish_event, &publish_event/1)
-    load_source = Keyword.get(opts, :load_source, &load_source/2)
-
-    payload
-    |> extract_events()
-    |> Enum.reduce_while(0, fn event, count ->
-      correlation = resolve_event_correlation(event, payload, actor, load_source)
-      attrs = build_event_attrs(event, correlation, observed_at, status)
-
-      case publish_event.(attrs) do
-        {:ok, _event} ->
-          {:cont, count + 1}
-
-        # An out-of-service camera's event is dropped by design, not a failure.
-        {:error, :suppressed} ->
-          {:cont, count}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      count when is_integer(count) ->
+    case extract_events_envelope(payload) do
+      :ignore ->
         :ok
 
-      {:error, reason} ->
-        {:error, reason}
+      {:events, []} ->
+        :ok
+
+      {:invalid, reason} ->
+        {:refused, reason, status_metadata(status)}
+
+      {:events, events} ->
+        actor = Keyword.get(opts, :actor, SystemActor.system(:camera_event_ingestor))
+        observed_at = Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status)
+
+        publish_event =
+          Keyword.get(opts, :publish_event) ||
+            Keyword.get(opts, :event_publisher) ||
+            (&publish_event/1)
+
+        load_source = Keyword.get(opts, :load_source, &load_source/2)
+
+        events
+        |> Enum.reduce_while({0, 0}, fn event, {published_count, suppressed_count} ->
+          correlation = resolve_event_correlation(event, payload, actor, load_source)
+          attrs = build_event_attrs(event, correlation, observed_at, status)
+
+          case publish_event.(attrs) do
+            {:ok, :suppressed} ->
+              {:cont, {published_count, suppressed_count + 1}}
+
+            {:ok, _event} ->
+              {:cont, {published_count + 1, suppressed_count}}
+
+            # An out-of-service camera's event is dropped by design, not a failure.
+            {:error, :suppressed} ->
+              {:cont, {published_count, suppressed_count + 1}}
+
+            {:error, :invalid_event} ->
+              {:halt, {:refused, :invalid_camera_event, status_metadata(status)}}
+
+            {:error, {:invalid_event, _detail}} ->
+              {:halt, {:refused, :invalid_camera_event, status_metadata(status)}}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
+          end
+        end)
+        |> case do
+          {0, suppressed_count} when suppressed_count > 0 ->
+            {:settled, :device_out_of_service,
+             Map.put(status_metadata(status), :suppressed_count, suppressed_count)}
+
+          {published_count, _suppressed_count} when is_integer(published_count) ->
+            :ok
+
+          {:refused, _, _} = refused ->
+            refused
+
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   rescue
     e ->
@@ -79,14 +128,41 @@ defmodule ServiceRadar.Camera.EventIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
-  defp extract_events(payload) when is_map(payload) do
-    payload
-    |> Map.get("events", Map.get(payload, :events, []))
-    |> case do
-      events when is_list(events) -> Enum.filter(events, &is_map/1)
-      _ -> []
+  defp extract_events_envelope(payload) when is_map(payload) do
+    cond do
+      Map.has_key?(payload, "events") ->
+        normalize_events_value(Map.get(payload, "events"))
+
+      Map.has_key?(payload, :events) ->
+        normalize_events_value(Map.get(payload, :events))
+
+      true ->
+        :ignore
     end
   end
+
+  defp normalize_events_value(nil), do: :ignore
+  defp normalize_events_value([]), do: {:events, []}
+
+  defp normalize_events_value(events) when is_list(events) do
+    case Enum.filter(events, &is_map/1) do
+      [] -> {:invalid, :invalid_camera_event}
+      maps -> {:events, maps}
+    end
+  end
+
+  defp normalize_events_value(_other), do: {:invalid, :invalid_camera_events_payload}
+
+  defp status_metadata(status) when is_map(status) do
+    %{
+      agent_id: Map.get(status, :agent_id) || Map.get(status, "agent_id"),
+      assignment_id:
+        get_in(status, [:plugin_provenance, "assignment_id"]) ||
+          get_in(status, ["plugin_provenance", "assignment_id"])
+    }
+  end
+
+  defp status_metadata(_status), do: %{agent_id: nil, assignment_id: nil}
 
   defp build_event_attrs(event, correlation, observed_at, status) do
     severity_id = event_severity_id(event)

@@ -75,15 +75,26 @@ defmodule ServiceRadar.Edge.Projectors.EndpointInventory do
   @impl true
   def publish(%EdgeRecordV1{} = record, %EndpointInventoryScanPayloadV1{} = scan, _opts) do
     DiscoveryCommon.with_current_grant(record, fn agent_id ->
-      payload = to_ingestor_payload(scan, agent_id)
-
-      case EndpointInventoryIngestorQueue.ingest_now(payload) do
-        :ok -> :ok
-        {:ok, _} -> :ok
-        {:error, reason} -> {:error, {:endpoint_inventory_ingest_failed, reason}}
-      end
+      scan
+      |> to_ingestor_payload(agent_id)
+      |> EndpointInventoryIngestorQueue.ingest_now()
+      |> classify_ingest_result()
     end)
   end
+
+  @doc false
+  @spec classify_ingest_result(term()) :: :ok | {:refused, term()} | {:error, term()}
+  def classify_ingest_result(:ok), do: :ok
+  def classify_ingest_result({:ok, _}), do: :ok
+
+  def classify_ingest_result({:error, :invalid_endpoint_inventory_payload}),
+    do: {:refused, :invalid_endpoint_inventory_payload}
+
+  def classify_ingest_result({:error, {:missing_required_key, key}}) when is_atom(key),
+    do: {:refused, {:endpoint_inventory_missing_required_key, key}}
+
+  def classify_ingest_result({:error, reason}),
+    do: {:error, {:endpoint_inventory_ingest_failed, reason}}
 
   @doc """
   Convenience wrapper for projecting a decoded endpoint inventory scan record.

@@ -29,9 +29,13 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   rows (and no `integration_type=wifi_map` devices) exist in production.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Observability.PluginResultHandler
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Repo
 
   require Logger
@@ -42,6 +46,28 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   @max_insert_params 30_000
   @seed_source_kind "wifi_map_seed"
   @up_statuses ["up", "ok", "online", "available", "true"]
+  @settled_reasons []
+  @refused_reasons [:invalid_wifi_map_payload]
+
+  @impl PluginResultHandler
+  def settled_reasons, do: @settled_reasons
+
+  @impl PluginResultHandler
+  def refused_reasons, do: @refused_reasons
+
+  @impl PluginResultHandler
+  @spec supports?(map() | list(), map()) :: boolean()
+  def supports?(payload, status \\ %{})
+
+  def supports?(payload, status) when is_list(payload) do
+    Enum.any?(payload, &supports?(&1, status))
+  end
+
+  def supports?(payload, _status) when is_map(payload) do
+    extract_wifi_map_body(payload) != :ignore
+  end
+
+  def supports?(_payload, _status), do: false
 
   @type context :: %{
           actor: term(),
@@ -57,12 +83,13 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
           bulk_upsert: function()
         }
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl PluginResultHandler
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
     payload
-    |> Enum.find(&is_map/1)
+    |> Enum.find(&supports?(&1, status))
     |> case do
       nil -> :ok
       entry -> ingest(entry, status, opts)
@@ -70,11 +97,14 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
-    case wifi_map_body(payload) do
-      nil ->
+    case extract_wifi_map_body(payload) do
+      :ignore ->
         :ok
 
-      body ->
+      {:invalid, reason} ->
+        {:refused, reason, status_metadata(status)}
+
+      {:ok, body} ->
         do_ingest(body, payload, status, opts)
     end
   rescue
@@ -174,6 +204,53 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
     not Keyword.has_key?(opts, :source_upsert) and not Keyword.has_key?(opts, :batch_upsert) and
       not Keyword.has_key?(opts, :bulk_upsert)
   end
+
+  defp extract_wifi_map_body(payload) when is_map(payload) do
+    candidates = candidate_payloads(payload)
+
+    cond do
+      Enum.any?(candidates, &malformed_explicit_wifi_map?/1) ->
+        {:invalid, :invalid_wifi_map_payload}
+
+      is_map(wifi_map_body(payload)) ->
+        {:ok, wifi_map_body(payload)}
+
+      Enum.any?(candidates, &present_explicit_wifi_map?/1) ->
+        {:invalid, :invalid_wifi_map_payload}
+
+      true ->
+        :ignore
+    end
+  end
+
+  defp extract_wifi_map_body(_payload), do: :ignore
+
+  defp present_explicit_wifi_map?(candidate) when is_map(candidate) do
+    fetch_value(candidate, ["wifi_map", "wifiMap"]) != nil
+  end
+
+  defp present_explicit_wifi_map?(_candidate), do: false
+
+  defp malformed_explicit_wifi_map?(candidate) when is_map(candidate) do
+    case fetch_value(candidate, ["wifi_map", "wifiMap"]) do
+      nil -> false
+      value when is_map(value) -> false
+      _other -> true
+    end
+  end
+
+  defp malformed_explicit_wifi_map?(_candidate), do: false
+
+  defp status_metadata(status) when is_map(status) do
+    %{
+      agent_id: Map.get(status, :agent_id) || Map.get(status, "agent_id"),
+      assignment_id:
+        get_in(status, [:plugin_provenance, "assignment_id"]) ||
+          get_in(status, ["plugin_provenance", "assignment_id"])
+    }
+  end
+
+  defp status_metadata(_status), do: %{agent_id: nil, assignment_id: nil}
 
   defp wifi_map_body(payload) do
     payload
@@ -1439,6 +1516,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   end
 
   defp uuid_binary(_value), do: nil
+
+  defp decode_json_map(value) when is_map(value), do: value
 
   defp decode_json_map(value) when is_binary(value) do
     case Jason.decode(value) do

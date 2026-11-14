@@ -67,17 +67,35 @@ defmodule ServiceRadar.Edge.Projectors.WorkloadIdentity do
       with {:ok, partition} <- partition_slug(record.network_scope_id) do
         message = snap |> snapshot_payload() |> Jason.encode!()
 
-        case WorkloadIdentityStore.persist_snapshot(%{
-               message: message,
-               agent_id: agent_id,
-               partition: partition
-             }) do
-          :ok -> :ok
-          {:error, reason} -> {:error, {:workload_identity_persist_failed, reason}}
-        end
+        %{
+          message: message,
+          agent_id: agent_id,
+          partition: partition
+        }
+        |> WorkloadIdentityStore.persist_snapshot()
+        |> classify_persist_result()
       end
     end)
   end
+
+  @doc false
+  @spec classify_persist_result(term()) :: :ok | {:refused, atom()} | {:error, term()}
+  def classify_persist_result(:ok), do: :ok
+
+  def classify_persist_result({:error, reason})
+      when reason in [
+             :missing_workload_identity_message,
+             :invalid_workload_identity_identities,
+             :workload_identity_snapshot_too_large,
+             :invalid_workload_identity_snapshot
+           ],
+      do: {:refused, reason}
+
+  def classify_persist_result({:error, %Jason.DecodeError{}}),
+    do: {:refused, :invalid_workload_identity_json}
+
+  def classify_persist_result({:error, reason}),
+    do: {:error, {:workload_identity_persist_failed, reason}}
 
   defp check_identities(identities) do
     Enum.reduce_while(identities, :ok, fn %WorkloadIdentityContainerLookupV1{} = lookup, :ok ->
@@ -197,7 +215,6 @@ defmodule ServiceRadar.Edge.Projectors.WorkloadIdentity do
   end
 
   defp partition_not_found?(%Ash.Error.Query.NotFound{}), do: true
-  defp partition_not_found?(%Ash.Error.Invalid{}), do: true
 
   defp partition_not_found?(%{errors: errors}) when is_list(errors) do
     errors != [] and Enum.all?(errors, &partition_not_found?/1)

@@ -87,9 +87,10 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
         MtrProcessor.persist_outside_ledger([%{payload: payload, status: status, broadcast: nil}])
 
       {:error, {:refused, reason}} ->
-        {:refused, {:refused, reason}}
+        {:refused, reason}
 
-      {:error, reason} when reason in [:output_grant_not_current, :mtr_partition_not_found] ->
+      {:error, reason}
+      when reason in [:output_grant_not_current, :mtr_partition_not_found, :gateway_unknown] ->
         {:refused, reason}
 
       {:error, _reason} = error ->
@@ -320,7 +321,7 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
         {:ok, gateway_id}
 
       _ ->
-        {:error, {:refused, :gateway_unknown}}
+        {:error, :gateway_unknown}
     end
   end
 

@@ -121,6 +121,7 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
       emit_spool_counters(batch, producer, agent_id)
     else
       {:error, :output_grant_not_current} -> {:refused, :output_grant_not_current}
+      {:refused, _reason} = refused -> refused
       {:error, reason} -> {:error, reason}
     end
   end
@@ -305,14 +306,45 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
   end
 
   defp partition(network_scope_id) do
-    with {:ok, scope_id} <- Ecto.UUID.load(network_scope_id),
-         {:ok, partition} <-
-           Partition.get_by_id(scope_id, actor: SystemActor.system(:telemetry_batch_projector)) do
-      {:ok, partition.slug}
-    else
-      _ -> {:error, :telemetry_batch_partition}
+    case Ecto.UUID.load(network_scope_id) do
+      {:ok, scope_id} ->
+        scope_id
+        |> Partition.get_by_id(actor: SystemActor.system(:telemetry_batch_projector))
+        |> classify_partition_lookup()
+
+      :error ->
+        {:refused, :telemetry_batch_partition_not_found}
     end
   end
+
+  @doc false
+  @spec classify_partition_lookup(term()) ::
+          {:ok, String.t()}
+          | {:refused, :telemetry_batch_partition_not_found}
+          | {:error, {:telemetry_batch_partition_lookup_failed, term()}}
+  def classify_partition_lookup({:ok, %Partition{slug: slug}})
+      when is_binary(slug) and slug != "", do: {:ok, slug}
+
+  def classify_partition_lookup({:ok, nil}), do: {:refused, :telemetry_batch_partition_not_found}
+
+  def classify_partition_lookup({:ok, _missing}),
+    do: {:refused, :telemetry_batch_partition_not_found}
+
+  def classify_partition_lookup({:error, error}) do
+    if ash_not_found?(error) do
+      {:refused, :telemetry_batch_partition_not_found}
+    else
+      {:error, {:telemetry_batch_partition_lookup_failed, error}}
+    end
+  end
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_error), do: false
 
   defp producer(%Batch{source: source}) do
     metadata = (source && source.metadata) || %{}

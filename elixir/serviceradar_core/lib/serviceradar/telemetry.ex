@@ -328,7 +328,36 @@ defmodule ServiceRadar.Telemetry do
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
       admission_lane_metrics() ++
+      plugin_result_handler_metrics() ++
       identity_reconciliation_metrics() ++ notification_metrics() ++ audit_metrics()
+  end
+
+  @doc """
+  Returns bounded plugin-result handler outcome and unclassified-error metrics.
+
+  High-cardinality identifiers (`agent_id`, `assignment_id`, `controller_id`,
+  `source_instance`) remain in untagged telemetry metadata and structured logs,
+  never in Prometheus tags.
+  """
+  @spec plugin_result_handler_metrics() :: list()
+  def plugin_result_handler_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.plugin_result.handler.outcome.count",
+        event_name: [:serviceradar, :plugin_result, :handler, :outcome],
+        measurement: :count,
+        tags: [:outcome, :handler, :reason],
+        description:
+          "Evaluated plugin result handler outcomes classified by outcome, handler, and bounded reason"
+      ),
+      counter("serviceradar.plugin_result.handler.unclassified_error.count",
+        event_name: [:serviceradar, :plugin_result, :handler, :unclassified_error],
+        measurement: :count,
+        tags: [:handler, :reason_class],
+        description: "Unclassified plugin result handler errors defaulted to retryable delivery"
+      )
+    ]
   end
 
   @doc """
@@ -550,16 +579,6 @@ defmodule ServiceRadar.Telemetry do
         measurement: :count,
         tags: [:deleted_reason],
         description: "Sweep seeds soft-deleted when they released their address"
-      ),
-      counter("serviceradar.inventory.awx_observation.superseded.count",
-        tags: [:source, :source_instance],
-        description:
-          "AWX inventory observations acknowledged unapplied because a newer one was recorded"
-      ),
-      counter("serviceradar.inventory.proxmox_result.assignment_withdrawn.count",
-        tags: [:reason],
-        description:
-          "Proxmox inventory results acknowledged unapplied because their assignment was withdrawn"
       ),
       counter("serviceradar.inventory.source_succession.merged.count",
         tags: [:identifier_type],

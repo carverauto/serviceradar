@@ -3,6 +3,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   Ingests camera discovery descriptors from plugin results into normalized inventory.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
@@ -19,13 +21,29 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
+  alias ServiceRadar.Observability.PluginResultHandler
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
 
   require Ash.Query
   require Logger
 
   @status_availability_labels %{true => "available", false => "unavailable"}
   @local_relay_metadata_keys [{"insecure_skip_verify", :insecure_skip_verify}]
+  @settled_reasons []
+  @refused_reasons [
+    :invalid_camera_inventory_payload,
+    :missing_camera_identity,
+    :agent_managed_source_device,
+    :invalid_camera_update_target
+  ]
 
+  @impl PluginResultHandler
+  def settled_reasons, do: @settled_reasons
+
+  @impl PluginResultHandler
+  def refused_reasons, do: @refused_reasons
+
+  @impl PluginResultHandler
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -34,19 +52,21 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   def supports?(payload, _status) when is_map(payload) do
-    payload
-    |> extract_camera_descriptors()
-    |> Enum.any?()
+    malformed_camera_descriptors_envelope?(payload) or
+      payload
+      |> extract_camera_descriptors()
+      |> Enum.any?()
   end
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl PluginResultHandler
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
     payload
-    |> Enum.find(&is_map/1)
+    |> Enum.find(&supports?(&1, status))
     |> case do
       nil -> :ok
       entry -> ingest(entry, status, opts)
@@ -54,18 +74,88 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
-    context = build_ingest_context(payload, status, opts)
-    descriptors = context.descriptors
+    if malformed_camera_descriptors_envelope?(payload) do
+      {:refused, :invalid_camera_inventory_payload, status_metadata(status)}
+    else
+      context = build_ingest_context(payload, status, opts)
+      descriptors = context.descriptors
 
-    Enum.reduce_while(descriptors, :ok, fn descriptor, :ok ->
-      case ingest_descriptor(descriptor, context) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+      descriptors
+      |> Enum.reduce_while({0, 0}, fn descriptor, {applied_count, skipped_count} ->
+        case ingest_descriptor(descriptor, context) do
+          {:applied, :ok} ->
+            {:cont, {applied_count + 1, skipped_count}}
+
+          {:skipped_missing_identity, _reason} ->
+            {:cont, {applied_count, skipped_count + 1}}
+
+          {:error, :agent_managed_source_device} ->
+            {:halt, {:refused, :agent_managed_source_device, status_metadata(status)}}
+
+          {:error, {:invalid_camera_update_target, _device, _attrs}} ->
+            {:halt, {:refused, :invalid_camera_update_target, status_metadata(status)}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {0, skipped_count} when skipped_count > 0 and skipped_count == length(descriptors) ->
+          {:refused, :missing_camera_identity,
+           Map.put(status_metadata(status), :skipped_count, skipped_count)}
+
+        {applied_count, _skipped_count} when is_integer(applied_count) ->
+          :ok
+
+        {:refused, _, _} = refused ->
+          refused
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  def ingest(_payload, _status, _opts), do: :ok
+
+  defp malformed_camera_descriptors_envelope?(payload) when is_map(payload) do
+    details = details_payload_or_self(payload)
+
+    invalid_descriptor_list?(payload) or
+      (is_map(details) and details != payload and invalid_descriptor_list?(details))
+  end
+
+  defp invalid_descriptor_list?(map) when is_map(map) do
+    Enum.any?(["camera_descriptors", "cameraDescriptors", "cameras"], fn key ->
+      case Map.fetch(map, key) do
+        :error ->
+          false
+
+        {:ok, nil} ->
+          false
+
+        {:ok, []} ->
+          false
+
+        {:ok, list} when is_list(list) ->
+          not Enum.any?(list, &is_map/1)
+
+        {:ok, _other} ->
+          true
       end
     end)
   end
 
-  def ingest(_payload, _status, _opts), do: :ok
+  defp status_metadata(status) when is_map(status) do
+    %{
+      agent_id: Map.get(status, :agent_id) || Map.get(status, "agent_id"),
+      assignment_id:
+        get_in(status, [:plugin_provenance, "assignment_id"]) ||
+          get_in(status, ["plugin_provenance", "assignment_id"])
+    }
+  end
+
+  defp status_metadata(_status), do: %{agent_id: nil, assignment_id: nil}
 
   defp ingest_descriptor(descriptor, context) do
     with {:ok, descriptor} <-
@@ -90,21 +180,23 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
              context.status,
              context.observed_at
            ),
-         {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor) do
-      descriptor
-      |> normalize_profiles(context.observed_at)
-      |> Enum.reduce_while(:ok, fn profile_attrs, :ok ->
-        attrs = Map.put(profile_attrs, :camera_source_id, source_record.id)
+         {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor),
+         :ok <-
+           descriptor
+           |> normalize_profiles(context.observed_at)
+           |> Enum.reduce_while(:ok, fn profile_attrs, :ok ->
+             attrs = Map.put(profile_attrs, :camera_source_id, source_record.id)
 
-        case context.profile_upsert.(attrs, context.actor) do
-          {:ok, _profile} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+             case context.profile_upsert.(attrs, context.actor) do
+               {:ok, _profile} -> {:cont, :ok}
+               {:error, reason} -> {:halt, {:error, reason}}
+             end
+           end) do
+      {:applied, :ok}
     else
       {:skip, reason} ->
         Logger.debug("Skipping camera descriptor during inventory ingest: #{reason}")
-        :ok
+        {:skipped_missing_identity, reason}
 
       {:error, reason} ->
         {:error, reason}
@@ -1813,6 +1905,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     case resolve_identity_from_hints(descriptor, status, actor) do
       {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
       {:ok, nil} -> {:ok, nil}
+      {:error, reason} when reason in [:not_found, :no_identity_hints, :unresolved] -> {:ok, nil}
       {:error, _} = error -> error
       _ -> {:ok, nil}
     end

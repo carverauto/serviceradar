@@ -19,10 +19,10 @@ defmodule ServiceRadar.Edge.SweepServiceState do
 
   @doc """
   The gateway a sweep record's service state belongs to: the publishing gateway's header, else
-  the agent's gateway column, else `{:error, {:refused, :gateway_unknown}}`.
+  the agent's gateway column, else `{:error, :gateway_unknown}`.
   """
   @spec gateway(module(), String.t(), String.t() | nil) ::
-          {:ok, String.t()} | {:error, {:refused, :gateway_unknown}}
+          {:ok, String.t()} | {:error, :gateway_unknown}
   def gateway(_repo, _agent_id, header) when is_binary(header) and header != "", do: {:ok, header}
 
   def gateway(repo, agent_id, _header) do
@@ -31,7 +31,7 @@ defmodule ServiceRadar.Edge.SweepServiceState do
         {:ok, gateway_id}
 
       _ ->
-        {:error, {:refused, :gateway_unknown}}
+        {:error, :gateway_unknown}
     end
   end
 

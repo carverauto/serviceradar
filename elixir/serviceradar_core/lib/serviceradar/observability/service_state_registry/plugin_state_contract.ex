@@ -236,7 +236,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
         #{details}::jsonb #>> '{labels,assignment_id}',
         CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
           AND jsonb_typeof(#{details}::jsonb -> 'reported_result') = 'object'
-          AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'succeeded')
+          AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'settled', 'succeeded')
         THEN #{details}::jsonb #>> '{downstream_ingest,provenance,assignment_id}' END,
         #{details}::jsonb #>> '{reported_result,labels,assignment_id}',
         CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
@@ -421,7 +421,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     (
       #{details} IS JSON
       AND #{details}::jsonb ? 'reported_result'
-      AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'succeeded')
+      AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'settled', 'succeeded')
       AND #{details}::jsonb #>> '{downstream_ingest,generation}' ~ '^[0-9]{1,3}$'
       AND (#{details}::jsonb #>> '{downstream_ingest,generation}')::integer BETWEEN 1 AND 128
       AND #{details}::jsonb #>> '{downstream_ingest,handler_set,version}' = '1'
@@ -505,7 +505,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
       if(
         not has_key?(details, :_serviceradar_plugin_result) and
           is_map(fetch(details, :reported_result)) and
-          fetch_nested(fetch(details, :downstream_ingest), :status) in ["failed", "succeeded"],
+          fetch_nested(fetch(details, :downstream_ingest), :status) in [
+            "failed",
+            "settled",
+            "succeeded"
+          ],
         do: details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id)
       ),
       reported_result |> fetch(:labels) |> fetch_nested(:assignment_id),

@@ -7,6 +7,10 @@
         {
           "contract_bundle_sha256": "e09c37dc780515813a60cce1601916e2f043062af7af939d55ada26bee9c96fc",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "c2d3e235808725e7036b1a8fb1300a112dfd055c44802a41f49cce26ac81246f",
+          "projection_revision": 2
         }
       ]
     },
@@ -17,6 +21,10 @@
         {
           "contract_bundle_sha256": "b7316ca9d1dccb302eee6d4778fe0af46769c9a61c234367993e9562bb5ad0cb",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "7f801fd025bd51c22330b3a4c83ff812686219cd9fb5bbfdffaf314b1bd10317",
+          "projection_revision": 2
         }
       ]
     },
@@ -77,6 +85,10 @@
         {
           "contract_bundle_sha256": "4b06ffb9b8cf9f761157c61dc0ea88d646143eebd6f30cddcfb0e94826cec697",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "163bb6e3db4ff85ba21bc241d4b9829d2c4bab69e2b620d144fbbf051c2ec8d7",
+          "projection_revision": 2
         }
       ]
     },
@@ -117,6 +129,10 @@
         {
           "contract_bundle_sha256": "d0c97c8e8479d0d29e8cc333ad63ee189c425d27e8b57e08b375ccfab37fdfde",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "41f521b40a40bb57b4a676df51f84fecf85fd6945071d656829c92f88dbb9b99",
+          "projection_revision": 2
         }
       ]
     },
@@ -137,6 +153,10 @@
         {
           "contract_bundle_sha256": "dc6795f9647cd76140437e56566431ecc62a44da63153940169b728626e63036",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "931b05295098fa6aa050f97177d6686c4f66a08095375fa3737c17357acc9088",
+          "projection_revision": 2
         }
       ]
     },
@@ -157,6 +177,10 @@
         {
           "contract_bundle_sha256": "01bca5fb4d4b2d425265ec9c38f8aff35ee8c6f63e60e988dc047f76888231cb",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "2415130484a8150f8d6aad0fb632aeb984a2be7f3fa68b85d979f6e8ee4fe9b2",
+          "projection_revision": 2
         }
       ]
     },
@@ -167,6 +191,10 @@
         {
           "contract_bundle_sha256": "aa294e5073c943341d240190839243c2c698a621fbba194547ebdd16c5f97fa4",
           "projection_revision": 1
+        },
+        {
+          "contract_bundle_sha256": "fed49e1d4e4da7acb5427aa05063d41ed0d8a5cefceab4c1f8bd67586ffe25b2",
+          "projection_revision": 2
         }
       ]
     },
@@ -181,5 +209,5 @@
       ]
     }
   ],
-  "registry_snapshot_sha256": "49bef6541c041addc494cb25e121e5656da04f71753be585508548e592a5f2e2"
+  "registry_snapshot_sha256": "fa1dc9a0a8526d1c88f1716045db7f2d9864cbfd5d05ee8989b2e5740f6742b4"
 }

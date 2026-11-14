@@ -8,8 +8,13 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   provider pages from edge-reachable networks.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.PluginResultHandler
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
@@ -22,12 +27,25 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   @default_max_records_per_page 5_000
   @persistence_batch_size 500
+  @settled_reasons []
+  @refused_reasons [:invalid_threat_intel_payload]
 
-  @spec supports?(map(), map()) :: boolean()
-  def supports?(payload, _status \\ %{})
+  @impl PluginResultHandler
+  def settled_reasons, do: @settled_reasons
+
+  @impl PluginResultHandler
+  def refused_reasons, do: @refused_reasons
+
+  @impl PluginResultHandler
+  @spec supports?(map() | list(), map()) :: boolean()
+  def supports?(payload, status \\ %{})
+
+  def supports?(payload, status) when is_list(payload) do
+    Enum.any?(payload, &supports?(&1, status))
+  end
 
   def supports?(payload, _status) when is_map(payload) do
-    is_map(extract_page(payload))
+    extract_page(payload) != nil
   end
 
   def supports?(_payload, _status), do: false
@@ -48,11 +66,25 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   def normalize_indicators(_payload, _status, _observed_at), do: []
 
-  @spec ingest(map(), map(), keyword()) :: :ok | {:error, term()}
+  @impl PluginResultHandler
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
+  def ingest(payload, status, opts) when is_list(payload) do
+    payload
+    |> Enum.find(&supports?(&1, status))
+    |> case do
+      nil -> :ok
+      entry -> ingest(entry, status, opts)
+    end
+  end
+
   def ingest(payload, status, opts) when is_map(payload) and is_map(status) do
-    actor = Keyword.fetch!(opts, :actor)
+    actor =
+      Keyword.get_lazy(opts, :actor, fn ->
+        SystemActor.system(:threat_intel_plugin_ingestor)
+      end)
+
     observed_at = Keyword.get(opts, :observed_at) || DateTime.utc_now()
 
     case extract_page(payload) do
@@ -60,11 +92,16 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         :ok
 
       page when is_map(page) ->
-        do_ingest(page, payload, status, actor, observed_at)
+        if valid_page_shape?(page) do
+          do_ingest(page, payload, status, actor, observed_at)
+        else
+          Logger.warning("Refusing invalid plugin threat-intel page shape")
+          {:refused, :invalid_threat_intel_payload, status_metadata(status)}
+        end
 
       _ ->
-        Logger.warning("Ignoring invalid plugin threat-intel payload")
-        :ok
+        Logger.warning("Refusing invalid plugin threat-intel payload")
+        {:refused, :invalid_threat_intel_payload, status_metadata(status)}
     end
   rescue
     e ->
@@ -80,7 +117,11 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     started_at = System.monotonic_time()
 
     try do
-      actor = Keyword.fetch!(opts, :actor)
+      actor =
+        Keyword.get_lazy(opts, :actor, fn ->
+          SystemActor.system(:threat_intel_plugin_ingestor)
+        end)
+
       observed_at = Keyword.get(opts, :observed_at) || DateTime.utc_now()
 
       do_ingest_page(page, payload, status, actor, observed_at, started_at)
@@ -97,6 +138,40 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         {:error, e}
     end
   end
+
+  defp valid_page_shape?(page) when is_map(page) do
+    valid_optional_list?(page, "indicators") and
+      valid_optional_list?(page, "objects") and
+      valid_optional_map?(page, ["cursor", "pagination", "page"]) and
+      valid_optional_map?(page, ["counts", "stats"])
+  end
+
+  defp valid_optional_list?(map, key) do
+    case fetch_value(map, [key]) do
+      nil -> true
+      value when is_list(value) -> Enum.all?(value, &is_map/1)
+      _ -> false
+    end
+  end
+
+  defp valid_optional_map?(map, keys) do
+    case fetch_value(map, keys) do
+      nil -> true
+      value when is_map(value) -> true
+      _ -> false
+    end
+  end
+
+  defp status_metadata(status) when is_map(status) do
+    %{
+      agent_id: Map.get(status, :agent_id) || Map.get(status, "agent_id"),
+      assignment_id:
+        get_in(status, [:plugin_provenance, "assignment_id"]) ||
+          get_in(status, ["plugin_provenance", "assignment_id"])
+    }
+  end
+
+  defp status_metadata(_status), do: %{agent_id: nil, assignment_id: nil}
 
   defp do_ingest(page, payload, status, actor, observed_at) do
     page

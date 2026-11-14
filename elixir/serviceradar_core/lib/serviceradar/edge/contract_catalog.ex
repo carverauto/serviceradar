@@ -102,7 +102,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.sweep.unleased_results", 1},
       payload: Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: UnleasedSweepResults,
       max_projected_rows: 10_000,
@@ -112,7 +112,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.telemetry.batch", 1},
       payload: Serviceradar.Agent.Addon.V1.TelemetryBatch,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: TelemetryBatch,
       max_projected_rows: 10_000,
@@ -122,7 +122,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.mtr.scheduled_trace", 1},
       payload: Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: ScheduledMtrTrace,
       max_projected_rows: 1_000,
@@ -153,7 +153,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.plugin_results.batch", 1},
       payload: Serviceradar.Edge.V1.WasmPluginResultBatchV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: WasmPluginResult,
       max_projected_rows: 10_000,
@@ -213,7 +213,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.workload_identity.snapshot", 1},
       payload: Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: WorkloadIdentity,
       max_projected_rows: 10_000,
@@ -233,7 +233,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.endpoint_inventory.scan", 1},
       payload: Serviceradar.Edge.V1.EndpointInventoryScanPayloadV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: EndpointInventory,
       max_projected_rows: 1,
@@ -243,7 +243,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.bumblebee.scan", 1},
       payload: Serviceradar.Edge.V1.BumblebeeScanPayloadV1,
-      projection_revision: 1,
+      projection_revision: 2,
       authority: :standing_grant,
       projector: BumblebeeScan,
       max_projected_rows: 10_000,

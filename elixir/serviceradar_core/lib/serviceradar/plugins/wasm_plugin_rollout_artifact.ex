@@ -709,6 +709,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   defp ingested(result, "failed", _read_at), do: %{result | outcome: :failed}
   defp ingested(result, "succeeded", _read_at), do: result
+  defp ingested(result, "settled", _read_at), do: result
 
   defp ingested(%{outcome: :ran} = result, _no_downstream_row, read_at) do
     if DateTime.diff(read_at, result.received_at, :second) >= @handler_settle_seconds,

@@ -65,6 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+  alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Observations
@@ -1554,9 +1555,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     # The Proxmox source-scope resolver gates on the delivering agent's
     # authenticated capabilities, which the edge path takes from the agent's
     # stored record. With them the resolver moves on to the assignment lookup;
-    # the assignment is absent here, which is an operator withdrawal, so the
-    # record is acknowledged and the withdrawal counted. Without them the
-    # resolver refuses at the capability gate and the record raises.
+    # an absent assignment (:plugin_assignment_not_found) is refused for
+    # first-delivery dead-lettering. Without capabilities the resolver refuses
+    # at the capability gate (:missing_proxmox_identity_delivery_capabilities).
     test "a Proxmox result is gated on the authenticated agent's stored capabilities" do
       proxmox_capabilities = [
         "plugin-host-authority:v1",
@@ -1566,8 +1567,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       test_pid = self()
 
-      withdrawn = fn _event, measurements, metadata, _config ->
-        send(test_pid, {:assignment_withdrawn, measurements, metadata})
+      handler_outcome = fn _event, measurements, metadata, _config ->
+        send(test_pid, {:handler_outcome, measurements, metadata})
       end
 
       {agent_id, partition} =
@@ -1580,20 +1581,25 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         )
 
       with_telemetry(
-        [[:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn]],
-        withdrawn,
+        [[:serviceradar, :plugin_result, :handler, :outcome]],
+        handler_outcome,
         fn ->
-          assert {:ok, :inserted} =
+          assert {:error, {:plugin_assignment_not_found, _meta}} =
                    EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
                      request: stored_ack()
                    )
         end
       )
 
-      assert_receive {:assignment_withdrawn, %{count: 1},
-                      %{reason: :plugin_assignment_not_found, agent_id: ^agent_id}}
+      assert_receive {:handler_outcome, %{count: 1},
+                      %{
+                        outcome: :refused,
+                        handler: "proxmox_enrichment_ingestor",
+                        reason: :plugin_assignment_not_found,
+                        agent_id: ^agent_id
+                      }}
 
-      assert ledger_count(frame.record) == 1
+      assert ledger_count(frame.record) == 0
 
       {agent_id, partition} = plugin_result_agent!(["plugin-host-authority:v1"])
 
@@ -1603,14 +1609,25 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           partition: partition
         )
 
-      error =
-        assert_raise RuntimeError, fn ->
-          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+      with_telemetry(
+        [[:serviceradar, :plugin_result, :handler, :outcome]],
+        handler_outcome,
+        fn ->
+          assert {:error, {:missing_proxmox_identity_delivery_capabilities, _meta}} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     request: stored_ack()
+                   )
         end
+      )
 
-      assert error.message =~ "plugin_result_handlers_failed"
-      assert error.message =~ inspect(ProxmoxEnrichmentIngestor)
-      assert error.message =~ "missing_proxmox_identity_delivery_capabilities"
+      assert_receive {:handler_outcome, %{count: 1},
+                      %{
+                        outcome: :refused,
+                        handler: "proxmox_enrichment_ingestor",
+                        reason: :missing_proxmox_identity_delivery_capabilities,
+                        agent_id: ^agent_id
+                      }}
+
       assert ledger_count(frame.record) == 0
     end
 
@@ -1761,7 +1778,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record with no gateway header and no agent gateway is refused" do
       frame = build_unleased_sweep_frame()
 
-      assert {:error, {:refused, :gateway_unknown}} =
+      assert {:error, :gateway_unknown} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
 
       assert network_sweep_gateway(frame.agent_id) == nil
@@ -1826,29 +1843,70 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert length(unleased_host_results(frame.execution_id)) == 2
     end
 
-    test "a deliberate decline commits the ledger row while a permanent failure is dead-lettered on first delivery" do
-      declined_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+    test "quarantine-writing declines commit the ledger row, unresolved sweep groups retry, and permanent failures dead-letter on first delivery" do
+      conflict_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+      actor = SystemActor.system(:edge_record_test)
 
-      Repo.query!(
-        "DELETE FROM platform.sweep_groups WHERE id = $1::uuid",
-        [Ecto.UUID.dump!(declined_frame.group_id)]
+      SweepGroupExecution
+      |> Ash.Changeset.for_create(
+        :record_from_ingest,
+        %{
+          id: conflict_frame.execution_id,
+          sweep_group_id: conflict_frame.group_id,
+          agent_id: "conflicting-agent-#{System.unique_integer([:positive])}",
+          partition: conflict_frame.partition_slug,
+          started_at: DateTime.utc_now()
+        },
+        actor: actor
       )
+      |> Ash.create!()
 
-      declined_message = %{
-        data: declined_frame.record_bytes,
+      conflict_message = %{
+        data: conflict_frame.record_bytes,
         metadata: %{
-          headers: declined_frame.headers,
+          headers: conflict_frame.headers,
           subject: "telemetry.edge-record.v1.bulk.p07",
           dead_letter_after: 20,
           max_deliver: -1
         }
       }
 
-      assert {:ok, 1} = EdgeRecord.process_batch([declined_message])
-      assert ledger_count(declined_frame.record) == 1
-      assert delivery_slot_count(declined_frame.record) == 1
-      assert unleased_host_results(declined_frame.execution_id) == []
-      assert Repo.get(SweepGroupExecution, declined_frame.execution_id) == nil
+      assert {:ok, 1} = EdgeRecord.process_batch([conflict_message])
+      assert ledger_count(conflict_frame.record) == 1
+      assert delivery_slot_count(conflict_frame.record) == 1
+      assert unleased_host_results(conflict_frame.execution_id) == []
+
+      unresolved_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+
+      Repo.query!(
+        "DELETE FROM platform.sweep_groups WHERE id = $1::uuid",
+        [Ecto.UUID.dump!(unresolved_frame.group_id)]
+      )
+
+      unresolved_message = %{
+        data: unresolved_frame.record_bytes,
+        metadata: %{
+          headers: unresolved_frame.headers,
+          subject: "telemetry.edge-record.v1.bulk.p07",
+          dead_letter_after: 20,
+          max_deliver: -1,
+          jetstream_ack: %{
+            stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+            stream_sequence: 1,
+            delivery_count: 1
+          }
+        }
+      }
+
+      assert {:incomplete, 0,
+              [
+                {^unresolved_message,
+                 %EdgeRecordTransientError{reason: :unresolved_sweep_group} = transient}
+              ]} = EdgeRecord.process_batch([unresolved_message])
+
+      refute EdgeRecordDeadLetter.due?(Map.put(unresolved_message, :status, {:failed, transient}))
+      assert ledger_count(unresolved_frame.record) == 0
+      assert delivery_slot_count(unresolved_frame.record) == 0
 
       refused_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
 
@@ -2555,7 +2613,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record with no gateway header and no agent gateway is refused" do
       frame = build_scheduled_mtr_frame()
 
-      assert {:error, {:refused, :gateway_unknown}} =
+      assert {:error, :gateway_unknown} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
 
       assert mtr_traces_for(frame.trace_uuid) == []

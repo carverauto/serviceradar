@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Ingestion.ResultIngestor
 
@@ -111,12 +112,7 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
       batch
       |> status(agent_id, gateway_id, partition)
       |> ResultIngestor.process_and_publish(repo: repo)
-      |> case do
-        :ok -> :ok
-        {:ok, _result} -> :ok
-        {:declined, _reason} -> :ok
-        {:error, reason} -> {:error, classify_ingest_failure(reason)}
-      end
+      |> classify_ingest_outcome()
     else
       nil -> {:error, :sweep_partition_not_found}
       {:error, _reason} = error -> error
@@ -124,6 +120,26 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
   end
 
   def project(_repo, _record, _batch, _context), do: :ok
+
+  @doc false
+  @spec classify_ingest_outcome(term()) :: :ok | {:refused, atom()} | {:error, term()}
+  def classify_ingest_outcome(:ok), do: :ok
+  def classify_ingest_outcome({:ok, _result}), do: :ok
+
+  def classify_ingest_outcome({:declined, reason})
+      when reason in [:conflicting_execution_reporter, :conflicting_execution_group], do: :ok
+
+  def classify_ingest_outcome({:declined, reason})
+      when reason in [:missing_sweep_group_id, :unresolved_execution_identity, :no_hosts],
+      do: {:refused, reason}
+
+  def classify_ingest_outcome({:declined, :unresolved_sweep_group}),
+    do: {:error, %EdgeRecordTransientError{reason: :unresolved_sweep_group}}
+
+  def classify_ingest_outcome({:declined, reason}),
+    do: {:error, %EdgeRecordTransientError{reason: reason}}
+
+  def classify_ingest_outcome({:error, reason}), do: {:error, classify_ingest_failure(reason)}
 
   defp classify_ingest_failure({:execution_lookup_failed, exception})
        when is_exception(exception), do: exception

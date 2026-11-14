@@ -43,3 +43,10 @@ Projectors performing pre-projection control-plane lookups (including `Partition
 - **WHEN** `Processors.EdgeRecord` handles the refusal
 - **THEN** the broker delivery SHALL be retained
 - **AND** nothing SHALL be published to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`
+
+#### Scenario: UnleasedSweepResults classifies quarantine, skip-only, and unresolved-group declines
+- **GIVEN** a primary `serviceradar.sweep.unleased_results` record whose `ResultIngestor.process_and_publish/2` call returns `{:declined, reason}`
+- **WHEN** `UnleasedSweepResults.project/4` maps the decline
+- **THEN** quarantine-writing declines (`:conflicting_execution_reporter`, `:conflicting_execution_group`) SHALL return `:ok` (`applied`), committing the quarantine write alongside the delivery slot and event ledger
+- **AND** skip-only declines (`:missing_sweep_group_id`, `:unresolved_execution_identity`, `:no_hosts`) SHALL return `{:refused, reason}`, rolling back the transaction and dead-lettering on delivery 1 under `reason`
+- **AND** `:unresolved_sweep_group` SHALL fail as `retryable` so JetStream redelivers the batch with backoff up to `dead_letter_after_deliveries`
