@@ -98,7 +98,7 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 - **AND** its targets report more walk rows than their template estimate
 - **WHEN** core computes its measured capacity
 - **THEN** the measured capacity is below its placed cost recomputed from the reported walk rows
-- **AND** the next placement pass moves load off the agent with reason `over_capacity`, only onto agents that stay within their effective capacity
+- **AND** the next placement pass moves load off the agent with reason `over_capacity`, only onto agents that stay within their effective capacity, and stops once its active load fits its measured capacity
 
 #### Scenario: Agent falls behind with no room elsewhere
 - **GIVEN** an agent whose measured capacity has fallen below its placed cost
@@ -108,7 +108,7 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 - **AND** the agent is reported over capacity
 
 ### Requirement: SNMP targets move away from an owner that cannot reach them
-The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it in that cycle. When the backoff expires without a successful poll, a new cycle of at most the configured number of agents MAY run, so a target costs at most the failure threshold times the candidate limit in failed polls per backoff period.
+The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it in that cycle. When the backoff expires without a successful poll, a new cycle of at most the configured number of agents MAY run, so each backoff period runs at most one cycle: at most the candidate limit of agents, each trying the target for the failure threshold of consecutive polls. The holding agent keeps polling the target at its ordinary interval, and its continued failures do not restart the backoff.
 
 #### Scenario: Another agent can reach the device
 - **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls

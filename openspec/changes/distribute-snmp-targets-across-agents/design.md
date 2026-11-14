@@ -295,7 +295,8 @@ priority order with the interface-aware page walk
 only devices that have a matching interface. A device takes the first profile
 whose walk selects it, and devices no walk selects take the default profile.
 The single-device fast path (D12) applies the same rule to one device and
-evaluates interface queries against that device's interfaces; it does not use
+admits it to a profile only when that walk would, including its in-service
+filter, so an inactive device is not placed; it does not use
 the any-device-in-service shortcut that
 `SrqlTargetResolver.resolve_for_devices/3` applies to interface queries. No
 agent id filters which profiles compete: pinned profiles compete on priority
@@ -393,10 +394,13 @@ reported unreachable. Without that limit, a device
 that is down for everyone would rotate through the fleet forever.
 
 The `C` limit bounds how many agents try a dead device in one cycle: at most
-`F` x `C` failed polls, then the target holds on the agent that reached the
-limit. When the backoff expires without a successful poll, a new cycle of at
-most `C` agents may run, so a permanently down device costs at most `F` x `C`
-failed polls per backoff period. The values of `F`, `C` and the backoff are open question 6.
+`C` agents, `F` consecutive failed polls each, then the target holds on the
+agent that reached the limit. The holding agent keeps polling at the target's
+ordinary interval, and its continued failures do not restart the backoff. When
+the backoff expires without a successful poll, a new cycle of at most `C`
+agents may run, so a permanently down device gets at most one cycle of
+candidate trials per backoff period. The code defaults are `F` = 3, `C` = 3
+and a 1 hour backoff (open question 6).
 
 ### D7. Delivery: profile definitions in config, targets as revisioned deltas
 
@@ -479,8 +483,11 @@ keeps `TargetLimit` alive.
   capacity is set to the achieved on-time point rate, which is below the
   recomputed placed cost, so the next pass sheds load with `over_capacity`. Until the first report, only
   the target-count ceiling applies.
-- **Effective capacity:** two limits that must both hold. Active and draining
-  placements both count until the draining row is revoked. The count of targets
+- **Effective capacity:** two limits that must both hold. When admitting new
+  work, active and draining placements both count until the draining row is
+  revoked. Over-capacity excess is computed from active placements only, so a
+  target already draining away counts as shed and a pass stops at the true
+  excess or when no receiver has room. The count of targets
   placed on the agent stays at or under its resolved `snmp_max_targets`, and
   the summed point-rate cost of those targets stays at or under its measured
   point rate. The two are in different units and are not compared with each
@@ -511,15 +518,17 @@ Placed targets are never evicted to make room. When capacity runs out, the
 newest arrivals stay uncovered. That order is deterministic and is not a
 choice about which devices matter.
 
-Save-time behavior is open question 5. The proposal is to show projected
-coverage in the profile form and not refuse the save, because a saved profile
+Save-time behavior (open question 5): the form shows projected coverage and
+the save is not refused, because a saved profile
 with partial coverage is visible and fixable by adding agents, while a refused
 profile polls nothing.
 
 ### D12. One reconcile pass instead of per-agent compiles
 
 A periodic placement pass (Oban, idempotent, stateless, like `LeasePass`)
-walks each enabled profile's query once in keyset pages and diffs the result
+walks each enabled targeting profile's query once in keyset pages, in priority
+order, skips devices already claimed by a higher-priority profile in the same
+pass, gives devices no walk claims to the default profile, and diffs the result
 against the placement rows. A `Device` change re-evaluates that device only:
 its profile resolution, eligibility and compiled-target digest. This replaces
 `affected_agents_for_device/1` and the `:all_online` fleet invalidation. The
@@ -563,8 +572,8 @@ metric is written to a database directly.
 2. **Profiles:**
    - Unpinned profiles become `distribute` with the redundancy open question 2
      settles.
-   - Pinned profiles become `distribute` among their pinned agents, unless open
-     question 1 decides `replicate`.
+   - Pinned profiles become `distribute` among their pinned agents (open
+     question 1).
    - The seeded default profile (`in:devices`) is unchanged.
    - No credential is re-entered. Explicit `SNMPTarget` rows keep their ids and
      credentials and are placed per open question 3.
@@ -614,7 +623,7 @@ Behavior changes operators will see:
 | Hint lost | Config poll reports the revision | One poll interval (300 s) |
 | Revision history compacted | Snapshot | One snapshot |
 | Credential store read fails at serve time | Page refused, delivery fails, agent keeps its set | Until store recovers |
-| All candidates fail a device | Stays placed, reported unreachable, no rotation | `F` x `C` failed polls per backoff period |
+| All candidates fail a device | Stays placed, reported unreachable, no rotation | One cycle of at most `C` agents x `F` failures per backoff period; the holder keeps its ordinary interval |
 | Fleet out of capacity | Newest targets `uncovered`, alerted | Until capacity added |
 | Planned move | Duplicate samples for at most one interval plus grace | Per move |
 | Thundering herd after restart | Jittered phases, bounded workers | Worker limit |

@@ -35,12 +35,13 @@ even the binding constraint today:
 
 - **Core decides who polls.** A profile states what to poll. A placement
   service assigns each target to exactly one agent, or to `redundancy` agents
-  when the profile asks for more. The candidates come from profile pinning and
+  when the profile asks for more, or to every currently eligible pinned agent
+  for a `replicate` profile, always within each agent's effective capacity. The candidates come from profile pinning and
   the device's partition. Placement is sticky, weighted by capacity, and moves a
   target only for a stated reason: the owner left, failed, is over capacity, or
   cannot reach the target, or a bounded rebalance moves load between agents
   without taking any agent past its effective capacity. A target short of its
-  redundancy gains owners when an eligible agent joins, with the room left
+  redundancy or `replicate` owners gains owners when an eligible agent joins, with the room left
   after uncovered targets, reachability moves and over-capacity sheds. Assignments are persisted with an authority
   generation that follows the sweep producer-assignment fencing pattern.
 - **Each device resolves to one profile.** That is its highest-priority matching

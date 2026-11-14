@@ -49,7 +49,7 @@ An agent's partition is the partition of its own device, as for sweep leases.
 - **THEN** the target has no owner and is marked `uncovered` with reason `no_eligible_agent`
 
 ### Requirement: Placement is sticky and moves only for a stated reason
-The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` target SHALL stay on its owner and the agent SHALL be reported over capacity.
+The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its active load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` target SHALL stay on its owner and the agent SHALL be reported over capacity.
 When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve with the capacity left by the earlier steps of the order below, including replicated targets it has newly become eligible for, without moving any owner a target already has.
 A placement pass SHALL assign free capacity in this order: first `uncovered` targets, which have no owner, including re-placement after `owner_lost` and `owner_ineligible`; then `unreachable_on_owner` moves; then `over_capacity` sheds; then `under_replicated` targets, including replicated targets missing an eligible agent; then bounded rebalance. A later step uses only the capacity the earlier steps left. An agent that cannot shed for lack of room SHALL stay reported over capacity.
 Every move SHALL record its reason. Among eligible agents, a new owner SHALL be chosen by rendezvous hashing weighted by remaining capacity, so that the same inputs always choose the same owner.
@@ -112,7 +112,7 @@ A planned move (`rebalance`, `over_capacity`, `unreachable_on_owner`) SHALL be m
 - **THEN** core does not reactivate `agent-a`'s placement
 
 ### Requirement: Capacity is an input to placement
-The system SHALL place targets on an agent only within its effective capacity, which is two limits that SHALL both hold: the count of targets placed on the agent stays at or under its operator ceiling, and the summed cost of those targets stays at or under its measured capacity. The operator ceiling is a target count that resolves agent setting, then partition setting, then global setting, then the code default for the agent's delivery path. Measured capacity and cost are in the workload's cost unit, so a target polled every 10 seconds costs six times one polled every 60 seconds. Active and draining placements both count toward an agent's effective capacity until the draining placement is revoked. Until an agent first reports measurements, only the operator ceiling applies.
+The system SHALL place targets on an agent only within its effective capacity, which is two limits that SHALL both hold: the count of targets placed on the agent stays at or under its operator ceiling, and the summed cost of those targets stays at or under its measured capacity. The operator ceiling is a target count that resolves agent setting, then partition setting, then global setting, then the code default for the agent's delivery path. Measured capacity and cost are in the workload's cost unit, so a target polled every 10 seconds costs six times one polled every 60 seconds. When admitting new work onto an agent, its active and draining placements both count until the draining placement is revoked. Whether an agent is over capacity, and by how much, SHALL be computed from its active placements only, so a target already draining away counts as shed and a pass stops shedding at the true excess or when no receiver has room. Until an agent first reports measurements, only the operator ceiling applies.
 
 #### Scenario: Measured capacity below the ceiling
 - **GIVEN** an agent whose operator ceiling allows 20,000 targets
@@ -144,7 +144,8 @@ Each uncovered target SHALL carry a reason: `no_eligible_agent` or `fleet_capaci
 #### Scenario: Capacity returns
 - **GIVEN** uncovered targets in a partition
 - **WHEN** a new eligible agent connects
-- **THEN** the next placement pass places them and clears their uncovered state
+- **THEN** the next placement pass places as many of them as the new agent's effective capacity allows and clears their uncovered state
+- **AND** the rest stay `uncovered`
 
 ### Requirement: Placement reconciles in one pass, not per agent
 The system SHALL compute desired placements by evaluating each workload's target selection once per pass, reading pages through a keyset cursor. It SHALL NOT compile the selection once per agent. A change to one device SHALL re-evaluate only that device's placement and deliveries.
