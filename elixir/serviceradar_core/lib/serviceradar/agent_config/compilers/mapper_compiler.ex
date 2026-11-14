@@ -329,7 +329,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
         resolve_default_credentials(actor, opts)
 
       {:ok, %{credential: credential}} ->
-        {:ok, CredentialResolver.to_mapper_credentials(credential)}
+        CredentialResolver.to_mapper_credentials(credential)
 
       {:error, reason} ->
         if CredentialResolver.credential_read_failure?(reason) do
@@ -355,7 +355,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
         {:ok, %{"version" => "v2c"}}
 
       {:ok, %{credential: credential}} ->
-        {:ok, CredentialResolver.to_mapper_credentials(credential)}
+        CredentialResolver.to_mapper_credentials(credential)
 
       {:error, reason} ->
         if CredentialResolver.credential_read_failure?(reason) do
@@ -443,8 +443,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
           {:cont, {:ok, targets}}
 
         {:ok, %{credential: credential}} ->
-          encoded = CredentialResolver.to_mapper_credentials(credential)
-          {:cont, {:ok, put_target_credential(targets, device.ip, {:ok, encoded})}}
+          case CredentialResolver.to_mapper_credentials(credential) do
+            {:ok, encoded} ->
+              {:cont, {:ok, put_target_credential(targets, device.ip, {:ok, encoded})}}
+
+            {:error, reason} ->
+              Logger.warning(
+                "MapperCompiler: refusing SNMP credentials with unknown security level for mapper target #{device.ip} - #{inspect(reason)}; suppressing SNMP for this address"
+              )
+
+              {:cont, {:ok, put_target_credential(targets, device.ip, :suppressed)}}
+          end
 
         {:error, reason} ->
           if CredentialResolver.credential_read_failure?(reason) do

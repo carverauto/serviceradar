@@ -964,6 +964,27 @@ func TestParseProtoSNMPConfig_ErrorCases(t *testing.T) {
 		},
 	})
 	require.ErrorIs(t, err, ErrSNMPOIDSetMissing)
+
+	_, err = parseProtoSNMPConfig(&proto.SNMPConfig{
+		Enabled: true,
+		Format:  "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{Key: "oids-present"},
+		},
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Name:    "router-01",
+				Host:    "192.0.2.12",
+				Version: proto.SNMPVersion_SNMP_VERSION_V3,
+				OidSet:  "oids-present",
+				V3Auth: &proto.SNMPv3Auth{
+					Username:      "snmp-user",
+					SecurityLevel: proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_UNSPECIFIED,
+				},
+			},
+		},
+	})
+	require.ErrorIs(t, err, snmp.ErrUnknownSNMPSecurityLevel)
 }
 
 func TestApplyProtoConfig_UnknownFormatKeepsRunningConfig(t *testing.T) {
@@ -1172,12 +1193,18 @@ func TestParseProtoSNMPConfigKeepsEveryOfferedV3Protocol(t *testing.T) {
 	requireProtoEnumsCarryOfferedNames(t, contract.AuthProtocols,
 		proto.SNMPAuthProtocol_name, proto.SNMPAuthProtocol_value,
 		func(number int32) string {
-			return string(parse(&proto.SNMPv3Auth{AuthProtocol: proto.SNMPAuthProtocol(number)}).AuthProtocol)
+			return string(parse(&proto.SNMPv3Auth{
+				SecurityLevel: proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV,
+				AuthProtocol:  proto.SNMPAuthProtocol(number),
+			}).AuthProtocol)
 		})
 
 	requireProtoEnumsCarryOfferedNames(t, contract.PrivProtocols,
 		proto.SNMPPrivProtocol_name, proto.SNMPPrivProtocol_value,
 		func(number int32) string {
-			return string(parse(&proto.SNMPv3Auth{PrivProtocol: proto.SNMPPrivProtocol(number)}).PrivProtocol)
+			return string(parse(&proto.SNMPv3Auth{
+				SecurityLevel: proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV,
+				PrivProtocol:  proto.SNMPPrivProtocol(number),
+			}).PrivProtocol)
 		})
 }

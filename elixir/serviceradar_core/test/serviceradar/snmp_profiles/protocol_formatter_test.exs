@@ -138,6 +138,16 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatterTest do
     end
   end
 
+  test "security_level refuses unknown levels instead of downgrading to noAuthNoPriv" do
+    for unknown <- ["authpriv", "AuthPriv", "super-safe", "", nil, :banana] do
+      assert ProtocolFormatter.security_level(unknown) == nil, inspect(unknown)
+    end
+
+    assert ProtocolFormatter.security_level(:no_auth_no_priv) == "noAuthNoPriv"
+    assert ProtocolFormatter.security_level(:auth_no_priv) == "authNoPriv"
+    assert ProtocolFormatter.security_level(:auth_priv) == "authPriv"
+  end
+
   test "a new credential starts on authPriv with SHA-256 and AES-128" do
     assert ProtocolFormatter.default_option(:security_level).value == "authPriv"
     assert ProtocolFormatter.default_option(:auth_protocol).value == "SHA256"

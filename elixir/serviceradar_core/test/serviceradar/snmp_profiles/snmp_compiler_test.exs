@@ -693,6 +693,87 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
+    test "refuses to compile an SNMPv3 target whose broker level is unrecognised" do
+      actor = SystemActor.system(:test)
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "SNMP Level #{System.unique_integer([:positive])}",
+            provider: "snmp",
+            credential_kind: :snmp,
+            secret_payload:
+              Jason.encode!(%{
+                "username" => "snmpuser",
+                "security_level" => "super-safe",
+                "auth_protocol" => "sha",
+                "auth_password" => "authpass123",
+                "priv_protocol" => "aes",
+                "priv_password" => "privpass456"
+              })
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Refused Levels #{System.unique_integer([:positive])}",
+            poll_interval: 60,
+            timeout: 5,
+            retries: 3,
+            is_default: false,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "Downgraded Router",
+            host: "10.0.0.9",
+            port: 161,
+            version: :v3,
+            credential_secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string,
+            snmp_target_id: target.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      assert {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
+      assert config["targets"] == []
+    end
+
+    @tag :integration
     test "returns target credentials from network credential broker secret" do
       actor = SystemActor.system(:test)
 

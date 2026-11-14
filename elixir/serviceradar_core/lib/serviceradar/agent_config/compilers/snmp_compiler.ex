@@ -1470,8 +1470,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       :auth_no_priv ->
         present?(Map.get(credential, :auth_password))
 
-      _ ->
+      :no_auth_no_priv ->
         true
+
+      # Unknown or missing levels never validate: the resolver refuses them
+      # upstream, and compiling one as noAuthNoPriv would silently downgrade
+      # the poll.
+      _ ->
+        false
     end
   end
 

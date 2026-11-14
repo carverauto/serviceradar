@@ -795,9 +795,13 @@ func parseProtoSNMPConfig(p *proto.SNMPConfig) (*snmp.SNMPConfig, error) {
 		// Handle SNMPv3 auth
 		if t.V3Auth != nil {
 			target.Community = "" // Clear community for v3
+			securityLevel, err := protoToSNMPSecurityLevel(t.V3Auth.SecurityLevel)
+			if err != nil {
+				return nil, err
+			}
 			target.V3Auth = &snmp.V3Auth{
 				Username:      t.V3Auth.Username,
-				SecurityLevel: protoToSNMPSecurityLevel(t.V3Auth.SecurityLevel),
+				SecurityLevel: securityLevel,
 				AuthProtocol:  protoToSNMPAuthProtocol(t.V3Auth.AuthProtocol),
 				AuthPassword:  t.V3Auth.AuthPassword,
 				PrivProtocol:  protoToSNMPPrivProtocol(t.V3Auth.PrivProtocol),
@@ -897,18 +901,20 @@ func protoToSNMPDataType(dt proto.SNMPDataType) snmp.DataType {
 }
 
 // protoToSNMPSecurityLevel converts proto SNMPSecurityLevel to snmp.SecurityLevel.
-func protoToSNMPSecurityLevel(sl proto.SNMPSecurityLevel) snmp.SecurityLevel {
+// UNSPECIFIED and unmapped values refuse: silently polling without
+// authentication on the operator's behalf is never a valid default.
+func protoToSNMPSecurityLevel(sl proto.SNMPSecurityLevel) (snmp.SecurityLevel, error) {
 	switch sl {
 	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV:
-		return snmp.SecurityLevelNoAuthNoPriv
+		return snmp.SecurityLevelNoAuthNoPriv, nil
 	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_NO_PRIV:
-		return snmp.SecurityLevelAuthNoPriv
+		return snmp.SecurityLevelAuthNoPriv, nil
 	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV:
-		return snmp.SecurityLevelAuthPriv
+		return snmp.SecurityLevelAuthPriv, nil
 	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_UNSPECIFIED:
-		return snmp.SecurityLevelNoAuthNoPriv
+		return "", fmt.Errorf("%w: unspecified SNMPv3 security level", snmp.ErrUnknownSNMPSecurityLevel)
 	}
-	return snmp.SecurityLevelNoAuthNoPriv
+	return "", fmt.Errorf("%w: %s", snmp.ErrUnknownSNMPSecurityLevel, sl.String())
 }
 
 // protoToSNMPAuthProtocol converts proto SNMPAuthProtocol to snmp.AuthProtocol.

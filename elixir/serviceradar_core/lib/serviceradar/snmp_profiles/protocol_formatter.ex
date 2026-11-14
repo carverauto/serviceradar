@@ -219,11 +219,18 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
     format_protocol(value, @priv_protocols, opts)
   end
 
-  @spec security_level(atom() | nil) :: String.t()
+  @doc """
+  The wire spelling for a known security level, or `nil` when the value is
+  missing or not a security level. Callers must refuse `nil` on paths that
+  require a level: defaulting an unknown level to `noAuthNoPriv` would
+  silently downgrade an authenticated poll to an unauthenticated one.
+  """
+  @spec security_level(atom() | String.t() | nil) :: String.t() | nil
   def security_level(value) do
-    value
-    |> normalize_security_level()
-    |> then(&Map.get(@security_levels, &1, "noAuthNoPriv"))
+    case normalize_security_level(value) do
+      nil -> nil
+      level -> Map.get(@security_levels, level)
+    end
   end
 
   @spec normalize_version(atom() | String.t() | nil) :: atom() | nil
