@@ -263,7 +263,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManagerLockDbTest do
         restart: :temporary
       )
 
-    assert_receive {:connected, ^conn, ^tag}, 30_000
+    assert_receive {:connected, _connection, ^tag}, 30_000
     conn
   end
 end
