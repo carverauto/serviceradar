@@ -332,3 +332,7 @@ others.
 `source-id-rollback` also reverses the manifests of `awx-proxmox-unmerge`, the repair of the AWX
 merges that bound hosts to guests of another cluster. Its procedure, checks and rollback are in
 [awx-proxmox-unmerge-runbook.md](awx-proxmox-unmerge-runbook.md).
+
+It also reverses the `guest_split` entries of `multi-guest-split`, merging each new guest record
+back into the record it was split from (reason `manual_guest_split_rollback`); see
+`ServiceRadar.Inventory.Remediation.SourceIdRollback`.

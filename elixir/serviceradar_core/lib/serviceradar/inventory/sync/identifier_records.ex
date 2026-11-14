@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
 
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.CardinalityCaps
+  alias ServiceRadar.Inventory.Identity.GuestIdentityGuard
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -99,11 +100,17 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
 
   # Bulk upsert identifiers
   # DB connection's search_path determines the schema
+  #
+  # A v3 guest reference never lands on a record holding another guest
+  # (`GuestIdentityGuard.drop_added_guest_rows/2`): resolution already refuses that record, and
+  # hypervisor enrichment's MAC sync writes here without resolution.
   def bulk_upsert_identifiers(records) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     insert_records =
-      Enum.map(records, fn r ->
+      records
+      |> GuestIdentityGuard.drop_added_guest_rows("sync_ingestor")
+      |> Enum.map(fn r ->
         Map.merge(r, %{
           first_seen: now,
           last_seen: now

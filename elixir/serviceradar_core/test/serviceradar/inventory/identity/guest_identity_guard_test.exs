@@ -1,8 +1,10 @@
 defmodule ServiceRadar.Inventory.Identity.GuestIdentityGuardTest do
   @moduledoc """
   Which `integration_id` values name a hypervisor guest, and which pairs of guest-identity sets
-  prove two records different machines (`GuestIdentityGuard`). The merge path is covered in
-  `identity_reconciler_merge_guard_test.exs` and `blocked_fingerprint_test.exs`.
+  prove two records different machines, and which guests a record would gain beyond one
+  (`GuestIdentityGuard`). The merge path is covered in `identity_reconciler_merge_guard_test.exs`
+  and `blocked_fingerprint_test.exs`, resolution and registration in
+  `sync_batch_resolution_test.exs`.
   """
 
   use ExUnit.Case, async: true
@@ -80,6 +82,36 @@ defmodule ServiceRadar.Inventory.Identity.GuestIdentityGuardTest do
       for {a, b} <- cases do
         assert GuestIdentityGuard.conflict(a, b) == nil, inspect({a, b})
         assert GuestIdentityGuard.conflict(b, a) == nil, inspect({b, a})
+      end
+    end
+  end
+
+  describe "added_guests/2" do
+    test "names the v3 guests a record would gain beyond its one guest" do
+      ref = fn identity -> elem(identity, 1) end
+      [g101, g102, g136] = Enum.map([v3(101), v3(102), v3(136)], ref)
+      node = "#{@scope}:node:pve01"
+      legacy = ref.(v2(102))
+
+      cases = [
+        # A record of one guest gains another, of the same or another integration.
+        {[g101], [g136], [g136]},
+        {[g101, node, "awx:host:host01.example.com"], [g136], [g136]},
+        # A merged record of two guests gives a survivor of one, or of none, a guest.
+        {[g101], [g101, g102], [g102]},
+        {[], [g101, g102], [g101, g102]},
+        # Nothing gained: the same guest, a first guest, or guests the record already holds.
+        {[g101], [g101], []},
+        {[], [g101], []},
+        {[g101, g102], [g101], []},
+        # Node references and legacy v2 references are not v3 guests.
+        {[g101], [node, legacy], []},
+        {[legacy], [g101], []}
+      ]
+
+      for {held, incoming, expected} <- cases do
+        assert GuestIdentityGuard.added_guests(held, incoming) == expected,
+               inspect({held, incoming})
       end
     end
   end

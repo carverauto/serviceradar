@@ -325,6 +325,37 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
                )
     end
 
+    # One set containing the other is not enough: the survivor must not gain a guest it does
+    # not hold, or it ends up holding two machines.
+    test "a merge does not give its survivor a second guest", ctx do
+      %{actor: actor} = ctx
+      {:ok, two_guests} = create_device(actor, "guest-two")
+      {:ok, one_guest} = create_device(actor, "guest-one")
+      {:ok, _} = register_identifier(actor, two_guests.uid, :integration_id, guest_ref(ctx, 101))
+      {:ok, _} = register_identifier(actor, two_guests.uid, :integration_id, guest_ref(ctx, 102))
+
+      {:ok, _} =
+        register_identifier(
+          actor,
+          one_guest.uid,
+          :integration_id,
+          guest_ref(ctx, 101),
+          unique("p")
+        )
+
+      assert {:error, {:merge_blocked, :distinct_guest_identity}} =
+               IdentityReconciler.merge_devices(two_guests.uid, one_guest.uid,
+                 actor: actor,
+                 reason: "identifier_backfill"
+               )
+
+      assert :ok =
+               IdentityReconciler.merge_devices(one_guest.uid, two_guests.uid,
+                 actor: actor,
+                 reason: "identifier_backfill"
+               )
+    end
+
     test "a record with no guest identity merges into a guest", ctx do
       %{actor: actor} = ctx
 

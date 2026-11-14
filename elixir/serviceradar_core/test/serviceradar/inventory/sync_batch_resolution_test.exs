@@ -21,9 +21,11 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
+  alias ServiceRadar.Inventory.Sync.IdentifierRecords
   alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -1794,6 +1796,215 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert device_for_mac(mac_value(mac), actor) == guest
     assert device_for_integration_id(guest_integration_id("host-b", n), actor) == guest
     assert override_conflicts(guest, actor) == []
+  end
+
+  describe "a record never gains a second hypervisor guest" do
+    # Two clusters, each its own integration, reuse VMIDs; one integration can also run two
+    # containers under one hostname. An older bad merge left a record holding its own guest's
+    # reference plus the NIC MAC of another guest. That guest's sync matched the record on the
+    # MAC and registered its reference there, so the record held two live machines.
+    test "a guest whose MAC another guest's record holds resolves to its own record",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      integration_a = Ecto.UUID.generate()
+      controller_a = Ecto.UUID.generate()
+      integration_b = Ecto.UUID.generate()
+      controller_b = Ecto.UUID.generate()
+
+      for {held_ref, incoming_ref, i} <- [
+            {v3_guest_ref(integration_a, controller_a, "qemu", 101),
+             v3_guest_ref(integration_b, controller_b, "qemu", 101), 10},
+            {v3_guest_ref(integration_a, controller_a, "lxc", 106),
+             v3_guest_ref(integration_a, controller_a, "lxc", 107), 12}
+          ] do
+        own_mac = guest_mac()
+        foreign_mac = guest_mac()
+        record = create_device(actor, doc_ip(n, i), own_mac)
+        register_identifier(actor, record.uid, :integration_id, held_ref)
+        register_identifier(actor, record.uid, :mac, own_mac)
+        register_identifier(actor, record.uid, :mac, foreign_mac)
+
+        assert :ok =
+                 SyncIngestor.ingest_updates(
+                   [hypervisor_guest_update(incoming_ref, doc_ip(n, i + 1), foreign_mac)],
+                   actor: actor
+                 )
+
+        guest = device_for_integration_id(incoming_ref, actor)
+        assert is_binary(guest)
+        assert guest != record.uid, "#{incoming_ref} was registered on #{held_ref}'s record"
+        assert held_guest_refs(record.uid) == [held_ref]
+        assert device_for_mac(foreign_mac, actor) == record.uid
+        assert_guest_block_recorded(record.uid, guest, actor)
+      end
+    end
+
+    test "neither a device-id hint nor an earlier update of the batch gives a record a second guest",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      integration = Ecto.UUID.generate()
+      controller = Ecto.UUID.generate()
+      held_ref = v3_guest_ref(integration, controller, "qemu", 201)
+      hinted_ref = v3_guest_ref(integration, controller, "qemu", 202)
+
+      record = create_device(actor, doc_ip(n, 30), guest_mac())
+      register_identifier(actor, record.uid, :integration_id, held_ref)
+
+      hinted =
+        hinted_ref
+        |> hypervisor_guest_update(doc_ip(n, 31), guest_mac())
+        |> Map.put("device_id", record.uid)
+
+      assert :ok = SyncIngestor.ingest_updates([hinted], actor: actor)
+      refute device_for_integration_id(hinted_ref, actor) in [nil, record.uid]
+      assert held_guest_refs(record.uid) == [held_ref]
+
+      # A record holding no guest takes the first guest of the batch and refuses the second.
+      shared_mac = guest_mac()
+      discovered = create_device(actor, doc_ip(n, 40), shared_mac)
+      register_identifier(actor, discovered.uid, :mac, shared_mac)
+      first_ref = v3_guest_ref(integration, controller, "lxc", 203)
+      second_ref = v3_guest_ref(integration, controller, "lxc", 204)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   hypervisor_guest_update(first_ref, doc_ip(n, 41), shared_mac),
+                   hypervisor_guest_update(second_ref, doc_ip(n, 42), shared_mac)
+                 ],
+                 actor: actor
+               )
+
+      assert device_for_integration_id(first_ref, actor) == discovered.uid
+      refute device_for_integration_id(second_ref, actor) in [nil, discovered.uid]
+    end
+
+    # The rule refuses a second guest only: a record holding a guest's MAC and no live guest
+    # reference, or only a retired one, still takes the guest.
+    test "a record without a live guest reference takes the guest that shares its MAC",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      integration = Ecto.UUID.generate()
+      controller = Ecto.UUID.generate()
+
+      for {retired?, i} <- [{false, 50}, {true, 52}] do
+        mac = guest_mac()
+        record = create_device(actor, doc_ip(n, i), mac)
+        register_identifier(actor, record.uid, :mac, mac)
+
+        if retired? do
+          retired_ref = v3_guest_ref(integration, controller, "qemu", 301)
+          register_identifier(actor, record.uid, :integration_id, retired_ref)
+          IdentifierArchiveFixtures.archive!(:integration_id, retired_ref)
+        end
+
+        ref = v3_guest_ref(integration, controller, "qemu", System.unique_integer([:positive]))
+
+        assert :ok =
+                 SyncIngestor.ingest_updates(
+                   [hypervisor_guest_update(ref, doc_ip(n, i + 1), mac)],
+                   actor: actor
+                 )
+
+        assert device_for_integration_id(ref, actor) == record.uid
+      end
+    end
+
+    # Hypervisor enrichment's MAC sync and Registrar write identifiers without resolution.
+    test "registration drops a second guest's reference and writes the rest", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      integration = Ecto.UUID.generate()
+      controller = Ecto.UUID.generate()
+      held_ref = v3_guest_ref(integration, controller, "qemu", 401)
+      foreign_ref = v3_guest_ref(integration, controller, "qemu", 402)
+      mac = guest_mac()
+
+      record = create_device(actor, doc_ip(n, 60), guest_mac())
+      register_identifier(actor, record.uid, :integration_id, held_ref)
+
+      rows =
+        for {type, value} <- [integration_id: foreign_ref, mac: mac] do
+          %{
+            device_id: record.uid,
+            identifier_type: type,
+            identifier_value: value,
+            partition: "default",
+            confidence: :strong,
+            source: "sync_ingestor",
+            metadata: %{}
+          }
+        end
+
+      assert :ok = IdentifierRecords.bulk_upsert_identifiers(rows)
+      assert held_guest_refs(record.uid) == [held_ref]
+      assert device_for_mac(mac, actor) == record.uid
+
+      other_mac = guest_mac()
+
+      assert :ok =
+               Registrar.register_identifiers(
+                 record.uid,
+                 %{integration_id: foreign_ref, mac: other_mac, partition: "default"},
+                 actor: actor
+               )
+
+      assert held_guest_refs(record.uid) == [held_ref]
+      assert device_for_mac(other_mac, actor) == record.uid
+    end
+  end
+
+  defp v3_guest_ref(integration, controller, kind, vmid),
+    do: "proxmox:v3:#{integration}:#{controller}:cluster:#{kind}:#{vmid}"
+
+  # Proxmox's vendor OUI with an invented suffix.
+  defp guest_mac do
+    suffix =
+      [:positive]
+      |> System.unique_integer()
+      |> rem(0x1000000)
+      |> Integer.to_string(16)
+      |> String.pad_leading(6, "0")
+
+    "BC2411" <> suffix
+  end
+
+  # The update hypervisor enrichment sends for a guest it has not bound to a record.
+  defp hypervisor_guest_update(ref, ip, mac) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "guest-host01",
+      "source" => "hypervisor_enrichment",
+      "metadata" => %{
+        "integration_id" => ref,
+        "integration_type" => "hypervisor",
+        "device_role" => "virtual-guest",
+        "hypervisor_provider" => "proxmox",
+        "hypervisor_provider_ref" => ref
+      }
+    }
+  end
+
+  defp held_guest_refs(device_uid) do
+    DeviceIdentifier
+    |> Ash.Query.filter(
+      device_id == ^device_uid and identifier_type == :integration_id and
+        contains(identifier_value, "proxmox:v3:")
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.identifier_value)
+    |> Enum.sort()
+  end
+
+  defp assert_guest_block_recorded(record_uid, guest_uid, actor) do
+    {:ok, decisions} = IdentityDecision.for_device(guest_uid, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :guard_block and
+               decision.reason == "distinct_guest_identity" and
+               decision.device_uids == Enum.sort([record_uid, guest_uid])
+           end),
+           "no distinct_guest_identity decision names both records"
   end
 
   # A host-scoped guest id, the shape a hypervisor inventory mints when it has no cluster scope.

@@ -28,8 +28,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       `link-local-alias-archive`, `broadcast-alias-archive`,
       `netprobe-alias-debris`, `agent-links`, `proxmox-dups`, `source-id-retire`, `source-succession`,
       `released-seed-shells`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
-      `awx-proxmox-unmerge`, `awx-proxmox-verify`, `source-id-verify`,
-      `source-id-rollback`, `all` (default `all`).
+      `awx-proxmox-unmerge`, `awx-proxmox-verify`, `multi-guest-split`,
+      `multi-guest-verify`, `source-id-verify`, `source-id-rollback`, `all`
+      (default `all`).
       `all` cannot be combined with another step.
       `source-id-verify` is explicit-only and read-only: it is refused with
       `--execute`.
@@ -45,6 +46,11 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       with its evidence, the planned unmerges and MAC moves and archives, while
       execute is disabled until its runtime gate is enabled. `awx-proxmox-verify` is
       explicit-only and read-only (see `docs/awx-proxmox-unmerge-runbook.md`).
+      `multi-guest-split` is explicit-only: dry-run reports each record holding
+      more than one Proxmox v3 guest, the guest that keeps it, the rows each other
+      guest takes to its own record and the rows no guest is proven to own, while
+      execute is disabled until its runtime gate is enabled. `multi-guest-verify`
+      is explicit-only and read-only.
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)
     * `--debris-date <yyyy-mm-dd>` — test debris creation date (default 2026-04-25)
@@ -140,6 +146,12 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
       config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
         enable_awx_proxmox_unmerge_execute: true
+
+  `multi-guest-split --execute` is rejected unless the dry-run plan has been
+  reviewed and the release runtime configuration deliberately sets:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_multi_guest_split_execute: true
 
   ## Examples
 
@@ -238,6 +250,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "armis-dups",
     "awx-proxmox-unmerge",
     "awx-proxmox-verify",
+    "multi-guest-split",
+    "multi-guest-verify",
     "source-id-verify",
     "source-id-rollback"
   ]
@@ -346,6 +360,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
           "awx-proxmox-unmerge execute mode is disabled pending plan review. " <>
             "Run without --execute to review every planned unmerge and MAC removal; only then " <>
             "enable :enable_awx_proxmox_unmerge_execute in the DireRemediation runtime config."
+        )
+
+      {:error, {:execute_disabled, ["multi-guest-split"]}} ->
+        Mix.raise(
+          "multi-guest-split execute mode is disabled pending plan review. " <>
+            "Run without --execute to review every planned split and unproven row; only then " <>
+            "enable :enable_multi_guest_split_execute in the DireRemediation runtime config."
         )
 
       {:error, {:disabled_steps, disabled}} ->

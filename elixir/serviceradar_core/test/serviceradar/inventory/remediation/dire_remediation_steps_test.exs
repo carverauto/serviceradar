@@ -136,42 +136,43 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
     refute "armis-unmerge" in DireRemediation.steps()
   end
 
-  test "awx-proxmox-unmerge is explicit-only with a gated execute, and its checks are read-only" do
-    Application.delete_env(:serviceradar_core, DireRemediation)
+  test "the guest repairs are explicit-only with a gated execute, and their checks are read-only" do
+    for {repair, check, gate, caller_gate} <- [
+          {"awx-proxmox-unmerge", "awx-proxmox-verify", :enable_awx_proxmox_unmerge_execute,
+           :awx_proxmox_unmerge_execute_enabled},
+          {"multi-guest-split", "multi-guest-verify", :enable_multi_guest_split_execute,
+           :multi_guest_split_execute_enabled}
+        ] do
+      Application.delete_env(:serviceradar_core, DireRemediation)
 
-    for step <- ["awx-proxmox-unmerge", "awx-proxmox-verify"] do
-      refute step in DireRemediation.steps()
-      assert step in DireRemediation.available_steps(:dry_run)
-      refute step in DireRemediation.available_steps(:execute)
+      for step <- [repair, check] do
+        refute step in DireRemediation.steps()
+        assert step in DireRemediation.available_steps(:dry_run)
+        refute step in DireRemediation.available_steps(:execute)
+      end
+
+      manifest_path =
+        Path.join(
+          System.tmp_dir!(),
+          "blocked_#{repair}_#{System.unique_integer([:positive])}.ndjson"
+        )
+
+      # A caller cannot pass the gate in place of the runtime configuration.
+      assert {:error, {:execute_disabled, [^repair]}} =
+               DireRemediation.run(
+                 [steps: [repair], mode: :execute, manifest_path: manifest_path] ++
+                   [{caller_gate, true}]
+               )
+
+      assert {:error, {:read_only_steps, [^check]}} =
+               DireRemediation.run(steps: [check], mode: :execute, manifest_path: manifest_path)
+
+      refute File.exists?(manifest_path)
+
+      put_remediation_config(gate, true)
+      assert repair in DireRemediation.available_steps(:execute)
+      refute repair in DireRemediation.steps()
     end
-
-    manifest_path =
-      Path.join(
-        System.tmp_dir!(),
-        "blocked_awx_proxmox_unmerge_#{System.unique_integer([:positive])}.ndjson"
-      )
-
-    # A caller cannot pass the gate in place of the runtime configuration.
-    assert {:error, {:execute_disabled, ["awx-proxmox-unmerge"]}} =
-             DireRemediation.run(
-               steps: ["awx-proxmox-unmerge"],
-               mode: :execute,
-               manifest_path: manifest_path,
-               awx_proxmox_unmerge_execute_enabled: true
-             )
-
-    assert {:error, {:read_only_steps, ["awx-proxmox-verify"]}} =
-             DireRemediation.run(
-               steps: ["awx-proxmox-verify"],
-               mode: :execute,
-               manifest_path: manifest_path
-             )
-
-    refute File.exists?(manifest_path)
-
-    put_remediation_config(:enable_awx_proxmox_unmerge_execute, true)
-    assert "awx-proxmox-unmerge" in DireRemediation.available_steps(:execute)
-    refute "awx-proxmox-unmerge" in DireRemediation.steps()
   end
 
   test "retirement runs before succession, and succession before the shells" do
