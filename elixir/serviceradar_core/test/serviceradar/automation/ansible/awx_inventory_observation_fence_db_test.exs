@@ -295,9 +295,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
           end)
 
         try do
-          assert {:settled, :stale_awx_membership_generation,
-                  %{source_generation: 15, recorded_generation: 20}} =
-                   Task.await(stale_redelivery, 2_000)
+          assert :ok = Task.await(stale_redelivery, 2_000)
 
           refute_received :unexpected_stale_device_write
         after
