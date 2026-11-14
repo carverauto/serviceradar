@@ -33,11 +33,20 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   An update carrying a re-issued identifier is never resolved to a record that
   held it, whichever step decided: it goes to the uid the identifier was
   re-issued to instead.
+
+  An update naming a hypervisor guest (a Proxmox v3 guest reference) is never
+  resolved to a record that holds a different live guest, whichever step chose
+  the record (`GuestIdentityGuard.added_guests/2`, change
+  `prevent-multi-guest-device-records`): it goes to the guest's own reseeded uid,
+  claims its reference there for the rest of the batch, and the refusal is
+  recorded as a `guard_block` decision `distinct_guest_identity`.
   """
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Inventory.Identity.GuestIdentityGuard
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
@@ -136,6 +145,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
           )
     }
 
+    preloads =
+      Map.merge(preloads, %{
+        guests: preload_guest_refs(candidates, canonical, actor),
+        guest_claims: %{}
+      })
+
     # Phase 3: if this batch already owns both sides of a UAA/LAA NIC pair
     # on different devices, merge the LAA sibling into the UAA survivor
     # before upsert. Identifier ownership is never stolen by upsert.
@@ -144,20 +159,23 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
     unrevivable = unrevivable_source_targets(candidates, canonical, preloads.reissued, actor)
 
-    {resolved_rev, strong, overrides_rev, _final_source_ids} =
-      Enum.reduce(candidates, {[], MapSet.new(), [], preloads.source_ids}, fn
-        {update, ids, device_id}, {acc, strong, overrides, claimed_source_ids} ->
-          final_id =
+    {resolved_rev, strong, overrides_rev, {_final_source_ids, _guest_claims}, guest_refusals} =
+      Enum.reduce(candidates, {[], MapSet.new(), [], {preloads.source_ids, %{}}, []}, fn
+        {update, ids, device_id},
+        {acc, strong, overrides, {claimed_source_ids, guest_claims}, guest_refusals} ->
+          {final_id, guest_refusal} =
             resolve_final_id(
               device_id,
               ids,
               canonical,
-              %{preloads | source_ids: claimed_source_ids},
+              %{preloads | source_ids: claimed_source_ids, guest_claims: guest_claims},
               unrevivable,
               actor
             )
 
           claimed_source_ids = SourceAuthorityGuard.claim(claimed_source_ids, ids, final_id)
+          guest_claims = claim_guest(guest_claims, ids, final_id)
+          guest_refusals = if guest_refusal, do: [guest_refusal | guest_refusals], else: guest_refusals
 
           strong =
             if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
@@ -174,10 +192,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
                 ]
             end
 
-          {[{update, final_id} | acc], strong, overrides, claimed_source_ids}
+          {[{update, final_id} | acc], strong, overrides, {claimed_source_ids, guest_claims},
+           guest_refusals}
       end)
 
     _ = SourceAuthorityGuard.record_overrides(Enum.reverse(overrides_rev))
+    _ = record_guest_refusals(Enum.reverse(guest_refusals))
 
     {Enum.reverse(resolved_rev), strong}
   end
@@ -250,22 +270,31 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # Reseeding prevents repeated withholding at the fence or collapse onto another
   # source's record. Ownership must include in-batch claims before they are persisted.
   # The batch tombstone and redirect contract lives in docs/docs/dire-identity-model.md.
+  #
+  # Returns the uid and, when the target would have gained a second hypervisor guest, the refusal
+  # to record.
   defp resolve_final_id(device_id, ids, canonical, preloads, unrevivable, actor) do
     target =
       canonical
       |> Map.get(device_id, device_id)
       |> away_from_holders(ids, preloads.reissued)
 
-    if SourceAuthorityGuard.carries_source_id?(ids) and
-         (MapSet.member?(unrevivable, target) or
-            (target != device_id and source_mismatch?(ids, target, preloads))) do
-      reseed_source_uid(ids, device_id, canonical, unrevivable, preloads.source_ids, actor)
-    else
-      target
+    cond do
+      SourceAuthorityGuard.carries_source_id?(ids) and
+          (MapSet.member?(unrevivable, target) or
+             (target != device_id and source_mismatch?(ids, target, preloads))) ->
+        {reseed_uid(ids, device_id, canonical, unrevivable, preloads, actor), nil}
+
+      refusal = guest_refusal(ids, target, preloads, actor) ->
+        final = reseed_uid(ids, device_id, canonical, unrevivable, preloads, actor)
+        {final, Map.put(refusal, :resolved_uid, final)}
+
+      true ->
+        {target, nil}
     end
   end
 
-  defp reseed_source_uid(ids, device_id, canonical, unrevivable, claimed_source_ids, actor) do
+  defp reseed_uid(ids, device_id, canonical, unrevivable, preloads, actor) do
     derived = Ids.generate_deterministic_device_id(ids)
 
     start =
@@ -276,28 +305,110 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         Ids.reseeded_device_id(derived)
       end
 
-    step_reseeded_uid(start, ids, canonical, unrevivable, claimed_source_ids, actor, 5)
+    step_reseeded_uid(start, ids, canonical, unrevivable, preloads, actor, 5)
   end
 
-  defp step_reseeded_uid(uid, _ids, _canonical, _unrevivable, _claimed_source_ids, _actor, 0),
-    do: uid
+  defp step_reseeded_uid(uid, _ids, _canonical, _unrevivable, _preloads, _actor, 0), do: uid
 
-  defp step_reseeded_uid(uid, ids, canonical, unrevivable, claimed_source_ids, actor, depth) do
+  defp step_reseeded_uid(uid, ids, canonical, unrevivable, preloads, actor, depth) do
     if Map.has_key?(canonical, uid) or MapSet.member?(unrevivable, uid) or
          unrevivable_or_purged_merged?(uid, actor) or
-         held_by_other_source?(ids, uid, claimed_source_ids, actor) do
+         held_by_other_source?(ids, uid, preloads.source_ids, actor) or
+         guest_refusal(ids, uid, preloads, actor) != nil do
       step_reseeded_uid(
         Ids.reseeded_device_id(uid),
         ids,
         canonical,
         unrevivable,
-        claimed_source_ids,
+        preloads,
         actor,
         depth - 1
       )
     else
       uid
     end
+  end
+
+  # -- distinct hypervisor guests ----------------------------------------------
+
+  # The v3 guest reference an update names, or nil.
+  defp guest_ref(ids) do
+    value = Ids.ids_get(ids, :integration_id)
+    if GuestIdentityGuard.v3_guest_ref?(value), do: value
+  end
+
+  # The live guests of every record an update naming a guest may resolve to: its candidate and
+  # the survivor a tombstoned candidate redirects to.
+  defp preload_guest_refs(candidates, canonical, actor) do
+    candidates
+    |> Enum.flat_map(fn {_update, ids, device_id} ->
+      if guest_ref(ids), do: [device_id, Map.get(canonical, device_id)], else: []
+    end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+    |> then(&GuestIdentityGuard.held_v3_refs(&1, actor))
+  end
+
+  # The refusal when `uid` would gain a second guest from the update: the guests it holds, read
+  # with the ones earlier updates of the batch claimed on it.
+  defp guest_refusal(ids, uid, preloads, actor) do
+    with ref when is_binary(ref) <- guest_ref(ids),
+         held = held_guests(uid, preloads, actor),
+         [_ | _] <- GuestIdentityGuard.added_guests(MapSet.to_list(held), [ref]) do
+      %{guest_identity: ref, device_uid: uid, held: Enum.sort(held)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp held_guests(uid, preloads, actor) do
+    held =
+      case Map.fetch(preloads.guests, uid) do
+        {:ok, held} -> held
+        :error -> [uid] |> GuestIdentityGuard.held_v3_refs(actor) |> Map.get(uid, MapSet.new())
+      end
+
+    MapSet.union(held, Map.get(preloads.guest_claims, uid, MapSet.new()))
+  end
+
+  defp claim_guest(claims, ids, uid) do
+    case guest_ref(ids) do
+      nil -> claims
+      ref -> Map.update(claims, uid, MapSet.new([ref]), &MapSet.put(&1, ref))
+    end
+  end
+
+  defp record_guest_refusals([]), do: :ok
+
+  defp record_guest_refusals(refusals) do
+    refusals
+    |> Enum.uniq_by(&{&1.device_uid, &1.resolved_uid})
+    |> Enum.map(fn refusal ->
+      Logger.info(
+        "BatchResolver: #{refusal.guest_identity} not resolved onto #{refusal.device_uid}, " <>
+          "which holds #{inspect(refusal.held)}; resolved to #{refusal.resolved_uid}"
+      )
+
+      :telemetry.execute(
+        [:serviceradar, :inventory, :guest_identity, :resolution_refused],
+        %{count: 1},
+        %{device_uid: refusal.device_uid, resolved_uid: refusal.resolved_uid}
+      )
+
+      %{
+        kind: :guard_block,
+        reason: "distinct_guest_identity",
+        device_uids: Enum.sort([refusal.device_uid, refusal.resolved_uid]),
+        source: "sync_ingestor",
+        evidence: %{
+          "guest_identity" => refusal.guest_identity,
+          "device_uid" => refusal.device_uid,
+          "device_guest_identities" => refusal.held,
+          "resolved_uid" => refusal.resolved_uid
+        }
+      }
+    end)
+    |> DecisionLog.record_many()
   end
 
   defp held_by_other_source?(ids, uid, claimed_source_ids, actor) do
