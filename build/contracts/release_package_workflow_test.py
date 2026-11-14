@@ -5,7 +5,9 @@ import json
 import platform
 import re
 from pathlib import Path
+import shutil
 import subprocess
+import tarfile
 import tempfile
 import textwrap
 import unittest
@@ -208,7 +210,6 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
         self.assertEqual(dispatcher["needs"], "publish")
         self.assertEqual(set(jobs["finalize"]["needs"]), {"publish", "image-security-dispatch"})
         self.assertEqual(dispatcher["permissions"], {"contents": "write", "actions": "write"})
-        self.assertEqual(self.scan["jobs"]["image-security"]["steps"][0]["with"]["ref"], "${{ inputs.tag }}")
 
     def test_failed_macos_installer_cannot_skip_jobs_downstream_of_it(self):
         # GitHub prefixes an `if` without a status function with `success() &&`, and
@@ -349,6 +350,202 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
 
 
 
+def _write_executables(directory, bodies):
+    for name, body in bodies.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body + "\n")
+        path.chmod(0o755)
+
+
+# Scanner fakes for a host with no docker daemon, shared by the step and job harnesses.
+SCANNER_FAKES = {
+    # Like `syft scan registry:<ref> ...`: fail for an image it cannot catalog.
+    "syft": 'for failing in ${SYFT_FAILS}; do [[ "$2" == "registry:${failing}" ]] && exit 1; done; exit 0',
+    # Like `crane pull <ref> <tarball>`: write the tarball, or fail for an image the
+    # registry cannot serve.
+    "crane": textwrap.dedent("""\
+        if [[ "$1" == auth ]]; then cat >/dev/null; exit 0; fi
+        [[ "$1" == pull ]] || exit 2
+        for failing in ${CRANE_FAILS}; do [[ "$2" == "${failing}" ]] && exit 1; done
+        : > "$3"
+    """),
+    # Like osv-scanner: a registry reference needs dockerd, which this host lacks
+    # (127); an archive is scanned and reports the image's result.
+    "osv-scanner": textwrap.dedent("""\
+        echo "$*" >> "${OSV_CALLS}"
+        archive=""; out=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in --archive) archive="$2"; shift ;; --output-file) out="$2"; shift ;; esac
+          shift
+        done
+        [[ -n "${archive}" && -f "${archive}" ]] || exit 127
+        echo '{"results":[]}' > "${out}"
+        name="$(basename "${archive}" .tar)"
+        exit "$(python3 -c 'import json,os,sys; print(json.loads(os.environ["OSV_EXITS"])[sys.argv[1]])' "${name}")"
+    """),
+}
+
+
+def _read_command_file(path):
+    """Parse a GITHUB_OUTPUT/GITHUB_ENV file: `name=value` and `name<<DELIMITER` blocks."""
+    values, lines = {}, iter(path.read_text().splitlines())
+    for line in lines:
+        if not line:
+            continue
+        name, sep, value = line.partition("=")
+        if "<<" in name or not sep:
+            name, delimiter = line.split("<<", 1)
+            body = []
+            for body_line in lines:
+                if body_line == delimiter:
+                    break
+                body.append(body_line)
+            else:
+                raise AssertionError(f"unterminated multiline value {name}")
+            value = "\n".join(body)
+        values[name] = value
+    return values
+
+
+def _run_job(job, *, workspace, trees, context, env):
+    """Run a job's steps in order, modelling only the runner behavior this workflow uses.
+
+    `trees` maps a checkout's resolved `ref` (None: the workflow's own commit) to
+    the source tree actions/checkout places at the step's `path`. Returns the
+    name and result of the first failing step, or (None, None).
+    """
+    outputs = {}
+
+    def evaluate(value):
+        def resolve(match):
+            expression = match.group(1)
+            step_output = re.fullmatch(r"steps\.([\w-]+)\.outputs\.([\w-]+)", expression)
+            if step_output:
+                return outputs[step_output.group(1)][step_output.group(2)]
+            if expression not in context:
+                raise AssertionError(f"expression not modelled by this harness: {expression}")
+            return context[expression]
+        return re.sub(r"\$\{\{\s*(.*?)\s*\}\}", resolve, value)
+
+    github_env = Path(env["RUNNER_TEMP"]) / "github_env"
+    github_env.touch()
+    job_env = {name: evaluate(value) for name, value in job.get("env", {}).items()}
+    for index, step in enumerate(job["steps"]):
+        if "if" in step:
+            raise AssertionError(f"conditional step not modelled: {step['name']}")
+        uses = step.get("uses", "")
+        if uses.startswith("actions/checkout@"):
+            with_ = {name: evaluate(value) for name, value in step.get("with", {}).items()}
+            ref = with_.get("ref") or None
+            if ref not in trees:
+                raise AssertionError(f"checkout of unmodelled ref {ref!r}")
+            target = workspace / with_.get("path", "")
+            # actions/checkout cleans its path, so a later root checkout would erase
+            # an earlier one placed beneath it.
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(trees[ref], target, symlinks=True)
+            continue
+        if uses:
+            raise AssertionError(f"action not modelled: {uses}")
+        github_output = Path(env["RUNNER_TEMP"]) / f"github_output_{index}"
+        github_output.touch()
+        step_env = dict(env)
+        step_env.update(job_env)
+        step_env.update(_read_command_file(github_env))
+        step_env.update({name: evaluate(value) for name, value in step.get("env", {}).items()})
+        step_env.update(GITHUB_ENV=str(github_env), GITHUB_OUTPUT=str(github_output))
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+                                cwd=workspace / step.get("working-directory", ""), env=step_env,
+                                capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return step["name"], result
+        if "id" in step:
+            outputs[step["id"]] = _read_command_file(github_output)
+    return None, None
+
+
+class ImageSecurityManualRescanTest(unittest.TestCase):
+    """Run the whole scan job as a manual retry of an older tag from a newer commit.
+
+    The tag's tree predates the current scanner tooling: like every release cut
+    before the crane-based scan, it has no install-crane.sh. The two trees also
+    list different images, because images are added and removed between releases.
+    """
+
+    TAG = "v9.8.7"
+    REGISTRY = "registry.example.test/sr"
+    TAG_TOOLS = ("install-oras.sh", "install-syft.sh", "install-osv-scanner.sh",
+                 "upload-forgejo-release-asset.sh")
+    WORKFLOW_TOOLS = TAG_TOOLS + ("install-crane.sh",)
+
+    def write_tree(self, root, label, tools, images):
+        # Each tool records which tree it ran from; the real installers download binaries.
+        _write_executables(root / "scripts", {
+            tool: f'echo "{label} {tool} $*" >> "${{TOOL_CALLS}}"' for tool in tools})
+        lister = root / "scripts/list-publishable-oci-repositories.sh"
+        shutil.copyfile(ROOT / "scripts/list-publishable-oci-repositories.sh", lister)
+        lister.chmod(0o755)
+        inventory = root / "docker/images/image_inventory.bzl"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text("IMAGES = [\n" + "".join(
+            f'    {{"image": "{image}_image", "repository": "{self.REGISTRY}/{image}"}},\n'
+            for image in images) + "]\n")
+        return root
+
+    def test_rescan_runs_current_tooling_against_the_tags_published_images(self):
+        workflow = yaml.load((ROOT / ".github/workflows/image-security.yml").read_text(), Loader=yaml.BaseLoader)
+        tag_images = ("alpha", "beta", "delta")  # delta was removed after the tag
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tag_tree = self.write_tree(root / "tag", "tag", self.TAG_TOOLS, tag_images)
+            workflow_tree = self.write_tree(root / "workflow", "workflow", self.WORKFLOW_TOOLS,
+                                            ("alpha", "beta", "gamma"))  # gamma was added after it
+            bin_dir, workspace, runner_temp = root / "bin", root / "workspace", root / "runner-temp"
+            for path in (workspace, runner_temp):
+                path.mkdir()
+            _write_executables(bin_dir, dict(SCANNER_FAKES, **{
+                # Harbor serves only the images published at the tag.
+                "oras": textwrap.dedent("""\
+                    if [[ "$1" == login ]]; then cat >/dev/null; exit 0; fi
+                    [[ "$1 $2" == "manifest fetch" ]] || exit 2
+                    for published in ${PUBLISHED}; do [[ "$3" == "${published}" ]] && exit 0; done
+                    exit 1
+                """),
+                "curl": "exit 0",  # the draft release exists
+                "sleep": "exit 0",
+            }))
+            tool_calls, osv_calls = root / "tool_calls", root / "osv_calls"
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp),
+                       GITHUB_STEP_SUMMARY=str(root / "summary"), GITHUB_REPOSITORY="example/release-fixture",
+                       GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/staging",
+                       TOOL_CALLS=str(tool_calls), OSV_CALLS=str(osv_calls), CRANE_FAILS="", SYFT_FAILS="",
+                       COPYFILE_DISABLE="1",  # keep macOS bsdtar from adding ._ metadata entries
+                       OSV_EXITS=json.dumps({"alpha": 0, "beta": 1, "delta": 0}),
+                       PUBLISHED=" ".join(f"{self.REGISTRY}/{image}:{self.TAG}" for image in tag_images))
+            context = {
+                "inputs.tag": self.TAG,
+                "github.event_name == 'workflow_dispatch' && github.event.inputs.tag || ''": self.TAG,
+                "github.token": "invented-test-token",
+                "secrets.HARBOR_ROBOT_USERNAME": "invented-robot",
+                "secrets.HARBOR_ROBOT_SECRET": "invented-robot-secret",
+            }
+            failed, result = _run_job(workflow["jobs"]["image-security"], workspace=workspace,
+                                      trees={None: workflow_tree, self.TAG: tag_tree},
+                                      context=context, env=env)
+            self.assertIsNone(failed, failed and f"{failed}: {result.stdout}{result.stderr}")
+
+            bundle = workspace / f"out/security/serviceradar-image-security-{self.TAG}.tar.gz"
+            with tarfile.open(bundle) as archive:
+                reports = sorted(Path(name).name for name in archive.getnames() if name.endswith(".osv.json"))
+            self.assertEqual(reports, [f"{image}.osv.json" for image in tag_images])
+            calls = tool_calls.read_text().splitlines()
+            self.assertEqual({call.split()[0] for call in calls}, {"workflow"}, calls)
+            self.assertIn(f"workflow upload-forgejo-release-asset.sh {self.TAG} "
+                          f"out/security/serviceradar-image-security-{self.TAG}.tar.gz", calls)
+
+
 class ImageSecurityScanStepTest(unittest.TestCase):
     """Run the image scan step against fake scanners on a host with no docker daemon."""
 
@@ -364,43 +561,14 @@ class ImageSecurityScanStepTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bin_dir, work, runner_temp = root / "bin", root / "work", root / "runner-temp"
-            for path in (bin_dir, work / "scripts", runner_temp):
+            for path in (bin_dir, work, runner_temp):
                 path.mkdir(parents=True)
-            fakes = {
-                "list-publishable-oci-repositories.sh": "printf '%s\\n' " + " ".join(self.REPOSITORIES),
-                # Like `syft scan registry:<ref> ...`: fail for an image it cannot catalog.
-                "syft": 'for failing in ${SYFT_FAILS}; do [[ "$2" == "registry:${failing}" ]] && exit 1; done; exit 0',
-                # Like `crane pull <ref> <tarball>`: write the tarball, or fail for an
-                # image the registry cannot serve.
-                "crane": textwrap.dedent("""\
-                    [[ "$1" == pull ]] || exit 2
-                    for failing in ${CRANE_FAILS}; do [[ "$2" == "${failing}" ]] && exit 1; done
-                    : > "$3"
-                """),
-                # Like osv-scanner: a registry reference needs dockerd, which this host
-                # lacks (127); an archive is scanned and reports the image's result.
-                "osv-scanner": textwrap.dedent("""\
-                    echo "$*" >> "${OSV_CALLS}"
-                    archive=""; out=""
-                    while [[ $# -gt 0 ]]; do
-                      case "$1" in --archive) archive="$2"; shift ;; --output-file) out="$2"; shift ;; esac
-                      shift
-                    done
-                    [[ -n "${archive}" && -f "${archive}" ]] || exit 127
-                    echo '{"results":[]}' > "${out}"
-                    name="$(basename "${archive}" .tar)"
-                    exit "$(python3 -c 'import json,os,sys; print(json.loads(os.environ["OSV_EXITS"])[sys.argv[1]])' "${name}")"
-                """),
-            }
-            for name, body in fakes.items():
-                target = work / "scripts" / name if name.endswith(".sh") else bin_dir / name
-                target.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body + "\n")
-                target.chmod(0o755)
+            _write_executables(bin_dir, SCANNER_FAKES)
             github_env, calls = root / "github_env", root / "osv_calls"
             github_env.touch()
             calls.touch()
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RELEASE_TAG="v9.8.7",
-                       RUNNER_TEMP=str(runner_temp), GITHUB_ENV=str(github_env), OSV_CALLS=str(calls),
+                       RELEASE_REPOSITORIES="\n".join(self.REPOSITORIES), RUNNER_TEMP=str(runner_temp), GITHUB_ENV=str(github_env), OSV_CALLS=str(calls),
                        OSV_EXITS=json.dumps(osv_exit_by_image), CRANE_FAILS=" ".join(failing_pulls),
                        SYFT_FAILS=" ".join(failing_sboms))
             result = subprocess.run(["bash", "-c", self.step["run"]], cwd=work, env=env,

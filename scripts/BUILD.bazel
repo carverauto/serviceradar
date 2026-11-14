@@ -11,6 +11,7 @@ exports_files([
     "ci/configure-srql-fixture.sh",
     "ci/prepare-openbao-cosign-env.sh",
     "ci/unless_docs_only.sh",
+    "list-publishable-oci-repositories.sh",
     "push_all_images.sh",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",
