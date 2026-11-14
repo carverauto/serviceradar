@@ -320,11 +320,15 @@ capacity. A target keeps its owner unless one of these holds:
 - a bounded rebalance chose it (`rebalance`).
 
 A rebalance moves at most a configured number of targets per pass, from agents
-above a high watermark to agents below a low watermark.
+above a high watermark to agents below a low watermark. It only moves load
+between agents within their effective capacity: a receiving agent never ends
+the pass above it.
 
 Rendezvous hashing moves only about 1/n of targets when an agent leaves. With
-stickiness, an agent joining moves nothing until a rebalance or new arrivals
-use it.
+stickiness, an agent joining moves no existing owner. It does fill redundancy
+shortfalls: an `under_replicated` target gains the joining agent as an
+additional owner, and otherwise the agent is used by a rebalance or new
+arrivals.
 
 Rejected:
 - **Least-loaded at arrival.** It depends on arrival order, is not
@@ -361,19 +365,21 @@ Agents report per-target outcomes (last success, consecutive failures) in
 their acknowledgement path. These are control-plane facts on the placement
 row, not metrics.
 
-After `F` consecutive failures (default 3), the target moves to the next
-candidate, and the failing agent is excluded for that target for a backoff
-period. After `C` candidates fail (default 3), the target stays on its
+After `F` consecutive failures, the target moves to the next candidate, and
+the failing agent is excluded for that target for a backoff period. After `C`
+candidates fail, the target stays on its
 best-ranked candidate and is reported unreachable. Without that limit, a device
 that is down for everyone would rotate through the fleet forever.
 
-The `C` limit bounds how many agents try a dead device: at most `C` polls per
-`F` intervals.
+The `C` limit bounds how many agents try a dead device: at most `F` x `C`
+failed polls, then the target holds on one agent until a poll succeeds or the
+backoff expires. The values of `F`, `C` and the backoff are open question 6.
 
 ### D7. Delivery: profile definitions in config, targets as revisioned deltas
 
-The compiled `SNMPConfig` keeps profile-level definitions for the profiles
-the agent's targets reference: a new `profiles` list with OID sets, intervals,
+For a delta-capable agent, the compiled `SNMPConfig` keeps profile-level
+definitions for the profiles the agent's targets reference, and its config
+version changes when that set of profiles or one of their definitions changes: a new `profiles` list with OID sets, intervals,
 timeouts and retries. Targets move to a new server-streaming
 `SyncSNMPTargets(agent_id, from_revision)` RPC. Pages carry entries
 (`upsert`/`revoke`, compiled target, generation), each page within the
@@ -438,10 +444,13 @@ keeps `TargetLimit` alive.
 - **Measured capacity:** an agent reports per window the targets held, polls
   due, polls completed within their interval, requests sent and scheduling lag
   (D11). Core takes the highest sustained point rate seen while on-time polls
-  stayed at or above 99 percent, with decay. Until the first report, the code
-  default applies.
-- **Effective capacity:** the lower of measured capacity and the operator
-  ceiling.
+  stayed at or above 99 percent, with decay. Until the first report, only the
+  target-count ceiling applies.
+- **Effective capacity:** two limits that must both hold. The count of targets
+  placed on the agent stays at or under its resolved `snmp_max_targets`, and
+  the summed point-rate cost of those targets stays at or under its measured
+  point rate. The two are in different units and are not compared with each
+  other.
 - **`snmp_max_targets` is repurposed, not retired.** The column, its
   resolution order and its admin surfaces stay. Its meaning changes from "per
   (profile, agent) refusal threshold" to "most SNMP targets placed on one
@@ -516,7 +525,8 @@ metric is written to a database directly.
    `snmp_profiles.placement_mode` and `snmp_profiles.redundancy`, and record
    the revision floor.
 2. **Profiles:**
-   - Unpinned profiles become `distribute` with redundancy 1.
+   - Unpinned profiles become `distribute` with the redundancy open question 2
+     settles.
    - Pinned profiles become `distribute` among their pinned agents, unless open
      question 1 decides `replicate`.
    - The seeded default profile (`in:devices`) is unchanged.
@@ -568,7 +578,7 @@ Behavior changes operators will see:
 | Hint lost | Config poll reports the revision | One poll interval (300 s) |
 | Revision history compacted | Snapshot | One snapshot |
 | Credential store read fails at serve time | Page refused, delivery fails, agent keeps its set | Until store recovers |
-| All candidates fail a device | Stays placed, reported unreachable, no rotation | `C` candidates per `F` intervals |
+| All candidates fail a device | Stays placed, reported unreachable, no rotation | `F` x `C` failed polls, then hold until success or backoff expiry |
 | Fleet out of capacity | Newest targets `uncovered`, alerted | Until capacity added |
 | Planned move | Duplicate samples for at most one interval plus grace | Per move |
 | Thundering herd after restart | Jittered phases, bounded workers | Worker limit |
@@ -579,23 +589,36 @@ Behavior changes operators will see:
    C makes each of them poll every target. Migrate pinned profiles to
    `distribute` (divide among A, B, C; recommended, consistent with "each
    device polled once"), or to `replicate` (preserve today's behavior exactly)?
+   **Recommended answer, accepted by the user on 2026-11-14:** `distribute`
+   among the pinned agents.
 2. **Default redundancy.** 1 (recommended) or 2 for production deployments?
    With 2, the fleet does double the polling. A single agent loss becomes
    gap-free at the cost of steady duplicate samples.
+   **Recommended answer, accepted by the user on 2026-11-14:** 1.
 3. **Explicit `SNMPTarget` rows have no partition.** Place them among pinned
    agents when pinned. When unpinned, use (a) the partition of an inventory
    device whose IP equals the target host (recommended), else the default
    partition, or (b) every connected eligible agent.
+   **Recommended answer, accepted by the user on 2026-11-14:** (a), the
+   partition of the inventory device with the same IP.
 4. **Sample fencing.** Accept duplicate samples during planned handover
    (recommended for now), or add the authority generation to the SNMP edge
    record contract and drop superseded-generation samples at the gateway?
+   **Recommended answer, accepted by the user on 2026-11-14:** accept duplicate
+   samples during planned handover.
 5. **Save-time behavior when the fleet cannot cover a profile.** Accept and
    report coverage (recommended), or refuse the save when projected demand
    exceeds the eligible fleet's remaining capacity?
+   **Recommended answer, accepted by the user on 2026-11-14:** accept the save
+   and report coverage.
 6. **Reachability parameters.** `F` = 3 consecutive failures, `C` = 3
    candidates, backoff 1 hour: acceptable as code defaults, with overrides in
    `edge_pipeline_settings`?
+   **Recommended answer, accepted by the user on 2026-11-14:** move after 3
+   consecutive failures, try at most 3 agents, back off for 1 hour.
 7. **Legacy ceiling and Phase 0 ordering.** Ship the Phase 0 agent fixes in a
    release before placement (recommended), and keep the legacy ceiling at
    4,000? Or lower it further for agents that predate Phase 0, given about
    2.5 MB per 12-OID target of preallocated buffers on those agents?
+   **Recommended answer, accepted by the user on 2026-11-14:** ship the Phase 0
+   agent fixes first and keep the legacy ceiling at 4,000.

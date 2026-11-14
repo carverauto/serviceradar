@@ -22,14 +22,21 @@ Each agent has a monotonically increasing SNMP target revision. A request carrie
 - **THEN** the agent applies nothing from the incomplete delivery and keeps its last applied revision
 
 ### Requirement: SNMP profile definitions stay in the compiled config
-The compiled agent config SHALL carry the SNMP profile definitions an agent's placed targets reference: profile id, OID sets, interval, timeout and retries. It SHALL NOT carry those targets.
-The agent config version SHALL change when a referenced profile definition changes. It SHALL NOT change when only target placements change.
+For an agent that advertises `snmp-target-deltas:v1`, the compiled agent config SHALL carry the SNMP profile definitions its placed targets reference: profile id, OID sets, interval, timeout and retries. It SHALL NOT carry those targets.
+For such an agent, the config version SHALL change when a referenced profile definition changes, and when the set of referenced profiles changes: a placement adds the first target of a profile, or revokes the last one. It SHALL NOT change when a placement change leaves that set and those definitions unchanged.
 
 #### Scenario: Placement change leaves the config version alone
 - **GIVEN** an agent receiving SNMP targets through deltas
-- **WHEN** a device is placed on it
+- **AND** it already holds a target of profile A
+- **WHEN** another device of profile A is placed on it
 - **THEN** its SNMP target revision advances
 - **AND** its agent config version is unchanged
+
+#### Scenario: First target of another profile
+- **GIVEN** an agent receiving SNMP targets through deltas that holds targets of profile A only
+- **WHEN** a device of profile B is placed on it
+- **THEN** its SNMP target revision advances
+- **AND** its agent config version changes, and its compiled config carries profile B's definition
 
 #### Scenario: OID template change
 - **GIVEN** a profile whose OID template gains an OID

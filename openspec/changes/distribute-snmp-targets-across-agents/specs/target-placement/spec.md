@@ -1,7 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: Core places each target on a bounded set of agents
-The system SHALL decide which agents run a target-list workload by persisting one placement per target. Each placement has between 1 and `redundancy` active owners chosen from the target's eligible agents. A target SHALL NOT be run by an agent that holds no active placement for it.
+The system SHALL decide which agents run a target-list workload by persisting placements per target, each owned by one agent chosen from the target's eligible agents. After a placement pass, a covered target SHALL have `redundancy` active owners, and an `under_replicated` target SHALL have fewer, at least one. A target with no owner is `uncovered`, and so is a target whose owner was revoked by a failure move until a pass places it again.
+An agent whose placement is `draining` during a planned move SHALL keep running the target and keep receiving it in deliveries until that placement is revoked. A target SHALL NOT be run by an agent that holds neither an active nor a draining placement for it.
 A workload is a kind of per-target polling: SNMP is the first. A target is a stable key within that workload, such as a device uid or an explicit target id. Agents never select their own targets.
 
 #### Scenario: One owner by default
@@ -48,14 +49,21 @@ An agent's partition is the partition of its own device, as for sweep leases.
 - **THEN** the target has no owner and is marked `uncovered` with reason `no_eligible_agent`
 
 ### Requirement: Placement is sticky and moves only for a stated reason
-The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it.
+The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A rebalance SHALL move a target only to an agent that stays within its effective capacity after the move.
+When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve, without moving any owner a target already has.
 Every move SHALL record its reason. Among eligible agents, a new owner SHALL be chosen by rendezvous hashing weighted by remaining capacity, so that the same inputs always choose the same owner.
 
 #### Scenario: Agent joins a partition
-- **GIVEN** a partition whose targets are placed on two agents below their capacity
+- **GIVEN** a partition whose targets are placed on two agents below their capacity, with no target under-replicated
 - **WHEN** a third eligible agent connects
 - **THEN** no existing placement moves because of the join alone
 - **AND** targets placed after the join may be placed on the new agent
+
+#### Scenario: Agent join fills a redundancy shortfall
+- **GIVEN** a target whose redundancy is 2, placed only on `agent-a` and reported `under_replicated`
+- **WHEN** eligible `agent-b` connects below its capacity
+- **THEN** the next placement pass adds an active placement on `agent-b`
+- **AND** the placement on `agent-a` is unchanged
 
 #### Scenario: Owner leaves
 - **GIVEN** a target placed on `agent-a`
@@ -67,6 +75,7 @@ Every move SHALL record its reason. Among eligible agents, a new owner SHALL be 
 - **GIVEN** an agent whose load is above the rebalance high watermark while another eligible agent is below the low watermark
 - **WHEN** the placement pass runs
 - **THEN** at most the configured number of targets per pass move from the loaded agent, with reason `rebalance`
+- **AND** no receiving agent exceeds its effective capacity
 
 ### Requirement: Ownership moves under a new authority generation
 The system SHALL give each placement an authority generation and SHALL issue a new generation whenever ownership changes.
@@ -84,18 +93,23 @@ A planned move (`rebalance`, `over_capacity`, `unreachable_on_owner`) SHALL be m
 - **THEN** core does not reactivate `agent-a`'s placement
 
 ### Requirement: Capacity is an input to placement
-The system SHALL place targets on an agent only up to its effective capacity. That is the lower of the agent's measured capacity and its operator ceiling, which resolves agent setting, then partition setting, then global setting, then code default. Load SHALL be counted in the workload's cost unit, so a target polled every 10 seconds costs six times one polled every 60 seconds.
+The system SHALL place targets on an agent only within its effective capacity, which is two limits that SHALL both hold: the count of targets placed on the agent stays at or under its operator ceiling, and the summed cost of those targets stays at or under its measured capacity. The operator ceiling is a target count that resolves agent setting, then partition setting, then global setting, then the code default for the agent's delivery path. Measured capacity and cost are in the workload's cost unit, so a target polled every 10 seconds costs six times one polled every 60 seconds. Until an agent first reports measurements, only the operator ceiling applies.
 
 #### Scenario: Measured capacity below the ceiling
 - **GIVEN** an agent whose operator ceiling allows 20,000 targets
-- **AND** whose reported measurements sustain the load of 8,000 targets of the current mix
+- **AND** whose reported measurements sustain the cost of 8,000 targets of the current mix
 - **WHEN** the placement pass runs
-- **THEN** the agent is placed no more load than 8,000 such targets represent
+- **THEN** the agent is placed no more cost than its measured capacity, about 8,000 such targets
+
+#### Scenario: Faster targets hit the cost limit first
+- **GIVEN** an agent whose operator ceiling allows 20,000 targets and whose measured capacity is 26,000 points per second
+- **WHEN** placement offers it targets that each cost about 7.8 points per second
+- **THEN** it is placed no more than about 3,300 of them
 
 #### Scenario: Agent without measurements
 - **GIVEN** a newly connected agent that has not yet reported measurements
 - **WHEN** the placement pass runs
-- **THEN** its capacity is the workload's code default for its delivery path, capped by its operator ceiling
+- **THEN** it is placed no more targets than its operator ceiling, which falls back to the code default for its delivery path
 
 ### Requirement: Uncovered targets are counted, never dropped
 The system SHALL mark a target `uncovered` when no eligible agent has capacity for it, and SHALL report it.

@@ -38,15 +38,18 @@ even the binding constraint today:
   when the profile asks for more. The candidates come from profile pinning and
   the device's partition. Placement is sticky, weighted by capacity, and moves a
   target only for a stated reason: the owner left, failed, is over capacity, or
-  cannot reach the target. Assignments are persisted with an authority
+  cannot reach the target, or a bounded rebalance moves load between agents
+  without taking any agent past its effective capacity. A target short of its
+  redundancy gains owners when an eligible agent joins. Assignments are persisted with an authority
   generation that follows the sweep producer-assignment fencing pattern.
 - **Each device resolves to one profile.** That is its highest-priority matching
   profile, or the default profile when none matches, as the existing "Profile
   priority ordering" requirement already states. The profile chosen by the
   agent's own host device no longer decides anything. An agent may poll targets
   of several profiles.
-- **Targets are delivered incrementally.** The agent config keeps only profile
-  definitions: OID sets, intervals, timeouts and retries. Target assignments go
+- **Targets are delivered incrementally.** For an upgraded agent, the agent
+  config keeps only profile definitions: OID sets, intervals, timeouts and
+  retries. Target assignments go
   over a revisioned, paged delta channel, so the bytes sent grow with the size
   of the change, not the inventory. A control-stream hint replaces pushing the
   whole config. Credentials resolve at serve time through the unified credential
@@ -57,8 +60,8 @@ even the binding constraint today:
   requires. Ring buffers are sized to the drain cadence. Socket count follows
   in-flight polls, not targets. Poll phases are jittered.
 - **Capacity feeds placement instead of refusing.** Agents report measured
-  poll throughput and lateness. Placement uses the lower of the measured
-  capacity and the operator ceiling. `snmp_max_targets` stays in
+  poll throughput and lateness. Placement keeps each agent within both its
+  measured point rate and its operator ceiling on target count. `snmp_max_targets` stays in
   `edge_pipeline_settings` (agent, then partition, then global, then code
   default) with a new meaning: the most targets placed on one agent across all
   profiles. Its code default comes from the measurements.

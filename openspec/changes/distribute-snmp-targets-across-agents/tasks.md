@@ -16,11 +16,11 @@
 - [ ] 1.6 Coverage accounting: `uncovered` states with reasons, telemetry `[:serviceradar, :target_placement, :coverage]`, alert rule
 
 ## 2. SNMP placement
-- [ ] 2.1 Add `placement_mode` (`distribute` | `replicate`, default `distribute`) and `redundancy` (default 1) to `SNMPProfile`; refuse `replicate` without pinning
+- [ ] 2.1 Add `placement_mode` (`distribute` | `replicate`, default `distribute`) and `redundancy` (default per the answer to design.md open question 2) to `SNMPProfile`; refuse `replicate` without pinning
 - [ ] 2.2 Resolve each device to exactly one profile (priority, then default) in the placement pass, reusing `SrqlTargetResolver.resolve_for_devices/3` and `SNMPCompiler.reduce_target_pages/4`
 - [ ] 2.3 SNMP cost model (data points per second: scalar OIDs plus walk rows plus availability, per interval; requests tracked for pacing) and capacity from agent reports
 - [ ] 2.4 Explicit `SNMPTarget` rows placed per the decision on design.md open question 3
-- [ ] 2.5 Reachability rule: consecutive failures, per-target agent backoff, candidate limit, `unreachable_on_owner` moves
+- [ ] 2.5 Reachability rule: consecutive failures, per-target agent backoff, candidate limit (defaults per the answer to design.md open question 6), `unreachable_on_owner` moves
 - [ ] 2.6 Replace `SNMPCompiler.affected_agents_for_device/1` fleet invalidation and the `device_snmp_config` dependency-catalog entry with per-device placement re-evaluation
 
 ## 3. Delivery
@@ -28,7 +28,7 @@
 - [ ] 3.2 Gateway: serve pages from core, reuse `ConfigChunks` budgets and digest validation; config poll response reports current revision
 - [ ] 3.3 Core: page producer resolving credentials at serve time through `CredentialResolver`; credential change advances affected rows' revisions
 - [ ] 3.4 Agent: advertise `snmp-target-deltas:v1`; pull on hint and on poll; validate all pages before applying; acknowledge applied revision and generation
-- [ ] 3.5 Agent config generator: carry profile definitions only for delta-capable agents; compile placed share for legacy agents; version hash excludes delta-delivered targets
+- [ ] 3.5 Agent config generator: carry profile definitions only for delta-capable agents; compile placed share for legacy agents; version hash excludes delta-delivered targets but covers the set of referenced profiles and their definitions
 
 ## 4. Agent capacity reporting
 - [ ] 4.1 Report per-window SNMP poller statistics (targets, polls due, polls on time, data points, requests sent, scheduling lag) on the control stream
@@ -50,7 +50,7 @@
 - [ ] 7.3 Verify on a scratch deployment that every device previously polled is placed or reported uncovered, and that the duplicate polls stop
 
 ## 8. Verification
-- [ ] 8.1 Property tests for placement: determinism, stickiness on join, bounded movement on leave, ceiling never exceeded, redundancy distinctness
+- [ ] 8.1 Property tests for placement: determinism, stickiness on join, redundancy shortfall filled on join without moving satisfied owners, bounded movement on leave, count ceiling and measured cost capacity never exceeded, rebalance never exceeds a receiver's capacity, redundancy distinctness
 - [ ] 8.2 Handover tests: make-before-break overlap at most one interval plus grace; stale-generation acknowledgement ignored
 - [ ] 8.3 Delivery tests: delta, snapshot after compaction, interrupted stream applies nothing, mixed-version partition
 - [ ] 8.4 Scale test: synthetic 1,000,000-device inventory across synthetic agents; placement pass time, delta bytes for a one-device change, core memory

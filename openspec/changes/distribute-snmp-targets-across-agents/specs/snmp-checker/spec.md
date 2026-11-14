@@ -102,13 +102,13 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of candidates have also failed, the system SHALL keep the target on its highest-ranked candidate and report it unreachable rather than continue moving it.
 
 #### Scenario: Another agent can reach the device
-- **GIVEN** a device placed on `agent-a` that fails three consecutive polls
+- **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls
 - **AND** an eligible `agent-b` that has not failed it
 - **WHEN** the placement pass runs
 - **THEN** the device moves to `agent-b` with reason `unreachable_on_owner`
 
 #### Scenario: Device is down for everyone
-- **GIVEN** a device that failed on each of the three candidates the rule allows
+- **GIVEN** a device that failed on each of the configured number of candidates the rule allows
 - **WHEN** the placement pass runs
 - **THEN** the device stays placed and is reported unreachable
 - **AND** it is not moved again until an agent reports a successful poll or the backoff expires
