@@ -28,7 +28,7 @@ A workload is a kind of per-target polling: SNMP is the first. A target is a sta
 ### Requirement: Eligibility follows pinning and partition
 The system SHALL treat an agent as eligible for a target only when all of these hold:
 - the agent is in the workload's pinned agent set, or, when the set is empty, its partition equals the target's partition;
-- the agent is connected;
+- the agent holds an unexpired liveness lease;
 - the agent reports the capability the workload's delivery requires, or the workload's legacy delivery covers it.
 An agent's partition is the partition of its own device, as for sweep leases.
 
@@ -49,7 +49,7 @@ An agent's partition is the partition of its own device, as for sweep leases.
 - **THEN** the target has no owner and is marked `uncovered` with reason `no_eligible_agent`
 
 ### Requirement: Placement is sticky and moves only for a stated reason
-The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its active load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` target SHALL stay on its owner and the agent SHALL be reported over capacity.
+The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its active load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity`, `unreachable_on_owner` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` or `unreachable_on_owner` target SHALL stay on its owner, and an over-capacity agent SHALL be reported over capacity. A target that already has a draining placement SHALL NOT be moved again until that handover completes.
 When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve with the capacity left by the earlier steps of the order below, including replicated targets it has newly become eligible for, without moving any owner a target already has.
 A placement pass SHALL assign free capacity in this order: first `uncovered` targets, which have no owner, including re-placement after `owner_lost` and `owner_ineligible`; then `unreachable_on_owner` moves; then `over_capacity` sheds; then `under_replicated` targets, including replicated targets missing an eligible agent; then bounded rebalance. A later step uses only the capacity the earlier steps left. An agent that cannot shed for lack of room SHALL stay reported over capacity.
 Every move SHALL record its reason. Among eligible agents, a new owner SHALL be chosen by rendezvous hashing weighted by remaining capacity, so that the same inputs always choose the same owner.
@@ -98,7 +98,7 @@ Every move SHALL record its reason. Among eligible agents, a new owner SHALL be 
 
 ### Requirement: Ownership moves under a new authority generation
 The system SHALL give each placement an authority generation and SHALL issue a new generation whenever ownership changes.
-A planned move (`rebalance`, `over_capacity`, `unreachable_on_owner`) SHALL be make-before-break. The previous owner keeps its placement until the new owner acknowledges installing the target and reports a completed poll, or until one poll interval plus the handover grace elapses. A move for `owner_lost` or `owner_ineligible` SHALL revoke the previous placement immediately.
+A planned move (`rebalance`, `over_capacity`, `unreachable_on_owner`) SHALL be make-before-break. The previous owner keeps its placement until the new owner acknowledges installing the target and reports a completed poll, or until one poll interval plus the handover grace elapses. A move for `owner_lost` or `owner_ineligible` SHALL revoke the previous placement immediately. Loss of an agent's session SHALL become `owner_lost` only once its liveness lease expires; `owner_ineligible` applies only to pin, partition and capability changes.
 
 #### Scenario: Planned move overlaps by at most one interval
 - **GIVEN** a target with a 60 second interval moving from `agent-a` to `agent-b` for rebalance

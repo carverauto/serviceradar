@@ -313,7 +313,7 @@ profile. That is a visible behavior change: the migration notes call it out.
 Pinned profiles (`agent_ids`) restrict eligibility to the listed agents. Pins
 no longer mean "each listed agent polls everything". Unpinned profiles make the
 agents in the device's partition eligible, with the agent's partition defined
-as for `LeaseAgents`. An agent must be connected and either advertise
+as for `LeaseAgents`. An agent must hold an unexpired liveness lease and either advertise
 `snmp-target-deltas:v1` or be served through legacy delivery (D9).
 
 Rejected: **inferring reachability from `Device.agent_id`.** That field
@@ -371,7 +371,13 @@ update, never repeated or lowered, as with `ProducerAssignments`.
   at most one interval plus grace. During it, both agents may produce a sample
   for the same interval.
 - **Failure moves** (`owner_lost`, `owner_ineligible`): the old row is revoked
-  at once. The gap is the liveness grace plus one placement pass plus delivery.
+  at once. A lost session becomes `owner_lost` only when the liveness lease
+  expires, so the gap is the liveness grace plus one placement pass plus
+  delivery. `owner_ineligible` is only for pin, partition and capability
+  changes.
+- A planned move goes only to an agent with room; with none, the target stays
+  on its owner. A target with a draining row is not moved again until that
+  handover completes.
 - An acknowledgement carries the generation. One for a superseded generation
   is ignored.
 
@@ -407,6 +413,7 @@ and a 1 hour backoff (open question 6).
 For a delta-capable agent, the compiled `SNMPConfig` keeps profile-level
 definitions for the profiles the agent's targets reference, and its config
 version changes when that set of profiles or one of their definitions changes.
+Applying a changed definition updates that profile's collectors in place.
 A config version that adds a profile is published no later than the target
 revision that first references it, and a profile leaves the config only after
 the agent acknowledges the revision that revokes its last target. The agent
@@ -459,7 +466,8 @@ An agent without `snmp-target-deltas:v1` is still eligible. Its placed share is
 compiled into the existing `SNMPConfig.targets`, bounded by a lower legacy
 ceiling, because that agent still has the restart-on-change and preallocation
 costs. Its config version changes when its placement changes, as it does
-today. This retires the per-profile refusal immediately, without waiting for a
+today, and also when a referenced profile definition or a placed target's
+resolved credential digest changes. This retires the per-profile refusal immediately, without waiting for a
 fleet upgrade, and avoids double polling in mixed partitions.
 
 Rejected: **exclude legacy agents from placement and leave them on the old

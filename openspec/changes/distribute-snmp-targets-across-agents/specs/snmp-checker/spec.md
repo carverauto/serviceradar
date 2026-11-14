@@ -67,7 +67,7 @@ The ceiling is a placement input. A profile SHALL NOT be refused at save or comp
 - **AND** the profile's settings row shows the uncovered count and the partition it belongs to
 
 ### Requirement: SNMP target deltas apply without restarting the poller
-The agent SHALL apply an SNMP target delta by starting collectors for added targets, replacing collectors whose compiled target changed, and stopping collectors for removed targets. Collectors for unchanged targets SHALL keep polling with their counter-delta state.
+The agent SHALL apply an SNMP target delta by starting collectors for added targets, replacing collectors whose compiled target changed, and stopping collectors for removed targets. Collectors for unchanged targets SHALL keep polling with their counter-delta state, and SHALL take a changed profile definition in place when the config carrying it is applied.
 
 #### Scenario: One device added
 - **GIVEN** an agent polling 10,000 SNMP targets
@@ -108,7 +108,7 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 - **AND** the agent is reported over capacity
 
 ### Requirement: SNMP targets move away from an owner that cannot reach them
-The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it in that cycle. When the backoff expires without a successful poll, a new cycle of at most the configured number of agents MAY run, so each backoff period runs at most one cycle: at most the candidate limit of agents, each trying the target for the failure threshold of consecutive polls. The holding agent keeps polling the target at its ordinary interval, and its continued failures do not restart the backoff.
+The system SHALL move an SNMP target to another eligible agent that stays within its effective capacity when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. When no such agent has room, the target SHALL stay on its current owner. A target that already has a draining placement SHALL NOT be moved again until that handover completes. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it in that cycle. When the backoff expires without a successful poll, a new cycle of at most the configured number of agents MAY run, so each backoff period runs at most one cycle: at most the candidate limit of agents, each trying the target for the failure threshold of consecutive polls. The holding agent keeps polling the target at its ordinary interval, and its continued failures do not restart the backoff.
 
 #### Scenario: Another agent can reach the device
 - **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls

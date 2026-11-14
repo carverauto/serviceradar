@@ -24,7 +24,7 @@ Each agent has a monotonically increasing SNMP target revision. A request carrie
 ### Requirement: SNMP profile definitions stay in the compiled config
 For an agent that advertises `snmp-target-deltas:v1`, the compiled agent config SHALL carry the SNMP profile definitions its placed targets reference: profile id, OID sets, interval, timeout and retries. It SHALL NOT carry those targets.
 For such an agent, the config version SHALL change when a referenced profile definition changes, and when the set of referenced profiles changes: a placement adds the first target of a profile, or revokes the last one. It SHALL NOT change when a placement change leaves that set and those definitions unchanged.
-Core SHALL publish the config version that adds a profile no later than the SNMP target revision that first places a target of it, and SHALL drop a profile from the config only after the agent acknowledges a revision that revokes the profile's last target. The agent SHALL start a collector only for a target in its applied deltas whose profile is in its applied config, and SHALL hold any other target until that config is applied.
+Core SHALL publish the config version that adds a profile no later than the SNMP target revision that first places a target of it, and SHALL drop a profile from the config only after the agent acknowledges a revision that revokes the profile's last target. The agent SHALL start a collector only for a target in its applied deltas whose profile is in its applied config, and SHALL hold any other target until that config is applied. When the agent applies a config whose definition of a profile changed, it SHALL update its collectors for that profile in place to the new OID set, interval, timeout and retries.
 
 #### Scenario: Placement change leaves the config version alone
 - **GIVEN** an agent receiving SNMP targets through deltas
@@ -45,6 +45,7 @@ Core SHALL publish the config version that adds a profile no later than the SNMP
 - **WHEN** the change is saved
 - **THEN** the config version of every agent holding a target of that profile changes
 - **AND** no target entry is re-sent because of it
+- **AND** each such agent's collectors for that profile poll the new OID once the config is applied
 
 ### Requirement: SNMP delta availability is pushed as a hint
 The gateway SHALL notify a connected agent that a newer SNMP target revision exists with a control-stream message that carries only that revision, and the agent SHALL then request the delta. The periodic config poll SHALL also report the current revision, so an agent that missed a hint still catches up.
@@ -65,7 +66,7 @@ The system SHALL store, for each placed SNMP target, a reference to its credenti
 - **AND** no placement row contains the old or new password
 
 ### Requirement: Legacy agents receive their placed share monolithically
-The system SHALL deliver an agent without `snmp-target-deltas:v1` only its placed SNMP targets, inside the compiled `SNMPConfig` as before. That agent's placement SHALL be bounded by the legacy ceiling. A change in its placement SHALL change its agent config version.
+The system SHALL deliver an agent without `snmp-target-deltas:v1` only its placed SNMP targets, inside the compiled `SNMPConfig` as before. That agent's placement SHALL be bounded by the legacy ceiling. Its agent config version SHALL change when its placement changes, when a referenced profile definition changes, or when a placed target's resolved credential digest changes.
 
 #### Scenario: Mixed-version partition
 - **GIVEN** a partition with one upgraded agent and one legacy agent
