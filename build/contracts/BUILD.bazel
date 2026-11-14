@@ -235,3 +235,10 @@ py_test(
     ],
     deps = ["@pyyaml//:yaml"],
 )
+
+py_test(
+    name = "helm_bundle_pins_test",
+    size = "small",
+    srcs = ["helm_bundle_pins_test.py"],
+    data = ["//scripts:ci/publish-helm-bundle.py"],
+)

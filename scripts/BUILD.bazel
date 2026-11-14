@@ -3,6 +3,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "ci/publish-helm-bundle.py",
     "check-addon-binary-size.sh",
     "check-oci-chart-version-available.sh",
     "check-native-addon-version-bumps.sh",

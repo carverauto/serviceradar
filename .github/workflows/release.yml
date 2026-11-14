@@ -816,53 +816,30 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           VERSION: ${{ steps.release.outputs.version }}
-          CHART_OCI_USERNAME: ${{ secrets.HARBOR_CHART_ROBOT_USERNAME }}
-          CHART_OCI_TOKEN: ${{ secrets.HARBOR_CHART_ROBOT_SECRET }}
         run: |
           set -euo pipefail
-          export HELM_STATE_DIR="${PWD}/.helm-home"
-          rm -rf "${HELM_STATE_DIR}"
+          export HELM_STATE_DIR="${RUNNER_TEMP}/helm-bundle-state"
+          export HELM_REGISTRY_CONFIG="${HARBOR_LIFECYCLE_DIR}/promotion/config.json"
           mkdir -p "${HELM_STATE_DIR}"
           trap 'rm -rf "${HELM_STATE_DIR}"' EXIT
-
           helm_runner="./scripts/run-helm.sh"
           if [[ -x "${RUNNER_TEMP}/run-helm.sh" ]]; then
             helm_runner="${RUNNER_TEMP}/run-helm.sh"
           fi
-
-          login_registry() {
-            local user="${1:-}"
-            local token="${2:-}"
-            if [[ -z "${user}" || -z "${token}" ]]; then
-              return 1
-            fi
-            echo "${token}" | "${helm_runner}" registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
-          }
-
-          if [[ -z "${CHART_OCI_USERNAME:-}" || -z "${CHART_OCI_TOKEN:-}" ]]; then
-            echo "Missing protected chart publisher credentials. Configure HARBOR_CHART_ROBOT_USERNAME and HARBOR_CHART_ROBOT_SECRET in the release environment." >&2
-            exit 1
-          fi
-
-          login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
-
+          export SERVICERADAR_HELM_RUNNER="${helm_runner}"
           ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
           set +e
-          SERVICERADAR_HELM_RUNNER="${helm_runner}" \
-            ./scripts/check-oci-chart-version-available.sh "${VERSION}"
+          ./scripts/check-oci-chart-version-available.sh "${VERSION}"
           chart_status=$?
           set -e
-          # 0 = version is free (push). 1 = already published (retry skip).
-          # 2 = occupancy probe failed (refuse).
           if [[ "${chart_status}" -eq 1 ]]; then
-            echo "Helm chart ${VERSION} already published; skipping OCI push"
+            echo "Helm chart ${VERSION} already published; preserving the existing bundle"
           elif [[ "${chart_status}" -ne 0 ]]; then
             exit "${chart_status}"
           else
-            "${helm_runner}" package helm/serviceradar
-            "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
-            rm -f "serviceradar-${VERSION}.tgz"
-            echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+            # Packaging modifies a temporary chart copy. Tracked release source
+            # must remain pristine for the later package provenance check.
+            python3 "${HARBOR_CHART_PUBLISH_TOOL}" --version "${VERSION}" --release-tag "${RELEASE_TAG}"
           fi
 
       # Wasm plugins are published, signed, indexed, and attached to the release by
