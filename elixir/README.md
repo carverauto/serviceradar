@@ -55,9 +55,10 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/serviceradar_recording_control` | `erlang_app`, `quality_check` | Lightweight recovery-state contract shared by Core and NVR |
-| `elixir/serviceradar_recording_metadata` | `erlang_app`, `unit_tests` | Pure v1 descriptor/manifest contract shared by Core and NVR |
+| `elixir/serviceradar_recording_metadata` | `erlang_app`, `unit_tests` | Pure v1 descriptor/manifest contract shared by Core, NVR and the NVR client |
 | `elixir/serviceradar_recording` | `erlang_app`, `erlang_app_prod`, `unit_tests` | Shared recording library consumed by core; see its `README.md` |
 | `elixir/serviceradar_nvr` | `release_tar`, `release_test` | Standalone NVR runtime with per-replica durable storage; see its `README.md` |
+| `elixir/serviceradar_nvr_client` | `erlang_app`, `release_fixture` (test-only) | Library that streams one finite capture to the NVR ingest endpoint; see its `README.md` |
 | `elixir/palisade` | none | Not compiled by Bazel; its `BUILD.bazel` only exports `mix.lock` for the Hex closure |
 
 Vendored Hex packages that used to sit in this tree now live in

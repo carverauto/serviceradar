@@ -11,6 +11,7 @@ workspace_projects=(
   elixir/serviceradar_core
   elixir/serviceradar_core_elx
   elixir/serviceradar_nvr
+  elixir/serviceradar_nvr_client
   elixir/serviceradar_recording
   elixir/serviceradar_recording_metadata
   elixir/serviceradar_srql
