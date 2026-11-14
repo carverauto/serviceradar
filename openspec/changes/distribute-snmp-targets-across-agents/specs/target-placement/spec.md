@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: Core places each target on a bounded set of agents
-The system SHALL decide which agents run a target-list workload by persisting placements per target, each owned by one agent chosen from the target's eligible agents. After a placement pass, a covered target SHALL have `redundancy` active owners, and an `under_replicated` target SHALL have fewer, at least one. A target with no owner is `uncovered`, and so is a target whose owner was revoked by a failure move until a pass places it again.
-An agent whose placement is `draining` during a planned move SHALL keep running the target and keep receiving it in deliveries until that placement is revoked. A target SHALL NOT be run by an agent that holds neither an active nor a draining placement for it.
+The system SHALL decide which agents run a target-list workload by persisting placements per target, each owned by one agent chosen from the target's eligible agents. A target's desired owner count is `redundancy`, or every currently eligible agent when the workload replicates the target. After a placement pass, a target with its desired count of active owners is covered, a target with at least one active owner but fewer than its desired count is `under_replicated`, and only a target that ends the pass with no active owner is `uncovered`. A failure move that revokes an owner and places a new one in the same pass SHALL NOT mark the target `uncovered`.
+While an agent's placement is `draining` during a planned move, core SHALL keep including the target in that agent's deliveries, snapshots included, and the agent keeps running it. Once a placement is revoked, core SHALL stop including the target in that agent's deliveries, and the agent SHALL stop running it when it applies the delivery that revokes it.
 A workload is a kind of per-target polling: SNMP is the first. A target is a stable key within that workload, such as a device uid or an explicit target id. Agents never select their own targets.
 
 #### Scenario: One owner by default
@@ -49,8 +49,8 @@ An agent's partition is the partition of its own device, as for sweep leases.
 - **THEN** the target has no owner and is marked `uncovered` with reason `no_eligible_agent`
 
 ### Requirement: Placement is sticky and moves only for a stated reason
-The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A rebalance SHALL move a target only to an agent that stays within its effective capacity after the move.
-When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve, without moving any owner a target already has.
+The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` target SHALL stay on its owner and the agent SHALL be reported over capacity.
+When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve, including replicated targets it has newly become eligible for, without moving any owner a target already has. A placement pass SHALL fill these shortfalls before a rebalance assigns any free capacity.
 Every move SHALL record its reason. Among eligible agents, a new owner SHALL be chosen by rendezvous hashing weighted by remaining capacity, so that the same inputs always choose the same owner.
 
 #### Scenario: Agent joins a partition
@@ -64,6 +64,18 @@ Every move SHALL record its reason. Among eligible agents, a new owner SHALL be 
 - **WHEN** eligible `agent-b` connects below its capacity
 - **THEN** the next placement pass adds an active placement on `agent-b`
 - **AND** the placement on `agent-a` is unchanged
+
+#### Scenario: Pinned agent joins a replicated target
+- **GIVEN** a replicated target pinned to `agent-a` and `agent-b`, placed on `agent-a` while only `agent-a` was connected
+- **WHEN** `agent-b` connects below its capacity
+- **THEN** the next placement pass adds an active placement on `agent-b`
+- **AND** the placement on `agent-a` is unchanged
+
+#### Scenario: Shortfall fill comes before rebalance
+- **GIVEN** targets with redundancy 2 placed only on `agent-a`, which is above the rebalance high watermark
+- **WHEN** eligible `agent-b` connects with room for 100 targets
+- **THEN** the next placement pass gives that room to the under-replicated targets first
+- **AND** rebalance moves targets onto `agent-b` only with the room left after the shortfall fill
 
 #### Scenario: Owner leaves
 - **GIVEN** a target placed on `agent-a`
@@ -112,8 +124,8 @@ The system SHALL place targets on an agent only within its effective capacity, w
 - **THEN** it is placed no more targets than its operator ceiling, which falls back to the code default for its delivery path
 
 ### Requirement: Uncovered targets are counted, never dropped
-The system SHALL mark a target `uncovered` when no eligible agent has capacity for it, and SHALL report it.
-Each uncovered target SHALL carry a reason: `no_eligible_agent`, `fleet_capacity_exhausted` or `under_replicated`. The counts per workload, profile and partition SHALL be exposed through telemetry, alerts and an operator capacity view. A target that already has an owner SHALL NOT lose it to make room for another target.
+The system SHALL mark a target `uncovered` when a placement pass ends with no active owner for it, and SHALL report it.
+Each uncovered target SHALL carry a reason: `no_eligible_agent` or `fleet_capacity_exhausted`. An `under_replicated` target is polled and is not `uncovered`; it SHALL be counted and reported separately with its shortfall. The counts per workload, profile and partition SHALL be exposed through telemetry, alerts and an operator capacity view. A target that already has an owner SHALL NOT lose it to make room for another target.
 
 #### Scenario: Fleet runs out of capacity
 - **GIVEN** a partition whose eligible agents are at their effective capacity

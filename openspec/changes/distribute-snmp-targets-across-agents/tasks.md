@@ -50,9 +50,9 @@
 - [ ] 7.3 Verify on a scratch deployment that every device previously polled is placed or reported uncovered, and that the duplicate polls stop
 
 ## 8. Verification
-- [ ] 8.1 Property tests for placement: determinism, stickiness on join, redundancy shortfall filled on join without moving satisfied owners, bounded movement on leave, count ceiling and measured cost capacity never exceeded, rebalance never exceeds a receiver's capacity, redundancy distinctness
+- [ ] 8.1 Property tests for placement: determinism, stickiness on join, redundancy and replicate shortfalls filled on join without moving satisfied owners and before rebalance, bounded movement on leave, count ceiling and measured cost capacity never exceeded, rebalance never exceeds a receiver's capacity, redundancy distinctness
 - [ ] 8.2 Handover tests: make-before-break overlap at most one interval plus grace; stale-generation acknowledgement ignored
-- [ ] 8.3 Delivery tests: delta, snapshot after compaction, interrupted stream applies nothing, mixed-version partition
+- [ ] 8.3 Delivery tests: delta, snapshot after compaction includes draining rows, collector held until its profile definition is applied, interrupted stream applies nothing, mixed-version partition
 - [ ] 8.4 Scale test: synthetic 1,000,000-device inventory across synthetic agents; placement pass time, delta bytes for a one-device change, core memory
 - [ ] 8.5 `make test`; Elixir quality gate; Go lint
 

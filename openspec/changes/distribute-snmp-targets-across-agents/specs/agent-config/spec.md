@@ -13,7 +13,7 @@ Each agent has a monotonically increasing SNMP target revision. A request carrie
 #### Scenario: Snapshot after history is compacted
 - **GIVEN** an agent whose last applied revision is older than its retained revision history
 - **WHEN** it requests changes since that revision
-- **THEN** the response is a paged snapshot of every target placed on it, marked as a snapshot
+- **THEN** the response is a paged snapshot of every target with an active or draining placement on it, marked as a snapshot
 - **AND** the agent replaces its target set with the snapshot once the final page validates
 
 #### Scenario: Interrupted delivery
@@ -24,6 +24,7 @@ Each agent has a monotonically increasing SNMP target revision. A request carrie
 ### Requirement: SNMP profile definitions stay in the compiled config
 For an agent that advertises `snmp-target-deltas:v1`, the compiled agent config SHALL carry the SNMP profile definitions its placed targets reference: profile id, OID sets, interval, timeout and retries. It SHALL NOT carry those targets.
 For such an agent, the config version SHALL change when a referenced profile definition changes, and when the set of referenced profiles changes: a placement adds the first target of a profile, or revokes the last one. It SHALL NOT change when a placement change leaves that set and those definitions unchanged.
+Core SHALL publish the config version that adds a profile no later than the SNMP target revision that first places a target of it, and SHALL drop a profile from the config only after the agent acknowledges a revision that revokes the profile's last target. The agent SHALL start a collector only for a target in its applied deltas whose profile is in its applied config, and SHALL hold any other target until that config is applied.
 
 #### Scenario: Placement change leaves the config version alone
 - **GIVEN** an agent receiving SNMP targets through deltas
@@ -37,6 +38,7 @@ For such an agent, the config version SHALL change when a referenced profile def
 - **WHEN** a device of profile B is placed on it
 - **THEN** its SNMP target revision advances
 - **AND** its agent config version changes, and its compiled config carries profile B's definition
+- **AND** if the delta is applied before that config, the agent starts no collector for the device until profile B's definition is applied
 
 #### Scenario: OID template change
 - **GIVEN** a profile whose OID template gains an OID

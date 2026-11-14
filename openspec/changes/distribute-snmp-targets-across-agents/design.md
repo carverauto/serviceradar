@@ -91,7 +91,9 @@ target division is new.
 ## Goals / Non-Goals
 
 Goals:
-- Each SNMP target is polled by exactly `redundancy` agents (default 1).
+- Each SNMP target of a `distribute` profile is polled by exactly `redundancy`
+  agents (default 1), and each target of a `replicate` profile by every
+  currently eligible pinned agent.
 - The bytes delivered to an agent, and the core work done for it, grow with the
   size of a change, not with the inventory.
 - Per-agent capacity is measured and is a placement input. Shortfall is
@@ -310,7 +312,8 @@ reach an arbitrary device. Reachability is learned from poll outcomes (D6).
 ### D4. Sticky, weighted rendezvous selection
 
 A new or displaced target is assigned to the top-`redundancy` eligible agents
-by highest-random-weight hashing. The weight is the agent's remaining
+by highest-random-weight hashing, or to every eligible agent for a `replicate`
+profile. The weight is the agent's remaining
 capacity. A target keeps its owner unless one of these holds:
 
 - the owner is ineligible (`owner_ineligible`);
@@ -322,13 +325,16 @@ capacity. A target keeps its owner unless one of these holds:
 A rebalance moves at most a configured number of targets per pass, from agents
 above a high watermark to agents below a low watermark. It only moves load
 between agents within their effective capacity: a receiving agent never ends
-the pass above it.
+the pass above it. An `over_capacity` move obeys the same rule. When no
+eligible agent has room, the targets stay and the agent is reported over
+capacity.
 
 Rendezvous hashing moves only about 1/n of targets when an agent leaves. With
-stickiness, an agent joining moves no existing owner. It does fill redundancy
-shortfalls: an `under_replicated` target gains the joining agent as an
-additional owner, and otherwise the agent is used by a rebalance or new
-arrivals.
+stickiness, an agent joining moves no existing owner. It does fill
+shortfalls: an `under_replicated` target, including a `replicate` target the
+agent is newly eligible for, gains the joining agent as an additional owner.
+A pass fills shortfalls before rebalance spends any free capacity. Otherwise
+the agent is used by a rebalance or new arrivals.
 
 Rejected:
 - **Least-loaded at arrival.** It depends on arrival order, is not
@@ -367,8 +373,8 @@ row, not metrics.
 
 After `F` consecutive failures, the target moves to the next candidate, and
 the failing agent is excluded for that target for a backoff period. After `C`
-candidates fail, the target stays on its
-best-ranked candidate and is reported unreachable. Without that limit, a device
+candidates fail, the target stays on the owner that reached the limit and is
+reported unreachable. Without that limit, a device
 that is down for everyone would rotate through the fleet forever.
 
 The `C` limit bounds how many agents try a dead device: at most `F` x `C`
@@ -379,7 +385,12 @@ backoff expires. The values of `F`, `C` and the backoff are open question 6.
 
 For a delta-capable agent, the compiled `SNMPConfig` keeps profile-level
 definitions for the profiles the agent's targets reference, and its config
-version changes when that set of profiles or one of their definitions changes: a new `profiles` list with OID sets, intervals,
+version changes when that set of profiles or one of their definitions changes.
+A config version that adds a profile is published no later than the target
+revision that first references it, and a profile leaves the config only after
+the agent acknowledges the revision that revokes its last target. The agent
+starts a collector only when both the target and its profile are applied. The
+definitions are a new `profiles` list with OID sets, intervals,
 timeouts and retries. Targets move to a new server-streaming
 `SyncSNMPTargets(agent_id, from_revision)` RPC. Pages carry entries
 (`upsert`/`revoke`, compiled target, generation), each page within the
@@ -391,7 +402,7 @@ Per-agent revisions come from the placement rows themselves: each row records
 the agent revision at which it last changed. Revoked rows are kept as
 tombstones until the agent acknowledges a later revision. A delta is therefore
 a keyset read ordered by revision. When `from_revision` is below the
-compaction floor, the response is a snapshot of the agent's active rows. This
+compaction floor, the response is a snapshot of the agent's active and draining rows. This
 is the FULL/TAIL split of `LeaseDelivery`, applied per target.
 
 The agent applies a delivery only after the final page validates. A partial
@@ -442,10 +453,13 @@ keeps `TargetLimit` alive.
   bottleneck is per point. Walk rows start from a per-template estimate and are
   corrected by agent-reported actuals.
 - **Measured capacity:** an agent reports per window the targets held, polls
-  due, polls completed within their interval, requests sent and scheduling lag
-  (D11). Core takes the highest sustained point rate seen while on-time polls
-  stayed at or above 99 percent, with decay. Until the first report, only the
-  target-count ceiling applies.
+  due, polls completed within their interval, data points produced, requests
+  sent and scheduling lag. While on-time polls stay at or above 99 percent,
+  measured capacity only rises, to the highest sustained point rate seen. When
+  on-time polls stay below that for consecutive windows, measured capacity is
+  set to the achieved on-time point rate, which is below the placed cost, so
+  the next pass sheds load with `over_capacity`. Until the first report, only
+  the target-count ceiling applies.
 - **Effective capacity:** two limits that must both hold. The count of targets
   placed on the agent stays at or under its resolved `snmp_max_targets`, and
   the summed point-rate cost of those targets stays at or under its measured
@@ -469,7 +483,9 @@ keeps `TargetLimit` alive.
 ### D11. Coverage instead of refusal
 
 A target that no eligible agent can take is `uncovered`, with reason
-`no_eligible_agent`, `fleet_capacity_exhausted` or `under_replicated`. Counts
+`no_eligible_agent` or `fleet_capacity_exhausted`. A target that ends a pass
+with no owner is uncovered; one with fewer owners than desired is
+`under_replicated`, still polled, and counted separately. Counts
 per profile and partition go to telemetry, an alert rule and the capacity view.
 Placed targets are never evicted to make room. When capacity runs out, the
 newest arrivals stay uncovered. That order is deterministic and is not a
