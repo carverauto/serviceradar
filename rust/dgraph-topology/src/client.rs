@@ -311,7 +311,9 @@ impl TopologyClient {
     ///
     /// # Errors
     ///
-    /// [`TopologyError::ConditionSkipped`] when source or target is missing.
+    /// [`TopologyError::InvalidValue`] when `topo.last_seen` is not a
+    /// non-empty RFC3339 timestamp; [`TopologyError::ConditionSkipped`] when
+    /// source or target is missing.
     pub async fn upsert_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
         edge.validate_last_seen()?;
         let query = format!("{{\n{}}}", edge_query_blocks(edge, "")?);
@@ -520,7 +522,9 @@ impl TopologyClient {
     ///
     /// # Errors
     ///
-    /// Returns [`TopologyError`] if the transaction fails.
+    /// [`TopologyError::InvalidValue`] when any edge's `topo.last_seen` is not
+    /// a non-empty RFC3339 timestamp (nothing is written); otherwise
+    /// [`TopologyError`] if the transaction fails.
     pub async fn upsert_edges(&self, edges: &[EdgeWrite]) -> Result<Vec<String>, TopologyError> {
         let keys: Vec<String> = edges.iter().map(EdgeWrite::link_key).collect();
         let last: std::collections::HashMap<&str, usize> = keys

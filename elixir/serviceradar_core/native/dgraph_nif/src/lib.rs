@@ -20,19 +20,18 @@ mod call;
 mod runtime;
 
 use std::future::Future;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use dgraph_topology::{DownstreamFact, TopologyClient, TopologyError, wrap_dql_value};
+use dgraph_topology::{wrap_dql_value, DownstreamFact, TopologyClient, TopologyError};
 use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
-    CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult, JsonResult,
-    KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph,
-    NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite,
-    NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
-    refuses_mutation,
+    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
+    JsonResult, KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge,
+    NifCanonicalGraph, NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite,
+    NifHopWrite, NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
-use crate::runtime::{CONNECT_DEADLINE, Failure, Pool, client_for, require_url};
+use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
 mod atoms {
     rustler::atoms! { error }
@@ -625,8 +624,8 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::abi::refuses_mutation;
-    use crate::call::{Kind, execute};
-    use crate::runtime::{Failure, client_for};
+    use crate::call::{execute, Kind};
+    use crate::runtime::{client_for, Failure};
 
     /// A listener that completes the TCP handshake from its backlog but never
     /// accepts or answers: the shape of a black-holed or wedged Dgraph.
