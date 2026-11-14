@@ -6,6 +6,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
+  alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
@@ -247,6 +248,84 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
           [controller.credential_secret_id]
         )
       end
+    end
+  end
+
+  @tag sandbox: :unboxed
+  test "already-superseded redeliveries settle immediately even while another writer holds the controller advisory lock" do
+    parent = self()
+    supervisor = start_supervised!(Task.Supervisor)
+    controller = fixture()
+
+    try do
+      assert :ok = reconcile(payload(controller, 20))
+      assert ledger_generation(controller) == 20
+
+      holder =
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          Repo.transaction(
+            fn ->
+              assert :ok = AwxInventoryObservationFence.lock_controller(controller.id)
+              send(parent, {:lock_held, self()})
+
+              receive do
+                :release -> :ok
+              after
+                10_000 -> raise "test did not release held AWX controller advisory lock"
+              end
+            end,
+            timeout: :infinity
+          )
+        end)
+
+      try do
+        assert_receive {:lock_held, holder_pid}, 5_000
+
+        stale_redelivery =
+          Task.Supervisor.async_nolink(supervisor, fn ->
+            DeviceDiscoveryIngestor.ingest(
+              payload(controller, 15, name: "host02.example.com"),
+              %{},
+              actor: @actor,
+              device_sync: fn _, _ ->
+                send(parent, :unexpected_stale_device_write)
+                :ok
+              end
+            )
+          end)
+
+        try do
+          assert {:settled, :stale_awx_membership_generation,
+                  %{source_generation: 15, recorded_generation: 20}} =
+                   Task.await(stale_redelivery, 2_000)
+
+          refute_received :unexpected_stale_device_write
+        after
+          Task.shutdown(stale_redelivery, :brutal_kill)
+        end
+
+        send(holder_pid, :release)
+        assert {:ok, :ok} = Task.await(holder, 5_000)
+      after
+        Task.shutdown(holder, :brutal_kill)
+      end
+    after
+      Repo.delete_all(
+        from(job in Oban.Job,
+          where:
+            job.worker == ^Oban.Worker.to_string(AwxSourceRetirementWorker) and
+              fragment("?->>'controller_id'", job.args) == ^controller.id
+        )
+      )
+
+      Repo.query!("DELETE FROM platform.ansible_controllers WHERE id = ($1::text)::uuid", [
+        controller.id
+      ])
+
+      Repo.query!(
+        "DELETE FROM platform.network_credential_secrets WHERE id = ($1::text)::uuid",
+        [controller.credential_secret_id]
+      )
     end
   end
 
