@@ -33,7 +33,7 @@
 ## 6. Shared `events` path hygiene
 - [x] 6.1 Flow-collector rehomes `flows.raw.*` subjects off `events` before creating `flows` (subject exclusivity).
 - [x] 6.2 Single publish target `flows` after cutover (no dual CNPG writers for the same message).
-- [ ] 6.3 Drain and delete obsolete netflow durables on `events` after demo roll (ops).
+- [ ] 6.3 Drain and delete obsolete netflow durables on `events` after demo roll (ops). The durables are now deleted on EventWriter startup (see `remove-flow-events-drain-consumers` design D3); ops only verifies after the roll.
 - [x] 6.4 Update `openspec/notes/sr-data-flow.md` and netflow docs.
 - [x] 6.5 Add a guarded pre-downgrade helper/runbook that runs the current-image reverse transfer before restoring a legacy Helm revision; plain old-image rollback is explicitly unsupported.
 
