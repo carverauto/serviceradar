@@ -81,7 +81,7 @@ defmodule ServiceRadar.Plugins.WorkloadIdentityAddonPackageSeederTest do
         %{
           uid: agent_uid,
           name: "Workload Identity Test Agent #{unique_id}",
-          version: "1.2.0",
+          version: "1.2.47",
           host: "127.0.0.1",
           port: 50_051,
           metadata: %{"os" => "linux", "arch" => "amd64"}

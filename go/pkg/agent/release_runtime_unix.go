@@ -28,5 +28,5 @@ func fileDeviceInode(info os.FileInfo) string {
 		return "dev=?:ino=?"
 	}
 
-	return fmt.Sprintf("dev=%d:ino=%d", uint64(stat.Dev), uint64(stat.Ino))
+	return fmt.Sprintf("dev=%d:ino=%d", stat.Dev, stat.Ino)
 }
