@@ -36,7 +36,10 @@ defmodule ServiceRadar.Repo.DirectSession do
   ]
 
   @doc "The Repo's connection settings, before the direct host is applied."
-  def repo_opts, do: Keyword.take(Repo.config(), @repo_keys)
+  def repo_opts, do: repo_opts(Repo.config())
+
+  @doc "Connection settings for a standalone Postgrex session from a Repo keyword config."
+  def repo_opts(config) when is_list(config), do: Keyword.take(config, @repo_keys)
 
   @doc "The direct read-write host configured for session-scoped connections."
   def direct_host, do: System.get_env(@direct_host_env)
