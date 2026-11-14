@@ -83,8 +83,8 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	}, nil
 }
 
-// Connect implements SNMPClient interface.
-func (s *SNMPClientImpl) Connect() error {
+// ensureConnected lazily opens the SNMP session (a UDP socket) before a request.
+func (s *SNMPClientImpl) ensureConnected() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -100,28 +100,6 @@ func (s *SNMPClientImpl) Connect() error {
 		}
 
 		return s.lastError
-	}
-
-	s.connected = true
-
-	return nil
-}
-
-// ensureConnected lazily establishes the SNMP connection before a request.
-func (s *SNMPClientImpl) ensureConnected() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.connected {
-		return nil
-	}
-
-	if err := s.client.Connect(); err != nil {
-		return &SNMPError{
-			Op:      "connect",
-			Target:  s.target.Host,
-			Wrapped: err,
-		}
 	}
 
 	s.connected = true
@@ -329,23 +307,24 @@ func walkIndex(rootOID, oid string) string {
 	}
 }
 
-// Close implements SNMPClient interface.
+// Close implements SNMPClient interface. The next request opens a new session.
 func (s *SNMPClientImpl) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.closeLocked()
+}
+
+// closeLocked closes the open session, if any. The caller holds s.mu.
+func (s *SNMPClientImpl) closeLocked() error {
 	if !s.connected {
 		return nil
 	}
 
-	err := s.client.Conn.Close()
-	if err != nil {
-		return err
-	}
-
+	// A session that failed to close is not reused either.
 	s.connected = false
 
-	return nil
+	return s.client.Conn.Close()
 }
 
 // GetLastError returns the last error encountered.
@@ -356,14 +335,16 @@ func (s *SNMPClientImpl) GetLastError() error {
 	return s.lastError
 }
 
-// handleError processes SNMP errors and manages reconnection.
+// handleError records a failed request and closes its session, so the next
+// request reconnects on a fresh socket instead of abandoning this one open.
 func (s *SNMPClientImpl) handleError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.lastError = err
-	s.connected = false
 	s.reconnects++
+
+	_ = s.closeLocked()
 }
 
 const defaultTimeTickDuration = time.Second / 100

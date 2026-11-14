@@ -20,28 +20,30 @@ import (
 	"sync"
 )
 
-// RingBuffer is a fixed-size circular buffer for data.
+// RingBuffer is a bounded circular buffer for data.
 // It supports concurrent writes and a "Drain" operation that returns
 // all values since the last drain.
+//
+// Capacity is an upper bound, not an allocation: the backing slice grows as
+// values arrive and is handed to the caller on Drain, so a buffer that is
+// drained regularly holds only the values written since the last drain. Once
+// capacity unread values are held, each write overwrites the oldest one.
 type RingBuffer[T any] struct {
 	mu     sync.RWMutex
 	values []T
-	head   int // index where the next write will occur
+	head   int // index where the next write will occur once values is full
 	tail   int // index of the oldest unread value
-	size   int // total capacity
+	size   int // maximum number of unread values
 	count  int // number of unread items
 }
 
-// NewRingBuffer creates a new RingBuffer with the given capacity.
+// NewRingBuffer creates a new RingBuffer that holds at most capacity unread values.
 func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
 	if capacity <= 0 {
 		return &RingBuffer[T]{}
 	}
 
-	return &RingBuffer[T]{
-		values: make([]T, capacity),
-		size:   capacity,
-	}
+	return &RingBuffer[T]{size: capacity}
 }
 
 // Write adds a new data point to the buffer.
@@ -52,6 +54,16 @@ func (r *RingBuffer[T]) Write(v T) {
 	defer r.mu.Unlock()
 
 	if r.size == 0 {
+		return
+	}
+
+	// Until the bound is reached the buffer is a plain slice: tail stays 0 and
+	// every value is unread, so a write is an append.
+	if len(r.values) < r.size {
+		r.values = append(r.values, v)
+		r.count++
+		r.head = len(r.values) % r.size
+
 		return
 	}
 
@@ -67,7 +79,8 @@ func (r *RingBuffer[T]) Write(v T) {
 	}
 }
 
-// Drain returns all unread data points and marks them as read.
+// Drain returns all unread data points and marks them as read. The buffer
+// gives up its backing slice, so drained values are not retained.
 func (r *RingBuffer[T]) Drain() []T {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -76,16 +89,20 @@ func (r *RingBuffer[T]) Drain() []T {
 		return nil
 	}
 
-	data := make([]T, r.count)
-
-	for i := 0; i < r.count; i++ {
-		idx := (r.tail + i) % r.size
-		data[i] = r.values[idx]
-		var zero T
-		r.values[idx] = zero
+	var data []T
+	if r.tail == 0 && r.count == len(r.values) {
+		// Unread values are already in order: hand the slice over as is.
+		data = r.values
+	} else {
+		data = make([]T, r.count)
+		for i := 0; i < r.count; i++ {
+			data[i] = r.values[(r.tail+i)%len(r.values)]
+		}
 	}
 
-	r.tail = r.head
+	r.values = nil
+	r.head = 0
+	r.tail = 0
 	r.count = 0
 
 	return data
@@ -103,8 +120,7 @@ func (r *RingBuffer[T]) Snapshot() []T {
 	data := make([]T, r.count)
 
 	for i := 0; i < r.count; i++ {
-		idx := (r.tail + i) % r.size
-		data[i] = r.values[idx]
+		data[i] = r.values[(r.tail+i)%len(r.values)]
 	}
 
 	return data
@@ -121,19 +137,21 @@ func (r *RingBuffer[T]) WalkReverse(fn func(T) bool) {
 		return
 	}
 
-	// Calculate the index of the newest item
-	// head points to the *next* write slot, so newest is head - 1
-	startIdx := (r.head - 1 + r.size) % r.size
+	n := len(r.values)
+
+	// The newest item sits just before head; head is n % size while the buffer
+	// is still growing, which is 0 only once it is full.
+	startIdx := (r.head - 1 + n) % n
 
 	for i := 0; i < r.count; i++ {
-		idx := (startIdx - i + r.size) % r.size
+		idx := (startIdx - i + n) % n
 		if !fn(r.values[idx]) {
 			return
 		}
 	}
 }
 
-// Capacity returns the total capacity of the buffer.
+// Capacity returns the maximum number of unread values the buffer holds.
 func (r *RingBuffer[T]) Capacity() int {
 	return r.size
 }

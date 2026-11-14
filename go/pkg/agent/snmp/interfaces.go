@@ -85,13 +85,11 @@ type AggregatorFactory interface {
 
 // SNMPClient defines the interface for SNMP communication.
 type SNMPClient interface {
-	// Connect establishes the SNMP connection
-	Connect() error
-	// Get retrieves SNMP values for given OIDs
+	// Get retrieves SNMP values for given OIDs, opening a session if none is open
 	Get(oids []string) (map[string]interface{}, error)
 	// Walk retrieves every row in the subtree rooted at oid, bounded by maxRows
 	// and timeout so a runaway table cannot stall the collector
 	Walk(oid string, maxRows int, timeout time.Duration) ([]WalkResult, error)
-	// Close closes the SNMP connection
+	// Close closes the open session; the next request opens a new one
 	Close() error
 }

@@ -4,7 +4,9 @@
 
 **Collector**: Handles SNMP polling for a single target device
 
-Manages SNMP connection
+Opens an SNMP session (one UDP socket) for each poll and closes it when the poll ends;
+the sessions open at once across all targets are bounded, so the target count is not
+limited by the host's ephemeral port range
 Polls configured OIDs (GET) and walks configured subtrees (WALK)
 Converts values based on data type
 Supports scaling and delta calculations
@@ -12,16 +14,18 @@ Supports scaling and delta calculations
 
 **SNMPService**: Main service that manages collectors
 
-Initializes collectors for each target
+Initializes collectors for each target; a target that fails to start is reported
+unavailable with the reason while the other targets keep polling
 Provides status information to the agent
 Manages lifecycle (start/stop)
 
 
 **Aggregator**: Handles data aggregation
 
-Stores time-series data points
+Stores time-series data points until the agent drains them
 Provides aggregation functions (avg, min, max)
-Manages data retention
+Manages data retention: `max_points` bounds the points kept per series between drains;
+buffers grow with the points actually held and are released on each drain
 
 ## Config
 

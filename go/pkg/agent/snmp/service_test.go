@@ -87,12 +87,11 @@ func TestSNMPServiceStatusResponsesDoNotExposeOIDValues(t *testing.T) {
 	}
 	mockCollector.EXPECT().GetStatus().Return(rawStatus).AnyTimes()
 
-	service := &SNMPService{
-		collectors:  map[string]Collector{"router-a": mockCollector},
-		aggregators: make(map[string]Aggregator),
-		config:      &SNMPConfig{},
-		status:      make(map[string]TargetStatus),
-		logger:      logger.NewTestLogger(),
+	service := newSNMPServiceInternal(&SNMPConfig{}, logger.NewTestLogger())
+	service.targets["router-a"] = &targetRuntime{
+		target:    &Target{Name: "router-a", Host: "192.0.2.10"},
+		collector: mockCollector,
+		hostName:  "router-a",
 	}
 
 	available, message := service.Check(context.Background())
@@ -112,8 +111,7 @@ func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 		service, err := NewSNMPService(config, testLogger)
 		require.NoError(t, err)
 		require.NotNil(t, service)
-		assert.NotNil(t, service.collectors)
-		assert.NotNil(t, service.aggregators)
+		assert.NotNil(t, service.targets)
 	}
 }
 
@@ -281,7 +279,7 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 			t.Fatal("Timeout waiting for GetResults to be called")
 		}
 
-		_, exists := service.collectors[newTarget.Name]
+		_, exists := service.targets[newTarget.Name]
 		assert.True(t, exists)
 	}
 }
@@ -290,23 +288,17 @@ func testRemoveTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testi
 	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		testLogger := logger.NewTestLogger()
-		service := &SNMPService{
-			collectors:  make(map[string]Collector),
-			aggregators: make(map[string]Aggregator),
-			config:      config,
-			status:      make(map[string]TargetStatus),
-			logger:      testLogger,
-		}
+		service := newSNMPServiceInternal(config, testLogger)
 
 		targetName := "test-target"
-		service.collectors[targetName] = mockCollector
+		service.targets[targetName] = &targetRuntime{target: &Target{Name: targetName}, collector: mockCollector}
 
 		mockCollector.EXPECT().Stop().Return(nil)
 
 		err := service.RemoveTarget(targetName)
 		require.NoError(t, err)
 
-		_, exists := service.collectors[targetName]
+		_, exists := service.targets[targetName]
 		assert.False(t, exists)
 	}
 }
@@ -328,12 +320,10 @@ func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 
 		// Create service with mock collector
 		testLogger := logger.NewTestLogger()
-		service := &SNMPService{
-			collectors:  map[string]Collector{"test-target": mockCollector},
-			aggregators: make(map[string]Aggregator),
-			config:      config,
-			status:      make(map[string]TargetStatus),
-			logger:      testLogger,
+		service := newSNMPServiceInternal(config, testLogger)
+		service.targets["test-target"] = &targetRuntime{
+			target:    &Target{Name: "test-target"},
+			collector: mockCollector,
 		}
 
 		// Test GetStatus

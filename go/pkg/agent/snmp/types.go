@@ -42,8 +42,8 @@ const (
 type SNMPCollector struct {
 	target     *Target
 	client     SNMPClient
+	sessions   sessionSlots
 	dataChan   chan DataPoint
-	errorChan  chan error
 	done       chan struct{}
 	closeOnce  sync.Once
 	mu         sync.RWMutex
@@ -249,11 +249,13 @@ type WalkResult struct {
 }
 
 // SNMPService implements both the Service interface and proto.AgentServiceServer.
-// SNMPService implements both the Service interface and proto.AgentServiceServer.
+//
+// mu guards the set of targets only. Collected points never take it: each
+// target's results go straight into that target's own aggregator, so a drain
+// or a status read never stalls polling.
 type SNMPService struct {
 	proto.UnimplementedAgentServiceServer
-	collectors        map[string]Collector
-	aggregators       map[string]Aggregator
+	targets           map[string]*targetRuntime
 	config            *SNMPConfig
 	mu                sync.RWMutex
 	done              chan struct{}
@@ -261,8 +263,18 @@ type SNMPService struct {
 	cancel            context.CancelFunc
 	collectorFactory  CollectorFactory
 	aggregatorFactory AggregatorFactory
-	status            map[string]TargetStatus
 	logger            logger.Logger
+}
+
+// targetRuntime is the running state of one target.
+type targetRuntime struct {
+	target     *Target
+	collector  Collector  // nil when the target failed to start
+	aggregator Aggregator // nil when the target failed to start
+	startErr   string     // why the target failed to start
+
+	mu       sync.Mutex
+	hostName string // the target's sysName once polled, else its configured name
 }
 
 // OIDStatus represents the current status of an OID.

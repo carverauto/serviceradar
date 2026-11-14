@@ -364,6 +364,8 @@ func TestCollectorPollTarget_Modes(t *testing.T) {
 
 			client := NewMockSNMPClient(ctrl)
 			tt.setupMock(client)
+			// The poll's session is closed when the poll ends, whatever its outcome.
+			client.EXPECT().Close().Return(nil).Times(1)
 
 			collector := newTestCollector(client, tt.oids)
 

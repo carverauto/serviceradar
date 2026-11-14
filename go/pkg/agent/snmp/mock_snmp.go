@@ -386,20 +386,6 @@ func (mr *MockSNMPClientMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockSNMPClient)(nil).Close))
 }
 
-// Connect mocks base method.
-func (m *MockSNMPClient) Connect() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Connect")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Connect indicates an expected call of Connect.
-func (mr *MockSNMPClientMockRecorder) Connect() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockSNMPClient)(nil).Connect))
-}
-
 // Get mocks base method.
 func (m *MockSNMPClient) Get(oids []string) (map[string]any, error) {
 	m.ctrl.T.Helper()
