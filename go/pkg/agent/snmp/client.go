@@ -28,11 +28,20 @@ import (
 )
 
 // SNMPClientImpl implements the SNMPClient interface using gosnmp.
+//
+// A session lives only as long as one poll. gosnmp allocates a 64 KiB receive
+// buffer on every Connect and keeps it for the life of its GoSNMP value, so each
+// session is a fresh GoSNMP that is dropped when the session closes; reusing one
+// value would pin that buffer per target between polls.
 type SNMPClientImpl struct {
+	// client holds the target's session parameters and is never connected
+	// itself. Its SNMPv3 security parameters and context engine ID carry the
+	// engine discovered by one session into the next, so a new session does
+	// not repeat discovery.
 	client     *gosnmp.GoSNMP
+	session    *gosnmp.GoSNMP // the open session, nil when none is open
 	target     *Target
 	mu         sync.RWMutex
-	connected  bool
 	lastError  error
 	reconnects int
 }
@@ -53,6 +62,19 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidTargetConfig, err)
 	}
 
+	client, err := newGoSNMP(target)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SNMPClientImpl{
+		client: client,
+		target: target,
+	}, nil
+}
+
+// newGoSNMP builds an unconnected gosnmp session for target.
+func newGoSNMP(target *Target) (*gosnmp.GoSNMP, error) {
 	client := &gosnmp.GoSNMP{
 		Target:             target.Host,
 		Port:               target.Port,
@@ -77,41 +99,57 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedSNMPVersion, target.Version)
 	}
 
-	return &SNMPClientImpl{
-		client: client,
-		target: target,
-	}, nil
+	return client, nil
 }
 
-// ensureConnected lazily opens the SNMP session (a UDP socket) before a request.
-func (s *SNMPClientImpl) ensureConnected() error {
+// openSession returns the open session, opening one (a UDP socket) if none is.
+func (s *SNMPClientImpl) openSession() (*gosnmp.GoSNMP, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.connected {
-		return nil
+	if s.session != nil {
+		return s.session, nil
 	}
 
-	if err := s.client.Connect(); err != nil {
+	session, err := newGoSNMP(s.target)
+	if err == nil {
+		session.SecurityParameters = s.client.SecurityParameters
+		session.ContextEngineID = s.client.ContextEngineID
+		err = session.Connect()
+	}
+
+	if err != nil {
 		s.lastError = &SNMPError{
 			Op:      "connect",
 			Target:  s.target.Host,
 			Wrapped: err,
 		}
 
-		return s.lastError
+		return nil, s.lastError
 	}
 
-	s.connected = true
+	s.session = session
 
-	return nil
+	return session, nil
+}
+
+// rememberEngine keeps the SNMPv3 context engine ID a session learned during
+// engine discovery for the sessions after it. It runs on the polling goroutine,
+// which is the only one that writes the session's fields.
+func (s *SNMPClientImpl) rememberEngine(session *gosnmp.GoSNMP) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.client.ContextEngineID = session.ContextEngineID
 }
 
 // Get implements SNMPClient interface.
 func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
-	if err := s.ensureConnected(); err != nil {
+	session, err := s.openSession()
+	if err != nil {
 		return nil, err
 	}
+	defer s.rememberEngine(session)
 
 	// Split OIDs into chunks of MaxOids size
 	var allResults = make(map[string]interface{})
@@ -124,7 +162,7 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 
 		chunk := oids[i:end]
 
-		result, err := s.client.Get(chunk)
+		result, err := session.Get(chunk)
 		if err != nil {
 			s.handleError(err)
 
@@ -186,18 +224,18 @@ func isSkippableValueError(err error) bool {
 // are returned alongside ErrSNMPWalkRowLimit / ErrSNMPWalkTimeout so a partial
 // table is still usable.
 func (s *SNMPClientImpl) Walk(oid string, maxRows int, timeout time.Duration) ([]WalkResult, error) {
-	if err := s.ensureConnected(); err != nil {
+	session, err := s.openSession()
+	if err != nil {
 		return nil, err
 	}
+	defer s.rememberEngine(session)
 
 	collector := newWalkCollector(s, oid, maxRows, timeout)
 
-	var err error
-
-	if usesBulkWalk(s.client.Version) {
-		err = s.client.BulkWalk(oid, collector.visit)
+	if usesBulkWalk(session.Version) {
+		err = session.BulkWalk(oid, collector.visit)
 	} else {
-		err = s.client.Walk(oid, collector.visit)
+		err = session.Walk(oid, collector.visit)
 	}
 
 	if err != nil {
@@ -315,16 +353,18 @@ func (s *SNMPClientImpl) Close() error {
 	return s.closeLocked()
 }
 
-// closeLocked closes the open session, if any. The caller holds s.mu.
+// closeLocked closes the open session, if any, and drops it with its receive
+// buffer. The caller holds s.mu.
 func (s *SNMPClientImpl) closeLocked() error {
-	if !s.connected {
+	if s.session == nil {
 		return nil
 	}
 
 	// A session that failed to close is not reused either.
-	s.connected = false
+	conn := s.session.Conn
+	s.session = nil
 
-	return s.client.Conn.Close()
+	return conn.Close()
 }
 
 // GetLastError returns the last error encountered.

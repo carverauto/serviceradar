@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -380,4 +382,102 @@ func TestCollectorPollsBeyondSessionBoundWait(t *testing.T) {
 
 	require.NoError(t, <-polls)
 	require.NoError(t, <-polls)
+}
+
+// startGetResponder answers every SNMP v2c GET on a loopback UDP port with an
+// OctetString for each requested OID, until the test ends.
+func startGetResponder(t *testing.T) uint16 {
+	t.Helper()
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	go func() {
+		decoder := &gosnmp.GoSNMP{Version: gosnmp.Version2c}
+		buf := make([]byte, 65535)
+
+		for {
+			n, addr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+
+			request, err := decoder.SnmpDecodePacket(append([]byte(nil), buf[:n]...))
+			if err != nil {
+				continue
+			}
+
+			variables := make([]gosnmp.SnmpPDU, 0, len(request.Variables))
+			for _, v := range request.Variables {
+				variables = append(variables, gosnmp.SnmpPDU{Name: v.Name, Type: gosnmp.OctetString, Value: []byte("host01")})
+			}
+
+			response := &gosnmp.SnmpPacket{
+				Version:   request.Version,
+				Community: request.Community,
+				PDUType:   gosnmp.GetResponse,
+				RequestID: request.RequestID,
+				Variables: variables,
+			}
+
+			out, err := response.MarshalMsg()
+			if err == nil {
+				_, _ = conn.WriteToUDP(out, addr)
+			}
+		}
+	}()
+
+	return uint16(conn.LocalAddr().(*net.UDPAddr).Port)
+}
+
+// A closed session keeps nothing of its socket: gosnmp allocates a 64 KiB
+// receive buffer for every connection, and a client that kept its connected
+// gosnmp value between polls pinned that buffer for every target.
+func TestClientRetainsNoReceiveBufferBetweenPolls(t *testing.T) {
+	const (
+		clients           = 40
+		maxBytesPerClient = 16 << 10
+	)
+
+	port := startGetResponder(t)
+	target := Target{
+		Name:      "host01",
+		Host:      "127.0.0.1",
+		Port:      port,
+		Community: "public",
+		Version:   Version2c,
+		Interval:  Duration(time.Hour),
+		Timeout:   Duration(2 * time.Second),
+		Retries:   1,
+		OIDs:      []OIDConfig{{OID: ".1.3.6.1.2.1.1.5.0", Name: "sysName", DataType: TypeString}},
+	}
+
+	runtime.GC()
+
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	polled := make([]SNMPClient, clients)
+	for i := range polled {
+		clientTarget := target
+		client, err := newSNMPClient(&clientTarget)
+		require.NoError(t, err)
+
+		values, err := client.Get([]string{".1.3.6.1.2.1.1.5.0"})
+		require.NoError(t, err)
+		require.Equal(t, "host01", values[".1.3.6.1.2.1.1.5.0"])
+		require.NoError(t, client.Close())
+
+		polled[i] = client
+	}
+
+	runtime.GC()
+
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	perClient := (int64(after.HeapAlloc) - int64(before.HeapAlloc)) / clients
+	assert.Less(t, perClient, int64(maxBytesPerClient), "retained heap per polled client")
+	runtime.KeepAlive(polled)
 }
