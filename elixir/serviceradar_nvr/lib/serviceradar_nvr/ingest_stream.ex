@@ -3,6 +3,8 @@ defmodule ServiceRadarNVR.IngestStream do
 
   import Plug.Conn, only: [read_body: 2]
 
+  alias ServiceRadarRecordingMetadata.Descriptor
+
   @max_request_bytes 67_108_864
   @max_unit_bytes 1_048_576
 
@@ -22,11 +24,15 @@ defmodule ServiceRadarNVR.IngestStream do
            "clock_epoch" => clock_epoch
          } <- header,
          true <- storage == config.storage_id and generation == config.recovery_gate.generation,
-         %{"source_id" => source, "profile" => profile, "recorder_epoch" => epoch, "block_sequence" => sequence} <-
-           identity,
-         true <- map_size(identity) == 4,
-         true <- is_binary(clock_epoch) and byte_size(clock_epoch) in 1..128 do
-      identity = %{source_id: source, profile: profile, recorder_epoch: epoch, block_sequence: sequence}
+         true <- is_map(identity) and not Map.has_key?(identity, "clock"),
+         true <- Descriptor.valid_identity?(Map.put(identity, "clock", clock_json(clock_epoch))) do
+      identity = %{
+        source_id: identity["source_id"],
+        profile: identity["profile"],
+        recorder_epoch: identity["recorder_epoch"],
+        block_sequence: identity["block_sequence"]
+      }
+
       clock = %{clock_epoch: clock_epoch, timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
       {:ok, identity, clock, stream}
     else
@@ -55,6 +61,14 @@ defmodule ServiceRadarNVR.IngestStream do
   end
 
   defp unit(_, _), do: {:error, :invalid_ingest_unit}
+
+  defp clock_json(clock_epoch),
+    do: %{
+      "clock_epoch" => clock_epoch,
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
 
   defp take(%{buffer: bytes} = stream, count) when byte_size(bytes) >= count do
     <<result::binary-size(count), rest::binary>> = bytes

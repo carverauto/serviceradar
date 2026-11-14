@@ -67,7 +67,7 @@ defmodule ServiceRadarNVR do
     :exit, _ -> {:error, :recording_unavailable}
   end
 
-  def status(pid), do: GenServer.call(pid, :status)
+  def status(pid, timeout \\ 5000), do: GenServer.call(pid, :status, timeout)
   def stop(pid), do: GenServer.call(pid, :stop)
 
   @doc "Read-only local capacity observation, not a reservation or pool capability."

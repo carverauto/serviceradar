@@ -1269,6 +1269,16 @@ class NVRReleaseTest(unittest.TestCase):
         for raw in (struct.pack("!I", 1025), struct.pack("!I", 0),
                     self.ingest_header()[:12]):
             self.assertEqual(self.ingest_request(raw)[0], 400)
+        identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1, "block_sequence": 0}
+        # Limits from the recording identity contract: printable 1..128-byte names,
+        # recorder_epoch 1..2^63-1, block_sequence 0..2^63-1 and a printable clock epoch.
+        for header in (self.ingest_header(identity={**identity, "recorder_epoch": 0}),
+                       self.ingest_header(identity={**identity, "block_sequence": 2 ** 63}),
+                       self.ingest_header(identity={**identity, "profile": "p" * 129}),
+                       self.ingest_header(identity={**identity, "source_id": "synthetic\u0001camera"}),
+                       self.ingest_header(clock_epoch="synthetic\u0001clock")):
+            self.assertEqual(self.ingest_request(header + struct.pack("!I", 0)),
+                             (400, {"error": "invalid_ingest_header"}))
         self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
         # Complete HTTP EOF without the explicit application end marker must not seal.
         status, result = self.ingest_request(self.ingest_header() + b"".join(units))
@@ -1276,6 +1286,11 @@ class NVRReleaseTest(unittest.TestCase):
         retained = [p for p in self.spool.iterdir() if p.is_dir()]
         self.assertEqual(len(retained), 1)
         self.assert_ingest_unsealed()
+        # An admitted worker that rejects a well-formed frame (sequence gap) is an
+        # incomplete stream, not an unavailable listener.
+        status, result = self.ingest_request(self.ingest_header(source="gapped-synthetic-camera")
+                                             + units[0] + units[2] + struct.pack("!I", 0))
+        self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
         before = {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()}
         self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
         self.assertEqual(self.ingest_request(self.ingest_header(source="another-synthetic-camera") + b"".join(units) + struct.pack("!I", 0))[0], 503)

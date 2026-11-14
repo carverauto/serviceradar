@@ -75,14 +75,14 @@ defmodule ServiceRadarNVR.Ingest do
     case IngestStream.next(stream) do
       {:ok, unit, stream} ->
         with :ok <- Inbox.offer(inbox, Map.put(unit, :media_ingest_id, inbox.media_ingest_id)),
-             %{last_sequence: sequence} when sequence == unit.sequence <- ServiceRadarNVR.status(worker),
+             %{last_sequence: sequence} when sequence == unit.sequence <- admitted_status(worker, inbox),
              {:ok, blocks} <- completed_blocks(worker, blocks) do
           consume(stream, worker, inbox, blocks)
         end
 
       {:done, stream} ->
         :ok = Inbox.finish(inbox)
-        await_seal(worker, stream.conn, blocks)
+        await_seal(worker, inbox, stream.conn, blocks)
 
       error ->
         error
@@ -91,6 +91,12 @@ defmodule ServiceRadarNVR.Ingest do
 
   # Status is ordered behind the offered frame from this same producer. Network
   # backpressure waits here, outside the shared camera/live-view pipeline.
+  defp admitted_status(worker, inbox) do
+    ServiceRadarNVR.status(worker, Inbox.remaining_ms(inbox))
+  catch
+    :exit, _ -> {:error, :recording_stopped}
+  end
+
   defp completed_blocks(worker, blocks) do
     receive do
       {:nvr_block_sealed, ^worker, %{snapshot: snapshot}} ->
@@ -105,10 +111,10 @@ defmodule ServiceRadarNVR.Ingest do
     end
   end
 
-  defp await_seal(worker, conn, blocks) do
+  defp await_seal(worker, inbox, conn, blocks) do
     receive do
       {:nvr_block_sealed, ^worker, %{snapshot: snapshot}} when length(blocks) < 255 ->
-        await_seal(worker, conn, [Path.basename(snapshot.directory) | blocks])
+        await_seal(worker, inbox, conn, [Path.basename(snapshot.directory) | blocks])
 
       {:nvr_block_sealed, ^worker, _receipt} ->
         {:error, :too_many_blocks}
@@ -119,7 +125,7 @@ defmodule ServiceRadarNVR.Ingest do
       {:nvr_recording, ^worker, {:error, _} = error} ->
         error
     after
-      5000 -> {:error, :seal_timeout}
+      Inbox.remaining_ms(inbox) -> {:error, :seal_timeout}
     end
   end
 
