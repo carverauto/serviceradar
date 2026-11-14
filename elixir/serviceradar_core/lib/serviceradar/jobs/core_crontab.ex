@@ -15,6 +15,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Edge.RemoteAccessRecordingReaperWorker
   alias ServiceRadar.Edge.RemoteAccessSessionReaperWorker
   alias ServiceRadar.Edge.RemoteAccessVersionRetentionWorker
+  alias ServiceRadar.Edge.SweepHostGaugeSweeper
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureTerminalCompactionWorker
   alias ServiceRadar.Identity.SAMLAssertionCleanupWorker
@@ -75,6 +76,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {env_or_default(fetch, "ALERT_RETENTION_CRON", "15 * * * *"), AlertsRetentionWorker,
        queue: :maintenance},
       {"* * * * *", RecoveryWorker, queue: :alert_recovery},
+      {"* * * * *", SweepHostGaugeSweeper, queue: :maintenance},
       {"37 3 * * *", StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
       {env_or_default(fetch, "SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON", "43 3 * * *"),
        BrokerRetentionWorker, queue: :maintenance},

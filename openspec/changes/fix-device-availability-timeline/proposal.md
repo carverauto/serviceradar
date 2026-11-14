@@ -48,7 +48,7 @@ default, fire-and-forget, and not stored.
   the agent's unleased batch, so both kinds of sweep feed one per-agent history. The
   agent is unchanged: a leased execution still emits no metric batch, and the
   unleased path stays the only producer for unleased sweeps.
-- **Defect B (needs approval before implementation).** Core records every merged
+- **Defect B (approved 2026-11-14; implemented in a follow-up PR).** Core records every merged
   availability transition as an append-only history record, published through
   JetStream from the resolver's existing transition outbox and stored by EventWriter
   in StarRocks when enabled and CNPG otherwise. Each record is self-describing: the
@@ -69,7 +69,7 @@ default, fire-and-forget, and not stored.
 - Affected code (A): `elixir/serviceradar_core/lib/serviceradar/edge/projectors/sweep_observation.ex`,
   a new `ServiceRadar.Edge.SweepHostMetrics`, `ServiceRadar.NATS.DurablePublish`
   (binary bodies in its retry job).
-- Affected code (B, after approval): `inventory/availability/resolution.ex` and
+- Affected code (B, follow-up PR): `inventory/availability/resolution.ex` and
   `transitions.ex`, an EventWriter processor, CNPG and StarRocks migrations, an SRQL
   entity, `web-ng` `device_live/availability_data.ex` and the timeline component.
 - Relationship to pending changes: completes the follow-up named in

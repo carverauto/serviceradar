@@ -2,8 +2,6 @@ defmodule ServiceRadar.Edge.SweepHostMetricsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.SweepHostMetrics
-  alias Serviceradar.Edge.V1.EdgeProducerContext
-  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -178,19 +176,13 @@ defmodule ServiceRadar.Edge.SweepHostMetricsTest do
     hosts = for n <- 1..700, do: host(rem(n, 250) + 1, observed_at_delta_nano: n)
     parent = self()
 
-    record = %EdgeRecordV1{
-      event_id: Ecto.UUID.dump!(@event_id),
-      producer_context: %EdgeProducerContext{origin_principal_id: @agent_id}
-    }
-
     publish = fn subject, body, opts ->
       send(parent, {:published, subject, body, opts})
       :ok
     end
 
     assert :ok =
-             SweepHostMetrics.publish(record, batch(hosts), "gateway-test01",
-               partition: "default",
+             SweepHostMetrics.publish(batch(hosts), identity(),
                in_transaction?: fn -> false end,
                publish: publish
              )
@@ -218,5 +210,25 @@ defmodule ServiceRadar.Edge.SweepHostMetricsTest do
            end)
 
     assert Enum.all?(messages, fn {_, mb, _} -> mb.resource.agent_id == @agent_id end)
+  end
+
+  # The caller keeps its pending marker on an error, so a message that is neither stored nor
+  # queued must surface as one, and the rest of the batch is left for the republish.
+  test "a message that can be neither published nor queued is an error and stops the batch" do
+    parent = self()
+    hosts = for n <- 1..700, do: host(rem(n, 250) + 1, observed_at_delta_nano: n)
+
+    assert {:error, {:publish_and_enqueue_failed, :oban_unavailable}} =
+             SweepHostMetrics.publish(batch(hosts), identity(),
+               in_transaction?: fn -> false end,
+               publish: fn _subject, _body, opts ->
+                 send(parent, {:attempted, opts[:msg_id]})
+                 {:error, :timeout}
+               end,
+               enqueue: fn _job -> {:error, :oban_unavailable} end
+             )
+
+    assert_received {:attempted, "#{@event_id}:sweep-host-metrics:0"}
+    refute_received {:attempted, _}
   end
 end

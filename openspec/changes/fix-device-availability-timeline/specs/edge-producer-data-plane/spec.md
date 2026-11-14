@@ -5,6 +5,7 @@ Core SHALL derive the per-host sweep gauges of every projected leased sweep batc
 The derivation SHALL run only after the ledger transaction that projected the batch commits, and only for a fresh primary delivery. A replay, a late-fenced delivery, or a batch whose projection was refused SHALL NOT produce gauges.
 The gauges SHALL be `sweep.host.available` (ICMP target reached or any tested TCP port open), `sweep.host.icmp_available`, `sweep.host.icmp_response_time_ns`, `sweep.host.icmp_packet_loss`, `sweep.host.port.available` and `sweep.host.port.response_time_ns`, each present only when the batch carries its input, observed at the host's observation time, tagged `target`, `hostname` (when present), `execution_id` and `sweep_group_id`, and attributed to the record's authenticated agent with the source, producer kind, metric type and service identity the unleased sweep-results batch carries after core attests it.
 Each published message SHALL hold at most 1,000 points and carry a message id derived from the record's event id and the message's index, so a retried publish is stored once. The agent SHALL NOT emit a metric batch for a leased execution.
+The gauges SHALL NOT be lost when the node fails between the commit and the publish: the projection SHALL record one pending marker per batch in the same ledger transaction, the committed publish SHALL delete it once every message is stored in JetStream or queued for a durable retry, and a sweeper SHALL republish, with the same message ids and points, every marker older than a grace period, a bounded number per pass.
 
 #### Scenario: A leased sweep produces per-host availability telemetry
 - **GIVEN** an agent whose only sweep group is leased
@@ -21,6 +22,13 @@ Each published message SHALL hold at most 1,000 points and carry a message id de
 - **WHEN** core derives its gauges
 - **THEN** it publishes them in host order in messages of at most 1,000 points
 - **AND** each message's id is the record's event id with the message index, stable across retries
+
+#### Scenario: A crash between commit and publish loses no gauges
+- **GIVEN** a leased batch whose projection committed
+- **WHEN** the node fails before the committed publish runs
+- **THEN** the batch's pending marker remains
+- **AND** once the marker is older than the grace period the sweeper publishes the batch's gauges and deletes the marker
+- **AND** a later sweeper pass publishes nothing for that batch again
 
 #### Scenario: A failed publish is retried durably
 - **WHEN** the JetStream publish of derived gauges fails

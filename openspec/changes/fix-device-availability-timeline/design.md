@@ -83,12 +83,27 @@ under one NATS message). Message `n` of a record has the `Nats-Msg-Id`
 `<event_id>:sweep-host-metrics:<n>`, so a retry stores once. EventWriter's metrics
 consumer persists them; nothing is written to a database directly.
 
-**Trade-off.** Publishing after commit means a node that dies between the commit
-and the publish loses that batch's gauges (the projected host rows are intact).
-The alternative, an outbox job inserted in the ledger transaction, is lossless but
-writes a job row carrying every gauge of every leased batch to CNPG, roughly
-doubling the WAL of leased sweep ingestion. The window is a process crash inside one
-record; the telemetry is a derived view of rows that are stored either way.
+**No loss window (decided 2026-11-14).** A node that died between the commit and the
+publish would have lost that batch's gauges. The product owner ruled that window out,
+and ruled out an outbox job per gauge (it writes every gauge of every leased batch to
+CNPG). Instead the projection records one pending marker per batch,
+`platform.sweep_host_gauge_pending`, in the same ledger transaction, so it commits or
+rolls back with the projection (`ServiceRadar.Edge.SweepHostGauges`):
+
+- `committed/3` publishes the gauges, then deletes the marker. A message JetStream
+  cannot take is queued by `DurablePublish`, whose retry job then owns it, so the
+  marker is deleted once every message is stored or queued. When a message can be
+  neither, the marker stays.
+- `ServiceRadar.Edge.SweepHostGaugeSweeper`, an Oban cron job every minute (one pass at
+  a time), republishes markers older than a 120-second grace period, oldest first, at
+  most 50 per pass, and deletes each one it publishes.
+- The marker carries the batch itself, protobuf and zlib-compressed, because a
+  republish must rebuild the same messages under the same message ids and the same
+  points under the same storage keys. Republishing therefore stores each point once:
+  JetStream deduplicates a repeat within its 2-minute window, and `timeseries_metrics`,
+  keyed by `(timestamp, gateway_id, series_key)` in CNPG (`ON CONFLICT DO NOTHING`) and
+  StarRocks (primary key), keeps one row after it. The marker is a fraction of the
+  host rows the same transaction writes, and it is deleted after its publish.
 
 `DurablePublish` stored the body as a JSON string in its retry job, which only
 works for UTF-8 bodies. A body that is not valid UTF-8 (a protobuf) is now stored
@@ -97,7 +112,8 @@ keep working.
 
 ## Decision 2 (Defect B): record merged transitions as append-only history
 
-**Status: proposed, awaiting product-owner approval before implementation.**
+**Status: approved 2026-11-14 with storage option 1.** Implemented in a follow-up
+change after the Defect A fix.
 
 No decided-state history exists. `availability_changed_at` holds only the last
 change; `availability_decided_by` carries no previous decision across writes;
@@ -130,7 +146,7 @@ to_state)`. Transitions written during the upgrade reconciliation (`reconciling?
 which today publish nothing per device to avoid an alert storm, are recorded as
 history too; their events stay suppressed.
 
-**Storage (option 1, recommended).** A dedicated dataset: subject
+**Storage (option 1, chosen).** A dedicated dataset: subject
 `availability.transitions.device`, an EventWriter processor, a CNPG hypertable
 `platform.device_availability_transitions` and a StarRocks table of the same shape,
 written to StarRocks when it is enabled and to CNPG otherwise, never both (AGENTS.md
@@ -138,7 +154,7 @@ JetStream-first rule; CNPG remains a complete backend without StarRocks). SRQL g
 `in:device_availability_history` with `uid:` and `time:` filters. Write volume is
 O(state changes), which the resolver already bounds (write-on-change).
 
-**Storage (option 2).** An OCSF event `device.availability_changed` through
+**Storage (option 2, rejected).** An OCSF event `device.availability_changed` through
 `InternalLogPublisher`, stored with the other internal events and read with
 `in:events`. It needs no new table or SRQL entity, but puts every transition in the
 Events page and the log-promotion path, ties history retention to event retention,
@@ -157,9 +173,13 @@ With no agent selected the timeline reads, over the 24-hour window:
 Time covered by neither is unknown. A device with no decision (`unknown`, or no
 `availability_changed_at`) is unknown throughout. A bucket is `offline` when the
 device was unavailable for any part of it, `online` when every known part of it was
-available, and `unknown` when no part of it is known. Uptime is time-weighted:
-available seconds over known seconds. The deciding source of each segment is shown
-in its tooltip.
+available, and `unknown` when no part of it is known. An offline bucket's tooltip shows
+how many minutes of it the device was down. Uptime is time-weighted: available seconds
+over known seconds. The deciding source of each segment is shown in its tooltip.
+
+The merged-history timeline renders only where the resolver is authoritative. In
+`legacy` and `shadow` modes the merged value is not yet the one in force, so the
+timeline keeps the probe timeline and labels it as probe history.
 
 With an agent selected, the timeline shows that agent's raw probe history from
 `sweep.host.available` / `icmp_available` as today, titled as that agent's probe
@@ -176,13 +196,17 @@ disconnected mount).
   24-hour window.
 - **Reconciliation burst.** The cutover reconciliation can record one transition per
   device in one pass. It is bounded by the device count and happens once.
-- **Leased gauge loss on crash** (Decision 1 trade-off).
+- **Marker backlog.** If JetStream is down for long enough that `DurablePublish` cannot
+  queue either, markers accumulate, one per projected leased batch, until the sweeper
+  drains them at up to 50 per minute.
 
-## Open Questions (for the product owner)
+## Decisions Taken (product owner, 2026-11-14)
 
-1. Storage option 1 (dedicated dataset, recommended) or option 2 (OCSF event)?
-2. Bucket rule: is "any unavailable time marks the bucket offline" right, or should
-   a bucket take its majority state?
-3. Should the timeline also render in `legacy` / `shadow` modes from the mirrored
-   `availability_state`, or only once the resolver is authoritative (every install
-   reaches it automatically)?
+1. Storage: option 1, the dedicated dataset (StarRocks only when it is enabled, CNPG
+   otherwise).
+2. Bucket rule: any unavailable time marks the 30-minute bucket offline; its tooltip
+   shows the minutes down; uptime stays time-weighted.
+3. Modes: the merged-history timeline renders only where the resolver is authoritative;
+   `legacy` and `shadow` keep the probe timeline, labelled as probe history.
+4. Leased gauges: no loss window; a per-batch pending marker and a bounded sweeper
+   (Decision 1).
