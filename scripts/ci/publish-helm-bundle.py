@@ -46,12 +46,12 @@ def load_publisher():
     return module
 
 
-def image_pins(receipt, inventory, release_tag):
+def image_pins(receipt, inventory, services, release_tag):
     published = receipt.get("published", [])
     roots = {a["reference"] for a in receipt["artifacts"]}
     pins = {}
     for repository, entry in inventory:
-        service = entry.get("chart_service")
+        service = services.get(repository)
         if not service:
             continue
         matching = [a for a in published if a["repository"] == repository and release_tag in a["tags"]]
@@ -86,7 +86,8 @@ def publish(version, release_tag):
     publisher = load_publisher()
     directory = Path(os.environ["HARBOR_LIFECYCLE_DIR"])
     receipt = json.loads((directory / "receipt.json").read_text())
-    pins = image_pins(receipt, publisher.inventory("images"), release_tag)
+    services = json.loads((directory / "chart-services.json").read_text())
+    pins = image_pins(receipt, publisher.inventory("images"), services, release_tag)
     tool_path = directory / "tool/k8s/harbor/promote-artifacts.py"
     spec = importlib.util.spec_from_file_location("promote_artifacts", tool_path)
     verifier = importlib.util.module_from_spec(spec)

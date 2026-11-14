@@ -22,8 +22,8 @@ jobs:
     runs-on: arc-runner-set
     env:
       OCI_REGISTRY: registry.carverauto.dev
-      OCI_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+      OCI_USERNAME: ${{ secrets.HARBOR_READ_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_READ_ROBOT_SECRET }}
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:

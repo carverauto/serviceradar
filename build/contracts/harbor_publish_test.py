@@ -1,15 +1,38 @@
 """Publisher process boundaries: credentials, repository routing and exit status."""
 
 import base64
+import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/ci/harbor-publish.py"
+REPO = Path(__file__).resolve().parents[2]
+SCRIPT = REPO / "scripts/ci/harbor-publish.py"
+SYNTHETIC_DIGEST = "sha256:" + "c" * 64
+
+
+def pinned_jq():
+    machine = platform.machine().lower()
+    repository = {"x86_64": "jq_linux_amd64", "amd64": "jq_linux_amd64",
+                  "aarch64": "jq_linux_arm64", "arm64": "jq_linux_arm64"}[machine]
+    for dirpath, _dirnames, filenames in os.walk(os.environ["TEST_SRCDIR"], followlinks=True):
+        if repository in dirpath and "downloaded" in filenames:
+            return Path(dirpath) / "downloaded"
+    raise FileNotFoundError("declared jq runfile is unavailable")
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class HarborPublishTest(unittest.TestCase):
@@ -30,7 +53,15 @@ class HarborPublishTest(unittest.TestCase):
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.parent.mkdir(parents=True)
         inventory.write_text('PUBLISHABLE_IMAGES = [{"image":"example_image",'
-                             '"repository":"registry.carverauto.dev/serviceradar/example-worker"}]\n')
+                             '"repository":"registry.carverauto.dev/serviceradar/example-worker"}]\n\n')
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.env["PATH"] = str(self.bin) + os.pathsep + self.env["PATH"]
+
+    def fake(self, name, body):
+        path = self.bin / name
+        path.write_text(f"#!{sys.executable}\nimport json,os,pathlib,sys\n" + body)
+        path.chmod(0o755)
 
     def call(self, *args):
         return subprocess.run([sys.executable, str(SCRIPT), *args], env=self.env,
@@ -51,11 +82,7 @@ class HarborPublishTest(unittest.TestCase):
         self.assertEqual(result.returncode, 42)
 
     def test_bazel_upload_overrides_protected_inventory_with_build_repository(self):
-        bazel = self.root / "bazel"
-        bazel.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
-                         'print(json.dumps({"args":sys.argv[1:],"project":os.environ["OCI_PROJECT"]}))\n')
-        bazel.chmod(0o755)
-        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        self.fake("bazel", 'print(json.dumps({"args":sys.argv[1:],"project":os.environ["OCI_PROJECT"]}))\n')
         self.env["BAZEL_BUILD_FLAGS"] = "--config=example -c opt --stamp"
         result = self.call("push-images", "--only", "example-worker", "--tag", "sha-example")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -69,6 +96,78 @@ class HarborPublishTest(unittest.TestCase):
         result = self.call("push-images", "--only", "not-in-inventory")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unknown image selection", result.stderr)
+
+    def test_release_digest_gate_reads_builds_and_post_promotion_verify_reads_protected(self):
+        (self.bin / "jq").symlink_to(pinned_jq())
+        lookups = self.root / "lookups"
+        self.fake("oras", "assert sys.argv[1:4] == ['manifest', 'fetch', '--descriptor'], sys.argv\n"
+                  f"open({str(lookups)!r}, 'a').write(sys.argv[4] + '\\n')\n"
+                  f"print(json.dumps({{'digest': {SYNTHETIC_DIGEST!r}}}))\n")
+        for action, project in (("build", "serviceradar-builds"), ("protected", "serviceradar")):
+            with self.subTest(action=action):
+                lookups.unlink(missing_ok=True)
+                result = self.call(action, str(REPO / "scripts/check-oci-image-tags-exist.sh"),
+                                   "sha-example", "v1.2.3", "latest")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                base = f"registry.carverauto.dev/{project}/example-worker"
+                self.assertEqual(lookups.read_text().splitlines(),
+                                 [f"{base}:sha-example", f"{base}:v1.2.3", f"{base}:latest"])
+                result = self.call(action, str(REPO / "scripts/verify-oci-publish.sh"), "--list-image-specs")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), [f"{base}|single"])
+
+    def setup_environment(self):
+        runner = self.root / "runner"
+        runner.mkdir()
+        (self.root / "github-env").touch()
+        return {"RUNNER_TEMP": str(runner), "GITHUB_ENV": str(self.root / "github-env"),
+                "HARBOR_BUILD_ROBOT_USERNAME": "build", "HARBOR_BUILD_ROBOT_SECRET": "synthetic-build",
+                "HARBOR_PROMOTION_ROBOT_USERNAME": "promotion",
+                "HARBOR_PROMOTION_ROBOT_SECRET": "synthetic-promotion"}
+
+    def test_failed_setup_removes_its_private_credentials(self):
+        environment = self.setup_environment()
+        self.env.update(environment)
+        self.fake("oras", "raise SystemExit(3)\n")
+        result = self.call("setup", "--chart")
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(list(Path(environment["RUNNER_TEMP"]).iterdir()), [])
+        self.assertEqual(Path(environment["GITHUB_ENV"]).read_text(), "")
+
+    def test_chart_services_from_setup_pin_only_images_in_an_older_release_inventory(self):
+        inventory = self.root / "docker/images/image_inventory.bzl"
+        inventory.write_text('PUBLISHABLE_IMAGES = [\n'
+                             '  {"image":"worker","chart_service":"worker",'
+                             '"repository":"registry.carverauto.dev/serviceradar/example-worker"},\n'
+                             '  {"image":"added","chart_service":"addedLater",'
+                             '"repository":"registry.carverauto.dev/serviceradar/example-added"},\n]\n\n')
+        helper = self.root / "scripts/ci/publish-helm-bundle.py"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("# synthetic chart helper\n")
+        tool_source = b"import sys\n"
+        self.fake("oras", "output = pathlib.Path(sys.argv[sys.argv.index('--output') + 1])\n"
+                  "tool = output / 'k8s/harbor/promote-artifacts.py'\n"
+                  "tool.parent.mkdir(parents=True)\ntool.write_text('import sys\\n')\n")
+        yaml_source = self.root / "external/pyyaml"
+        (yaml_source / "lib/yaml").mkdir(parents=True)
+        (yaml_source / "lib/yaml/__init__.py").write_text("")
+        self.fake("bazel", f"print({str(yaml_source)!r} + '/BUILD.bazel:1:1: py_library rule @pyyaml//:yaml')\n")
+        environment = self.setup_environment()
+        with mock.patch.dict(os.environ, self.env | environment):
+            publisher = load("harbor_publish_setup", SCRIPT)
+            publisher.TOOL_SHA = hashlib.sha256(tool_source).hexdigest()
+            publisher.setup(include_chart=True)
+            directory = Path(dict(line.split("=", 1) for line in
+                                  Path(environment["GITHUB_ENV"]).read_text().splitlines())["HARBOR_LIFECYCLE_DIR"])
+            inventory.write_text('PUBLISHABLE_IMAGES = [{"image":"worker",'
+                                 '"repository":"registry.carverauto.dev/serviceradar/example-worker"}]\n')
+            bundle = load("publish_helm_bundle_setup", REPO / "scripts/ci/publish-helm-bundle.py")
+            reference = "registry.carverauto.dev/serviceradar/example-worker@" + SYNTHETIC_DIGEST
+            receipt = {"artifacts": [{"reference": reference}],
+                       "published": [{"repository": "example-worker", "digest": SYNTHETIC_DIGEST, "tags": ["v1.2.3"]}]}
+            pins = bundle.image_pins(receipt, publisher.inventory("images"),
+                                     json.loads((directory / "chart-services.json").read_text()), "v1.2.3")
+        self.assertEqual(pins, {"worker": SYNTHETIC_DIGEST})
 
 
 if __name__ == "__main__":

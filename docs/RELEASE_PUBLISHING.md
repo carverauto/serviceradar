@@ -48,6 +48,9 @@ Image, native add-on and Wasm publishers use `scripts/ci/harbor-publish.py`.
 The build robot can push only `serviceradar-builds` and can read protected base
 images. A separate promotion robot reads builds and writes `serviceradar`.
 No deployment or import index is published with disposable image references.
+Release tag checks, signing and pre-promotion verification read the build
+project; the protected copy is verified again after promotion. Image security
+scans protected images with a separate read-only robot.
 
 Setup downloads the shared GitOps promotion tool from an OCI artifact pinned by
 manifest digest and checks its file checksum. Keep that protected tooling
@@ -58,6 +61,8 @@ before release retries check out an older commit.
 Release setup also snapshots the chart helper and the SHA-pinned PyYAML package
 already declared in `MODULE.bazel`. Chart validation parses rendered YAML with
 the safe loader, including image fields in lists and multiple documents.
+Setup records which inventory repositories feed chart digest defaults, and the
+chart pins only those repositories present in the release commit's inventory.
 
 Before uploads and promotion, the shared tool requires fresh registry capacity
 metrics and less than 85% physical-volume usage. Harbor project quotas are a
@@ -310,6 +315,7 @@ The GitHub `release` environment must provide:
 
 - Build robot credentials (`HARBOR_BUILD_ROBOT_USERNAME` / `HARBOR_BUILD_ROBOT_SECRET`)
 - Promotion robot credentials (`HARBOR_PROMOTION_ROBOT_USERNAME` / `HARBOR_PROMOTION_ROBOT_SECRET`)
+- Read-only protected robot credentials for image security (`HARBOR_READ_ROBOT_USERNAME` / `HARBOR_READ_ROBOT_SECRET`)
 - BuildBuddy credentials used by remote Bazel builds
 - the release signing identity and OpenBao Transit access (in-cluster
   `github-signing-runner` Kubernetes auth)

@@ -19,20 +19,25 @@ class ChartPins(unittest.TestCase):
     def setUp(self):
         self.digest = "sha256:" + "a" * 64
         self.repository = "registry.example.invalid/protected/example-core"
-        self.inventory = [("example-core", {"repository": self.repository, "chart_service": "core"})]
+        self.inventory = [("example-core", {"repository": self.repository})]
+        self.services = {"example-core": "core"}
         self.receipt = {"artifacts": [{"reference": self.repository + "@" + self.digest}],
                         "published": [{"repository": "example-core", "digest": self.digest, "tags": ["v1.2.3"]}]}
 
     def test_wrong_release_or_unverified_root_cannot_be_packaged(self):
         with self.assertRaisesRegex(ValueError, "promoted release image"):
-            bundle.image_pins(self.receipt, self.inventory, "v1.2.4")
+            bundle.image_pins(self.receipt, self.inventory, self.services, "v1.2.4")
         self.receipt["artifacts"] = [{"reference": self.repository.replace('protected', 'builds') + "@" + self.digest}]
         with self.assertRaisesRegex(ValueError, "lacks image root"):
-            bundle.image_pins(self.receipt, self.inventory, "v1.2.3")
+            bundle.image_pins(self.receipt, self.inventory, self.services, "v1.2.3")
 
     def test_legacy_signature_roots_do_not_replace_the_published_image(self):
         self.receipt["artifacts"].append({"reference": self.repository + "@sha256:" + "b" * 64})
-        self.assertEqual(bundle.image_pins(self.receipt, self.inventory, "v1.2.3"), {"core": self.digest})
+        self.assertEqual(bundle.image_pins(self.receipt, self.inventory, self.services, "v1.2.3"), {"core": self.digest})
+
+    def test_release_inventory_without_any_snapshotted_service_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "no chart services"):
+            bundle.image_pins(self.receipt, self.inventory, {"example-retired": "retired"}, "v1.2.3")
 
 
 class ChartPublication(unittest.TestCase):
@@ -51,6 +56,10 @@ class ChartPublication(unittest.TestCase):
         (self.directory / "receipt.json").write_text(json.dumps({
             "artifacts": [{"reference": self.image}],
             "published": [{"repository": "example-core", "digest": self.digest, "tags": ["v1.2.3"]}]}))
+        # Setup snapshots chart services from the current inventory; the older
+        # release inventory below predates that metadata and lacks a newer image.
+        (self.directory / "chart-services.json").write_text(json.dumps(
+            {"example-core": "core", "example-added-later": "addedLater"}))
         common = """import json,os,pathlib,sys
 def event(operation, **values):
     with open(os.environ['EVENTS'], 'a') as out:
@@ -61,7 +70,7 @@ def event(operation, **values):
 ROOT = pathlib.Path(os.environ['FIXTURE']) / 'source'
 REGISTRY = 'registry.example.invalid'
 def inventory(kind):
-    return [('example-core', {'repository': REGISTRY + '/serviceradar/example-core', 'chart_service':'core'})]
+    return [('example-core', {'repository': REGISTRY + '/serviceradar/example-core'})]
 def role_environment(directory, role):
     return os.environ | {'OCI_PROJECT': 'serviceradar-builds' if role == 'build' else 'serviceradar'}
 if __name__ == '__main__':

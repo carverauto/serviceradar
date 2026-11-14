@@ -3,6 +3,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "check-oci-image-tags-exist.sh",
     "ci/publish-helm-bundle.py",
     "ci/harbor-publish.py",
     "check-addon-binary-size.sh",
@@ -10,10 +11,12 @@ exports_files([
     "check-native-addon-version-bumps.sh",
     "prepare-flow-collector-rollback.sh",
     "check-rust-vendor-tracked.py",
+    "cosign_common.sh",
     "ci/configure-srql-fixture.sh",
     "ci/prepare-openbao-cosign-env.sh",
     "ci/unless_docs_only.sh",
     "list-publishable-oci-repositories.sh",
+    "oci_registry.sh",
     "push_all_images.sh",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",

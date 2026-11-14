@@ -27,42 +27,48 @@ def run(*command, **kwargs):
 
 def setup(include_chart=False):
     directory = Path(tempfile.mkdtemp(prefix="harbor-lifecycle-", dir=os.environ.get("RUNNER_TEMP")))
-    for role in ("BUILD", "PROMOTION"):
-        username = os.environ[f"HARBOR_{role}_ROBOT_USERNAME"]
-        password = os.environ[f"HARBOR_{role}_ROBOT_SECRET"]
-        if not username or not password:
-            raise ValueError(f"missing {role.lower()} credentials")
-        config = directory / role.lower() / "config.json"
-        config.parent.mkdir(mode=0o700)
-        config.write_text(json.dumps({"auths": {REGISTRY: {
-            "auth": base64.b64encode(f"{username}:{password}".encode()).decode()}}}))
-        config.chmod(0o600)
-    subprocess.run(["oras", "pull", "--registry-config", str(directory / "promotion/config.json"),
-                    "--output", str(directory / "tool"), TOOL], check=True)
-    tool = directory / "tool/k8s/harbor/promote-artifacts.py"
-    if hashlib.sha256(tool.read_bytes()).hexdigest() != TOOL_SHA:
-        raise ValueError("promotion tool checksum mismatch")
-    subprocess.run([sys.executable, str(tool), "--check-capacity-only"], check=True)
-    shutil.copy2(__file__, directory / "harbor-publish.py")
-    if include_chart:
-        # Reuse the SHA-pinned PyYAML archive already declared in MODULE.bazel.
-        # Snapshot it before an older release checkout changes that module graph.
-        location = run("bazel", "query", "--lockfile_mode=error", "--output=location", "@pyyaml//:yaml")
-        match = re.fullmatch(r"(.+)/BUILD(?:\.bazel)?:\d+:\d+:.*", location)
-        if not match:
-            raise ValueError("cannot locate the declared PyYAML dependency")
-        source = Path(match[1]) / "lib/yaml"
-        if not (source / "__init__.py").is_file():
-            raise ValueError("declared PyYAML package is incomplete")
-        vendor = directory / "vendor/yaml"
-        vendor.mkdir(parents=True)
-        for module in source.glob("*.py"):
-            shutil.copy2(module, vendor / module.name)
-        shutil.copy2(ROOT / "scripts/ci/publish-helm-bundle.py", directory / "publish-helm-bundle.py")
-    with open(os.environ["GITHUB_ENV"], "a") as output:
-        output.write(f"HARBOR_LIFECYCLE_DIR={directory}\nHARBOR_PUBLISH_TOOL={directory / 'harbor-publish.py'}\n")
+    try:
+        for role in ("BUILD", "PROMOTION"):
+            username = os.environ[f"HARBOR_{role}_ROBOT_USERNAME"]
+            password = os.environ[f"HARBOR_{role}_ROBOT_SECRET"]
+            if not username or not password:
+                raise ValueError(f"missing {role.lower()} credentials")
+            config = directory / role.lower() / "config.json"
+            config.parent.mkdir(mode=0o700)
+            config.write_text(json.dumps({"auths": {REGISTRY: {
+                "auth": base64.b64encode(f"{username}:{password}".encode()).decode()}}}))
+            config.chmod(0o600)
+        subprocess.run(["oras", "pull", "--registry-config", str(directory / "promotion/config.json"),
+                        "--output", str(directory / "tool"), TOOL], check=True)
+        tool = directory / "tool/k8s/harbor/promote-artifacts.py"
+        if hashlib.sha256(tool.read_bytes()).hexdigest() != TOOL_SHA:
+            raise ValueError("promotion tool checksum mismatch")
+        subprocess.run([sys.executable, str(tool), "--check-capacity-only"], check=True)
+        shutil.copy2(__file__, directory / "harbor-publish.py")
         if include_chart:
-            output.write(f"HARBOR_CHART_PUBLISH_TOOL={directory / 'publish-helm-bundle.py'}\n")
+            # Reuse the SHA-pinned PyYAML archive already declared in MODULE.bazel.
+            # Snapshot it before an older release checkout changes that module graph.
+            location = run("bazel", "query", "--lockfile_mode=error", "--output=location", "@pyyaml//:yaml")
+            match = re.fullmatch(r"(.+)/BUILD(?:\.bazel)?:\d+:\d+:.*", location)
+            if not match:
+                raise ValueError("cannot locate the declared PyYAML dependency")
+            source = Path(match[1]) / "lib/yaml"
+            if not (source / "__init__.py").is_file():
+                raise ValueError("declared PyYAML package is incomplete")
+            vendor = directory / "vendor/yaml"
+            vendor.mkdir(parents=True)
+            for module in source.glob("*.py"):
+                shutil.copy2(module, vendor / module.name)
+            shutil.copy2(ROOT / "scripts/ci/publish-helm-bundle.py", directory / "publish-helm-bundle.py")
+            (directory / "chart-services.json").write_text(json.dumps(
+                {repository: entry["chart_service"] for repository, entry in inventory("images") if "chart_service" in entry}))
+        with open(os.environ["GITHUB_ENV"], "a") as output:
+            output.write(f"HARBOR_LIFECYCLE_DIR={directory}\nHARBOR_PUBLISH_TOOL={directory / 'harbor-publish.py'}\n")
+            if include_chart:
+                output.write(f"HARBOR_CHART_PUBLISH_TOOL={directory / 'publish-helm-bundle.py'}\n")
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 def role_environment(directory, role):
