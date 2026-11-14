@@ -46,7 +46,8 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
                agent_id: host,
                partition_id: partition,
                gateway_node: node(),
-               capabilities: []
+               capabilities: [],
+               test_owner: self()
              })
 
     site =

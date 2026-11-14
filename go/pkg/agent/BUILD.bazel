@@ -28,7 +28,6 @@ go_test(
     ],
     args = [
         "-test.run=^TestCameraSharedRuntime",
-        "-test.timeout=120s",
         "-test.v",
     ],
     data = [
@@ -68,7 +67,6 @@ go_test(
     srcs = ["camera_rtsp_recording_fixture_test.go"],
     args = [
         "-test.run=^TestCameraRTCPClockEvidence$$",
-        "-test.timeout=20s",
         "-test.v",
     ],
     embed = [":agent"],

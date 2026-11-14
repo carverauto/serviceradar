@@ -4,7 +4,7 @@
 `Descriptor`, archive `Manifest` and local publication intent
 (`LocalPublicationIntent`) and acknowledgement (`LocalPublicationAcknowledgement`)
 contracts under `ServiceRadarRecordingMetadata`.
-Core and NVR consume the same validation, stable object keys and encoding. The
+Core, NVR and the NVR client consume the same validation, stable object keys and encoding. The
 library uses Jason and OTP crypto; it starts no database, service or media pipeline.
 
 Descriptors describe verified sealed blocks without storage receipts. Manifests

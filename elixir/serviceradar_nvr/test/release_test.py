@@ -30,6 +30,12 @@ class NVRReleaseTest(unittest.TestCase):
         cls.binary = str(cls.release / "bin/serviceradar_nvr")
         cls.probe = str(Path(os.environ["NVR_PROBE"]).resolve())
         cls.ffmpeg = str(Path("third_party/membrane/media_test_tools/ffmpeg").resolve())
+        client = Path(cls.temp.name) / "client"
+        client.mkdir()
+        with tarfile.open(os.environ["NVR_CLIENT_RELEASE"]) as archive:
+            archive.extractall(client, filter="data")
+        cls.client_binary = str(client / "bin/serviceradar_nvr_client")
+        cls.client_probe = str(Path(os.environ["NVR_CLIENT_PROBE"]).resolve())
 
     @classmethod
     def tearDownClass(cls):
@@ -1217,6 +1223,193 @@ class NVRReleaseTest(unittest.TestCase):
             data = data[4 + size + 32:]
         self.assertIn("fragment", types)
         self.assertNotIn("seal", types)
+
+    def send_with_client(self, units, mode="normal", timeout_ms=20000, config_changes=None, header_changes=None):
+        config = {"host": "localhost", "port": self.ingest_port,
+                  "ca_file": str(self.root / "client-ca.pem"),
+                  "cert_file": str(self.root / "client.pem"), "key_file": str(self.root / "client-key.pem")}
+        config.update(config_changes or {})
+        config_path = self.root / "client-config.json"
+        config_path.write_text(json.dumps(config))
+        units_path = self.root / "client-units.bin"
+        units_path.write_bytes(b"".join(units))
+        request = {"config_path": str(config_path), "token_path": str(self.root / "ingest-token"),
+                   "header": json.loads(self.ingest_header(**(header_changes or {}))[4:]),
+                   "units_path": str(units_path), "mode": mode, "timeout_ms": timeout_ms}
+        request_path = self.root / "client-request.json"
+        request_path.write_text(json.dumps(request))
+        output = self.root / "client-result.json"
+        output.unlink(missing_ok=True)
+        env = self.env | {"NVR_CLIENT_REQUEST": str(request_path), "NVR_CLIENT_RESULT": str(output)}
+        result = subprocess.run([self.client_binary, "eval", f'Code.require_file("{self.client_probe}")'],
+                                env=env, capture_output=True, timeout=35)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b"NVR_CLIENT_PROBE_OK", result.stdout)
+        return json.loads(output.read_bytes())
+
+    def sender_peer(self, response_body, status=200, hang=False):
+        observations = []
+        closed = threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def do_POST(self):
+                observation = {"path": self.path, "body": bytearray(), "complete": False}
+                observations.append(observation)
+                self.connection.settimeout(5)
+                try:
+                    # Independent implementation of HTTP chunking; retain application bytes.
+                    while True:
+                        line = self.rfile.readline(64)
+                        if not line:
+                            return
+                        size = int(line.strip(), 16)
+                        if size == 0:
+                            if self.rfile.read(2) != b"\r\n":
+                                return
+                            observation["complete"] = True
+                            break
+                        if size > 2 * 1024 * 1024:
+                            return
+                        data = self.rfile.read(size)
+                        observation["body"].extend(data)
+                        if len(data) != size or self.rfile.read(2) != b"\r\n":
+                            return
+                    if hang:
+                        self.rfile.read(1)
+                        return
+                    self.send_response(status)
+                    self.send_header("Content-Length", str(len(response_body)))
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    self.wfile.write(response_body)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    closed.set()
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(str(self.root / "server.pem"), str(self.root / "server-key.pem"))
+        tls.load_verify_locations(str(self.root / "server-ca.pem"))
+        tls.verify_mode = ssl.CERT_REQUIRED
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.ingest_port = server.server_address[1]
+        return observations, closed
+
+    def test_sender_records_through_real_nvr_and_decodes_after_restart(self):
+        self.ingest_installation()
+        source = self.make_media(510)
+        units = self.ingest_units()
+        proc = self.start_ingest_release()
+        result = self.send_with_client(units)
+        self.assertIn("ok", result)
+        receipt = result["ok"]
+        self.assertEqual(receipt["status"], "sealed_local")
+        self.assertEqual(receipt["storage_id"], self.env["NVR_TEST_EXPECTED_STORAGE_ID"])
+        self.assertGreaterEqual(len(receipt["block_ids"]), 2)
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        decoded = bytearray()
+        for block_id in receipt["block_ids"]:
+            block = self.spool / block_id
+            output = self.root / (block_id + ".mp4")
+            output.write_bytes((block / "init.mp4").read_bytes() + (block / "media.m4s").read_bytes())
+            decoded.extend(self.decode(str(output)))
+        self.assertEqual(bytes(decoded), self.decode(source))
+
+    def test_sender_wire_bytes_and_receipt_binding_without_retries(self):
+        self.ingest_installation()
+        self.make_media(1)
+        units = self.ingest_units()
+        identity = ["synthetic-network-camera", "recording", 1, 0]
+        key = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        receipt = {"version": 1, "status": "sealed_local", "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                   "block_ids": [key]}
+        observations, _ = self.sender_peer(json.dumps(receipt).encode())
+        self.assertIn("ok", self.send_with_client(units))
+        self.assertEqual(len(observations), 1)
+        self.assertTrue(observations[0]["complete"])
+        self.assertEqual(observations[0]["path"], "/v1/recordings/ingest")
+        self.assertEqual(bytes(observations[0]["body"]), self.ingest_header() + b"".join(units) + b"\0" * 4)
+        for bad in ({**receipt, "storage_id": "00000000-0000-4000-8000-000000000099"},
+                    {**receipt, "block_ids": ["a" * 64]}, {**receipt, "block_ids": [key, key]},
+                    {**receipt, "extra": True}, {**receipt, "block_ids": []}):
+            observed, _ = self.sender_peer(json.dumps(bad).encode())
+            self.assertEqual(self.send_with_client(units), {"error": ":outcome_unknown"})
+            self.assertEqual(len(observed), 1)
+        for raw, status in ((b"invalid json", 200), (b"x" * 32769, 200), (b"", 307), (b"", 503)):
+            observed, _ = self.sender_peer(raw, status=status)
+            self.assertIn("error", self.send_with_client(units))
+            self.assertEqual(len(observed), 1)
+
+    def test_sender_rejects_invalid_header_configuration_and_server_identity(self):
+        self.ingest_installation()
+        self.make_media(1)
+        units = self.ingest_units()
+        observations, _ = self.sender_peer(b"{}")
+        self.assertEqual(self.send_with_client(units, header_changes={"clock_epoch": ""}),
+                         {"error": ":invalid_ingest_header"})
+        self.assertEqual(self.send_with_client(units, config_changes={"host": "https://localhost"}),
+                         {"error": ":invalid_ingest_config"})
+        (self.root / "ingest-token").write_text(self.ingest_token + "\n")
+        self.assertEqual(self.send_with_client(units), {"error": ":invalid_ingest_config"})
+        (self.root / "ingest-token").write_text(self.ingest_token)
+        # The peer's certificate names localhost, never its numeric loopback address.
+        self.assertIn("error", self.send_with_client(units, config_changes={"host": "127.0.0.1"}))
+        self.assertEqual(observations, [])
+
+    def test_sender_producer_failures_and_deadlines_close_without_sealing(self):
+        self.ingest_installation()
+        self.make_media(1)
+        units = self.ingest_units()
+        for mode in ("raise", "block", "caller_loss"):
+            observations, closed = self.sender_peer(b"{}")
+            result = self.send_with_client(units, mode=mode, timeout_ms=1500)
+            if mode == "caller_loss":
+                self.assertEqual(result, {"ok": {"caller_loss_bounded": True}})
+            else:
+                self.assertEqual(result, {"error": ":outcome_unknown"})
+            self.assertTrue(closed.wait(3), "sender socket survived its deadline")
+            self.assertEqual(len(observations), 1)
+            self.assertFalse(observations[0]["complete"])
+            self.assertEqual(bytes(observations[0]["body"]), self.ingest_header())
+        observations, closed = self.sender_peer(b"{}", hang=True)
+        self.assertEqual(self.send_with_client(units, timeout_ms=1500), {"error": ":outcome_unknown"})
+        self.assertTrue(closed.wait(3), "response wait left its socket open")
+        self.assertEqual(len(observations), 1)
+        self.assertTrue(observations[0]["complete"])
+
+    def test_sender_enforces_unit_and_total_body_limits_without_sealing(self):
+        self.ingest_installation()
+        for size in (0, 1048577):
+            observations, closed = self.sender_peer(b"{}")
+            unit = struct.pack("!IQQQ", size, 1, 90000, 90000) + b"x" * size
+            self.assertEqual(self.send_with_client([unit]), {"error": ":outcome_unknown"})
+            self.assertTrue(closed.wait(3))
+            self.assertEqual(len(observations), 1)
+            self.assertFalse(observations[0]["complete"])
+            self.assertEqual(bytes(observations[0]["body"]), self.ingest_header())
+        # 63 maximum-size units fit; the 64th exceeds the application-body budget.
+        unit = struct.pack("!IQQQ", 1048576, 1, 90000, 90000) + b"x" * 1048576
+        observations, closed = self.sender_peer(b"{}")
+        self.assertEqual(self.send_with_client([unit] * 64), {"error": ":outcome_unknown"})
+        self.assertTrue(closed.wait(3))
+        self.assertEqual(len(observations), 1)
+        self.assertFalse(observations[0]["complete"])
+        body = observations[0]["body"]
+        header = self.ingest_header()
+        self.assertEqual(len(body), len(header) + 63 * len(unit))
+        self.assertEqual(body[:len(header)], header)
+        self.assertLess(len(body), 64 * 1024 * 1024)
 
     def test_network_ingest_seals_and_preserves_decodable_frames_across_restart(self):
         self.ingest_installation()

@@ -19,6 +19,11 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
   same targeting `ConfigServer.invalidate(:snmp)` performs in production — so
   the broadcast reaches the stubs registered below and no other test's
   session, keeping this test's pushes from contaminating anyone else.
+
+  Every session this async test registers carries a `test_owner`, so no
+  concurrent test's broadcast can compile it inside that test's sandbox.
+  Unmarked (production) session dispatch is application-global and is covered
+  by the serial `AgentCommandBusTest` push-config delivery tests.
   """
 
   use ServiceRadar.DataCase, async: true
@@ -49,7 +54,7 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
     # that agent's key if the session were not filtered out.
     foreign_agent = "push-isolation-foreign-#{unique}"
     {:ok, _agent} = create_connected_agent(foreign_agent, actor)
-    foreign_owner = start_control_session_stub!(foreign_agent, marked: true)
+    foreign_owner = start_control_session_stub!(foreign_agent, owner: :other_test)
 
     assert :ok = AgentCommandBus.push_config_for_type(:snmp)
 
@@ -58,24 +63,23 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
     assert [] = snmp_cache_entries_for(foreign_agent)
     refute control_session_stub_pushed?(foreign_owner)
 
-    # Production dispatch is unchanged: an unmarked session, registered the
-    # way the gateway registers real control sessions (no test owner in the
-    # metadata), is still a broadcast target and still receives the push.
-    production_agent = "push-isolation-production-#{unique}"
-    {:ok, _agent} = create_connected_agent(production_agent, actor)
+    # The same broadcast still dispatches: a session owned by this test is a
+    # target and receives the push, so the skip above is not a dead push.
+    owned_agent = "push-isolation-owned-#{unique}"
+    {:ok, _agent} = create_connected_agent(owned_agent, actor)
 
-    production_session = start_control_session_stub!(production_agent, marked: false)
+    owned_session = start_control_session_stub!(owned_agent, owner: :this_test)
 
     assert :ok = AgentCommandBus.push_config_for_type(:snmp)
 
     # The stub answered a real {:push_config, response} call, which the
-    # command bus only places after compiling and caching that agent's config
-    # — production dispatch is unchanged. (The cached entry itself is not
-    # asserted: any concurrent test may invalidate the :snmp cache type.)
-    assert control_session_stub_pushed?(production_session)
+    # command bus only places after compiling and caching that agent's config.
+    # (The cached entry itself is not asserted: any concurrent test may
+    # invalidate the :snmp cache type.)
+    assert control_session_stub_pushed?(owned_session)
 
     stop_control_session_stub(foreign_owner)
-    stop_control_session_stub(production_session)
+    stop_control_session_stub(owned_session)
   end
 
   # The app-wide cache the push writes into, keyed by
@@ -111,18 +115,18 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
   end
 
   # A stand-in for a control-stream session owner. It registers a session in
-  # the app-wide registry — through the canonical test helper (marked with its
-  # owning pid) or the way the gateway registers production sessions — and
+  # the app-wide registry — through the canonical test helper (marked with the
+  # stub's own pid, i.e. another test) or marked with this test's pid — and
   # answers `{:push_config, response}` the way `ControlStreamSession` does,
   # recording whether a push ever arrived.
-  defp start_control_session_stub!(agent_uid, marked: marked?) do
+  defp start_control_session_stub!(agent_uid, owner: owner) do
     parent = self()
 
     pid =
       spawn_link(fn ->
         Process.flag(:trap_exit, true)
 
-        register_stub_session!(agent_uid, marked?)
+        register_stub_session!(agent_uid, owner, parent)
 
         send(parent, {:stub_ready, self()})
         control_session_stub_loop(parent, false)
@@ -133,13 +137,13 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
     pid
   end
 
-  defp register_stub_session!(agent_uid, true) do
+  defp register_stub_session!(agent_uid, :other_test, _test_pid) do
     TestSupport.register_agent_control_session!(agent_uid, @partition_id,
       capabilities: @stub_capabilities
     )
   end
 
-  defp register_stub_session!(agent_uid, false) do
+  defp register_stub_session!(agent_uid, :this_test, test_pid) do
     {:ok, _pid} =
       ProcessRegistry.register(
         {:agent_control, @partition_id, agent_uid, node()},
@@ -147,7 +151,8 @@ defmodule ServiceRadar.Edge.AgentControlSessionPushIsolationTest do
           agent_id: agent_uid,
           partition_id: @partition_id,
           gateway_node: node(),
-          capabilities: @stub_capabilities
+          capabilities: @stub_capabilities,
+          test_owner: test_pid
         }
       )
 
