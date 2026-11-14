@@ -3,7 +3,8 @@ defmodule ServiceRadarNVR do
   Local service boundary for a finite recording session with bounded local blocks.
 
   Only trusted code in this VM may call this API. It is not an enrollment,
-  assignment or offline-authority protocol. Only health probes are exposed over HTTP; no media or control listener exists.
+  assignment or offline-authority protocol. The optional private TLS ingress adapts authenticated finite streams to this API;
+  source assignment remains the trusted coordinator's responsibility.
   The caller is the sole producer and owns the returned bounded Inbox; media
   enters through Inbox.offer/2 and ends through Inbox.finish/1. Terminal results
   arrive as `{:nvr_recording, pid, result}`. A sealed local snapshot is not a
@@ -66,7 +67,7 @@ defmodule ServiceRadarNVR do
     :exit, _ -> {:error, :recording_unavailable}
   end
 
-  def status(pid), do: GenServer.call(pid, :status)
+  def status(pid, timeout \\ 5000), do: GenServer.call(pid, :status, timeout)
   def stop(pid), do: GenServer.call(pid, :stop)
 
   @doc "Read-only local capacity observation, not a reservation or pool capability."

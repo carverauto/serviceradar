@@ -30,11 +30,13 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 ## Deployment checkpoint
 
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
-and health probes only. Pool enrollment, authenticated media ingress,
-local catalog publication, S3 upload and automated restart
+and health probes. A separately installed [private finite-stream listener](nvr-ingest.md)
+can accept authenticated media, but the inventory/agent sender and pool assignment
+are not wired yet. Local catalog publication, S3 upload and automated restart
 reconciliation remain pending. Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
-implemented.
+implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
+recording, local playback and deployed storage acceptance boundaries.
 
 The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. Capture admission also reserves 64 KiB for each missing

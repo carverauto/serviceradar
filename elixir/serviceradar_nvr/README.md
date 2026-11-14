@@ -6,10 +6,25 @@ come from `serviceradar_recording`. Core uses the same writer and retains its
 existing authorization, database leases and publication path. Both consume the
 metadata-only `serviceradar_recording_metadata` contract.
 
-This checkpoint processes finite recording sessions through a trusted, same-VM API.
-It has no camera source connector, assignment protocol, upload worker or playback
-catalog. Starting the service does not start recording. It does not join an
+This checkpoint processes finite recording sessions through a trusted same-VM API
+or an opt-in private TLS stream. It has no camera source connector, assignment
+protocol, archive upload worker or playback catalog. Starting the service does not start recording. It does not join an
 Erlang distribution cluster or start core, a Repo, NATS or libcluster.
+
+## Private network input
+
+An installed recording coordinator can stream complete H264 access units to
+`POST /v1/recordings/ingest` over mutual TLS with a pinned client certificate and
+a separate bearer token. One finite request owns one producer; TCP backpressure
+waits outside the live-view pipeline. Success returns sealed local block IDs.
+It does not create recording authority, register a playable copy or initialize
+storage. The current bootstrap barrier still applies.
+
+See [the wire contract and installation](../../docs/nvr-ingest.md). The shipped
+release test streams synthetic media across TLS, compares decoded frames after
+restart and exercises refusal and producer retirement. Inventory-driven source
+assignment and the agent/gateway sender remain integration work; merely enabling
+this listener does not connect an inventory camera.
 
 ## Deployment recovery admission
 
@@ -372,7 +387,8 @@ authorization and automatic assignment reconciliation remain pending.
 
 These are finite runtime limits, not measured camera capacity. Storage replication,
 physical I/O budgets and continuous-policy admission remain qualification work.
-Network endpoints only serve health probes:
+The default network listener only serves health probes; private media ingress is
+separately opt-in:
 `GET /healthz` means the runtime is live; `/readyz` additionally verifies the
 configured private storage root and identity. Neither admits a recording pool.
 
