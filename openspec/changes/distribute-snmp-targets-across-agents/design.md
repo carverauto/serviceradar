@@ -91,9 +91,10 @@ target division is new.
 ## Goals / Non-Goals
 
 Goals:
-- Each SNMP target of a `distribute` profile is polled by exactly `redundancy`
-  agents (default 1), and each target of a `replicate` profile by every
-  currently eligible pinned agent.
+- Each SNMP target of a `distribute` profile is polled by `redundancy` agents
+  (default 1), and each target of a `replicate` profile by every currently
+  eligible pinned agent, as far as effective capacity allows. A shortfall is
+  reported as `under_replicated` or `uncovered`.
 - The bytes delivered to an agent, and the core work done for it, grow with the
   size of a change, not with the inventory.
 - Per-agent capacity is measured and is a placement input. Shortfall is
@@ -288,8 +289,9 @@ Rejected:
 ### D2. A device belongs to exactly one profile
 
 The placement pass resolves each device to its highest-priority matching
-profile, or the default, with `SrqlTargetResolver.resolve_for_devices/3`. This
-is what the existing "Profile priority ordering" requirement states.
+profile, or the default, with `SrqlTargetResolver.resolve_for_devices/3`
+called without an agent id, so pinned profiles compete on priority like any
+other. Pins are applied only when choosing owners (D3). This is what the existing "Profile priority ordering" requirement states.
 
 Today the choice is made once per agent from the agent's own device, so the
 same device can be polled under the default profile by some agents and under a
@@ -313,7 +315,7 @@ reach an arbitrary device. Reachability is learned from poll outcomes (D6).
 
 A new or displaced target is assigned to the top-`redundancy` eligible agents
 by highest-random-weight hashing, or to every eligible agent for a `replicate`
-profile. The weight is the agent's remaining
+profile, in both cases only on agents with room under their effective capacity. The weight is the agent's remaining
 capacity. A target keeps its owner unless one of these holds:
 
 - the owner is ineligible (`owner_ineligible`);
@@ -333,8 +335,9 @@ Rendezvous hashing moves only about 1/n of targets when an agent leaves. With
 stickiness, an agent joining moves no existing owner. It does fill
 shortfalls: an `under_replicated` target, including a `replicate` target the
 agent is newly eligible for, gains the joining agent as an additional owner.
-A pass fills shortfalls before rebalance spends any free capacity. Otherwise
-the agent is used by a rebalance or new arrivals.
+A pass assigns free capacity in a fixed order: `uncovered` targets first,
+then `under_replicated` and `replicate` shortfalls, then bounded rebalance.
+Each step uses only the capacity the earlier ones left.
 
 Rejected:
 - **Least-loaded at arrival.** It depends on arrival order, is not
@@ -454,11 +457,13 @@ keeps `TargetLimit` alive.
   corrected by agent-reported actuals.
 - **Measured capacity:** an agent reports per window the targets held, polls
   due, polls completed within their interval, data points produced, requests
-  sent and scheduling lag. While on-time polls stay at or above 99 percent,
-  measured capacity only rises, to the highest sustained point rate seen. When
-  on-time polls stay below that for consecutive windows, measured capacity is
-  set to the achieved on-time point rate, which is below the placed cost, so
-  the next pass sheds load with `over_capacity`. Until the first report, only
+  sent and scheduling lag. Core first recomputes the placed cost with the
+  actual series counts in that report. While on-time polls stay at or above a
+  configured threshold (recommended 99 percent), measured capacity only rises,
+  to the highest sustained point rate seen. When on-time polls stay below it
+  for a configured number of consecutive windows (recommended 3), measured
+  capacity is set to the achieved on-time point rate, which is below the
+  recomputed placed cost, so the next pass sheds load with `over_capacity`. Until the first report, only
   the target-count ceiling applies.
 - **Effective capacity:** two limits that must both hold. The count of targets
   placed on the agent stays at or under its resolved `snmp_max_targets`, and

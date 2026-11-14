@@ -17,7 +17,7 @@
 
 ## 2. SNMP placement
 - [ ] 2.1 Add `placement_mode` (`distribute` | `replicate`, default `distribute`) and `redundancy` (default per the answer to design.md open question 2) to `SNMPProfile`; refuse `replicate` without pinning
-- [ ] 2.2 Resolve each device to exactly one profile (priority, then default) in the placement pass, reusing `SrqlTargetResolver.resolve_for_devices/3` and `SNMPCompiler.reduce_target_pages/4`
+- [ ] 2.2 Resolve each device to exactly one profile (priority, then default) in the placement pass, reusing `SrqlTargetResolver.resolve_for_devices/3` without an agent id (pins apply only to owner choice) and `SNMPCompiler.reduce_target_pages/4`
 - [ ] 2.3 SNMP cost model (data points per second: scalar OIDs plus walk rows plus availability, per interval; requests tracked for pacing) and capacity from agent reports
 - [ ] 2.4 Explicit `SNMPTarget` rows placed per the decision on design.md open question 3
 - [ ] 2.5 Reachability rule: consecutive failures, per-target agent backoff, candidate limit (defaults per the answer to design.md open question 6), `unreachable_on_owner` moves
@@ -50,7 +50,7 @@
 - [ ] 7.3 Verify on a scratch deployment that every device previously polled is placed or reported uncovered, and that the duplicate polls stop
 
 ## 8. Verification
-- [ ] 8.1 Property tests for placement: determinism, stickiness on join, redundancy and replicate shortfalls filled on join without moving satisfied owners and before rebalance, bounded movement on leave, count ceiling and measured cost capacity never exceeded, rebalance never exceeds a receiver's capacity, redundancy distinctness
+- [ ] 8.1 Property tests for placement: determinism, stickiness on join, free capacity assigned to uncovered targets, then redundancy and replicate shortfalls (without moving satisfied owners), then rebalance, bounded movement on leave, count ceiling and measured cost capacity never exceeded, rebalance never exceeds a receiver's capacity, redundancy distinctness
 - [ ] 8.2 Handover tests: make-before-break overlap at most one interval plus grace; stale-generation acknowledgement ignored
 - [ ] 8.3 Delivery tests: delta, snapshot after compaction includes draining rows, collector held until its profile definition is applied, interrupted stream applies nothing, mixed-version partition
 - [ ] 8.4 Scale test: synthetic 1,000,000-device inventory across synthetic agents; placement pass time, delta bytes for a one-device change, core memory

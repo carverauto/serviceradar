@@ -71,5 +71,5 @@ The system SHALL deliver an agent without `snmp-target-deltas:v1` only its place
 - **GIVEN** a partition with one upgraded agent and one legacy agent
 - **WHEN** placement spreads 6,000 devices across them
 - **THEN** the legacy agent's compiled `SNMPConfig` holds only its placed targets, no more than the legacy ceiling
-- **AND** the upgraded agent receives the rest as deltas
-- **AND** no device is placed on both agents unless its profile's redundancy requires it
+- **AND** the upgraded agent receives its own placed share as deltas
+- **AND** no device is placed on both agents unless its desired owner count, from redundancy or `replicate`, is greater than one

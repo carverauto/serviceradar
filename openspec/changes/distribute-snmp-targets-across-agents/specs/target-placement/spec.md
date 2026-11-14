@@ -50,7 +50,8 @@ An agent's partition is the partition of its own device, as for sweep leases.
 
 ### Requirement: Placement is sticky and moves only for a stated reason
 The system SHALL keep a target on its current owner unless one of these holds: the owner is no longer eligible, its liveness lease expired, its load exceeds its effective capacity, the target failed on it under the reachability rule, or a bounded rebalance selected it. A move for `over_capacity` or `rebalance` SHALL go only to an agent that stays within its effective capacity after the move. When no eligible agent has room, an `over_capacity` target SHALL stay on its owner and the agent SHALL be reported over capacity.
-When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve, including replicated targets it has newly become eligible for, without moving any owner a target already has. A placement pass SHALL fill these shortfalls before a rebalance assigns any free capacity.
+When an eligible agent with capacity becomes available, the system SHALL add owners to `under_replicated` targets that it can serve, including replicated targets it has newly become eligible for, without moving any owner a target already has.
+A placement pass SHALL assign free capacity in this order: first `uncovered` targets, which have no owner; then `under_replicated` targets, including replicated targets missing an eligible agent; then bounded rebalance. A later step uses only the capacity the earlier steps left.
 Every move SHALL record its reason. Among eligible agents, a new owner SHALL be chosen by rendezvous hashing weighted by remaining capacity, so that the same inputs always choose the same owner.
 
 #### Scenario: Agent joins a partition
@@ -70,6 +71,12 @@ Every move SHALL record its reason. Among eligible agents, a new owner SHALL be 
 - **WHEN** `agent-b` connects below its capacity
 - **THEN** the next placement pass adds an active placement on `agent-b`
 - **AND** the placement on `agent-a` is unchanged
+
+#### Scenario: Uncovered targets come before shortfalls
+- **GIVEN** 50 uncovered targets and 50 targets with redundancy 2 placed only on `agent-a`
+- **WHEN** eligible `agent-b` connects with room for 50 targets
+- **THEN** the next placement pass places the 50 uncovered targets on `agent-b`
+- **AND** the 50 under-replicated targets stay under-replicated
 
 #### Scenario: Shortfall fill comes before rebalance
 - **GIVEN** targets with redundancy 2 placed only on `agent-a`, which is above the rebalance high watermark

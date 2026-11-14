@@ -36,7 +36,7 @@ The system SHALL resolve every device to exactly one SNMP profile: the highest-p
 - **THEN** the agent polls them with the default profile's OIDs
 
 ### Requirement: SNMP profile placement mode and redundancy
-Each SNMP profile SHALL carry a `placement_mode` of `distribute` or `replicate`, and a `redundancy` of at least 1. A `distribute` profile SHALL place each target on `redundancy` eligible agents. A `replicate` profile SHALL place each target on every currently eligible agent, adding an owner when a pinned agent becomes eligible later, and SHALL be allowed only when the profile is pinned to a non-empty agent set.
+Each SNMP profile SHALL carry a `placement_mode` of `distribute` or `replicate`, and a `redundancy` of at least 1. A `distribute` profile SHALL place each target on `redundancy` eligible agents. The desired owners of a `replicate` profile's target SHALL be every currently eligible pinned agent, and an owner is added when a pinned agent becomes eligible later. For both modes, placement stays within each agent's effective capacity: a target with fewer owners than desired is `under_replicated`, and one with none is `uncovered`. A `replicate` profile SHALL be allowed only when the profile is pinned to a non-empty agent set.
 Pinning (`agent_ids`) restricts which agents are eligible. Pinning SHALL NOT, by itself, make every pinned agent poll every target.
 
 #### Scenario: Pinned distribute profile divides targets
@@ -90,12 +90,14 @@ The agent SHALL hold per-series sample buffers sized to the samples expected bet
 - **AND** the number of open SNMP sockets stays at or below the worker limit
 
 ### Requirement: Agent reports measured SNMP poller capacity
-The agent SHALL report, for each reporting window: the targets it holds, the polls due, the polls that completed within their interval, the data points produced, the SNMP requests sent, and the poll scheduling lag. Core SHALL derive the agent's measured capacity, in data points per second, from those reports. While the share of polls completed within their interval stays at or above the on-time threshold, measured capacity SHALL only rise, to the highest sustained point rate seen. When that share stays below the threshold for the configured number of consecutive windows, measured capacity SHALL be set to the achieved on-time point rate, which is below the agent's placed cost.
+The agent SHALL report, for each reporting window: the targets it holds, the polls due, the polls that completed within their interval, the data points produced, the SNMP requests sent, and the poll scheduling lag. Core SHALL derive the agent's measured capacity, in data points per second, from those reports. The on-time threshold and the consecutive-window count are configured. Before comparing, core SHALL recompute the agent's placed cost with the actual series counts from the same report. While the share of polls completed within their interval stays at or above the on-time threshold, measured capacity SHALL only rise, to the highest sustained point rate seen. When that share stays below the threshold for the configured number of consecutive windows, measured capacity SHALL be set to the achieved on-time point rate, which is below that recomputed placed cost.
 
 #### Scenario: Agent falls behind
-- **GIVEN** an agent completing 80 percent of due polls within their interval for three consecutive windows
+- **GIVEN** an on-time threshold of 99 percent and a window count of three
+- **AND** an agent completing 80 percent of due polls within their interval for three consecutive windows
+- **AND** its targets report more walk rows than their template estimate
 - **WHEN** core computes its measured capacity
-- **THEN** the measured capacity is below its current load
+- **THEN** the measured capacity is below its placed cost recomputed from the reported walk rows
 - **AND** the next placement pass moves load off the agent with reason `over_capacity`, only onto agents that stay within their effective capacity
 
 #### Scenario: Agent falls behind with no room elsewhere
@@ -106,7 +108,7 @@ The agent SHALL report, for each reporting window: the targets it holds, the pol
 - **AND** the agent is reported over capacity
 
 ### Requirement: SNMP targets move away from an owner that cannot reach them
-The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of candidates have also failed, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it.
+The system SHALL move an SNMP target to another eligible agent when its owner reports the target unreachable for the configured number of consecutive polls, and SHALL exclude that agent for the target for a backoff period. After the configured number of agents, counting the original owner, have failed the target, the system SHALL keep the target on the owner that reached the candidate limit and report it unreachable rather than continue moving it.
 
 #### Scenario: Another agent can reach the device
 - **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls
