@@ -61,7 +61,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   an explicit limit of #{@page_limit} rows: SRQL applies a default limit of 100
   when a request omits one, so reading a single page would silently drop the
   rest of the selection. A page that fails to read is an error, never a short
-  result.
+  result, and so is a full page without a cursor: SRQL stops issuing cursors
+  past its cursor window, so the selection may continue beyond it.
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}
@@ -88,6 +89,9 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
       case Map.get(page, :next_cursor) do
         next when is_binary(next) and next != "" ->
           reduce_page(runner, query, query_opts, next, acc, fun)
+
+        _no_cursor when length(rows) >= @page_limit ->
+          {:error, [format_error(:selection_exceeds_cursor_window)]}
 
         _last_page ->
           {:ok, acc}

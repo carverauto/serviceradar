@@ -7,22 +7,29 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     @moduledoc false
     # Serves rows the way `SRQLRunner.query_page/2` does: one page of at most
     # `:limit` rows (100 when the request omits it, as SRQL defaults) and a
-    # cursor while rows remain. `query/2` returns the first page, as
-    # `SRQLRunner.query/2` does.
+    # cursor after every full page, until the next offset would pass the
+    # cursor window (SRQL's `max_cursor_offset`). `query/2` returns the first
+    # page, as `SRQLRunner.query/2` does. Every query received is recorded.
 
     @default_limit 100
 
     # `rows` is a list served for any query, or a map of query => rows.
-    def serving(rows) do
+    def serving(rows, opts \\ []) do
       Process.put(__MODULE__, rows)
+      Process.put({__MODULE__, :cursor_window}, Keyword.get(opts, :cursor_window, :infinity))
+      Process.put({__MODULE__, :queries}, [])
       __MODULE__
     end
+
+    def queries, do: {__MODULE__, :queries} |> Process.get([]) |> Enum.reverse()
 
     def query(query, opts) do
       with {:ok, %{rows: rows}} <- query_page(query, opts), do: {:ok, rows}
     end
 
     def query_page(query, opts) do
+      Process.put({__MODULE__, :queries}, [query | Process.get({__MODULE__, :queries}, [])])
+
       rows =
         case Process.get(__MODULE__) do
           by_query when is_map(by_query) -> Map.fetch!(by_query, query)
@@ -32,7 +39,11 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
       limit = Keyword.get(opts, :limit) || @default_limit
       offset = opts |> Keyword.get(:cursor, "0") |> String.to_integer()
       page = rows |> Enum.drop(offset) |> Enum.take(limit)
-      next = if offset + limit < length(rows), do: Integer.to_string(offset + limit)
+      window = Process.get({__MODULE__, :cursor_window}, :infinity)
+
+      next =
+        if length(page) >= limit and offset + limit <= window,
+          do: Integer.to_string(offset + limit)
 
       {:ok, %{rows: page, next_cursor: next}}
     end
@@ -322,6 +333,53 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.matched_rows == 1_001
     assert preview.summary.target_agents == 1_001
     refute Map.has_key?(preview.summary, :refusal)
+  end
+
+  # Each page is its own offset query; without a unique order, agents with
+  # equal last_seen values can move between pages and be skipped.
+  test "agent targets are paged in uid order after any operator sort" do
+    agents = Enum.map(1..3, &%{"uid" => "agent-order-#{&1}"})
+    opts = [runner: Runner.serving(agents), agent_loader: AgentLoader, store: MemoryStore]
+
+    profile = Map.put(endpoint_inventory_profile(), :target_query, "in:agents")
+    assert {:ok, _preview} = AddonProfileReconciler.preview(profile, opts)
+    assert Runner.queries() == ["in:agents sort:uid:asc"]
+
+    sorted = %{profile | target_query: "in:agents sort:last_seen:desc"}
+    assert {:ok, _preview} = AddonProfileReconciler.preview(sorted, opts)
+
+    assert Runner.queries() == [
+             "in:agents sort:uid:asc",
+             "in:agents sort:last_seen:desc sort:uid:asc"
+           ]
+  end
+
+  # SRQL stops issuing cursors past its cursor window, so a full page with no
+  # cursor may be followed by more agents. Accepting it would assign, and
+  # count against max_targets, a subset of the selection.
+  test "a full page without a cursor fails the read instead of ending it" do
+    profile =
+      Map.merge(endpoint_inventory_profile(), %{target_query: "in:agents", max_targets: 5_000})
+
+    agents = Enum.map(1..2_500, &%{"uid" => "agent-window-#{&1}"})
+
+    opts = [
+      runner: Runner.serving(agents, cursor_window: 1_000),
+      agent_loader: AgentLoader,
+      store: MemoryStore,
+      reconciled_at: ~U[2026-11-14 12:00:00Z]
+    ]
+
+    assert {:error, [message]} = AddonProfileReconciler.reconcile(profile, opts)
+    assert message =~ "selection_exceeds_cursor_window"
+    assert {:error, _} = AddonProfileReconciler.preview(profile, opts)
+    assert {:error, _} = AddonProfileReconciler.check_target_limit(profile, opts)
+
+    within_window = Enum.take(agents, 1_500)
+    opts = Keyword.put(opts, :runner, Runner.serving(within_window, cursor_window: 1_000))
+
+    assert {:ok, preview} = AddonProfileReconciler.preview(profile, opts)
+    assert preview.summary.target_agents == 1_500
   end
 
   test "preview reports resolved targets and skip reasons" do
@@ -729,7 +787,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
   defp default_query_rows do
     %{
-      "in:agents" => [agent_row("agent-good")],
+      "in:agents sort:uid:asc" => [agent_row("agent-good")],
       "in:devices" => [
         %{
           "uid" => "device-good",
