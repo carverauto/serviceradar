@@ -43,10 +43,9 @@ a guard test pins all three sources.
 Flows and process attribution are stored exclusively in StarRocks via the
 dedicated `flows` stream (`SFLOW_RAW`, `NETFLOW_RAW`, and any concrete
 `extra_flow_subjects/0` entries) and `events.flow.attribution`. The former
-`events`-stream residual-drain durables (`<consumer>-sflow-raw`,
-`<consumer>-netflow-raw`, and any `<consumer>-flow-*` extension drain on
-`events`) and the former `<consumer>-attributed-flow` durable (on `events` and
-`attributed_flow`) have no remaining publisher or consumer. `Config.load/0`
+`events`-stream residual-drain durables (`<consumer>-sflow-raw` and
+`<consumer>-netflow-raw`) and the former `<consumer>-attributed-flow`
+durable (on `events` and `attributed_flow`) have no remaining publisher or consumer. `Config.load/0`
 includes them in `retired_consumers` (scoped strictly to `events` and
 `attributed_flow`, never `flows`), so `ConsumerReconciler` deletes any
 pre-existing orphan durables once every live durable is up. The

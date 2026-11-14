@@ -303,12 +303,8 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   defp retired_consumers_for(consumer_name) when is_binary(consumer_name) do
-    flow_drain_sources =
-      ["SFLOW_RAW", "NETFLOW_RAW"] ++
-        Enum.map(extra_flow_subjects(), &flow_subject_stream_name/1)
-
     events_flow_drains =
-      Enum.map(flow_drain_sources, fn source_name ->
+      Enum.map(["SFLOW_RAW", "NETFLOW_RAW"], fn source_name ->
         %{stream_name: "events", consumer_name: durable_name(consumer_name, source_name)}
       end)
 
