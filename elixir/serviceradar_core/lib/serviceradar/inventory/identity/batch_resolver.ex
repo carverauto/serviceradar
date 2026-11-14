@@ -175,7 +175,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
           claimed_source_ids = SourceAuthorityGuard.claim(claimed_source_ids, ids, final_id)
           guest_claims = claim_guest(guest_claims, ids, final_id)
-          guest_refusals = if guest_refusal, do: [guest_refusal | guest_refusals], else: guest_refusals
+
+          guest_refusals =
+            if guest_refusal, do: [guest_refusal | guest_refusals], else: guest_refusals
 
           strong =
             if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
@@ -346,7 +348,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end)
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
-    |> then(&GuestIdentityGuard.held_v3_refs(&1, actor))
+    |> GuestIdentityGuard.held_v3_refs(actor)
   end
 
   # The refusal when `uid` would gain a second guest from the update: the guests it holds, read

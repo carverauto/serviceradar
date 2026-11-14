@@ -29,9 +29,14 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestVerification do
         true -> "fail"
       end
 
-    check =
-      %{check: "G1", status: status, count: length(findings), sample: Enum.take(findings, @sample)}
-      |> then(&if(truncated?, do: Map.put(&1, :reason, "candidate_limit_reached"), else: &1))
+    check = %{
+      check: "G1",
+      status: status,
+      count: length(findings),
+      sample: Enum.take(findings, @sample)
+    }
+
+    check = if truncated?, do: Map.put(check, :reason, "candidate_limit_reached"), else: check
 
     %{
       multi_guest_records: length(findings),

@@ -136,8 +136,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
 
   defp action(%{"step" => step, "action" => action})
        when step in [@awx_step, @split_step] and
-              action in ["candidate_preflight", "candidate_committed"],
-       do: :marker
+              action in ["candidate_preflight", "candidate_committed"], do: :marker
 
   defp action(%{"step" => step}) when step in @steps, do: :not_rolled_back
   defp action(_entry), do: :ignored
@@ -258,8 +257,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
                  :reassign_wrong_guest_mac,
                  :guest_split
                ],
-              do: {:halt, %{state | halted: to_string(action)}},
-              else: {:cont, state}
+               do: {:halt, %{state | halted: to_string(action)}},
+               else: {:cont, state}
         end
     end
   end

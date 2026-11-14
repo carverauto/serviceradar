@@ -119,7 +119,10 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
       Enum.flat_map(devices, fn {uid, device} ->
         device_rows = Map.get(rows, uid, [])
         guests = device_rows |> Enum.map(& &1.value) |> guest_refs()
-        if length(guests) > 1, do: [Map.merge(device, %{rows: device_rows, guests: guests})], else: []
+
+        if length(guests) > 1,
+          do: [Map.merge(device, %{rows: device_rows, guests: guests})],
+          else: []
       end)
 
     refs = data |> Enum.flat_map(& &1.guests) |> Enum.uniq()
@@ -131,7 +134,8 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
     data
     |> Enum.map(fn device ->
       Map.merge(device, %{
-        guest_macs: Map.new(device.guests, &{&1, nics |> Map.get(&1, %{}) |> Map.get(:macs, MapSet.new())}),
+        guest_macs:
+          Map.new(device.guests, &{&1, nics |> Map.get(&1, %{}) |> Map.get(:macs, MapSet.new())}),
         guest_addrs:
           Map.new(device.guests, &{&1, nics |> Map.get(&1, %{}) |> Map.get(:addrs, MapSet.new())}),
         guest_names: Map.take(names, device.guests),
@@ -224,7 +228,10 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
         [refs]
       )
 
-    for [ref, name] <- rows, is_binary(name) and String.trim(name) != "", into: %{}, do: {ref, name}
+    for [ref, name] <- rows,
+        is_binary(name) and String.trim(name) != "",
+        into: %{},
+        do: {ref, name}
   end
 
   defp agents([]), do: %{}
@@ -248,7 +255,8 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
   # The current AWX memberships of each AWX v2 host row, by the row's value.
   defp awx_memberships(rows) do
     hosts =
-      for %{value: value} <- rows, [_, controller, host] <- [Regex.run(@awx_v2, value || "")],
+      for %{value: value} <- rows,
+          [_, controller, host] <- [Regex.run(@awx_v2, value || "")],
           uniq: true,
           do: {value, controller, String.to_integer(host)}
 
@@ -384,7 +392,9 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
   defp awx_owner([], _owners), do: nil
 
   defp awx_owner(memberships, owners) do
-    case memberships |> Enum.map(&(&1.ansible_host && owners.address.(&1.ansible_host))) |> Enum.uniq() do
+    case memberships
+         |> Enum.map(&(&1.ansible_host && owners.address.(&1.ansible_host)))
+         |> Enum.uniq() do
       [guest] when is_binary(guest) -> guest
       _ -> nil
     end
@@ -445,7 +455,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
       planned_new_records: split |> Enum.map(&length(&1.splits)) |> Enum.sum(),
       planned_rows_moved:
         split |> Enum.flat_map(& &1.splits) |> Enum.map(&length(&1.rows)) |> Enum.sum(),
-      planned_skips: skipped |> Enum.frequencies_by(& &1.skip_reason),
+      planned_skips: Enum.frequencies_by(skipped, & &1.skip_reason),
       unproven_rows: plans |> Enum.map(&length(&1.unproven)) |> Enum.sum(),
       plans: plans |> Enum.take(@report_limit) |> Enum.map(&report_plan/1)
     }
@@ -728,19 +738,21 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
     {:ok, source} = Device.get_by_uid(uid, false, actor: actor)
 
     params =
-      %{
-        uid: new_uid,
-        partition: source.partition,
-        metadata: %{
-          "integration_id" => split.guest,
-          "integration_type" => "hypervisor",
-          "device_role" => "virtual-guest",
-          "hypervisor_provider" => "proxmox",
-          "hypervisor_provider_ref" => split.guest,
-          "split_from_device_uid" => uid
-        }
-      }
-      |> maybe_put_hostname(split.name || source.hostname)
+      maybe_put_hostname(
+        %{
+          uid: new_uid,
+          partition: source.partition,
+          metadata: %{
+            "integration_id" => split.guest,
+            "integration_type" => "hypervisor",
+            "device_role" => "virtual-guest",
+            "hypervisor_provider" => "proxmox",
+            "hypervisor_provider_ref" => split.guest,
+            "split_from_device_uid" => uid
+          }
+        },
+        split.name || source.hostname
+      )
 
     case Device
          |> Ash.Changeset.for_create(:create, params)
