@@ -618,6 +618,15 @@ unaffected flags, so affected agents can self-update; the installed updater need
 no change. On restart, the fixed agent re-applies configuration and retries add-on
 installation because its per-add-on failure state is held in memory.
 
+A permanent add-on install refusal (an updater flag or validation refusal, an
+unsupported layout, or an artifact checksum or signature failure) does not
+block the rest of the agent configuration: the agent applies and acknowledges
+the other sections and reports the add-on as failed. It does not repeat the
+identical install on every poll. It retries as soon as the assignment changes
+(version, artifact, or config) or the host's
+`/usr/local/bin/serviceradar-agent-updater` is replaced, for example by an
+agent package upgrade.
+
 An add-on install or delivery failure, and a systemd unit stuck in
 `auto-restart`, fail the canary immediately with `candidate_install_failed` or
 `candidate_reported_unhealthy` and record the error on the rollout target,
@@ -625,7 +634,10 @@ instead of waiting for `candidate_health_timeout`. An agent that advertises
 `addon.systemd.updater.unavailable` is marked incompatible
 (`agent_updater_outdated`) for systemd add-ons. The privileged updater is
 installed by the agent's OS package, and agent self-update does not replace it,
-so the fix is to upgrade the agent package on that host.
+so the fix is to upgrade the agent package on that host. Systemd add-ons also
+require agent 1.2.47 or newer: an agent reporting an older version, or no
+version, is marked incompatible (`unsupported_agent_version`), is not sent the
+package, and the fleet view shows "Agent upgrade required".
 
 A rollout checks compatibility again each time it is about to start targets:
 when it is created, before every batch, and when a paused rollout is resumed

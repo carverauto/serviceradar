@@ -213,4 +213,20 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutViewTest do
     assert health.detail =~ "stays on 1.0.0"
     assert health.action == :review_rollout
   end
+
+  test "an agent too old for systemd add-ons tells the operator to upgrade the agent" do
+    assert AddonRolloutView.reason_label("unsupported_agent_version") =~ "upgrade the agent"
+
+    health =
+      AddonRolloutView.fleet_health(%{
+        category: :action_required,
+        reason_code: "unsupported_agent_version",
+        rollout_id: "rollout-old-agent",
+        running_version: "1.0.0"
+      })
+
+    assert health.title == "Agent upgrade required"
+    assert health.detail =~ "stays on 1.0.0"
+    assert health.action == :review_rollout
+  end
 end

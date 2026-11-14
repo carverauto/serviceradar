@@ -195,6 +195,37 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              )
   end
 
+  test "systemd add-on packages need agent 1.2.47 or newer" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    for supervision <- [:systemd_service, :systemd_timer],
+        agent_version <- ["1.2.46", "1.0.0", nil, ""] do
+      assert {:incompatible, "unsupported_agent_version"} =
+               Eligibility.classify_target(
+                 package(supervision: supervision, requires: %{"platforms" => ["linux"]}),
+                 agent(now, version: agent_version),
+                 now
+               ),
+             "expected #{supervision} to be incompatible with agent #{inspect(agent_version)}"
+    end
+
+    for agent_version <- ["1.2.47", "v1.2.47", "1.3.0"] do
+      assert {:eligible, nil} =
+               Eligibility.classify_target(
+                 package(supervision: :systemd_service),
+                 agent(now, version: agent_version),
+                 now
+               )
+    end
+
+    assert {:eligible, nil} =
+             Eligibility.classify_target(
+               package(supervision: :agent_sidecar, requires: %{"platforms" => ["linux"]}),
+               agent(now, version: "1.2.46"),
+               now
+             )
+  end
+
   test "uses supervision-specific readiness instead of requiring every add-on to be active" do
     timer = package(supervision: :systemd_timer)
     helper = package(supervision: :ephemeral_helper)
@@ -387,7 +418,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
 
     %{
       uid: "agent-1",
-      version: "1.4.23",
+      version: Keyword.get(overrides, :version, "1.4.23"),
       capabilities: Keyword.get(overrides, :capabilities, []),
       status: Keyword.get(overrides, :status, :connected),
       is_healthy: true,

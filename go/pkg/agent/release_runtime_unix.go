@@ -4,6 +4,7 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 )
@@ -19,4 +20,13 @@ func validateRootOwnedFile(info os.FileInfo) error {
 		return errReleaseUpdaterOwnershipInvalid
 	}
 	return nil
+}
+
+func fileDeviceInode(info os.FileInfo) string {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "dev=?:ino=?"
+	}
+
+	return fmt.Sprintf("dev=%d:ino=%d", stat.Dev, stat.Ino)
 }

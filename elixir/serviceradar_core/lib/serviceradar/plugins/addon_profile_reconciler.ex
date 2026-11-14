@@ -412,8 +412,14 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     {eligible, skipped} =
       Enum.reduce(targets, {[], []}, fn target, {eligible_acc, skipped_acc} ->
         case target_skip(profile, target) do
-          nil -> {[target | eligible_acc], skipped_acc}
-          {reason, detail} -> {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+          nil ->
+            {[target | eligible_acc], skipped_acc}
+
+          {reason, detail} ->
+            {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+
+          {reason, detail, extra} ->
+            {eligible_acc, [Map.merge(skip_target(target, reason, detail), extra) | skipped_acc]}
         end
       end)
 
@@ -465,6 +471,16 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       ) ->
         {"agent_updater_outdated",
          "target agent updater does not support systemd add-on installs"}
+
+      not AddonRolloutArtifact.agent_supports_systemd_addon_package?(
+        package_supervision(profile),
+        target_agent_version(compatibility_row)
+      ) ->
+        required = AddonRolloutArtifact.systemd_addon_min_agent_version()
+
+        {"unsupported_agent_version",
+         "systemd add-ons require agent #{required} or newer, target reports #{inspect(target_agent_version(compatibility_row))}",
+         %{agent_version_required: required}}
 
       true ->
         nil

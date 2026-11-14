@@ -18,8 +18,12 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -239,6 +243,7 @@ func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, er
 		version:     version,
 		disposition: configSectionDispositionPermanent,
 	}
+	delete(p.systemdInstallFailures, id)
 }
 
 // recordTransientAddonApplyFailure stores/refreshes the latest transient apply failure for
@@ -281,7 +286,11 @@ func (p *PushLoop) addonDeliveryInBackoff(a *proto.AddonAssignmentConfig, now ti
 	p.addonDeliveryMu.Lock()
 	defer p.addonDeliveryMu.Unlock()
 
-	failure, ok := p.addonDeliveryFailures[strings.TrimSpace(a.GetAddonId())]
+	id := strings.TrimSpace(a.GetAddonId())
+	if _, systemdFailure := p.systemdInstallFailures[id]; systemdFailure {
+		return false
+	}
+	failure, ok := p.addonDeliveryFailures[id]
 	if !ok {
 		return false
 	}
@@ -302,6 +311,130 @@ func (p *PushLoop) clearAddonDeliveryFailure(id string) {
 	trimmed := strings.TrimSpace(id)
 	delete(p.addonDeliveryFailures, trimmed)
 	delete(p.addonApplyFailures, trimmed)
+	delete(p.systemdInstallFailures, trimmed)
+}
+
+func (p *PushLoop) systemdUpdaterPath() string {
+	if p != nil && p.systemdUpdaterPathOverride != "" {
+		return p.systemdUpdaterPathOverride
+	}
+
+	return AgentUpdaterPath()
+}
+
+func statFileIdentity(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "unset"
+	}
+
+	info, err := os.Stat(trimmed)
+	if err != nil {
+		return "path=" + trimmed + ":missing"
+	}
+
+	return fmt.Sprintf("path=%s:%s:mode=%o:size=%d:mtime=%d",
+		trimmed, fileDeviceInode(info), info.Mode(), info.Size(), info.ModTime().UnixNano())
+}
+
+// systemdInstallAttemptKey captures every input that can change the outcome of a
+// systemd-supervised add-on install, including the on-disk updater executable identity,
+// while intentionally excluding ephemeral per-poll fields such as DownloadToken.
+func (p *PushLoop) systemdInstallAttemptKey(a *proto.AddonAssignmentConfig, supervision string) string {
+	caps := make([]string, 0, len(a.GetOsCapabilities()))
+	for _, c := range a.GetOsCapabilities() {
+		if trimmed := strings.ToLower(strings.TrimSpace(c)); trimmed != "" {
+			caps = append(caps, trimmed)
+		}
+	}
+	sort.Strings(caps)
+
+	resSum := sha256.Sum256(marshalConfigSectionMessage(a.GetResources()))
+
+	return strings.Join([]string{
+		strings.TrimSpace(a.GetAddonId()),
+		strings.TrimSpace(a.GetVersion()),
+		strings.TrimSpace(a.GetArtifactObjectKey()),
+		strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())),
+		strings.TrimSpace(a.GetArtifactSignature()),
+		strings.TrimSpace(a.GetBinaryPath()),
+		strings.TrimSpace(supervision),
+		addonAssignmentConfigSHA256(a.GetConfigJson()),
+		strings.Join(caps, ","),
+		hex.EncodeToString(resSum[:]),
+		statFileIdentity(p.systemdUpdaterPath()),
+	}, "|")
+}
+
+// recordSystemdPermanentFailure records a deterministic systemd install/activation refusal
+// for both status reporting and input-keyed retry suppression across polls (independent of
+// the 5-minute artifact download backoff).
+func (p *PushLoop) recordSystemdPermanentFailure(
+	a *proto.AddonAssignmentConfig,
+	supervision string,
+	err error,
+	now time.Time,
+) {
+	if a == nil || err == nil {
+		return
+	}
+
+	key := p.systemdInstallAttemptKey(a, supervision)
+
+	p.addonDeliveryMu.Lock()
+	defer p.addonDeliveryMu.Unlock()
+
+	if p.addonDeliveryFailures == nil {
+		p.addonDeliveryFailures = make(map[string]addonDeliveryFailure)
+	}
+	if p.addonApplyFailures == nil {
+		p.addonApplyFailures = make(map[string]addonApplyFailure)
+	}
+	if p.systemdInstallFailures == nil {
+		p.systemdInstallFailures = make(map[string]string)
+	}
+
+	id := strings.TrimSpace(a.GetAddonId())
+	version := strings.TrimSpace(a.GetVersion())
+	reason := err.Error()
+
+	p.addonDeliveryFailures[id] = addonDeliveryFailure{
+		key:     addonDeliveryAttemptKey(a),
+		at:      now,
+		reason:  reason,
+		version: version,
+	}
+	p.addonApplyFailures[id] = addonApplyFailure{
+		at:          now,
+		reason:      reason,
+		version:     version,
+		disposition: configSectionDispositionPermanent,
+	}
+	p.systemdInstallFailures[id] = key
+}
+
+// systemdInstallSuppressed reports whether an identical systemd install already failed
+// permanently with the identical assignment inputs and on-disk updater binary.
+func (p *PushLoop) systemdInstallSuppressed(a *proto.AddonAssignmentConfig, supervision string) bool {
+	if a == nil {
+		return false
+	}
+
+	wantKey := p.systemdInstallAttemptKey(a, supervision)
+
+	p.addonDeliveryMu.Lock()
+	defer p.addonDeliveryMu.Unlock()
+
+	id := strings.TrimSpace(a.GetAddonId())
+	recordedKey, ok := p.systemdInstallFailures[id]
+	if !ok {
+		return false
+	}
+	if _, hasFailure := p.addonDeliveryFailures[id]; !hasFailure {
+		return false
+	}
+
+	return recordedKey == wantKey
 }
 
 // pruneAddonDeliveryFailures drops failure records for add-ons that are no longer
@@ -318,6 +451,11 @@ func (p *PushLoop) pruneAddonDeliveryFailures(keep map[string]bool) {
 	for id := range p.addonApplyFailures {
 		if !keep[id] {
 			delete(p.addonApplyFailures, id)
+		}
+	}
+	for id := range p.systemdInstallFailures {
+		if !keep[id] {
+			delete(p.systemdInstallFailures, id)
 		}
 	}
 }

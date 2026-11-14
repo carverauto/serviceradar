@@ -504,7 +504,7 @@ func visibilitySectionPayloadHash(
 ) string {
 	return hashConfigSectionPayload(
 		marshalConfigSectionMessage(configResp.VisibilityConfig),
-		marshalConfigSectionMessage(netprobeSystemdAssignment(effectiveAddons)),
+		marshalAddonAssignmentForHash(netprobeSystemdAssignment(effectiveAddons)),
 	)
 }
 

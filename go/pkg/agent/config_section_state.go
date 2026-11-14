@@ -117,6 +117,24 @@ func (e *addonAssignmentsDeferredError) Error() string {
 
 func (e *addonAssignmentsDeferredError) Unwrap() error { return e.err }
 
+// addonAssignmentsPermanentError names the add-ons whose assignments failed permanently
+// so the add-on section's failure hash is scoped to those add-ons rather than every
+// healthy add-on in the response.
+type addonAssignmentsPermanentError struct {
+	addonIDs []string
+	summary  string
+}
+
+func (e *addonAssignmentsPermanentError) Error() string {
+	if e.summary == "" {
+		return errAddonAssignmentsPermanent.Error()
+	}
+
+	return fmt.Sprintf("%v: %s", errAddonAssignmentsPermanent, e.summary)
+}
+
+func (e *addonAssignmentsPermanentError) Unwrap() error { return errAddonAssignmentsPermanent }
+
 // configSectionFailure is the persistent (in-memory, per process run) failure state for
 // one config section, keyed by the section's payload hash. A classified permanent
 // failure of an identical payload is neither re-attempted nor re-logged every cycle.
@@ -166,13 +184,29 @@ func marshalConfigSectionMessage(m gproto.Message) []byte {
 	return out
 }
 
+// marshalAddonAssignmentForHash renders one add-on assignment deterministically while
+// stripping per-poll ephemeral credentials (DownloadToken), which StorageToken mints
+// freshly on every poll and which would otherwise invalidate failure payload hashes.
+func marshalAddonAssignmentForHash(a *proto.AddonAssignmentConfig) []byte {
+	if a == nil {
+		return nil
+	}
+	cloned, ok := gproto.Clone(a).(*proto.AddonAssignmentConfig)
+	if !ok || cloned == nil {
+		return marshalConfigSectionMessage(a)
+	}
+	cloned.DownloadToken = ""
+
+	return marshalConfigSectionMessage(cloned)
+}
+
 // marshalAddonAssignmentsForHash renders each add-on assignment deterministically so the
 // visibility section (which merges the netprobe assignment's config_json) re-evaluates
 // when any assignment changes.
 func marshalAddonAssignmentsForHash(addons []*proto.AddonAssignmentConfig) [][]byte {
 	parts := make([][]byte, 0, len(addons))
 	for _, a := range addons {
-		parts = append(parts, marshalConfigSectionMessage(a))
+		parts = append(parts, marshalAddonAssignmentForHash(a))
 	}
 
 	return parts
@@ -217,7 +251,7 @@ func addonFailurePayloadHash(addons []*proto.AddonAssignmentConfig, addonIDs []s
 	for _, id := range ids {
 		parts = append(parts, []byte(id))
 		if a, ok := byID[id]; ok {
-			parts = append(parts, marshalConfigSectionMessage(a))
+			parts = append(parts, marshalAddonAssignmentForHash(a))
 		} else {
 			parts = append(parts, []byte("absent"))
 		}
@@ -511,6 +545,11 @@ func configSectionFailureAddonIDs(err error) []string {
 		return append([]string(nil), deferred.addonIDs...)
 	}
 
+	var permanent *addonAssignmentsPermanentError
+	if errors.As(err, &permanent) && len(permanent.addonIDs) > 0 {
+		return append([]string(nil), permanent.addonIDs...)
+	}
+
 	return nil
 }
 
@@ -668,6 +707,12 @@ func (p *PushLoop) configApplyFailureStatuses(existing []*proto.SidecarStatus) [
 
 	for section, failure := range failures {
 		if failure.disposition != addonDeliveryPermanentFailure && section != configSectionVisibility {
+			continue
+		}
+		if section == configSectionAddons && !failure.escalated {
+			// Non-escalated permanent add-on assignment failures come from addonDeliveryFailures,
+			// which addonDeliveryFailureStatuses already surfaces while keeping any still-running
+			// last-known-good version in running state.
 			continue
 		}
 		for _, addonID := range failure.addonIDs {

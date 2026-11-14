@@ -218,7 +218,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     defp agent(uid, overrides \\ []) do
       %{
         uid: uid,
-        version: Keyword.get(overrides, :version, "1.2.3"),
+        version: Keyword.get(overrides, :version, "1.2.47"),
         capabilities: Keyword.get(overrides, :capabilities, ["endpoint-inventory"]),
         status: Keyword.get(overrides, :status, :connected),
         metadata: Keyword.get(overrides, :metadata, %{"os" => "linux", "arch" => "amd64"})
@@ -675,6 +675,83 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert preview.summary.desired_assignments == 0
     assert preview.summary.skip_counts == %{"unsupported_platform" => 1}
+  end
+
+  test "a systemd add-on profile skips agents older than 1.2.47 as unsupported_agent_version" do
+    defmodule ResolverPreBoundaryAgent do
+      @moduledoc false
+
+      def resolve([%{entity: entity, query: query} | _], _opts) do
+        {:ok,
+         [
+           %{
+             name: "targets",
+             entity: entity,
+             query: query,
+             rows: [
+               %{"uid" => "agent-old", "os" => "linux", "arch" => "amd64"},
+               %{"uid" => "agent-current", "os" => "linux", "arch" => "amd64"}
+             ]
+           }
+         ]}
+      end
+    end
+
+    defmodule PreBoundaryAgentLoader do
+      @moduledoc false
+
+      def load(uids, _actor) do
+        versions = %{"agent-old" => "1.2.46", "agent-current" => "1.2.47"}
+
+        {:ok,
+         Enum.map(uids, fn uid ->
+           %{
+             uid: uid,
+             version: Map.fetch!(versions, uid),
+             capabilities: ["addon.native.host"],
+             status: :connected,
+             metadata: %{"os" => "linux", "arch" => "amd64"}
+           }
+         end)}
+      end
+    end
+
+    profile = %{
+      id: Ecto.UUID.generate(),
+      name: "Exposure scanner",
+      addon_id: "bumblebee",
+      addon_package_id: Ecto.UUID.generate(),
+      target_query: "in:agents",
+      params: %{},
+      args: [],
+      priority: 100,
+      enabled: true,
+      addon_package: %{
+        addon_id: "bumblebee",
+        version: "0.2.0",
+        status: :approved,
+        supervision: "systemd_timer",
+        artifacts: %{"linux/amd64" => %{}},
+        requires: %{
+          "platforms" => ["linux"],
+          "agent_capabilities" => [],
+          "os_capabilities" => []
+        }
+      }
+    }
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverPreBoundaryAgent,
+               agent_loader: PreBoundaryAgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 1
+    assert preview.summary.skip_counts == %{"unsupported_agent_version" => 1}
+
+    assert [%{agent_uid: "agent-old", agent_version_required: "1.2.47"}] =
+             preview.summary.skipped_targets
   end
 
   defp endpoint_inventory_profile do

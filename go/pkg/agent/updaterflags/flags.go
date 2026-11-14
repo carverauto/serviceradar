@@ -61,6 +61,12 @@ const DefaultCommandType = "agent.update_release"
 // DefaultRollbackDeadline is the activation rollback deadline used when none is passed.
 const DefaultRollbackDeadline = 3 * time.Minute
 
+// ExitPermanentRefusal is the sysexits EX_CONFIG exit status returned by
+// serviceradar-agent-updater when a deterministic contract, signature, path,
+// unit, or capability validation refuses an operation. The non-root agent
+// classifies this exit status structurally without inspecting stderr text.
+const ExitPermanentRefusal = 78
+
 // Options holds the parsed updater command line.
 type Options struct {
 	RuntimeRoot      string

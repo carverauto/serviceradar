@@ -125,6 +125,55 @@ var (
 	ErrAddonSystemdSliceUnsafe = errors.New("addon systemd slice is not a unit name")
 )
 
+// IsPermanentAddonInstallError reports whether an add-on install or activation error is a
+// deterministic contract, verification, or privilege-boundary refusal that retrying the
+// identical assignment against the identical updater binary cannot fix. Environmental and
+// host runtime failures (missing staged files, systemctl / setcap invocation errors, I/O
+// errors) return false so transient recovery continues to work.
+func IsPermanentAddonInstallError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var jsonSyntaxErr *json.SyntaxError
+	var jsonTypeErr *json.UnmarshalTypeError
+	if errors.As(err, &jsonSyntaxErr) || errors.As(err, &jsonTypeErr) {
+		return true
+	}
+
+	switch {
+	case errors.Is(err, ErrAgentUpdaterPermanentRefusal),
+		errors.Is(err, errReleaseUpdaterFlagUnsupported),
+		errors.Is(err, ErrAddonUnitExecPathUnsafe),
+		errors.Is(err, ErrAddonSignatureRequired),
+		errors.Is(err, ErrAddonSignatureInvalid),
+		errors.Is(err, ErrAddonArtifactIncomplete),
+		errors.Is(err, ErrAddonArtifactHashMismatch),
+		errors.Is(err, ErrAddonUnsafePath),
+		errors.Is(err, ErrAddonUnitNameUnsafe),
+		errors.Is(err, ErrAddonUnitNotRegular),
+		errors.Is(err, ErrAddonUnitEscape),
+		errors.Is(err, ErrAddonTarballUnsafe),
+		errors.Is(err, ErrAddonTarballTooLarge),
+		errors.Is(err, ErrAddonTarballBinaryMissing),
+		errors.Is(err, ErrAddonSystemdNoUnits),
+		errors.Is(err, ErrAddonSystemdNoUnitsDiscovered),
+		errors.Is(err, ErrAddonSystemdEnableNotListed),
+		errors.Is(err, ErrAddonSystemdPrimaryAmbiguous),
+		errors.Is(err, ErrAddonSystemdSupervisionUnknown),
+		errors.Is(err, ErrAddonSystemdTimerRequiresTimer),
+		errors.Is(err, ErrAddonSystemdSliceUnsafe),
+		errors.Is(err, ErrAddonPrivilegedRootUnsafe),
+		errors.Is(err, ErrAddonCapabilityUnsafe),
+		errors.Is(err, ErrAddonCapabilityBinaryEscape),
+		errors.Is(err, ErrAddonBinaryNotRegular),
+		errors.Is(err, ErrAddonRuntimeConfigAmbiguous):
+		return true
+	default:
+		return false
+	}
+}
+
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
 // systemd units, materialized and verified by the root-owned updater.
 type AddonSystemdInstallRequest struct {

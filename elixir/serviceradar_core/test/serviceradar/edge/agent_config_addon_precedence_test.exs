@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
 
   test "manual assignments win over profile assignments" do
     manual = assignment(source: :manual, updated_at: ~U[2026-07-01 00:00:00.000000Z])
@@ -137,6 +138,129 @@ defmodule ServiceRadar.Edge.AgentConfigAddonPrecedenceTest do
       end)
 
     refute log =~ "Duplicate enabled add-on assignments"
+  end
+
+  test "a systemd assignment a pre-1.2.47 agent cannot install does not shadow a compatible profile assignment" do
+    direct_systemd =
+      assignment_with_package(
+        source: :manual,
+        addon_id: "netprobe",
+        version: "0.3.0",
+        supervision: :systemd_service,
+        updated_at: ~U[2026-07-10 00:00:00.000000Z]
+      )
+
+    profile_sidecar =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Fleet default",
+        priority: 100,
+        addon_id: "netprobe",
+        version: "0.2.0",
+        supervision: :agent_sidecar,
+        updated_at: ~U[2026-07-01 00:00:00.000000Z]
+      )
+
+    for agent_version <- ["1.2.46", nil] do
+      profile = %{
+        os: "linux",
+        arch: "amd64",
+        version: agent_version,
+        capabilities: ["addon.native.host"]
+      }
+
+      capture_log(fn ->
+        assert [%{addon_id: "netprobe", version: "0.2.0"}] =
+                 AgentConfigGenerator.compile_deliverable_addon_assignments(
+                   [direct_systemd, profile_sidecar],
+                   profile
+                 )
+      end)
+    end
+
+    capture_log(fn ->
+      assert [%{addon_id: "netprobe", version: "0.3.0"}] =
+               AgentConfigGenerator.compile_deliverable_addon_assignments(
+                 [direct_systemd, profile_sidecar],
+                 %{os: "linux", arch: "amd64", version: "1.2.47", capabilities: []}
+               )
+    end)
+  end
+
+  test "an incompatible higher-precedence assignment does not shadow a compatible assignment" do
+    incompatible_high =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Future agent override",
+        priority: 10,
+        addon_id: "anomaly",
+        version: "0.4.0",
+        supervision: :agent_sidecar,
+        base_agent: ">= 2.0.0",
+        updated_at: ~U[2026-07-10 00:00:00.000000Z]
+      )
+
+    compatible_low =
+      assignment_with_package(
+        source: :profile,
+        profile_name: "Fleet default",
+        priority: 100,
+        addon_id: "anomaly",
+        version: "0.3.18",
+        supervision: :agent_sidecar,
+        base_agent: ">= 1.2.0",
+        updated_at: ~U[2026-07-01 00:00:00.000000Z]
+      )
+
+    profile = %{
+      os: "linux",
+      arch: "amd64",
+      version: "1.5.0",
+      capabilities: ["addon.native.host"]
+    }
+
+    capture_log(fn ->
+      assert [%{addon_id: "anomaly", version: "0.3.18"}] =
+               AgentConfigGenerator.compile_deliverable_addon_assignments(
+                 [incompatible_high, compatible_low],
+                 profile
+               )
+    end)
+  end
+
+  defp assignment_with_package(opts) do
+    addon_id = Keyword.fetch!(opts, :addon_id)
+    version = Keyword.fetch!(opts, :version)
+    supervision = Keyword.fetch!(opts, :supervision)
+
+    requires =
+      case Keyword.get(opts, :base_agent) do
+        nil -> %{"platforms" => ["linux"]}
+        base_agent -> %{"platforms" => ["linux"], "base_agent" => base_agent}
+      end
+
+    pkg = %AddonPackage{
+      id: Ecto.UUID.generate(),
+      addon_id: addon_id,
+      name: addon_id,
+      version: version,
+      status: :approved,
+      delivery: :pushed_artifact,
+      supervision: supervision,
+      requires: requires,
+      artifacts: %{
+        "linux/amd64" => %{
+          "object_key" => "native-addons/#{addon_id}/#{version}/linux/amd64/addon.tar.gz",
+          "sha256" => String.duplicate("a", 64),
+          "signature" => "sig-#{version}"
+        }
+      },
+      config_schema: %{},
+      resources: %{}
+    }
+
+    base = assignment(opts)
+    %{base | addon_package_id: pkg.id, addon_package: pkg}
   end
 
   defp assignment(opts) do
