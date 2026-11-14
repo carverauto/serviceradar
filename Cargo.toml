@@ -71,7 +71,7 @@ arancini-lib = "=0.7.6"
 arrow-array = "60.1"
 arrow-ipc = "60.1"
 arrow-schema = "60.1"
-async-nats = "0.50.0"
+async-nats = "0.51.0"
 async-trait = "0.1"
 # Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
 # they opt in only to extras like "ws" / "macros".
