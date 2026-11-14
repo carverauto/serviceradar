@@ -11,6 +11,7 @@ defmodule ServiceRadarNVR.Config do
     :reserve_bytes,
     :recovery_gate,
     :delivery,
+    :ingest,
     :auto_delivery
   ]
 
@@ -23,6 +24,7 @@ defmodule ServiceRadarNVR.Config do
          {:ok, root, id} <- storage(env),
          {:ok, recovery_gate} <- ServiceRadarRecordingControl.RecoveryGate.load(env, root),
          {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
+         {:ok, ingest} <- ServiceRadarNVR.IngestListener.load(env),
          {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{
         root: root,
@@ -34,6 +36,7 @@ defmodule ServiceRadarNVR.Config do
         reserve_bytes: reserve,
         recovery_gate: recovery_gate,
         delivery: delivery,
+        ingest: ingest,
         auto_delivery: auto_delivery
       }
 

@@ -1,11 +1,13 @@
 """Execute the shipped release with synthetic media and no control-plane services."""
 import hashlib
+import http.client
 import http.server
 import json
 import os
 import signal
 import socket
 import ssl
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -1133,6 +1135,259 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("discovery_limit")
         self.assertEqual(len(list(self.spool.iterdir())), 4098)
 
+    def ingest_installation(self):
+        self.run_probe("delivery_certificates")
+        self.run_probe("recovery_ready")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.ingest_port = sock.getsockname()[1]
+        pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert((self.root / "client.pem").read_text())).hexdigest()
+        config = {"port": self.ingest_port, "client_sha256": pin,
+                  "cert_file": str(self.root / "server.pem"), "key_file": str(self.root / "server-key.pem"),
+                  "ca_file": str(self.root / "server-ca.pem")}
+        path = self.root / "ingest.json"
+        path.write_text(json.dumps(config))
+        token = self.root / "ingest-token"
+        self.ingest_token = "synthetic-nvr-recording-coordinator-token"
+        token.write_text(self.ingest_token)
+        self.env.update(SERVICERADAR_NVR_INGEST_CONFIG_FILE=str(path),
+                        SERVICERADAR_NVR_INGEST_TOKEN_FILE=str(token))
+        self.ingest_tls = ssl.create_default_context(cafile=str(self.root / "client-ca.pem"))
+        self.ingest_tls.load_cert_chain(str(self.root / "client.pem"), str(self.root / "client-key.pem"))
+
+    def start_ingest_release(self):
+        proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.addCleanup(self.stop_ingest_release, proc)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                self.fail(f"release exited: {proc.communicate()[0]}")
+            try:
+                connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=1)
+                connection.request("GET", "/unknown", headers={"Authorization": "Bearer " + self.ingest_token})
+                self.assertEqual(connection.getresponse().status, 404)
+                connection.close()
+                return proc
+            except OSError:
+                time.sleep(0.05)
+        self.fail("NVR ingest listener did not become ready")
+
+    def stop_ingest_release(self, proc):
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+            proc.communicate(timeout=15)
+
+    def ingest_header(self, source="synthetic-network-camera", **changes):
+        document = {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                    "recovery_generation": self.generation, "clock_epoch": "synthetic-network-clock",
+                    "identity": {"source_id": source, "profile": "recording", "recorder_epoch": 1, "block_sequence": 0}}
+        document.update(changes)
+        raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        return struct.pack("!I", len(raw)) + raw
+
+    def ingest_units(self):
+        aud = b"\x00\x00\x00\x01\x09"
+        prefix, *units = Path(self.env["NVR_TEST_H264"]).read_bytes().split(aud)
+        self.assertEqual(prefix, b"")
+        return [struct.pack("!IQQQ", len(aud + unit), index + 1, 90000 + index * 6000, 90000 + index * 6000) + aud + unit
+                for index, unit in enumerate(units)]
+
+    def ingest_request(self, body, token=None, tls=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port,
+                                                context=tls or self.ingest_tls, timeout=10)
+        try:
+            connection.request("POST", "/v1/recordings/ingest", body=body, encode_chunked=True,
+                               headers={"Authorization": "Bearer " + (token or self.ingest_token),
+                                        "Content-Type": "application/vnd.serviceradar.nvr-ingest.v1"})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def assert_ingest_unsealed(self):
+        journals = list(self.spool.glob("*/journal"))
+        self.assertEqual(len(journals), 1)
+        data = journals[0].read_bytes()
+        types = []
+        while data:
+            size = int.from_bytes(data[:4], "big")
+            record, digest = data[4:4 + size], data[4 + size:4 + size + 32]
+            self.assertEqual(hashlib.sha256(record).digest(), digest)
+            types.append(json.loads(record)["type"])
+            data = data[4 + size + 32:]
+        self.assertIn("fragment", types)
+        self.assertNotIn("seal", types)
+
+    def test_network_ingest_seals_and_preserves_decodable_frames_across_restart(self):
+        self.ingest_installation()
+        source = self.make_media(510)
+        units = self.ingest_units()
+        proc = self.start_ingest_release()
+
+        def stream():
+            yield self.ingest_header()
+            for unit in units:
+                # Deliver boundaries across HTTP chunks, including a partial frame header.
+                yield unit[:7]
+                yield unit[7:]
+                time.sleep(0.002)
+            yield struct.pack("!I", 0)
+
+        status, receipt = self.ingest_request(stream())
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(receipt["status"], "sealed_local")
+        self.assertEqual(receipt["storage_id"], self.env["NVR_TEST_EXPECTED_STORAGE_ID"])
+        self.assertGreaterEqual(len(receipt["block_ids"]), 2)
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        decoded = bytearray()
+        for block_id in receipt["block_ids"]:
+            self.assertRegex(block_id, r"^[0-9a-f]{64}$")
+            block = self.spool / block_id
+            output = self.root / (block_id + ".mp4")
+            output.write_bytes((block / "init.mp4").read_bytes() + (block / "media.m4s").read_bytes())
+            decoded.extend(self.decode(str(output)))
+        self.assertEqual(bytes(decoded), self.decode(source))
+        before = {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()}
+        status, _ = self.ingest_request(self.ingest_header() + b"".join(units) + struct.pack("!I", 0))
+        self.assertNotEqual(status, 200)
+        self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
+
+    def test_network_ingest_authentication_binding_and_incomplete_input(self):
+        self.ingest_installation()
+        self.make_media()
+        units = self.ingest_units()
+        self.start_ingest_release()
+        body = self.ingest_header() + b"".join(units) + struct.pack("!I", 0)
+        self.assertEqual(self.ingest_request(body, token="incorrect-token")[0], 401)
+        no_cert = ssl.create_default_context(cafile=str(self.root / "client-ca.pem"))
+        with self.assertRaises((OSError, http.client.HTTPException)):
+            self.ingest_request(body, tls=no_cert)
+        for header in (self.ingest_header(storage_id="00000000-0000-4000-8000-000000000099"),
+                       self.ingest_header(recovery_generation="00000000-0000-4000-8000-000000000099")):
+            self.assertEqual(self.ingest_request(header + struct.pack("!I", 0))[0], 400)
+        for raw in (struct.pack("!I", 1025), struct.pack("!I", 0),
+                    self.ingest_header()[:12]):
+            self.assertEqual(self.ingest_request(raw)[0], 400)
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
+        # Complete HTTP EOF without the explicit application end marker must not seal.
+        status, result = self.ingest_request(self.ingest_header() + b"".join(units))
+        self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
+        retained = [p for p in self.spool.iterdir() if p.is_dir()]
+        self.assertEqual(len(retained), 1)
+        self.assert_ingest_unsealed()
+        before = {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()}
+        self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+        self.assertEqual(self.ingest_request(self.ingest_header(source="another-synthetic-camera") + b"".join(units) + struct.pack("!I", 0))[0], 503)
+        self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
+
+    def test_network_ingest_pins_client_and_keeps_bootstrap_barrier(self):
+        self.ingest_installation()
+        config_path = Path(self.env["SERVICERADAR_NVR_INGEST_CONFIG_FILE"])
+        config = json.loads(config_path.read_text())
+        pinned = config["client_sha256"]
+        config["client_sha256"] = "00" * 32
+        config_path.write_text(json.dumps(config))
+        # The CA-valid client is deliberately absent from the installed pin.
+        proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.addCleanup(self.stop_ingest_release, proc)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                status, _ = self.ingest_request(self.ingest_header() + struct.pack("!I", 0))
+                break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            self.fail("NVR ingest listener did not start")
+        self.assertEqual(status, 401)
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
+        self.stop_ingest_release(proc)
+        config["client_sha256"] = pinned
+        config_path.write_text(json.dumps(config))
+        self.start_ingest_release()
+        (self.spool / ".bootstrap-preparation.json").write_bytes(b"{}")
+        self.assertEqual(self.ingest_request(self.ingest_header() + struct.pack("!I", 0))[0], 503)
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".bootstrap-preparation.json", ".storage-id"])
+
+    def test_network_ingest_disconnect_releases_source_without_sealing(self):
+        self.ingest_installation()
+        self.make_media()
+        self.start_ingest_release()
+        partial = self.ingest_header() + b"".join(self.ingest_units())
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=5)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Content-Length", str(len(partial) + 4))
+        connection.endheaders()
+        connection.send(partial)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")):
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("stream did not persist media before disconnect")
+        connection.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            status, result = self.ingest_request(self.ingest_header() + struct.pack("!I", 0))
+            if status == 422:
+                break
+            self.assertEqual(status, 503)
+            time.sleep(0.05)
+        else:
+            self.fail("disconnected producer retained source admission")
+        self.assertEqual(result, {"error": "ingest_incomplete"})
+        self.assert_ingest_unsealed()
+        self.assertTrue(any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")))
+
+    def test_network_ingest_deadline_retires_producer_and_preserves_partial_media(self):
+        self.ingest_installation()
+        self.make_media(150)
+        units = self.ingest_units()
+        self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "3000"
+        self.start_ingest_release()
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=6)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+        first = self.ingest_header() + b"".join(units[:75])
+        connection.send(f"{len(first):x}\r\n".encode() + first + b"\r\n")
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")):
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("stream did not persist a fragment before the deadline")
+        # A second producer cannot overlap this camera/profile.
+        self.assertEqual(self.ingest_request(self.ingest_header() + struct.pack("!I", 0))[0], 503)
+        started = time.monotonic()
+        # Continue complete valid frames faster than the idle-read timeout, so
+        # that timeout cannot be mistaken for the absolute request deadline.
+        ended = False
+        for unit in units[75:]:
+            try:
+                connection.send(f"{len(unit):x}\r\n".encode() + unit + b"\r\n")
+                time.sleep(0.15)
+            except OSError:
+                ended = True
+                break
+        self.assertTrue(ended, "stream outlived its absolute recording budget")
+        self.assertGreater(time.monotonic() - started, 1.5)
+        self.assertLess(time.monotonic() - started, 4)
+        before = {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()}
+        # The same source can be admitted again once the failed producer retires;
+        # the empty new stream is rejected rather than advertised as a recording.
+        status, result = self.ingest_request(self.ingest_header() + struct.pack("!I", 0))
+        self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
+        self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
+
     def test_foreground_release_probes_refuse_uninitialized_storage(self):
         proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
@@ -1189,6 +1444,9 @@ class NVRReleaseTest(unittest.TestCase):
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
                      ({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed),
                        "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]
+        settings += [({"SERVICERADAR_NVR_INGEST_CONFIG_FILE": str(malformed)}, b"invalid_nvr_ingest_config"),
+                     ({"SERVICERADAR_NVR_INGEST_CONFIG_FILE": str(malformed),
+                       "SERVICERADAR_NVR_INGEST_TOKEN_FILE": str(malformed)}, b"invalid_nvr_ingest_config")]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY": value}, b"invalid_nvr_auto_delivery_config")
                      for value in ["true", "yes"]]
         settings += [({"SERVICERADAR_NVR_RECOVERY_GENERATION": "invalid"}, b"invalid_nvr_recovery_config"),
