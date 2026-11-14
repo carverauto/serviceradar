@@ -455,7 +455,7 @@ From a Proxmox host or guest device details page, use the console action. Servic
 7. Issue a short-lived single-use browser ticket.
 8. Stream terminal frames through web-ng, agent-gateway, the selected edge agent, and the console plugin.
 
-If the UI says `No scoped console credential rule matched this device`, verify that the rule purpose is `console_access`, the target query includes the exact device, the owning controller has a reachable edge route, and the scope value matches that route.
+When no rule applies, the UI and the console-session API report why the nearest candidate rule was rejected: wrong purpose (not `console_access`), a different Proxmox integration or controller, a TLS or SSH host-key verification requirement, a target query that does not include the device, a scope that does not include the device's agent or gateway, or a credential-use policy that does not authorize the user. `No scoped console credential rule matched this device` means no enabled Proxmox rule was a candidate at all. Users who hold `settings.credentials.manage` also see the candidate rule's name, scope, and target query.
 
 ## SSH Key Guidance
 
