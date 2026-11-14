@@ -38,16 +38,18 @@ The release `streams:` list in `serviceradar_core_elx/config/runtime.exs`
 loses the entry. `default_streams/0` and the non-elx runtime never had it;
 a guard test pins all three sources.
 
-## D3 — No server-side deletion in this change
+## D3 — Retire orphan durables via `ConsumerReconciler`
 
-Orphan durables (`serviceradar-event-writer-{sflow,netflow}-raw` on
-`events`, `serviceradar-event-writer-attributed-flow` on `attributed_flow`)
-and the `attributed_flow` stream are left for the existing ops step
-(`scale-netflow-ingest-isolation` 6.3). Rationale: deleting a durable
-discards its pending state, and "verified-empty" is an ops observation on
-the live server, not something this change can prove from the repo. Stopping
-the declarations is sufficient for the goal: no warning is logged because
-no such consumer is attempted.
+Flows and process attribution are stored exclusively in StarRocks via the
+dedicated `flows` stream (`SFLOW_RAW`, `NETFLOW_RAW`, and any concrete
+`extra_flow_subjects/0` entries) and `events.flow.attribution`. The former
+`events`-stream residual-drain durables (`<consumer>-sflow-raw` and
+`<consumer>-netflow-raw`) and the former `<consumer>-attributed-flow`
+durable (on `events` and `attributed_flow`) have no remaining publisher or consumer. `Config.load/0`
+includes them in `retired_consumers` (scoped strictly to `events` and
+`attributed_flow`, never `flows`), so `ConsumerReconciler` deletes any
+pre-existing orphan durables once every live durable is up. The
+`attributed_flow` stream itself remains an operator release step if present.
 
 ## D4 — Docs follow the code
 
