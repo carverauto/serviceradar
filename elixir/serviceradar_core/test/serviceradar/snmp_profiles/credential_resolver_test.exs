@@ -161,6 +161,41 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     end
 
     @tag :integration
+    test "broker payload with an unrecognised security level refuses instead of inferring" do
+      actor = SystemActor.system(:test)
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "synthetic-snmp-#{System.unique_integer([:positive])}",
+            provider: "snmp",
+            credential_kind: :snmp,
+            secret_payload:
+              Jason.encode!(%{
+                "username" => "test-reader",
+                "auth_protocol" => "sha",
+                "security_level" => "super-safe",
+                "auth_password" => "invented-auth-secret"
+              })
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      assert {:error, {:unknown_security_level, "super-safe"}} =
+               CredentialResolver.build_credential(
+                 %{
+                   version: :v3,
+                   security_level: :no_auth_no_priv,
+                   credential_secret_id: secret.id
+                 },
+                 actor
+               )
+    end
+
+    @tag :integration
     test "credential rule wins over a profile-bound secret" do
       actor = SystemActor.system(:test)
       unique = System.unique_integer([:positive])
