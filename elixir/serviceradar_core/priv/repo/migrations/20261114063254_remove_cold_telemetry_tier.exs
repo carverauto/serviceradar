@@ -90,6 +90,11 @@ defmodule ServiceRadar.Repo.Migrations.RemoveColdTelemetryTier do
     END $$;
     """)
 
+    # serviceradar:allow-startup-maintenance
+    # Bounded and schema-critical: deletes at most one pending job per retired
+    # worker (ServiceRadar.ColdTier.Exporter and ServiceRadar.ColdTier.Pruner,
+    # states available/scheduled/retryable only). A fresh install has none.
+    # Without it those jobs would fail after upgrade with unknown-worker errors.
     execute("""
     DELETE FROM platform.oban_jobs
     WHERE worker IN (#{Enum.map_join(@retired_workers, ", ", &"'#{&1}'")})
