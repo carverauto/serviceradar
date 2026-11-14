@@ -26,6 +26,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       distinct assertion the step recorded. The merge is administrative (reason
       `manual_awx_unmerge_rollback`), since the unmerge armed the pair's cooldown and the
       assertion. The newest-first order re-merges a chain in its original order.
+    * `guest_split` (`multi-guest-split`): merges the guest's new record back into the record it
+      was split from, while both are live, after removing the distinct assertions the step
+      recorded for it (`MultiGuestSplit.rollback_split/2`, reason `manual_guest_split_rollback`).
 
   Each action reads the state it reverses first. A replayed rollback does nothing, and a
   record that changed since is left as it is and counted in `skipped`, by reason. The review
@@ -44,6 +47,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.MultiGuestSplit
   alias ServiceRadar.Inventory.Remediation.SourceIdVerification
   alias ServiceRadar.Repo
 
@@ -52,7 +56,14 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
 
   @step "source-id-rollback"
   @awx_step "awx-proxmox-unmerge"
-  @steps ["source-id-retire", "source-succession", "released-seed-shells", @awx_step]
+  @split_step "multi-guest-split"
+  @steps [
+    "source-id-retire",
+    "source-succession",
+    "released-seed-shells",
+    @awx_step,
+    @split_step
+  ]
   @remerge_reason "manual_awx_unmerge_rollback"
   @shell_reason "seed_released"
   @shell_actor "system:dire_remediation"
@@ -121,9 +132,11 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
   defp action(%{"step" => @awx_step, "action" => "reassign_wrong_guest_mac"}),
     do: :reassign_wrong_guest_mac
 
-  defp action(%{"step" => @awx_step, "action" => action})
-       when action in ["candidate_preflight", "candidate_committed"],
-       do: :marker
+  defp action(%{"step" => @split_step, "action" => "guest_split"}), do: :guest_split
+
+  defp action(%{"step" => step, "action" => action})
+       when step in [@awx_step, @split_step] and
+              action in ["candidate_preflight", "candidate_committed"], do: :marker
 
   defp action(%{"step" => step}) when step in @steps, do: :not_rolled_back
   defp action(_entry), do: :ignored
@@ -162,7 +175,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
         :retire_source_ids ->
           Map.update!(report, :would_return_ids, &(&1 + length(entry["primary_ids"] || [])))
 
-        :awx_unmerge ->
+        action when action in [:awx_unmerge, :guest_split] ->
           Map.update!(report, :would_remerge, &(&1 + 1))
 
         action when action in [:archive_wrong_guest_mac, :reassign_wrong_guest_mac] ->
@@ -238,9 +251,14 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
 
             state = Map.update!(state, :rollback_failures, &(&1 + 1))
 
-            if action in [:awx_unmerge, :archive_wrong_guest_mac, :reassign_wrong_guest_mac],
-              do: {:halt, %{state | halted: to_string(action)}},
-              else: {:cont, state}
+            if action in [
+                 :awx_unmerge,
+                 :archive_wrong_guest_mac,
+                 :reassign_wrong_guest_mac,
+                 :guest_split
+               ],
+               do: {:halt, %{state | halted: to_string(action)}},
+               else: {:cont, state}
         end
     end
   end
@@ -343,6 +361,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
       end
     end)
   end
+
+  defp undo(:guest_split, entry, actor),
+    do: in_rollback(fn -> MultiGuestSplit.rollback_split(entry, actor) end)
 
   defp undo(:archive_wrong_guest_mac, entry, actor) do
     uid = entry["device_uid"]

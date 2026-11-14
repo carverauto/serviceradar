@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.CardinalityCaps
+  alias ServiceRadar.Inventory.Identity.GuestIdentityGuard
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
@@ -128,6 +129,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
         partition
       )
       |> add_mac_identifiers(canonical_id, ids, partition)
+      |> GuestIdentityGuard.drop_added_guest_rows("identifier_registration")
 
     results =
       Enum.map(identifiers_to_register, fn params ->

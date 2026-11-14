@@ -142,6 +142,17 @@ and how the Armis and NetBox records of one device converge through a shared
 MAC. An automatic merge of two records holding different values of one type
 in one scope is refused and recorded as a `source_block` decision.
 
+A record never gains a second live hypervisor guest
+(`Identity.GuestIdentityGuard.added_guests/2`). An update naming a Proxmox v3
+guest reference never resolves onto a record that holds a different live v3
+guest reference, whatever chose that record: a shared MAC, a pre-set `sr:` hint,
+a merge survivor followed from a tombstone, or an earlier update of the same
+batch. It resolves to the guest's own record instead, the shared identifier
+stays with its owner, and the refusal is recorded as a `guard_block` decision
+`distinct_guest_identity`. Identifier registration outside resolution drops such
+a reference and logs it at error level. Only live references count: an archived
+one does not, and no address, cluster name or observation age decides it.
+
 An address follows the device observed at it. When a strong-identified write
 that observed the device at its address (Armis, the passive census,
 mapper/SNMP discovery, an agent's self-report; see
@@ -420,8 +431,9 @@ identified devices.
     (`Identity.GuestIdentityGuard`: live Proxmox v3 or v2 guest
     `integration_id` refs, compared within a generation) never merge,
     whatever the merge reason (guard `distinct_guest_identity`); equal
-    sets, a subset, or a side with no guest ref still merge, and archived
-    refs never block
+    sets, a subset, or a side with no guest ref still merge, unless the
+    survivor would gain a v3 guest ref it does not hold while ending up
+    with more than one, and archived refs never block
   - per-pair cooldown (default 24h, either direction) breaks merge
     oscillation; blocked re-merges alert via telemetry
 - Merges are transactional, audited (`merge_audit`), and move every

@@ -33,6 +33,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
         by `enable_awx_proxmox_unmerge_execute`, like the split steps)
     13. `awx-proxmox-verify` — explicit-only, read-only checks A1-A5 of that
         repair (`AwxProxmoxVerification`), refused under execute
+    14. `multi-guest-split` — explicit-only split of each record holding more
+        than one live Proxmox v3 guest reference into one record per guest
+        (`MultiGuestSplit`; execute gated by `enable_multi_guest_split_execute`)
+    15. `multi-guest-verify` — explicit-only, read-only check G1 that no live
+        record holds more than one guest (`MultiGuestVerification`), refused
+        under execute
 
   The source id remediation (OpenSpec add-source-id-succession, design D11)
   runs after `proxmox-dups`, in this order:
@@ -98,6 +104,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.BroadcastAliasArchive
   alias ServiceRadar.Inventory.Remediation.LinkLocalAliasArchive
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.MultiGuestSplit
+  alias ServiceRadar.Inventory.Remediation.MultiGuestVerification
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
   alias ServiceRadar.Inventory.Remediation.ProxmoxUnfuse
@@ -137,17 +145,33 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   @awx_unmerge_step "awx-proxmox-unmerge"
   @awx_verify_step "awx-proxmox-verify"
 
+  # The split of records holding several hypervisor guests (change
+  # prevent-multi-guest-device-records). Explicit-only with its own execute
+  # gate; its check is read-only.
+  @multi_guest_split_step "multi-guest-split"
+  @multi_guest_verify_step "multi-guest-verify"
+
   # Split-disposition steps are always explicit-request-only (dormant): they
   # mutate live devices and each has its own execute gate below.
-  @explicit_only_steps [@armis_unmerge_step, @proxmox_unfuse_step, @awx_unmerge_step]
+  @explicit_only_steps [
+    @armis_unmerge_step,
+    @proxmox_unfuse_step,
+    @awx_unmerge_step,
+    @multi_guest_split_step
+  ]
 
   # The source id remediation's checks and its rollback run only when named: the
   # checks never write, and the rollback reverses the runs its manifests name,
   # alone.
   @source_id_verify_step "source-id-verify"
   @source_id_rollback_step "source-id-rollback"
-  @read_only_steps [@source_id_verify_step, @awx_verify_step]
-  @named_only_steps [@source_id_verify_step, @source_id_rollback_step, @awx_verify_step]
+  @read_only_steps [@source_id_verify_step, @awx_verify_step, @multi_guest_verify_step]
+  @named_only_steps [
+    @source_id_verify_step,
+    @source_id_rollback_step,
+    @awx_verify_step,
+    @multi_guest_verify_step
+  ]
 
   @step_order [
     "blob-purge",
@@ -168,6 +192,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     @armis_dups_step,
     @awx_unmerge_step,
     @awx_verify_step,
+    @multi_guest_split_step,
+    @multi_guest_verify_step,
     @source_id_verify_step,
     @source_id_rollback_step
   ]
@@ -245,6 +271,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     |> Keyword.get(:enable_awx_proxmox_unmerge_execute, false)
   end
 
+  defp split_execute_enabled?(@multi_guest_split_step) do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:enable_multi_guest_split_execute, false)
+  end
+
   defp split_execute_enabled?(_step), do: false
 
   @doc """
@@ -270,7 +302,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       `:proxmox_unfuse_live_device_uids`, `:proxmox_unfuse_live_source_ids`,
       `:awx_proxmox_unmerge_event_ids` (restrict execute to these merge audit
       ids), `:awx_proxmox_unmerge_candidate_limit`,
-      `:awx_proxmox_unmerge_report_limit`
+      `:awx_proxmox_unmerge_report_limit`, `:multi_guest_split_device_uids`
+      (restrict `multi-guest-split` to these records),
+      `:multi_guest_split_candidate_limit`
     * source id remediation options: `:source_batch_size` (records per batch
       of the retire, succession and shell steps; default 500),
       `:reviewed_source_ids` (class 8 values already reviewed, for
@@ -396,6 +430,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
           not split_execute_enabled?(@awx_unmerge_step) ->
         {:error, {:execute_disabled, [@awx_unmerge_step]}}
 
+      mode == :execute and @multi_guest_split_step in steps and
+          not split_execute_enabled?(@multi_guest_split_step) ->
+        {:error, {:execute_disabled, [@multi_guest_split_step]}}
+
       mode == :execute and Enum.any?(steps, &(&1 in @read_only_steps)) ->
         {:error, {:read_only_steps, Enum.filter(@read_only_steps, &(&1 in steps))}}
 
@@ -450,6 +488,14 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     )
   end
 
+  defp runtime_step_opts(@multi_guest_split_step, opts) do
+    Keyword.put(
+      opts,
+      :multi_guest_split_execute_enabled,
+      split_execute_enabled?(@multi_guest_split_step)
+    )
+  end
+
   defp runtime_step_opts(_step, opts), do: opts
 
   defp run_step("blob-purge", mode, opts, manifest, actor),
@@ -487,6 +533,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step(@awx_verify_step, mode, opts, manifest, actor),
     do: AwxProxmoxVerification.run(mode, opts, manifest, actor)
+
+  defp run_step(@multi_guest_split_step, mode, opts, manifest, actor),
+    do: MultiGuestSplit.run(mode, opts, manifest, actor)
+
+  defp run_step(@multi_guest_verify_step, mode, opts, manifest, actor),
+    do: MultiGuestVerification.run(mode, opts, manifest, actor)
 
   defp run_step("armis-dups", mode, opts, manifest, actor),
     do: ArmisDups.run(mode, opts, manifest, actor)
