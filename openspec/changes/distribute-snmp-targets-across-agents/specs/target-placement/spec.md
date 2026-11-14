@@ -44,7 +44,7 @@ An agent's partition is the partition of its own device, as for sweep leases.
 - **THEN** only `agent-a` and `agent-b` are candidates for its targets, regardless of partition
 
 #### Scenario: No eligible agent
-- **GIVEN** a device whose partition has no connected eligible agent
+- **GIVEN** a device whose partition has no agent holding an unexpired liveness lease
 - **WHEN** the placement pass runs
 - **THEN** the target has no owner and is marked `uncovered` with reason `no_eligible_agent`
 
@@ -86,9 +86,17 @@ Every move SHALL record its reason. Among eligible agents, a new owner SHALL be 
 
 #### Scenario: Owner leaves
 - **GIVEN** a target placed on `agent-a`
+- **AND** another eligible agent that stays within its effective capacity after taking it
+- **WHEN** `agent-a`'s session is lost and its liveness lease then expires
+- **THEN** the next placement pass places the target on that agent with reason `owner_lost`
+- **AND** the move happens within the liveness grace after session loss plus one placement pass
+
+#### Scenario: Owner leaves and no agent has room
+- **GIVEN** a target placed on `agent-a`
+- **AND** every other eligible agent is at its effective capacity
 - **WHEN** `agent-a`'s liveness lease expires
-- **THEN** the target is placed on another eligible agent with reason `owner_lost`
-- **AND** the move happens within the liveness grace plus one placement pass
+- **THEN** the next placement pass revokes `agent-a`'s placement
+- **AND** the target is marked `uncovered` with reason `fleet_capacity_exhausted`
 
 #### Scenario: Bounded rebalance
 - **GIVEN** an agent whose load is above the rebalance high watermark while another eligible agent is below the low watermark

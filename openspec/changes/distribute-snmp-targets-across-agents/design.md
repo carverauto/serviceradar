@@ -393,8 +393,10 @@ Agents report per-target outcomes (last success, consecutive failures) in
 their acknowledgement path. These are control-plane facts on the placement
 row, not metrics.
 
-After `F` consecutive failures, the target moves to the next candidate, and
-the failing agent is excluded for that target for a backoff period. After `C`
+After `F` consecutive failures, the target moves to the next candidate that
+stays within its effective capacity, and the failing agent is excluded for
+that target for a backoff period. When no candidate has room, or the target
+already has a draining row, the target stays on its owner. After `C`
 candidates fail, the target stays on the owner that reached the limit and is
 reported unreachable. Without that limit, a device
 that is down for everyone would rotate through the fleet forever.

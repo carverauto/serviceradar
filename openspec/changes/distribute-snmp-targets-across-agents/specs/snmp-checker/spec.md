@@ -112,9 +112,16 @@ The system SHALL move an SNMP target to another eligible agent that stays within
 
 #### Scenario: Another agent can reach the device
 - **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls
-- **AND** an eligible `agent-b` that has not failed it
+- **AND** an eligible `agent-b` that has not failed it and stays within its effective capacity after taking it
+- **AND** the device has no draining placement
 - **WHEN** the placement pass runs
 - **THEN** the device moves to `agent-b` with reason `unreachable_on_owner`
+
+#### Scenario: No agent has room for an unreachable device
+- **GIVEN** a device placed on `agent-a` that fails the configured number of consecutive polls
+- **AND** every eligible agent that has not failed it is at its effective capacity, or the device already has a draining placement
+- **WHEN** the placement pass runs
+- **THEN** the device stays on `agent-a`
 
 #### Scenario: Device is down for everyone
 - **GIVEN** a device that failed on each of the configured number of candidates the rule allows
