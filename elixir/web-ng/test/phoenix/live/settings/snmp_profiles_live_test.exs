@@ -297,20 +297,24 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
     assert has_element?(lv, "#snmp-profile-#{second_profile.id}-targets", "1 target")
   end
 
-  test "interface target counts fail closed for unsupported filters", %{conn: conn, scope: scope} do
+  test "interface target counts match the compiler for uncastable filters", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 
+    # The preview counts through SNMPCompiler.reduce_target_pages, so an
+    # uncastable filter value counts nothing here exactly as it compiles to
+    # no query targets there ("an interface filter value that cannot be
+    # cast compiles a profile with no query targets").
     {:ok, profile} =
       SNMPProfile
       |> Ash.Changeset.for_create(:create, %{
-        name: "Unsupported Interface Filter #{unique}",
-        target_query: "in:interfaces unsupported_field:edge"
+        name: "Uncastable Interface Filter #{unique}",
+        target_query: "in:interfaces if_speed:abc"
       })
       |> Ash.create(scope: scope)
 
     {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
 
-    assert has_element?(lv, "#snmp-profile-#{profile.id}-targets", "Unknown")
+    assert has_element?(lv, "#snmp-profile-#{profile.id}-targets", "0 targets")
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

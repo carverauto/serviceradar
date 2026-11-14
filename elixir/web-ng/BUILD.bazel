@@ -587,6 +587,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/settings/remote_access_recordings_live_test.exs",
         "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
         "test/phoenix/live/settings/snmp_profiles_live/provenance_test.exs",
+        "test/phoenix/live/settings/snmp_profiles_live/target_preview_test.exs",
         "test/phoenix/live/settings/snmp_profiles_live_test.exs",
         "test/phoenix/live/settings/threat_intel_live_test.exs",
         "test/phoenix/live/settings/zen_rule_editor_live_test.exs",
