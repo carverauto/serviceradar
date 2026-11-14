@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Bounded Pod DNS Resolver Defaults Across Helm Workloads
-The `helm/serviceradar` and `helm/serviceradar-k8s-edge` charts SHALL render fixed pod `dnsConfig` options (`ndots: "2"`, `timeout: "2"`, `attempts: "2"`, and `single-request-reopen`) unconditionally on every chart-managed Deployment, StatefulSet, and Job pod template without requiring an operator-supplied Helm switch, and without increasing application client connect timeouts.
+The `helm/serviceradar` and `helm/serviceradar-k8s-edge` charts SHALL render fixed pod `dnsConfig` options (`ndots: "2"`, `timeout: "2"`, `attempts: "2"`, and `single-request-reopen`) unconditionally on every chart-managed Deployment, StatefulSet, and Job pod template, including the StatefulSets rendered by the bundled `dgraph` subchart, without requiring an operator-supplied Helm switch, and without increasing application client connect timeouts.
 
 #### Scenario: Default chart install renders bounded pod dnsConfig on all workloads
 - **GIVEN** `helm template` is rendered for `helm/serviceradar` and `helm/serviceradar-k8s-edge` with default `values.yaml`
