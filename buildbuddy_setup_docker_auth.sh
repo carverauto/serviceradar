@@ -44,9 +44,8 @@ fi
 #
 # Set it when the caller cannot proceed unauthenticated to the primary registry: it turns two
 # silent successes into an immediate, named failure. Without it this script is best-effort by
-# design, and two callers depend on that: GitHub pull-request workflows run with no access
-# to secrets, where Docker Hub credentials alone are the correct outcome, and
-# //build/buildbuddy/release_pipeline.sh invokes the script only `if [[ -x ]]`.
+# design: GitHub pull-request workflows run with no access to secrets, where Docker Hub
+# credentials alone are the correct outcome.
 #
 # Do NOT infer this from OCI_REGISTRY being set -- fork PRs still have to survive a
 # credential-less run.
