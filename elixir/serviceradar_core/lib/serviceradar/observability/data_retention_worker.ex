@@ -10,10 +10,9 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     unique: [period: 3_600, states: :incomplete]
 
   alias Ecto.Adapters.SQL
-  alias ServiceRadar.ColdTier.Config
-  alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
+  alias ServiceRadar.Observability.CaggRefreshHazards
   alias ServiceRadar.Observability.DatasetSnapshotPrune
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore
   alias ServiceRadar.Repo
@@ -68,9 +67,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   # before this worker reconciled them. Defaults equal the migration values,
   # so an unset install keeps today's windows. Reconciliation is retention
   # only: chunk intervals and compression stay migration-owned. Endpoint
-  # inventory history keeps its own horizon like capacity forecasts.
-  # traces_stats_5m stays off the ceiling too: the cold-tier fence is a
-  # second owner of its window.
+  # inventory history and traces_stats_5m keep their own horizons like
+  # capacity forecasts.
   @default_adhoc_scan_results_retention_days 30
   @default_service_status_retention_days 14
   @default_endpoint_inventory_history_retention_days 395
@@ -93,10 +91,10 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     {"endpoint_inventory_cpe_count_history", :endpoint_inventory_history_retention_days,
      @default_endpoint_inventory_history_retention_days}
   ]
-  # {view, retention_key, retention_default}. traces_stats_5m is reconciled
-  # separately because of the cold-tier widened window.
+  # {view, retention_key, retention_default}
   @migration_caggs [
     {"spans_red_1h", :spans_red_retention_days, @default_spans_red_retention_days},
+    {"traces_stats_5m", :traces_stats_retention_days, @default_traces_stats_retention_days},
     {"otel_metrics_hourly_stats", :otel_metrics_hourly_stats_retention_days,
      @default_otel_metrics_hourly_stats_retention_days}
   ]
@@ -209,14 +207,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     reconcile_migration_tables(config)
     reconcile_timeseries_metrics_compression(config)
     reconcile_hourly_rollups(config)
-    # Widening rollup retention costs storage on every deployment and only pays
-    # for itself once raw history is served from the cold tier, so it follows
-    # the enable flag from here instead of being a one-way migration. Returns
-    # immediately without querying when the cold tier is not enabled.
-    RetentionFence.reconcile_cagg_windows()
-    alert_on_cagg_refresh_hazards()
-    alert_on_undrained_cold_tier()
-    alert_on_misconfigured_cold_tier()
+    alert_on_cagg_refresh_hazards(config)
 
     results = [
       prune_trace_summaries(config, batch_size),
@@ -291,11 +282,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       chunk_hours =
         config |> Keyword.get(chunk_key, chunk_default) |> positive_integer(chunk_default)
 
-      # All in-DB policy DDL goes through the cold-tier fence: unfenced
-      # tables keep today's remove+add behavior; fenced (offloaded) tables
-      # get their in-DB policy removed so only the gated drop below can
-      # ever discard data.
-      RetentionFence.reconcile_policy(table_name, retention_days)
+      reconcile_retention_policy(table_name, retention_days)
       set_chunk_interval(table_name, chunk_hours)
       drop_expired_chunks(table_name, retention_days)
     end)
@@ -317,7 +304,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
     Enum.each(@migration_tables, fn {table_name, key, default} ->
       days = retention_days(config, key, default)
-      RetentionFence.reconcile_policy(table_name, days)
+      reconcile_retention_policy(table_name, days)
       drop_expired_chunks(table_name, days)
     end)
 
@@ -325,8 +312,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       days = migration_cagg_retention_days(config, view, key, default)
       run_rollup_sql(view, :retention, rollup_retention_sql(view, days))
     end)
-
-    reconcile_traces_stats_retention(config)
   end
 
   # A continuous aggregate's retention, floored at its already-clamped
@@ -343,123 +328,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
     max(configured, floor_days)
   end
-
-  # traces_stats_5m also has a cold-tier owner. The target is the explicit
-  # tracesStatsDays when set, otherwise the 14-day migration default, floored
-  # at the clamped refresh window. The telemetry ceiling does not apply.
-  # While the tier is enabled, a target shorter than the fence window is not
-  # written. While it is disabled, an unset key leaves a window already at
-  # or above that fence target unchanged. An explicit value may narrow or
-  # raise the window, including above the fence target.
-  defp reconcile_traces_stats_retention(config) do
-    query_result = query_cagg_retention_days("traces_stats_5m")
-
-    case traces_stats_retention_to_apply(config, query_result, Config.enabled?()) do
-      {:skip, :unreadable} ->
-        Logger.warning(
-          "Skipped traces_stats_5m retention; the current drop_after could not be read",
-          reason: cagg_retention_read_reason(query_result)
-        )
-
-      :skip ->
-        :ok
-
-      days ->
-        run_rollup_sql(
-          "traces_stats_5m",
-          :retention,
-          rollup_retention_sql("traces_stats_5m", days)
-        )
-    end
-  end
-
-  @doc """
-  Days to write onto `traces_stats_5m`, `:skip` when the installed window must
-  stay, or `{:skip, :unreadable}` when the catalog read did not prove the window.
-
-  `query_result` is the `{:ok, %{rows: _}} | {:error, _}` result of reading
-  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`.
-
-  The target is an explicit `traces_stats_retention_days` when set, otherwise
-  the 14-day migration default, floored at the clamped refresh window. The
-  telemetry ceiling does not apply. While the cold tier is enabled, a target
-  shorter than `RetentionFence.cagg_cold_window_days/1` is not written, even
-  when no policy is installed. While the tier is disabled, an unset key leaves
-  a window already at or above that fence target unchanged. A missing policy
-  is replaced with the target only when that skip does not apply. Every other
-  installed window is set to the target, so an explicit value may narrow or
-  raise it, including above the fence target.
-  """
-  @spec traces_stats_retention_to_apply(
-          keyword(),
-          {:ok, map()} | {:error, term()},
-          boolean()
-        ) :: :skip | {:skip, :unreadable} | pos_integer()
-  def traces_stats_retention_to_apply(config, query_result, cold_tier_enabled?)
-      when is_list(config) and is_boolean(cold_tier_enabled?) do
-    case normalize_cagg_retention_read(query_result) do
-      {:error, _reason} ->
-        {:skip, :unreadable}
-
-      {:ok, current} ->
-        traces_stats_retention_days_to_apply(config, current, cold_tier_enabled?)
-    end
-  end
-
-  defp traces_stats_retention_days_to_apply(config, current, cold_tier_enabled?) do
-    explicit = positive_integer(Keyword.get(config, :traces_stats_retention_days), nil)
-    cold_window = RetentionFence.cagg_cold_window_days("traces_stats_5m")
-
-    desired =
-      migration_cagg_retention_days(
-        config,
-        "traces_stats_5m",
-        :traces_stats_retention_days,
-        @default_traces_stats_retention_days
-      )
-
-    cond do
-      cold_tier_enabled? and is_integer(cold_window) and desired < cold_window ->
-        :skip
-
-      not cold_tier_enabled? and is_nil(explicit) and is_integer(current) and
-        is_integer(cold_window) and current >= cold_window ->
-        :skip
-
-      true ->
-        desired
-    end
-  end
-
-  defp query_cagg_retention_days(view) do
-    sql = """
-    SELECT (EXTRACT(EPOCH FROM (j.config->>'drop_after')::interval) / 86400)::float8
-    FROM timescaledb_information.continuous_aggregates ca
-    JOIN timescaledb_information.jobs j
-      ON j.proc_name = 'policy_retention'
-     AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
-     AND j.hypertable_name IN (ca.view_name, ca.materialization_hypertable_name)
-    WHERE ca.view_schema = 'platform' AND ca.view_name = $1
-    LIMIT 1
-    """
-
-    SQL.query(Repo, sql, [view], timeout: @query_timeout_ms)
-  end
-
-  defp normalize_cagg_retention_read({:ok, %{rows: [[days]]}}) when is_number(days) do
-    {:ok, round(days)}
-  end
-
-  defp normalize_cagg_retention_read({:ok, %{rows: [[nil]]}}), do: {:ok, nil}
-  defp normalize_cagg_retention_read({:ok, %{rows: []}}), do: {:ok, nil}
-  defp normalize_cagg_retention_read({:error, reason}), do: {:error, reason}
-
-  defp normalize_cagg_retention_read({:ok, other}) do
-    {:error, {:unexpected_cagg_retention_row, other}}
-  end
-
-  defp cagg_retention_read_reason({:error, reason}), do: format_error(reason)
-  defp cagg_retention_read_reason(other), do: inspect(other)
 
   # otel_metrics_hourly_stats refreshes from raw otel metrics into itself:
   # its window must stay under both the raw retention and its own.
@@ -483,7 +351,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
   Applies `:cnpg_telemetry_default_days` when it is a positive integer and
   the key is raw telemetry. Capacity forecasts stay on their own window.
-  The cold tier reads hot retention through this function.
   """
   @spec retention_days(keyword(), atom(), pos_integer()) :: pos_integer()
   def retention_days(config, key, default) when is_list(config) and is_atom(key) do
@@ -501,57 +368,14 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     end
   end
 
-  defp alert_on_undrained_cold_tier do
-    case RetentionFence.undrained_tables() do
-      [] ->
-        :ok
-
-      tables ->
-        Logger.error(
-          "Cold tier is DISABLED but un-drained state remains — retention stays " <>
-            "fenced (only verified-exported data drops) until an operator completes " <>
-            "the disable with ServiceRadar.ColdTier.Admin.waive/2",
-          tables: tables
-        )
-    end
-  end
-
-  # The cold tier is intended (enable flag + bucket) but the config is
-  # incomplete, so the exporter/pruner cannot run (review F09). The fence
-  # deliberately does NOT engage in this state — normal retention proceeds so
-  # the primary cannot fill behind a dead exporter — but this must be loud,
-  # because the operator believes offload is happening and it is not.
-  defp alert_on_misconfigured_cold_tier do
-    if Config.intended?() and Config.warehouse_backend?() do
-      ServiceRadar.ColdTier.Health.record_backend()
-
-      Logger.warning(
-        "Cold tier does NOT archive StarRocks telemetry; configured exports cover only " <>
-          "CNPG history. Existing CNPG retention fences remain in force until history " <>
-          "is verified or explicitly waived.",
-        tables: ServiceRadar.ColdTier.Registry.table_names(),
-        cnpg_export_enabled: Config.enabled?()
-      )
-    end
-
-    if Config.state() == :misconfigured do
-      Logger.error(
-        "Cold tier is INTENDED but MISCONFIGURED — offload is NOT running and data " <>
-          "aging past hot retention is being dropped by normal retention, not archived. " <>
-          "Supply the missing configuration.",
-        missing: Config.misconfiguration_reasons()
-      )
-    end
-  end
-
   # A CAGG that refreshes past its raw source's retention DELETES its own
   # materialized history when the policy refresh covers a dropped-chunk
   # region (drop_chunks plants invalidations; verified on TimescaleDB
   # 2.24.0). `reconcile_cagg_refresh_windows/1` clamps the shipped policies
   # to the configured retention; this guard catches what it does not manage
   # (hand-created policies or aggregates outside @cagg_refresh_policies).
-  defp alert_on_cagg_refresh_hazards do
-    case RetentionFence.cagg_refresh_hazards() do
+  defp alert_on_cagg_refresh_hazards(config) do
+    case CaggRefreshHazards.list(telemetry_retention_days(config)) do
       [] ->
         :ok
 
@@ -1008,6 +832,60 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     end
   end
 
+  defp reconcile_retention_policy(table_name, retention_days) do
+    sql = """
+    DO $$
+    DECLARE
+      table_ident text;
+      ts_schema text;
+    BEGIN
+      table_ident := format('%I.%I', 'platform', '#{table_name}');
+
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM timescaledb_information.hypertables
+           WHERE hypertable_schema = 'platform'
+             AND hypertable_name = '#{table_name}'
+         ) THEN
+        EXECUTE format(
+          'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          table_ident
+        );
+
+        EXECUTE format(
+          'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''#{retention_days} days'', if_not_exists => true)',
+          ts_schema,
+          table_ident
+        );
+      END IF;
+    EXCEPTION
+      WHEN others THEN
+        RAISE NOTICE 'Could not reconcile retention policy for #{table_name}: %', SQLERRM;
+    END;
+    $$;
+    """
+
+    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Failed to reconcile Timescale retention policy",
+          table: table_name,
+          retention_days: retention_days,
+          reason: Exception.message(error)
+        )
+    end
+  end
+
   defp set_chunk_interval(table_name, chunk_hours) do
     sql = """
     DO $$
@@ -1057,33 +935,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   defp drop_expired_chunks(table_name, retention_days) do
-    # Fence-gated: on cold-configured deployments the drop point for registry
-    # tables is bounded by the acked query boundary and the contiguous
-    # verified-export prefix; :hold means data is retained (never silently
-    # lost) until exports catch up. Unfenced tables get the plain retention
-    # cutoff — identical to the previous interval-based behavior.
-    #
-    # The gate computation and the drop run inside ONE transaction holding the
-    # per-table cold-tier lock (review F02), so the exporter cannot flip a
-    # chunk's manifest status between the gate's checks and the drop.
-    RetentionFence.with_table_lock(table_name, fn ->
-      case RetentionFence.safe_drop_point(table_name, retention_days) do
-        {:ok, drop_point} ->
-          drop_chunks_older_than(table_name, drop_point)
-
-        :hold ->
-          Logger.info("Cold tier is holding expired chunks pending verified export",
-            table: table_name,
-            retention_days: retention_days
-          )
-
-          :ok
-      end
-    end)
-  end
-
-  defp drop_chunks_older_than(table_name, %DateTime{} = drop_point) do
-    cutoff = drop_point |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.shift(day: -retention_days)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
 
     sql = """
     DO $$
@@ -1126,7 +982,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       {:error, error} ->
         Logger.warning("Failed to drop expired Timescale chunks",
           table: table_name,
-          drop_point: cutoff,
+          cutoff: cutoff,
           reason: Exception.message(error)
         )
     end

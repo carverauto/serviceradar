@@ -8,8 +8,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   """
 
   alias ServiceRadar.Camera.RelaySessionReaperWorker
-  alias ServiceRadar.ColdTier.Exporter, as: ColdTierExporter
-  alias ServiceRadar.ColdTier.Pruner, as: ColdTierPruner
   alias ServiceRadar.CompositeChecks.TickWorker
   alias ServiceRadar.Credentials.BrokerRetentionWorker
   alias ServiceRadar.Edge.EdgeLedgerRetentionWorker
@@ -74,8 +72,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"37 4 * * *", ExposureReconciliationWorker, queue: :maintenance},
       {env_or_default(fetch, "SERVICERADAR_OBSERVABILITY_RETENTION_CRON", "17 3 * * *"),
        DataRetentionWorker, queue: :maintenance},
-      {"47 * * * *", ColdTierExporter, queue: :maintenance},
-      {"23 4 * * *", ColdTierPruner, queue: :maintenance},
       {env_or_default(fetch, "ALERT_RETENTION_CRON", "15 * * * *"), AlertsRetentionWorker,
        queue: :maintenance},
       {"* * * * *", RecoveryWorker, queue: :alert_recovery},

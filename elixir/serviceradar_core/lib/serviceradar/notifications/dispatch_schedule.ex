@@ -74,7 +74,7 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
 
   # Offset from the retention passes already parked in the small hours (03:17
   # observability, 03:23 security events, 03:31 remote access, 03:43 credential
-  # broker, 04:23 cold tier) so two large deletes do not contend.
+  # broker) so two large deletes do not contend.
   @default_retention_cron "11 4 * * *"
 
   @doc """

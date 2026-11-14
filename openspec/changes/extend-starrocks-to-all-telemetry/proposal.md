@@ -88,8 +88,8 @@ wait is cancelled by Postgres `statement_timeout`.
 - Giving non-UI consumers a warehouse implementation (`add-starrocks-telemetry-analytics` task 5.4 and task 5.1 here) is on
   the critical path: with writes off everywhere, any consumer still reading a CNPG telemetry
   table reads frozen data until it has a warehouse implementation.
-- Supersedes nothing. `add-tiered-telemetry-offload` addresses cold storage for CNPG-resident
-  telemetry, which is where it lives on installations without StarRocks.
+- Supersedes nothing. `add-tiered-telemetry-offload`, which addressed cold storage for
+  CNPG-resident telemetry, was withdrawn by `remove-cold-telemetry-tier`.
 - Risk: there is no per-dataset rollback, and disabling StarRocks leaves CNPG without the
   telemetry written while it was enabled. Readers without a warehouse implementation are dark until they have one. Both are
   accepted product decisions (design Decision 1).

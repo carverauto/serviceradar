@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Observability.CaggRefreshHazards
   alias ServiceRadar.Observability.DataRetentionWorker
   alias ServiceRadar.Repo
 
@@ -72,13 +73,11 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
   end
 
   test "clamps continuous aggregate refresh windows below source retention" do
-    assert :ok =
-             DataRetentionWorker.reconcile_timescale_tables(
-               otel_traces_retention_days: 1,
-               logs_retention_days: 1
-             )
+    config = [otel_traces_retention_days: 1, logs_retention_days: 1]
 
-    assert ServiceRadar.ColdTier.RetentionFence.cagg_refresh_hazards() == []
+    assert :ok = DataRetentionWorker.reconcile_timescale_tables(config)
+
+    assert CaggRefreshHazards.list(DataRetentionWorker.telemetry_retention_days(config)) == []
   end
 
   test "keeps a narrowed refresh window when source retention is raised again" do
