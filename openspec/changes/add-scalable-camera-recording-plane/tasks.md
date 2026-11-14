@@ -43,6 +43,17 @@ See [the transport contract](../../../docs/nvr-ingest.md). Camera source selecti
 authenticated assignment, the agent/gateway sender and local-copy playback remain
 open; this checkpoint does not enable an inventory camera or complete 2.3.
 
+Sending-client checkpoint for 2.3: `serviceradar_nvr_client` implements the finite
+TLS ingest contract as a library independent of Core and the recorder runtime.
+It streams a lazy producer under byte/deadline bounds, verifies installed server
+identity, correlates sealed receipts, and closes on producer or caller failure
+without retries or replica takeover. Release tests connect the packaged client
+to the packaged NVR and independently decode footage after restart; a separate
+TLS peer checks the wire and failure boundaries. Inventory source selection,
+authenticated assignment and the agent/gateway consumer are not wired yet. This
+checkpoint does not activate a camera, publish playable catalog entries or
+complete 2.3.
+
 Shared-library extraction checkpoint for 2.1: `serviceradar_recording` owns the
 existing bounded inbox, H264/CMAF packaging, storage identity and journaled spool.
 Core consumes this library instead of owning duplicate implementations. Remote

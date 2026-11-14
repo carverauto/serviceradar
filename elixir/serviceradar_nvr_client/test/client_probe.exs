@@ -1,0 +1,86 @@
+{:ok, _} = Application.ensure_all_started(:serviceradar_nvr_client)
+{:error, :bad_name} = :code.lib_dir(:serviceradar_core)
+{:error, :bad_name} = :code.lib_dir(:serviceradar_nvr)
+{:error, :bad_name} = :code.lib_dir(:membrane_core)
+
+request = "NVR_CLIENT_REQUEST" |> System.fetch_env!() |> File.read!() |> Jason.decode!()
+
+units =
+  Stream.resource(
+    fn -> File.open!(request["units_path"], [:read, :binary]) end,
+    fn file ->
+      case IO.binread(file, 28) do
+        :eof ->
+          {:halt, file}
+
+        <<size::32, sequence::64, pts::64, dts::64>> ->
+          payload = IO.binread(file, size)
+          {[%{payload: payload, sequence: sequence, pts: pts, dts: dts}], file}
+      end
+    end,
+    &File.close/1
+  )
+
+mode = request["mode"] || "normal"
+parent = self()
+
+units =
+  Stream.map(units, fn unit ->
+    case mode do
+      "raise" ->
+        raise "synthetic producer failed"
+
+      "block" ->
+        Process.sleep(:infinity)
+
+      "caller_loss" ->
+        send(parent, {:sender_started, self()})
+        Process.sleep(:infinity)
+
+      _ ->
+        unit
+    end
+  end)
+
+result =
+  with {:ok, config} <- ServiceRadarNVRClient.Config.load(request["config_path"], request["token_path"]) do
+    if mode == "caller_loss" do
+      {caller, caller_monitor} =
+        spawn_monitor(fn ->
+          ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
+        end)
+
+      sender =
+        receive do
+          {:sender_started, pid} -> pid
+        after
+          5000 -> raise "sender never started"
+        end
+
+      sender_monitor = Process.monitor(sender)
+      Process.exit(caller, :kill)
+
+      receive do
+        {:DOWN, ^caller_monitor, :process, ^caller, :killed} -> :ok
+      after
+        1000 -> raise "caller survived"
+      end
+
+      receive do
+        {:DOWN, ^sender_monitor, :process, ^sender, _} -> {:ok, %{caller_loss_bounded: true}}
+      after
+        request["timeout_ms"] + 1000 -> raise "sender survived its caller and deadline"
+      end
+    else
+      ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
+    end
+  end
+
+result =
+  case result do
+    {:ok, receipt} -> %{ok: receipt}
+    {:error, reason} -> %{error: inspect(reason)}
+  end
+
+File.write!(System.fetch_env!("NVR_CLIENT_RESULT"), Jason.encode!(result))
+IO.puts("NVR_CLIENT_PROBE_OK")

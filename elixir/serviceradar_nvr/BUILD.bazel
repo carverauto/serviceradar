@@ -78,11 +78,15 @@ py_test(
     data = [
         "test/release_probe.exs",
         ":release_tar",
+        "//elixir/serviceradar_nvr_client:release_fixture",
+        "//elixir/serviceradar_nvr_client:test/client_probe.exs",
         "//third_party/membrane:media_test_tools",
     ],
     env = {
         "NVR_RELEASE": "$(rootpath :release_tar)",
         "NVR_PROBE": "$(rootpath test/release_probe.exs)",
+        "NVR_CLIENT_RELEASE": "$(rootpath //elixir/serviceradar_nvr_client:release_fixture)",
+        "NVR_CLIENT_PROBE": "$(rootpath //elixir/serviceradar_nvr_client:test/client_probe.exs)",
     },
     exec_properties = {"test.network": "off"},
     target_compatible_with = [

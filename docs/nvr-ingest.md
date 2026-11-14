@@ -8,7 +8,7 @@ S3 remains optional.
 
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
-| Camera to NVR | A finite TLS stream reaches the shipped recorder and rotates local blocks | Inventory selection, authenticated assignment and agent/gateway sender |
+| Camera to NVR | A packaged sending client reaches the shipped recorder over TLS and rotates local blocks | Inventory selection, authenticated assignment and agent/gateway integration |
 | Footage catalog | Durable publication intents and Core acceptance | Current-history completion and qualified local-copy registration |
 | Playback | Archive player and authorized S3 reads | Owner-routed authorized local reads and player discovery |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
@@ -91,6 +91,24 @@ survives a stalled or disconnected caller. There is no renewal or implicit retry
 The producer waits for each frame to pass through the writer before admitting
 the next; this wait must stay outside shared live-view and control processes.
 
+## Sending client
+
+`ServiceRadarNVRClient.send_recording/4` in `elixir/serviceradar_nvr_client`
+implements this finite stream contract without a Core, database, Membrane or NVR
+application dependency. Its caller supplies an installed endpoint, workload
+credentials, an authorized recording identity and a lazy access-unit enumerable.
+The client pulls and sends one frame at a time, enforces unit/body/response
+limits, verifies the server identity, and bounds the producer and socket lifetime
+even after caller loss. Only normal enumeration completion sends the end marker.
+It never retries, follows redirects or selects another replica.
+
+A success receipt must match the requested storage lifetime and consecutive
+block keys. Transport or malformed-response failures return an unknown outcome
+requiring discovery at the original NVR. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
+This is a library for the media bridge; no inventory camera or agent/gateway
+consumer is enabled by installing it. Source assignment and admission remain
+required before wiring a live source into the client.
+
 ## Outcomes and preservation
 
 HTTP 200 returns `version: 1`, `status: sealed_local`, the `storage_id` and
@@ -120,3 +138,6 @@ rotated footage by decoding and comparing frames after restart, preserve files
 on replay, and exercise authentication, storage/generation binding, incomplete
 input, bootstrap refusal and finite producer lifetime. These tests establish
 neither deployed-camera behavior nor physical Longhorn node-loss durability.
+The same target runs the packaged client against the packaged NVR and an
+independent TLS peer to check wire bytes, receipt binding, server identity,
+byte limits, no retries and bounded cleanup after producer or caller failure.
