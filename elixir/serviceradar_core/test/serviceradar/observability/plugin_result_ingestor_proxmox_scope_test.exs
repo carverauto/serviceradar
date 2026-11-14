@@ -190,7 +190,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
                  PluginResultIngestor.ingest_durable(payload, status)
       end)
 
-    assert not_found_log =~ "[warning] Plugin result handler refused payload"
+    assert not_found_log =~
+             "[warning] Plugin result handler ServiceRadar.Inventory.ProxmoxEnrichmentIngestor refused: reason=plugin_assignment_not_found"
 
     assert_receive {:handler_outcome, %{count: 1},
                     %{
@@ -211,7 +212,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
                  PluginResultIngestor.ingest_durable(payload, status)
       end)
 
-    assert disabled_log =~ "[info] Plugin result handler settled without projection"
+    assert disabled_log =~
+             "[info] Plugin result handler ServiceRadar.Inventory.ProxmoxEnrichmentIngestor settled: reason=plugin_assignment_disabled"
 
     assert_receive {:handler_outcome, %{count: 1},
                     %{
