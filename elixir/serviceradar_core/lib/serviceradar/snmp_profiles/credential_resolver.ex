@@ -584,29 +584,58 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   @doc """
   Convert a resolved credential map into mapper config credentials.
+
+  Returns `{:error, {:unknown_security_level, value}}` when the credential
+  carries a present-but-unrecognised level instead of downgrading it: a
+  mapper polling with noAuthNoPriv on the operator's behalf must be a
+  decision, never a fallback. An absent level is omitted.
   """
-  @spec to_mapper_credentials(credential_map() | nil) :: map()
-  def to_mapper_credentials(nil), do: %{}
+  @spec to_mapper_credentials(credential_map() | nil) ::
+          {:ok, map()} | {:error, {:unknown_security_level, term()}}
+  def to_mapper_credentials(nil), do: {:ok, %{}}
 
   def to_mapper_credentials(%{} = credential) do
-    compact_map(%{
-      "version" => ProtocolFormatter.version(Map.get(credential, :version), allow_binary?: true),
-      "community" => Map.get(credential, :community),
-      "username" => Map.get(credential, :username),
-      "security_level" => ProtocolFormatter.security_level(Map.get(credential, :security_level)),
-      "auth_protocol" =>
-        ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol),
-          style: :compact,
-          allow_binary?: true
-        ),
-      "auth_password" => Map.get(credential, :auth_password),
-      "privacy_protocol" =>
-        ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol),
-          style: :compact,
-          allow_binary?: true
-        ),
-      "privacy_password" => Map.get(credential, :priv_password)
-    })
+    raw_level = Map.get(credential, :security_level)
+
+    with {:ok, level} <- mapper_security_level(raw_level) do
+      {:ok,
+       compact_map(%{
+         "version" =>
+           ProtocolFormatter.version(Map.get(credential, :version), allow_binary?: true),
+         "community" => Map.get(credential, :community),
+         "username" => Map.get(credential, :username),
+         "security_level" => level,
+         "auth_protocol" =>
+           ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol),
+             style: :compact,
+             allow_binary?: true
+           ),
+         "auth_password" => Map.get(credential, :auth_password),
+         "privacy_protocol" =>
+           ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol),
+             style: :compact,
+             allow_binary?: true
+           ),
+         "privacy_password" => Map.get(credential, :priv_password)
+       })}
+    end
+  end
+
+  # An absent level is omitted (v2c credentials carry none); a present but
+  # unrecognised level refuses rather than downgrading to noAuthNoPriv. The
+  # wire spelling comes from ProtocolFormatter.security_level/1, which is
+  # total over the normalised atoms that reach it.
+  defp mapper_security_level(raw) do
+    cond do
+      not present?(raw) ->
+        {:ok, nil}
+
+      (level = ProtocolFormatter.normalize_security_level(raw)) != nil ->
+        {:ok, ProtocolFormatter.security_level(level)}
+
+      true ->
+        {:error, {:unknown_security_level, raw}}
+    end
   end
 
   @doc false
@@ -909,40 +938,53 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     version =
       normalize_version(map_value(payload, "version") || Map.get(record, :version) || :v2c)
 
-    %{
-      version: version,
-      community: map_value(payload, "community"),
-      username:
-        map_value(payload, "username") || Map.get(record, :username) || Map.get(secret, :username),
-      security_level: broker_security_level(payload, record),
-      auth_protocol:
-        normalize_auth_protocol(
-          map_value(payload, "auth_protocol") || Map.get(record, :auth_protocol)
-        ),
-      auth_password: map_value(payload, "auth_password"),
-      priv_protocol:
-        normalize_priv_protocol(
-          map_value(payload, "priv_protocol") ||
-            map_value(payload, "privacy_protocol") ||
-            Map.get(record, :priv_protocol)
-        ),
-      priv_password: map_value(payload, "priv_password") || map_value(payload, "privacy_password")
-    }
+    with {:ok, level} <- broker_security_level(payload, record) do
+      {:ok,
+       %{
+         version: version,
+         community: map_value(payload, "community"),
+         username:
+           map_value(payload, "username") || Map.get(record, :username) ||
+             Map.get(secret, :username),
+         security_level: level,
+         auth_protocol:
+           normalize_auth_protocol(
+             map_value(payload, "auth_protocol") || Map.get(record, :auth_protocol)
+           ),
+         auth_password: map_value(payload, "auth_password"),
+         priv_protocol:
+           normalize_priv_protocol(
+             map_value(payload, "priv_protocol") ||
+               map_value(payload, "privacy_protocol") ||
+               Map.get(record, :priv_protocol)
+           ),
+         priv_password:
+           map_value(payload, "priv_password") || map_value(payload, "privacy_password")
+       }}
+    end
   end
 
   defp broker_security_level(payload, record) do
     # A bound secret can omit its level and infer it from its passwords. The
     # consumer's no-auth default must not suppress that inference; an explicit
     # level in the secret still wins, including an intentional noAuthNoPriv.
-    case normalize_security_level(map_value(payload, "security_level")) do
-      nil ->
-        case normalize_security_level(Map.get(record, :security_level)) do
-          :no_auth_no_priv -> nil
-          level -> level
-        end
+    # An explicit level that is not a known spelling refuses: inferring from
+    # passwords would silently discard what the operator wrote.
+    raw = map_value(payload, "security_level")
 
-      level ->
-        level
+    cond do
+      not present?(raw) ->
+        {:ok,
+         case normalize_security_level(Map.get(record, :security_level)) do
+           :no_auth_no_priv -> nil
+           level -> level
+         end}
+
+      (level = normalize_security_level(raw)) != nil ->
+        {:ok, level}
+
+      true ->
+        {:error, {:unknown_security_level, raw}}
     end
   end
 
@@ -1182,11 +1224,22 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   defp finalize_credential(nil), do: nil
 
+  defp finalize_credential({:error, _reason} = error), do: error
+
+  defp finalize_credential({:ok, credential}) when is_map(credential) do
+    finalize_credential(credential)
+  end
+
+  # Success keeps the historical bare-map shape; only refusals are tagged.
   defp finalize_credential(credential) when is_map(credential) do
     credential
     |> infer_version()
     |> copy_privacy_password()
     |> infer_security_level()
+    |> case do
+      {:ok, finalized} -> finalized
+      {:error, _reason} = error -> error
+    end
   end
 
   defp infer_version(%{version: :v3} = credential), do: credential
@@ -1210,20 +1263,31 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
+  # A level that is present but unrecognised refuses instead of inferring:
+  # inferring from passwords would silently discard what the operator wrote
+  # and could downgrade an authenticated poll to noAuthNoPriv. Absent levels
+  # (nil or blank) keep the historical password inference.
   defp infer_security_level(credential) do
-    case Map.get(credential, :security_level) do
+    raw = Map.get(credential, :security_level)
+
+    case ProtocolFormatter.normalize_security_level(raw) do
       level when level in [:no_auth_no_priv, :auth_no_priv, :auth_priv] ->
-        credential
+        {:ok, Map.put(credential, :security_level, level)}
 
-      _ ->
-        level =
-          cond do
-            present?(Map.get(credential, :priv_password)) -> :auth_priv
-            present?(Map.get(credential, :auth_password)) -> :auth_no_priv
-            true -> :no_auth_no_priv
-          end
+      nil ->
+        if present?(raw) do
+          {:error, {:unknown_security_level, raw}}
+        else
+          {:ok, Map.put(credential, :security_level, inferred_security_level(credential))}
+        end
+    end
+  end
 
-        Map.put(credential, :security_level, level)
+  defp inferred_security_level(credential) do
+    cond do
+      present?(Map.get(credential, :priv_password)) -> :auth_priv
+      present?(Map.get(credential, :auth_password)) -> :auth_no_priv
+      true -> :no_auth_no_priv
     end
   end
 end
