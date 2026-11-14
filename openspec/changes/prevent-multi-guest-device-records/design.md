@@ -110,6 +110,9 @@ ranges, subnets, cluster names or hostnames:
   report, as two clusters reusing one private range do, is ambiguous. The same test points an agent
   linked to the record (`ocsf_agents.device_uid`, not superseded) at its guest by the address the
   agent reports. Legacy name-keyed AWX rows (`awx:host:<name>`) cannot be proven and stay.
+- **Everything else stays.** Every row of the record, whatever its type, that is not a guest
+  reference and is not proven to a guest by the tests above stays on the record and is listed in
+  the plan as unproven. The dry-run report lists every plan the execute would apply.
 
 ### Keeper
 The record keeps the guest that its operator-facing bindings belong to, so they stay valid:
@@ -127,7 +130,8 @@ The record keeps the guest that its operator-facing bindings belong to, so they 
 One transaction per candidate. It locks the record, plans the candidate again on the state under
 the lock and refuses (`plan_changed`) when the plan differs, creates one record per moved guest
 (a deterministic uid derived from the record and the reference, reseeded past any existing row, with
-the guest's inventory name as hostname), reassigns that guest's reference and proven rows to it
+the guest's inventory name as hostname, and none when the inventory has no name), reassigns that
+guest's reference and proven rows to it
 (`DeviceIdentifier :reassign_device`), records every pair of the resulting records distinct
 (`Deduplication.assert_distinct/4`), and bumps the identity revision of every record involved so a
 concurrent ingest pinned to the old composition is withheld at the identity fence. A synced

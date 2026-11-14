@@ -17,8 +17,9 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
      proven to own, leave the record whole (`ambiguous_keeper`, `unproven_binding`). Every other
      guest moves to a new record with its reference, each MAC row its NICs alone report, and each
      AWX host row whose current membership declares an address only its NICs report. Every other
-     MAC or AWX row stays and is reported as unproven: ownership is never guessed, and an address
-     only selects among guests the record already holds.
+     row no guest is proven to own, whatever its type, stays and is reported as unproven:
+     ownership is never guessed, and an address only selects among guests the record already
+     holds.
   2. **Split, one record at a time.** One transaction per record: lock it, plan it again on the
      locked state (`plan_changed` when the plan differs), create each guest's record, reassign its
      rows (`DeviceIdentifier :reassign_device`), record every pair of the resulting records
@@ -50,7 +51,6 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
 
   @step "multi-guest-split"
   @default_candidate_limit 5_000
-  @report_limit 500
   @awx_v2 ~r/\Aawx:v2:([0-9a-f-]{36}):host:([0-9]+)\z/
   # A v3 guest reference, before `GuestIdentityGuard` parses it exactly.
   @guest_ref_pattern ":(qemu|lxc):[^:]+$"
@@ -71,20 +71,19 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
 
   @doc """
   The live records holding more than one live v3 guest reference, at most the candidate limit,
-  each with what the plan reads. `:multi_guest_split_device_uids` restricts it to those records.
+  each with what the plan reads. `:multi_guest_split_device_uids` loads exactly those records
+  instead (each still only when it holds more than one), without the candidate limit.
   """
   def load(opts) do
-    limit = Keyword.get(opts, :multi_guest_split_candidate_limit, @default_candidate_limit)
-    uids = candidate_uids(limit + 1)
-    truncated? = length(uids) > limit
+    case Keyword.get(opts, :multi_guest_split_device_uids) do
+      selected when is_list(selected) ->
+        %{devices: load_devices(Enum.uniq(selected)), truncated?: false}
 
-    uids =
-      case Keyword.get(opts, :multi_guest_split_device_uids) do
-        selected when is_list(selected) -> Enum.filter(uids, &(&1 in selected))
-        _ -> Enum.take(uids, limit)
-      end
-
-    %{devices: load_devices(uids), truncated?: truncated?}
+      _ ->
+        limit = Keyword.get(opts, :multi_guest_split_candidate_limit, @default_candidate_limit)
+        uids = candidate_uids(limit + 1)
+        %{devices: load_devices(Enum.take(uids, limit)), truncated?: length(uids) > limit}
+    end
   end
 
   @doc "The uids of live records holding more than one live v3 guest reference, sorted."
@@ -118,7 +117,12 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
     data =
       Enum.flat_map(devices, fn {uid, device} ->
         device_rows = Map.get(rows, uid, [])
-        guests = device_rows |> Enum.map(& &1.value) |> guest_refs()
+
+        guests =
+          device_rows
+          |> Enum.filter(&(&1.type == "integration_id"))
+          |> Enum.map(& &1.value)
+          |> guest_refs()
 
         if length(guests) > 1,
           do: [Map.merge(device, %{rows: device_rows, guests: guests})],
@@ -172,7 +176,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
         """
         SELECT id, device_id, identifier_type::text, identifier_value, first_seen
         FROM platform.device_identifiers
-        WHERE device_id = ANY($1::text[]) AND identifier_type IN ('mac', 'integration_id')
+        WHERE device_id = ANY($1::text[])
         ORDER BY device_id, id
         """,
         [uids]
@@ -314,8 +318,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
       uid: device.uid,
       guests: device.guests,
       anchors: anchors,
-      unproven:
-        for({row, nil} <- owned, row.type == "mac" or awx_row?(row.value), do: describe_row(row))
+      unproven: for({row, nil} <- owned, do: describe_row(row))
     }
 
     case keeper(device, anchors) do
@@ -409,8 +412,6 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
     end
   end
 
-  defp awx_row?(value), do: is_binary(value) and String.starts_with?(value, "awx:")
-
   defp describe_row(row), do: %{id: row.id, type: row.type, value: row.value}
 
   defp sortable_time(%NaiveDateTime{} = at), do: NaiveDateTime.to_iso8601(at)
@@ -457,7 +458,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
         split |> Enum.flat_map(& &1.splits) |> Enum.map(&length(&1.rows)) |> Enum.sum(),
       planned_skips: Enum.frequencies_by(skipped, & &1.skip_reason),
       unproven_rows: plans |> Enum.map(&length(&1.unproven)) |> Enum.sum(),
-      plans: plans |> Enum.take(@report_limit) |> Enum.map(&report_plan/1)
+      plans: Enum.map(plans, &report_plan/1)
     }
   end
 
@@ -482,7 +483,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
       not execute_enabled?(opts) ->
         blocked(base, :multi_guest_split_execute_disabled)
 
-      data.truncated? and not is_list(Keyword.get(opts, :multi_guest_split_device_uids)) ->
+      data.truncated? ->
         blocked(base, :candidate_limit_reached)
 
       Manifest.ensure_writable(manifest) != :ok ->
@@ -751,7 +752,7 @@ defmodule ServiceRadar.Inventory.Remediation.MultiGuestSplit do
             "split_from_device_uid" => uid
           }
         },
-        split.name || source.hostname
+        split.name
       )
 
     case Device
