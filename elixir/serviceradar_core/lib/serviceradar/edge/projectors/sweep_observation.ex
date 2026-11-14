@@ -97,11 +97,7 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   nothing. A publish that fails leaves the marker for `ServiceRadar.Edge.SweepHostGaugeSweeper`.
   """
   @impl true
-  def committed(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        %{primary?: true}
-      ) do
+  def committed(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch, %{primary?: true}) do
     _ = SweepHostGauges.publish_committed(record, batch)
     :ok
   end

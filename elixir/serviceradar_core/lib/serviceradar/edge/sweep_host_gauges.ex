@@ -98,11 +98,7 @@ defmodule ServiceRadar.Edge.SweepHostGauges do
   """
   @spec publish_committed(EdgeRecordV1.t(), SweepObservationBatchV1.t(), keyword()) ::
           :ok | {:error, term()}
-  def publish_committed(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        opts \\ []
-      ) do
+  def publish_committed(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch, opts \\ []) do
     event_id = Ecto.UUID.load!(record.event_id)
 
     case marker_identity(event_id) do
