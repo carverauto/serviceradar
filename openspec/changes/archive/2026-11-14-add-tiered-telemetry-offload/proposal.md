@@ -1,5 +1,10 @@
 # Change: Tiered telemetry offload — export aging telemetry to object storage before retention drops it, with a transparent cold query path
 
+> **Withdrawn. Superseded by `remove-cold-telemetry-tier`.** This change stopped with 25 of
+> 63 tasks open, and no known deployment enabled what it shipped. The cold tier was removed
+> and this change was archived without applying its spec deltas, so none of its requirements
+> are part of `openspec/specs/`. Its task list records how far it got, not what is built.
+
 ## Why
 
 Raw telemetry is deleted aggressively today: `otel_traces` after 3 days,

@@ -109,7 +109,6 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 
 | Reader | Reads | Surface |
 |---|---|---|
-| `ColdTier.Exporter` (`C/cold_tier/`) | seven hot tables | CNPG chunks; see resolved finding 8 below |
 | `ScanResult.by_scan_run` (scan page, scan export, scan API, composite check orchestrator) | adhoc_scan_results | UI + API |
 | Dashboard `survey_summary`; SRQL `field_survey` | survey tables | UI |
 | SRQL `endpoint_packages` hourly counts | endpoint inventory caggs | SRQL CNPG |
@@ -173,10 +172,5 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
 7. **Write-path reads** (`AnalyticsSignals`, `EndpointVulnerabilityFindingEmitter`,
    `PluginResultIngestor` / `PluginResultStateWinner`, `MtrMetricsIngestor.stored_trace_ids`)
    read CNPG before writing; they move with the writers in 5.2, not with the readers in 5.4.
-8. **Cold-tier backend scope resolved (issue #4872).** This reader remains live:
-   `Exporter.eligible_chunks` enumerates Timescale chunks and `Head` copies through
-   the primary FDW; neither reads warehouse partitions. The backend-scope contract
-   is in [the telemetry-tiering delta](specs/telemetry-tiering/spec.md).
-   See [the cold-tier runbook](../../../docs/cold-tier-runbook.md) for release
-   settings, reporting and draining CNPG history. Runtime-path coverage is in
-   `state_test.exs` and `warehouse_backfill_db_test.exs` under the core cold-tier tests.
+8. **Cold-tier backend scope (issue #4872) is moot.** The cold tier and its exporter were
+   removed by `remove-cold-telemetry-tier`, so no reader enumerates CNPG chunks for an archive.

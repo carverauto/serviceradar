@@ -289,8 +289,8 @@
     the unused Go `InsertOCSFNetworkActivity` writer is deleted. Flow reads already refuse without
     the warehouse. Test: `FlowsWarehouseOnlyDBTest` (no CNPG flow row with StarRocks enabled;
     acknowledged, stored nowhere and logged once without it). The CNPG flow table, its hourly
-    continuous aggregates, retention reconcile and cold-tier registry entry are kept; dropping
-    them is a separate, approved change.
+    continuous aggregates and retention reconcile are kept; dropping them is a separate,
+    approved change.
   - [x] Shadow list and logs/events dual-write. `shadowDatasets` is removed from Helm, Compose
     and `Env`, with `Destination.maybe_shadow/3`, `persist_shadow/3`, `persist_after_cnpg/3`
     and the partial-write counter; the chart refuses to render while the key is set. Logs and
@@ -337,13 +337,9 @@
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.
-- [x] 5.4a Implement the cold-tier backend-scope contract in
-  [the telemetry-tiering delta](specs/telemetry-tiering/spec.md), resolving
-  [reader finding 8](reader-inventory.md) (issue #4872).
-  Runtime activation, mounted-secret and schedule tests plus database backend-health
-  persistence/notification and drop-gate regressions are registered. Database execution
-  and regression validation remain pending the in-cluster BazelCI gate; review verification
-  uses authenticated remote RBE, with no local Bazel or Mix compile/test.
+- [x] 5.4a Cold-tier backend scope ([reader finding 8](reader-inventory.md), issue #4872).
+  Withdrawn with the cold tier by `remove-cold-telemetry-tier`, which removed the
+  `telemetry-tiering` delta this task implemented.
 - [ ] 5.6 Keep the CNPG telemetry schema: no migration drops a telemetry hypertable, continuous
   aggregate, retention or compression policy, because installations without StarRocks use them.
   On a StarRocks installation they receive no rows and retention ages them out.
