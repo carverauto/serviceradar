@@ -3,181 +3,38 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
   alias ServiceRadar.Plugins.AddonProfileReconciler
 
-  defmodule ResolverV1 do
+  defmodule Runner do
     @moduledoc false
-    def resolve(_input_defs, _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "devices",
-           query: "in:devices hostname:ns*",
-           rows: [
-             %{"uid" => "sr:device:1", "agent_id" => "agent-a"},
-             %{"uid" => "sr:device:2", "agent_uid" => "agent-b"},
-             %{"uid" => "sr:device:3"}
-           ]
-         }
-       ]}
-    end
-  end
+    # Serves rows the way `SRQLRunner.query_page/2` does: one page of at most
+    # `:limit` rows (100 when the request omits it, as SRQL defaults) and a
+    # cursor while rows remain. `query/2` returns the first page, as
+    # `SRQLRunner.query/2` does.
 
-  defmodule ResolverV2 do
-    @moduledoc false
-    def resolve(_input_defs, _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "agents",
-           query: "in:agents name:agent-*",
-           rows: [%{"uid" => "agent-c"}]
-         }
-       ]}
-    end
-  end
+    @default_limit 100
 
-  defmodule ResolverOfflineAgent do
-    @moduledoc false
-
-    def resolve(_input_defs, _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "agents",
-           query: "in:agents uid:agent-offline",
-           rows: [%{"uid" => "agent-offline"}]
-         }
-       ]}
-    end
-  end
-
-  defmodule ResolverEligibility do
-    @moduledoc false
-    def resolve(_input_defs, _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "devices",
-           query: "in:devices",
-           rows: [
-             device_row("device-good", "agent-good"),
-             device_row("device-manual", "agent-manual"),
-             %{"uid" => "device-without-agent", "hostname" => "ns-missing-agent"},
-             device_row("device-arm", "agent-arm"),
-             device_row("device-old", "agent-old"),
-             device_row("device-missing-cap", "agent-missing-cap"),
-             device_row("device-offline", "agent-offline")
-           ]
-         }
-       ]}
+    # `rows` is a list served for any query, or a map of query => rows.
+    def serving(rows) do
+      Process.put(__MODULE__, rows)
+      __MODULE__
     end
 
-    # Mirrors the SRQL DeviceRow projection: device OS is an OCSF object and
-    # agent runtime compatibility fields are not denormalized onto the row.
-    defp device_row(device_uid, agent_uid) do
-      %{
-        "uid" => device_uid,
-        "type_id" => 1,
-        "hostname" => device_uid,
-        "agent_id" => agent_uid,
-        "os" => %{"name" => "Linux"},
-        "metadata" => %{}
-      }
-    end
-  end
-
-  defmodule ResolverMissingAgent do
-    @moduledoc false
-
-    def resolve(_input_defs, _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "devices",
-           query: "in:devices",
-           rows: [
-             %{
-               "uid" => "device-orphaned-agent-link",
-               "type_id" => 1,
-               "agent_id" => "agent-not-enrolled",
-               "os" => %{"name" => "Linux"},
-               "metadata" => %{}
-             }
-           ]
-         }
-       ]}
-    end
-  end
-
-  defmodule ResolverContainerAgent do
-    @moduledoc false
-
-    def resolve([%{entity: entity, query: query} | _], _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: entity,
-           query: query,
-           rows: [
-             %{
-               "uid" => "agent-container",
-               "os" => "linux",
-               "arch" => "amd64",
-               "agent_version" => "1.2.3",
-               "capabilities" => ["endpoint-inventory"]
-             }
-           ]
-         }
-       ]}
-    end
-  end
-
-  defmodule ResolverDefaultQuery do
-    @moduledoc false
-
-    def resolve([%{entity: "agents", query: "in:agents"}], _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "agents",
-           query: "in:agents",
-           rows: [
-             %{
-               "uid" => "agent-good",
-               "os" => "linux",
-               "arch" => "amd64",
-               "agent_version" => "1.2.3",
-               "capabilities" => ["endpoint-inventory"]
-             }
-           ]
-         }
-       ]}
+    def query(query, opts) do
+      with {:ok, %{rows: rows}} <- query_page(query, opts), do: {:ok, rows}
     end
 
-    def resolve([%{entity: "devices", query: "in:devices"}], _opts) do
-      {:ok,
-       [
-         %{
-           name: "targets",
-           entity: "devices",
-           query: "in:devices",
-           rows: [
-             %{
-               "uid" => "device-good",
-               "agent_id" => "agent-good",
-               "type_id" => 1,
-               "os" => %{"name" => "Linux"},
-               "metadata" => %{}
-             }
-           ]
-         }
-       ]}
+    def query_page(query, opts) do
+      rows =
+        case Process.get(__MODULE__) do
+          by_query when is_map(by_query) -> Map.fetch!(by_query, query)
+          rows when is_list(rows) -> rows
+        end
+
+      limit = Keyword.get(opts, :limit) || @default_limit
+      offset = opts |> Keyword.get(:cursor, "0") |> String.to_integer()
+      page = rows |> Enum.drop(offset) |> Enum.take(limit)
+      next = if offset + limit < length(rows), do: Integer.to_string(offset + limit)
+
+      {:ok, %{rows: page, next_cursor: next}}
     end
   end
 
@@ -340,7 +197,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, first} =
              AddonProfileReconciler.reconcile(profile,
-               resolver: ResolverV1,
+               runner: Runner.serving(v1_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
@@ -357,7 +214,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, second} =
              AddonProfileReconciler.reconcile(profile,
-               resolver: ResolverV1,
+               runner: Runner.serving(v1_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
@@ -369,7 +226,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, third} =
              AddonProfileReconciler.reconcile(%{profile | target_query: "in:agents name:agent-*"},
-               resolver: ResolverV2,
+               runner: Runner.serving([%{"uid" => "agent-c"}]),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:01:00Z]
@@ -381,6 +238,92 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert third.disabled == 1
   end
 
+  # Cutting the list down to max_targets would deliver the add-on to an
+  # arbitrary subset of the agents the operator selected.
+  test "a profile selecting more agents than max_targets is refused whole, not truncated" do
+    agents = Enum.map(["agent-a", "agent-b", "agent-c"], &agent_row/1)
+
+    profile =
+      Map.merge(endpoint_inventory_profile(), %{target_query: "in:agents", max_targets: 3})
+
+    over_limit = %{profile | max_targets: 2}
+
+    opts = [
+      runner: Runner.serving(agents),
+      agent_loader: AgentLoader,
+      store: MemoryStore,
+      reconciled_at: ~U[2026-11-14 12:00:00Z]
+    ]
+
+    assert {:ok, accepted} = AddonProfileReconciler.reconcile(profile, opts)
+    assert accepted.upserted == 3
+    refute Map.has_key?(accepted, :refusal)
+
+    other_profile_id = Ecto.UUID.generate()
+
+    other_assignment = %{
+      agent_uid: "agent-a",
+      source: :profile,
+      source_key: "other-profile-agent-a",
+      addon_profile_id: other_profile_id,
+      enabled: true
+    }
+
+    Agent.update(MemoryStore, &put_in(&1.assignments["other-profile-agent-a"], other_assignment))
+
+    handler = "addon-target-limit-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :addon_profile, :target_limit_exceeded],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:target_limit, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    assert {:ok, refused} = AddonProfileReconciler.reconcile(over_limit, opts)
+
+    assert %{limit: 2, message: message} = refused.refusal
+    assert message =~ "selects more than 2 agents"
+    assert refused.desired_assignments == 0
+    assert refused.upserted == 0
+    assert refused.disabled == 3
+
+    {:ok, own_assignments} = MemoryStore.list_profile_assignments(profile.id, nil)
+    assert length(own_assignments) == 3
+    assert Enum.all?(own_assignments, &(&1.enabled == false))
+    assert {:ok, [%{enabled: true}]} = MemoryStore.list_profile_assignments(other_profile_id, nil)
+
+    profile_id = profile.id
+    assert_received {:target_limit, %{count: 1, limit: 2}, %{profile_id: ^profile_id}}
+
+    assert {:refused, %{limit: 2}} = AddonProfileReconciler.check_target_limit(over_limit, opts)
+    assert :ok = AddonProfileReconciler.check_target_limit(profile, opts)
+  end
+
+  # SRQL returns 100 rows when a request names no limit, so reading one page
+  # silently drops the rest of a large selection.
+  test "targets are read past the first SRQL page" do
+    profile = Map.put(endpoint_inventory_profile(), :target_query, "in:agents")
+    agents = Enum.map(1..1_001, &%{"uid" => "agent-page-#{&1}"})
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               runner: Runner.serving(agents),
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.matched_rows == 1_001
+    assert preview.summary.target_agents == 1_001
+    refute Map.has_key?(preview.summary, :refusal)
+  end
+
   test "preview reports resolved targets and skip reasons" do
     profile = endpoint_inventory_profile()
 
@@ -388,7 +331,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverEligibility,
+               runner: Runner.serving(eligibility_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -432,7 +375,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   test "device target with a stale agent reference is skipped explicitly" do
     assert {:ok, preview} =
              AddonProfileReconciler.preview(endpoint_inventory_profile(),
-               resolver: ResolverMissingAgent,
+               runner: Runner.serving(missing_agent_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -450,7 +393,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     profile = Map.put(endpoint_inventory_profile(), :target_query, "in:agents uid:agent-offline")
 
     opts = [
-      resolver: ResolverOfflineAgent,
+      runner: Runner.serving([%{"uid" => "agent-offline"}]),
       agent_loader: AgentLoader,
       store: MemoryStore,
       reconciled_at: ~U[2026-07-09 15:00:00Z]
@@ -472,7 +415,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, result} =
              AddonProfileReconciler.reconcile(profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 18:00:00Z]
@@ -517,7 +460,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, first} =
              AddonProfileReconciler.reconcile(profile,
-               resolver: ResolverV2,
+               runner: Runner.serving([%{"uid" => "agent-c"}]),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
@@ -541,7 +484,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, second} =
              AddonProfileReconciler.reconcile(
                %{profile | params: Map.put(profile.params, "window_size", 300)},
-               resolver: ResolverV2,
+               runner: Runner.serving([%{"uid" => "agent-c"}]),
                agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:01:00Z]
@@ -562,7 +505,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, disabled_preview} =
              AddonProfileReconciler.preview(disabled_profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -574,7 +517,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, revoked_preview} =
              AddonProfileReconciler.preview(revoked_profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -594,7 +537,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -611,7 +554,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -634,7 +577,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverContainerAgent,
+               runner: Runner.serving([agent_row("agent-container")]),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -651,7 +594,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -668,7 +611,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverDefaultQuery,
+               runner: Runner.serving(default_query_rows()),
                agent_loader: AgentLoader,
                store: MemoryStore
              )
@@ -678,25 +621,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   end
 
   test "a systemd add-on profile skips agents older than 1.2.47 as unsupported_agent_version" do
-    defmodule ResolverPreBoundaryAgent do
-      @moduledoc false
-
-      def resolve([%{entity: entity, query: query} | _], _opts) do
-        {:ok,
-         [
-           %{
-             name: "targets",
-             entity: entity,
-             query: query,
-             rows: [
-               %{"uid" => "agent-old", "os" => "linux", "arch" => "amd64"},
-               %{"uid" => "agent-current", "os" => "linux", "arch" => "amd64"}
-             ]
-           }
-         ]}
-      end
-    end
-
     defmodule PreBoundaryAgentLoader do
       @moduledoc false
 
@@ -742,7 +666,11 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
-               resolver: ResolverPreBoundaryAgent,
+               runner:
+                 Runner.serving([
+                   %{"uid" => "agent-old", "os" => "linux", "arch" => "amd64"},
+                   %{"uid" => "agent-current", "os" => "linux", "arch" => "amd64"}
+                 ]),
                agent_loader: PreBoundaryAgentLoader,
                store: MemoryStore
              )
@@ -752,6 +680,76 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
     assert [%{agent_uid: "agent-old", agent_version_required: "1.2.47"}] =
              preview.summary.skipped_targets
+  end
+
+  defp v1_rows do
+    [
+      %{"uid" => "sr:device:1", "agent_id" => "agent-a"},
+      %{"uid" => "sr:device:2", "agent_uid" => "agent-b"},
+      %{"uid" => "sr:device:3"}
+    ]
+  end
+
+  defp eligibility_rows do
+    [
+      device_row("device-good", "agent-good"),
+      device_row("device-manual", "agent-manual"),
+      %{"uid" => "device-without-agent", "hostname" => "ns-missing-agent"},
+      device_row("device-arm", "agent-arm"),
+      device_row("device-old", "agent-old"),
+      device_row("device-missing-cap", "agent-missing-cap"),
+      device_row("device-offline", "agent-offline")
+    ]
+  end
+
+  # Mirrors the SRQL DeviceRow projection: device OS is an OCSF object and
+  # agent runtime compatibility fields are not denormalized onto the row.
+  defp device_row(device_uid, agent_uid) do
+    %{
+      "uid" => device_uid,
+      "type_id" => 1,
+      "hostname" => device_uid,
+      "agent_id" => agent_uid,
+      "os" => %{"name" => "Linux"},
+      "metadata" => %{}
+    }
+  end
+
+  defp missing_agent_rows do
+    [
+      %{
+        "uid" => "device-orphaned-agent-link",
+        "type_id" => 1,
+        "agent_id" => "agent-not-enrolled",
+        "os" => %{"name" => "Linux"},
+        "metadata" => %{}
+      }
+    ]
+  end
+
+  defp default_query_rows do
+    %{
+      "in:agents" => [agent_row("agent-good")],
+      "in:devices" => [
+        %{
+          "uid" => "device-good",
+          "agent_id" => "agent-good",
+          "type_id" => 1,
+          "os" => %{"name" => "Linux"},
+          "metadata" => %{}
+        }
+      ]
+    }
+  end
+
+  defp agent_row(uid) do
+    %{
+      "uid" => uid,
+      "os" => "linux",
+      "arch" => "amd64",
+      "agent_version" => "1.2.3",
+      "capabilities" => ["endpoint-inventory"]
+    }
   end
 
   defp endpoint_inventory_profile do

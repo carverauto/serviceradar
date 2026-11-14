@@ -3,7 +3,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   Resolves policy input definitions by executing SRQL in the control plane.
 
   Inputs are normalized to `%{name, entity, query, rows}` and are intended to
-  feed `ServiceRadar.Plugins.PluginInputPayloadBuilder`.
+  feed `ServiceRadar.Plugins.PluginInputPayloadBuilder`. `resolve/2` reads one
+  page per input; `reduce_pages/4` reads a whole selection.
   """
 
   alias ServiceRadar.Observability.SRQLRunner
@@ -48,6 +49,55 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   end
 
   def resolve(_input_defs, _opts), do: {:error, ["input definitions must be a list"]}
+
+  @page_limit 1_000
+
+  @doc """
+  Reads one input definition a page at a time, folding each page of rows into
+  `acc`.
+
+  `fun` receives a page's rows and the accumulator and returns `{:cont, acc}`
+  to read the next page or `{:halt, acc}` to stop. Every page is requested with
+  an explicit limit of #{@page_limit} rows: SRQL applies a default limit of 100
+  when a request omits one, so reading a single page would silently drop the
+  rest of the selection. A page that fails to read is an error, never a short
+  result.
+  """
+  @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
+          {:ok, acc} | {:error, [String.t()]}
+        when acc: term()
+  def reduce_pages(input_def, acc, fun, opts \\ []) when is_function(fun, 2) do
+    runner = Keyword.get(opts, :runner, SRQLRunner)
+
+    query_opts =
+      opts
+      |> Keyword.get(:query_opts, [])
+      |> Keyword.put(:limit, @page_limit)
+
+    with {:ok, descriptor} <- normalize_input_def(input_def),
+         :ok <- validate_entity(descriptor.entity) do
+      reduce_page(runner, descriptor.query, query_opts, nil, acc, fun)
+    end
+  end
+
+  defp reduce_page(runner, query, query_opts, cursor, acc, fun) do
+    page_opts = if cursor, do: Keyword.put(query_opts, :cursor, cursor), else: query_opts
+
+    with {:ok, %{rows: rows} = page} <- runner.query_page(query, page_opts),
+         {:cont, acc} <- fun.(normalize_rows(rows), acc) do
+      case Map.get(page, :next_cursor) do
+        next when is_binary(next) and next != "" ->
+          reduce_page(runner, query, query_opts, next, acc, fun)
+
+        _last_page ->
+          {:ok, acc}
+      end
+    else
+      {:halt, acc} -> {:ok, acc}
+      {:ok, unexpected} -> {:error, [format_error({:unexpected_page, unexpected})]}
+      {:error, reason} -> {:error, [format_error(reason)]}
+    end
+  end
 
   defp normalize_input_def(input_def) when is_map(input_def) do
     name = ValueUtils.string_value(input_def, [:name, "name"])

@@ -587,6 +587,30 @@ For large deployments:
 - Track unsupported architectures, failed downloads, inactive services, and
   assignment drift in the add-on drift/status views.
 
+### Profile target limit
+
+Each add-on profile has a **max targets** setting (default 10,000): the most
+agents its SRQL target query may select. Reconciliation reads the whole target
+query, a page at a time, and counts distinct agents until it passes the limit.
+
+A profile over its limit is refused whole. It is never cut down to the limit,
+because which agents would be left out is not a choice the platform can make
+for you. When a profile is refused:
+
+- **Saving it fails** if it is enabled and its query already selects too many
+  agents, with a message naming the limit.
+- **Reconciliation assigns it to no agents**, so the assignments it made before
+  are disabled. Assignments from other profiles and manual assignments are not
+  touched, so the rest of each agent's add-on configuration is still delivered.
+- **The profile card shows `refused`** with the same message, and
+  **Reconcile now** reports it.
+- **Core emits** the `[:serviceradar, :addon_profile, :target_limit_exceeded]`
+  telemetry event on every refused reconcile and logs a warning when the
+  refusal starts or the limit changes.
+
+A profile can grow past its limit after it was saved, as agents enroll. Narrow
+the target query, split the agents across profiles, or raise max targets.
+
 ## Status signals
 
 Operators should expect three different states to reconcile:

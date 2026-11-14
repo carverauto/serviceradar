@@ -2,12 +2,15 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   @moduledoc """
   Reconciles add-on profile target queries into profile-owned assignments.
 
-  The reconciler executes a profile's SRQL query, extracts target agent IDs from
-  the result rows, loads authoritative agent compatibility metadata, and
-  materializes deterministic `AddonAssignment` rows with `source: :profile`.
+  The reconciler reads a profile's SRQL query a page at a time, extracts target
+  agent IDs from the result rows, loads authoritative agent compatibility
+  metadata, and materializes deterministic `AddonAssignment` rows with
+  `source: :profile`. A profile that selects more agents than its `max_targets`
+  is refused whole; see `reconcile/2`.
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.WarningLedger
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.MapUtils
@@ -15,10 +18,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   alias ServiceRadar.Plugins.ValueUtils
 
   require Ash.Query
+  require Logger
 
   @seasonal_baselines_key "seasonal_baselines"
+  @default_max_targets 10_000
 
   @type reconcile_result :: %{
+          optional(:refusal) => target_limit_refusal(),
           matched_rows: non_neg_integer(),
           resolved_devices: non_neg_integer(),
           resolved_agents: non_neg_integer(),
@@ -35,6 +41,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
           disabled: non_neg_integer()
         }
 
+  @type target_limit_refusal :: %{
+          profile_id: String.t() | nil,
+          profile_name: String.t() | nil,
+          limit: pos_integer(),
+          message: String.t()
+        }
+
   @callback list_profile_assignments(String.t(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback list_manual_assignments(String.t(), [String.t()], map()) ::
               {:ok, [map()]} | {:error, term()}
@@ -46,8 +59,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   @spec preview(map(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
   def preview(profile, opts \\ []) when is_map(profile) do
-    with {:ok, resolved_inputs} <- resolve_profile(profile, opts),
-         {:ok, planned} <- plan(profile, resolved_inputs, opts) do
+    with {:ok, planned} <- plan(profile, opts) do
       sample_limit = Keyword.get(opts, :sample_limit, 10)
 
       {:ok,
@@ -59,16 +71,28 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     end
   end
 
+  @doc """
+  Reconciles `profile` into profile-owned assignments.
+
+  A profile whose target query selects more agents than its `max_targets` is
+  refused whole: it is never cut down to the limit, because which agents would
+  be dropped is not a decision the platform can make for an operator. A refused
+  profile desires no assignments, so its existing assignments are disabled like
+  any other stale assignment. Assignments that do not belong to it are not read
+  or touched, so the rest of each agent's add-on config is still delivered. The
+  summary carries the refusal under `:refusal`.
+  """
   @spec reconcile(map(), keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
   def reconcile(profile, opts \\ []) when is_map(profile) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_profile_reconciler))
     store = Keyword.get(opts, :store, __MODULE__.AshStore)
 
-    with {:ok, resolved_inputs} <- resolve_profile(profile, opts),
-         {:ok, planned} <- plan(profile, resolved_inputs, opts),
+    with {:ok, planned} <- plan(profile, opts),
          {:ok, id} <- required_profile_id(profile),
          {:ok, existing} <- store.list_profile_assignments(id, actor),
          {:ok, stats} <- apply_plan(planned.assignments, existing, actor, store) do
+      report_target_limit(id, planned.summary)
+
       conflicts =
         Enum.map(stats.assignment_conflicts, fn holder ->
           skip_target(
@@ -95,28 +119,37 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     end
   end
 
-  defp resolve_profile(profile, opts) do
-    resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
-
-    input_defs = [
-      %{
-        name: "targets",
-        entity: target_entity(profile),
-        query: target_query(profile)
-      }
-    ]
-
-    resolver.resolve(input_defs, opts)
+  @doc """
+  Judges whether `profile`'s target query selects more agents than its
+  `max_targets`, with the same count reconciliation uses. Counting reads the
+  target query a page at a time and stops one agent past the limit.
+  """
+  @spec check_target_limit(map(), keyword()) ::
+          :ok | {:refused, target_limit_refusal()} | {:error, [String.t()]}
+  def check_target_limit(profile, opts \\ []) when is_map(profile) do
+    case read_targets(profile, opts) do
+      {:ok, _targets} -> :ok
+      {:refused, refusal, _matched_rows} -> {:refused, refusal}
+      {:error, errors} -> {:error, errors}
+    end
   end
 
-  defp plan(profile, resolved_inputs, opts) do
+  defp plan(profile, opts) do
+    with {:ok, normalized} <- normalize_profile(profile) do
+      case read_targets(profile, opts) do
+        {:ok, targets} -> plan_assignments(normalized, targets, opts)
+        {:refused, refusal, matched_rows} -> {:ok, refused_plan(refusal, matched_rows)}
+        {:error, errors} -> {:error, errors}
+      end
+    end
+  end
+
+  defp plan_assignments(normalized, targets, opts) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_profile_reconciler))
     store = Keyword.get(opts, :store, __MODULE__.AshStore)
     now = Keyword.get(opts, :reconciled_at, DateTime.utc_now())
 
-    with {:ok, normalized} <- normalize_profile(profile),
-         {:ok, targets} <- extract_targets(resolved_inputs, normalized.max_targets),
-         {:ok, targets} <- attach_agent_compatibility(targets, opts, actor),
+    with {:ok, targets} <- attach_agent_compatibility(targets, opts, actor),
          {:ok, eligibility} <- evaluate_target_eligibility(normalized, targets.targets),
          {:ok, manual_assignments} <-
            store.list_manual_assignments(normalized.addon_id, eligibility.agent_uids, actor) do
@@ -153,6 +186,49 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
          }
        }}
     end
+  end
+
+  # `matched_rows` counts the rows read before counting stopped, so it is a
+  # lower bound for a refused profile.
+  defp refused_plan(refusal, matched_rows) do
+    %{
+      assignments: [],
+      summary: %{
+        matched_rows: matched_rows,
+        resolved_devices: 0,
+        resolved_agents: 0,
+        target_agents: 0,
+        eligible_agents: 0,
+        desired_assignments: 0,
+        skipped_without_agent: 0,
+        skipped_manual_overrides: 0,
+        skipped_targets: [],
+        skip_counts: %{},
+        target_samples: [],
+        refusal: refusal,
+        assignments: []
+      }
+    }
+  end
+
+  # The counter fires on every reconcile of a refused profile. The log line is
+  # written when the refusal starts or its limit changes, not on every pass.
+  defp report_target_limit(_profile_id, %{refusal: refusal}) do
+    :telemetry.execute(
+      [:serviceradar, :addon_profile, :target_limit_exceeded],
+      %{count: 1, limit: refusal.limit},
+      Map.take(refusal, [:profile_id, :profile_name])
+    )
+
+    if WarningLedger.changed?({:addon_profile_target_limit, refusal.profile_id}, refusal.limit) do
+      Logger.warning("AddonProfileReconciler: " <> refusal.message,
+        profile_id: refusal.profile_id
+      )
+    end
+  end
+
+  defp report_target_limit(profile_id, _summary) do
+    WarningLedger.forget({:addon_profile_target_limit, profile_id})
   end
 
   defp apply_plan(desired_specs, existing_rows, actor, store) do
@@ -283,69 +359,106 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   defp stringify_keys(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
-  defp extract_targets(resolved_inputs, max_targets) do
-    rows =
-      Enum.flat_map(resolved_inputs, fn input ->
-        entity = ValueUtils.string_value(input, [:entity, "entity"]) || "devices"
+  # Reads the profile's target query a page at a time and keeps the first row
+  # for each agent. Counting stops one agent past `max_targets`: a profile over
+  # its limit is refused whole, never cut down to the limit.
+  defp read_targets(profile, opts) do
+    entity = target_entity(profile)
+    max_targets = max_targets(profile)
+    input = %{name: "targets", entity: entity, query: target_query(profile)}
+    initial = %{rows: 0, targets: [], skipped: [], seen: MapSet.new()}
 
-        input
-        |> ValueUtils.list_value([:rows, "rows"])
-        |> List.wrap()
-        |> Enum.map(&{entity, &1})
-      end)
-
-    {targets, skipped_targets} =
-      rows
-      |> Enum.with_index()
-      |> Enum.reduce({[], []}, fn {{entity, row}, index}, {target_acc, skipped_acc} ->
-        case agent_uid_for_row(entity, row) do
-          nil ->
-            skip =
-              skip_target(
-                %{entity: entity, row: row, row_index: index},
-                "no_enrolled_agent",
-                "target row has no enrolled agent"
-              )
-
-            {target_acc, [skip | skipped_acc]}
-
-          uid ->
-            target = %{
-              entity: entity,
-              row: row,
-              row_index: index,
-              agent_uid: uid,
-              device_uid: device_uid_for_row(entity, row)
-            }
-
-            {[target | target_acc], skipped_acc}
+    case SRQLInputResolver.reduce_pages(
+           input,
+           initial,
+           &collect_targets(&1, &2, entity, max_targets),
+           opts
+         ) do
+      {:ok, acc} ->
+        if MapSet.size(acc.seen) > max_targets do
+          {:refused, target_limit_refusal(profile, max_targets), acc.rows}
+        else
+          {:ok, read_result(acc)}
         end
-      end)
 
-    targets =
-      targets
-      |> Enum.reverse()
-      |> unique_targets()
-      |> Enum.take(max_targets)
-
-    unique_agent_uids =
-      targets
-      |> Enum.map(& &1.agent_uid)
-      |> Enum.uniq()
-
-    skipped_targets = Enum.reverse(skipped_targets)
-
-    {:ok,
-     %{
-       matched_rows: length(rows),
-       agent_uids: unique_agent_uids,
-       targets: targets,
-       resolved_devices: count_entity(targets, "devices"),
-       resolved_agents: count_entity(targets, "agents"),
-       skipped_without_agent: length(skipped_targets),
-       skipped_targets: skipped_targets
-     }}
+      {:error, errors} ->
+        {:error, errors}
+    end
   end
+
+  defp collect_targets(rows, acc, entity, max_targets) do
+    Enum.reduce_while(rows, {:cont, acc}, fn row, {:cont, acc} ->
+      acc = collect_target(acc, entity, row)
+
+      if MapSet.size(acc.seen) > max_targets,
+        do: {:halt, {:halt, acc}},
+        else: {:cont, {:cont, acc}}
+    end)
+  end
+
+  defp collect_target(acc, entity, row) do
+    index = acc.rows
+    acc = %{acc | rows: index + 1}
+
+    case agent_uid_for_row(entity, row) do
+      nil ->
+        skip =
+          skip_target(
+            %{entity: entity, row: row, row_index: index},
+            "no_enrolled_agent",
+            "target row has no enrolled agent"
+          )
+
+        %{acc | skipped: [skip | acc.skipped]}
+
+      uid ->
+        if MapSet.member?(acc.seen, uid) do
+          acc
+        else
+          target = %{
+            entity: entity,
+            row: row,
+            row_index: index,
+            agent_uid: uid,
+            device_uid: device_uid_for_row(entity, row)
+          }
+
+          %{acc | seen: MapSet.put(acc.seen, uid), targets: [target | acc.targets]}
+        end
+    end
+  end
+
+  defp read_result(acc) do
+    targets = Enum.reverse(acc.targets)
+    skipped_targets = Enum.reverse(acc.skipped)
+
+    %{
+      matched_rows: acc.rows,
+      agent_uids: Enum.map(targets, & &1.agent_uid),
+      targets: targets,
+      resolved_devices: count_entity(targets, "devices"),
+      resolved_agents: count_entity(targets, "agents"),
+      skipped_without_agent: length(skipped_targets),
+      skipped_targets: skipped_targets
+    }
+  end
+
+  defp target_limit_refusal(profile, limit) do
+    name = ValueUtils.string_value(profile, [:name, "name"])
+
+    %{
+      profile_id: profile_id(profile),
+      profile_name: name,
+      limit: limit,
+      message:
+        "Add-on profile \"#{name}\" selects more than #{limit} agents, its max_targets. " <>
+          "A profile over its limit is refused whole rather than cut down to an arbitrary " <>
+          "subset. Narrow the target query or raise max_targets."
+    }
+  end
+
+  defp max_targets(profile),
+    do: ValueUtils.int_value(profile, [:max_targets, "max_targets"], @default_max_targets)
 
   defp attach_agent_compatibility(targets, opts, actor) do
     loader = Keyword.get(opts, :agent_loader, __MODULE__.AshAgentLoader)
@@ -392,19 +505,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   defp device_uid_for_row("devices", row), do: ValueUtils.string_value(row, [:uid, "uid"])
   defp device_uid_for_row(_entity, _row), do: nil
-
-  defp unique_targets(targets) do
-    {_seen, unique} =
-      Enum.reduce(targets, {MapSet.new(), []}, fn target, {seen, acc} ->
-        if MapSet.member?(seen, target.agent_uid) do
-          {seen, acc}
-        else
-          {MapSet.put(seen, target.agent_uid), [target | acc]}
-        end
-      end)
-
-    Enum.reverse(unique)
-  end
 
   defp count_entity(targets, entity), do: Enum.count(targets, &(&1.entity == entity))
 
@@ -856,7 +956,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
          params: ValueUtils.map_value(profile, [:params, "params"]) || %{},
          args: ValueUtils.list_value(profile, [:args, "args"]) || [],
          priority: ValueUtils.int_value(profile, [:priority, "priority"], 100),
-         max_targets: ValueUtils.int_value(profile, [:max_targets, "max_targets"], 10_000),
          enabled: ValueUtils.bool_value(profile, [:enabled, "enabled"], true),
          package_status: ValueUtils.raw_value(profile, [:package_status, "package_status"]),
          addon_package: profile_package(profile),
