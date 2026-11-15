@@ -228,15 +228,38 @@ class LegacySignatureTest(unittest.TestCase):
 
     def test_only_explicit_registry_missing_response_means_absent(self):
         registry = legacy.Registry("registry.example")
-        for status, code, absent in [(404, "MANIFEST_UNKNOWN", True), (404, "NAME_UNKNOWN", True), (404, "DENIED", False), (401, "UNAUTHORIZED", False), (500, "UNKNOWN", False)]:
-            with self.subTest(status=status, code=code):
-                error = urllib.error.HTTPError("https://registry.example", status, "synthetic", {}, io.BytesIO(encoded({"errors": [{"code": code}]})))
+        def errors(*codes):
+            return encoded({"errors": [{"code": code} for code in codes]})
+        oversized = errors("NOT_FOUND").ljust(1_048_576, b" ") + b"invalid trailing data"
+        cases = [(404, errors(code), True, True) for code in ("MANIFEST_UNKNOWN", "NAME_UNKNOWN", "NOT_FOUND")]
+        cases += [
+            (404, errors("DENIED"), True, False),
+            (404, errors("NOT_FOUND", "UNAUTHORIZED"), True, False),
+            (404, errors("NOT_FOUND", "UNKNOWN"), True, False),
+            (404, errors(), True, False),
+            (404, oversized, True, False),
+            (404, b'{}', True, False),
+            (404, b'[]', True, False),
+            (404, b'{"errors":null}', True, False),
+            (404, b'{"errors":["NOT_FOUND"]}', True, False),
+            (404, b'{"errors":{"code":"NOT_FOUND"}}', True, False),
+            (404, b'{invalid JSON', True, False),
+            (404, b'{"errors":[{"code":"DENIED","code":"MANIFEST_UNKNOWN"}]}', True, False),
+            (404, b'{"errors":[{"code":"DENIED"}],"errors":[{"code":"NAME_UNKNOWN"}]}', True, False),
+            (401, errors("NOT_FOUND"), True, False),
+            (403, errors("NOT_FOUND"), True, False),
+            (500, errors("MANIFEST_UNKNOWN"), True, False),
+            (404, errors("NOT_FOUND"), False, False),
+        ]
+        for status, body, optional, absent in cases:
+            with self.subTest(status=status, body=body[:128], body_size=len(body), optional=optional):
+                error = urllib.error.HTTPError("https://registry.example", status, "synthetic", {}, io.BytesIO(body))
                 with patch.object(registry.http, "open", side_effect=error):
                     if absent:
-                        self.assertIsNone(registry.request("/v2/example/manifests/tag", {}, absent=True))
+                        self.assertIsNone(registry.request("/v2/example/manifests/tag", {}, absent=optional))
                     else:
                         with self.assertRaises(ValueError):
-                            registry.request("/v2/example/manifests/tag", {}, absent=True)
+                            registry.request("/v2/example/manifests/tag", {}, absent=optional)
 
     def test_paginated_referrers_refuse_before_copy(self):
         self.artifact("serviceradar")

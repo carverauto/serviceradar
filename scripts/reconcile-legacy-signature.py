@@ -64,9 +64,15 @@ class Registry:
             # Only an authenticated registry's explicit missing manifest/repository
             # permits new signing. Authorization, transport and malformed errors fail.
             if absent and error.code == 404:
-                body = json.loads(error.read(1_048_576))
-                codes = [item.get("code") for item in body.get("errors", [])]
-                if codes and all(code in {"MANIFEST_UNKNOWN", "NAME_UNKNOWN"} for code in codes):
+                raw = error.read(1_048_577)
+                require(len(raw) <= 1_048_576, "registry error response exceeds 1 MiB")
+                body = strict_json(raw)
+                errors = body.get("errors") if isinstance(body, dict) else None
+                # Harbor's manifest controller uses NOT_FOUND for an absent tag.
+                if isinstance(errors, list) and errors and all(
+                    isinstance(item, dict) and item.get("code") in {"MANIFEST_UNKNOWN", "NAME_UNKNOWN", "NOT_FOUND"}
+                    for item in errors
+                ):
                     return None
             raise ValueError(f"registry lookup failed with HTTP {error.code}") from None
 
