@@ -7067,7 +7067,10 @@ name = "serviceradar-zen-normalize"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "hex",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.20",
  "zen-engine",
  "zen-expression",

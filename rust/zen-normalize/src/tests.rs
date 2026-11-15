@@ -168,3 +168,93 @@ fn failures_name_the_rule_and_return_no_record() {
             .starts_with("invalid context JSON: ")
     );
 }
+
+fn bundle(schema: &str, rules: &[(&str, &str)], digest: &str) -> Vec<u8> {
+    let rules: Vec<Value> = rules
+        .iter()
+        .map(|(key, jdm)| json!({"key": key, "jdm": jdm}))
+        .collect();
+    json!({
+        "schema": schema,
+        "stream_name": "events",
+        "subject": "logs.syslog",
+        "rules": rules,
+        "digest": digest,
+    })
+    .to_string()
+    .into_bytes()
+}
+
+// Core's publisher asserts the same digests for the same content in
+// elixir/serviceradar_core/test/serviceradar/observability/zen/rule_bundle_test.exs.
+const FIRST: (&str, &str) = ("first", r#"{"nodes":[],"edges":[]}"#);
+const SECOND: (&str, &str) = ("second", r#"{"edges":[],"nodes":[]}"#);
+const TWO_RULE_DIGEST: &str =
+    "sha256:578cb4621ff7758cbcec93bfcb0208ddce0a52cb01011eb5b28f15332d4d70b4";
+const EMPTY_DIGEST: &str =
+    "sha256:11f468c88fd9041ba1b94ae65bbb4b04cf2d8f690b8d1d62f99f4689ccfc961b";
+
+#[test]
+fn a_bundle_is_accepted_only_with_the_digest_of_its_ordered_content() {
+    let accepted =
+        RuleBundle::parse(&bundle(BUNDLE_SCHEMA, &[FIRST, SECOND], TWO_RULE_DIGEST)).unwrap();
+    assert_eq!(accepted.digest, TWO_RULE_DIGEST);
+    assert_eq!(
+        (accepted.stream_name.as_str(), accepted.subject.as_str()),
+        ("events", "logs.syslog")
+    );
+
+    let empty = RuleBundle::parse(&bundle(BUNDLE_SCHEMA, &[], EMPTY_DIGEST)).unwrap();
+    assert!(empty.rules.is_empty());
+
+    for (name, document) in [
+        (
+            "reordered rules",
+            bundle(BUNDLE_SCHEMA, &[SECOND, FIRST], TWO_RULE_DIGEST),
+        ),
+        (
+            "a dropped rule",
+            bundle(BUNDLE_SCHEMA, &[FIRST], TWO_RULE_DIGEST),
+        ),
+        (
+            "changed rule text",
+            bundle(
+                BUNDLE_SCHEMA,
+                &[FIRST, ("second", r#"{"edges":[], "nodes":[]}"#)],
+                TWO_RULE_DIGEST,
+            ),
+        ),
+    ] {
+        assert!(
+            matches!(
+                RuleBundle::parse(&document),
+                Err(BundleError::Digest { .. })
+            ),
+            "accepted a bundle with {name}"
+        );
+    }
+}
+
+#[test]
+fn a_bundle_with_an_unknown_schema_or_a_bad_rule_is_rejected_whole() {
+    assert!(matches!(
+        RuleBundle::parse(&bundle(
+            "serviceradar.zen.ruleset.v2",
+            &[FIRST, SECOND],
+            TWO_RULE_DIGEST
+        )),
+        Err(BundleError::Schema(_))
+    ));
+
+    // The digest is correct for this content; the second rule is not JDM.
+    let rules = [FIRST, ("second", r#"{"nodes":[]}"#)];
+    let digest = "sha256:5f4c2b3c1b6c3b1a8e3a2f3f3b0b6f6d1d5d0c7b3b1f3c0a9d5a4e6f7a8b9c0d";
+    let document = bundle(BUNDLE_SCHEMA, &rules, digest);
+    let Err(BundleError::Digest { computed, .. }) = RuleBundle::parse(&document) else {
+        panic!("placeholder digest was accepted");
+    };
+    assert!(matches!(
+        RuleBundle::parse(&bundle(BUNDLE_SCHEMA, &rules, &computed)),
+        Err(BundleError::Rules(Error::InvalidRule { key, .. })) if key == "second"
+    ));
+}

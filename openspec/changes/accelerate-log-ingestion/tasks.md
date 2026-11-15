@@ -9,7 +9,7 @@
 - [x] 2.1 Extract shared normalization with conformance for merge, null, numeric, aliasing, errors and custom rules. `rust/zen-normalize` owns it and the core NIF calls it; its expected records were produced by the JSON-text implementation it replaced.
 - [x] 2.2 Retain native values across rules and compile outside the hot path. A `RuleSet` is compiled once; records stay Zen variables between rules. Each rule still gets its own copy of the record's containers, because no test establishes that every node type leaves its context alone.
 - [ ] 2.2a Call the shared rule set from Flowgger with records built directly as Zen variables. Blocked on rule delivery (2.3, 2.4).
-- [ ] 2.3 Publish self-versioned effective rules through datasvc; reconcile rule scope.
+- [ ] 2.3 Publish self-versioned effective rules through datasvc; reconcile rule scope. Implemented, not yet compiled or run in CI: `ZenRuleSync` publishes one digest-identified bundle per stream and subject at `zen/rulesets/<stream>/<subject>.json`, built from the rule list core's normalizer now also reads; `rust/zen-normalize` verifies and compiles it. Rule sets too large for one KV value still need the manifest form.
 - [ ] 2.4 Implement bounded fetch/watch/reconnect, atomic activation, cold start, empty snapshots and invalid/stale updates.
 
 ## 3. Binary and consumers

@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
+  alias ServiceRadar.Observability.Zen.RuleBundle
   alias ServiceRadar.Observability.ZenRule
 
   require Ash.Query
@@ -352,14 +353,26 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp sync_subject_index(%ZenRule{} = rule, opts) do
     with {:ok, rules} <- load_subject_rules(rule, opts),
-         {:ok, payload} <- encode_subject_index(rule, rules) do
-      Client.put(kv_index_key(rule), payload)
+         {:ok, payload} <- encode_subject_index(rule, rules),
+         :ok <- Client.put(kv_index_key(rule), payload) do
+      publish_bundle(rule, opts)
     else
       {:error, %Jason.EncodeError{} = error} ->
         {:error, {:json_encode_failed, Exception.message(error)}}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # The bundle is what collectors evaluate: every enabled rule for the stream
+  # and subject, in core's evaluation order, under one content digest. The
+  # per-agent index above stays for its existing readers. A bundle datasvc
+  # rejects, for instance for its size, leaves the previous bundle in place.
+  defp publish_bundle(%ZenRule{stream_name: stream_name, subject: subject}, opts) do
+    with {:ok, rules} <- RuleBundle.effective_rules(stream_name, subject, opts),
+         {:ok, payload} <- RuleBundle.encode(stream_name, subject, rules) do
+      Client.put(RuleBundle.kv_key(stream_name, subject), payload)
     end
   end
 

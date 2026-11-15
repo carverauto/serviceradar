@@ -31,6 +31,9 @@ use zen_engine::nodes::custom::NoopCustomNode;
 
 use zen_expression::variable::DynamicVariable;
 
+mod bundle;
+
+pub use bundle::{BUNDLE_SCHEMA, BundleError, RuleBundle};
 pub use zen_engine::Variable;
 
 #[derive(Debug, thiserror::Error)]

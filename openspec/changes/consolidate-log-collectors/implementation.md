@@ -26,6 +26,11 @@ Committed foundations:
   crate, with conformance cases whose expected records came from the JSON-text
   implementation.
 - `6573ffe9e7`: the core Zen NIF evaluates through that crate.
+- The commit after this handoff update adds the versioned rule bundle: core
+  publishes it from `ZenRuleSync`, and `rust/zen-normalize` verifies its digest
+  and compiles it. Both sides assert the same frozen digests. The Elixir half
+  has not been compiled or run; no local Elixir build is permitted on the
+  shared workstation.
 
 JSON remains the wire format. Flowgger does not call the shared Zen crate yet;
 binary transport, stream sharding and specialized receivers are design
@@ -75,9 +80,10 @@ pushed or deployed.
 - A certificate policy revocation while ACKs are pending cannot be tested from
   Flowgger without a production seam, because the policy loader accepts only
   root-owned paths (`accelerate-log-ingestion` task 1.3a).
-- Core selects rules by subject and stream and orders them by `order`, then
-  insertion time. `ZenRuleSync` writes per-agent keys and orders its index by
-  `order`, then name. Task 2.3 must publish what core evaluates.
+- The per-agent `_rules.json` index still orders by `order`, then name, and is
+  scoped by agent. The new bundle follows core: stream and subject, `order`,
+  then insertion time. The web-ng rules settings page still lists the
+  per-agent keys, so they stay until that page reads something else.
 
 ## Next agent prompt
 
