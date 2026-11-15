@@ -355,7 +355,7 @@ qualification. Tasks 2.1 and 3.2 remain open.
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.
 - [ ] 3.2 Implement continuous bounded sealing, durable journal/outbox and capacity/pressure admission with reserved control space.
 - [ ] 3.3 Implement local-only durable catalog/manifest publication, owner-aware authorized playback, retention/holds and restore without S3 or SaaS calls. The concrete qualification/registration authority contract is pending review in [define-nvr-local-copy-registration](../define-nvr-local-copy-registration/proposal.md); intent acceptance is not copy registration.
-- [ ] 3.4 Complete qualified S3 upload/multipart reconciliation, recoverable manifests and receipt-based reclamation; preserve every existing provider/security check.
+- [ ] 3.4 Complete qualified S3 upload/multipart reconciliation, recoverable manifests and receipt-based reclamation; preserve every existing provider/security check. The [Longshore integration tasks](../add-longshore-object-storage/tasks.md) own the Rustler adapter and upstream contract prerequisites; a synthetic NIF round trip does not complete archive qualification.
 - [ ] 3.5 Enforce outage/catch-up budgets and independent archive/index availability; test `U <= R`, full disk, restart and lost responses.
 - [ ] 3.6 Implement explicit mode/data-residency transitions without retargeting or deleting historical media.
 - [ ] 3.7 Implement authorized outbound playback of customer-local recordings and bounded S3 fragment/range delivery with seek cancellation and isolated cache budgets.
@@ -371,7 +371,7 @@ qualification. Tasks 2.1 and 3.2 remain open.
 ## 5. Acceptance and rollout
 
 - [ ] 5.1 Preserve existing media, ownership, storage, publication, permission and browser assertions; add behavior tests through actual service/protocol boundaries.
-- [ ] 5.2 Execute the synthetic 100/1,000/10,000-stream ladder, steady-state soak and independent generator qualification with explicit SLO failures.
+- [ ] 5.2 Execute the synthetic 100/1,000/10,000-stream ladder, steady-state soak and independent generator qualification with explicit SLO failures. First establish the [matched Longshore/native-NIF benchmark](../add-longshore-object-storage/benchmarks.md), then profile and qualify the full recording pipeline; published library throughput and the single-camera dogfood are not capacity evidence.
 - [ ] 5.3 Exercise all three deployment modes and the failure matrix in capacity-and-acceptance.md, including local-only recovery and concurrent live viewing.
 - [ ] 5.4 Run remote builds/tests and full make test; deliver each implementation through Treehouse/no-mistakes with remote rc files in every checkout.
 - [ ] 5.5 After synthetic qualification and explicit deployment approval, run bounded live acceptance and verify test-resource cleanup; keep operational identifiers/media private.

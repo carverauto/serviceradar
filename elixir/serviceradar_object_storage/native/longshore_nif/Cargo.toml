@@ -1,0 +1,13 @@
+[package]
+name = "longshore_nif"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+crossbeam-channel = { workspace = true }
+longshore_s3 = { workspace = true }
+rustler = { workspace = true, features = ["nif_version_2_15"] }

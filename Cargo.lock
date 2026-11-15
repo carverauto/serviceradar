@@ -431,9 +431,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.18.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2b2dcc879c3bae0d371e77c99f2238400ef24ec001394befa67b6e543add9e"
+checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -441,9 +441,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.44.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09fae7be8bb3174e05c6afdb34199e6dc0c7c04ba9fa237b1967adfbde27483"
+checksum = "8bfbe32ac36b3c428696ce315464181bc4029d689fd58e3f2a4e58c252242f52"
 dependencies = [
  "cc",
  "cmake",
@@ -1467,6 +1467,16 @@ name = "crc-catalog"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
+
+[[package]]
+name = "crc-fast"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e75b2483e97a5a7da73ac68a05b629f9c53cff58d8ed1c77866079e18b00dba5"
+dependencies = [
+ "digest 0.10.7",
+ "spin 0.10.1",
+]
 
 [[package]]
 name = "crc32fast"
@@ -3634,7 +3644,7 @@ version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 dependencies = [
- "spin",
+ "spin 0.9.9",
 ]
 
 [[package]]
@@ -3716,6 +3726,70 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "longshore_common"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+
+[[package]]
+name = "longshore_crc"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+dependencies = [
+ "crc-fast",
+]
+
+[[package]]
+name = "longshore_dns"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+dependencies = [
+ "longshore_common",
+]
+
+[[package]]
+name = "longshore_http_client"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+dependencies = [
+ "longshore_common",
+ "longshore_tls",
+]
+
+[[package]]
+name = "longshore_nif"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "longshore_s3",
+ "rustler",
+]
+
+[[package]]
+name = "longshore_s3"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+dependencies = [
+ "longshore_common",
+ "longshore_crc",
+ "longshore_dns",
+ "longshore_http_client",
+ "longshore_tls",
+ "loom",
+ "ring",
+]
+
+[[package]]
+name = "longshore_tls"
+version = "0.0.0"
+source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+dependencies = [
+ "aws-lc-sys",
+ "longshore_common",
+ "rustls",
+ "webpki-roots 1.0.10",
+]
 
 [[package]]
 name = "loom"
@@ -7204,6 +7278,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
+name = "spin"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
+
+[[package]]
 name = "spki"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7821,7 +7901,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
@@ -8446,7 +8526,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 1.0.4",
+ "cfg-if 0.1.10",
  "rand 0.8.7",
  "static_assertions",
 ]

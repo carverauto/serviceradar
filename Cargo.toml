@@ -14,6 +14,7 @@ members = [
     "elixir/serviceradar_core/native/topology_atlas_nif",
     "elixir/serviceradar_core/native/zen_nif",
     "elixir/serviceradar_srql/native/srql_nif",
+    "elixir/serviceradar_object_storage/native/longshore_nif",
     "elixir/web-ng/native/god_view_nif",
     "rust/kvutil",
     "rust/config-bootstrap",
@@ -122,6 +123,7 @@ kafka = { version = "0.10", default-features = false }
 lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
+longshore_s3 = { git = "https://github.com/carverauto/longshore", rev = "1b85610adb6702772acfd8b9af607acea6b0404c" }
 may = { version = "~0.3", default-features = false }
 # Test-only: the MySQL-protocol client the SRQL dialect parity harness
 # (//integration_tests/srql_parity) uses to reach a StarRocks FE. "minimal-rust" is the
@@ -257,11 +259,5 @@ gen_build_script = "off"
 deps = ["zlib"]
 gen_build_script = "off"
 
-# aws-lc-sys is never compiled. rustls is pinned to ring/tls12 with default-features
-# off, so aws-lc-rs is never enabled. rules_rs still warns because it scans every
-# lockfile package rather than what actually builds. Adopting its well-known
-# annotation would add the @aws-lc module and a bindgen toolchain for zero actions;
-# this keeps the default build-script path and silences that warning. Same table
-# in rust/rdp-connector-probe/Cargo.toml for the detached RDP hub.
-[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
-gen_build_script = "on"
+# Longshore uses AWS-LC. Its hermetic native library and bindings are supplied by
+# the root MODULE.bazel annotations rather than a bundled Cargo build script.

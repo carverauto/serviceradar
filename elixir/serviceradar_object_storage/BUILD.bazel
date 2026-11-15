@@ -1,0 +1,50 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(["lib/**"]) + ["mix.exs", "mix.lock"],
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = ["mix.exs", "mix.lock"],
+)
+
+STORAGE_DEPS = ["@hexpm//:rustler", "@rules_elixir//elixir"]
+
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "serviceradar_object_storage",
+    mix_env = "prod",
+    extra_config = [
+        "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
+    ],
+    native_libs = {
+        "//elixir/serviceradar_object_storage/native/longshore_nif:longshore_nif": "longshore_nif",
+    },
+    deps = STORAGE_DEPS,
+)
+
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = ["test/object_storage_test.exs"],
+    load_config = False,
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = STORAGE_DEPS + [
+        "@hexpm//:credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
+    ],
+)

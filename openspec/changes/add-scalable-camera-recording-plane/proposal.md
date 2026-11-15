@@ -49,6 +49,11 @@ qualification gates in [tasks](tasks.md).
 
 ## Impact and related work
 
+- [Longshore integration](../add-longshore-object-storage/proposal.md) owns the
+  reusable Rustler storage bridge, upstream API qualification and matched native,
+  NIF and recording-path benchmarks. It preserves this proposal's storage modes
+  and does not substitute for source assignment or recording qualification.
+
 - Affected capabilities: camera-recording, camera-streaming, vms-media-workers
   and vms-cloud-resources. [Design](design.md) owns the proposed boundaries;
   [capacity and acceptance](capacity-and-acceptance.md) owns synthetic proof.
