@@ -50,3 +50,8 @@ benchmark candidates rather than claims of an optimum.
 - **Specialized receivers remain optional.** Ordinary VM-backed Kubernetes
   workers and edge VMs remain supported. Acceleration does not change Zen,
   wire identity, persistence or loss accounting.
+
+- **Explicit custom TCP target ports remain supported.** A numeric legacy TCP
+  target port is declared on the unified pod and used by the primary and
+  compatibility Services; the configured listener must match it. This preserves
+  the existing operator control instead of silently sending to port 514.

@@ -1,7 +1,7 @@
 ## 1. Publisher foundation
-- [ ] 1.1 Implement count/byte-bounded concurrent publication and serial comparator.
-- [ ] 1.2 Implement bounded persistent handoff and source-close draining under the configured retry policy.
-- [ ] 1.3 Verify delayed ACK concurrency, admission bounds, oversized records, stable retries, certificate errors and shutdown.
+- [x] 1.1 Implement count/byte-bounded concurrent publication and serial comparator.
+- [x] 1.2 Implement bounded persistent handoff and source-close draining under the configured retry policy.
+- [ ] 1.3 Complete verification of certificate errors and concurrent reconnect ownership. Delayed ACK concurrency, count/byte admission, oversized records, stable retry IDs/deduplication and source-close draining have passing coverage.
 - [ ] 1.4 Measure the publisher change with synthetic load and equivalent durability.
 
 ## 2. Native Zen and control plane
