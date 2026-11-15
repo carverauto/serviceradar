@@ -21,7 +21,52 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     long_gop = SyntheticCameraMedia.generate(directory, "long-gop", ["-g", "300", "-profile:v", "baseline", "-bf", "0"])
     changed_args = ["-profile:v", "baseline", "-bf", "0", "-g", "30", "-vf", "scale=96:64"]
     changed = SyntheticCameraMedia.generate(directory, "changed", changed_args)
-    %{baseline: baseline, main: main, long_gop: long_gop, changed: changed}
+
+    ordered_main =
+      SyntheticCameraMedia.generate(directory, "ordered-main", ["-profile:v", "main", "-bf", "0", "-g", "30"])
+
+    ordered_high =
+      SyntheticCameraMedia.generate(directory, "ordered-high", ["-profile:v", "high", "-bf", "0", "-g", "30"])
+
+    %{
+      baseline: baseline,
+      main: main,
+      long_gop: long_gop,
+      changed: changed,
+      ordered: [{"avc1.4d", ordered_main}, {"avc1.64", ordered_high}]
+    }
+  end
+
+  @tag :tmp_dir
+  test "Main and High streams that rule out reordering record and decode unchanged", ctx do
+    for {{codec_prefix, media}, index} <- Enum.with_index(ctx.ordered) do
+      {:ok, pipeline} = Packaging.start(clock: @clock)
+      on_exit(fn -> Packaging.stop(pipeline) end)
+
+      events = push_all(pipeline, media.units)
+      assert {:ok, tail} = Packaging.finish(pipeline)
+      assert [{:init, init} | fragments] = events ++ tail
+      fragments = Enum.map(fragments, fn {:fragment, fragment} -> fragment end)
+      assert Enum.sum(Enum.map(fragments, & &1.sample_count)) == 75
+
+      root = Path.join(ctx.tmp_dir, "ordered-#{index}")
+      File.mkdir_p!(root)
+      File.chmod!(root, 0o700)
+      {descriptor, snapshot} = seal_block(root, init, fragments)
+      assert String.starts_with?(descriptor["format"]["codec"], codec_prefix)
+
+      assert {:ok, init_payload} = Spool.read_init(snapshot)
+
+      media_payload =
+        Enum.map_join(0..(length(fragments) - 1), fn sequence ->
+          assert {:ok, payload} = Spool.read_fragment(snapshot, sequence)
+          payload
+        end)
+
+      path = Path.join(root, "block.mp4")
+      File.write!(path, init_payload <> media_payload)
+      assert decode(path) == decode(media.path)
+    end
   end
 
   @tag :tmp_dir
@@ -64,10 +109,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert List.last(fragments).tail_duration_source == :previous_sample
   end
 
-  test "unsupported reordering profile and clock resets stop only their recorder", ctx do
-    {:ok, unsupported} = Packaging.start(clock: @clock)
-    on_exit(fn -> Packaging.stop(unsupported) end)
-    assert {:error, :unsupported_h264_profile} = Packaging.push(unsupported, hd(ctx.main.units))
+  test "a stream that can reorder frames and clock resets stop only their recorder", ctx do
+    {:ok, reordering} = Packaging.start(clock: @clock)
+    on_exit(fn -> Packaging.stop(reordering) end)
+    assert {:error, :h264_frame_reordering} = Packaging.push(reordering, hd(ctx.main.units))
 
     {:ok, pipeline} = Packaging.start(clock: @clock)
     on_exit(fn -> Packaging.stop(pipeline) end)
@@ -291,6 +336,31 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert List.last(snapshot.entries)["tail_duration_source"] == "previous_sample"
     refute Enum.any?(Enum.drop(snapshot.entries, -1), &Map.has_key?(&1, "tail_duration_source"))
     snapshot
+  end
+
+  defp seal_block(root, init, fragments) do
+    identity = %{
+      source_id: "00000000-0000-4000-8000-000000000001",
+      profile: "recording",
+      recorder_epoch: 1,
+      block_sequence: 0,
+      clock: @clock
+    }
+
+    assert {:ok, storage} = Storage.initialize(root, "00000000-0000-4000-8000-000000000011")
+    assert {:ok, spool} = Spool.create(storage, identity, init.payload)
+
+    spool =
+      Enum.reduce(fragments, spool, fn fragment, spool ->
+        assert {:ok, updated, _} = Spool.append(spool, fragment.payload, fragment)
+        updated
+      end)
+
+    assert {:ok, sealed} = Spool.seal(spool)
+    assert {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
+    snapshot = Spool.snapshot(recovered)
+    assert {:ok, descriptor} = Descriptor.from_snapshot(snapshot, init)
+    {descriptor, snapshot}
   end
 
   defp measure_block(root, index, init, group) do
