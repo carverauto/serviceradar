@@ -639,6 +639,39 @@ webNg:
     downloadTtlSeconds: 86400
     jetstreamReplicas: 3
 
+# NVR recorder with its private ingest listener, for testing one-shot capture
+# from the shared camera relay. Local retention only: no S3, and mediaStorage
+# stays disabled. The `longhorn` class keeps two replicas on separate nodes; the
+# node-loss qualification in docs/nvr-runtime.md has not been run here.
+# Operator-owned objects that must exist in the namespace before this renders
+# (never created by Helm): ConfigMap serviceradar-nvr-recovery and the five
+# Secrets named below. See docs/nvr-ingest.md and docs/nvr-runtime.md.
+nvr:
+  enabled: true
+  replicas: 2
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  recovery:
+    existingConfigMap: serviceradar-nvr-recovery
+  storage:
+    storageClassName: longhorn
+    size: 20Gi
+    storageIds:
+      serviceradar-nvr-0: 5e3eafff-19f5-490d-9070-efb8b1d3cd65
+      serviceradar-nvr-1: 01753da2-ff94-44d0-a5ee-902bad9edc67
+  ingest:
+    enabled: true
+    port: 8443
+    configSecretName: serviceradar-nvr-ingest-config
+    tokenSecretName: serviceradar-nvr-ingest-token
+    tlsSecretName: serviceradar-nvr-ingest-server-tls
+    client:
+      # Permits explicit one-shot capture only; it starts no recorders.
+      cameraRecordingEnabled: true
+      configSecretName: serviceradar-nvr-client-config
+      tokenSecretName: serviceradar-nvr-ingest-token
+      tlsSecretName: serviceradar-nvr-ingest-client-tls
+
 faker:
   enabled: true
   gobgp:
