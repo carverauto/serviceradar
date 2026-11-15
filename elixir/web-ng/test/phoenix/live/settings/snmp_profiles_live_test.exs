@@ -59,6 +59,29 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
            )
   end
 
+  test "the edit form removes a stored community the operator ticks", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Remove Community #{unique}",
+        community: "example-ro-#{unique}"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/#{profile.id}/edit")
+
+    lv
+    |> form("form[phx-submit='save_profile']", %{
+      "form" => %{"clear_credentials" => ["community"], "agent_ids" => [""]}
+    })
+    |> render_submit()
+
+    assert {:ok, %SNMPProfile{community_encrypted: nil}} =
+             Ash.get(SNMPProfile, profile.id, scope: scope)
+  end
+
   test "the profile list marks a profile that has grown past its target limit", %{
     conn: conn,
     scope: scope

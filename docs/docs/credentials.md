@@ -840,6 +840,12 @@ target query is refused with `Target query is required`, and no rule is saved.
    profile form can also tick "save as reusable" to promote the values typed there
    into a shared credential and bind to it.
 
+Binding a different credential removes any community string or v3 password the
+profile still stores inline; the resolver never reads them while a credential is
+bound. Changing only the SNMP version removes nothing. To remove one stored value
+yourself, tick **Remove stored ...** under **Stored on this profile** on the edit
+form and save. A blank password field keeps the stored value.
+
 Only credentials of kind `snmp` are offered on an SNMP profile; the resolver
 cannot read any other payload shape.
 

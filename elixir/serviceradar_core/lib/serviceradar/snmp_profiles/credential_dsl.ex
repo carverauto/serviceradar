@@ -1,11 +1,31 @@
 defmodule ServiceRadar.SNMPProfiles.CredentialDsl do
   @moduledoc false
 
+  @doc """
+  The inline credential inputs of an action that runs
+  `ServiceRadar.SNMPProfiles.Changes.EncryptCredentials`, which documents what
+  each one means.
+
+  A blank `community`/`auth_password`/`priv_password` keeps the stored value;
+  `clear_credentials` is the only way to remove one.
+  """
   defmacro credential_action_arguments do
     quote do
       argument :community, :string, allow_nil?: true, sensitive?: true
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
+
+      argument :clear_credentials, {:array, :atom} do
+        allow_nil? false
+        default []
+
+        constraints items: [
+                      one_of:
+                        ServiceRadar.SNMPProfiles.Changes.EncryptCredentials.clearable_fields()
+                    ]
+
+        description "Stored inline credentials to remove: community, auth_password, priv_password"
+      end
     end
   end
 
