@@ -13,4 +13,4 @@
 
 ## 4. Validation
 - [x] 4.1 `openspec validate clear-snmp-stored-credentials --strict`
-- [ ] 4.2 Format, Credo, no-mistakes gate, CI green
+- [x] 4.2 Format, Credo, no-mistakes gate, CI green
