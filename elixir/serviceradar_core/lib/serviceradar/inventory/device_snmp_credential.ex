@@ -125,6 +125,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     attribute :username, :string do
       allow_nil? true
       public? true
+      # A USM user name may contain spaces, including at either end.
+      constraints trim?: false
       description "Username for SNMPv3"
     end
 
