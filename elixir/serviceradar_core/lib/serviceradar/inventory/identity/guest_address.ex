@@ -46,9 +46,10 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   address it had. `nil` when no interface qualifies: callers keep the device's
   current address rather than taking a host-internal one.
 
-  `preference_order/1` is that ordering on its own. The device's MAC must come
-  from the same NIC as its address, so whoever picks a guest's MAC orders its
-  interfaces with it rather than by a rule of its own.
+  `preference_order/1` is that ordering on its own, and `primary_interface/1`
+  the interface the address comes from. The device's MAC must come from the
+  same NIC as its address, so whoever picks a guest's MAC takes that
+  interface's MAC first rather than applying a rule of its own.
   """
 
   import Bitwise
@@ -90,21 +91,38 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   `:metadata`, `:ip_addresses`, `:cidr`, and `:address` (atom or string keys).
   """
   @spec primary([map()]) :: String.t() | nil
-  def primary(interfaces) when is_list(interfaces) do
-    interfaces
-    |> preference_order()
-    |> first_address(&(hypervisor_attached?(&1) or not host_internal?(&1, &2)))
+  def primary(interfaces) do
+    case primary_interface(interfaces) do
+      nil -> nil
+      iface -> iface |> interface_address() |> strip_prefix()
+    end
   end
 
-  def primary(_interfaces), do: nil
+  @doc """
+  The interface `primary/1` takes the guest's address from, or `nil`.
+
+  The device's MAC is this interface's MAC: the first interface in
+  `preference_order/1` whose address is accepted. That need not be the first
+  interface in the order: a lowest-indexed NIC with no usable address (`dhcp`
+  before a lease is reported), or a guest-tools interface whose address is
+  host-internal, is passed over for the address, and so for the MAC.
+  """
+  @spec primary_interface([map()]) :: map() | nil
+  def primary_interface(interfaces) when is_list(interfaces) do
+    interfaces
+    |> preference_order()
+    |> Enum.find(&accepted_address?/1)
+  end
+
+  def primary_interface(_interfaces), do: nil
 
   @doc """
   One guest's `interfaces`, most preferred first: hypervisor-attached NICs by
   configured index (unindexed ones after them), then every other interface.
   Ties, and the other interfaces, keep report order.
 
-  This orders interfaces and filters none; `primary/1` takes the first address
-  it accepts from this order.
+  This orders interfaces and filters none; `primary_interface/1` is the first
+  interface in this order whose address `primary/1` accepts.
   """
   @spec preference_order([map()]) :: [map()]
   def preference_order(interfaces) when is_list(interfaces) do
@@ -192,13 +210,13 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
     |> Enum.any?(&(String.trim(&1) == "config"))
   end
 
-  defp first_address(interfaces, keep?) do
-    Enum.find_value(interfaces, fn iface ->
-      case interface_address(iface) do
-        nil -> nil
-        address -> if keep?.(iface, address), do: strip_prefix(address)
-      end
-    end)
+  # A hypervisor-attached NIC's address is always accepted; any other
+  # interface's only when it is not host-internal.
+  defp accepted_address?(iface) do
+    case interface_address(iface) do
+      nil -> false
+      address -> hypervisor_attached?(iface) or not host_internal?(iface, address)
+    end
   end
 
   # An interface's own address, prefix kept so `own_prefix_gateway?/1` can

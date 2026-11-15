@@ -1743,17 +1743,19 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     }
   end
 
-  # A guest's MACs, its device MAC first. Ordered by `GuestAddress.preference_order/1`,
-  # the order `primary_ip_by_guest/1` takes its address from, so the device's MAC and
-  # IP come from the same NIC.
+  # A guest's MACs, its device MAC first: the MAC of `GuestAddress.primary_interface/1`,
+  # the NIC `primary_ip_by_guest/1` takes the address from, so the device's MAC and IP
+  # come from the same NIC. The guest's other MACs follow in
+  # `GuestAddress.preference_order/1`, for identity lookups.
   defp guest_macs_by_ref(network_interfaces) do
     network_interfaces
     |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
     |> Enum.group_by(&Map.get(&1, :guest_provider_ref))
     |> Enum.flat_map(fn {_guest_ref, interfaces} ->
-      interfaces
-      |> GuestAddress.preference_order()
-      |> Enum.reject(&host_internal_guest_interface?/1)
+      Enum.reject(
+        [GuestAddress.primary_interface(interfaces) | GuestAddress.preference_order(interfaces)],
+        &(is_nil(&1) or host_internal_guest_interface?(&1))
+      )
     end)
     |> mac_list_by_ref(:guest_provider_ref)
   end
