@@ -68,7 +68,8 @@ Why this and not a credential rule with purpose `snmp_discovery`:
 The credential hard rule attaches four obligations to a new direct reference.
 They are met as follows:
 
-1. *Approved product contract*: this proposal. Implementation waits for approval.
+1. *Approved product contract*: this proposal, approved by the product owner on
+   2026-11-15 (task 0.1).
 2. *Restrictive FK*: `on_delete: :restrict`, plus a `foreign_key_names` entry
    mapping `mapper_jobs_snmp_credential_secret_id_fkey` to `credential_in_use`.
 3. *Usage inventory and guarded deletion*: a `:mapper_jobs` loader in
@@ -134,10 +135,14 @@ material, decryption:
    the **pre-change** fallback chain: host device resolution, then
    `resolve_default`. The worker carries a private copy of that legacy logic,
    deleted along with the worker in a later release.
-2. If every agent resolves to the same source, bind the job to it:
-   - source has a reusable secret (`credential_secret_id` on a profile or
-     override, `secret_id` on a rule): bind that id.
-   - source is inline legacy material on a profile or device override: promote it
+2. If every agent resolves to the same credential, bind the job to it. Agreement
+   is judged by credential, not by the record it came from: a source with a
+   reusable secret (`credential_secret_id` on a profile or override, `secret_id`
+   on a rule) is compared by that secret id, so the same secret reached through
+   different records on different agents still agrees; inline legacy material,
+   which has no secret id yet, is compared by its source record.
+   - the agreed credential is a reusable secret: bind that id.
+   - the agreed credential is inline legacy material on a profile or device override: promote it
      to a reusable SNMP credential (same builder as the profile form's "Save as
      reusable"), rebind the source record to the new secret, then bind the job.
      There is still one copy, so rotation stays single-source.
@@ -211,10 +216,10 @@ consequence.
    material stays reusable, and the rebound profile/override keeps working on old
    code because it resolves `credential_secret_id` first.
 
-## Open Questions
+## Resolved Questions
 
 - Product approval of the new direct credential reference on `MapperJob`, as the
-  credential hard rule requires.
-- Whether removing the agent-scoped monitoring-rule fallback for unknown addresses
-  is acceptable as a default behaviour change, with the backfill preserving each
-  existing deployment's resolved credential.
+  credential hard rule requires: approved by the product owner on 2026-11-15.
+- Removing the agent-scoped monitoring-rule fallback for unknown addresses as a
+  default behaviour change, with the backfill preserving each existing
+  deployment's resolved credential: approved by the product owner on 2026-11-15.

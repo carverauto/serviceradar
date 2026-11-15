@@ -1,7 +1,9 @@
 ## 0. Approval
 
-- [ ] 0.1 Product approval of the direct `MapperJob.snmp_credential_secret_id`
-      reference (credential hard rule) and of dropping the implicit fallback chain
+- [x] 0.1 Product approval of the direct `MapperJob.snmp_credential_secret_id`
+      reference (credential hard rule) and of dropping the implicit fallback chain,
+      including agent-scoped monitoring rules as the discovery fallback (approved
+      by the product owner on 2026-11-15)
 
 ## 1. Data model
 
@@ -36,7 +38,8 @@
 - [ ] 3.1 Fail-first tests for the backfill: reusable default-profile secret bound;
       inline profile material promoted and source rebound; agent-scoped rule secret
       bound; disabled job bound; disabled partition job evaluated against the
-      partition's registered agents; divergent partition agents left unbound; a
+      partition's registered agents; partition agents reaching the same secret id through different records
+      bound; divergent partition agents left unbound; a
       read or write failure leaves no completion marker and retries; completion
       marker prevents a second run
 - [ ] 3.2 `MapperJobSNMPCredentialBackfillWorker`: one-shot, unique, enqueued on

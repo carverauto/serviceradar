@@ -6,7 +6,8 @@ Discovery credentials (SNMP and API) MUST be stored using AshCloak encryption in
 #### Scenario: Save SNMP credentials
 - **GIVEN** an admin configures SNMP discovery for a job
 - **WHEN** the job is saved
-- **THEN** the job SHALL reference a reusable SNMP credential in `platform.network_credential_secrets` and SHALL NOT store SNMP secret material on the job record
+- **THEN** any SNMP credential the job carries SHALL be a reference to a reusable SNMP credential in `platform.network_credential_secrets`, and the job record SHALL NOT store SNMP secret material
+- **AND** saving an SNMP-mode job with no referenced SNMP credential SHALL remain valid, so an unbound job can still be edited, disabled or retargeted
 - **AND** per-device SNMP credentials SHALL continue to come from device overrides, SNMP credential rules and SNMP profiles
 - **AND** any stored credentials (reusable credential, profile or device override) SHALL be encrypted at rest via AshCloak
 - **AND** API responses to the UI SHALL redact sensitive fields
@@ -157,6 +158,11 @@ Only a job whose legacy chain resolves to no credential, or to different credent
 - **GIVEN** before upgrade, an SNMP-mode job's fallback resolved to an enabled SNMP monitoring rule scoped to its agent
 - **WHEN** the one-time backfill runs
 - **THEN** the job SHALL reference that rule's secret
+
+#### Scenario: Same reusable credential through different sources
+- **GIVEN** a partition-assigned SNMP-mode job whose pre-upgrade fallback resolves, on one agent, to a host device override referencing reusable credential C and, on another agent, to the default SNMP profile also referencing C
+- **WHEN** the one-time backfill runs
+- **THEN** the job SHALL reference C
 
 #### Scenario: Ambiguous or empty legacy fallback
 - **GIVEN** a partition-assigned SNMP-mode job whose pre-upgrade fallback resolves to different credentials on different agents, or to no credential

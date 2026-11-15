@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: Default profile flag scope
-An SNMP profile's `is_default` flag SHALL affect only SNMP polling fallback, and saving a profile's edit form MUST NOT change the flag.
-Only the explicit "Clear default" action (`:unset_default`) and making another profile the default (`:set_as_default`) change it. Mapper discovery does not read the flag.
+An SNMP profile's `is_default` flag SHALL NOT select a mapper discovery job's fallback credential, and saving a profile's edit form MUST NOT change the flag.
+The flag still selects the SNMP polling fallback, and per-device resolution for known devices still uses the default profile, including the per-device `target_specific` credentials of a mapper job. Only the explicit "Clear default" action (`:unset_default`) and making another profile the default (`:set_as_default`) change the flag.
 
 #### Scenario: Editing the default profile keeps it default
 - **GIVEN** an SNMP profile with `is_default = true`
