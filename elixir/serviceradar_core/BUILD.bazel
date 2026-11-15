@@ -1383,7 +1383,10 @@ ex_unit_test(
         # Every lane gets the full data set: which lane holds which test file is an
         # implementation detail of the partition, so narrowing this per lane would break the
         # moment a file moved between them.
-        data = INTEGRATION_RUNTIME_DATA + (["//third_party/membrane:media_test_tools"] if RECORDING_WORKER_TEST_SRC in INTEGRATION_LANE_SRCS[lane] else []),
+        data = INTEGRATION_RUNTIME_DATA + ([
+            "//elixir/serviceradar_nvr:release_tar",
+            "//third_party/membrane:media_test_tools",
+        ] if RECORDING_WORKER_TEST_SRC in INTEGRATION_LANE_SRCS[lane] else []),
         elixir_opts = [
             # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
             # while building the Repo settings, so deriving it afterwards has no effect. Reads

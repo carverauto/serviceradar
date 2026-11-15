@@ -2,6 +2,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Supervisor do
   @moduledoc "Node-local supervision for explicitly enabled, independently leased recorders."
   use Supervisor
 
+  alias ServiceRadarCoreElx.CameraRecording.NVRWorker
   alias ServiceRadarCoreElx.CameraRecording.Worker
   alias ServiceRadarCoreElx.CameraRecording.Workers
 
@@ -12,6 +13,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Supervisor do
   def start_recorder(opts) do
     if enabled?(),
       do: DynamicSupervisor.start_child(Workers, {Worker, opts}),
+      else: {:error, :recording_disabled}
+  end
+
+  def start_nvr_recorder(opts) do
+    if enabled?(),
+      do: DynamicSupervisor.start_child(Workers, {NVRWorker, opts}),
       else: {:error, :recording_disabled}
   end
 

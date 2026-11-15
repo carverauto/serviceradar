@@ -1,0 +1,637 @@
+defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
+  @moduledoc """
+  Streams one bounded recording block from this node's camera relay to NVR ingest.
+
+  Runs outside live-view and global relay control processes under
+  `ServiceRadarCoreElx.CameraRecording.Supervisor`. Startup rechecks fenced
+  ingest ownership, claims exclusive recorder ownership bound to the target NVR
+  member's provisioned `storage_id`, reserves `block_sequence: 0`, attaches a
+  bounded `ServiceRadarRecording.Inbox` to `CameraRelay.Pipeline`, and streams
+  contiguous 90 kHz H264 AnnexB access units through `ServiceRadarNVRClient`
+  once media arrives.
+
+  Uncertain transport or timeout outcomes after network streaming starts stop
+  production immediately without sending the clean wire EOF marker, never retry
+  against the same or another replica, never bump `recorder_epoch`, and leave
+  the reserved block and active recorder fence intact for operator inspection or
+  recovery.
+  """
+
+  use GenServer, restart: :temporary
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.RecorderOwnership
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+  alias ServiceRadarNVRClient.Config, as: ClientConfig
+  alias ServiceRadarRecording.Inbox
+  alias ServiceRadarRecordingControl.RecoveryGate
+
+  @lease_ms 30_000
+  @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
+  @default_bounds %{
+    max_frames: 240,
+    max_bytes: 8_388_608,
+    max_duration_ms: 6_000
+  }
+  @max_frames_ceiling 1_800
+  @max_bytes_ceiling 12_582_912
+  @max_duration_ms_ceiling 25_000
+
+  def start_link(opts) do
+    owner = Keyword.fetch!(opts, :owner)
+    name = {:via, Registry, {ServiceRadarCoreElx.CameraRecording.Registry, {owner.id, owner.epoch}}}
+    GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @impl true
+  def init(opts) do
+    Process.flag(:trap_exit, true)
+    owner = Keyword.fetch!(opts, :owner)
+    media_ingest_id = Keyword.fetch!(opts, :media_ingest_id)
+    member = Keyword.fetch!(opts, :member)
+    storage_id = Keyword.fetch!(opts, :storage_id)
+    %ClientConfig{} = client_config = Keyword.fetch!(opts, :client_config)
+
+    with true <- ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() || {:error, :recording_disabled},
+         {:ok, bounds} <- normalize_bounds(Keyword.get(opts, :bounds, %{})),
+         {:ok, capture} <- build_capture(opts),
+         {:ok, pipeline} <- PipelineManager.recording_pipeline(owner.relay_session_id, media_ingest_id) do
+      state = %{
+        owner: owner,
+        media_ingest_id: media_ingest_id,
+        member: member,
+        storage_id: storage_id,
+        client_config: client_config,
+        bounds: bounds,
+        capture: capture,
+        pipeline: pipeline,
+        pipeline_monitor: Process.monitor(pipeline),
+        notify: Keyword.get(opts, :notify),
+        inbox_opts: Keyword.merge(@inbox_defaults, Keyword.get(opts, :inbox_opts, [])),
+        actor: SystemActor.system(:camera_recording),
+        claim_token: Ecto.UUID.generate(),
+        claim: nil,
+        block: nil,
+        recovery_gate: nil,
+        wire_header: nil,
+        inbox: nil,
+        detached?: false,
+        input_complete?: false,
+        drain_reason: nil,
+        abort_reason: nil,
+        queue: :queue.new(),
+        waiting_puller: nil,
+        sender_pid: nil,
+        sender_monitor: nil,
+        sender_ref: nil,
+        uncertain?: false,
+        lease_timer: nil,
+        first_pts: nil,
+        last_pts: nil,
+        last_sequence: nil,
+        frames_accepted: 0,
+        bytes_accepted: 0,
+        frames_sent: 0,
+        bytes_sent: 0
+      }
+
+      {:ok, state, {:continue, :acquire_and_attach}}
+    else
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  @impl true
+  def handle_continue(:acquire_and_attach, state) do
+    request_start = now()
+
+    with :ok <- check_capture(state.capture),
+         {:ok, gate} <- check_recovery_gate(),
+         {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, actor: state.actor),
+         true <- is_binary(owner.relay_session_id) || {:error, :relay_unbound},
+         {:ok, claim} <-
+           RecorderOwnership.acquire(
+             owner,
+             state.claim_token,
+             state.media_ingest_id,
+             state.storage_id,
+             @lease_ms,
+             actor: state.actor
+           ) do
+      state = %{state | owner: owner, claim: claim, recovery_gate: gate}
+      open_and_attach(state, compute_deadline(request_start, claim, state.capture))
+    else
+      {:error, reason} -> stop_before_stream(state, reason)
+    end
+  end
+
+  @impl true
+  def handle_call(:pull_unit, from, state) do
+    cond do
+      state.abort_reason != nil ->
+        {:reply, {:abort, state.abort_reason}, state}
+
+      not :queue.is_empty(state.queue) ->
+        {{:value, unit}, rest} = :queue.out(state.queue)
+        release_inbox_credit(state, byte_size(unit.payload))
+
+        next = %{
+          state
+          | queue: rest,
+            frames_sent: state.frames_sent + 1,
+            bytes_sent: state.bytes_sent + byte_size(unit.payload)
+        }
+
+        {:reply, {:unit, unit}, next}
+
+      state.input_complete? ->
+        {:reply, :eof, state}
+
+      state.waiting_puller == nil ->
+        {:noreply, %{state | waiting_puller: from}}
+
+      true ->
+        {:reply, {:abort, :concurrent_pull_not_allowed}, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
+    if state.input_complete? or state.abort_reason != nil do
+      release_inbox_credit(state, byte_size(unit.payload))
+      {:noreply, state}
+    else
+      accept_media_unit(state, unit)
+    end
+  end
+
+  def handle_info({:recording_end, id}, %{inbox: %{id: id}} = state) do
+    if state.sender_pid == nil do
+      stop_before_stream(%{state | detached?: true, input_complete?: true}, state.drain_reason || :no_recorded_media)
+    else
+      next =
+        state
+        |> Map.merge(%{detached?: true, input_complete?: true})
+        |> maybe_reply_puller()
+
+      {:noreply, next}
+    end
+  end
+
+  def handle_info({:recording_rejected, id, reason}, %{inbox: %{id: id}} = state) do
+    abort_stream(state, reason)
+  end
+
+  def handle_info({sender_ref, send_result}, %{sender_ref: sender_ref} = state) do
+    finalize_send_result(state, send_result)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{sender_monitor: ref} = state) do
+    finalize_uncertain(state, {:sender_crashed, reason})
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{capture: %{monitor: ref}} = state) do
+    handle_interrupt(state, :capture_cancelled)
+  end
+
+  def handle_info({:capture_deadline, ref}, %{capture: %{monitor: ref}} = state) do
+    handle_interrupt(state, :capture_timeout)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{pipeline_monitor: ref} = state) do
+    abort_stream(%{state | detached?: true}, :ingest_stopped)
+  end
+
+  def handle_info(:renew_lease, %{input_complete?: true} = state), do: {:noreply, %{state | lease_timer: nil}}
+  def handle_info(:renew_lease, %{abort_reason: reason} = state) when not is_nil(reason), do: {:noreply, state}
+
+  def handle_info(:renew_lease, state) do
+    request_start = now()
+
+    with :ok <- check_capture(state.capture),
+         {:ok, _gate} <- check_recovery_gate(),
+         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, actor: state.actor),
+         :ok <- Inbox.renew(state.inbox, compute_deadline(request_start, claim, state.capture)) do
+      {:noreply, schedule_renewal(%{state | claim: claim, lease_timer: nil})}
+    else
+      {:error, :recording_stopped} ->
+        handle_administrative_stop(state)
+
+      {:error, reason} ->
+        abort_stream(state, reason)
+    end
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.inbox, do: Inbox.cancel(state.inbox)
+    if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
+    if state.capture, do: Process.cancel_timer(state.capture.timer)
+
+    if is_pid(state.sender_pid) and Process.alive?(state.sender_pid) do
+      Process.exit(state.sender_pid, :kill)
+    end
+
+    if state.claim != nil and not state.uncertain? do
+      release_clean_consumer(state)
+    end
+
+    :ok
+  end
+
+  defp open_and_attach(state, deadline_ms) do
+    clock_epoch = "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}"
+
+    retained_clock = %{
+      "clock_epoch" => clock_epoch,
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    with {:ok, inbox} <-
+           Inbox.new(
+             state.pipeline,
+             state.owner.relay_session_id,
+             state.media_ingest_id,
+             deadline_ms,
+             state.inbox_opts
+           ),
+         :ok <- Inbox.usable(inbox),
+         {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, actor: state.actor),
+         {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block, clock_epoch),
+         :ok <- attach_pipeline(state.pipeline, inbox) do
+      next =
+        state
+        |> Map.merge(%{inbox: inbox, block: block, wire_header: header, drain_reason: nil})
+        |> schedule_renewal()
+
+      notify(next, {:attached, correlation_fields(next)})
+      {:noreply, next}
+    else
+      {:error, reason} -> stop_before_stream(state, reason)
+    end
+  end
+
+  defp build_wire_header(storage_id, recovery_generation, block, clock_epoch) do
+    identity =
+      block
+      |> RecordingBlock.identity()
+      |> Map.delete("clock")
+
+    {:ok,
+     %{
+       "version" => 1,
+       "storage_id" => storage_id,
+       "recovery_generation" => recovery_generation,
+       "identity" => identity,
+       "clock_epoch" => clock_epoch
+     }}
+  end
+
+  defp attach_pipeline(pipeline, inbox) do
+    Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox}, 5_000)
+  catch
+    :exit, _reason -> {:error, :ingest_stopped}
+  end
+
+  defp ensure_sender_started(%{sender_pid: pid} = state) when is_pid(pid), do: state
+
+  defp ensure_sender_started(state) do
+    worker = self()
+    sender_ref = make_ref()
+    timeout_ms = max(1_000, state.capture.deadline - now())
+    client_config = state.client_config
+    header = state.wire_header
+
+    {sender_pid, sender_monitor} =
+      spawn_monitor(fn ->
+        stream = Stream.resource(fn -> worker end, &pull_from_worker/1, fn _ -> :ok end)
+        result = ServiceRadarNVRClient.send_recording(client_config, header, stream, timeout_ms)
+        send(worker, {sender_ref, result})
+      end)
+
+    next = %{state | sender_pid: sender_pid, sender_monitor: sender_monitor, sender_ref: sender_ref}
+    notify(next, {:started, correlation_fields(next)})
+    next
+  end
+
+  defp pull_from_worker(worker) do
+    case GenServer.call(worker, :pull_unit, :infinity) do
+      {:unit, unit} -> {[unit], worker}
+      :eof -> {:halt, worker}
+      {:abort, reason} -> throw({:nvr_producer_aborted, reason})
+    end
+  end
+
+  defp accept_media_unit(state, unit) do
+    with :ok <- check_capture(state.capture),
+         :ok <- Inbox.usable(state.inbox),
+         :ok <- validate_unit_order(state, unit) do
+      apply_unit_bounds(state, unit)
+    else
+      {:error, reason} ->
+        release_inbox_credit(state, byte_size(unit.payload))
+        abort_stream(state, reason)
+    end
+  end
+
+  defp validate_unit_order(state, unit) do
+    cond do
+      unit.dts != unit.pts ->
+        {:error, :reordered_dts}
+
+      state.last_sequence != nil and unit.sequence != state.last_sequence + 1 ->
+        {:error, :media_sequence_discontinuity}
+
+      state.last_pts != nil and unit.pts < state.last_pts ->
+        {:error, :non_monotonic_timestamp}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp apply_unit_bounds(state, unit) do
+    unit_bytes = byte_size(unit.payload)
+    next_bytes = state.bytes_accepted + unit_bytes
+
+    if next_bytes > state.bounds.max_bytes do
+      release_inbox_credit(state, unit_bytes)
+
+      if state.frames_accepted == 0 do
+        abort_stream(state, :frame_exceeds_max_bytes)
+      else
+        next = state |> detach_recorder() |> maybe_reply_puller()
+        {:noreply, next}
+      end
+    else
+      first_pts = state.first_pts || unit.pts
+      next_frames = state.frames_accepted + 1
+      duration_ticks = unit.pts - first_pts
+      max_duration_ticks = div(state.bounds.max_duration_ms * 90_000, 1_000)
+      reached_bound? = next_frames >= state.bounds.max_frames or duration_ticks >= max_duration_ticks
+
+      next = %{
+        state
+        | queue: :queue.in(unit, state.queue),
+          first_pts: first_pts,
+          last_pts: unit.pts,
+          last_sequence: unit.sequence,
+          frames_accepted: next_frames,
+          bytes_accepted: next_bytes
+      }
+
+      next = ensure_sender_started(next)
+      next = if reached_bound?, do: detach_recorder(next), else: next
+      {:noreply, maybe_reply_puller(next)}
+    end
+  end
+
+  defp maybe_reply_puller(%{waiting_puller: nil} = state), do: state
+
+  defp maybe_reply_puller(%{waiting_puller: from} = state) do
+    cond do
+      state.abort_reason != nil ->
+        GenServer.reply(from, {:abort, state.abort_reason})
+        %{state | waiting_puller: nil}
+
+      not :queue.is_empty(state.queue) ->
+        {{:value, unit}, rest} = :queue.out(state.queue)
+        release_inbox_credit(state, byte_size(unit.payload))
+        GenServer.reply(from, {:unit, unit})
+
+        %{
+          state
+          | queue: rest,
+            waiting_puller: nil,
+            frames_sent: state.frames_sent + 1,
+            bytes_sent: state.bytes_sent + byte_size(unit.payload)
+        }
+
+      state.input_complete? ->
+        GenServer.reply(from, :eof)
+        %{state | waiting_puller: nil}
+
+      true ->
+        state
+    end
+  end
+
+  defp handle_administrative_stop(state) do
+    if state.frames_accepted > 0 do
+      next = state |> Map.put(:drain_reason, :recording_stopped) |> detach_recorder() |> maybe_reply_puller()
+      {:noreply, next}
+    else
+      abort_stream(state, :recording_stopped)
+    end
+  end
+
+  defp detach_recorder(%{detached?: true} = state), do: %{state | input_complete?: true}
+
+  defp detach_recorder(state) do
+    if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
+
+    if state.inbox do
+      timeout = min(5_000, max(1, Inbox.remaining_ms(state.inbox)))
+
+      _ =
+        try do
+          Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout)
+        catch
+          :exit, _ -> Inbox.cancel(state.inbox)
+        end
+    end
+
+    %{state | detached?: true, input_complete?: true, lease_timer: nil}
+  end
+
+  defp abort_stream(state, reason) do
+    if state.inbox, do: Inbox.cancel(state.inbox)
+
+    next =
+      maybe_reply_puller(%{state | abort_reason: state.abort_reason || reason, detached?: true, input_complete?: true})
+
+    if next.sender_pid == nil do
+      stop_before_stream(next, next.abort_reason)
+    else
+      {:noreply, next}
+    end
+  end
+
+  defp handle_interrupt(state, reason) do
+    if state.sender_pid == nil do
+      stop_before_stream(state, reason)
+    else
+      finalize_uncertain(%{state | abort_reason: state.abort_reason || reason}, reason)
+    end
+  end
+
+  defp finalize_send_result(state, send_result) do
+    if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
+    state = %{state | sender_pid: nil, sender_monitor: nil}
+    expected_key = state.block.block_key
+    expected_storage = state.storage_id
+
+    case {state.abort_reason, state.frames_sent > 0, check_recovery_gate(), send_result} do
+      {nil, true, {:ok, _gate},
+       {:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}} ->
+        payload =
+          state
+          |> correlation_fields()
+          |> Map.put(:status, :sealed_local)
+
+        notify(state, {:completed, payload})
+        {:stop, :normal, state}
+
+      {abort_reason, _has_frames, _gate_status, other_result} ->
+        reason = classify_send_failure(abort_reason, state.frames_sent, other_result)
+        finalize_uncertain(state, reason)
+    end
+  end
+
+  defp classify_send_failure(abort_reason, _frames_sent, _result) when not is_nil(abort_reason), do: abort_reason
+  defp classify_send_failure(nil, 0, {:error, reason}), do: {:no_media_sealed, reason}
+  defp classify_send_failure(nil, _frames_sent, {:error, reason}), do: reason
+  defp classify_send_failure(nil, _frames_sent, {:ok, receipt}), do: {:unexpected_nvr_receipt, receipt}
+
+  defp finalize_uncertain(state, reason) do
+    if state.inbox, do: Inbox.cancel(state.inbox)
+
+    if is_pid(state.sender_pid) and Process.alive?(state.sender_pid) do
+      if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
+      Process.exit(state.sender_pid, :kill)
+    end
+
+    payload =
+      state
+      |> correlation_fields()
+      |> Map.put(:reason, reason)
+
+    next = %{state | sender_pid: nil, sender_monitor: nil, uncertain?: true}
+    notify(next, {:uncertain, payload})
+    {:stop, :normal, next}
+  end
+
+  defp stop_before_stream(state, reason) do
+    if state.inbox, do: Inbox.cancel(state.inbox)
+    notify(state, {:failed, %{reason: reason}})
+    {:stop, :normal, state}
+  end
+
+  defp correlation_fields(state) do
+    %{
+      recording_block_id: state.block && state.block.id,
+      block_key: state.block && state.block.block_key,
+      storage_id: state.storage_id,
+      member: state.member,
+      recorder_epoch: state.claim && state.claim.recorder_epoch,
+      relay_session_id: state.owner.relay_session_id,
+      frames_sent: state.frames_sent,
+      bytes_sent: state.bytes_sent
+    }
+  end
+
+  defp release_inbox_credit(%{detached?: false, inbox: %Inbox{} = inbox}, bytes) do
+    _ = Inbox.release(inbox, bytes)
+    :ok
+  end
+
+  defp release_inbox_credit(_state, _bytes), do: :ok
+
+  defp release_clean_consumer(state) do
+    case RecorderOwnership.release(state.owner, state.claim, actor: state.actor) do
+      {:ok, :released} ->
+        _ =
+          RelaySessionManager.request_close(state.owner.relay_session_id,
+            reason: "recorder detached",
+            actor: state.actor
+          )
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp normalize_bounds(overrides) when is_map(overrides) do
+    merged = Map.merge(@default_bounds, overrides)
+
+    if valid_int?(merged.max_frames, 1, @max_frames_ceiling) and
+         valid_int?(merged.max_bytes, 1, @max_bytes_ceiling) and
+         valid_int?(merged.max_duration_ms, 100, @max_duration_ms_ceiling) do
+      {:ok, merged}
+    else
+      {:error, :invalid_capture_bounds}
+    end
+  end
+
+  defp normalize_bounds(_overrides), do: {:error, :invalid_capture_bounds}
+
+  defp valid_int?(value, min_val, max_val), do: is_integer(value) and value >= min_val and value <= max_val
+
+  defp build_capture(opts) do
+    caller = Keyword.get(opts, :caller)
+    deadline = resolve_deadline(opts)
+
+    if is_pid(caller) and is_integer(deadline) do
+      capture = %{caller: caller, deadline: deadline}
+
+      with :ok <- check_capture(capture) do
+        monitor = Process.monitor(caller)
+        timer = Process.send_after(self(), {:capture_deadline, monitor}, max(0, deadline - now()))
+        {:ok, Map.merge(capture, %{monitor: monitor, timer: timer})}
+      end
+    else
+      {:error, :invalid_capture}
+    end
+  end
+
+  defp resolve_deadline(opts) do
+    case {Keyword.get(opts, :deadline), Keyword.get(opts, :timeout_ms, 25_000)} do
+      {deadline, _} when is_integer(deadline) -> deadline
+      {nil, timeout_ms} when is_integer(timeout_ms) and timeout_ms > 0 -> now() + timeout_ms
+      _ -> nil
+    end
+  end
+
+  defp check_capture(%{caller: caller, deadline: deadline}) do
+    cond do
+      deadline <= now() -> {:error, :capture_timeout}
+      not Process.alive?(caller) -> {:error, :capture_cancelled}
+      true -> :ok
+    end
+  end
+
+  defp check_recovery_gate do
+    gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+
+    case RecoveryGate.check(gate) do
+      :ok -> {:ok, gate}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp compute_deadline(request_start, claim, capture) do
+    lease_deadline = request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
+    min(lease_deadline, capture.deadline)
+  end
+
+  defp schedule_renewal(state) do
+    delay = min(5_000, max(1, div(Inbox.remaining_ms(state.inbox), 2)))
+    %{state | lease_timer: Process.send_after(self(), :renew_lease, delay)}
+  end
+
+  defp notify(%{notify: pid}, event) when is_pid(pid), do: send(pid, {:camera_nvr_capture, self(), event})
+  defp notify(_state, _event), do: :ok
+
+  defp now, do: System.monotonic_time(:millisecond)
+end

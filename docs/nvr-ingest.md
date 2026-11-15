@@ -8,7 +8,7 @@ S3 remains optional.
 
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
-| Camera to NVR | A packaged sending client reaches the shipped recorder over TLS and rotates local blocks | Inventory selection, authenticated assignment and agent/gateway integration |
+| Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
 | Footage catalog | Durable publication intents and Core acceptance | Current-history completion and qualified local-copy registration |
 | Playback | Archive player and authorized S3 reads | Owner-routed authorized local reads and player discovery |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
@@ -48,9 +48,35 @@ bounded separately by the existing session and disk admission limits.
 
 The listener is private to the trusted recording coordinator or a local media
 bridge. It is not a browser endpoint or a new inbound requirement from Cloud
-into a customer network. No chart Service or public route exposes it in this
-checkpoint. The future agent/gateway sender must preserve the approved outbound
-connectivity and shared-ingest model.
+into a customer network. When `nvr.ingest.enabled` is set in Helm, only the
+headless NVR Service and a `serviceradar-core` pod-selected NetworkPolicy rule
+expose the listener inside the cluster; no public route is created.
+
+## Bounded relay coordinator
+
+`ServiceRadarCoreElx.CameraRecording.NVRCapture` (`once_source/4` and
+`once_relay/3`) runs one finite capture from the shared camera relay into a
+configured NVR replica without opening a second direct camera RTSP stream or
+sending media over NATS/JetStream or ERTS distribution:
+
+1. `once_source/4` reuses an active shared relay or opens one via
+   `RelaySessionManager.request_open/3`, then routes execution to the `core-elx`
+   node hosting `CameraRelay.Pipeline` (`ServiceRadar.Camera.RelayHosts`).
+2. `NVRTargetConfig` resolves installed workload mTLS/token credentials and the
+   target replica's provisioned `storage_id` from
+   `SERVICERADAR_NVR_CLIENT_CONFIG_FILE` and
+   `SERVICERADAR_NVR_CLIENT_TOKEN_FILE`.
+3. `NVRWorker` verifies `IngestOwnership`, acquires `RecorderOwnership` bound to
+   that `storage_id`, reserves `block_sequence: 0`, attaches a bounded
+   `ServiceRadarRecording.Inbox` to the relay pipeline outside live-view and
+   control processes, and streams contiguous 90000 Hz H264 AnnexB access units
+   through `ServiceRadarNVRClient.send_recording/4`.
+4. A verified `sealed_local` receipt returns the correlated `recording_block_id`
+   and `block_key` while keeping the `RecordingBlock` in `:open_local` (never
+   published or playable by local seal alone). Any `:outcome_unknown`, timeout
+   or caller loss aborts without sending the stream-end marker, never retries or
+   fails over to another replica, and leaves the reserved block and epoch intact
+   for inspection or recovery.
 
 ## Finite stream contract
 

@@ -231,6 +231,14 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-archive-reader"))) -}}
 {{- end -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $nvrIngest := default (dict) $nvr.ingest -}}
+{{- $nvrIngestEnabled := and $nvr.enabled (default false $nvrIngest.enabled) -}}
+{{- $nvrIngestPort := int (default 8443 $nvrIngest.port) -}}
+{{- if $nvr.enabled -}}
+{{- $podSelector = deepCopy $podSelector -}}
+{{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
+{{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -289,7 +297,7 @@ spec:
     []
 {{- end }}
   egress:
-{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs $archiveReader.enabled }}
+{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs $archiveReader.enabled $nvrIngestEnabled }}
 {{- if $archiveReader.enabled }}
     - to:
         - podSelector:
@@ -298,6 +306,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $archiveReader.port }}
+{{- end }}
+{{- if $nvrIngestEnabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-nvr
+      ports:
+        - protocol: TCP
+          port: {{ $nvrIngestPort }}
 {{- end }}
 {{- if $allowDNS }}
     - to:

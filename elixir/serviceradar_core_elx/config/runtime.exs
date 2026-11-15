@@ -69,6 +69,24 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+{nvr_client_config_file, nvr_client_token_file} =
+  case {System.get_env("SERVICERADAR_NVR_CLIENT_CONFIG_FILE"), System.get_env("SERVICERADAR_NVR_CLIENT_TOKEN_FILE")} do
+    {cfg, tok} when cfg in [nil, ""] and tok in [nil, ""] ->
+      {nil, nil}
+
+    {cfg, tok} when is_binary(cfg) and is_binary(tok) ->
+      if Path.type(cfg) == :absolute and Path.type(tok) == :absolute do
+        {cfg, tok}
+      else
+        raise ArgumentError,
+              "SERVICERADAR_NVR_CLIENT_CONFIG_FILE and SERVICERADAR_NVR_CLIENT_TOKEN_FILE must be absolute paths"
+      end
+
+    _ ->
+      raise ArgumentError,
+            "SERVICERADAR_NVR_CLIENT_CONFIG_FILE and SERVICERADAR_NVR_CLIENT_TOKEN_FILE must be configured together"
+  end
+
 # phoenix_live_view optionally depends on lazy_html. When that app is present in
 # the release, its compile-time env must match at boot or Config.Provider aborts.
 config :lazy_html, :inspect_extra_newline, true
@@ -94,6 +112,9 @@ config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
 # must never receive the web tier's bearer HMAC keyring.
 config :serviceradar_core, :automation_callback_grants, []
 config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
+config :serviceradar_core_elx, :camera_nvr_client_config_file, nvr_client_config_file
+config :serviceradar_core_elx, :camera_nvr_client_token_file, nvr_client_token_file
 
 # Opt-in permits only explicit one-shot capture; it does not start recorders.
 config :serviceradar_core_elx,
