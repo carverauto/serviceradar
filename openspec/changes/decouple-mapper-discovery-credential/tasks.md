@@ -9,7 +9,7 @@
       `network_credential_secrets` with `ON DELETE RESTRICT`, plus index
 - [ ] 1.2 `MapperJob`: attribute, `belongs_to :snmp_credential_secret`,
       `references ... on_delete: :restrict`, accept on `:create`/`:update`,
-      validation that the referenced secret's provider is `snmp`
+      validation that the referenced secret's `credential_kind` is `:snmp`
 - [ ] 1.3 `NetworkCredentialSecret.foreign_key_names`: map
       `mapper_jobs_snmp_credential_secret_id_fkey` to `credential_in_use`
 - [ ] 1.4 `CredentialUsage.load_direct_consumers/1`: `:mapper_jobs` loader

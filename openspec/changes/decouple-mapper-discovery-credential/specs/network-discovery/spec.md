@@ -62,7 +62,7 @@ A mapper job's SNMP credential reference MUST be restricted at the database, inc
 - **AND** SHALL link to that job's edit form
 
 #### Scenario: Non-SNMP credential is rejected
-- **GIVEN** a reusable credential whose provider is not `snmp`
+- **GIVEN** a reusable credential whose `credential_kind` is not `snmp`
 - **WHEN** an operator saves a mapper job referencing it as the SNMP credential
 - **THEN** the save SHALL fail with a validation error on the SNMP credential field
 

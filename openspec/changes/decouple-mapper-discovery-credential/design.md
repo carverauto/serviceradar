@@ -79,8 +79,8 @@ They are met as follows:
    consumer as a link to that job's edit form under Settings → Networks →
    Discovery.
 
-Only SNMP-kind credentials (provider `snmp`) are accepted. The job form's select
-reuses the SNMP-credential options the profile form already uses. The
+Only SNMP credentials (`credential_kind == :snmp`) are accepted. The job form's
+select reuses the SNMP-credential options the profile form already uses. The
 `:create`/`:update` actions validate that a referenced secret is an SNMP
 credential.
 
