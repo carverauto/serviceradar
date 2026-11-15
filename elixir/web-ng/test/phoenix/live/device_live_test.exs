@@ -3918,6 +3918,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-after"
     end
 
+    # The device's history is stored, and announced, after a refresh already in flight read it.
+    @tag :web_ng_shared_fixture_db
+    test "an invalidation during an in-flight refresh schedules a trailing refresh", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      ref = refresh_assigns(view).device_details_request_ref
+      assert is_reference(ref)
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 60_000)
+      send(view.pid, {:devices_invalidated, [device_uid]})
+      assigns = refresh_assigns(view)
+      assert assigns.device_details_request_ref == ref
+      assert is_reference(assigns.device_refresh_timer)
+      assert Process.read_timer(assigns.device_refresh_timer) > 0
+
+      render_async(view, 15_000)
+    end
+
     @tag :web_ng_shared_fixture_db
     test "broadcasts are ignored while a refresh is in flight", %{
       conn: conn,

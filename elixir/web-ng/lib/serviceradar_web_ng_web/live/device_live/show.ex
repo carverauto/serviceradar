@@ -132,10 +132,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     maybe_refresh_current_device(socket, uid)
   end
 
+  # An invalidation can announce data stored after an in-flight refresh read, so it is
+  # never discarded: it runs after that refresh, as a trailing refresh.
   def handle_info({:devices_invalidated, uids}, socket) when is_list(uids) do
-    if socket.assigns.device_uid in uids,
-      do: maybe_refresh_current_device(socket, socket.assigns.device_uid),
-      else: {:noreply, socket}
+    uid = socket.assigns.device_uid
+
+    cond do
+      uid not in uids -> {:noreply, socket}
+      device_refresh_in_flight?(socket) -> {:noreply, schedule_trailing_device_refresh(socket, uid)}
+      true -> coalesce_device_refresh(socket, uid)
+    end
   end
 
   # Trailing refresh scheduled by coalesce_device_refresh/2: a broadcast
