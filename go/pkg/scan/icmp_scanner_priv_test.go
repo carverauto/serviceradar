@@ -4,6 +4,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -242,30 +243,45 @@ func TestICMPSweeper_ConcurrentScansEachSeeTheirReplies(t *testing.T) {
 }
 
 func TestICMPSweeper_Stop(t *testing.T) {
-	sweeper, err := NewICMPSweeper(1*time.Second, 100, logger.NewTestLogger())
+	// A reply timeout far longer than the test, so only Stop can end the scan.
+	sweeper, err := NewICMPSweeper(time.Minute, 100, logger.NewTestLogger(), WithICMPCount(1))
 	if err != nil {
 		t.Skipf("ICMP scanner requires root privileges: %v", err)
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	sweeper.cancel = cancel
+	// TEST-NET-1 (RFC 5737) never answers.
+	target := models.Target{Host: "192.0.2.1", Mode: models.ModeICMP}
+
+	resultCh, err := sweeper.Scan(context.Background(), []models.Target{target})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
 
 	err = sweeper.Stop()
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}
 
-	// Check that rawSocketFD is closed
+	// Stop waits for in-flight scans, so their results are already delivered.
+	select {
+	case result, ok := <-resultCh:
+		if !ok || result.Target.Host != target.Host || result.Available {
+			t.Errorf("in-flight scan result = %+v (ok=%v), want an unavailable result for %s", result, ok, target.Host)
+		}
+	default:
+		t.Fatal("Stop() returned before the in-flight scan delivered its result")
+	}
+
+	if _, ok := <-resultCh; ok {
+		t.Error("result channel not closed after Stop()")
+	}
+
 	if sweeper.rawSocketFD != invalidRawSocketFD {
 		t.Errorf("rawSocketFD not reset after Stop()")
 	}
 
-	// Check that context was canceled
-	select {
-	case <-ctx.Done():
-		// Expected
-	default:
-		t.Errorf("Context not canceled after Stop()")
+	if _, err := sweeper.Scan(context.Background(), []models.Target{target}); !errors.Is(err, ErrICMPSweeperStopped) {
+		t.Errorf("Scan() after Stop() error = %v, want %v", err, ErrICMPSweeperStopped)
 	}
 }

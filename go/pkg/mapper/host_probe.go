@@ -2,7 +2,6 @@ package mapper
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -20,8 +19,10 @@ type noopHostProbeService struct{}
 func (noopHostProbeService) Probe(_ context.Context, _ string) error { return nil }
 func (noopHostProbeService) Close() error                            { return nil }
 
+// sharedICMPProbeService probes hosts through one ICMP sweeper that every
+// discovery worker calls concurrently; the sweeper routes each reply to the
+// probe that sent the matching request.
 type sharedICMPProbeService struct {
-	mu      sync.Mutex
 	sweeper *scan.ICMPSweeper
 }
 
@@ -42,9 +43,7 @@ func (s *sharedICMPProbeService) Probe(ctx context.Context, host string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, hostProbeTimeout)
 	defer cancel()
 
-	s.mu.Lock()
 	resultCh, err := s.sweeper.Scan(probeCtx, []models.Target{{Host: host, Mode: models.ModeICMP}})
-	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
