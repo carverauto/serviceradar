@@ -23,13 +23,22 @@ on your role — see [Roles & Permissions](./rbac-and-roles.md).
 - **Gateways** — the agent-gateways that agents push status through, with
   connection and health information.
 
-On a device's **24h Availability Timeline**, probe observations are grouped into
-30-minute buckets. Each probed address is evaluated separately: with an agent
-selected, any failure in the bucket makes that address offline; without a
-selection, a successful observation makes that address online. The device's
-bucket is online if any address is online. Dedicated availability checks take
-precedence over sweep observations in each bucket. Missing buckets remain
-unknown when probe history exists.
+A device's **24h Availability Timeline** is drawn in 30-minute buckets. With no
+agent selected, it shows the history of the device's merged availability, the
+same value as the device badge. A bucket is offline when the device was
+unavailable for any part of it, and its tooltip shows the minutes down. A bucket
+is online when every known part of it was available. Time with no recorded
+history is unknown, never assumed. Uptime is available time over known time.
+The recorded changes are queryable with `in:device_availability_history`.
+
+Before core has converged onto merged availability, and whenever an agent is
+selected, the timeline shows probe history instead and is labelled as such.
+Each probed address is evaluated separately: with an agent selected, any failure
+in the bucket makes that address offline; without a selection, a successful
+observation makes that address online. The device's bucket is online if any
+address is online. Dedicated availability checks take precedence over sweep
+observations in each bucket. Missing buckets remain unknown when probe history
+exists.
 
 ## Events & alerts
 
