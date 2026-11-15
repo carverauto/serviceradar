@@ -6,8 +6,11 @@ defmodule ServiceRadarRecording.Packaging do
   `:timebase` (ticks per second), `dts_source: :pts_no_reordering`, and
   `utc_mapping: :unknown` or an explicit mapping containing `:origin_media_ticks`,
   `:origin_utc_usec` and `:uncertainty_usec`. Receive time is not capture time.
-  Only baseline/constrained-baseline streams are admitted; equal PTS/DTS alone
-  does not establish that an arbitrary H264 profile has no frame reordering.
+  Baseline and constrained-baseline streams are admitted. Main and High streams
+  are admitted only when every sequence parameter set rules reordering out, by
+  picture order count type 2 or a declared reorder depth of zero; otherwise the
+  push fails with `:h264_frame_reordering`. Equal PTS/DTS alone does not
+  establish that a stream has no frame reordering.
 
   The starting process owns the instance. Sequential `push/2` calls take one
   complete AnnexB AU with integer `:pts` and `:dts` in the declared timebase and

@@ -1012,7 +1012,7 @@ class NVRReleaseTest(unittest.TestCase):
         header = json.loads(journal[4:4 + header_size])
         init = (block / "init.mp4").read_bytes()
         self.assertEqual(init.count(b"avcC\x01\x42"), 1)
-        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x64")
+        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x58")
         for content in [init[:-1], unsupported, b"synthetic non-MP4 initialization"]:
             with self.subTest(initialization_bytes=len(content)):
                 # Integrity-valid persisted records must still have a supported format.

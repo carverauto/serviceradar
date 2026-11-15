@@ -181,7 +181,7 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
     format = ctx.format
 
     assert {:error, :invalid_manifest} =
-             Manifest.encode(ctx.snapshot, put_in(format.codecs.avc1.profile, 100), @receipts)
+             Manifest.encode(ctx.snapshot, put_in(format.codecs.avc1.profile, 88), @receipts)
 
     for receipts <- [
           nil,
@@ -209,7 +209,7 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
           put_in(descriptor["fragments"], [nil]),
           put_in(descriptor["version"], 2),
           Map.put(descriptor, "authorization", "invented-claim"),
-          put_in(descriptor["format"]["codec"], "avc1.64000a"),
+          put_in(descriptor["format"]["codec"], "avc1.58000a"),
           put_in(descriptor["identity"]["clock"]["utc_mapping"], %{})
         ] do
       assert {:error, :invalid_manifest} = Manifest.encode_descriptor(invalid, @receipts)

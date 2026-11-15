@@ -12,6 +12,8 @@ defmodule ServiceRadarRecordingMetadata.Descriptor do
   @max_json_bytes 2_097_152
   @max_integer 9_223_372_036_854_775_807
   @identity_keys ~w(source_id profile recorder_epoch block_sequence clock)
+  # H264 Baseline, Main and High, as profile_idc and as the codec string prefix.
+  @profiles [66, 77, 100]
   @fragment_keys ~w(sequence offset length start_ns duration_ns sha256 tail_duration_source motion)
 
   def from_snapshot(%{sealed?: true, identity: identity, init: init, entries: entries, high_water: size, sha256: sha}, %{
@@ -125,9 +127,10 @@ defmodule ServiceRadarRecordingMetadata.Descriptor do
 
   defp valid_mapping?(_, _), do: false
 
-  defp codec(%{avc1: %{profile: 66, compatibility: compatibility, level: level} = avc} = codecs)
-       when map_size(codecs) == 1 and map_size(avc) == 3 and compatibility in 0..255 and level in 0..255 do
-    hex = Base.encode16(<<66, compatibility, level>>, case: :lower)
+  defp codec(%{avc1: %{profile: profile, compatibility: compatibility, level: level} = avc} = codecs)
+       when map_size(codecs) == 1 and map_size(avc) == 3 and profile in @profiles and compatibility in 0..255 and
+              level in 0..255 do
+    hex = Base.encode16(<<profile, compatibility, level>>, case: :lower)
     {:ok, "avc1." <> hex}
   end
 
@@ -135,7 +138,7 @@ defmodule ServiceRadarRecordingMetadata.Descriptor do
 
   defp valid_format?(%{"codec" => codec, "timescale" => timescale} = format) do
     map_size(format) == 2 and is_binary(codec) and
-      Regex.match?(~r/\Aavc1\.42[0-9a-f]{4}\z/, codec) and
+      Regex.match?(~r/\Aavc1\.(42|4d|64)[0-9a-f]{4}\z/, codec) and
       integer?(timescale, 1, 1_000_000_000)
   end
 
