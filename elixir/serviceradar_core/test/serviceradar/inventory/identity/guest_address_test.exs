@@ -23,6 +23,37 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
     assert GuestAddress.primary(interfaces) == "192.0.2.10"
   end
 
+  test "a dual-homed guest's primary is its lowest configured NIC, whatever the report order" do
+    # The ingestor dedupes NIC records through a map keyed by provider ref, so
+    # the order they arrive in follows the NIC MACs, not the guest config. The
+    # Proxmox connector carries the config key (`netN`) in each record's
+    # metadata; that index is the guest's NIC order.
+    second_nic_first = [
+      %{
+        name: "eth1",
+        source: "config",
+        ip_addresses: ["198.51.100.14/24"],
+        metadata: %{"config_key" => "net1"}
+      },
+      %{
+        name: "eth0",
+        source: "config",
+        ip_addresses: ["192.0.2.14/24"],
+        metadata: %{"config_key" => "net0"}
+      }
+    ]
+
+    assert GuestAddress.primary(second_nic_first) == "192.0.2.14"
+
+    # The index is numeric: net10 is configured after net2.
+    without_net0 = [
+      %{name: "eth10", source: "config", ip_addresses: ["198.51.100.30/24"], config_key: "net10"},
+      %{name: "eth2", source: "config", ip_addresses: ["192.0.2.30/24"], config_key: "net2"}
+    ]
+
+    assert GuestAddress.primary(without_net0) == "192.0.2.30"
+  end
+
   test "without a configuration source, guest-tools NICs win over host-internal networks" do
     interfaces = [
       %{name: "docker0", source: "guest_tools", ip_addresses: ["172.17.0.1/16"]},
