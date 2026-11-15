@@ -22,6 +22,9 @@ defmodule ServiceRadar.Camera.RecordingBlock do
       index [:camera_source_id, :archive_published_at, :id],
         name: "camera_recording_blocks_publication_index",
         where: "archive_published_at IS NOT NULL"
+
+      index [:camera_source_id, :inserted_at, :id],
+        name: "camera_recording_blocks_operator_page_index"
     end
 
     references do
@@ -69,6 +72,23 @@ defmodule ServiceRadar.Camera.RecordingBlock do
       prepare build(
                 sort: [archive_published_at: :desc, id: :desc],
                 select: [:id, :archive_published_at]
+              )
+    end
+
+    read :operator_page do
+      argument :camera_source_id, :uuid, allow_nil?: false
+      argument :storage_ids, {:array, :uuid}, allow_nil?: true
+
+      pagination keyset?: true, default_limit: 25, max_page_size: 25, required?: true
+
+      filter expr(
+               camera_source_id == ^arg(:camera_source_id) and
+                 (is_nil(^arg(:storage_ids)) or storage_id in ^arg(:storage_ids))
+             )
+
+      prepare build(
+                sort: [inserted_at: :desc, id: :desc],
+                select: [:id, :block_key, :storage_id, :stream_profile_id, :state, :inserted_at]
               )
     end
 

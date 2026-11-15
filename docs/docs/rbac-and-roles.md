@@ -27,7 +27,7 @@ everything `helpdesk` can, and so on.
 | `viewer` | Read-only stakeholders | View dashboards, devices, services, observability data (logs, metrics, traces, events, NetFlow, alerts), rules, the playbook catalog, Ansible operation history, and northbound action history. Export device inventory and view its own CLI sessions. Cannot change anything. |
 | `helpdesk` | First-line responders | Everything a `viewer` can do, **plus** acknowledge and resolve alerts. |
 | `operator` | Day-to-day operations staff | Everything `helpdesk` can do, **plus** create and update devices, services, observability rules, sweep groups, integrations, SNMP/Sysmon profiles, and NetFlow settings. Run sweeps, discovery, services, reviewed Ansible playbooks, and northbound actions. View settings pages and the audit/security event stream. Operators generally cannot perform destructive auth/security actions or manage RBAC. |
-| `admin` | Platform administrators | Full access. Everything `operator` can do, **plus** manage users, roles, and auth settings; manage RBAC role profiles; manage credentials, outbound mail, plugins, edge packages, jobs, remote-access targets and host keys; approve plugin packages and northbound providers; open and review remote-access sessions; and manage audit/security state. |
+| `admin` | Platform administrators | Full access. Everything `operator` can do, **plus** manage users, roles, and auth settings; manage RBAC role profiles; manage credentials, outbound mail, camera recording and archive storage, plugins, edge packages, jobs, remote-access targets and host keys; approve plugin packages and northbound providers; open and review remote-access sessions; and manage audit/security state. |
 
 Permissions below are the building blocks for built-in roles and custom role
 profiles. The effective base and group-profile rules are described below.
@@ -36,7 +36,7 @@ profiles. The effective base and group-profile rules are described below.
 
 Internally, access is enforced through a canonical **permission catalog**.
 Permissions are grouped by functional area, and each permission declares its
-**default roles** — the built-in roles that receive it out of the box.
+**default roles** -- the built-in roles that receive it out of the box.
 
 The catalog covers these areas:
 
@@ -46,7 +46,7 @@ The catalog covers these areas:
 | **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; watching live camera video; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
-| **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
+| **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), camera recording and archive storage (`settings.recording.*`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
 | **Plugins** | Viewing, staging, approving, and assigning plugin packages. |
 | **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing canonical operation history; launching reviewed playbooks; authorizing operation cancellation. Reserved schedule keys expose no workflow. |
 | **Northbound Actions** | Viewing, managing, launching, and cancelling provider-neutral northbound actions; managing event handlers. |
@@ -104,6 +104,41 @@ user's persisted active account and current permissions, so cached authority
 does not preserve revoked access. Fragment responses repeat authorization before
 releasing bytes. Recording access does not grant export or storage administration.
 
+### Camera recording and storage settings
+
+Opening **Settings -> System -> Camera Recording -> Recording & Storage**
+(`/settings/recording`) requires at least one of three permissions. All three
+default to `admin` and can be assigned individually through custom role profiles:
+
+| Permission | Grants | Default roles |
+| --- | --- | --- |
+| `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, immutable archive destination generations, selected credential names, per-camera block locations, archive receipts, and operation history. | `admin` |
+| `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, and (once the recording-plane policy tasks land) edit recording policy and hot retention. | `admin` |
+| `settings.recording.operate` | Start supervised recorder operations (bounded camera captures, block archive uploads, destination connectivity tests, and local or archive retrieval checks). | `admin` |
+
+Selecting or changing the writer or optional reader `s3_compatible` archive
+credential on `/settings/recording?tab=archive` additionally requires
+`settings.credentials.manage` (see
+[Credential Management](./credentials.md#camera-archive-storage)), because
+listing reusable credentials is governed by that permission. A user holding
+`settings.recording.manage` without `settings.credentials.manage` can register
+and activate archive destinations and toggle `archive_enabled`, while the
+credential selectors render as disabled with only the bound credential's
+redacted name and an explanation of the missing permission.
+
+Every state-changing LiveView event, Core action, and operations call re-checks
+the specific permission for that operation (`manage` versus `operate`) against
+the current actor rather than relying on mount-time access. None of the
+`settings.recording.*` permissions grant recorded footage playback (which keeps
+`devices.cameras.recordings.view` plus `devices.view`), and footage-read access
+does not open `/settings/recording`.
+
+No RBAC permission opens, closes, or modifies the deployment recovery gate from
+the UI or API. The view reports Core and NVR recovery-gate state read-only; gate
+changes remain under deployment control outside CNPG backups and GitOps rollback
+(see
+[NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md#deployment-recovery-gate)).
+
 ## Custom role profiles
 
 When the built-in roles do not match a team's needs, an administrator can create
@@ -131,7 +166,7 @@ custom profiles can.
 
 ### Managing role profiles in the UI
 
-Role profiles are managed under **Settings → Auth/Users**:
+Role profiles are managed under **Settings -> Auth/Users**:
 
 - **Settings > Auth > RBAC** - browse the permission catalog and create, edit,
   or delete custom role profiles. Each profile is given a name, an optional
@@ -222,7 +257,7 @@ user-group assignments that referenced it.
 
 - Give most people `viewer` or `helpdesk`; reserve `operator` for staff who
   actively maintain inventory and rules.
-- Keep the number of `admin` accounts small — that role can manage users,
+- Keep the number of `admin` accounts small -- that role can manage users,
   credentials, plugins, and remote access.
 - Use a custom role profile when a team needs an unusual mix of permissions
   (for example, view-everything plus run sweeps but no editing).

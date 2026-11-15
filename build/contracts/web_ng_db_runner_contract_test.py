@@ -219,6 +219,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/notifications_provider_upload_test.exs",
     "test/phoenix/live/settings/prefix_tags_live_test.exs",
     "test/phoenix/live/settings/rbac_live_test.exs",
+    "test/phoenix/live/settings/recording_live_db_test.exs",
     "test/phoenix/live/settings/remote_access_desktop_targets_live_test.exs",
     "test/phoenix/live/settings/remote_access_host_keys_live_test.exs",
     "test/phoenix/live/settings/remote_access_recordings_live_test.exs",

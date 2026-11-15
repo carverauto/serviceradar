@@ -421,6 +421,26 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
     |> LazyHTML.from_fragment()
   end
 
+  test "recording archive settings consumer links to /settings/recording?tab=archive" do
+    document =
+      render_inventory(
+        usage_by_id: %{
+          "credential-1" =>
+            usage([
+              consumer(:recording_archive_settings, "deployment", "Camera archive (writer)")
+            ])
+        }
+      )
+
+    link =
+      LazyHTML.query(
+        document,
+        ~s(#credential-usage-credential-1 a[href="/settings/recording?tab=archive"])
+      )
+
+    assert link |> LazyHTML.text() |> normalize_text() =~ "Camera archive (writer)"
+  end
+
   defp secret do
     %{
       id: "credential-1",

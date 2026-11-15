@@ -47,6 +47,24 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
 
     assert {:error, :invalid_credential_secret_id} =
              ArchiveCredentialResolver.grant_attrs(binding, :writer, "env:AWS_SECRET_ACCESS_KEY")
+
+    v2_input =
+      "operator:primary"
+      |> Fixtures.archive_destination()
+      |> Map.merge(%{
+        "schema_version" => 2,
+        "bucket" => "example-archive",
+        "namespace" => "nvr/site-a"
+      })
+
+    {:ok, v2_attrs} = ArchiveDestination.attributes(v2_input)
+    v2_binding = Map.put(v2_attrs, :id, @binding_id)
+
+    assert {:ok, v2_grant} =
+             ArchiveCredentialResolver.grant_attrs(v2_binding, :writer, @secret_id, now: now)
+
+    assert v2_grant.allowed_paths == ["/example-archive/nvr/site-a/*"]
+    assert v2_grant.metadata["destination_sha256"] == v2_attrs.destination_sha256
   end
 
   test "resolves native s3_compatible credentials into bounded runtime documents and rejects invalid secrets or grants" do

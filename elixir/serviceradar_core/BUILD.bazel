@@ -581,6 +581,41 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_nvr_operator_settings_schema",
+    srcs = [
+        "priv/resource_snapshots/repo/platform.camera_archive_bindings/20261023180000.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261027160000.json",
+    ],
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_nvr_operator_settings/binding.json",
+        "generated_camera_nvr_operator_settings/block.json",
+        "generated_camera_nvr_operator_settings/settings.json",
+        "generated_camera_nvr_operator_settings/settings_version.json",
+        "generated_camera_nvr_operator_settings/receipt.json",
+        "generated_camera_nvr_operator_settings/operation.json",
+        "generated_camera_nvr_operator_settings/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_nvr_operator_settings_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_nvr_operator_settings_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_archive_bindings/20261115210000.json": ":generated_camera_nvr_operator_settings/binding.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261115210000.json": ":generated_camera_nvr_operator_settings/block.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_archive_settings/20261115210000.json": ":generated_camera_nvr_operator_settings/settings.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_archive_settings_versions/20261115210000.json": ":generated_camera_nvr_operator_settings/settings_version.json",
+        "priv/resource_snapshots/repo/platform.camera_nvr_archive_receipts/20261115210000.json": ":generated_camera_nvr_operator_settings/receipt.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_operations/20261115210000.json": ":generated_camera_nvr_operator_settings/operation.json",
+        "priv/repo/migrations/20261115210000_add_camera_nvr_operator_settings.exs": ":generated_camera_nvr_operator_settings/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

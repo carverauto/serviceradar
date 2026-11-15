@@ -61,7 +61,8 @@ defmodule ServiceRadar.Security.AuditVersionRetentionWorker do
     {"auth_lockout_versions", :auth_lockout_days, 180},
     {"authored_dashboard_versions", :authored_dashboard_days, 180},
     {"dashboard_report_schedule_versions", :dashboard_report_schedule_days, 180},
-    {"sweep_group_versions", :sweep_group_days, 180}
+    {"sweep_group_versions", :sweep_group_days, 180},
+    {"camera_recording_archive_settings_versions", :camera_recording_archive_settings_days, 180}
   ]
 
   @doc """

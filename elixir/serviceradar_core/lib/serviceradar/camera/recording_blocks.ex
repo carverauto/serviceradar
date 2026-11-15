@@ -17,10 +17,13 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   """
   import Ash.Expr
 
+  alias Ash.Error.Forbidden
   alias Ash.Error.Query.InvalidArgument
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Repo
   alias ServiceRadarRecordingControl.RecoveryGate
   alias ServiceRadarRecordingMetadata.Descriptor
@@ -28,6 +31,8 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   require Ash.Query
 
   @max_epoch 9_223_372_036_854_775_807
+  @operator_page_limit 25
+  @operator_page_actor SystemActor.system(:camera_recording_blocks_operator_page)
 
   def freeze(ingest, claim, block, descriptor, opts \\ []) do
     with {:ok, bytes} <- Descriptor.encode(descriptor) do
@@ -162,6 +167,123 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   end
 
   def with_current_upload(_lease, _fun, _deadline, _opts), do: {:error, :invalid_upload_deadline}
+
+  @doc """
+  Returns a keyset page (default and max 25, newest first) of projected
+  `RecordingBlock` rows for `camera_source_id` after authorizing
+  `settings.recording.view`.
+
+  `page_or_cursor` may be `nil`, an `after` keyset cursor string, or a keyword
+  list supporting `:after`, `:before`, `:limit` (`1..25`), and `:storage_ids`.
+  """
+  @spec operator_page(Ecto.UUID.t(), keyword() | String.t() | nil, keyword()) ::
+          {:ok, Ash.Page.Keyset.t()} | {:error, term()}
+  def operator_page(camera_source_id, page_or_cursor \\ [], opts \\ []) when is_list(opts) do
+    with :ok <- authorize_operator_page(opts),
+         {:ok, camera_uuid} <- cast_camera_source_id(camera_source_id),
+         {:ok, page_opts, storage_ids} <- normalize_operator_page_opts(page_or_cursor, opts) do
+      args = %{camera_source_id: camera_uuid, storage_ids: storage_ids}
+
+      RecordingBlock
+      |> Ash.Query.for_read(:operator_page, args, actor: @operator_page_actor)
+      |> Ash.read(actor: @operator_page_actor, page: page_opts)
+    end
+  end
+
+  defp authorize_operator_page(opts) do
+    actor =
+      case Keyword.get(opts, :actor) do
+        nil ->
+          opts
+          |> Keyword.get(:scope)
+          |> actor_from_scope()
+
+        explicit ->
+          explicit
+      end
+
+    if match?(%{role: :system}, actor) or
+         ActorHasPermission.match?(actor, [permission: "settings.recording.view"], %{}) do
+      :ok
+    else
+      {:error, Forbidden.exception([])}
+    end
+  end
+
+  defp actor_from_scope(%{user: user, permissions: %MapSet{} = permissions})
+       when not is_nil(user) do
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp actor_from_scope(%{actor: actor, permissions: %MapSet{} = permissions})
+       when is_map(actor) do
+    Map.put(actor, :permissions, permissions)
+  end
+
+  defp actor_from_scope(%{user: user}) when not is_nil(user), do: user
+  defp actor_from_scope(%{actor: scope_actor}) when not is_nil(scope_actor), do: scope_actor
+  defp actor_from_scope(_), do: nil
+
+  defp cast_camera_source_id(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_camera_source_id}
+    end
+  end
+
+  defp cast_camera_source_id(_), do: {:error, :invalid_camera_source_id}
+
+  defp normalize_operator_page_opts(nil, opts), do: normalize_operator_page_opts([], opts)
+
+  defp normalize_operator_page_opts(after_cursor, opts) when is_binary(after_cursor) do
+    normalize_operator_page_opts([after: after_cursor], opts)
+  end
+
+  defp normalize_operator_page_opts(page_opts, opts) when is_list(page_opts) do
+    raw_limit = Keyword.get(page_opts, :limit, @operator_page_limit)
+    storage_ids_raw = Keyword.get(page_opts, :storage_ids, Keyword.get(opts, :storage_ids))
+
+    with {:ok, limit} <- clamp_page_limit(raw_limit),
+         {:ok, storage_ids} <- normalize_storage_ids(storage_ids_raw) do
+      keyset_opts =
+        [limit: limit, count: false]
+        |> maybe_put_cursor(:after, Keyword.get(page_opts, :after))
+        |> maybe_put_cursor(:before, Keyword.get(page_opts, :before))
+
+      {:ok, keyset_opts, storage_ids}
+    end
+  end
+
+  defp normalize_operator_page_opts(_, _), do: {:error, :invalid_page_options}
+
+  defp clamp_page_limit(limit) when is_integer(limit) and limit >= 1 do
+    {:ok, min(limit, @operator_page_limit)}
+  end
+
+  defp clamp_page_limit(_), do: {:error, :invalid_page_limit}
+
+  defp normalize_storage_ids(nil), do: {:ok, nil}
+
+  defp normalize_storage_ids(ids) when is_list(ids) do
+    ids
+    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
+      case Ecto.UUID.cast(to_string(id)) do
+        {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+        :error -> {:halt, {:error, :invalid_storage_id}}
+      end
+    end)
+    |> case do
+      {:ok, uuids} -> {:ok, uuids |> Enum.reverse() |> Enum.uniq()}
+      error -> error
+    end
+  end
+
+  defp normalize_storage_ids(_), do: {:error, :invalid_storage_id}
+
+  defp maybe_put_cursor(opts, _key, value) when value in [nil, ""], do: opts
+  defp maybe_put_cursor(opts, key, value) when is_binary(value), do: Keyword.put(opts, key, value)
 
   defp with_upload_deadline(lease, fun, deadline, opts) do
     transaction(fn ->

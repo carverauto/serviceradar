@@ -8,6 +8,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
 
   require Logger
 
+  @recording_settings_permissions [
+    "settings.recording.view",
+    "settings.recording.manage",
+    "settings.recording.operate"
+  ]
+
   @impl true
   def mount(%{"camera_source_id" => camera_source_id}, _session, socket) do
     socket =
@@ -47,6 +53,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
             navigate={~p"/cameras/#{@camera_source_id}/recordings"}
             class="sr-ops-button"
           >Recordings</.link>
+          <.link
+            :if={can_view_recording_settings?(@current_scope)}
+            id="camera-recording-settings-link"
+            navigate={~p"/settings/recording"}
+            class="sr-ops-button"
+          >Recording &amp; storage</.link>
           <.link href={~p"/cameras"} class="sr-ops-button">Back to Multiview</.link>
         </header>
 
@@ -166,5 +178,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
       _ ->
         :ok
     end
+  end
+
+  defp can_view_recording_settings?(scope) do
+    RBAC.can_any?(scope, @recording_settings_permissions)
   end
 end
