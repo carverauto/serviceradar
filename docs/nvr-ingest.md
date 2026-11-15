@@ -62,6 +62,10 @@ sending media over NATS/JetStream or ERTS distribution:
 1. `once_source/4` reuses an active shared relay or opens one via
    `RelaySessionManager.request_open/3`, then routes execution to the `core-elx`
    node hosting `CameraRelay.Pipeline` (`ServiceRadar.Camera.RelayHosts`).
+   It refuses with `:recording_disabled` before opening anything when the
+   recording supervisor is off. If capture fails before streaming starts, it
+   closes the relay only when this call opened it; a reused relay, including
+   one a live viewer is still opening, is left untouched.
 2. `NVRTargetConfig` resolves installed workload mTLS/token credentials and the
    target replica's provisioned `storage_id` from
    `SERVICERADAR_NVR_CLIENT_CONFIG_FILE` and
@@ -78,7 +82,8 @@ sending media over NATS/JetStream or ERTS distribution:
    marker, never retries or fails over to another replica, and leaves the
    reserved block and epoch intact for inspection or recovery. The recorder
    lease keeps renewing until the NVR answers. A capture `timeout_ms` outside
-   1 through 300000 is refused before any recorder claim is taken.
+   1 through 300000 is refused before any recorder claim is taken. A verified
+   receipt is returned even if worker cleanup outlasts the drain window.
 
 ## Finite stream contract
 
