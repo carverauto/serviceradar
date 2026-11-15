@@ -16,8 +16,8 @@ import sys
 import tempfile
 
 REGISTRY = "registry.carverauto.dev"
-TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:d857b8c8a9e4b383fe6deebbe5ebdb21edff519eb76ff86d5fd55f13c7b4c18d"
-TOOL_SHA = "69652191ba7263cc01a5d228c5c4e4259f5f3ed9fa04811e0a37bd67aa886f23"
+TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:79b233b262f95c9b6562f6083f5cfe87bb194238b0adc8212f021f6b3882e409"
+TOOL_SHA = "619999e47449d5371607ad759c04c9db446241872756f172da4c8c4474bc4e35"
 ROOT = Path(os.environ.get("SERVICERADAR_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", Path(__file__).resolve().parents[2])))
 
 
