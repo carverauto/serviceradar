@@ -99,11 +99,13 @@
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
 {{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayApi := default (dict) .Values.gatewayApi -}}
-{{- $webHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "serviceradar-web-ng" -}}
+{{- $externalWebHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "" -}}
+{{- $webHost := coalesce $externalWebHost (printf "serviceradar-web-ng.%s.svc.cluster.local" .Release.Namespace) -}}
 {{- if $webNgPublicUrl -}}
 {{- $parsedPublicUrl := urlParse $webNgPublicUrl -}}
 {{- $publicUrlHost := default "" (get $parsedPublicUrl "host") -}}
 {{- $webHost = trimSuffix ":443" $publicUrlHost -}}
+{{- $externalWebHost = $webHost -}}
 {{- end -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
@@ -173,7 +175,7 @@
 {{- if hasKey $sshCaSignerWorkloads "web" -}}{{- $sshCaSignerWeb = get $sshCaSignerWorkloads "web" -}}{{- end -}}
 {{- $sshCaSignerWebEnabled := and $sshCaSignerEnabled $sshCaSignerWeb -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
-{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcHost := default (printf "serviceradar-datasvc.%s.svc.cluster.local" .Release.Namespace) $datasvc.host -}}
 {{- $datasvcPort := default 50057 $datasvc.port -}}
 {{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
 {{- $datasvcSecModeLower := lower $datasvcSecMode -}}
@@ -199,12 +201,12 @@
 {{- $gatewayAddress := "" -}}
 {{- if $webNg.gatewayAddress -}}
 {{- $gatewayAddress = $webNg.gatewayAddress -}}
-{{- else if $webHost -}}
-{{- $gatewayAddress = printf "%s:%v" $webHost $gatewayServicePort -}}
+{{- else if $externalWebHost -}}
+{{- $gatewayAddress = printf "%s:%v" $externalWebHost $gatewayServicePort -}}
 {{- else -}}
-{{- $gatewayAddress = printf "%s:%v" $gatewayServiceName $gatewayServicePort -}}
+{{- $gatewayAddress = printf "%s.%s.svc.cluster.local:%v" $gatewayServiceName .Release.Namespace $gatewayServicePort -}}
 {{- end -}}
-{{- $natsUrl := default "tls://serviceradar-nats:4222" $webNg.natsUrl -}}
+{{- $natsUrl := default (printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $webNg.natsUrl -}}
 {{- $coreAddress := default (include "serviceradar.coreAddress" .) $webNg.coreAddress -}}
 {{- $gatewayClusterNodeBasename := default "serviceradar_agent_gateway" $gatewayVals.kubernetesNodeBasename -}}
 {{- $webClusterNodeBasename := default "serviceradar_web_ng" $webNg.kubernetesNodeBasename -}}
@@ -255,6 +257,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-web-ng") | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
@@ -754,7 +757,7 @@ spec:
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ .endpoint | quote }}
+          value: {{ include "serviceradar.otelExporterEndpoint" $ | quote }}
         - name: OTEL_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
         - name: OTEL_CERT_NAME

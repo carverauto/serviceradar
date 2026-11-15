@@ -192,7 +192,7 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 - name: CONFIG_SOURCE
   value: "file"
 - name: KV_ADDRESS
-  value: "{{ default "serviceradar-datasvc:50057" $vals.kv.address }}"
+  value: {{ default (printf "serviceradar-datasvc.%s.svc.cluster.local:50057" .Release.Namespace) $vals.kv.address | quote }}
 - name: KV_SEC_MODE
   value: "{{ default "mtls" $vals.kv.secMode }}"
 - name: KV_TRUST_DOMAIN
@@ -1436,8 +1436,10 @@ will see, including ready_state_path/rehome_state_path.
 {{- $readyPath := .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" -}}
 {{- $cfg := deepCopy (default (dict) .Values.flowCollector.config) -}}
 {{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
+{{- $natsUrl := index $cfg "nats_url" | default (printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) -}}
 {{- $_ := set $cfg "ready_state_path" $readyPath -}}
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
+{{- $_ := set $cfg "nats_url" $natsUrl -}}
 {{- /* The flows reservation is the one the JetStream budget counted: the explicit
      config value when set, otherwise the sizing profile's. */ -}}
 {{- $flows := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.flows -}}
@@ -1750,4 +1752,24 @@ render silently and leave the operator believing the keys still mean something.
 {{- if hasKey .Values "edgeRecords" -}}
 {{- fail "edgeRecords was removed: the durable edge-record pipeline is always on and core derives its contract registry. Delete the edgeRecords block from your values. See docs/docs/data-pipeline.md, \"Upgrading from the static registry\"." -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Bounded pod DNS resolver options applied unconditionally across chart workloads.
+*/}}
+{{- define "serviceradar.podDnsConfig" -}}
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+    - name: timeout
+      value: "2"
+    - name: attempts
+      value: "2"
+    - name: single-request-reopen
+{{- end -}}
+
+{{- define "serviceradar.otelExporterEndpoint" -}}
+{{- $otel := default (dict) .Values.otelExporter -}}
+{{- default (printf "https://serviceradar-log-collector.%s.svc.cluster.local:4317" .Release.Namespace) $otel.endpoint -}}
 {{- end -}}

@@ -136,6 +136,7 @@ spec:
       annotations:
         checksum/config: {{ printf "%s%s" (toJson $turn) (toJson $ice) | sha256sum }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true

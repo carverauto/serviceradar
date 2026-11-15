@@ -177,6 +177,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
@@ -201,7 +202,9 @@ spec:
         - name: metrics
           containerPort: 9090
         env:
+        {{- include "serviceradar.validateNvrIngest" . -}}
         {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
+        {{- include "serviceradar.nvrClientEnv" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed
@@ -702,7 +705,7 @@ spec:
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
         {{- end }}
         - name: DATASVC_HOST
-          value: "serviceradar-datasvc"
+          value: {{ printf "serviceradar-datasvc.%s.svc.cluster.local" .Release.Namespace | quote }}
         - name: DATASVC_PORT
           value: "50057"
         - name: DATASVC_SEC_MODE
@@ -716,7 +719,7 @@ spec:
         - name: NATS_ENABLED
           value: "true"
         - name: NATS_URL
-          value: "tls://serviceradar-nats:4222"
+          value: {{ printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace | quote }}
         - name: NATS_TLS
           value: "true"
         - name: NATS_SERVER_NAME
@@ -751,20 +754,6 @@ spec:
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
-        {{- /* Authoritative primary volume capacity for the cold-tier pressure
-               monitor. Without it usage_pct is nil and the 70/85/95% disk
-               alerts — the safety net that stops a stalled exporter from
-               filling the primary — can never fire (review F34). Rendered
-               whenever CNPG is chart-managed so the value is always present. */}}
-        {{- /* Skip when the caller already supplies it through core.extraEnv:
-               two entries with the same name make the rendered Deployment
-               invalid, and a strategic-merge upgrade fails with "The order in
-               patch list ... doesn't match $setElementOrder list". Same guard
-               as SERVICERADAR_LOCAL_MAILER above. */}}
-        {{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
-        - name: SERVICERADAR_CNPG_STORAGE_SIZE
-          value: {{ default "100Gi" $cnpg.storageSize | quote }}
-        {{- end }}
         - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
           value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
         - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
@@ -963,7 +952,7 @@ spec:
         {{- with .Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ .endpoint | quote }}
+          value: {{ include "serviceradar.otelExporterEndpoint" $ | quote }}
         - name: OTEL_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
         - name: OTEL_CERT_NAME
@@ -990,6 +979,7 @@ spec:
         {{- end }}
         volumeMounts:
         {{- include "serviceradar.nvrRecoveryMount" . | nindent 8 }}
+        {{- include "serviceradar.nvrClientMounts" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: edge-issuer
           mountPath: /etc/serviceradar/edge-issuer
@@ -1074,6 +1064,7 @@ spec:
           failureThreshold: 3
       volumes:
       {{- include "serviceradar.nvrRecoveryVolume" . | nindent 6 }}
+      {{- include "serviceradar.nvrClientVolumes" . | nindent 6 }}
       {{- if $edgeIssuerSeedMounted }}
       - name: edge-issuer
         secret:

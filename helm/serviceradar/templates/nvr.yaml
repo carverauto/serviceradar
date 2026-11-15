@@ -15,7 +15,11 @@
 {{- end -}}
 {{- if not $nvr.recovery.existingConfigMap -}}
 {{- fail "nvr.recovery.existingConfigMap must name operator-owned recovery state" -}}
-{{- end }}
+{{- end -}}
+{{- include "serviceradar.validateNvrIngest" . -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestEnabled := default false $ingest.enabled -}}
+{{- $ingestPort := int (default 8443 $ingest.port) }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,6 +32,11 @@ spec:
     - name: health
       port: 8095
       targetPort: health
+    {{- if $ingestEnabled }}
+    - name: ingest-https
+      port: {{ $ingestPort }}
+      targetPort: ingest-https
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -51,6 +60,7 @@ spec:
       labels:
         app: serviceradar-nvr
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
@@ -78,6 +88,10 @@ spec:
           ports:
             - name: health
               containerPort: 8095
+            {{- if $ingestEnabled }}
+            - name: ingest-https
+              containerPort: {{ $ingestPort }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -103,6 +117,12 @@ spec:
               value: {{ printf "%d" (int64 $nvr.maxSpoolBytes) | quote }}
             - name: SERVICERADAR_NVR_RESERVE_BYTES
               value: {{ printf "%d" (int64 $nvr.reserveBytes) | quote }}
+            {{- if $ingestEnabled }}
+            - name: SERVICERADAR_NVR_INGEST_CONFIG_FILE
+              value: /etc/serviceradar/nvr-ingest/config/config.json
+            - name: SERVICERADAR_NVR_INGEST_TOKEN_FILE
+              value: /etc/serviceradar/nvr-ingest/auth/ingest-token
+            {{- end }}
           resources: {{ toYaml $nvr.resources | nindent 12 }}
           startupProbe:
             httpGet: {path: /healthz, port: health}
@@ -118,11 +138,44 @@ spec:
             - name: tmp
               mountPath: /tmp
             {{- include "serviceradar.nvrRecoveryMount" . | nindent 12 }}
+            {{- if $ingestEnabled }}
+            - name: ingest-config
+              mountPath: /etc/serviceradar/nvr-ingest/config
+              readOnly: true
+            - name: ingest-auth
+              mountPath: /etc/serviceradar/nvr-ingest/auth
+              readOnly: true
+            - name: ingest-tls
+              mountPath: /etc/serviceradar/nvr-ingest/tls
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "serviceradar.nvrRecoveryVolume" . | nindent 8 }}
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if $ingestEnabled }}
+        - name: ingest-config
+          secret:
+            secretName: {{ $ingest.configSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: config.json, path: config.json}
+        - name: ingest-auth
+          secret:
+            secretName: {{ $ingest.tokenSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: ingest-token, path: ingest-token}
+        - name: ingest-tls
+          secret:
+            secretName: {{ $ingest.tlsSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+              - {key: ca.crt, path: ca.crt}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: recording
@@ -132,4 +185,34 @@ spec:
         resources:
           requests:
             storage: {{ $storage.size | quote }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-nvr
+  policyTypes: [Ingress, Egress]
+  {{- if $ingestEnabled }}
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-core
+      ports:
+        - protocol: TCP
+          port: {{ $ingestPort }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
 {{- end }}

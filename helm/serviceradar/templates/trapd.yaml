@@ -25,6 +25,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-trapd") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "trapd")) }}
@@ -58,7 +59,7 @@ spec:
         - name: WAIT_FOR_NATS
           value: "true"
         - name: NATS_HOST
-          value: "serviceradar-nats"
+          value: {{ printf "serviceradar-nats.%s.svc.cluster.local" .Release.Namespace | quote }}
         - name: NATS_PORT
           value: "4222"
         {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.trapd)) | nindent 8 }}

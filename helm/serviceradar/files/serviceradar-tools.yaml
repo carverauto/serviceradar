@@ -16,6 +16,7 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -70,21 +71,21 @@ spec:
           fi
 
           # ServiceRadar debugging aliases
-          alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core 8090 2>&1 || echo "Core: Not available"'
+          alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core.{{ .Release.Namespace }}.svc.cluster.local 8090 2>&1 || echo "Core: Not available"'
           alias nats-info='natsc server info'
           alias nats-streams='echo "=== NATS Streams ==="; natsc stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
           alias nats-events='echo "=== Events Stream Info ==="; natsc stream info events 2>/dev/null || echo "Events stream not found"'
           alias nats-kv='echo "=== KV Stores ==="; natsc kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
           alias nats-datasvc='echo "=== Data Service ==="; natsc obj ls 2>/dev/null || echo "object stores not available - check NATS connection and JetStream"'
           alias nats-js-status='echo "=== NATS JetStream Status ==="; natsc server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
-          alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052'
-          alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051'
-          alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd:50043'
-          alias nc-nats='nc -zv serviceradar-nats 4222'
-          alias ping-nats='ping serviceradar-nats'
+          alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core.{{ .Release.Namespace }}.svc.cluster.local:50052'
+          alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local:50051'
+          alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local:50043'
+          alias nc-nats='nc -zv serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local 4222'
+          alias ping-nats='ping serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local'
           alias sr-devices='serviceradar-cli devices list'
-          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-datasvc:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-datasvc:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
-          alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/tools.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
+          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core.{{ .Release.Namespace }}.svc.cluster.local:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core.{{ .Release.Namespace }}.svc.cluster.local:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-datasvc.{{ .Release.Namespace }}.svc.cluster.local:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-datasvc.{{ .Release.Namespace }}.svc.cluster.local:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
+          alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/tools.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
           alias nats-skip-verify='echo "=== NOTE: This NATS CLI version does not support --tls-skip-verify ==="; echo "To debug TLS issues, check the NATS server certificate SAN entries"; echo "The server cert must include: serviceradar-nats"'
           
           echo "✓ ServiceRadar debugging environment configured"
@@ -123,7 +124,7 @@ spec:
         - name: XDG_CONFIG_HOME
           value: /shared/home/.config
         - name: NATS_URL
-          value: "tls://serviceradar-nats:4222"
+          value: "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
         - name: NATS_CA
           value: "/etc/serviceradar/certs/root.pem"
         - name: NATS_CERT

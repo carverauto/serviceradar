@@ -18,6 +18,7 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       restartPolicy: Never
       serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}
       containers:

@@ -91,6 +91,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-trivy-sidecar") | nindent 6 }}
       serviceAccountName: serviceradar-trivy-sidecar
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
@@ -104,7 +105,7 @@ spec:
             - name: CLUSTER_ID
               value: {{ default .Release.Namespace $trivy.clusterId | quote }}
             - name: NATS_HOSTPORT
-              value: {{ default "tls://serviceradar-nats:4222" $nats.hostPort | quote }}
+              value: {{ default (printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $nats.hostPort | quote }}
             - name: NATS_SUBJECT_PREFIX
               value: {{ default "trivy.report" $nats.subjectPrefix | quote }}
             - name: NATS_STREAM

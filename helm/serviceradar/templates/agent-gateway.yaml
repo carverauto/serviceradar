@@ -16,7 +16,7 @@
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
 {{- $datasvc := default (dict) $gateway.datasvc -}}
-{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcHost := default (printf "serviceradar-datasvc.%s.svc.cluster.local" .Release.Namespace) $datasvc.host -}}
 {{- $datasvcPort := default 50057 $datasvc.port -}}
 {{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
 {{- $datasvcSecModeLower := lower $datasvcSecMode -}}
@@ -54,6 +54,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-agent-gateway") | nindent 6 }}
       serviceAccountName: {{ $gatewaySA }}
@@ -105,7 +106,7 @@ spec:
         {{- /* The edge-record publisher always runs, so the gateway always connects to
              NATS, whatever the status-path publishers are set to. */}}
         - name: AGENT_GATEWAY_NATS_URL
-          value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
+          value: {{ default (printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $gateway.natsUrl | quote }}
         - name: AGENT_GATEWAY_NATS_TLS
           value: {{ include "serviceradar.boolDefaultTrue" (list $gateway "natsTls") | eq "true" | quote }}
         - name: AGENT_GATEWAY_NATS_SERVER_NAME
@@ -190,7 +191,7 @@ spec:
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ .endpoint | quote }}
+          value: {{ include "serviceradar.otelExporterEndpoint" $ | quote }}
         - name: OTEL_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
         - name: OTEL_CERT_NAME

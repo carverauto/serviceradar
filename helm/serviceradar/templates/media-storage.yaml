@@ -14,6 +14,22 @@
 {{- if not $egress.cidrs -}}
 {{- fail "mediaStorage.providerEgress.cidrs must explicitly allow the provider or CONNECT proxy" -}}
 {{- end -}}
+{{- $seccomp := default (dict) $mediaStorage.seccompProfile -}}
+{{- $seccompType := default "RuntimeDefault" $seccomp.type -}}
+{{- $seccompPath := default "" $seccomp.localhostProfile -}}
+{{- if not (has $seccompType (list "RuntimeDefault" "Localhost")) -}}
+{{- fail "mediaStorage.seccompProfile.type must be RuntimeDefault or Localhost" -}}
+{{- end -}}
+{{- if eq $seccompType "Localhost" -}}
+{{- if not (kindIs "string" $seccompPath) -}}
+{{- fail "mediaStorage.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$" $seccompPath) -}}
+{{- fail "mediaStorage.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments" -}}
+{{- end -}}
+{{- else if $seccompPath -}}
+{{- fail "mediaStorage.seccompProfile.localhostProfile requires type Localhost" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,6 +56,7 @@ spec:
       annotations:
         serviceradar.io/init-storage-revision: {{ $revision | quote }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
@@ -48,7 +65,10 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
         seccompProfile:
-          type: RuntimeDefault
+          type: {{ $seccompType }}
+          {{- if eq $seccompType "Localhost" }}
+          localhostProfile: {{ $seccompPath | quote }}
+          {{- end }}
       {{- with $mediaStorage.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
