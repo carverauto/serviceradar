@@ -1144,17 +1144,30 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
           actor: ctx.actor,
           config_file: config_file,
           token_file: token_file,
-          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 6_000}
+          timeout_ms: 8_000,
+          bounds: %{max_frames: 20, max_bytes: 8_388_608, max_duration_ms: 6_000}
         )
       end)
 
     worker = await_nvr_worker_attached(owner)
     worker_ref = Process.monitor(worker)
-    Enum.each(Enum.take(ctx.media.units, 10), &send(ctx.pipeline, {:media_chunk, &1}))
+    Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive {:nvr0_closed_mid_stream, 1}, 5_000
+
+    # The client reads the socket passively, so it only observes the drop when it
+    # next writes; keep feeding units until the worker exits.
+    Enum.reduce_while(Enum.slice(ctx.media.units, 5, 15), :ok, fn unit, :ok ->
+      if Process.alive?(worker) do
+        send(ctx.pipeline, {:media_chunk, unit})
+        Process.sleep(20)
+        {:cont, :ok}
+      else
+        {:halt, :ok}
+      end
+    end)
 
     assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
-    assert_receive {:nvr0_closed_mid_stream, 1}, 2_000
     refute_receive {:nvr0_closed_mid_stream, _}, 200
     refute_receive {:unexpected_nvr1_failover, _}, 200
 
@@ -1238,12 +1251,17 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
           actor: ctx.actor,
           config_file: nvr.client_config,
           token_file: nvr.token_file,
-          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 6_000}
+          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 30_000}
         )
       end)
 
-    _worker = await_nvr_worker_attached(owner)
-    Enum.each(Enum.take(ctx.media.units, 12), &send(ctx.pipeline, {:media_chunk, &1}))
+    worker = await_nvr_worker_attached(owner)
+
+    Enum.each(Enum.take(ctx.media.units, 8), fn unit ->
+      send(ctx.pipeline, {:media_chunk, unit})
+      Process.sleep(50)
+    end)
+
     _ = :sys.get_state(ctx.pipeline)
 
     assert {:ok, _control} =
@@ -1253,10 +1271,22 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                actor: ctx.actor
              )
 
+    # The worker observes the stop on its next lease renewal. Keep the NVR ingest
+    # read alive meanwhile, staying inside the first GOP (sequences 9..28).
+    Enum.reduce_while(Enum.slice(ctx.media.units, 8, 20), :ok, fn unit, :ok ->
+      if Process.alive?(worker) and not :sys.get_state(worker).detached? do
+        send(ctx.pipeline, {:media_chunk, unit})
+        Process.sleep(350)
+        {:cont, :ok}
+      else
+        {:halt, :ok}
+      end
+    end)
+
     assert {:ok, receipt} = Task.await(task, 20_000)
     assert receipt.status == :sealed_local
     assert receipt.storage_id == nvr.storage_id
-    assert receipt.frames_sent == 12
+    assert receipt.frames_sent in 8..28
 
     claim = recorder_claim(ctx)
     assert claim.state == :released
@@ -1286,7 +1316,16 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
   test "NVRCapture keeps renewing the recorder fence after a bound while the NVR seal response is outstanding",
        ctx do
-    owner = owner(ctx, 30_000)
+    # The recorder lease is capped by the relay and owner leases; give both room
+    # beyond the worker's 30s lease so a renewal can advance it.
+    {:ok, _relay} =
+      RelaySession.renew_lease(
+        ctx.relay,
+        %{lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 3)},
+        actor: ctx.actor
+      )
+
+    owner = owner(ctx, 120_000)
     abs_tmp = Path.expand(ctx.tmp_dir)
     certs = write_nvr_mtls_certs(Path.join(abs_tmp, "holding-certs"))
     port = start_holding_tls_peer(certs, self())
