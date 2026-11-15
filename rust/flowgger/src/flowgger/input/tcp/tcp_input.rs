@@ -5,7 +5,7 @@ use crate::flowgger::encoder::Encoder;
 #[cfg(feature = "capnp-recompile")]
 use crate::flowgger::splitter::CapnpSplitter;
 use crate::flowgger::splitter::{LineSplitter, NulSplitter, Splitter, SyslenSplitter};
-use std::io::BufReader;
+use std::io::{BufReader, ErrorKind};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::SyncSender;
 use std::thread;
@@ -35,8 +35,21 @@ impl Input for TcpInput {
         decoder: Box<dyn Decoder + Send>,
         encoder: Box<dyn Encoder + Send>,
     ) {
-        let listener = TcpListener::bind(&self.listen as &str).unwrap();
-        for client in listener.incoming().flatten() {
+        let listener = TcpListener::bind(&self.listen as &str)
+            .unwrap_or_else(|err| panic!("Unable to listen to {}: {err}", self.listen));
+        for client in listener.incoming() {
+            let client = match client {
+                Ok(client) => client,
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::Interrupted | ErrorKind::ConnectionAborted
+                    ) =>
+                {
+                    continue;
+                }
+                Err(err) => panic!("Unable to accept TCP connection on {}: {err}", self.listen),
+            };
             let _ = client.set_read_timeout(self.timeout);
             let tx = tx.clone();
             let tcp_config = self.tcp_config.clone();
