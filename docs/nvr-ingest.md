@@ -210,7 +210,12 @@ block (404 `block_not_found`, 409 `block_not_sealed`), retained receipt, then
 object size (422 `block_too_large` above 16 MiB). A retained receipt that
 re-encodes byte-for-byte from this request and the verified block is returned
 with 200 and no provider call. A receipt for another destination is refused with
-409 `archive_receipt_conflict` and never replaced.
+409 `archive_receipt_conflict` and never replaced. `block_not_sealed` covers an
+open journal and a block whose bytes fail their identity, digest or length
+check. A local read or permission error on the block files or on
+`archive-receipt.json`, or a receipt file that is not a private regular file, is
+503 `archive_unavailable` and is logged once with `stage=block` or
+`stage=receipt` and the error class, so the same request can be retried.
 
 Objects are written under `<object_prefix>/<storage_id>/<block_id>/`: `init.mp4`
 (the initialization bytes), `media.m4s` (the complete sealed media file) and

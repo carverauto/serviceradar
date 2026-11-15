@@ -224,7 +224,7 @@ defmodule ServiceRadarNVR.Archive do
       case retained do
         {:ok, bytes} -> retained_receipt(bytes, request, objects)
         {:error, :enoent} -> copy(client, request, objects, deadline)
-        {:error, _} -> {:error, :archive_receipt_conflict}
+        {:error, reason} -> {:error, {:archive_local, :receipt, class(reason)}}
       end
     end
   end
@@ -264,7 +264,19 @@ defmodule ServiceRadarNVR.Archive do
               :nvr_storage_not_configured
             ], do: :archive_unavailable
 
-  defp block_error(_reason), do: :block_not_sealed
+  defp block_error(reason)
+       when reason in [
+              :unsealed_block,
+              :empty_block,
+              :block_identity_mismatch,
+              :uncommitted_block_bytes,
+              :block_digest_mismatch,
+              :journal_digest_mismatch,
+              :media_digest_mismatch,
+              :truncated_media
+            ], do: :block_not_sealed
+
+  defp block_error(reason), do: {:archive_local, :block, class(reason)}
 
   # A retained receipt is returned only when it re-encodes byte-for-byte from
   # this request's destination and the block just verified.

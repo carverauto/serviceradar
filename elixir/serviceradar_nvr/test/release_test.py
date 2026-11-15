@@ -1946,7 +1946,7 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
         self.assertNotIn(self.secret.encode(), output)
 
     def test_archive_refuses_invalid_unknown_unsealed_and_concurrent_requests(self):
-        _proc, block_id = self.sealed_network_block()
+        proc, block_id = self.sealed_network_block()
         block = self.spool / block_id
         store, port = self.object_store()
         document = self.archive_document(port)
@@ -1980,6 +1980,20 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
         self.assertEqual(store["requests"], [])
         self.assertFalse((block / "archive-receipt.json").exists())
 
+        # A receipt file the NVR cannot trust is a local fault, retried as 503 and
+        # left in place; a readable receipt for another request is a conflict.
+        receipt = block / "archive-receipt.json"
+        unrelated = canonical({"objects": [], "verified_at_ms": 1})
+        receipt.write_bytes(unrelated)
+        receipt.chmod(0o644)
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_unavailable"}'))
+        self.assertEqual(receipt.read_bytes(), unrelated)
+        receipt.chmod(0o600)
+        self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"archive_receipt_conflict"}'))
+        self.assertEqual(receipt.read_bytes(), unrelated)
+        self.assertEqual(store["requests"], [])
+        receipt.unlink()
+
         # One archive runs per NVR; a second request while it is in flight is refused.
         store["hold"] = threading.Event()
         first = []
@@ -1990,6 +2004,11 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
         store["hold"].set()
         worker.join(90)
         self.assertEqual(first[0][0], 200, first)
+
+        proc.send_signal(signal.SIGTERM)
+        output = proc.communicate(timeout=15)[0]
+        self.assertIn(b"NVR archive failed: stage=receipt outcome=invalid_archive_receipt", output)
+        self.assertNotIn(self.secret.encode(), output)
 
 
 def load_tests(loader, _tests, _pattern):
