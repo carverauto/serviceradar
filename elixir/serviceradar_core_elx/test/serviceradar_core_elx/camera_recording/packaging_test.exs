@@ -28,17 +28,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     ordered_high =
       SyntheticCameraMedia.generate(directory, "ordered-high", ["-profile:v", "high", "-bf", "0", "-g", "30"])
 
+    # x264 codes an interlaced stream with picture order count type 0, so this
+    # one rules reordering out only through its VUI bitstream restriction.
+    restricted_args = ["-profile:v", "main", "-bf", "0", "-g", "30", "-flags", "+ildct+ilme"]
+
+    restricted_main =
+      SyntheticCameraMedia.generate(directory, "restricted-main", restricted_args, "tff=1:aud=1:repeat-headers=1")
+
     %{
       baseline: baseline,
       main: main,
       long_gop: long_gop,
       changed: changed,
-      ordered: [{"avc1.4d", ordered_main}, {"avc1.64", ordered_high}]
+      ordered: [{"avc1.4d", ordered_main}, {"avc1.64", ordered_high}, {"avc1.4d", restricted_main}]
     }
   end
 
   @tag :tmp_dir
   test "Main and High streams that rule out reordering record and decode unchanged", ctx do
+    assert [2, 2, 0] = Enum.map(ctx.ordered, fn {_, media} -> sps_field(media.path, "pic_order_cnt_type") end)
+    assert [_, _, {_, restricted}] = ctx.ordered
+    assert 0 = sps_field(restricted.path, "max_num_reorder_frames")
+
     for {{codec_prefix, media}, index} <- Enum.with_index(ctx.ordered) do
       {:ok, pipeline} = Packaging.start(clock: @clock)
       on_exit(fn -> Packaging.stop(pipeline) end)
@@ -417,6 +428,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       logical_spool_bytes: sizes |> Map.values() |> Enum.sum(),
       descriptor_bytes: byte_size(descriptor_bytes)
     }
+  end
+
+  defp sps_field(path, field) do
+    args = ["-nostdin", "-i", path, "-c", "copy", "-bsf:v", "trace_headers", "-f", "null", "-"]
+    assert {output, 0} = System.cmd(SyntheticCameraMedia.tool("ffmpeg"), args, stderr_to_stdout: true)
+    assert [_, value] = Regex.run(~r/\s#{field}\s+[01]+ = (\d+)/, output)
+    String.to_integer(value)
   end
 
   defp probe(path) do
