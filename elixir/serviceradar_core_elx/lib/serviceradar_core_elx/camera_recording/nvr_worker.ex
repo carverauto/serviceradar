@@ -314,6 +314,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp renewal_failed(%{detached?: true} = state, :recording_stopped), do: {:noreply, state}
   defp renewal_failed(state, :recording_stopped), do: handle_administrative_stop(state)
+  defp renewal_failed(%{sender_pid: nil} = state, :deadline_imminent), do: stop_before_stream(state, :capture_timeout)
   defp renewal_failed(state, :deadline_imminent), do: {:noreply, state}
   defp renewal_failed(state, reason), do: abort_stream(state, reason)
 
@@ -321,7 +322,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp ensure_sender_started(state) do
     case state.capture.deadline - now() do
-      remaining_ms when remaining_ms <= 0 -> {:error, :capture_timeout}
+      remaining_ms when remaining_ms < @min_call_timeout_ms -> {:error, :capture_timeout}
       remaining_ms when remaining_ms > @max_capture_timeout_ms -> {:error, :invalid_capture_timeout}
       remaining_ms -> {:ok, spawn_sender(state, remaining_ms)}
     end
