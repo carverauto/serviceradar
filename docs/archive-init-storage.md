@@ -95,7 +95,8 @@ the network restrictions to take effect.
 Media storage uses `RuntimeDefault` seccomp unless explicitly configured with a
 node-installed `Localhost` profile. For io_uring-based clients, follow the
 [media-storage seccomp runbook](media-storage-seccomp.md) before changing
-`mediaStorage.seccompProfile`. The profile selection does not enable recording
+`mediaStorage.seccompProfile`; it covers both node prerequisites, the profile and
+the locked-memory limit. The profile selection does not enable recording
 or change the workload's non-root identity and dropped capabilities.
 
 Bump both relevant `revision` values after changing mounted configuration,
