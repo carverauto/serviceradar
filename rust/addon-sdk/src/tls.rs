@@ -66,10 +66,14 @@ use rustls::{DigitallySignedStruct, DistinguishedName as RustlsDn, ServerConfig,
 /// P-256 and P-384 but not P-521, so with `ring` alone the handshake fails with
 /// `tls: certificate required` -- the client cert is offered and rejected.
 ///
-/// `aws-lc-rs` does implement P-521, but adopting it here would reintroduce
-/// ~2.1M lines of vendored BoringSSL to every crate in the workspace, because
-/// crates_vendor resolves the workspace as one feature universe. bad32bfc5e
-/// removed it deliberately as the most host-sensitive crate in the graph.
+/// `aws-lc-rs` also implements P-521. bad32bfc5e removed AWS-LC from the
+/// workspace as its most host-sensitive crate; the Longshore object-storage NIF
+/// brought it back, and because crates_vendor resolves the workspace as one
+/// feature universe it is present in this crate's dependency graph as well.
+/// This SDK still keeps the explicit `ring` provider and adds only this
+/// verifier: switching providers would replace the handshake's whole algorithm
+/// set to gain one curve, and this verifier keeps the SDK independent of
+/// whether the workspace carries AWS-LC.
 ///
 /// The trust decision does NOT rest on this code. `PinnedClientCertVerifier`
 /// accepts a client certificate only when its DER is byte-identical to the

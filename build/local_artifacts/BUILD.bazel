@@ -2,6 +2,18 @@ load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 
 package(default_visibility = ["//visibility:public"])
 
+write_source_files(
+    name = "longshore_qualification",
+    testonly = True,
+    check_that_out_file_exists = False,
+    diff_test = False,
+    files = {
+        "artifacts/longshore-qualification.tar.gz": "//elixir/serviceradar_object_storage:qualification_release",
+        "artifacts/longshore-round-trip.exs": "//elixir/serviceradar_object_storage:qualification/round_trip.exs",
+    },
+    tags = ["manual"],
+)
+
 # Host registry clients need ordinary files when a workstation builds on RBE.
 # Export declared artifacts through runfiles instead of reading Bazel's cache.
 [

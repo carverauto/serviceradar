@@ -36,6 +36,14 @@ at least 562.5 MB/s effective upload goodput before further safety margin.
 
 ## Qualification ladder
 
+The [Longshore benchmark protocol](../add-longshore-object-storage/benchmarks.md)
+adds a preliminary same-host native/Rustler comparison and stage-level recording
+measurements. Use it to identify wrapper, disk, provider and publication limits
+before this ladder. Preserve checksum/TLS/verification parity and report failed
+or inconclusive gates explicitly. Neither this preliminary comparison nor the
+selected-camera dogfood replaces the concurrent-stream and soak requirements
+below.
+
 Use synthetic encoded sources and independent expected manifests at 100, 1,000
 and 10,000 concurrent streams. These are qualification targets, not supported
 limits. Include different profiles, keyframe cadence, audio, variable-bitrate

@@ -35,8 +35,8 @@ zeroize = { version = "1", default-features = false, features = ["alloc"] }
 [dev-dependencies]
 base64 = "0.22"
 
-# Crate build configuration for this hub, moved out of //MODULE.bazel. See the same
-# table in the root Cargo.toml for why it lives here.
+# Crate build configuration for this hub, moved out of //MODULE.bazel. The root
+# workspace now builds AWS-LC for Longshore via MODULE.bazel annotations; this hub does not.
 
 # aws-lc-sys is never compiled: both rustls consumers here -- the probe and sspi -- pin
 # ring/std/tls12 with default-features off, so aws-lc-rs is never enabled. rules_rs warns

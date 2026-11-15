@@ -1,0 +1,59 @@
+# Overlay values.yaml for a SEPARATE Helm release. Never apply this
+# overlay to the default executor or workflow releases.
+# Only explicitly routed qualification actions use this pool.
+poolName: longshore-qualification
+replicas: 1
+
+image:
+  # This release exposes executor.oci.seccomp_additional_syscalls; v2.290.0 does not.
+  tag: enterprise-v2.325.0@sha256:03065694adedf507198e874562a17255dfbdda37f4f32497291586ce9e1c77b2
+
+autoscaler:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "2"
+    memory: "4Gi"
+    ephemeral-storage: "24Gi"
+  limits:
+    cpu: "4"
+    memory: "8Gi"
+    ephemeral-storage: "32Gi"
+
+# Remote test actions do not need the workflow runners' host Bazel cache mount.
+extraInitContainers: []
+extraVolumes:
+  - name: cache-volume
+    emptyDir:
+      sizeLimit: 28Gi
+  - name: dockerhub-auth
+    secret:
+      secretName: dockerhub-auth
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+  - name: dockerhub-auth
+    mountPath: /root/.docker
+    readOnly: true
+
+terminationGracePeriodSeconds: 120
+
+config:
+  max_shutdown_duration: 90s
+  executor:
+    # Removed upstream; do not inherit the older base fleet's unused setting.
+    default_task_size: null
+    max_concurrent_tasks: 1
+    local_cache_size_bytes: 4000000000
+    warmup_additional_images: []
+    oci:
+      mounts: []
+      # Keep the runtime's remaining syscall restrictions intact.
+      seccomp_additional_syscalls:
+        - io_uring_setup
+        - io_uring_enter
+        - io_uring_register

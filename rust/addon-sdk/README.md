@@ -125,8 +125,9 @@ required three details that are easy to get wrong:
    cert is ECDSA P-521. rustls' **ring** provider verifies only P-256/P-384
    signatures, so client-cert verification fails with *"tls: certificate
    required"* if that is the whole algorithm set. This crate keeps ring and
-   registers `EcdsaP521Sha512` from the `p521` crate (`src/tls.rs`). It does
-   not switch the rustls provider to aws-lc-rs.
+   registers `EcdsaP521Sha512` from the `p521` crate. It does not switch the
+   rustls provider to aws-lc-rs; that type's doc comment in `src/tls.rs`
+   explains why.
 
 Because go-plugin's certs are self-signed CAs, rustls' default WebPKI verifiers
 reject them on both directions (a CA cert used as an end-entity →
