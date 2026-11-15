@@ -164,6 +164,13 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{id: :sys_security, category: :system, title: "Security", icon: "hero-shield-check", order: 20},
     %{id: :sys_alerts, category: :system, title: "Alerts", icon: "hero-bell-alert", order: 30},
     %{
+      id: :sys_recording,
+      category: :system,
+      title: "Camera Recording",
+      icon: "hero-video-camera",
+      order: 35
+    },
+    %{
       id: :sys_dashboards,
       category: :system,
       title: "Dashboards",
@@ -1218,6 +1225,112 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           route: "/settings/notifications/deliveries",
           keywords: ["delivery log", "deliveries", "suppressed", "failed", "audit"],
           permission: "notifications.deliveries.view"
+        }
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === System · Camera Recording ===========================================
+    %{
+      id: :camera_recording,
+      category: :system,
+      parent_group: :sys_recording,
+      subgroup: nil,
+      title: "Recording & Storage",
+      description:
+        "Inspect NVR installation and recovery gate state, manage S3-compatible archive destinations and credentials, and review camera block locations.",
+      icon: "hero-video-camera",
+      route: "/settings/recording",
+      live_view: ServiceRadarWebNGWeb.Settings.RecordingLive,
+      permission: [
+        "settings.recording.view",
+        "settings.recording.manage",
+        "settings.recording.operate"
+      ],
+      order: 350,
+      has_own_stats: true,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "camera",
+        "cameras",
+        "nvr",
+        "vms",
+        "recording",
+        "recorder",
+        "footage",
+        "archive",
+        "object storage",
+        "s3",
+        "bucket",
+        "longshore",
+        "retention",
+        "hot storage",
+        "dual-write",
+        "playback"
+      ],
+      tabs: [
+        %{
+          id: :recorders,
+          tab: "recorders",
+          title: "Recorders",
+          route: "/settings/recording?tab=recorders",
+          keywords: ["recorders", "nvr", "recovery gate", "capacity", "hot storage"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
+        },
+        %{
+          id: :archive,
+          tab: "archive",
+          title: "Archive",
+          route: "/settings/recording?tab=archive",
+          keywords: ["archive", "object storage", "s3", "bucket", "longshore", "credentials"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
+        },
+        %{
+          id: :cameras,
+          tab: "cameras",
+          title: "Cameras",
+          route: "/settings/recording?tab=cameras",
+          keywords: ["camera", "cameras", "footage", "blocks", "playback"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
+        },
+        %{
+          id: :policy,
+          tab: "policy",
+          title: "Policy & Retention",
+          route: "/settings/recording?tab=policy",
+          keywords: ["policy", "retention", "hot storage", "dual-write"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
+        },
+        %{
+          id: :health,
+          tab: "health",
+          title: "Archive Health",
+          route: "/settings/recording?tab=health",
+          keywords: ["health", "backlog", "goodput", "archive"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
         }
       ],
       badge: nil,

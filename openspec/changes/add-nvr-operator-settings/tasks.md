@@ -7,51 +7,51 @@ recording-plane tasks and stay unchecked until those land.
 
 ## A0. UI-only
 
-- [ ] A0.1 Add RBAC keys `settings.recording.view`, `settings.recording.manage`,
+- [x] A0.1 Add RBAC keys `settings.recording.view`, `settings.recording.manage`,
       `settings.recording.operate` (admin default) to
       `ServiceRadar.Identity.RBAC.Catalog`.
-- [ ] A0.2 Add parent group `:sys_recording` and view `:camera_recording`
+- [x] A0.2 Add parent group `:sys_recording` and view `:camera_recording`
       (`/settings/recording`, tabs `recorders`, `archive`, `cameras`, `policy`,
       `health`, keywords per design D1) to `ServiceRadarWebNGWeb.Settings.Catalog`;
       route in the existing authenticated settings `live_session`.
-- [ ] A0.3 New LiveView `ServiceRadarWebNGWeb.Settings.RecordingLive` with
+- [x] A0.3 New LiveView `ServiceRadarWebNGWeb.Settings.RecordingLive` with
       `supported_tabs/0`; no database reads in disconnected mount; every
       `handle_event` re-authorizes with `RBAC.authorize_current/2`.
-- [ ] A0.4 Install and gate banner: Core gate from `:nvr_recovery_gate`
+- [x] A0.4 Install and gate banner: Core gate from `:nvr_recovery_gate`
       ("not configured" vs "closed"), core-elx reachability and
       `CameraRecording.Supervisor.enabled?/0` over bounded `:rpc`, each with an
       explicit unavailable state and a docs link.
-- [ ] A0.5 Archive tab, read-only: list `ArchiveBinding` generations (endpoint,
+- [x] A0.5 Archive tab, read-only: list `ArchiveBinding` generations (endpoint,
       region, bucket, prefix, generation, destination SHA-256, "unqualified"),
       and `s3_compatible` credentials with a link to create one at
       `/settings/networks/credentials`.
-- [ ] A0.6 Cameras tab: camera and relay-eligible profile pickers; Stage B tabs
+- [x] A0.6 Cameras tab: camera and relay-eligible profile pickers; Stage B tabs
       render a "blocked" panel naming the missing prerequisite.
-- [ ] A0.7 Link "Recording & storage" from `/cameras/:id` and
+- [x] A0.7 Link "Recording & storage" from `/cameras/:id` and
       `/cameras/:id/recordings`; label the existing recordings page's source.
-- [ ] A0.8 LiveView tests for each explicit state, permission hiding, deep-link
+- [x] A0.8 LiveView tests for each explicit state, permission hiding, deep-link
       denial and Ctrl+K discovery by "camera" (catalog test covers routing).
 
 ## A1. Core-only backend
 
-- [ ] A1.1 `ServiceRadar.Camera.RecordingArchiveSettings` singleton with FK
+- [x] A1.1 `ServiceRadar.Camera.RecordingArchiveSettings` singleton with FK
       restrict references (design D6), PaperTrail, AuditHistory allow-list, and
       secret validation (provider `s3_compatible`, kind `opaque`, enabled, not deleted).
-- [ ] A1.2 Credential usage loader and consumer link in
+- [x] A1.2 Credential usage loader and consumer link in
       `CredentialUsage.load_direct_consumers/1`; destroy guard in
       `GuardCredentialDestroy`; test that deletion is refused while referenced.
-- [ ] A1.3 `ServiceRadar.Camera.NVRArchiveReceipt` append-only resource
+- [x] A1.3 `ServiceRadar.Camera.NVRArchiveReceipt` append-only resource
       (design D9): identical-bytes idempotency, conflict refusal, no update or destroy.
-- [ ] A1.4 `ServiceRadar.Camera.RecordingOperation` with one terminal transition
+- [x] A1.4 `ServiceRadar.Camera.RecordingOperation` with one terminal transition
       and the `effective_state` calculation (`running` past `deadline_at` reads
       `outcome_unknown`).
-- [ ] A1.5 `ArchiveDestinations.register_operator/2` (`operator:<name>` refs,
+- [x] A1.5 `ArchiveDestinations.register_operator/2` (`operator:<name>` refs,
       next generation, field-level errors).
-- [ ] A1.6 `ArchiveDestination` schema v2 with operator key prefix in `namespace`;
+- [x] A1.6 `ArchiveDestination` schema v2 with operator key prefix in `namespace`;
       version-aware check constraint; resolver grant path unchanged; v1 rows
       unaffected.
-- [ ] A1.7 `RecordingBlocks.operator_page/3` keyset projection for one camera.
-- [ ] A1.8 Wire the archive tab: create destination, choose active destination,
+- [x] A1.7 `RecordingBlocks.operator_page/3` keyset projection for one camera.
+- [x] A1.8 Wire the archive tab: create destination, choose active destination,
       select writer and optional reader credential (requires
       `settings.credentials.manage`; redacted name otherwise), archive on/off.
 
@@ -91,7 +91,7 @@ recording-plane tasks and stay unchecked until those land.
       the settings view, destination and credential setup, tests and checks,
       what each state means, what Stage A does not do (no reclamation, local
       disk grows until capacity refuses capture).
-- [ ] D.2 Update `docs/docs/credentials.md` (camera archive consumer) and
+- [x] D.2 Update `docs/docs/credentials.md` (camera archive consumer) and
       `docs/docs/rbac-and-roles.md` (three keys); cross-link `docs/nvr-runtime.md`.
 
 ## Stage B (blocked)
@@ -109,8 +109,8 @@ recording-plane tasks and stay unchecked until those land.
 
 ## Validation
 
-- [ ] V.1 `openspec validate add-nvr-operator-settings --strict`.
-- [ ] V.2 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only`
+- [x] V.1 `openspec validate add-nvr-operator-settings --strict`.
+- [x] V.2 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only`
       and the core equivalent; targeted tests; no lint suppressions.
 - [ ] V.3 Manual walk-through on a disposable install: NVR absent, gate closed,
       gate open, destination created, test passed, capture, archive, both

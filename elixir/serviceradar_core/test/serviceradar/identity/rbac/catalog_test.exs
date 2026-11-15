@@ -137,6 +137,23 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  test "camera recording settings permissions are admin-only catalog keys" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+    helpdesk_permissions = Catalog.permissions_for_role(:helpdesk)
+    viewer_permissions = Catalog.permissions_for_role(:viewer)
+
+    for permission <-
+          ~w(settings.recording.view settings.recording.manage settings.recording.operate) do
+      assert permission in keys
+      assert MapSet.member?(admin_permissions, permission)
+      refute MapSet.member?(operator_permissions, permission)
+      refute MapSet.member?(helpdesk_permissions, permission)
+      refute MapSet.member?(viewer_permissions, permission)
+    end
+  end
+
   test "validation run permissions default to operator execute and viewer read" do
     keys = Catalog.permission_keys()
     admin = Catalog.permissions_for_role(:admin)

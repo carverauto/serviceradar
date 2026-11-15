@@ -107,6 +107,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
        @credential_in_use_message},
       {:id, "outbound_mail_settings_password_secret_id_fkey", @credential_in_use_message},
       {:id, "outbound_mail_settings_api_key_secret_id_fkey", @credential_in_use_message},
+      {:id, "camera_archive_settings_writer_secret_fkey", @credential_in_use_message},
+      {:id, "camera_archive_settings_reader_secret_fkey", @credential_in_use_message},
       {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
       {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message}
     ]

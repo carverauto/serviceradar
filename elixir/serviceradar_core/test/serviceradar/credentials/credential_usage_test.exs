@@ -86,6 +86,8 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
                {:outbound_mail_settings, ids.outbound_mail_settings, :api_key},
                {:outbound_mail_settings, ids.outbound_mail_settings, :password},
                {:plugin_repository, ids.plugin_repository, nil},
+               {:recording_archive_settings, ids.recording_archive_settings, :reader},
+               {:recording_archive_settings, ids.recording_archive_settings, :writer},
                {:snmp_profile, ids.snmp_profile, nil},
                {:snmp_target, ids.snmp_target, nil}
              ])
@@ -137,6 +139,45 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     assert consumer_keys(usages[divergent_sync.id].consumers) == [
              {:ansible_controller, divergent_id, :sync}
            ]
+  end
+
+  test "camera archive writer and reader slots report separate labels and block secret deletion" do
+    writer = secret_fixture("camera-writer")
+    reader = secret_fixture("camera-reader")
+
+    sql!(
+      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $2, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id",
+      [dump(writer.id), dump(reader.id)]
+    )
+
+    assert {:ok, %Result{consumers: [writer_consumer]}} =
+             CredentialUsage.for_secret(writer.id, actor: @manager)
+
+    assert writer_consumer == %Consumer{
+             kind: :recording_archive_settings,
+             id: "deployment",
+             label: "Camera archive (writer)",
+             slot: :writer
+           }
+
+    assert {:ok, %Result{consumers: [reader_consumer]}} =
+             CredentialUsage.for_secret(reader.id, actor: @manager)
+
+    assert reader_consumer == %Consumer{
+             kind: :recording_archive_settings,
+             id: "deployment",
+             label: "Camera archive (reader)",
+             slot: :reader
+           }
+
+    for secret <- [writer, reader] do
+      assert {:error, error} =
+               secret
+               |> Ash.Changeset.for_destroy(:destroy_permanently, %{confirm_secret_id: secret.id})
+               |> Ash.destroy(actor: @manager)
+
+      assert Exception.message(error) =~ "credential_in_use"
+    end
   end
 
   test "all five binding owner kinds and supported field roots resolve and nested paths dedupe" do
@@ -242,6 +283,7 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
       mapper_mikrotik_controller: uuid(),
       integration_source: uuid(),
       outbound_mail_settings: outbound_mail_settings_id(),
+      recording_archive_settings: "deployment",
       plugin_repository: uuid(),
       ansible_controller: uuid(),
       ansible_playbook_repository: uuid()
@@ -280,6 +322,11 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     sql!(
       "UPDATE platform.outbound_mail_settings SET from_email = 'usage@example.test', encrypted_password = $1, encrypted_api_key = $1, password_secret_id = $2, api_key_secret_id = $2 WHERE id = $3",
       [<<0, 1, 2>>, dump(secret_id), dump(ids.outbound_mail_settings)]
+    )
+
+    sql!(
+      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $1, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id",
+      [dump(secret_id)]
     )
 
     sql!(
@@ -477,6 +524,10 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
   end
 
   defp outbound_mail_settings_id do
+    sql!(
+      "INSERT INTO platform.outbound_mail_settings (id, inserted_at, updated_at) VALUES (gen_random_uuid(), now(), now()) ON CONFLICT DO NOTHING"
+    )
+
     %{rows: [[id]]} =
       sql!("SELECT id FROM platform.outbound_mail_settings ORDER BY inserted_at LIMIT 1")
 

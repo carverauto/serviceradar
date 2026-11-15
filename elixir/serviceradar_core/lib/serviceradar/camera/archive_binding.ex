@@ -26,12 +26,14 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
       check_constraint :generation, "camera_archive_binding_generation_positive",
         check: "generation > 0"
 
-      check_constraint :schema_version, "camera_archive_binding_v1",
+      check_constraint :schema_version, "camera_archive_binding_schema",
         check: """
-        schema_version = 1 AND purpose = 'recording' AND provider = 's3_compatible' AND
-        namespace = 'recordings/v1' AND archive_format_version = 1 AND
-        required_encryption = 'sse_s3_aes256' AND capability_state = 'unqualified' AND
-        length(destination_sha256) = 64
+        ((schema_version = 1 AND namespace = 'recordings/v1') OR
+         (schema_version = 2 AND octet_length(namespace) BETWEEN 1 AND 128 AND
+          namespace ~ '^[a-z0-9_-]+(/[a-z0-9_-]+)*$')) AND
+        purpose = 'recording' AND provider = 's3_compatible' AND
+        archive_format_version = 1 AND required_encryption = 'sse_s3_aes256' AND
+        capability_state = 'unqualified' AND length(destination_sha256) = 64
         """
     end
   end
@@ -51,7 +53,7 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
       upsert_fields []
 
       change fn changeset, _context ->
-        case ArchiveDestination.attributes(Ash.Changeset.get_argument(changeset, :destination)) do
+        case ArchiveDestination.validate(Ash.Changeset.get_argument(changeset, :destination)) do
           {:ok, attributes} ->
             changeset
             |> Ash.Changeset.force_change_attributes(attributes)
@@ -66,11 +68,10 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
                    )}
             end)
 
-          {:error, _} ->
-            Ash.Changeset.add_error(changeset,
-              field: :destination,
-              message: "invalid archive destination"
-            )
+          {:error, reasons} ->
+            Enum.reduce(reasons, changeset, fn {field, message}, acc ->
+              Ash.Changeset.add_error(acc, field: field, message: message)
+            end)
         end
       end
     end
@@ -84,7 +85,7 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
 
   attributes do
     uuid_primary_key :id
-    attribute :schema_version, :integer, allow_nil?: false, constraints: [min: 1, max: 1]
+    attribute :schema_version, :integer, allow_nil?: false, constraints: [min: 1, max: 2]
 
     attribute :provisioning_ref, :string,
       allow_nil?: false,
@@ -96,7 +97,11 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
     attribute :endpoint, :string, allow_nil?: false, constraints: [max_length: 261]
     attribute :region, :string, allow_nil?: false, constraints: [max_length: 40]
     attribute :bucket, :string, allow_nil?: false, constraints: [max_length: 63]
-    attribute :namespace, :string, allow_nil?: false
+
+    attribute :namespace, :string,
+      allow_nil?: false,
+      constraints: [min_length: 1, max_length: 128]
+
     attribute :archive_format_version, :integer, allow_nil?: false, constraints: [min: 1, max: 1]
     attribute :required_encryption, :string, allow_nil?: false
 

@@ -449,6 +449,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_path(%Consumer{kind: :otx_settings}), do: ~p"/settings/networks/threat-intel"
 
+  defp consumer_path(%Consumer{kind: :recording_archive_settings}), do: ~p"/settings/recording?tab=archive"
+
   defp consumer_path(_consumer), do: nil
 
   defp consumer_accessible_label(%Consumer{kind: :snmp_profile, label: label}), do: "Edit SNMP profile #{label}"

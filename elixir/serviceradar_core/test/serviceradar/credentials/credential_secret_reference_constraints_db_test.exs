@@ -576,6 +576,8 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
       "ansible_controllers_execution_credential_secret_id_fkey" => "r",
       "ansible_controllers_sync_credential_secret_id_fkey" => "r",
       "ansible_playbook_repositories_credential_secret_id_fkey" => "r",
+      "camera_archive_settings_reader_secret_fkey" => "r",
+      "camera_archive_settings_writer_secret_fkey" => "r",
       "credential_broker_grant_versions_version_source_id_fkey" => "c",
       "credential_secret_resolution_audits_secret_id_fkey" => "n",
       "credential_broker_grants_secret_id_fkey" => "r",
