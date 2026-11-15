@@ -16,6 +16,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
   alias ServiceRadar.Plugins.Changes.ApplyAddonUpdatePolicyDefaults
+  alias ServiceRadar.Plugins.Changes.CheckAddonProfileTargetLimit
   alias ServiceRadar.Plugins.Changes.NormalizeAddonProfileTargetQuery
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
@@ -102,6 +103,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
       validate NoDuplicateAddonProfileTarget
+      change CheckAddonProfileTargetLimit
     end
 
     update :update do
@@ -121,6 +123,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
       validate NoDuplicateAddonProfileTarget
+      change CheckAddonProfileTargetLimit
     end
 
     update :record_reconcile_result do
@@ -236,6 +239,8 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     attribute :max_targets, :integer do
       allow_nil? false
       public? true
+
+      description "Most agents the target query may select. A profile over it is refused whole, never cut down."
       default 10_000
       constraints min: 1, max: 1_000_000
     end

@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       {:ok, summary} ->
         {:noreply,
          socket
-         |> put_flash(:info, profile_reconcile_message(summary))
+         |> put_flash(profile_reconcile_flash_kind(summary), profile_reconcile_message(summary))
          |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
          |> assign(:assignments, list_assignments_for_package(package.id, scope))}
 
@@ -2631,6 +2631,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
+  defp profile_reconcile_message(%{refusal: %{message: message}}), do: "Profile refused: #{message}"
+
   defp profile_reconcile_message(summary) when is_map(summary) do
     desired = Map.get(summary, :desired_assignments) || Map.get(summary, "desired_assignments") || 0
     upserted = Map.get(summary, :upserted) || Map.get(summary, "upserted") || 0
@@ -2640,6 +2642,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp profile_reconcile_message(_summary), do: "Profile reconciled."
+
+  defp profile_reconcile_flash_kind(%{refusal: %{}}), do: :error
+  defp profile_reconcile_flash_kind(_summary), do: :info
 
   defp profile_reconcile_report(%{last_reconcile_summary: summary}) when is_map(summary) do
     %{
@@ -2670,6 +2675,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp profile_report_status_variant("failed"), do: "error"
+  defp profile_report_status_variant("refused"), do: "warning"
   defp profile_report_status_variant("succeeded"), do: "success"
   defp profile_report_status_variant(_status), do: "ghost"
 

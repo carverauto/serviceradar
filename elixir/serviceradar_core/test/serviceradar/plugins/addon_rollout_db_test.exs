@@ -1957,9 +1957,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
 
     # Stands in for the profile's SRQL target query so each reconcile names the
     # agents it matches.
-    def resolve([%{entity: entity}], opts) do
-      rows = opts |> Keyword.fetch!(:overlay_agent_uids) |> Enum.map(&%{"uid" => &1})
-      {:ok, [%{name: "targets", entity: entity, query: "in:#{entity}", rows: rows}]}
+    def serving(agent_uids) do
+      Process.put(__MODULE__, agent_uids)
+      __MODULE__
+    end
+
+    def query_page(_query, _opts) do
+      rows = __MODULE__ |> Process.get() |> Enum.map(&%{"uid" => &1})
+      {:ok, %{rows: rows, next_cursor: nil}}
     end
   end
 
@@ -2053,8 +2058,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert {:ok, _summary} =
              AddonProfileOps.reconcile_by_id(fixture.profile.id,
                actor: actor,
-               resolver: OverlayTargets,
-               overlay_agent_uids: agent_uids
+               runner: OverlayTargets.serving(agent_uids)
              )
   end
 

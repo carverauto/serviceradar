@@ -9,29 +9,28 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
 
   @moduletag :integration
 
-  defmodule Resolver do
+  defmodule Runner do
     @moduledoc false
 
-    def resolve([%{entity: entity}], opts) when entity in ["devices", "agents"] do
-      agent_uid = Keyword.fetch!(opts, :test_agent_uid)
+    def serving(agent_uid) do
+      Process.put(__MODULE__, agent_uid)
+      __MODULE__
+    end
 
+    def query_page(_query, _opts) do
       {:ok,
-       [
-         %{
-           name: "targets",
-           entity: entity,
-           query: "in:#{entity}",
-           rows: [
-             %{
-               "uid" => "device-without-netprobe-capability",
-               "type_id" => 1,
-               "agent_id" => agent_uid,
-               "os" => %{"name" => "Linux"},
-               "metadata" => %{}
-             }
-           ]
-         }
-       ]}
+       %{
+         rows: [
+           %{
+             "uid" => "device-without-netprobe-capability",
+             "type_id" => 1,
+             "agent_id" => Process.get(__MODULE__),
+             "os" => %{"name" => "Linux"},
+             "metadata" => %{}
+           }
+         ],
+         next_cursor: nil
+       }}
     end
   end
 
@@ -45,10 +44,10 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
     def disable_assignment(_assignment, _actor), do: {:error, :unexpected_assignment}
   end
 
-  defmodule FailingResolver do
+  defmodule FailingRunner do
     @moduledoc false
 
-    def resolve(_inputs, _opts), do: {:error, ["forced resolver failure"]}
+    def query_page(_query, _opts), do: {:error, :forced_runner_failure}
   end
 
   setup_all do
@@ -125,7 +124,7 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
       )
       |> Ash.create()
 
-    opts = [actor: actor, resolver: Resolver, store: Store, test_agent_uid: agent_uid]
+    opts = [actor: actor, runner: Runner.serving(agent_uid), store: Store]
 
     assert {:ok, preview} = AddonProfileOps.preview_by_id(profile.id, opts)
     assert preview.summary.desired_assignments == 0
@@ -143,15 +142,17 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
 
     assert staged_package.status == :staged
 
-    assert {:error, ["forced resolver failure"]} =
+    forced_failure = "failed to execute SRQL input query: :forced_runner_failure"
+
+    assert {:error, [^forced_failure]} =
              AddonProfileOps.reconcile_by_id(profile.id,
                actor: actor,
-               resolver: FailingResolver
+               runner: FailingRunner
              )
 
     assert {:ok, reconciled_profile} = AddonProfile.get_by_id(profile.id, actor: actor)
     assert reconciled_profile.last_reconcile_summary["status"] == "failed"
-    assert reconciled_profile.last_reconcile_summary["last_error"] == "forced resolver failure"
+    assert reconciled_profile.last_reconcile_summary["last_error"] == forced_failure
     assert %DateTime{} = reconciled_profile.last_reconciled_at
   end
 end

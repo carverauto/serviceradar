@@ -27,9 +27,7 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
          {:ok, profile} <- Ash.load(profile, :addon_package, actor: actor) do
       case AddonProfileReconciler.reconcile(profile, opts) do
         {:ok, result} ->
-          persisted_result = Map.put(result, :status, "succeeded")
-
-          with {:ok, _updated} <- update_profile_summary(profile, persisted_result, actor) do
+          with {:ok, _updated} <- update_profile_summary(profile, result_summary(result), actor) do
             {:ok, result}
           end
 
@@ -50,6 +48,13 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
     |> Ash.Changeset.for_update(:record_reconcile_result, attrs)
     |> Ash.update(actor: actor)
   end
+
+  # A refused profile reconciled correctly to no assignments; `status` and
+  # `last_error` say why, so the card does not read as an empty match.
+  defp result_summary(%{refusal: %{message: message}} = result),
+    do: Map.merge(result, %{status: "refused", last_error: message})
+
+  defp result_summary(result), do: Map.put(result, :status, "succeeded")
 
   defp failure_summary(error) do
     errors = normalize_errors(error)

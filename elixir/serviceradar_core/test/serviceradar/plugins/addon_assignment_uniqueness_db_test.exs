@@ -13,12 +13,18 @@ defmodule ServiceRadar.Plugins.AddonAssignmentUniquenessDbTest do
 
   @moduletag :integration
 
-  defmodule Resolver do
+  defmodule Runner do
     @moduledoc false
 
-    def resolve(_inputs, opts) do
-      uids = Keyword.get(opts, :agent_uids, [Keyword.fetch!(opts, :agent_uid)])
-      {:ok, [%{entity: "agents", rows: Enum.map(uids, &%{"uid" => &1})}]}
+    # Stands in for the profile's SRQL target query: one page naming `uids`.
+    def serving(uids) do
+      Process.put(__MODULE__, uids)
+      __MODULE__
+    end
+
+    def query_page(_query, _opts) do
+      rows = __MODULE__ |> Process.get() |> Enum.map(&%{"uid" => &1})
+      {:ok, %{rows: rows, next_cursor: nil}}
     end
   end
 
@@ -65,9 +71,8 @@ defmodule ServiceRadar.Plugins.AddonAssignmentUniquenessDbTest do
 
     opts = [
       actor: ctx.actor,
-      resolver: Resolver,
-      agent_loader: AgentLoader,
-      agent_uid: ctx.agent_uid
+      runner: Runner.serving([ctx.agent_uid]),
+      agent_loader: AgentLoader
     ]
 
     assert {:ok, %{upserted: 1}} = AddonProfileReconciler.reconcile(profile, opts)
@@ -86,7 +91,7 @@ defmodule ServiceRadar.Plugins.AddonAssignmentUniquenessDbTest do
     assert {:ok, %{upserted: 1, assignment_conflicts: [^conflict]}} =
              AddonProfileReconciler.reconcile(
                overlapping,
-               Keyword.put(opts, :agent_uids, [ctx.agent_uid, other_uid])
+               Keyword.put(opts, :runner, Runner.serving([ctx.agent_uid, other_uid]))
              )
 
     assert [%{addon_profile_id: profile_id}] = enabled_assignments(other_uid, ctx.actor)
