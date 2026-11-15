@@ -53,6 +53,7 @@ spec:
       annotations:
         serviceradar.io/archive-reader-revision: {{ $revision | quote }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:

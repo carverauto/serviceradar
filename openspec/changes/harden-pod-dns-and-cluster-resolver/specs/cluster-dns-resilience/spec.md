@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Bounded Pod DNS Resolver Defaults Across Helm Workloads
-The `helm/serviceradar` and `helm/serviceradar-k8s-edge` charts SHALL render fixed pod `dnsConfig` options (`ndots: "2"`, `timeout: "2"`, `attempts: "2"`, and `single-request-reopen`) unconditionally on every chart-managed Deployment, StatefulSet, and Job pod template, including the StatefulSets rendered by the bundled `dgraph` subchart, without requiring an operator-supplied Helm switch, and without increasing application client connect timeouts.
+The `helm/serviceradar` and `helm/serviceradar-k8s-edge` charts SHALL render fixed pod `dnsConfig` options (`ndots: "2"`, `timeout: "2"`, `attempts: "2"`, and `single-request-reopen`) unconditionally on every chart-managed Deployment, StatefulSet, Job, and CronJob pod template, including all workload templates rendered by the bundled `dgraph` subchart, without requiring an operator-supplied Helm switch, and without increasing application client connect timeouts.
 
 #### Scenario: Default chart install renders bounded pod dnsConfig on all workloads
-- **GIVEN** `helm template` is rendered for `helm/serviceradar` and `helm/serviceradar-k8s-edge` with default `values.yaml`
-- **WHEN** the rendered Deployment, StatefulSet, and Job pod specs are inspected
+- **GIVEN** `helm template` is rendered for `helm/serviceradar` and `helm/serviceradar-k8s-edge` with default `values.yaml` (and with gated chart workloads enabled)
+- **WHEN** the rendered Deployment, StatefulSet, Job, and CronJob pod specs are inspected
 - **THEN** every pod spec SHALL include `dnsConfig.options` with `ndots="2"`, `timeout="2"`, `attempts="2"`, and `single-request-reopen`
 
 #### Scenario: Single UDP DNS packet loss recovers within 5-second client connect budget
@@ -26,12 +26,11 @@ Intra-cluster Service endpoints rendered by `helm/serviceradar` SHALL default to
 - **WHEN** the `subjectAltName` extension of the certificate for each TLS-serving Service (`serviceradar-nats`, `serviceradar-core`, `serviceradar-web-ng`, `serviceradar-datasvc`, `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-rperf-client`, `serviceradar-log-collector`, `serviceradar-flow-collector`, `serviceradar-bmp-collector`, `serviceradar-trivy-sidecar`, `serviceradar-k8s-inventory`, and `serviceradar-trapd`) is inspected
 - **THEN** each certificate SHALL contain `DNS:<service-name>.sr-prod.svc.cluster.local` for that Service name, identical to the hostname rendered for its endpoint, alongside its existing short names
 
-### Requirement: Cluster Resolver Companion Architecture for Kubernetes Deployments
-Production and demo Kubernetes clusters running ServiceRadar under `kube-proxy` IPVS SHALL pair the chart's pod `dnsConfig` with node-local DNS caching (`NodeLocal DNSCache` on `169.254.20.10` set as kubelet `clusterDNS`, forwarding cache misses over TCP `:53`) and CoreDNS UDP receive buffers sized inside the CoreDNS pod network namespace so pod DNS resolution does not depend on 30-second IPVS UDP conntrack flows or overflow CoreDNS pod socket buffers.
+### Requirement: Cluster Host UDP Receive-Buffer Sizing for CoreDNS
+Production and demo Kubernetes nodes running ServiceRadar SHALL configure host (`init_net`) `net.core.rmem_default` to at least `8388608` bytes (8 MiB) and `net.core.rmem_max` to at least `16777216` bytes (16 MiB) and roll CoreDNS pods after applying the host sysctls so CoreDNS `:53/UDP` sockets do not drop concurrent pod lookup bursts due to the 208 KiB default kernel socket buffer.
 
-#### Scenario: Node-local cache bypasses IPVS UDP conntrack and eliminates CoreDNS receive-buffer drops
-- **GIVEN** a Kubernetes cluster running `NodeLocal DNSCache` with TCP upstream forwarding to CoreDNS, kubelet `clusterDNS` set to the node-local listener, and chart pods carrying `serviceradar.podDnsConfig`
-- **AND** chart pod `/etc/resolv.conf` lists the node-local listener as its `nameserver`
+#### Scenario: Host UDP receive buffers eliminate CoreDNS pod-namespace RcvbufErrors
+- **GIVEN** Kubernetes cluster nodes configured with `net.core.rmem_default >= 8388608` and `net.core.rmem_max >= 16777216` in `init_net`, CoreDNS pods rolled onto fresh `:53/UDP` sockets, and chart pods carrying `serviceradar.podDnsConfig` with 4-dot intra-cluster FQDNs
 - **WHEN** workloads execute sustained concurrent dual-stack DNS lookups over a 24-hour window
 - **THEN** CoreDNS pod-namespace `Udp: RcvbufErrors` SHALL remain at zero new increments
 - **AND** healthy in-cluster service endpoints SHALL record zero `:nxdomain` resolution failures

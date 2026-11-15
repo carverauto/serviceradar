@@ -79,6 +79,7 @@ spec:
         app: serviceradar-cnpg-extension-update
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

@@ -78,6 +78,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
         app.kubernetes.io/component: nats-creds-generator
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       serviceAccountName: serviceradar-nats-creds-generator
       restartPolicy: Never
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
@@ -93,7 +94,7 @@ spec:
           set -euo pipefail
 
           SECRET_NAME="serviceradar-nats-creds"
-          APISERVER="https://kubernetes.default.svc"
+          APISERVER="https://kubernetes.default.svc.cluster.local"
           SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
           TOKEN=$(cat "${SERVICEACCOUNT}/token")
           NAMESPACE=$(cat "${SERVICEACCOUNT}/namespace")

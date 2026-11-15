@@ -15,7 +15,7 @@
 {{- $agentID := default "k8s-agent" $agentVals.agentId -}}
 {{- $agentPartition := coalesce .Values.partitionId $agentVals.partitionId $gatewayVals.partitionId "default" -}}
 {{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
-{{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
+{{- $gatewayAddress := default (printf "%s.%s.svc.cluster.local:%v" $gatewayServiceName $ns $gatewayPort) $agentVals.gatewayAddress -}}
 {{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}
 {{- $agentComponentKey := printf "%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
@@ -39,7 +39,7 @@
 */ -}}
 {{- $otelExporter := default (dict) .Values.otelExporter -}}
 {{- $otelEnabled := default false $otelExporter.enabled -}}
-{{- $otelEndpointRaw := default "" $otelExporter.endpoint -}}
+{{- $otelEndpointRaw := include "serviceradar.otelExporterEndpoint" . -}}
 {{- $otelEndpoint := $otelEndpointRaw | trimPrefix "https://" | trimPrefix "http://" -}}
 {{- $otelCertDir := default "/etc/serviceradar/certs" $otelExporter.certDir -}}
 {{- $otelInsecure := default false $otelExporter.insecure -}}
@@ -166,8 +166,8 @@ data:
         "default_metadata": {
           "gateway": {
             "core_address": "{{ include "serviceradar.coreAddress" . }}",
-            "kv_address": "serviceradar-datasvc:50057",
-            "agent_address": "agent:50051",
+            "kv_address": "serviceradar-datasvc.{{ $ns }}.svc.cluster.local:50057",
+            "agent_address": "serviceradar-agent.{{ $ns }}.svc.cluster.local:50051",
             "log_level": "info",
             "logs_dir": "./logs"
           },
@@ -224,7 +224,7 @@ data:
         }
       },
       "nats": {
-        "url": "tls://serviceradar-nats:4222",
+        "url": "tls://serviceradar-nats.{{ $ns }}.svc.cluster.local:4222",
         "max_reconnects": 10,
         "reconnect_wait": "2s",
         "drain_timeout": "30s",
@@ -265,7 +265,7 @@ data:
         "time_format": "",
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-log-collector:4317",
+          "endpoint": "serviceradar-log-collector.{{ $ns }}.svc.cluster.local:4317",
           "service_name": "serviceradar-core",
           "batch_timeout": "5s",
           "insecure": false,
@@ -301,7 +301,7 @@ data:
         "plugin_http_trusted_ca_files": {{ toJson $pluginHTTPTrustedCAFiles }},
         "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
         "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/checkers/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
-        "kv_address": "serviceradar-datasvc:50057",
+        "kv_address": "serviceradar-datasvc.{{ $ns }}.svc.cluster.local:50057",
         "kv_security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -405,7 +405,7 @@ data:
       {
         "name": "rperf-checker",
         "type": "grpc",
-        "address": "serviceradar-rperf:50081",
+        "address": "serviceradar-rperf-client.{{ $ns }}.svc.cluster.local:50081",
         "security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -424,7 +424,7 @@ data:
       {
         "name": "trapd",
         "type": "grpc",
-        "address": "serviceradar-trapd:50043",
+        "address": "serviceradar-trapd.{{ $ns }}.svc.cluster.local:50043",
         "security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -443,7 +443,7 @@ data:
       {
         "name": "flowgger",
         "type": "grpc",
-        "address": "serviceradar-log-collector:50044",
+        "address": "serviceradar-log-collector.{{ $ns }}.svc.cluster.local:50044",
         "security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -785,7 +785,7 @@ data:
       
       [nats]
       # NATS server URL with mTLS (Kubernetes deployment)
-      url = "tls://serviceradar-nats:4222"
+      url = "tls://serviceradar-nats.{{ $ns }}.svc.cluster.local:4222"
       {{ if .Values.natsCreds.platform }}
       creds_file = "/etc/serviceradar/creds/platform.creds"
       {{ end }}
@@ -815,7 +815,7 @@ data:
   trapd.json: |
       {
         "listen_addr": "0.0.0.0:162",
-        "nats_url": "tls://serviceradar-nats:4222",
+        "nats_url": "tls://serviceradar-nats.{{ $ns }}.svc.cluster.local:4222",
       {{ if .Values.natsCreds.platform }}
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
@@ -840,7 +840,7 @@ data:
         },
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-log-collector:4317",
+          "endpoint": "serviceradar-log-collector.{{ $ns }}.svc.cluster.local:4317",
           "service_name": "serviceradar-trapd",
           "tls": {
             "cert_file": "/etc/serviceradar/certs/trapd.pem",
@@ -886,7 +886,7 @@ data:
             "gobgp_api_address": "{{ .Values.faker.simulation.bgp.gobgpApiAddress | default "127.0.0.1:50051" }}",
             "gobgp_binary": "{{ .Values.faker.simulation.bgp.gobgpBinary | default "gobgpd" }}",
             "gobgp_cli_binary": "{{ .Values.faker.simulation.bgp.gobgpCliBinary | default "gobgp" }}",
-            "bmp_collector_address": "{{ .Values.faker.simulation.bgp.bmpCollectorAddress | default "serviceradar-bmp-collector:11019" }}",
+            "bmp_collector_address": "{{ .Values.faker.simulation.bgp.bmpCollectorAddress | default (printf "serviceradar-bmp-collector.%s.svc.cluster.local:11019" $ns) }}",
             "router_id": "{{ .Values.faker.simulation.bgp.routerId | default "204.209.51.59" }}",
             "max_prefixes_per_tick": {{ .Values.faker.simulation.bgp.maxPrefixesPerTick | default 3 }},
             "local_asn": {{ .Values.faker.simulation.bgp.localAsn | default 401642 }},
@@ -933,7 +933,7 @@ data:
   datasvc.json: |
       {
         "listen_addr": "0.0.0.0:50057",
-        "nats_url": "tls://serviceradar-nats:4222",
+        "nats_url": "tls://serviceradar-nats.{{ $ns }}.svc.cluster.local:4222",
       {{ if .Values.natsCreds.platform }}
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
