@@ -1773,3 +1773,40 @@ dnsConfig:
 {{- $otel := default (dict) .Values.otelExporter -}}
 {{- default (printf "https://serviceradar-log-collector.%s.svc.cluster.local:4317" .Release.Namespace) $otel.endpoint -}}
 {{- end -}}
+
+{{/* One external syslog Service, shared by its render and NetworkPolicy. */}}
+{{- define "serviceradar.logCollectorExternalSyslog" -}}
+{{- $collector := default (dict) .Values.logCollector -}}
+{{- $tcp := default (dict) $collector.tcpCollector -}}
+{{- $external := default (dict) $collector.externalService -}}
+{{- $legacy := default (dict) $tcp.externalService -}}
+{{- $ports := default (dict) $external.ports -}}
+{{- $legacyPorts := default (dict) $legacy.ports -}}
+{{- $legacyEnabled := and (default false $tcp.enabled) (default false $legacy.enabled) -}}
+{{- $primaryEnabled := default false $external.enabled -}}
+{{- if and $legacyEnabled $external.loadBalancerIP $legacy.loadBalancerIP (ne $external.loadBalancerIP $legacy.loadBalancerIP) -}}
+  {{- fail "logCollector.externalService.loadBalancerIP and logCollector.tcpCollector.externalService.loadBalancerIP must match for the unified syslog Service" -}}
+{{- end -}}
+{{- $service := $external -}}
+{{- if and $legacyEnabled (not $primaryEnabled) -}}
+  {{- $service = $legacy -}}
+{{- end -}}
+{{- $address := default "" $external.loadBalancerIP -}}
+{{- if and $legacyEnabled (not $address) -}}
+  {{- $address = default "" $legacy.loadBalancerIP -}}
+{{- end -}}
+{{- $resultPorts := list -}}
+{{- $udpPort := default (dict) $ports.syslog -}}
+{{- if and $primaryEnabled (eq (include "serviceradar.boolDefaultTrue" (list $udpPort "enabled")) "true") -}}
+  {{- $resultPorts = append $resultPorts (dict "name" "syslog" "protocol" "UDP" "port" (default 514 $udpPort.port) "targetPort" (default 514 $udpPort.targetPort)) -}}
+{{- end -}}
+{{- $tcpPort := default (dict) $ports.syslogTcp -}}
+{{- $tcpEnabled := and (default false $tcp.enabled) (or $legacyEnabled (and $primaryEnabled (eq (include "serviceradar.boolDefaultTrue" (list $tcpPort "enabled")) "true"))) -}}
+{{- if $legacyEnabled -}}
+  {{- $tcpPort = default (dict) $legacyPorts.syslog -}}
+{{- end -}}
+{{- if and $tcpEnabled (eq (include "serviceradar.boolDefaultTrue" (list $tcpPort "enabled")) "true") -}}
+  {{- $resultPorts = append $resultPorts (dict "name" "syslog-tcp" "protocol" "TCP" "port" (default 514 $tcpPort.port) "targetPort" (default 514 $tcpPort.targetPort)) -}}
+{{- end -}}
+{{- toJson (dict "enabled" (and (eq (include "serviceradar.boolDefaultTrue" (list $collector "enabled")) "true") (gt (len $resultPorts) 0)) "type" (default "LoadBalancer" $service.type) "annotations" (default (dict) $service.annotations) "externalTrafficPolicy" (default "" $service.externalTrafficPolicy) "loadBalancerIP" (default "" $address) "ports" $resultPorts) -}}
+{{- end -}}

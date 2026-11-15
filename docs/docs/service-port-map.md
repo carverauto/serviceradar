@@ -25,7 +25,7 @@ Expose these only if you are ingesting telemetry from network devices or externa
 | Collector | Port | Protocol | Purpose |
 |---|---|---|---|
 | Syslog (`serviceradar-log-collector`) | 514 | UDP | Syslog ingestion (UDP) |
-| Syslog TCP (`serviceradar-log-collector-tcp`) | 514 | TCP | Syslog ingestion (TCP, optional deployment) |
+| Syslog TCP (`serviceradar-log-collector`) | 514 | TCP | Optional TCP listener in the same collector; `serviceradar-log-collector-tcp` remains a compatibility Service |
 | SNMP traps (trapd) | 162 | UDP | SNMP trap ingestion |
 | NetFlow | 2055 | UDP | Template-free NetFlow v5 by default. Template-based v9/IPFIX UDP is rejected unless explicitly opted in. |
 | NetFlow / IPFIX (alternate) | 4739 | UDP | Optional alternate UDP port for the same NetFlow handler. The Helm chart can expose this `ipfix` service port; route it to an additional `netflow` listener if used. Template admission follows the same opt-in as 2055. |

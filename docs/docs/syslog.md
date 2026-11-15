@@ -6,7 +6,8 @@ title: Syslog Ingest Guide
 
 ServiceRadar collects log events through `serviceradar-log-collector`, publishes
 them to NATS JetStream, normalizes them with in-process Zen rules in core-elx,
-and stores them in CNPG/Timescale. Pair this quick guide with the
+and stores them in the configured telemetry backend (StarRocks or
+CNPG/Timescale). Pair this quick guide with the
 [Device Configuration Reference](./device-configuration.md#syslog-configuration)
 and the [Kubernetes External Ingestion](./kubernetes-ingestion.md) guide when
 onboarding new platforms.
@@ -14,12 +15,12 @@ onboarding new platforms.
 ## Provision the Gateway
 
 1. Expose `serviceradar-log-collector` on UDP 514. In Kubernetes, prefer a shared Gateway API UDP listener plus `gatewayApi.syslog.enabled` when the cluster already has a shared Envoy Gateway. Use `logCollector.externalService.enabled` only when you need a dedicated LoadBalancer or NodePort.
-2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
+2. Size the collector memory budget for bursts and monitor JetStream lag. Receiving a syslog message does not by itself establish durable storage.
 3. Attach `site`, `account`, or other metadata using **Settings -> Integrations** so logs stay filterable in SRQL and dashboards.
 
 ### TCP Syslog
 
-The default `serviceradar-log-collector` deployment listens for syslog over **UDP 514**. To accept syslog over **TCP 514**, enable the separate `serviceradar-log-collector-tcp` deployment via `logCollector.tcpCollector.enabled` in the Helm values. It runs the same log-collector binary with only the flowgger input enabled (OTEL disabled) and a TCP-mode flowgger input:
+The `serviceradar-log-collector` deployment accepts syslog over **UDP 514** and, when `logCollector.tcpCollector.enabled` is true (the chart default), **TCP 514** in the same process as OTLP. Configure the TCP listener with:
 
 ```yaml
 logCollector:
@@ -30,10 +31,35 @@ logCollector:
     framing: "line"
 ```
 
+For a custom TCP listen port, set the same numeric port in
+`logCollector.tcpCollector.service.ports.syslog.targetPort`. Both internal
+Service names then route to that listener. Set any enabled external TCP
+Service's `targetPort` to the same port as well.
+
 TCP syslog is line-framed by default and publishes to the same NATS `events`
-stream and `logs.syslog` subject as the UDP collector, so the downstream core-elx
-pipeline is identical. Use TCP when devices need reliable delivery; UDP remains
-the default for lightweight, fire-and-forget exporters.
+stream and `logs.syslog` subject as UDP through one shared Flowgger output, so
+the downstream core-elx pipeline is identical. TCP provides transport delivery
+and backpressure; it does not acknowledge durable storage. UDP remains useful
+for lightweight, fire-and-forget exporters.
+
+Both protocols are available on `serviceradar-log-collector`. The previous
+`serviceradar-log-collector-tcp` DNS name remains a compatibility Service that
+selects only pods with the TCP listener; it has no Deployment of its own.
+During an upgrade, keep existing TCP clients on that alias until all primary
+Service endpoints run the new image.
+
+For a dedicated external Service, enable `logCollector.externalService.enabled`
+and choose UDP and TCP independently through `ports.syslog.enabled` and
+`ports.syslogTcp.enabled`. The legacy
+`logCollector.tcpCollector.externalService.enabled` setting enables TCP on this
+same Service. Conflicting pinned load balancer addresses fail chart rendering.
+Configure replicas and resources on `logCollector`; the former TCP workload's
+replica, resource and stream-replica settings are ignored. Both transports use
+`logs.syslog`; a different `tcpCollector.subject` is rejected.
+
+Docker Compose publishes both `514/udp` and `514/tcp` from its one
+`log-collector` service. Standalone Flowgger configurations can retain `[input]`
+and add a TCP listener using `[[inputs]]`, sharing the existing `[output]`.
 
 Example Kubernetes Gateway API values:
 
@@ -94,7 +120,7 @@ attribution is required.
 
 ## Event Pipeline
 
-1. `serviceradar-log-collector` accepts syslog over UDP 514 (or TCP 514 via the optional `serviceradar-log-collector-tcp` deployment) and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
+1. `serviceradar-log-collector` accepts syslog over UDP 514 and optional TCP 514 in one process and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
 2. JetStream retains the raw envelope while `serviceradar_core` consumes the same
    stream, evaluates the bundled Zen rules through a Rustler NIF, and persists
    the normalized log record.

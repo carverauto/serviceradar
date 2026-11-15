@@ -3,7 +3,7 @@
 
 Enforces OpenSpec change `harden-pod-dns-and-cluster-resolver`:
 1. Every chart-managed Deployment, StatefulSet, Job, and CronJob in `helm/serviceradar`
-   (all 36 workload manifests across default and gated renders) and the unpacked
+   (all 35 workload manifests across default and gated renders) and the unpacked
    `helm/serviceradar/charts/dgraph` subchart (all 5 workload manifests) renders
    `dnsConfig.options` with `ndots=2`, `timeout=2`, `attempts=2`, `single-request-reopen`.
 2. Intra-cluster Service endpoints in rendered ConfigMaps, Jobs, workload environments,
@@ -80,7 +80,7 @@ ALL_GATED_OVERRIDES = {
     "flowCollector.enabled": True,
     "gobgp.enabled": True,
     "k8sInventory.enabled": True,
-    "logCollectorTcp.enabled": True,
+    "logCollector.tcpCollector.enabled": True,
     "rperfClient.enabled": True,
     "trivySidecar.enabled": True,
     "webrtc.iceCredentials.backend": "static_secret",
@@ -241,7 +241,6 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/flow-collector.yaml",
             "templates/gobgp.yaml",
             "templates/k8s-inventory.yaml",
-            "templates/log-collector-tcp.yaml",
             "templates/log-collector.yaml",
             "templates/media-storage.yaml",
             "templates/nats-creds-generator.yaml",
@@ -261,7 +260,7 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/webrtc-turn-server.yaml",
         ]
 
-    def test_all_36_chart_workloads_render_fixed_pod_dns_config(self):
+    def test_all_chart_workloads_render_fixed_pod_dns_config(self):
         missing = []
         workload_templates = set()
 
@@ -278,8 +277,8 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(workload_templates),
-            36,
-            f"Expected at least 36 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
+            35,
+            f"Expected at least 35 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
         )
         self.assertEqual(
             missing,
@@ -440,12 +439,11 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             json.loads(bmp_cm["data"]["config.json"])["nats_url"],
             f"nats://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222",
         )
-        for lc_tpl in ("templates/log-collector.yaml", "templates/log-collector-tcp.yaml"):
-            lc_cm = next(d for d in self.gated_docs[lc_tpl] if d["kind"] == "ConfigMap")
-            for cm_key, cm_val in lc_cm["data"].items():
-                self.assertNotIn("tls://serviceradar-nats:4222", cm_val, f"bare NATS URL in {lc_tpl}:{cm_key}")
-                if cm_key in ("flowgger.toml", "otel.toml"):
-                    self.assertIn(f"tls://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222", cm_val)
+        lc_cm = next(d for d in self.gated_docs["templates/log-collector.yaml"] if d["kind"] == "ConfigMap")
+        for cm_key, cm_val in lc_cm["data"].items():
+            self.assertNotIn("tls://serviceradar-nats:4222", cm_val, f"bare NATS URL in log-collector:{cm_key}")
+            if cm_key in ("flowgger.toml", "otel.toml"):
+                self.assertIn(f"tls://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222", cm_val)
 
         gobgp_cm = next(d for d in self.gated_docs["templates/gobgp.yaml"] if d["kind"] == "ConfigMap")
         self.assertIn(f'address = "serviceradar-bmp-collector.{NAMESPACE}.svc.cluster.local"', gobgp_cm["data"]["gobgpd.toml"])
