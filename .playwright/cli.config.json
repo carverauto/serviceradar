@@ -1,8 +1,10 @@
 {
   "browser": {
     "browserName": "chromium",
+    "isolated": true,
     "launchOptions": {
-      "channel": "chromium"
+      "channel": "chrome",
+      "chromiumSandbox": true
     },
     "contextOptions": {
       "ignoreHTTPSErrors": true
