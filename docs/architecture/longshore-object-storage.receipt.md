@@ -16,7 +16,7 @@ Baseline staging head: `0bd19190124931f8f46a285dcf5b17e89054ee37`.
 | --- | --- |
 | Architecture source | `cdcf26e1b9baf38cd6e957a4d2e3c524cada5aa2474f9dc4f6e1d6c20c992b6f` |
 | Architecture HTML | `0cc11e0072b7b0fed9ced0a9e1c96ec370af591fd44815d58552f1be343aa299` |
-| OpenSpec HTML | `3f58a45952e0e4b760c42028cecfb961576a9c1907c506a930ed5e24b0a39790` |
+| OpenSpec HTML | `bbf14d366af464b839d8b2334eb04aa2025706648689fc7c439ed22d2e352b6b` |
 
 ## Validation
 
