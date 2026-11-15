@@ -31,8 +31,8 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
 and health probes. A separately installed [private finite-stream listener](nvr-ingest.md)
-can accept authenticated media, but the inventory/agent sender and pool assignment
-are not wired yet. Local catalog publication, S3 upload and automated restart
+can accept authenticated media from the bounded relay coordinator described there;
+continuous recorder scheduling and pool assignment are not wired yet. Local catalog publication, S3 upload and automated restart
 reconciliation remain pending. Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining

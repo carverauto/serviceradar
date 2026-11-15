@@ -73,10 +73,12 @@ sending media over NATS/JetStream or ERTS distribution:
    through `ServiceRadarNVRClient.send_recording/4`.
 4. A verified `sealed_local` receipt returns the correlated `recording_block_id`
    and `block_key` while keeping the `RecordingBlock` in `:open_local` (never
-   published or playable by local seal alone). Any `:outcome_unknown`, timeout
-   or caller loss aborts without sending the stream-end marker, never retries or
-   fails over to another replica, and leaves the reserved block and epoch intact
-   for inspection or recovery.
+   published or playable by local seal alone). Any `:outcome_unknown`, timeout,
+   failed relay drain or caller loss aborts without sending the stream-end
+   marker, never retries or fails over to another replica, and leaves the
+   reserved block and epoch intact for inspection or recovery. The recorder
+   lease keeps renewing until the NVR answers. A capture `timeout_ms` outside
+   1 through 300000 is refused before any recorder claim is taken.
 
 ## Finite stream contract
 
@@ -131,9 +133,9 @@ It never retries, follows redirects or selects another replica.
 A success receipt must match the requested storage lifetime and consecutive
 block keys. Transport or malformed-response failures return an unknown outcome
 requiring discovery at the original NVR. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
-This is a library for the media bridge; no inventory camera or agent/gateway
-consumer is enabled by installing it. Source assignment and admission remain
-required before wiring a live source into the client.
+This is a library for the media bridge; installing it enables no consumer. The
+[bounded relay coordinator](#bounded-relay-coordinator) is its only caller and
+performs source ownership and recorder admission before sending.
 
 ## Outcomes and preservation
 

@@ -93,8 +93,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   end
 
   def capture_on_host(_relay_session_id, _member, _remote_caller, timeout_ms, _worker_opts)
-      when timeout_ms not in 1..@max_timeout_ms,
-      do: {:error, :invalid_capture_timeout}
+      when timeout_ms not in 1..@max_timeout_ms, do: {:error, :invalid_capture_timeout}
 
   defp capture_requested_session(session, member, actor, {_caller, caller_monitor} = watch, deadline, opts) do
     case await_active_relay(session.id, actor, caller_monitor, deadline) do

@@ -1335,7 +1335,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       fn ->
         claim = recorder_claim(ctx)
 
-        if DateTime.compare(claim.lease_expires_at, detached_lease) == :gt,
+        if DateTime.after?(claim.lease_expires_at, detached_lease),
           do: {:ready, :ok},
           else: :waiting
       end,
