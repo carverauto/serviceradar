@@ -19,9 +19,18 @@ Committed foundations:
 - `24c987ddaf`: count/byte-bounded concurrent JetStream publication, stable retry
   IDs, persistent queue handoff and source-close draining under retry policy.
 
-JSON remains the wire format. Native Zen, binary transport, stream sharding and
-specialized receivers are design contracts, not implemented capabilities.
-Nothing from this branch has been pushed or deployed.
+- `d3dbb52142`: publisher tests for shared reconnect ownership and fail-closed
+  certificate policy configuration; synthetic publish-window benchmark example
+  and its first loopback measurement.
+- `944957d5d1`: `rust/zen-normalize`, the shared ordered-rule normalization
+  crate, with conformance cases whose expected records came from the JSON-text
+  implementation.
+- `6573ffe9e7`: the core Zen NIF evaluates through that crate.
+
+JSON remains the wire format. Flowgger does not call the shared Zen crate yet;
+binary transport, stream sharding and specialized receivers are design
+contracts, not implemented capabilities. Nothing from this branch has been
+pushed or deployed.
 
 ## Evidence and remaining checks
 
@@ -39,18 +48,45 @@ Nothing from this branch has been pushed or deployed.
   concurrency limit prevented starting another server at this checkpoint.
 - All four new OpenSpec proposals passed strict validation before this handoff;
   rerun validation after further edits.
-- No synthetic throughput benchmark, live deployment smoke test or full-repository
-  `make test` has been completed for this branch. No speedup is claimed.
+- Since that checkpoint, Cargo only: Flowgger suite 97 passed, zero failed, one
+  ignored; `serviceradar-zen-normalize` 5 passed; `zen_nif` builds; Clippy and
+  rustfmt clean on all three. Each new test was seen to fail against a mutated
+  owner. None of this has run in Bazel or CI: the new `//rust/zen-normalize`
+  targets, the NIF's new dependency and the `zen-expression` workspace
+  dependency are unverified there, and no Elixir test has exercised the NIF
+  since it changed.
+- The publish-window benchmark ran on a shared workstation over loopback. It
+  shows serial publishing as the limit at window 1 and the listener and codec
+  path as the limit from window 8 up. See `performance.md`; no multiplier is
+  claimed.
+- No live deployment smoke test or full-repository `make test` has been
+  completed for this branch.
 - Live operational inventory is not stored in the repository.
+
+## Findings that need an owner
+
+- The bundled `strip_full_message` rule does not remove `full_message`. Zen
+  drops a top-level `null` from a rule result, so the overlay keeps the
+  original field. The JSON-text implementation behaved the same way; the
+  shared crate preserves it. A nested `null` is kept and does replace.
+- A number Zen's decimal cannot hold is replaced by `null` when a rule returns
+  it inside a nested object or array. At the top level it survives. Also
+  inherited, also preserved.
+- A certificate policy revocation while ACKs are pending cannot be tested from
+  Flowgger without a production seam, because the policy loader accepts only
+  root-owned paths (`accelerate-log-ingestion` task 1.3a).
+- Core selects rules by subject and stream and orders them by `order`, then
+  insertion time. `ZenRuleSync` writes per-agent keys and orders its index by
+  `order`, then name. Task 2.3 must publish what core evaluates.
 
 ## Next agent prompt
 
 Read this handoff, tasks, choices and the three companion proposals. First run
-combined remote Flowgger, log-collector and Helm checks when the shared Bazel
-limit permits. Preserve Build-volume worktree and remote-rc requirements. Finish
-publisher reconnect/certificate coverage and a reproducible synthetic benchmark.
-Then implement shared native Zen and versioned datasvc rules, in parallel with
-binary-reader field/persistence parity where ownership permits. Deploy readers
+combined remote Flowgger, zen-normalize, Zen NIF, log-collector and Helm checks
+when the shared Bazel limit permits. Preserve Build-volume worktree and
+remote-rc requirements. Then publish versioned rules through datasvc (2.3) and
+consume them in the collector (2.4, 2.2a), in parallel with binary-reader
+field/persistence parity where ownership permits. Deploy readers
 before enabling normalized protobuf producers. Keep JSON compatibility until
 that transition is verified. Do not mark live rollout complete from unit tests.
 

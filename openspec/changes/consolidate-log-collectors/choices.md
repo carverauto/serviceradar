@@ -55,3 +55,15 @@ benchmark candidates rather than claims of an optimum.
   target port is declared on the unified pod and used by the primary and
   compatibility Services; the configured listener must match it. This preserves
   the existing operator control instead of silently sending to port 514.
+
+- **Shared normalization reproduces the JSON-text results exactly.** JSON
+  numbers keep their original text until a rule returns them, and a number
+  Zen cannot hold survives at the top level. A simpler conversion would have
+  rewritten `1.0` as `1` in fields no rule returned and turned `1e300` into
+  `null`. Two inherited behaviors are preserved, not endorsed: a top-level
+  `null` result does not remove a field, and a nested unrepresentable number a
+  rule returns becomes `null`.
+- **Each rule evaluates a copy of the record's containers.** Strings are
+  shared. Passing the record itself would be cheaper, but nothing establishes
+  that every Zen node type leaves its context unchanged.
+
