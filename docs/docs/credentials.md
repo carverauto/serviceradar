@@ -120,9 +120,9 @@ device. The row's `metadata` says what it stands for:
 | `run_id` | One value shared by every row the same compile wrote |
 | `partition` | The partition the compile was for, when it has one |
 
-The consumer columns name the profile, credential rule or device override
-whose credential was resolved, and `agent_id` names the agent the configuration
-was compiled for. A row whose resolutions each targeted a device has
+The consumer columns name the profile, credential rule, device override or
+discovery job whose credential was resolved, and `agent_id` names the agent
+the configuration was compiled for. A row whose resolutions each targeted a device has
 `target_kind` `device_set` and the digest as its `target_id`. A row with no
 `resolution_count` stands for exactly one resolution.
 
@@ -871,16 +871,24 @@ credentials from the file. Do not add new deployments to this path.
 Mapper uses the shared SNMP resolver for known inventory devices named by job
 seeds (IP, hostname, or device UID) and known devices matching enabled SNMP rules
 in the compiling agent's agent or partition scope. This includes known neighbors
-that discovery may encounter later; unknown addresses retain the collector's
-fallback credentials. A collector can therefore keep a v2c fallback while
-matching switches use scoped v3 credentials.
+that discovery may encounter later. Every other address, including seeds and
+newly found neighbours without a device credential, uses the job's own **SNMP
+Credential**, a reusable SNMP credential selected on the discovery job form. A
+job can therefore keep a v2c credential while matching switches use scoped v3
+credentials. The job credential never comes from the default SNMP profile, the
+mapper host's credential, or a monitoring rule.
+
+An SNMP discovery job without a credential still saves and runs, but probes
+only devices that have their own credential; the Discovery list marks it
+**No SNMP credential**. A credential referenced by a discovery job cannot be
+deleted while that reference exists.
 
 Resolved credentials are delivered by target IP. A credential-store read
 failure fails mapper config generation, and the agent keeps its running
 config. A broker refusal for one target, or two device records that resolve
 to the same IP with conflicting credentials, suppresses SNMP for that
 address before connecting or authenticating. That address is not retried
-with the collector fallback. Other targets and API discovery stay in the
+with the job credential. Other targets and API discovery stay in the
 compiled config. The mapper compiler logs the read failure, the refusal,
 or the conflict.
 
