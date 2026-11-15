@@ -151,7 +151,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         {:reply, {:unit, unit}, next}
 
       state.input_complete? ->
-        {:reply, :eof, state}
+        {reply, next} = eof_or_abort(state)
+        {:reply, reply, next}
 
       state.waiting_puller == nil ->
         {:noreply, %{state | waiting_puller: from}}
@@ -425,8 +426,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         }
 
       state.input_complete? ->
-        GenServer.reply(from, :eof)
-        %{state | waiting_puller: nil}
+        {reply, next} = eof_or_abort(state)
+        GenServer.reply(from, reply)
+        %{next | waiting_puller: nil}
 
       true ->
         state
@@ -447,19 +449,35 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp detach_recorder(state) do
     if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
 
-    if state.inbox, do: drain_or_cancel_inbox(state)
+    state = if state.inbox, do: drain_or_cancel_inbox(state), else: state
 
     %{state | detached?: true, input_complete?: true, lease_timer: nil}
   end
 
-  defp drain_or_cancel_inbox(%{capture: %{deadline: deadline}} = state) do
-    budget_ms = deadline - now()
+  defp drain_or_cancel_inbox(state) do
+    case check_capture(state.capture) do
+      :ok ->
+        timeout = min(@call_cap_ms, max(1, min(Inbox.remaining_ms(state.inbox), state.capture.deadline - now())))
+        drain_inbox(state, timeout)
+        record_capture_abort(state, check_capture(state.capture))
 
-    if budget_ms > 0 do
-      timeout = min(@call_cap_ms, max(1, min(Inbox.remaining_ms(state.inbox), budget_ms)))
-      drain_inbox(state, timeout)
-    else
-      Inbox.cancel(state.inbox)
+      {:error, _reason} = error ->
+        Inbox.cancel(state.inbox)
+        record_capture_abort(state, error)
+    end
+  end
+
+  defp record_capture_abort(state, :ok), do: state
+  defp record_capture_abort(state, {:error, reason}), do: %{state | abort_reason: state.abort_reason || reason}
+
+  defp eof_or_abort(state) do
+    case check_capture(state.capture) do
+      :ok ->
+        {:eof, state}
+
+      {:error, reason} ->
+        abort = state.abort_reason || reason
+        {{:abort, abort}, %{state | abort_reason: abort}}
     end
   end
 
