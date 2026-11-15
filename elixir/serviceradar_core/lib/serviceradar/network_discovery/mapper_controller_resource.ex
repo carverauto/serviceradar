@@ -29,8 +29,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperControllerResource do
     common_fields = [
       {:name, :string, [description: name_description]},
       {:base_url, :string, [allow_nil?: false, description: base_url_description]},
+      # Whitespace at either end is part of the secret.
       {secret_field, :string,
-       [public?: false, sensitive?: true, description: secret_description]},
+       [
+         public?: false,
+         sensitive?: true,
+         constraints: [trim?: false],
+         description: secret_description
+       ]},
       {:insecure_skip_verify, :boolean,
        [allow_nil?: false, default: false, description: insecure_description]},
       {:credential_secret_id, :uuid,

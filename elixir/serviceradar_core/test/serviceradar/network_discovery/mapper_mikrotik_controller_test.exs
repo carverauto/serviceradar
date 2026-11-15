@@ -52,6 +52,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikControllerTest do
            end)
   end
 
+  # A RouterOS password may begin or end with whitespace; storing anything else
+  # fails the login. The UniFi API key shares this secret field definition.
+  @tag :integration
+  test "stores the username and password byte-for-byte" do
+    actor = SystemActor.system(:mapper_mikrotik_controller_test)
+    {:ok, job} = create_job(actor)
+    username = " example-admin "
+    password = "\texample secret pw  "
+
+    {:ok, controller} =
+      MapperMikrotikController
+      |> Ash.Changeset.for_create(:create, %{
+        mapper_job_id: job.id,
+        base_url: "https://192.0.2.10",
+        username: username,
+        password: password
+      })
+      |> Ash.create(actor: actor)
+
+    reloaded = Ash.get!(MapperMikrotikController, controller.id, actor: actor)
+    assert reloaded.username == username
+    assert reloaded.password == password
+  end
+
   defp create_job(actor) do
     MapperJob
     |> Ash.Changeset.for_create(:create, %{name: "job-#{Ash.UUID.generate()}"}, actor: actor)

@@ -11,10 +11,11 @@ defmodule ServiceRadar.SNMPProfiles.Changes.EncryptCredentials do
 
   For each of those fields an action call does exactly one of three things:
 
-  - **set**: a non-blank value replaces the stored one.
+  - **set**: a non-blank value replaces the stored one, byte for byte. The
+    arguments are declared `trim?: false`, so whitespace at either end is kept.
   - **keep**: no value leaves the stored one alone. A blank string counts as no
-    value, because Ash's `:string` type casts `""` to `nil` before any change
-    sees it, so blank can never mean "clear".
+    value, because Ash's `:string` type casts an empty or whitespace-only string
+    to `nil` before any change sees it, so blank can never mean "clear".
   - **clear**: naming the field in `clear_credentials` removes the stored value.
     Setting and clearing the same field in one call is rejected.
 

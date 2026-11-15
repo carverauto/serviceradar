@@ -465,6 +465,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? false
       sensitive? true
+      # A scalar or template payload is the credential itself, so whitespace at
+      # either end is part of it. AshCloak copies these constraints onto the
+      # `secret_payload` argument of every action that accepts it.
+      constraints trim?: false
       description "Credential payload encrypted at rest by AshCloak"
     end
 
