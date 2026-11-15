@@ -395,6 +395,14 @@ jobs:
             serviceradar-native-addon-index.json
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"
 
+      - name: Retain Harbor promotion receipts
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: harbor-promotion-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HARBOR_LIFECYCLE_DIR }}/receipts/*.json
+          if-no-files-found: error
+
       - name: Remove temporary Harbor publishing credentials
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
         run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

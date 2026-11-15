@@ -110,6 +110,9 @@ PY
         --experimental-oci11 \
         "${COSIGN_VERIFY_ARGS[@]}" \
         "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}" >/dev/null
+    else
+      echo "error: ${ref} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity" >&2
+      exit 1
     fi
   done
 done
