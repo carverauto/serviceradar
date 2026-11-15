@@ -500,6 +500,7 @@ class ToolPublicationTest(unittest.TestCase):
                         "    repository, digest = command[1].removeprefix('registry.carverauto.dev/').split('@')\n"
                         "    for tag in command[2:]: state[repository][tag] = digest\n"
                         "    save()\n"
+                        "    print('Tagging [registry] ' + command[1]); print('Tagged ' + ' '.join(command[2:]))\n"
                         "else: raise SystemExit('unmodelled oras command')\n")
         oras.chmod(0o755)
         # The published file is the promoter itself; this synthetic one records
@@ -546,7 +547,9 @@ class ToolPublicationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         digest = self.registry()["serviceradar/harbor-lifecycle-tools"]["sha-" + self.COMMIT]
         reference = "registry.carverauto.dev/serviceradar/harbor-lifecycle-tools@" + digest
-        self.assertIn(reference, (self.root / "summary.md").read_text())
+        # Real oras prints progress for `tag`; the summary holds only the reference.
+        self.assertEqual([line for line in (self.root / "summary.md").read_text().splitlines()
+                          if line.startswith("- `")], [f"- `{reference}`"])
         self.assertEqual(self.registry()["serviceradar-builds/harbor-lifecycle-tools"], {"sha-" + self.COMMIT: digest})
         # Build storage is written by the build identity, the tag by the promotion
         # identity, and promotion runs the published promoter on exactly this root.

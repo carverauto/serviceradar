@@ -241,7 +241,8 @@ def publish_tool(directory, args):
                                      "--promotion-registry-config", str(directory / "promotion/config.json")))
             if f"{target}@{digest}" not in {artifact["reference"] for artifact in receipt["artifacts"]}:
                 raise ValueError("promotion receipt missing the promotion tool")
-            subprocess.run(["oras", "tag", f"{target}@{digest}", tag], env=protected, check=True)
+            subprocess.run(["oras", "tag", f"{target}@{digest}", tag], env=protected, check=True,
+                           stdout=sys.stderr)
         if run("oras", "resolve", f"{target}:{tag}", env=protected) != digest:
             raise ValueError("protected promotion tool tag does not resolve to the produced digest")
     receipt["published"] = [{"repository": TOOL_REPOSITORY, "digest": digest, "tags": [tag]}]
