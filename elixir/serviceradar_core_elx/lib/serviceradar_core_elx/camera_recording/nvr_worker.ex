@@ -483,8 +483,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     expected_key = state.block.block_key
     expected_storage = state.storage_id
 
-    case {state.abort_reason, state.frames_sent > 0, check_recovery_gate(), send_result} do
-      {nil, true, {:ok, _gate},
+    capture_status = check_capture(state.capture)
+
+    case {state.abort_reason, capture_status, state.frames_sent > 0, check_recovery_gate(), send_result} do
+      {nil, :ok, true, {:ok, _gate},
        {:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}} ->
         payload =
           state
@@ -494,11 +496,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         notify(state, {:completed, payload})
         {:stop, :normal, state}
 
-      {abort_reason, _has_frames, _gate_status, other_result} ->
-        reason = classify_send_failure(abort_reason, state.frames_sent, other_result)
+      {abort_reason, capture_status, _has_frames, _gate_status, other_result} ->
+        reason = classify_send_failure(abort_reason || capture_error(capture_status), state.frames_sent, other_result)
         finalize_uncertain(state, reason)
     end
   end
+
+  defp capture_error(:ok), do: nil
+  defp capture_error({:error, reason}), do: reason
 
   defp classify_send_failure(abort_reason, _frames_sent, _result) when not is_nil(abort_reason), do: abort_reason
   defp classify_send_failure(nil, 0, {:error, reason}), do: {:no_media_sealed, reason}
@@ -588,13 +593,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     deadline = resolve_deadline(opts)
 
     if is_pid(caller) and is_integer(deadline) do
-      capture = %{caller: caller, deadline: deadline}
-
-      with :ok <- check_capture(capture) do
-        monitor = Process.monitor(caller)
-        timer = Process.send_after(self(), {:capture_deadline, monitor}, max(0, deadline - now()))
-        {:ok, Map.merge(capture, %{monitor: monitor, timer: timer})}
-      end
+      capture = %{caller: caller, deadline: deadline, monitor: Process.monitor(caller)}
+      start_capture_timer(capture, check_capture(capture))
     else
       {:error, :invalid_capture}
     end
@@ -608,13 +608,33 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp check_capture(%{caller: caller, deadline: deadline}) do
-    cond do
-      deadline <= now() -> {:error, :capture_timeout}
-      not Process.alive?(caller) -> {:error, :capture_cancelled}
-      true -> :ok
+  defp start_capture_timer(capture, :ok) do
+    timer = Process.send_after(self(), {:capture_deadline, capture.monitor}, max(0, capture.deadline - now()))
+    {:ok, Map.put(capture, :timer, timer)}
+  end
+
+  defp start_capture_timer(capture, {:error, _reason} = error) do
+    Process.demonitor(capture.monitor, [:flush])
+    error
+  end
+
+  defp check_capture(%{deadline: deadline} = capture) do
+    if deadline <= now(), do: {:error, :capture_timeout}, else: check_caller_down(capture)
+  end
+
+  defp check_caller_down(%{caller: caller, monitor: monitor}) do
+    receive do
+      {:DOWN, ^monitor, :process, _pid, _reason} -> {:error, :capture_cancelled}
+    after
+      0 -> local_caller_status(caller)
     end
   end
+
+  defp local_caller_status(caller) when node(caller) == node() do
+    if Process.alive?(caller), do: :ok, else: {:error, :capture_cancelled}
+  end
+
+  defp local_caller_status(_remote_caller), do: :ok
 
   defp check_recovery_gate do
     gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
