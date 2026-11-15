@@ -1,14 +1,15 @@
-# Media storage io_uring seccomp profile
+# Media storage node prerequisites
 
-The media-storage chart defaults to `RuntimeDefault`. Operators running a
-Longshore-enabled release can select a node-installed `Localhost` profile that
-allows `io_uring_setup`, `io_uring_enter`, and `io_uring_register`. This setting
-applies only to media-storage. It does not enable recording or select the storage
-client; follow [archive storage installation](archive-init-storage.md) as well.
+The media-storage chart defaults to `RuntimeDefault`, which needs no node
+preparation and works with the default HTTP provider transport. The opt-in
+Longshore transport uses io_uring. It needs a node-installed `Localhost` seccomp
+profile that allows `io_uring_setup`, `io_uring_enter` and `io_uring_register`,
+and a raised locked-memory limit. This setting applies only to media-storage. It
+does not enable recording or select the storage client; follow
+[archive storage installation](archive-init-storage.md) as well.
 
-A Longshore client needs two things on each node, and the chart can apply
-neither: the seccomp profile, and a locked-memory limit large enough for its
-buffers. Both sections below are required.
+The chart can apply neither prerequisite. Both sections below are required, and
+the [node label](#label-prepared-nodes) marks a node where both are in place.
 
 ## Prepare and distribute the profile
 
@@ -18,6 +19,15 @@ Preserve its default-deny action and existing syscall rules, and allow the three
 io_uring calls. If the baseline explicitly denies those calls, resolve those rules
 in the reviewed profile; simply appending an allow rule is insufficient. Do not
 substitute an allow-all or audit-only profile.
+
+Longshore ships an example for containerd 2.3 on x86-64 with all capabilities
+dropped, which matches this workload:
+[`deploy/seccomp/containerd-2.3-x86_64-io-uring.json`](https://github.com/carverauto/longshore/blob/44fa671/deploy/seccomp/containerd-2.3-x86_64-io-uring.json).
+It is that runtime's generated default with one rule added, and longshore's ring
+checks pass under it. Its [container notes](https://github.com/carverauto/longshore/blob/44fa671/docs/containers.md)
+describe how it was made. Use it only where the runtime version and architecture
+match, and review it like any other profile; for anything else, start from that
+runtime's own default.
 
 The chart references the profile; node configuration management owns its content
 and distribution. Kubernetes resolves `localhostProfile` below the kubelet's
@@ -42,10 +52,8 @@ installed in the cluster can distribute it instead; use the profile path that
 operator reports. The ServiceRadar chart does not install a privileged node
 writer or change the runtime's default for other workloads.
 
-If only some nodes have the profile, label those nodes after installation and
-add that label to `mediaStorage.nodeSelector`. Incorporate installation and
-validation into node provisioning before applying the label to new nodes. Keep
-the existing architecture selector unless the image supports another architecture.
+Incorporate installation and validation into node provisioning, including the
+locked-memory limit below, before [labelling](#label-prepared-nodes) a node.
 
 ## Select the installed profile
 
@@ -107,10 +115,14 @@ the same configuration management as the profile. A node that has the profile bu
 not the limit will start the pod and then fail when the client starts. Use one
 node label for both prerequisites and apply it only when both are in place.
 
-Locked memory is counted per user ID on a node, so pods that run as the same UID
-share one limit. A finite limit has to cover the client's whole buffer pool, which
-is most of its memory. The pool is allocated at startup, so the pod's memory
-limit must cover it as well.
+The client registers a fixed pool when it starts. ServiceRadar opens it with one
+connection and one buffer of at most 16 MiB, and over HTTPS Longshore adds two
+TLS record buffers of the same size, so media-storage locks at most 48 MiB plus a
+few 8 KiB buffers. The client refuses any configuration that would lock more than
+64 MiB. The default 512Mi memory limit covers the pool. Locked memory is counted
+per user ID on a node, so pods that run as the same UID share one limit. A finite
+limit of 64 MiB (`LimitMEMLOCK=64M`) covers one media-storage pod; `infinity`
+avoids sizing it.
 
 Verify from inside the running pod, using the deployment's namespace in place of the
 synthetic `example-monitoring`:
@@ -119,8 +131,25 @@ synthetic `example-monitoring`:
 kubectl -n example-monitoring exec deploy/serviceradar-media-storage -- sh -c 'ulimit -l'
 ```
 
-The result must be `unlimited` or larger than the buffer pool, in KiB. A value of
-`8192` means the node was not prepared or the pod predates the change.
+The result must be `unlimited` or at least `65536` (KiB). A value of `8192`
+means the node was not prepared or the pod predates the change.
+
+## Label prepared nodes
+
+When `mediaStorage.seccompProfile.type` is `Localhost`, the chart adds
+`serviceradar.io/media-storage-node-prepared: "true"` to the pod's node selector,
+next to `mediaStorage.nodeSelector`. A node gets that label only after both the
+profile and the locked-memory limit are in place on it, so the pod stays pending
+instead of starting on a node where the client would fail. `RuntimeDefault`
+does not add it.
+
+```sh
+kubectl label node example-node-01 serviceradar.io/media-storage-node-prepared=true
+```
+
+Label replacement nodes only after they are prepared, and remove the label from
+a node before taking either prerequisite away. Keep the existing architecture
+selector unless the image supports another architecture.
 
 ## Verify before recording
 
@@ -145,9 +174,10 @@ can succeed and buffer registration still fail; see
 [Raise the locked-memory limit on the same nodes](#raise-the-locked-memory-limit-on-the-same-nodes).
 
 Also verify the provider network path. Longshore currently lacks HTTP CONNECT
-support; allowing io_uring does not make `mediaStorage.egressProxy` work with that
-client. Keep provider egress restrictions in place and resolve proxy compatibility
-before switching clients.
+support, so the storage process refuses to start with the Longshore transport and
+a provider proxy; allowing io_uring does not make `mediaStorage.egressProxy` work
+with that client. Keep provider egress restrictions in place and resolve proxy
+compatibility before switching clients.
 
 ## Roll back
 

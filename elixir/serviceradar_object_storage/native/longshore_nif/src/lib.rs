@@ -44,7 +44,9 @@ mod atoms {
 }
 
 const MAX_CLIENTS: usize = 2;
-const MAX_PAYLOAD_POOL: usize = 64 * 1024 * 1024;
+// The kernel locks every registered native buffer, so this bounds a client's
+// locked memory (RLIMIT_MEMLOCK) as well as its native buffer pool.
+const MAX_REGISTERED_POOL: usize = 64 * 1024 * 1024;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_ATTEMPTS: u32 = 4;
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
@@ -72,13 +74,28 @@ struct Config {
     buffer_size: usize,
 }
 
+// The large buffers the pinned Longshore registers for one I/O thread with this
+// wrapper's equal connection and buffer counts (client/threads/linux.rs): the
+// lent buffers, plus two TLS record buffers per connection over HTTPS, all sized
+// to at least 256 KiB with TLS. Counting only the lent buffers would let a TLS
+// client lock three times the bound. Each connection's 8 KiB head is additional.
+fn registered_pool_bytes(concurrency: usize, buffer_size: usize, tls: bool) -> usize {
+    let (record_buffers, size_floor) = if tls {
+        (2 * concurrency, 256 * 1024)
+    } else {
+        (0, 8192)
+    };
+    (concurrency + record_buffers) * buffer_size.max(size_floor)
+}
+
 impl Config {
     fn builder(self) -> Result<Builder, Atom> {
         let address = self.host.parse::<IpAddr>().ok();
         if self.port == 0
             || !(1..=16).contains(&self.concurrency)
             || !(8192..=16 * 1024 * 1024).contains(&self.buffer_size)
-            || self.buffer_size * self.concurrency > MAX_PAYLOAD_POOL
+            || registered_pool_bytes(self.concurrency, self.buffer_size, self.tls)
+                > MAX_REGISTERED_POOL
             || (!self.tls && !address.is_some_and(|ip| ip.is_loopback()))
         {
             return Err(atoms::bad_config());

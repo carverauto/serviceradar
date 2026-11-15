@@ -6,6 +6,7 @@
 - [x] 1.4 Land the separate media-storage seccomp chart setting, node-installation runbook and rendering tests (PR #6607).
 - [ ] 1.5 Verify the reviewed seccomp profile on every eligible node before pod qualification; reject unsupported configuration such as the withdrawn buffer-pinning option.
 - [ ] 1.6 Qualify the node/runtime memlock configuration needed for pinned zero-copy sends; obtain separate authorization before changing node configuration and verify every eligible node.
+- [x] 1.7 Bound each client's registered native buffers, TLS record buffers included, at 64 MiB so the bound is its locked memory; schedule `Localhost` media-storage only onto nodes labelled as prepared; rename the runbook to cover both node prerequisites (#6609).
 
 ## 2. Rustler integration
 

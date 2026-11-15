@@ -66,6 +66,12 @@ defmodule ServiceRadarObjectStorageTest do
     assert {:error, :closed} = Storage.fetch(client, key)
   end
 
+  test "the media-storage writer's largest TLS client fits the registered-buffer bound", %{config: config} do
+    # One connection and a 16 MiB buffer, as CameraStorage.Service opens it: 48 MiB with TLS records.
+    assert {:ok, client} = Storage.open(%{config | tls: true, buffer_size: 16_777_216})
+    assert {:closing, :ok} = {Storage.close(client), wait_closed(client)}
+  end
+
   test "strict put/head/get option, expect, budget, and range decoding rejects invalid maps", %{config: config} do
     assert {:ok, client} = Storage.open(config)
     on_exit(fn -> drain(client) end)
