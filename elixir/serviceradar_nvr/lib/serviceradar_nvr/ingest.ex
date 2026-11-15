@@ -6,23 +6,30 @@ defmodule ServiceRadarNVR.Ingest do
   deadline survives caller loss. Broken or incomplete bodies cancel the worker
   and preserve its journal; only an explicit end marker followed by HTTP EOF can
   request a seal. There is no automatic retry, takeover or storage initialization.
+
+  The same authenticated listener accepts `POST /v1/blocks/<block_id>/archive`,
+  which copies one sealed block to the request's bucket through
+  `ServiceRadarNVR.Archive` under its own 120-second deadline.
   """
   @behaviour Plug
 
   import Plug.Conn
 
+  alias ServiceRadarNVR.Archive
   alias ServiceRadarNVR.IngestStream
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
   require Logger
 
+  @archive_request_bytes 8192
+
   @impl true
   def init(config), do: config
 
   @impl true
   def call(conn, config) do
-    {:ok, timer} = :timer.exit_after(config.max_duration_ms, :kill)
+    {:ok, timer} = :timer.exit_after(deadline_ms(conn, config), :kill)
 
     try do
       with :https <- conn.scheme,
@@ -72,7 +79,23 @@ defmodule ServiceRadarNVR.Ingest do
     end
   end
 
+  defp route(%{method: "POST", path_info: ["v1", "blocks", block_id, "archive"]} = conn, config) do
+    with ["application/vnd.serviceradar.nvr-archive.v1+json"] <- get_req_header(conn, "content-type"),
+         {:ok, body, conn} <-
+           read_body(conn, length: @archive_request_bytes, read_length: @archive_request_bytes, read_timeout: 5_000) do
+      {status, result} = Archive.run(config, block_id, body)
+      respond(conn, status, result)
+    else
+      {:more, _partial, conn} -> respond(conn, 400, %{error: "invalid_archive_request"})
+      _ -> respond(conn, 400, %{error: "invalid_archive_request"})
+    end
+  end
+
   defp route(conn, _config), do: respond(conn, 404, %{error: "not_found"})
+
+  # The archive route has its own deadline; every other route keeps the ingest one.
+  defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "archive"]}, _config), do: Archive.request_timeout_ms()
+  defp deadline_ms(_conn, config), do: config.max_duration_ms
 
   defp consume(stream, worker, inbox, blocks) do
     case IngestStream.next(stream) do
@@ -152,12 +175,15 @@ defmodule ServiceRadarNVR.Ingest do
     :exit, _ -> :ok
   end
 
+  # A binary result is already canonical JSON, such as an archive receipt.
   defp respond(conn, status, result) do
+    body = if is_binary(result), do: result, else: Jason.encode!(result)
+
     conn
     |> put_resp_header("cache-control", "no-store")
     |> put_resp_header("x-content-type-options", "nosniff")
     |> put_resp_content_type("application/json")
-    |> send_resp(status, Jason.encode!(result))
+    |> send_resp(status, body)
     |> halt()
   end
 end

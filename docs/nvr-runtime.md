@@ -32,8 +32,10 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
 and health probes. A separately installed [private finite-stream listener](nvr-ingest.md)
 can accept authenticated media from the bounded relay coordinator described there;
-continuous recorder scheduling and pool assignment are not wired yet. Local catalog publication, S3 upload and automated restart
-reconciliation remain pending. Do not enable recording policies through this
+continuous recorder scheduling and pool assignment are not wired yet. Local catalog publication, automatic archive
+scheduling and reclamation, and automated restart reconciliation remain pending;
+an explicit, verified copy of one sealed block to a bucket is described under
+[Archive upload](#archive-upload). Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
 recording, local playback and deployed storage acceptance boundaries.
@@ -392,6 +394,60 @@ not qualified large-backlog catch-up throughput. Even without errors, a full
 4,096-entry cycle takes over an hour at this cadence. A block that cannot pass
 verification remains unresolved; no background repair or destructive cleanup is
 implied. Publication acceptance is still not playable local-copy availability.
+
+## Archive upload
+
+With `nvr.archive.enabled`, Core can ask an NVR replica to copy one sealed block
+to an S3-compatible bucket. The replica uploads the block's files through
+Longshore, verifies each by reading it back, and writes an `archive-receipt.json`
+beside the block. The local copy is kept and nothing is deleted. The request uses
+the ingest listener and token, so the chart refuses `nvr.archive.enabled` without
+`nvr.ingest.enabled`. Archive playback, reclamation and a Core record of the
+archive are not part of this.
+
+The bucket credential is stored in Core's CNPG credential store and travels inside
+each request. The NVR holds it in memory for that request only. The chart adds no
+Secret, value, environment variable or volume for it, and the read-only root
+filesystem is unchanged.
+
+```yaml
+nvr:
+  archive:
+    enabled: true
+    seccompProfile:
+      type: Localhost
+      localhostProfile: example/archive-uring-v1.json
+    providerEgress:
+      cidrs: ["192.0.2.0/24", "2001:db8:10::/48"]
+      port: 443
+```
+
+Longshore uses io_uring, which current containerd and Docker default profiles
+deny. A working archive needs the same node preparation as media-storage: a
+`Localhost` seccomp profile that allows io_uring and a raised locked-memory limit
+on every eligible node, then the node label. See
+[media storage node prerequisites](media-storage-node-prerequisites.md). The
+profile path follows the same rules as `mediaStorage.seccompProfile`, and
+`Unconfined` is refused. With `Localhost`, the NVR pod also gets the node selector
+`serviceradar.io/media-storage-node-prepared: "true"` alongside
+`nvr.nodeSelector`. `RuntimeDefault` renders, but uploads then fail when Longshore
+creates its ring. An admission controller that rewrites the pod's seccomp profile
+also replaces this one; check the running pod's `spec.securityContext`.
+
+One upload runs at a time per replica. It locks up to 48 MiB of buffers and holds
+one block of up to 16 MiB about twice, which the default 1 GiB memory limit
+covers. Locked memory is counted per user ID on a node. The NVR and media-storage
+pods both run as UID 10001, so size the node's limit for every such pod that can
+share a node (`infinity` avoids this).
+
+`providerEgress.cidrs` lists the provider endpoint addresses; the chart refuses an
+empty list, a hostname, a catch-all prefix or a port outside 1-65535. Kubernetes
+NetworkPolicy cannot match a hostname, and an object-storage hostname often
+rotates across many addresses. List the provider's published ranges for the
+region rather than the addresses one lookup returned. Longshore has no CONNECT
+proxy support, so these must be the provider's own addresses. The NVR pod is
+already excluded from the chart's namespace-wide egress policies, so this rule and
+DNS are its only egress.
 
 ## Local storage binding identity
 

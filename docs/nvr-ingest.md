@@ -169,6 +169,79 @@ or write-time disk guards. Closing recovery during work withholds success even
 if some bytes have already been written. Inspection and explicit recovery remain
 separate operations under their existing authority requirements.
 
+## Archive upload
+
+The same authenticated listener copies one sealed local block to an
+S3-compatible bucket and keeps the local copy. Core resolves the bucket
+credential from the unified CNPG credential inventory and sends it inside the
+request; the NVR holds it in memory for that request only. It is never written
+to disk, logged, returned or kept in a long-lived process. No Kubernetes Secret,
+Helm value or environment variable carries it.
+
+Send `POST /v1/blocks/<block_id>/archive`, where `block_id` is a 64-character
+block ID from an ingest receipt, with exactly one
+`Content-Type: application/vnd.serviceradar.nvr-archive.v1+json` header and a
+canonical JSON body of at most 8192 bytes:
+
+```json
+{"credential":{"access_key_id":"EXAMPLEARCHIVEKEY","secret_access_key":"example-secret"},"destination":{"bucket":"example-archive","host":"objects.example.com","object_prefix":"recordings/v1","region":"example-region-1"},"recovery_generation":"00000000-0000-4000-8000-000000000077","storage_id":"00000000-0000-4000-8000-000000000011","version":1}
+```
+
+| Field | Rule |
+| --- | --- |
+| `storage_id`, `recovery_generation` | This NVR's storage UUID and boot-pinned recovery generation |
+| `destination.host` | Path-style provider DNS name containing a dot, reached over TLS with public roots |
+| `destination.region` | Signing region, 1 through 40 of `[a-z0-9-]` |
+| `destination.bucket` | DNS-style bucket name, 3 through 63 bytes |
+| `destination.object_prefix` | 1 through 128 of `[a-z0-9/_-]`, no leading or trailing slash |
+| `destination.port` | Optional, 1 through 65535; default 443 |
+| `credential.access_key_id` | 1 through 256 printable ASCII bytes |
+| `credential.secret_access_key` | 1 through 512 bytes of UTF-8 |
+
+The client library accepts plaintext HTTP only to a numeric loopback address,
+so the NVR uses plaintext exactly when `destination.host` is a `127.0.0.0/8`
+literal, which serves the synthetic release-test peer. Core's archive
+destinations are DNS names on port 443, so production requests never take that
+path.
+
+Order of checks: request shape and binding (400), recovery gate (503
+`archive_unavailable`), one archive per NVR (503 `archive_busy`), verified sealed
+block (404 `block_not_found`, 409 `block_not_sealed`), retained receipt, then
+object size (422 `block_too_large` above 16 MiB). A retained receipt that
+re-encodes byte-for-byte from this request and the verified block is returned
+with 200 and no provider call. A receipt for another destination is refused with
+409 `archive_receipt_conflict` and never replaced.
+
+Objects are written under `<object_prefix>/<storage_id>/<block_id>/`: `init.mp4`
+(the initialization bytes), `media.m4s` (the complete sealed media file) and
+`descriptor.json` (the canonical descriptor bytes). Each PUT is a single attempt
+with `If-None-Match: *`, SSE-S3 (`AES256`) and its SHA-256 checksum. HEAD binds
+the object to its ETag, length and encryption, then ranged GETs of at most
+4 MiB, bound to that ETag, must hash to the local SHA-256. A 412 on PUT means the
+object already exists: it is verified the same way and never overwritten. An
+unknown PUT outcome is not retried and no other transport is tried; any provider
+failure answers 502 `{"error":"archive_failed","stage":"put|head|readback","object":"<name>"}`
+and writes no receipt. A retry verifies whatever the provider retained. Each
+failed archive logs one warning with the stage, object name and provider status
+or error class only.
+
+After all three objects verify, the client is closed and drained and
+`archive-receipt.json` is written beside the block (temporary file, fsync,
+rename, directory fsync) under the block's capacity allowance. The 200 response
+carries the same canonical bytes:
+
+```json
+{"block_id":"<block_id>","destination":{...as requested...},"objects":[{"etag":"\"...\"","key":"recordings/v1/<storage_id>/<block_id>/init.mp4","length":1234,"name":"init.mp4","sha256":"<hex>"},...],"storage_id":"<storage_id>","verified_at_ms":1700000000000,"version":1}
+```
+
+Every block reserves 4096 bytes for its receipt alongside its publication
+allowances; inventory accepts `archive-receipt.json` and an interrupted
+`archive-receipt.json.tmp`, and charges both by size. The request, including the
+provider work, client drain and receipt write, is bounded by 120 seconds. One
+Longshore client per request uses concurrency 1 and a 16 MiB buffer (48 MiB
+locked over TLS). A receipt names verified remote copies only: it is not a
+catalog entry, playback grant or permission to delete the local block.
+
 ## Verification
 
 `//elixir/serviceradar_nvr:release_test` owns the real HTTP/TLS and release-lifecycle
@@ -180,3 +253,9 @@ neither deployed-camera behavior nor physical Longhorn node-loss durability.
 The same target runs the packaged client against the packaged NVR and an
 independent TLS peer to check wire bytes, receipt binding, server identity,
 byte limits, no retries and bounded cleanup after producer or caller failure.
+`//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
+same harness on the Longshore-qualified executor pool: the packaged client
+archives a network-ingested block to a synthetic loopback object store, every
+object is compared byte-for-byte, the receipt survives restart and inventory,
+and refused, corrupted, existing-object, invalid, unsealed and concurrent
+requests are checked.
