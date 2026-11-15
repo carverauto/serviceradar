@@ -1,0 +1,101 @@
+name: Publish Harbor Lifecycle Tools
+
+# Publishes the shared promoter (carverauto/gitops k8s/harbor/promote-artifacts.py)
+# as the registry.carverauto.dev/serviceradar/harbor-lifecycle-tools bundle that
+# scripts/ci/harbor-publish.py pins by digest and file SHA256. The bundle is built
+# reproducibly, pushed to build storage with the build robot, promoted by the new
+# promoter itself with the promotion robot, then tagged sha-<gitops commit>.
+#
+# carverauto/gitops is private and no workflow credential here can read it, so the
+# reviewed file arrives as base64 and must match the reviewed SHA256. Dispatch:
+#   c=<gitops commit>
+#   gh workflow run publish-harbor-lifecycle-tools.yml --repo carverauto/serviceradar --ref staging \
+#     -f gitops_commit="$c" -f tool_sha256=<sha256 of the file at $c> \
+#     -f tool_base64="$(gh api "repos/carverauto/gitops/contents/k8s/harbor/promote-artifacts.py?ref=$c" -q .content | tr -d '\n')" \
+#     -f created=<fixed RFC 3339 UTC time> -f expected_digest=<optional sha256:...>
+# Re-running for an already published commit verifies the tag and changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      gitops_commit:
+        description: "Full carverauto/gitops commit SHA the promoter comes from"
+        required: true
+        type: string
+      tool_sha256:
+        description: "Reviewed SHA256 of k8s/harbor/promote-artifacts.py at that commit"
+        required: true
+        type: string
+      tool_base64:
+        description: "Base64 of k8s/harbor/promote-artifacts.py at that commit"
+        required: true
+        type: string
+      created:
+        description: "Fixed org.opencontainers.image.created value (e.g. 2026-11-15T12:00:00Z); it is part of the digest"
+        required: true
+        type: string
+      expected_digest:
+        description: "Optional sha256:<hex>; the run fails before any registry write if the bundle digest differs"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    environment: release
+    env:
+      OCI_REGISTRY: registry.carverauto.dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
+      - name: Publish and promote the promotion tool
+        env:
+          GITOPS_COMMIT: ${{ github.event.inputs.gitops_commit }}
+          TOOL_SHA256: ${{ github.event.inputs.tool_sha256 }}
+          TOOL_BASE64: ${{ github.event.inputs.tool_base64 }}
+          CREATED: ${{ github.event.inputs.created }}
+          EXPECTED_DIGEST: ${{ github.event.inputs.expected_digest }}
+        run: |
+          set -euo pipefail
+          source_file="${RUNNER_TEMP}/promote-artifacts.py"
+          printf '%s' "${TOOL_BASE64}" | base64 --decode > "${source_file}"
+          reference="$(python3 "${HARBOR_PUBLISH_TOOL}" publish-tool \
+            --gitops-commit "${GITOPS_COMMIT}" --source "${source_file}" --sha256 "${TOOL_SHA256}" \
+            --created "${CREATED}" --expected-digest "${EXPECTED_DIGEST}")"
+          {
+            printf '### Harbor lifecycle tools\n\n'
+            printf -- '- `%s`\n' "${reference}"
+            printf -- '- tag `sha-%s`, file SHA256 `%s`\n' "${GITOPS_COMMIT}" "${TOOL_SHA256}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Retain Harbor promotion receipts
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: harbor-promotion-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HARBOR_LIFECYCLE_DIR }}/receipts/*.json
+          if-no-files-found: error
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

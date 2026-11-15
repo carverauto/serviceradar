@@ -93,6 +93,25 @@ cleanup still runs if the upload fails. Receipts retained from a failed run are
 diagnostic evidence only: deployment requires a successful run with mandatory
 signature verification before and after promotion.
 
+### Publishing the promotion tool
+
+`scripts/ci/harbor-publish.py` pins the shared promoter
+(`carverauto/gitops` `k8s/harbor/promote-artifacts.py`) as
+`registry.carverauto.dev/serviceradar/harbor-lifecycle-tools@<digest>` plus the
+file's SHA256. The **Publish Harbor Lifecycle Tools** workflow
+(`publish-harbor-lifecycle-tools.yml`) publishes a new promoter with the same
+build and promotion robots as the other publishers. Its inputs are the GitOps
+commit, the file's reviewed SHA256, the file as base64 (the GitOps repository is
+private and no workflow credential can read it), a fixed creation time, and an
+optional expected digest. The bundle is built in a local OCI layout with fixed
+annotations, so its digest depends only on those inputs. A mismatch with the
+expected digest fails before any registry write. The workflow pushes the bundle
+to build storage, promotes it with the new promoter itself, and tags it
+`sha-<gitops commit>`. If that tag already resolves to the produced digest, the
+run verifies it and writes nothing; a tag holding other bytes fails. The
+dispatch command is in the workflow header. Update the pin in
+`harbor-publish.py` only after the run succeeds.
+
 The separate GitOps rollout gate still controls retention activation: do not
 enable disposable deletion until all deployment paths reject that project and
 the build/promotion/rollback and retention dry-run exercises pass.
