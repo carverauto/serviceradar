@@ -222,7 +222,7 @@ enum Outcome {
     Stored(bool),
     Fetched(Option<OwnedBinary>),
     Reported {
-        report: Report,
+        report: Box<Report>,
         body: Option<OwnedBinary>,
     },
 }
@@ -289,14 +289,20 @@ fn operate(client: &Client, key: &str, operation: Operation) -> Result<Outcome, 
             drop(bytes);
             let (result, _buffer) = client.put(key, buffer, len, &options, budget).wait();
             let report = result.map_err(classify_exact)?;
-            Ok(Outcome::Reported { report, body: None })
+            Ok(Outcome::Reported {
+                report: Box::new(report),
+                body: None,
+            })
         }
         Operation::HeadExact { expect, budget } => {
             let report = client
                 .head(key, &expect, budget)
                 .wait()
                 .map_err(classify_exact)?;
-            Ok(Outcome::Reported { report, body: None })
+            Ok(Outcome::Reported {
+                report: Box::new(report),
+                body: None,
+            })
         }
         Operation::GetExact {
             range,
@@ -329,7 +335,10 @@ fn operate(client: &Client, key: &str, operation: Operation) -> Result<Outcome, 
                 }
                 _ => None,
             };
-            Ok(Outcome::Reported { report, body })
+            Ok(Outcome::Reported {
+                report: Box::new(report),
+                body,
+            })
         }
     }
 }

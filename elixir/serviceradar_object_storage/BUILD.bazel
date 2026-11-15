@@ -13,12 +13,12 @@ exports_files([
 
 filegroup(
     name = "srcs",
-    srcs = glob(["lib/**"]) + ["mix.exs", "mix.lock"],
+    srcs = glob(["lib/**"]) + glob(["config/**"], allow_empty = True) + ["mix.exs", "mix.lock"],
 )
 
 filegroup(
     name = "deps_srcs",
-    srcs = ["mix.exs", "mix.lock"],
+    srcs = ["mix.exs", "mix.lock"] + glob(["config/**"], allow_empty = True),
 )
 
 STORAGE_DEPS = ["@hexpm//:rustler", "@rules_elixir//elixir"]
