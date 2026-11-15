@@ -14,6 +14,7 @@ defmodule ServiceRadar.TestSupport.InlineEventWriterPublisher do
   """
 
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.EventWriter.Processors.AvailabilityTransitions
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.EventWriter.Processors.Metrics
@@ -58,6 +59,7 @@ defmodule ServiceRadar.TestSupport.InlineEventWriterPublisher do
   end
 
   defp processor_for("events." <> _), do: {:ok, Events}
+  defp processor_for("availability.transitions." <> _), do: {:ok, AvailabilityTransitions}
   defp processor_for("logs." <> _), do: {:ok, Logs}
   defp processor_for("metrics." <> _), do: {:ok, Metrics}
   defp processor_for("signals.analytics." <> _), do: {:ok, AnalyticsSignals}

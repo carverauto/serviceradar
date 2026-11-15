@@ -1221,6 +1221,24 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc """
+  The merged device availability history (`ServiceRadar.Inventory.Availability.History`).
+  The records are few, one per change of a device's merged state, so they share the
+  `events` stream under their own subject and consumer rather than a stream of their own.
+  """
+  @spec availability_transitions_stream() :: stream_config()
+  def availability_transitions_stream do
+    %{
+      name: "AVAILABILITY_TRANSITIONS",
+      stream_name: "events",
+      subject: "availability.transitions.>",
+      processor: ServiceRadar.EventWriter.Processors.AvailabilityTransitions,
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_max_deliver: 5
+    }
+  end
+
   @doc "Assessment after-images on the stream owned by the transactional outbox relay."
   @spec exposure_transitions_stream() :: stream_config()
   def exposure_transitions_stream do
@@ -1373,6 +1391,7 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       scan_results_stream(),
       mtr_results_stream(),
+      availability_transitions_stream(),
       exposure_transitions_stream(),
       exposure_dimensions_stream(),
       exposure_snapshots_stream(),

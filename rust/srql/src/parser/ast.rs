@@ -79,6 +79,8 @@ pub enum Entity {
     SourceFactDisagreements,
     MergeAudit,
     DeviceRevivalAudit,
+    /// Merged device availability history (`device_availability_transitions`).
+    DeviceAvailabilityHistory,
     SecurityEvents,
     DeviceIdentifiers,
     IdentityReconciliationRuns,

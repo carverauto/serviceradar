@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     if is_nil(socket.assigns[:availability_request_ref]) do
       scope = socket.assigns.current_scope
       request_ref = make_ref()
-      device_state = merged_availability_state(uid, socket.assigns[:merged_availability])
+      merged_availability = merged_availability(uid, socket.assigns[:merged_availability])
 
       socket
       |> assign(:availability_request_ref, request_ref)
@@ -190,7 +190,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
       |> start_async({:device_availability, uid, request_ref}, fn ->
         AvailabilityData.load_availability(srql_module, uid, scope,
           agent_id: agent_id,
-          device_state: device_state
+          merged_availability: merged_availability,
+          converged?: Map.get(socket.assigns, :availability_converged?, &MergedAvailability.converged?/0)
         )
       end)
     else
@@ -199,16 +200,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   end
 
   # The details batch that loads the device's canonical availability runs alongside this
-  # refresh, so until it lands the state is read on demand inside the async task.
-  defp merged_availability_state(_uid, %{state: state}), do: state
+  # refresh, so until it lands the decision is read on demand inside the async task.
+  defp merged_availability(_uid, %{state: _state} = summary), do: summary
 
-  defp merged_availability_state(uid, _availability) do
-    fn ->
-      case MergedAvailability.load([uid]) do
-        %{^uid => %{state: state}} -> state
-        _ -> :unknown
-      end
-    end
+  defp merged_availability(uid, _availability) do
+    fn -> Map.get(MergedAvailability.load([uid]), uid) end
   end
 
   def finish_availability_refresh(socket, uid, request_ref, result) do

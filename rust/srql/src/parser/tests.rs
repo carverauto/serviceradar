@@ -933,6 +933,31 @@ fn parses_bmp_events_entity() {
 }
 
 #[test]
+fn parses_every_device_availability_history_spelling() {
+    // web-ng routes and authorizes the entity by exactly these spellings.
+    for spelling in [
+        "device_availability_history",
+        "device_availability_transitions",
+        "availability_history",
+    ] {
+        let ast = parse(&format!(
+            r#"in:{spelling} uid:"sr:00000000-0000-4000-8000-000000000001" time:last_24h"#
+        ))
+        .unwrap();
+        assert!(
+            matches!(ast.entity, Entity::DeviceAvailabilityHistory),
+            "{spelling}"
+        );
+        assert_eq!(ast.filters.len(), 1, "{spelling}");
+        assert_eq!(ast.filters[0].field, "uid");
+        assert_eq!(
+            ast.filters[0].value.as_scalar().unwrap(),
+            "sr:00000000-0000-4000-8000-000000000001"
+        );
+    }
+}
+
+#[test]
 fn rejects_overly_long_stats_expression() {
     let query = format!(
         "in:logs stats:{}",

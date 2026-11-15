@@ -991,4 +991,26 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Merged device availability history (`platform.device_availability_transitions`,
+    /// a TimescaleDB hypertable on `changed_at`). One row per change of a device's
+    /// merged availability state: the device was `from_state` from `from_since`
+    /// until `changed_at`, when it became `to_state`.
+    device_availability_transitions (device_uid, changed_at, to_state) {
+        device_uid -> Text,
+        changed_at -> Timestamptz,
+        to_state -> Text,
+        from_state -> Text,
+        from_since -> Nullable<Timestamptz>,
+        authority_class -> Nullable<Text>,
+        source_kind -> Nullable<Text>,
+        reporter_agent_id -> Nullable<Text>,
+        rule -> Nullable<Text>,
+        conflict -> Bool,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

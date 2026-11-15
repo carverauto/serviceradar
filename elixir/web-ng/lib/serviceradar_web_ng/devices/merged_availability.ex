@@ -56,6 +56,22 @@ defmodule ServiceRadarWebNG.Devices.MergedAvailability do
     end
   end
 
+  @doc """
+  Whether core has converged every device onto merged availability
+  (`availability_settings.converged_at`, set once by the upgrade reconciliation). Until
+  then a device's merged state is not yet the value in force, so its history is not
+  rendered as the device's availability.
+  """
+  @spec converged?() :: boolean()
+  def converged? do
+    from(s in "availability_settings",
+      where: field(s, :singleton),
+      select: not is_nil(field(s, :converged_at))
+    )
+    |> Repo.one()
+    |> Kernel.==(true)
+  end
+
   @doc "Builds the summary from the `availability_*` columns, atom- or string-keyed."
   @spec from_columns(map()) :: t()
   def from_columns(columns) when is_map(columns) do

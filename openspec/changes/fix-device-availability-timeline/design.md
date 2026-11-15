@@ -154,6 +154,15 @@ JetStream-first rule; CNPG remains a complete backend without StarRocks). SRQL g
 `in:device_availability_history` with `uid:` and `time:` filters. Write volume is
 O(state changes), which the resolver already bounds (write-on-change).
 
+Implementation notes: the subject shares the existing `events` stream (EventWriter merges
+its subject into that stream) under its own consumer, `AVAILABILITY_TRANSITIONS`, so no
+new stream, sizing profile or budget entry is needed; core's NATS user gains publish on
+`availability.transitions.device`. CNPG retention is the telemetry retention path
+(`DataRetentionWorker`, key `:availability_history_retention_days`, 14-day code default,
+capped by the CNPG telemetry ceiling); the StarRocks table keeps 365 daily partitions, the
+warehouse's one-year default. The transitions outbox job publishes the history first and
+retries before announcing anything if it cannot.
+
 **Storage (option 2, rejected).** An OCSF event `device.availability_changed` through
 `InternalLogPublisher`, stored with the other internal events and read with
 `in:events`. It needs no new table or SRQL entity, but puts every transition in the
@@ -175,11 +184,14 @@ Time covered by neither is unknown. A device with no decision (`unknown`, or no
 device was unavailable for any part of it, `online` when every known part of it was
 available, and `unknown` when no part of it is known. An offline bucket's tooltip shows
 how many minutes of it the device was down. Uptime is time-weighted: available seconds
-over known seconds. The deciding source of each segment is shown in its tooltip.
+over known seconds. A bucket's tooltip shows its state and, when offline, the minutes down.
 
-The merged-history timeline renders only where the resolver is authoritative. In
-`legacy` and `shadow` modes the merged value is not yet the one in force, so the
-timeline keeps the probe timeline and labels it as probe history.
+The merged-history timeline renders only where the resolver is authoritative.
+`simplify-merged-availability-rollout` removed the `legacy`/`shadow`/`authoritative`
+modes: core always runs merged availability, after a one-time convergence on upgrade
+recorded in `availability_settings.converged_at`. "Authoritative" is therefore
+"converged": until `converged_at` is set the merged value is not yet the one in force,
+so the timeline keeps the probe timeline and labels it as probe history.
 
 With an agent selected, the timeline shows that agent's raw probe history from
 `sweep.host.available` / `icmp_available` as today, titled as that agent's probe
@@ -207,6 +219,7 @@ disconnected mount).
 2. Bucket rule: any unavailable time marks the 30-minute bucket offline; its tooltip
    shows the minutes down; uptime stays time-weighted.
 3. Modes: the merged-history timeline renders only where the resolver is authoritative;
-   `legacy` and `shadow` keep the probe timeline, labelled as probe history.
+   `legacy` and `shadow` keep the probe timeline, labelled as probe history. With the
+   modes since removed, this is "after the upgrade convergence" (Decision 3).
 4. Leased gauges: no loss window; a per-batch pending marker and a bounded sweeper
    (Decision 1).

@@ -10,8 +10,9 @@
 
 ## 2. Defect B: merged availability history (approved 2026-11-14: storage option 1, any-down bucket rule with minutes-down tooltip, authoritative mode only; follow-up PR)
 
-- [ ] 2.1 History record and JetStream subject; EventWriter processor; CNPG hypertable and StarRocks table (StarRocks only when enabled).
-- [ ] 2.2 Emit one record per transition from the `Transitions` outbox, including reconciliation changes, ungated, with a deterministic message id.
-- [ ] 2.3 SRQL read path for a device's history over a time window.
-- [ ] 2.4 Timeline: render merged history plus the current decision; unknown where nothing is recorded; remove the synthesized current-state fallback; offline buckets show minutes down; agent selection shows that agent's probe history, labelled; `legacy`/`shadow` modes keep the probe timeline, labelled as probe history.
-- [ ] 2.5 Tests for the record, the emitter, the reader and the bucket rules.
+- [x] 2.1 History record and JetStream subject; EventWriter processor; CNPG hypertable and StarRocks table (StarRocks only when enabled).
+- [x] 2.2 Emit one record per transition from the `Transitions` outbox, including reconciliation changes, ungated, with a deterministic message id.
+- [x] 2.3 SRQL read path for a device's history over a time window.
+- [x] 2.4 Timeline: render merged history plus the current decision; unknown where nothing is recorded; remove the synthesized current-state fallback; offline buckets show minutes down; agent selection shows that agent's probe history, labelled; `legacy`/`shadow` modes keep the probe timeline, labelled as probe history.
+- [x] 2.5 Tests for the record, the emitter, the reader and the bucket rules.
+- [ ] 2.6 Verify on a deployment after rollout: a device's history rows exist (StarRocks when enabled, CNPG otherwise) after a merged state change, and the timeline matches the badge.

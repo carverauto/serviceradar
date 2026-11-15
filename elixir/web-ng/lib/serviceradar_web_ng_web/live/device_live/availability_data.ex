@@ -14,29 +14,185 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   # One row per bucket and probed address: a full window spans up to 49 buckets, and a sweep probes a
   # device at its own address plus up to eight aliases.
   @row_limit 500
+  # One record per change of the device's merged state; a day holds few of them.
+  @history_limit 1_000
 
+  @doc """
+  The device's Availability Timeline over the last 24 hours, in 30-minute buckets.
+
+  With no agent selected, once core has converged onto merged availability
+  (`MergedAvailability.converged?/0`), the timeline is the history of the device's merged
+  availability, the value its badge shows (`fix-device-availability-timeline`, design
+  Decision 3): the current decision covers the time since `availability_changed_at`, and
+  each `in:device_availability_history` record covers the interval it closes. Time
+  neither covers is unknown, never synthesized. Before convergence, and whenever an agent
+  is selected, the timeline is probe history (`ICMPData.load_availability/4`) and says so
+  in `:source`.
+
+  Options: `:agent_id`, `:now`, `:merged_availability` (the device's merged summary, or a
+  0-arity loader for it) and `:converged?` (a boolean, or a 0-arity loader).
+  """
   def load_availability(srql_module, device_uid, scope, opts \\ []) do
     now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
     start_at = DateTime.shift(now, second: -@window_seconds)
+    agent_id = Keyword.get(opts, :agent_id)
+
+    cond do
+      is_binary(agent_id) ->
+        load_probe_history(srql_module, device_uid, scope, agent_id, :agent_probe, start_at, now)
+
+      resolve(Keyword.get(opts, :converged?, &MergedAvailability.converged?/0)) ->
+        merged = resolve(Keyword.get(opts, :merged_availability)) || %{}
+        load_merged_history(srql_module, device_uid, scope, merged, start_at, now)
+
+      true ->
+        load_probe_history(srql_module, device_uid, scope, nil, :probe, start_at, now)
+    end
+  end
+
+  defp resolve(loader) when is_function(loader, 0), do: loader.()
+  defp resolve(value), do: value
+
+  defp load_probe_history(srql_module, device_uid, scope, agent_id, source, start_at, now) do
     range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
 
     case ICMPData.load_availability(srql_module, device_uid, scope,
            time_range: range,
            bucket: "30m",
-           agent_id: Keyword.get(opts, :agent_id),
+           agent_id: agent_id,
            limit: @row_limit
          ) do
-      {:ok, [_ | _] = rows} ->
-        build_availability(rows, start_at, now)
-
-      {:ok, []} ->
-        state = opts |> Keyword.get(:device_state) |> device_state()
-        build_availability_from_device_state(device_uid, state, start_at, now)
+      {:ok, rows} ->
+        rows |> build_availability(start_at, now) |> Map.put(:source, source)
 
       {:error, _reason} ->
         nil
     end
   end
+
+  defp load_merged_history(srql_module, device_uid, scope, merged, start_at, now) do
+    query =
+      ~s(in:device_availability_history uid:"#{escape_value(device_uid)}" ) <>
+        "time:[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}] " <>
+        "sort:changed_at:asc limit:#{@history_limit}"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => records}} when is_list(records) ->
+        records
+        |> history_intervals(merged, start_at, now)
+        |> build_merged_availability(start_at, now)
+
+      _ ->
+        nil
+    end
+  end
+
+  # Each record closes `[from_since, changed_at)` in `from_state`; the current decision
+  # holds over `[changed_at, now]`. A record without `from_since` closes an interval whose
+  # start is not known, so it covers nothing. Intervals are clipped to the window.
+  defp history_intervals(records, merged, start_at, now) do
+    closed =
+      Enum.flat_map(records, fn record ->
+        with {:ok, from_since} <- parse_timestamp(record["from_since"]),
+             {:ok, changed_at} <- parse_timestamp(record["changed_at"]) do
+          record["from_state"]
+          |> MergedAvailability.state()
+          |> interval(from_since, changed_at, start_at, now)
+        else
+          _ -> []
+        end
+      end)
+
+    current =
+      case merged do
+        %{state: state, changed_at: %DateTime{} = changed_at} ->
+          state |> MergedAvailability.state() |> interval(changed_at, now, start_at, now)
+
+        _ ->
+          []
+      end
+
+    closed ++ current
+  end
+
+  defp interval(state, from, until, start_at, now) when state in [:available, :unavailable] do
+    from = latest(from, start_at)
+    until = earliest(until, now)
+
+    if DateTime.before?(from, until),
+      do: [{state, DateTime.to_unix(from), DateTime.to_unix(until)}],
+      else: []
+  end
+
+  defp interval(_state, _from, _until, _start_at, _now), do: []
+
+  defp latest(a, b), do: if(DateTime.before?(a, b), do: b, else: a)
+  defp earliest(a, b), do: if(DateTime.after?(a, b), do: b, else: a)
+
+  # A bucket is offline when the device was unavailable for any part of it, online when
+  # every known part of it was available, and unknown when no part is known. Uptime is
+  # available time over known time.
+  defp build_merged_availability(intervals, start_at, end_at) do
+    first_second = DateTime.to_unix(start_at)
+    last_second = DateTime.to_unix(end_at)
+
+    buckets =
+      Enum.map(bucket_start(first_second)..bucket_start(last_second - 1)//@bucket_seconds, fn second ->
+        from = max(second, first_second)
+        until = min(second + @bucket_seconds, last_second)
+        up = overlap(intervals, :available, from, until)
+        down = overlap(intervals, :unavailable, from, until)
+        {second, until - from, up, down}
+      end)
+
+    segments =
+      Enum.map(buckets, fn {second, span, up, down} ->
+        state = merged_status(up, down)
+
+        %{
+          timestamp: second |> DateTime.from_unix!() |> DateTime.to_iso8601(),
+          status: state,
+          available: state == :online,
+          minutes_down: minutes(down),
+          width: span / @window_seconds * 100.0,
+          title: merged_label(state, down)
+        }
+      end)
+
+    up = buckets |> Enum.map(&elem(&1, 2)) |> Enum.sum()
+    known = up + (buckets |> Enum.map(&elem(&1, 3)) |> Enum.sum())
+    online = Enum.count(segments, &(&1.status == :online))
+    offline = Enum.count(segments, &(&1.status == :offline))
+
+    %{
+      uptime_pct: if(known > 0, do: Float.round(up / known * 100.0, 1)),
+      total_checks: online + offline,
+      online_checks: online,
+      offline_checks: offline,
+      unknown_checks: length(segments) - online - offline,
+      bucket_count: length(segments),
+      window_start: start_at,
+      window_end: end_at,
+      segments: segments,
+      source: :merged
+    }
+  end
+
+  defp overlap(intervals, state, from, until) do
+    for {^state, a, b} <- intervals, reduce: 0 do
+      acc -> acc + max(0, min(b, until) - max(a, from))
+    end
+  end
+
+  defp merged_status(_up, down) when down > 0, do: :offline
+  defp merged_status(up, _down) when up > 0, do: :online
+  defp merged_status(_up, _down), do: :unknown
+
+  defp minutes(seconds), do: div(seconds + 59, 60)
+
+  defp merged_label(:offline, down), do: "Offline (#{minutes(down)} min down)"
+  defp merged_label(:online, _down), do: "Online"
+  defp merged_label(:unknown, _down), do: "Unknown (no recorded state)"
 
   def source_agent_id(device_row) when is_map(device_row) do
     case Map.get(device_row, "availability_source_agent_id") ||
@@ -103,37 +259,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
       window_end: end_at,
       segments: segments
     }
-  end
-
-  # The device's canonical state, or a loader for it that runs only when no probe
-  # sample exists.
-  defp device_state(loader) when is_function(loader, 0), do: loader.()
-  defp device_state(state), do: state
-
-  # When a device reports its availability through plugin discovery (e.g. a satellite
-  # terminal with no IP sweep path), synthesize the full window from the device's
-  # current canonical availability state. Each bucket is marked with that state so the
-  # timeline is not entirely unknown; an `unknown` device keeps an unknown timeline.
-  defp build_availability_from_device_state(uid, state, start_at, end_at) when state in [:available, :unavailable] do
-    value = if state == :available, do: 1.0, else: 0.0
-    first_bucket = start_at |> DateTime.to_unix() |> bucket_start()
-    last_bucket = end_at |> DateTime.to_unix() |> Kernel.-(1) |> bucket_start()
-
-    rows =
-      Enum.map(first_bucket..last_bucket//@bucket_seconds, fn second ->
-        %{
-          "series" => uid,
-          "value" => value,
-          "timestamp" => second |> DateTime.from_unix!() |> DateTime.to_iso8601()
-        }
-      end)
-
-    result = build_availability(rows, start_at, end_at)
-    Map.put(result, :source, :plugin_reported)
-  end
-
-  defp build_availability_from_device_state(_uid, _state, start_at, end_at) do
-    build_availability([], start_at, end_at)
   end
 
   defp bucket_start(second), do: Integer.floor_div(second, @bucket_seconds) * @bucket_seconds

@@ -28,7 +28,8 @@ const QUERY_FIELDS: &[&str] = &["srql_query", "query"];
 /// Canonical SRQL entity for every spelling `ServiceRadar.Analytics.StarRocks.Readers.
 /// dataset_for_entity/1` routes to the warehouse, restricted to the entities the StarRocks
 /// dialect (`rust/srql/src/query/starrocks.rs` `dataset_for`, `starrocks/mtr.rs`,
-/// `starrocks/otel_metrics.rs`) compiles.
+/// `starrocks/otel_metrics.rs`, `starrocks/bmp_events.rs`,
+/// `starrocks/device_availability_history.rs`) compiles.
 /// `None` for anything else: a query SRQL never sends to StarRocks has no parity question.
 pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
     let entity = entity
@@ -62,6 +63,9 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "otel_traces" | "traces" | "trace_spans" => "traces",
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => "otel_trace_summaries",
         "bmp_events" | "bmp_event" | "bmp_routing_events" => "bmp_events",
+        "device_availability_history"
+        | "device_availability_transitions"
+        | "availability_history" => "device_availability_history",
         _ => return None,
     })
 }
@@ -163,6 +167,10 @@ mod tests {
         assert_eq!(warehouse_entity("pdns"), Some("dns_activity"));
         assert_eq!(warehouse_entity("bmp_event"), Some("bmp_events"));
         assert_eq!(warehouse_entity("bmp_routing_events"), Some("bmp_events"));
+        assert_eq!(
+            warehouse_entity("availability_history"),
+            Some("device_availability_history")
+        );
         assert_eq!(warehouse_entity("\"Flows\""), Some("flows"));
         assert_eq!(warehouse_entity("devices"), None);
         assert_eq!(warehouse_entity("cpu_metrics"), Some("cpu_metrics"));

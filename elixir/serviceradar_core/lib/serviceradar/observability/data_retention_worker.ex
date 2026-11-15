@@ -25,6 +25,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_otel_metrics_retention_days 30
   @default_otel_metric_points_retention_days 30
   @default_ocsf_events_retention_days 14
+  # The merged device availability history (device_availability_transitions).
+  @default_availability_history_retention_days 14
   @default_capacity_forecasts_retention_days 395
   @default_raw_metrics_retention_days 7
   @default_timeseries_metrics_retention_days 7
@@ -49,6 +51,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   # discard the forecast horizon. Hourly rollups are included, then floored
   # at the refresh window below.
   @cnpg_telemetry_ceiling_keys [
+    :availability_history_retention_days,
     :trace_summary_retention_days,
     :otel_traces_retention_days,
     :logs_retention_days,
@@ -82,6 +85,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
      @default_adhoc_scan_results_retention_days},
     {"service_status", :service_status_retention_days, @default_service_status_retention_days},
     {"events", :service_status_retention_days, @default_service_status_retention_days},
+    {"device_availability_transitions", :availability_history_retention_days,
+     @default_availability_history_retention_days},
     {"endpoint_inventory_scan_history", :endpoint_inventory_history_retention_days,
      @default_endpoint_inventory_history_retention_days},
     {"endpoint_inventory_package_events", :endpoint_inventory_history_retention_days,

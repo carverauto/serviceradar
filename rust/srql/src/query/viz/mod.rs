@@ -187,6 +187,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::DeviceSweepOverlap => inventory::device_sweep_overlap(),
         Entity::MergeAudit => inventory::merge_audit(),
         Entity::DeviceRevivalAudit => inventory::device_revival_audit(),
+        Entity::DeviceAvailabilityHistory => inventory::device_availability_history(),
         Entity::DeviceIdentifiers => inventory::device_identifiers(),
         Entity::IdentityReconciliationRuns => inventory::identity_reconciliation_runs(),
         Entity::IdentityEvidenceEdges => inventory::identity_evidence_edges(),

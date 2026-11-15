@@ -21,6 +21,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :exposure_cve_dim
           | :exposure_package_dim
           | :exposure_retired_ordinals
+          | :device_availability_transitions
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -133,6 +134,23 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "comm" => stringify(field(row, :comm)),
       "cmdline" => stringify(field(row, :cmdline)),
       "workload_identity" => json_text(field(row, :workload_identity))
+    }
+  end
+
+  # priv/starrocks/0042: the merged device availability history.
+  defp encode_row(:device_availability_transitions, row) do
+    %{
+      "device_uid" => stringify(value(row, :device_uid)),
+      "changed_at" => datetime(value(row, :changed_at)),
+      "to_state" => stringify(value(row, :to_state)),
+      "from_state" => stringify(value(row, :from_state)),
+      "from_since" => datetime(value(row, :from_since)),
+      "authority_class" => stringify(value(row, :authority_class)),
+      "source_kind" => stringify(value(row, :source_kind)),
+      "reporter_agent_id" => stringify(value(row, :reporter_agent_id)),
+      "rule" => stringify(value(row, :rule)),
+      "conflict" => value(row, :conflict) == true,
+      "created_at" => created_at(row)
     }
   end
 
