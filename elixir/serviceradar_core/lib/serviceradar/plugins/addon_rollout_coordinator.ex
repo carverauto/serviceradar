@@ -656,7 +656,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
     else
       :none ->
-        rotate_paused_canary(paused, actor, now, stats)
+        resume_past_host_failures(paused, previous_candidate, actor, now, stats)
 
       {:error, reason} ->
         Logger.warning("Failed to replace paused fleet rollout",
@@ -669,6 +669,101 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       _ ->
         increment(stats, :skipped)
     end
+  end
+
+  # What the agent reports when its package-installed updater predates a flag a
+  # systemd add-on install needs: errReleaseUpdaterFlagUnsupported in
+  # go/pkg/agent/release_runtime.go. The failure is the host's, whatever the
+  # candidate.
+  @updater_outdated_error "release updater does not support required flag"
+
+  # A paused rollout's rolled-back targets are judged again on every reconcile by
+  # the rule fail_candidate_target/7 applies when a target fails: a failure says
+  # something about the candidate only when the agent could have run it. A target
+  # whose agent cannot run the candidate now, or whose recorded failure was its
+  # host's outdated updater, is excluded under that reason and keeps its error.
+  # Rollouts paused before that rule existed, or before their agents reported
+  # themselves incompatible, otherwise stayed paused for good under
+  # tolerated_failures 0 and held their source on the previous package -- which
+  # an upgraded updater then refuses outright. Once no rolled-back target is
+  # left the rollout resumes; a failure of the candidate itself keeps it paused
+  # for an operator.
+  defp resume_past_host_failures(paused, candidate, actor, now, stats) do
+    paused.id
+    |> in_locked_rollout(actor, &exclude_host_failures_locked(&1, &2, candidate, actor, now))
+    |> case do
+      {:ok, :resumed, notifications} ->
+        send_notifications(notifications)
+        audit(:resume, paused, %{reason: "host_failures_excluded"})
+        increment(stats, :repaired)
+
+      {:ok, :excluded, notifications} ->
+        send_notifications(notifications)
+        increment(stats, :repaired)
+
+      {:error, {:no_host_failures, _}} ->
+        rotate_paused_canary(paused, actor, now, stats)
+
+      {:error, reason} ->
+        Logger.warning("Failed to exclude host failures from paused rollout",
+          rollout_id: to_string(paused.id),
+          reason: inspect(reason)
+        )
+
+        increment(stats, :skipped)
+    end
+  end
+
+  defp exclude_host_failures_locked(rollout, targets, candidate, actor, now) do
+    rolled_back = Enum.filter(targets, &(&1.state == :rolled_back))
+
+    with true <- rollout.state == :paused,
+         {:ok, agents} <- load_agents(rolled_back, actor),
+         [_ | _] = verdicts <- host_failure_verdicts(rolled_back, agents, candidate, now),
+         :ok <- exclude_host_failures(rollout, verdicts, actor, now) do
+      if length(verdicts) == length(rolled_back) do
+        with {:ok, _resumed} <-
+               update_rollout(
+                 rollout,
+                 %{state: :running, paused_at: nil, blocked_reason: nil, error: nil},
+                 actor
+               ),
+             do: {:ok, :resumed, []}
+      else
+        {:ok, :excluded, []}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:refuse, {:no_host_failures, rollout.id}}
+    end
+  end
+
+  defp host_failure_verdicts(rolled_back, agents, candidate, now) do
+    Enum.flat_map(rolled_back, fn target ->
+      case Eligibility.classify_target(candidate, Map.get(agents, target.agent_uid), now) do
+        {:incompatible, reason} ->
+          [{target, reason}]
+
+        _runnable ->
+          if updater_outdated_failure?(target.error),
+            do: [{target, "agent_updater_outdated"}],
+            else: []
+      end
+    end)
+  end
+
+  defp updater_outdated_failure?(error) when is_binary(error),
+    do: String.contains?(error, @updater_outdated_error)
+
+  defp updater_outdated_failure?(_error), do: false
+
+  defp exclude_host_failures(rollout, verdicts, actor, now) do
+    Enum.reduce_while(verdicts, :ok, fn {target, reason}, :ok ->
+      case exclude_incompatible_target(rollout, target, reason, target.error, actor, now) do
+        {:ok, _excluded} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @rotatable_canary_reasons [

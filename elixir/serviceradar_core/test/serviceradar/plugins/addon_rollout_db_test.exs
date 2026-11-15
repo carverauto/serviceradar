@@ -1479,6 +1479,108 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert next_targets[canary_uid].reason_code == "agent_updater_outdated"
   end
 
+  # Agents older than the updater capability reported only the install failure, so
+  # the coordinator of the time counted it against the candidate and rolled the
+  # target back. With no queued agent left to rotate to, the rollout stayed paused
+  # for good and held the profile on its previous package -- which an upgraded
+  # updater then refuses outright. Once the host package is upgraded, the failure
+  # is shown to have been the host's.
+  test "a paused rollout whose only failure was the host's outdated updater gives way to a new rollout" do
+    actor = SystemActor.system(:addon_rollout_paused_host_failure_test)
+    fixture = updater_profile_fixture(actor, ["a"])
+    [agent_uid] = fixture.agent_uids
+    rollout = pause_after_install_failure(fixture, agent_uid, updater_flag_error(fixture), actor)
+
+    # The host package is upgraded; the agent now reports a usable updater.
+    report_capabilities(fixture, agent_uid, ["addon.systemd.updater"], actor)
+
+    reconcile_at = DateTime.shift(fixture.started_at, minute: 2)
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: reconcile_at)
+
+    ended = get_rollout(rollout.id, actor)
+    assert ended.state == :canceled
+    assert ended.blocked_reason == "no_eligible_targets"
+
+    [target] = list_rollout_targets(rollout.id, actor)
+    assert target.state == :excluded
+    assert target.reason_code == "agent_updater_outdated"
+    assert target.error == updater_flag_error(fixture)
+
+    assert {:ok, _stats} =
+             AddonRolloutCoordinator.reconcile(
+               actor: actor,
+               now: DateTime.shift(reconcile_at, second: 30)
+             )
+
+    assert [next] =
+             AddonRollout
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(source_id == ^fixture.profile.id and id != ^rollout.id)
+             |> Ash.read!(actor: actor)
+
+    assert next.candidate_package_id == fixture.candidate.id
+
+    assert [%{agent_uid: ^agent_uid, state: :waiting_health}] =
+             list_rollout_targets(next.id, actor)
+  end
+
+  # The negative control: a target that rolled back because the candidate itself
+  # failed keeps the rollout paused for an operator, though its agent can still
+  # install the add-on.
+  test "a paused rollout whose only failure was the candidate's stays paused" do
+    actor = SystemActor.system(:addon_rollout_paused_candidate_failure_test)
+    fixture = updater_profile_fixture(actor, ["a"])
+    [agent_uid] = fixture.agent_uids
+    report_capabilities(fixture, agent_uid, ["addon.systemd.updater"], actor)
+
+    error =
+      "one or more add-on assignments failed permanently: #{fixture.addon_id}: " <>
+        "agent-updater systemd install failed: exit status 78: artifact signature is invalid"
+
+    rollout = pause_after_install_failure(fixture, agent_uid, error, actor)
+
+    reconcile_at = DateTime.shift(fixture.started_at, minute: 2)
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: reconcile_at)
+
+    assert get_rollout(rollout.id, actor).state == :paused
+    assert [%{state: :rolled_back}] = list_rollout_targets(rollout.id, actor)
+  end
+
+  # Starts the profile's rollout, fails its single target with `error` on the
+  # addons config section and recovers the previous version, leaving the rollout
+  # paused with that target rolled back.
+  defp pause_after_install_failure(fixture, agent_uid, error, actor) do
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+    record_addons_section_failure(agent_uid, error, failed_at)
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    recovered_at = DateTime.shift(failed_at, second: 5)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: agent_uid},
+      fixture.current.version,
+      "running",
+      true,
+      recovered_at,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: recovered_at)
+
+    paused = get_rollout(rollout.id, actor)
+    assert paused.state == :paused
+    assert paused.blocked_reason == "candidate_install_failed"
+    assert [%{state: :rolled_back}] = list_rollout_targets(rollout.id, actor)
+    paused
+  end
+
   # A profile whose package is systemd-supervised, with one bare-metal agent per
   # suffix. Agent uids sort in suffix order, so the first is the canary.
   defp updater_profile_fixture(actor, suffixes) do
@@ -1570,12 +1672,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
   # sent a systemd add-on: the capability, and the install failure on its addons
   # config section.
   defp report_updater_install_failure(fixture, agent_uid, failed_at, actor) do
-    error =
-      "one or more add-on assignments failed permanently: #{fixture.addon_id}: " <>
-        "locate agent updater for systemd install: release updater does not support required flag: --addon-version"
-
     report_capabilities(fixture, agent_uid, ["addon.systemd.updater.unavailable"], actor)
+    record_addons_section_failure(agent_uid, updater_flag_error(fixture), failed_at)
+  end
 
+  defp updater_flag_error(fixture) do
+    "one or more add-on assignments failed permanently: #{fixture.addon_id}: " <>
+      "locate agent updater for systemd install: release updater does not support required flag: --addon-version"
+  end
+
+  defp record_addons_section_failure(agent_uid, error, failed_at) do
     assert :ok =
              AgentGatewaySync.record_config_section_statuses(agent_uid, %{
                section_statuses: [

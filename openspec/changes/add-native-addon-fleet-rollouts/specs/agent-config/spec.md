@@ -175,6 +175,13 @@ batch.
 - **AND** SHALL exclude the target with the compatibility reason code and the reported error
 - **AND** SHALL NOT pause the rollout or count the failure against the candidate
 
+#### Scenario: Rollout paused on host failures is released on reconcile
+- **GIVEN** a paused rollout whose rolled-back targets failed only because their agents could not run the candidate: the agent now reports itself incompatible, or its recorded failure is the host updater lacking a flag the install needs
+- **WHEN** the control plane reconciles the rollout's source
+- **THEN** it SHALL exclude those targets with the compatibility reason code (`agent_updater_outdated` for the updater failure) and keep their reported errors
+- **AND** it SHALL resume the rollout once no rolled-back target remains, so the rollout advances, or ends `canceled` with `no_eligible_targets` when no target is left to run the candidate
+- **AND** a target rolled back because the candidate itself failed SHALL keep the rollout paused for an operator
+
 #### Scenario: Successful rollout promotes authoritative state
 - **GIVEN** every required rollout target for a profile has passed its gate
 - **WHEN** the rollout completes
