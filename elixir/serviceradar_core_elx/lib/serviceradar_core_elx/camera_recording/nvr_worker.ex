@@ -159,6 +159,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   @impl true
+  def handle_cast({:interrupt, reason}, state), do: handle_interrupt(state, reason)
+
+  @impl true
   def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
     if state.input_complete? or state.abort_reason != nil do
       release_inbox_credit(state, byte_size(unit.payload))
@@ -225,6 +228,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
+  def handle_info({:EXIT, _from, reason}, state) when reason != :normal, do: handle_interrupt(state, reason)
+
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
@@ -237,7 +242,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       Process.exit(state.sender_pid, :kill)
     end
 
-    if state.claim != nil and not state.uncertain? do
+    if state.claim != nil and not state.uncertain? and state.sender_pid == nil do
       release_clean_consumer(state)
     end
 

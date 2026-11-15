@@ -25,10 +25,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
   @default_timeout_ms 30_000
   @poll_interval_ms 100
+  @result_grace_ms 2_000
 
   @spec once_source(String.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def once_source(camera_source_id, stream_profile_id, member, opts \\ []) do
-    run_bounded(opts, fn caller_monitor, deadline ->
+    run_bounded(opts, fn caller, caller_monitor, deadline ->
       actor = resolve_actor(opts)
       open_opts = opts |> Keyword.take([:control_gateway_resolver, :dispatch_open]) |> Keyword.put(:actor, actor)
 
@@ -36,21 +37,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
            {:ok, profile_id} <- cast_uuid(stream_profile_id, :invalid_stream_profile_id),
            {:ok, _target} <- NVRTargetConfig.resolve(member, opts),
            {:ok, requested} <- RelaySessionManager.request_open(source_id, profile_id, open_opts) do
-        capture_requested_session(requested, member, actor, caller_monitor, deadline, opts)
+        capture_requested_session(requested, member, actor, {caller, caller_monitor}, deadline, opts)
       end
     end)
   end
 
   @spec once_relay(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def once_relay(relay_session_id, member, opts \\ []) do
-    run_bounded(opts, fn caller_monitor, deadline ->
+    run_bounded(opts, fn caller, caller_monitor, deadline ->
       actor = resolve_actor(opts)
 
       with {:ok, relay_id} <- cast_uuid(relay_session_id, :invalid_relay_id),
            {:ok, _target} <- NVRTargetConfig.resolve(member, opts),
            {:ok, relay} <- fetch_active_relay(relay_id, actor),
            {:ok, host_node} <- await_relay_host(relay.id, relay.media_ingest_id, caller_monitor, deadline) do
-        dispatch_to_host(host_node, relay.id, member, caller_monitor, deadline, opts)
+        dispatch_to_host(host_node, relay.id, member, {caller, caller_monitor}, deadline, opts)
       end
     end)
   end
@@ -90,12 +91,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     end
   end
 
-  defp capture_requested_session(session, member, actor, caller_monitor, deadline, opts) do
+  defp capture_requested_session(session, member, actor, {_caller, caller_monitor} = watch, deadline, opts) do
     case await_active_relay(session.id, actor, caller_monitor, deadline) do
       {:ok, active_relay} ->
         case await_relay_host(active_relay.id, active_relay.media_ingest_id, caller_monitor, deadline) do
           {:ok, host_node} ->
-            dispatch_to_host(host_node, active_relay.id, member, caller_monitor, deadline, opts)
+            dispatch_to_host(host_node, active_relay.id, member, watch, deadline, opts)
 
           {:error, _reason} = error ->
             maybe_close_unstarted_relay(active_relay.id, actor)
@@ -108,25 +109,25 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     end
   end
 
-  defp dispatch_to_host(host_node, relay_id, member, caller_monitor, deadline, opts) do
+  defp dispatch_to_host(host_node, relay_id, member, {caller, caller_monitor}, deadline, opts) do
     worker_opts = Keyword.take(opts, [:bounds, :inbox_opts, :config_file, :token_file])
     timeout_ms = max(1, remaining(deadline))
 
     with :ok <- check_caller(caller_monitor, deadline) do
       if host_node == node() do
-        capture_on_host(relay_id, member, self(), timeout_ms, worker_opts)
+        capture_on_host(relay_id, member, caller, timeout_ms, worker_opts)
       else
-        call_remote_host(host_node, relay_id, member, timeout_ms, worker_opts)
+        call_remote_host(host_node, relay_id, member, caller, timeout_ms, worker_opts)
       end
     end
   end
 
-  defp call_remote_host(host_node, relay_id, member, timeout_ms, worker_opts) do
+  defp call_remote_host(host_node, relay_id, member, caller, timeout_ms, worker_opts) do
     :erpc.call(
       host_node,
       __MODULE__,
       :capture_on_host,
-      [relay_id, member, self(), timeout_ms, worker_opts],
+      [relay_id, member, caller, timeout_ms, worker_opts],
       timeout_ms
     )
   catch
@@ -167,7 +168,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
         {:error, reason}
 
       {:DOWN, ^caller_monitor, :process, _pid, _reason} ->
-        Process.exit(worker, :shutdown)
+        GenServer.cast(worker, {:interrupt, :capture_cancelled})
         Process.demonitor(worker_monitor, [:flush])
         cancelled_or_uncertain(started_info, :capture_cancelled)
 
@@ -175,7 +176,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
         cancelled_or_uncertain(started_info, {:worker_exited, reason})
     after
       remaining(deadline) ->
-        Process.exit(worker, :shutdown)
+        GenServer.cast(worker, {:interrupt, :capture_timeout})
         Process.demonitor(worker_monitor, [:flush])
         cancelled_or_uncertain(started_info, :capture_timeout)
     end
@@ -299,12 +300,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
     {pid, monitor} =
       spawn_monitor(fn ->
-        {:ok, timer} = :timer.kill_after(remaining(deadline), self())
+        {:ok, timer} = :timer.kill_after(remaining(deadline) + @result_grace_ms, self())
         caller_monitor = Process.monitor(caller)
 
         result =
           try do
-            fun.(caller_monitor, deadline)
+            fun.(caller, caller_monitor, deadline)
           after
             :timer.cancel(timer)
           end
@@ -315,12 +316,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     try do
       receive do
         {^request, result} ->
-          if(remaining(deadline) > 0, do: result, else: {:error, :capture_timeout})
+          result
 
         {:DOWN, ^monitor, :process, ^pid, _reason} ->
           {:error, if(remaining(deadline) > 0, do: :capture_unavailable, else: :capture_timeout)}
       after
-        remaining(deadline) ->
+        remaining(deadline) + 2 * @result_grace_ms ->
           {:error, :capture_timeout}
       end
     after

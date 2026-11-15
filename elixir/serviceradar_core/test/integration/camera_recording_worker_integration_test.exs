@@ -1190,7 +1190,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              ) do
           [{worker, _}] ->
             case :sys.get_state(worker) do
-              %{inbox: %{id: inbox_id}} when is_binary(inbox_id) -> {:ready, worker}
+              %{inbox: %{id: inbox_id}} when is_reference(inbox_id) -> {:ready, worker}
               _ -> :waiting
             end
 
