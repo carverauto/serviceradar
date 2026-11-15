@@ -24,8 +24,8 @@ jobs:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
-      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      OCI_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -146,11 +146,19 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            echo "Missing Harbor robot credentials. Set HARBOR_BUILD_ROBOT_USERNAME and HARBOR_BUILD_ROBOT_SECRET." >&2
             exit 1
           fi
 
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
 
       - name: Publish Wasm plugin OCI artifacts
         env:
@@ -189,11 +197,15 @@ jobs:
             exit 1
           fi
 
-          ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
           source ./scripts/ci/prepare-openbao-cosign-env.sh
-          ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
           source ./scripts/ci/prepare-openbao-cosign-env.sh
-          ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+          promotion_args=(--kind wasm)
+          for tag in "${verify_tags[@]}"; do promotion_args+=(--tag "${tag}"); done
+          python3 "${HARBOR_PUBLISH_TOOL}" promote "${promotion_args[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY
 
       - name: Generate import index
@@ -368,3 +380,7 @@ jobs:
           # Leave v* releases draft. release.yml finalize publishes after
           # packages, catalogs, and security bundles are all present.
           echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

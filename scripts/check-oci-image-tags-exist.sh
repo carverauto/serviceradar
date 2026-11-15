@@ -44,15 +44,15 @@ if ! command -v oras >/dev/null 2>&1; then
 fi
 
 mapfile -t repositories < <(
-  python3 - "$INVENTORY" <<'PY'
+  python3 - "$INVENTORY" "${OCI_REGISTRY:-registry.carverauto.dev}" "${OCI_PROJECT:-serviceradar}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+path, registry, project = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 text = path.read_text()
 for repo in re.findall(r'"repository"\s*:\s*"([^"]+)"', text):
-    print(repo)
+    print(f"{registry}/{project}/{repo.rsplit('/', 1)[-1]}")
 PY
 )
 

@@ -9,6 +9,9 @@ fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
+export HARBOR_LIFECYCLE_DIR="${tmp_dir}/lifecycle"
+mkdir -p "${HARBOR_LIFECYCLE_DIR}/tool/k8s/harbor"
+printf '# synthetic capacity endpoint\n' >"${HARBOR_LIFECYCLE_DIR}/tool/k8s/harbor/promote-artifacts.py"
 bundle="${tmp_dir}/test.zip"
 metadata="${tmp_dir}/test.metadata.json"
 oras_log="${tmp_dir}/oras.log"
@@ -49,7 +52,7 @@ chmod +x "${tmp_dir}/oras"
   PATH="${tmp_dir}:${PATH}" \
     ORAS_LOG="${oras_log}" \
     OCI_REGISTRY=registry.test \
-    OCI_PROJECT=project \
+    OCI_PROJECT=serviceradar-builds \
     "${script}" \
       --bundle "${bundle}" \
       --metadata "${metadata}" \
@@ -59,13 +62,13 @@ chmod +x "${tmp_dir}/oras"
       --tag v0.1.0
 )
 
-grep -F "registry.test/project/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "${oras_log}" >/dev/null
-grep -F "registry.test/project/wasm-plugin-test:v0.1.0" "${oras_log}" >/dev/null
+grep -F "registry.test/serviceradar-builds/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "${oras_log}" >/dev/null
+grep -F "registry.test/serviceradar-builds/wasm-plugin-test:v0.1.0" "${oras_log}" >/dev/null
 
 cat >"${tmp_dir}/oras" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${ORAS_LOG}"
-if [[ " $* " == *" registry.test/project/wasm-plugin-test:v0.1.0 "* ]]; then
+if [[ " $* " == *" registry.test/serviceradar-builds/wasm-plugin-test:v0.1.0 "* ]]; then
   echo "Error response from registry: precondition: configured as immutable." >&2
   exit 1
 fi
@@ -78,7 +81,7 @@ if ! (
   PATH="${tmp_dir}:${PATH}" \
     ORAS_LOG="${oras_log}" \
     OCI_REGISTRY=registry.test \
-    OCI_PROJECT=project \
+    OCI_PROJECT=serviceradar-builds \
     "${script}" \
       --bundle "${bundle}" \
       --metadata "${metadata}" \
@@ -100,7 +103,7 @@ fi
 cat >"${tmp_dir}/oras" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${ORAS_LOG}"
-if [[ " $* " == *" registry.test/project/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "* ]]; then
+if [[ " $* " == *" registry.test/serviceradar-builds/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "* ]]; then
   echo "Error response from registry: precondition: configured as immutable." >&2
   exit 1
 fi
@@ -112,7 +115,7 @@ if (
   PATH="${tmp_dir}:${PATH}" \
     ORAS_LOG="${oras_log}" \
     OCI_REGISTRY=registry.test \
-    OCI_PROJECT=project \
+    OCI_PROJECT=serviceradar-builds \
     "${script}" \
       --bundle "${bundle}" \
       --metadata "${metadata}" \

@@ -31,13 +31,20 @@ The script validates that `CHANGELOG` already contains a section for the version
 
 > **Tip:** Use `--stamp` on publish commands so Bazel injects the `STABLE_COMMIT_SHA` from `scripts/workspace_status.sh`.
 
-## Step 1 – Push container images
+## Step 1 – Publish verified container images
 
-```
-bazel run --stamp //docker/images:push_all -- --tag v$(cat VERSION)
+Use `.github/workflows/release.yml` for an authorized release. For a test build:
+
+```bash
+gh workflow run publish-oci.yml --repo carverauto/serviceradar \
+  --ref <reviewed-branch> -f publish_scope=full -f expected_commit=<full-commit>
 ```
 
-Refer to `docs/GHCR_PUBLISHING.md` for more details on configuring Harbor credentials and tagging conventions.
+The workflow writes build artifacts to `serviceradar-builds`, signs and verifies
+them, then promotes the exact graph into `serviceradar`. Require a successful
+promotion receipt before deploying; pin deployment images by digest. Raw Bazel
+`*_push` targets default to disposable storage and do not constitute publication.
+The old Makefile and workstation publishing entrypoints fail closed.
 
 ## Step 2 – Publish Debian and RPM artifacts
 
@@ -121,38 +128,9 @@ All `pkg_deb` and `pkg_rpm` targets derive their version from the repository `VE
 
 For RPM builds the macro automatically splits pre-release strings (e.g. `1.0.53-pre11`) into `Version: 1.0.53` and `Release: pre11`, which means the generated file remains `serviceradar-<component>-1.0.53-pre11.x86_64.rpm` while still satisfying rpmbuild’s character restrictions.
 
-## Running the Bazel release pipeline
+## Retired aggregate release launcher
 
-The repository exposes the release sequence as a manual Linux/BuildBuddy-runner Bazel entry point.
-No checked-in BuildBuddy workflow currently dispatches it automatically:
-
-```bash
-bazel run -c opt --config=ci //build/buildbuddy:release_pipeline
-```
-
-Do not run that aggregate Linux launcher directly on macOS. Use `scripts/push_all_images.sh` for
-the Darwin-safe image publish path, and run the package publisher separately from a supported
-Linux/BuildBuddy runner when cutting a full release.
-
-`//build/buildbuddy:release_pipeline` bootstraps Docker auth with `./buildbuddy_setup_docker_auth.sh`, determines the release tag (from `RELEASE_TAG`, the legacy `WORKFLOW_INPUT_tag`, a Git tag, or the `VERSION` file), pushes all container images, and then invokes `//build/release:publish_packages`. Useful environment variables:
-
-- `RELEASE_TAG` (or legacy `WORKFLOW_INPUT_tag`) – forces the tag passed to both publish steps.
-- `RELEASE_NOTES_FILE` – points at a file that `publish_packages` should attach as the release body.
-- `PUSH_DRY_RUN` and `RELEASE_DRY_RUN` – add `--dry-run` to `oci_push` and `publish_packages` for validation runs (default `0`).
-- `PUSH_EXTRA_ARGS` – extra flags forwarded to `oci_push` (for example, `--allow-nondistributable-artifacts`).
-- `APPEND_NOTES`, `DRAFT_RELEASE`, `PRERELEASE`, `OVERWRITE_ASSETS` – mirror the corresponding flags of `publish_packages`.
-
-Ensure the following variables and BuildBuddy secrets are present in the Linux/BuildBuddy runner
-environment before invoking the manual target:
-
-- `OCI_USERNAME` and `OCI_TOKEN` (or another input mode accepted by
-  `buildbuddy_setup_docker_auth.sh`)
-- `FORGEJO_TOKEN`
-- `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel's `--config=ci` can authenticate to BuildBuddy inside the workflow.
-- `PLUGIN_UPLOAD_SIGNING_KEY_ID` plus either an OpenBao Transit session
-  (`VAULT_ADDR`/`VAULT_TOKEN` and `PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY=plugin-upload-signing`)
-  or the legacy `PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY` – required for a live Wasm
-  plugin publish; they are not required when `PUSH_DRY_RUN=1`. Prefer Transit.
-
-With those variables present, the command authenticates to Harbor, pushes the images, and
-publishes the Debian/RPM assets to the matching release target.
+`//build/buildbuddy:release_pipeline` and `scripts/push_all_images.sh` now refuse
+publication before invoking tools. Use the GitHub workflow above. Package-only
+Bazel targets remain available, but they do not publish or promote container
+images. Never restore protected writes to the retired aggregate launcher.

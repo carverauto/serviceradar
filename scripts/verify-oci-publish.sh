@@ -27,6 +27,7 @@ fi
 image_specs_output="$(
   python3 - "${INVENTORY}" "${OCI_REPOSITORY_BASE}" <<'PY'
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -39,8 +40,14 @@ if not match:
     raise SystemExit(f"unable to parse image inventory: {inventory_path}")
 
 entries = ast.literal_eval(match.group(1))
+selected = set(os.environ.get("SERVICERADAR_OCI_REPOSITORIES", "").split())
+names = {entry["repository"].rsplit("/", 1)[-1] for entry in entries}
+if selected - names:
+    raise SystemExit(f"unknown OCI repository selection: {' '.join(sorted(selected - names))}")
 for entry in entries:
     image_name = entry["repository"].rsplit("/", 1)[-1]
+    if selected and image_name not in selected:
+        continue
     kind = "index" if entry.get("push_image") else "single"
     print(f"{repository_base}/{image_name}|{kind}")
 PY

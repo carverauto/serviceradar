@@ -207,17 +207,38 @@ Two different container images are involved in remote execution:
 1. **BuildBuddy executor pods (Helm)** – run the BuildBuddy binary and should stay on the upstream image `gcr.io/flame-public/buildbuddy-executor-enterprise:<tag>` unless we intentionally rebuild the executor ourselves.
 2. **Bazel action image** – the toolchain container (`registry.carverauto.dev/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, etc.
 
+Before either image publish below, initialize the shared publisher with scoped
+`HARBOR_BUILD_ROBOT_USERNAME/SECRET` and `HARBOR_PROMOTION_ROBOT_USERNAME/SECRET`
+credentials. Keep them out of shell history. `oras` and Python 3 must be installed.
+
+```bash
+export RUNNER_TEMP="$(mktemp -d)"
+export GITHUB_ENV="$RUNNER_TEMP/publisher.env"
+python3 scripts/ci/harbor-publish.py setup
+set -a
+. "$GITHUB_ENV"
+set +a
+# After publication: python3 "$HARBOR_PUBLISH_TOOL" cleanup
+```
+
+The helper checks fresh physical capacity before build uploads and promotion.
+Every command below uses its build-only Docker config. Promotion verifies exact
+manifest, platform, blob, and attachment closure; read `receipt.json` in
+`HARBOR_LIFECYCLE_DIR` before changing a consumer reference. Retain the receipt,
+run cleanup, and remove the temporary directory when finished.
+
 Only the Bazel action image is customized today. After updating `docker/Dockerfile.rbe`:
 
-1. Build and push the image (requires Harbor access; see `scripts/docker-login.sh`):
+1. Set `TAG` to a new immutable version, then build and promote:
    ```bash
-   docker buildx build \
+   python3 "$HARBOR_PUBLISH_TOOL" build docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3 \
+     -t "registry.carverauto.dev/serviceradar-builds/rbe-executor:${TAG}" \
      --push .
+   python3 "$HARBOR_PUBLISH_TOOL" promote --repositories rbe-executor --tag "$TAG"
    ```
-2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `build/rbe/BUILD`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`). `build/platforms/BUILD.bazel` is no longer on this list: the two RBE platforms that pinned the tag there were dead and have been removed.
+2. Pin the protected receipt digest everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `build/rbe/BUILD`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`). `build/platforms/BUILD.bazel` is no longer on this list: the two RBE platforms that pinned the tag there were dead and have been removed.
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
@@ -229,13 +250,14 @@ from `docker/images/Dockerfile.workflow-runner`) is versioned on its own `v1.0.2
 it is NOT re-tagged in lockstep with the action image above (see the Dockerfile header for why
 the lockstep rule was retired). After changing `docker/images/Dockerfile.workflow-runner`:
 
-1. Build and push the new tag (requires Harbor access; see `scripts/docker-login.sh`):
+1. Set `TAG` to a new immutable version, then build and promote:
    ```bash
-   docker buildx build \
+   python3 "$HARBOR_PUBLISH_TOOL" build docker buildx build \
      --platform linux/amd64 --provenance=false --sbom=false \
      -f docker/images/Dockerfile.workflow-runner \
-     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5 \
+     -t "registry.carverauto.dev/serviceradar-builds/buildbuddy-workflow-runner:${TAG}" \
      --push docker/images/
+   python3 "$HARBOR_PUBLISH_TOOL" promote --repositories buildbuddy-workflow-runner --tag "$TAG"
    ```
    Never re-push over an existing tag: the executors warm this image, so a moved tag means some
    executors hold the old layers and others the new, with nothing in git showing a change -- and
@@ -243,7 +265,7 @@ the lockstep rule was retired). After changing `docker/images/Dockerfile.workflo
    (v1.0.24.4 was pushed with buildx's default attestation index and is deliberately unreferenced;
    keep `--provenance=false --sbom=false` so the tag is a plain single manifest like every
    earlier one).
-2. Bump the tag in the three places that reference it: every `container_image` in `buildbuddy.yaml`
+2. Pin the protected receipt digest in the three places that reference it: every `container_image` in `buildbuddy.yaml`
    (`grep 'buildbuddy-workflow-runner:' buildbuddy.yaml` re-derives the list),
    `warmup_additional_images` in `k8s/buildbuddy/values-workflows.yaml`, and the pinned image
    strings in `build/contracts/ci_heavy_gate_contract_test.py`. Push the image BEFORE

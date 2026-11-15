@@ -15,7 +15,9 @@ def declare_oci_push_targets():
     for target in PUBLISHABLE_IMAGES:
         image = target["image"]
         push_image = target.get("push_image", image)
-        repository = target["repository"]
+        # Raw pushes are disposable. Only the verified promoter writes the
+        # canonical protected repositories recorded in image_inventory.bzl.
+        repository = target["repository"].replace("/serviceradar/", "/serviceradar-builds/", 1)
         digest_label = target.get("digest_label", ":{}.digest".format(push_image))
         static_tags = ["latest"] + target.get("static_tags", [])
 

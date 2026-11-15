@@ -528,8 +528,8 @@ class ImageSecurityManualRescanTest(unittest.TestCase):
                 "inputs.tag": self.TAG,
                 "github.event_name == 'workflow_dispatch' && github.event.inputs.tag || ''": self.TAG,
                 "github.token": "invented-test-token",
-                "secrets.HARBOR_ROBOT_USERNAME": "invented-robot",
-                "secrets.HARBOR_ROBOT_SECRET": "invented-robot-secret",
+                "secrets.HARBOR_READ_ROBOT_USERNAME": "invented-robot",
+                "secrets.HARBOR_READ_ROBOT_SECRET": "invented-robot-secret",
             }
             failed, result = _run_job(workflow["jobs"]["image-security"], workspace=workspace,
                                       trees={None: workflow_tree, self.TAG: tag_tree},

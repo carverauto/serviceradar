@@ -67,21 +67,15 @@ or interrupted release.
 
 ## Protect chart publication credentials
 
-The protected GitHub `release` environment must provide these chart-specific
-secrets:
-
-- `HARBOR_CHART_ROBOT_USERNAME`
-- `HARBOR_CHART_ROBOT_SECRET`
-
-The associated Harbor robot account must have only the permissions needed to
-pull and push `serviceradar/charts/serviceradar`. Do not grant delete authority.
-Protect the GitHub environment with release approvals and the repository's
-release tag policy.
-
-The general `HARBOR_ROBOT_USERNAME` and `HARBOR_ROBOT_SECRET` credentials used
-by image builds and ordinary CI must not have push or delete authority for the
-product chart repository. Developer and validation paths may receive read-only
-access when they need to check whether a chart version exists.
+The release workflow does not push the chart directly to the protected
+`serviceradar` project. It uploads the packaged chart to the disposable
+`serviceradar-builds` project with the build robot, then a separate promotion
+robot copies it into `serviceradar/charts/serviceradar` after its image
+dependencies are verified. Neither robot needs delete authority. The required
+secret names are listed in the
+[release publishing guide](https://github.com/carverauto/serviceradar/blob/staging/docs/RELEASE_PUBLISHING.md#ci-prerequisites).
+Protect the GitHub `release` environment with release approvals and the
+repository's release tag policy.
 
 These Harbor and GitHub access controls are deployment configuration. Verify
 them whenever credentials are rotated or a new runner is introduced; the

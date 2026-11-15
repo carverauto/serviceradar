@@ -20,8 +20,20 @@ helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/c
 `my-values.yaml` holds only your site overrides. The chart version is the
 release version without the leading `v` (release `vX.Y.Z` is chart `X.Y.Z`).
 The chart and the first-party images under `registry.carverauto.dev/serviceradar`
-pull anonymously, so no registry login is needed. Every first-party image tag
-except `serviceradar-cnpg` (pinned by digest) defaults to the chart appVersion, so `--version` alone selects matching images.
+pull anonymously, so no registry login is needed. Release packaging fills
+`image.digests` from the verified image promotion receipt, so published chart
+packages select exact first-party image contents. CNPG preserves its version tag
+alongside its digest. The source chart keeps an empty digest map for development.
+Older packages retain their original tag defaults.
+
+A release chart is uploaded to the disposable build project and promoted only
+after checking its protected image dependencies. Its `files/artifact-bundle.json`
+records those dependency references for supported-release inventory. Packaging
+uses a temporary copy and does not modify the release checkout.
+
+To deliberately replace a component image, set its `image.digests.<service>` to
+the desired digest. Changing its tag alone does not override a packaged digest;
+clear that specific digest explicitly when a development tag override is intended.
 Leave `global.imageTag` unset; if you do set it, it must be `v<chart-version>`,
 or the core migrations `expectedVersion` and the templates drift from the
 images. To upgrade, rerun the same command with the new `--version`.
@@ -95,7 +107,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `global.imageTag` | Override image tag for first-party components (not `serviceradar-cnpg`). Empty uses `v<appVersion>` from the chart; if set, it must equal `v<chart-version>` | `""` |
-| `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
+| `image.digests.<service>` | Component digest, overriding tags; populated in release packages | `{}` in source chart |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
 | `ingress.tls.secretName` | TLS secret name | `""` |

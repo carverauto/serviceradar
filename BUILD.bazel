@@ -159,3 +159,5 @@ alias(
     actual = "//docker/images:push_all",
     visibility = ["//visibility:public"],
 )
+
+exports_files(["Makefile"])

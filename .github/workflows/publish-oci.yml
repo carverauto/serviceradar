@@ -43,8 +43,8 @@ jobs:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
-      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      OCI_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
       # Every oci pull in //MODULE.bazel resolves to registry.carverauto.dev, the Harbor push
       # target above, so no upstream registry credential is needed. GHCR_* and DOCKERHUB_* were
       # removed once nothing fetched from those registries.
@@ -143,7 +143,6 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Cosign
-        if: ${{ github.event.inputs.publish_scope == 'full' }}
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
@@ -188,7 +187,7 @@ jobs:
           }
 
           if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            echo "Missing Harbor robot credentials. Set HARBOR_BUILD_ROBOT_USERNAME and HARBOR_BUILD_ROBOT_SECRET." >&2
             exit 1
           fi
 
@@ -204,6 +203,14 @@ jobs:
 
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
+
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
 
       - name: Derive managed agent release public key
         if: ${{ github.event.inputs.publish_scope == 'full' }}
@@ -252,9 +259,9 @@ jobs:
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          cmd=(bazel run -c opt --config=remote --stamp //:push)
+          cmd=(python3 "${HARBOR_PUBLISH_TOOL}" push-images)
           if [[ -n "${EXTRA_TAG}" ]]; then
-            cmd+=(-- --tag "${EXTRA_TAG}")
+            cmd+=(--tag "${EXTRA_TAG}")
           fi
           "${cmd[@]}"
 
@@ -267,16 +274,33 @@ jobs:
           # Without the tag the signer reads image digests out of `bazel info bazel-bin`,
           # and that path encodes the build configuration: asked without `-c opt
           # --config=remote` it names k8-fastbuild, where this build wrote nothing.
-          SERVICERADAR_SIGN_REGISTRY_TAG="sha-${GITHUB_SHA}" ./scripts/sign-oci-publish.sh
-          ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          SERVICERADAR_SIGN_REGISTRY_TAG="sha-${GITHUB_SHA}" python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          promotion_args=(--kind images)
+          for tag in "${verify_tags[@]}"; do promotion_args+=(--tag "${tag}"); done
+          python3 "${HARBOR_PUBLISH_TOOL}" promote "${promotion_args[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Publish web stack commit images
         if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        env:
+          SERVICERADAR_OCI_REPOSITORIES: serviceradar-core-elx serviceradar-web-ng
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|test/demo-test-[0-9]+)$'
+          COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          bazel run -c opt --config=remote --stamp //docker/images:core_elx_image_amd64_push_commit_only
-          bazel run -c opt --config=remote --stamp //docker/images:web_ng_image_amd64_push_commit_only
+          tag="sha-${GITHUB_SHA}"
+          read -r -a repositories <<<"${SERVICERADAR_OCI_REPOSITORIES}"
+          python3 "${HARBOR_PUBLISH_TOOL}" push-images --only "${repositories[@]}"
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          SERVICERADAR_SIGN_REGISTRY_TAG="${tag}" python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-oci-publish.sh "${tag}"
+          python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories "${repositories[@]}" --tag "${tag}"
+          python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-oci-publish.sh "${tag}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Verify web stack commit images
         if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
@@ -330,3 +354,7 @@ jobs:
           if [[ -n "${EXTRA_TAG}" ]]; then
             printf '  - %s\n' "${EXTRA_TAG}"
           fi
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

@@ -413,34 +413,10 @@ if not remote_tag_check < oci_occupancy_check < first_release_mutation:
         "cut-release must verify remote Git and OCI occupancy before changing metadata"
     )
 
-chart_step_start = workflow.index("- name: Publish Helm chart to OCI registry")
-chart_step_end = workflow.index("# Wasm plugins are published", chart_step_start)
-chart_step = workflow[chart_step_start:chart_step_end]
-for fragment in (
-    "HARBOR_CHART_ROBOT_USERNAME",
-    "HARBOR_CHART_ROBOT_SECRET",
-    './scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}"',
-    './scripts/check-oci-chart-version-available.sh "${VERSION}"',
-):
-    if fragment not in chart_step:
-        raise SystemExit(f"Helm publication is missing protected contract: {fragment}")
-if "\n          OCI_USERNAME:" in chart_step or "\n          OCI_TOKEN:" in chart_step:
-    raise SystemExit("Helm publication still consumes general image-publisher credentials")
-if "run-helm.sh" not in chart_step:
-    raise SystemExit("Helm publication does not use run-helm.sh")
-if 'helm_runner}" package' not in chart_step or 'helm_runner}" push' not in chart_step:
-    raise SystemExit("Helm publication must invoke the daemonless helm runner for package and push")
-if not (
-    chart_step.index("validate-release-metadata.sh")
-    < chart_step.index("check-oci-chart-version-available.sh")
-    < chart_step.index('helm_runner}" package')
-    < chart_step.index('helm_runner}" push')
-):
-    raise SystemExit("Helm publication guards must run immediately before package and push")
-if "already published; skipping OCI push" not in chart_step:
-    raise SystemExit("Helm publication must skip an already-published chart on retry")
+# Chart credential scope, package ordering and promotion failures are exercised
+# through the executable publisher by //build/contracts:helm_bundle_pins_test.
 
-digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
+digest_check = 'python3 "${HARBOR_PUBLISH_TOOL}" build "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:
     raise SystemExit("release workflow must run the same all-image digest check before and after publish")
 
@@ -1038,6 +1014,9 @@ esac
 EOF
 chmod +x "${sign_test_dir}/bin/cosign"
 
+mkdir -p "${sign_test_dir}/lifecycle/tool/k8s/harbor"
+printf '# synthetic capacity endpoint\n' >"${sign_test_dir}/lifecycle/tool/k8s/harbor/promote-artifacts.py"
+
 run_fake_sign_oci() {
   local mode="$1"
   local log_file="$2"
@@ -1051,7 +1030,8 @@ run_fake_sign_oci() {
     SERVICERADAR_REPO_ROOT="${sign_test_dir}" \
     BAZEL_BIN="${sign_test_dir}/bazel-bin" \
     OCI_REGISTRY="registry.example" \
-    OCI_PROJECT="serviceradar" \
+    OCI_PROJECT="serviceradar-builds" \
+    HARBOR_LIFECYCLE_DIR="${sign_test_dir}/lifecycle" \
     COSIGN_KEY_REF="hashivault://cosign-release" \
     COSIGN_PUBLIC_KEY_FILE="${sign_test_dir}/cosign.pub" \
     COSIGN_SIGN_MAX_ATTEMPTS=3 \
@@ -1065,7 +1045,7 @@ if ! grep -q "^verify .*--key " "${sign_test_dir}/conflict-verified.log"; then
   echo "sign-oci-publish did not verify existing signature with cosign verify --key on Rekor 409" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
   echo "sign-oci-publish retried cosign sign after cosign verify --key already succeeded" >&2
   exit 1
 fi
@@ -1076,7 +1056,7 @@ if [[ -f "${sign_test_dir}/state-2/unlogged-sign-called" ]]; then
   echo "sign-oci-publish attempted an unlogged cosign sign after Rekor 409" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
+if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
   echo "sign-oci-publish did not retry full signing when existing signature verification failed after Rekor 409" >&2
   exit 1
 fi
@@ -1094,25 +1074,25 @@ if run_fake_sign_oci "partial_failure_and_transient_retry" "${sign_test_dir}/par
   echo "sign-oci-publish succeeded despite image signing failures" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
   echo "sign-oci-publish retried a permanent authentication failure" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
   echo "sign-oci-publish did not retry a transient 503 failure on second image" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
   echo "sign-oci-publish did not attempt third image after first image failed" >&2
   exit 1
 fi
-if ! grep -q "registry.example/serviceradar/first@sha256:" "${sign_test_dir}/partial.out" \
-  || ! grep -q "registry.example/serviceradar/third@sha256:" "${sign_test_dir}/partial.out"; then
+if ! grep -q "registry.example/serviceradar-builds/first@sha256:" "${sign_test_dir}/partial.out" \
+  || ! grep -q "registry.example/serviceradar-builds/third@sha256:" "${sign_test_dir}/partial.out"; then
   echo "sign-oci-publish did not list every failed image at the end" >&2
   cat "${sign_test_dir}/partial.out" >&2
   exit 1
 fi
-if grep -q "  - registry.example/serviceradar/second@sha256:" "${sign_test_dir}/partial.out"; then
+if grep -q "  - registry.example/serviceradar-builds/second@sha256:" "${sign_test_dir}/partial.out"; then
   echo "sign-oci-publish listed a recovered image as failed" >&2
   exit 1
 fi

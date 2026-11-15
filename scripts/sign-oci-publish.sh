@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This credential-bearing launcher must run on the publisher host. Reuse the
+# checksum-verified tool installed by harbor-publish.py setup, including when
+# release.yml has checked out an older release after setup.
+export OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
+if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
+  echo "error: direct protected publication is forbidden; use the verified GitHub publishing workflow" >&2
+  exit 2
+fi
+capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
+python3 "${capacity_tool}" --check-capacity-only
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1090,SC1091
 source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"
@@ -28,7 +39,7 @@ fi
 
 REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
-OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
+OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"
 
 if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
@@ -372,6 +383,7 @@ sign_image_ref() {
 mapfile -t image_rows < <(
   python3 - <<'PY2' "${REPO_ROOT}/docker/images/image_inventory.bzl" "${REGISTRY_HOST}" "${OCI_PROJECT}"
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -384,7 +396,13 @@ match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
 if not match:
     raise SystemExit(f"unable to parse {inventory_path}")
 images = ast.literal_eval(match.group(1))
+selected = set(os.environ.get("SERVICERADAR_OCI_REPOSITORIES", "").split())
+names = {entry["repository"].split("/")[-1] for entry in images}
+if selected - names:
+    raise SystemExit(f"unknown OCI repository selection: {' '.join(sorted(selected - names))}")
 for entry in images:
+    if selected and entry["repository"].split("/")[-1] not in selected:
+        continue
     push_image = entry.get("push_image", entry["image"])
     digest_label = entry.get("digest_label", f":{push_image}.digest")
     if not (digest_label.startswith(":") and digest_label.endswith(".digest")):

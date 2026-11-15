@@ -3,6 +3,32 @@ load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
+py_test(
+    name = "harbor_publish_test",
+    size = "small",
+    srcs = ["harbor_publish_test.py"],
+    data = [
+        "//:Makefile",
+        "//build/native_addons:publish_addon.sh",
+        "//build/wasm_plugins:publish_plugin.sh",
+        "//build/buildbuddy:release_pipeline.sh",
+        "//scripts:build-images.sh",
+        "//scripts:push_all_images.sh",
+        "//scripts:check-oci-image-tags-exist.sh",
+        "//scripts:ci/harbor-publish.py",
+        "//scripts:ci/publish-helm-bundle.py",
+        "//scripts:cosign_common.sh",
+        "//scripts:sign-oci-publish.sh",
+        "//scripts:sign-native-addon-publish.sh",
+        "//scripts:sign-wasm-plugin-publish.sh",
+        "//scripts:oci_registry.sh",
+        "//scripts:verify-oci-publish.sh",
+        "@jq_linux_amd64//file",
+        "@jq_linux_arm64//file",
+    ],
+    deps = ["@pyyaml//:yaml"],
+)
+
 # Contract tests that used to sit in the repository root. They stay Bazel targets.
 # The shell credential helpers stay at the root: workflows invoke them as ./script
 # and they are the credential carve-out that must not become an action input.
@@ -233,5 +259,13 @@ py_test(
         "@jq_linux_amd64//file",
         "@jq_linux_arm64//file",
     ],
+    deps = ["@pyyaml//:yaml"],
+)
+
+py_test(
+    name = "helm_bundle_pins_test",
+    size = "small",
+    srcs = ["helm_bundle_pins_test.py"],
+    data = ["//scripts:ci/publish-helm-bundle.py"],
     deps = ["@pyyaml//:yaml"],
 )

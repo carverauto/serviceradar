@@ -224,8 +224,8 @@ jobs:
     env:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
-      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      OCI_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
@@ -313,6 +313,14 @@ jobs:
           fi
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
 
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
       - name: Publish, sign, and verify external OCI bundle
         env:
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
@@ -329,7 +337,7 @@ jobs:
           metadata="${metadata_files[0]}"
           bundle="external-plugin-dist/$(jq -r '.bundle_file' "${metadata}")"
 
-          ./build/wasm_plugins/publish_plugin.sh \
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./build/wasm_plugins/publish_plugin.sh \
             --bundle "${bundle}" \
             --metadata "${metadata}" \
             --oras oras \
@@ -341,8 +349,12 @@ jobs:
           export WASM_PLUGIN_METADATA_DIR="${GITHUB_WORKSPACE}/external-plugin-dist"
           export WASM_PLUGIN_UPLOAD_SIGNATURE_TOOL="${UPLOAD_SIGNATURE_TOOL}"
           tags=("sha-${SOURCE_COMMIT}" "${PLUGIN_TAG}")
-          ./scripts/sign-wasm-plugin-publish.sh "${tags[@]}"
-          ./scripts/verify-wasm-plugin-publish.sh "${tags[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-wasm-plugin-publish.sh "${tags[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-wasm-plugin-publish.sh "${tags[@]}"
+          promotion_args=(--metadata-dir "${WASM_PLUGIN_METADATA_DIR}")
+          for tag in "${tags[@]}"; do promotion_args+=(--tag "${tag}"); done
+          python3 "${HARBOR_PUBLISH_TOOL}" promote "${promotion_args[@]}"
+          python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-wasm-plugin-publish.sh "${tags[@]}"
           GENERATED_AT="${SOURCE_COMMITTED_AT}" \
             OUTPUT="${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json" \
             ./scripts/generate-wasm-plugin-import-index.sh "${PLUGIN_TAG}"
@@ -369,3 +381,7 @@ jobs:
             external-plugin-dist/
             ${{ runner.temp }}/serviceradar-wasm-plugin-index.json
           if-no-files-found: error
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup
