@@ -261,6 +261,45 @@ class LegacySignatureTest(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             registry.request("/v2/example/manifests/tag", {}, absent=optional)
 
+    def test_existing_unsupported_canonical_is_not_mistaken_for_absence(self):
+        types = ("application/vnd.oci.image.index.v1+json",
+                 "application/vnd.docker.distribution.manifest.list.v2+json",
+                 "application/vnd.oci.artifact.manifest.v1+json")
+        for media_type in types:
+            with self.subTest(media_type=media_type):
+                registry = legacy.Registry("registry.example")
+                content = {"schemaVersion": 2, "mediaType": media_type}
+                content["blobs" if "artifact.manifest" in media_type else "manifests"] = []
+                manifest = encoded(content)
+                def response(raw):
+                    result = io.BytesIO(raw)
+                    result.headers = {"Docker-Content-Digest": digest(raw)}
+                    return result
+                def missing(request, code):
+                    body = encoded({"errors": [{"code": code, "message": "synthetic manifest lookup failure"}]})
+                    raise urllib.error.HTTPError(request.full_url, 404, "synthetic", {}, io.BytesIO(body))
+                def open_request(request, timeout):
+                    if "/service/token?" in request.full_url:
+                        return response(encoded({"token": "synthetic"}))
+                    if "/v2/serviceradar/example/manifests/" in request.full_url:
+                        # Registry negotiation can return MANIFEST_UNKNOWN even
+                        # for an existing index when its media type is not accepted.
+                        if media_type not in request.get_header("Accept", ""):
+                            return missing(request, "MANIFEST_UNKNOWN")
+                        return response(manifest)
+                    if "/v2/serviceradar-builds/example/manifests/" in request.full_url:
+                        return missing(request, "NOT_FOUND")
+                    if "/referrers/" in request.full_url:
+                        return response(encoded({"manifests": []}))
+                    self.fail("unexpected registry request: " + request.full_url)
+                with patch.dict(os.environ, {"OCI_USERNAME": "synthetic", "OCI_TOKEN": "synthetic"}), \
+                     patch.object(registry.http, "open", side_effect=open_request), \
+                     patch.object(registry, "copy_to_build") as copy:
+                    with self.assertRaisesRegex(ValueError, "unsupported legacy signature manifest"):
+                        legacy.reconcile("registry.example/serviceradar-builds/example@" + SUBJECT,
+                                         self.public, registry)
+                    copy.assert_not_called()
+
     def test_paginated_referrers_refuse_before_copy(self):
         self.artifact("serviceradar")
         request = self.registry.request

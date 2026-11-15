@@ -20,6 +20,11 @@ SIMPLE_SIGNING = "application/vnd.dev.cosign.simplesigning.v1+json"
 MAX_LEGACY_SIGNATURE_LAYERS = 32
 MANIFEST_TYPES = {"application/vnd.oci.image.manifest.v1+json",
                   "application/vnd.docker.distribution.manifest.v2+json"}
+FETCH_MANIFEST_TYPES = MANIFEST_TYPES | {
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.artifact.manifest.v1+json",
+}
 
 
 def strict_json(raw):
@@ -86,7 +91,7 @@ class Registry:
             require(isinstance(token, str) and token, "registry pull token missing")
             self.tokens[repository] = token
         return {"Authorization": "Bearer " + self.tokens[repository],
-                "Accept": ", ".join(sorted(MANIFEST_TYPES))}
+                "Accept": ", ".join(sorted(FETCH_MANIFEST_TYPES))}
 
     def manifest(self, repository, reference, absent=False):
         result = self.request(f"/v2/{repository}/manifests/{reference}", self.headers(repository), absent)
