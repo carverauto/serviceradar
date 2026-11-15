@@ -26,11 +26,9 @@ Committed foundations:
   crate, with conformance cases whose expected records came from the JSON-text
   implementation.
 - `6573ffe9e7`: the core Zen NIF evaluates through that crate.
-- The commit after this handoff update adds the versioned rule bundle: core
-  publishes it from `ZenRuleSync`, and `rust/zen-normalize` verifies its digest
-  and compiles it. Both sides assert the same frozen digests. The Elixir half
-  has not been compiled or run; no local Elixir build is permitted on the
-  shared workstation.
+- `a9b2c288e2`: the versioned rule bundle. Core publishes it from
+  `ZenRuleSync`, and `rust/zen-normalize` verifies its digest and compiles it.
+  Both sides assert the same frozen digests.
 
 JSON remains the wire format. Flowgger does not call the shared Zen crate yet;
 binary transport, stream sharding and specialized receivers are design
@@ -55,11 +53,18 @@ pushed or deployed.
   rerun validation after further edits.
 - Since that checkpoint, Cargo only: Flowgger suite 97 passed, zero failed, one
   ignored; `serviceradar-zen-normalize` 5 passed; `zen_nif` builds; Clippy and
-  rustfmt clean on all three. Each new test was seen to fail against a mutated
-  owner. None of this has run in Bazel or CI: the new `//rust/zen-normalize`
-  targets, the NIF's new dependency and the `zen-expression` workspace
-  dependency are unverified there, and no Elixir test has exercised the NIF
-  since it changed.
+  rustfmt clean on all three. Each new publisher and normalization test was
+  seen to fail against a mutated owner.
+- Remote, at `a9b2c288e2`: BuildBuddy invocation
+  `8c84ca18-6f0f-4329-b292-0e3a5dc6fcd7` passed Flowgger, zen-normalize, both
+  log-collector tests, the full Helm unit suite, the pod DNS test and the
+  component gates, and built the Zen NIF. Invocation
+  `c1b0aa11-b398-4d79-9d97-a361f9416aa6` passed the core observability and
+  event-writer unit shards, which compile the bundle changes and call the NIF
+  from Elixir; a rerun of the observability shard reported 604 tests, 0
+  failures. Its output does not list files, so the new bundle test is known to
+  be in the shard's glob, not seen by name.
+- Nothing has exercised bundle publication against a database or datasvc.
 - The publish-window benchmark ran on a shared workstation over loopback. It
   shows serial publishing as the limit at window 1 and the listener and codec
   path as the limit from window 8 up. See `performance.md`; no multiplier is
