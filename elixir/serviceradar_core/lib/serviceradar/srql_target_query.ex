@@ -36,7 +36,6 @@ defmodule ServiceRadar.SRQLTargetQuery do
   @type option ::
           {:default_target, atom() | String.t()}
           | {:entity, atom() | String.t()}
-          | {:parse_fn, (String.t() -> {:ok, String.t()} | {:error, term()})}
 
   @doc """
   Validates `query` as a target query and returns it with its entity made
@@ -48,7 +47,6 @@ defmodule ServiceRadar.SRQLTargetQuery do
       (default `:devices`).
     * `:entity` -- the only entity the query may target. Without it any entity
       the parser accepts is allowed.
-    * `:parse_fn` -- replaces the SRQL parser, as in `ServiceRadar.SRQLAst`.
 
   Returns `{:error, message}` with a message an operator can act on.
   """
@@ -57,7 +55,7 @@ defmodule ServiceRadar.SRQLTargetQuery do
     normalized = SRQLQuery.ensure_target(query, Keyword.get(opts, :default_target, :devices))
 
     with :ok <- check_entity(normalized, Keyword.get(opts, :entity)),
-         {:ok, ast} <- parse(normalized, opts),
+         {:ok, ast} <- parse(normalized),
          :ok <- refuse_result_controls(ast) do
       {:ok, normalized}
     end
@@ -79,8 +77,8 @@ defmodule ServiceRadar.SRQLTargetQuery do
     end
   end
 
-  defp parse(query, opts) do
-    case SRQLAst.parse(query, Keyword.take(opts, [:parse_fn])) do
+  defp parse(query) do
+    case SRQLAst.parse(query) do
       {:ok, ast} -> {:ok, ast}
       {:error, {:parse_error, reason}} -> {:error, "Invalid SRQL query: #{reason_text(reason)}"}
       {:error, reason} -> {:error, "Invalid SRQL query: #{reason_text(reason)}"}

@@ -19,13 +19,15 @@ defmodule ServiceRadar.Validations.TargetQuery do
       * `:input_definitions` -- the value is a list of plugin input
         definitions, each holding a `query` for its own `entity`.
 
-  The queries are validated on create and when an update changes the
-  attribute. An update that leaves the attribute alone keeps the stored value,
-  so a query saved before a rule existed does not block unrelated edits.
+  The queries are validated on create and when an update changes them. An
+  update that leaves a query as stored, including one that changes other parts
+  of the attribute holding it, keeps that query, so a query saved before a rule
+  existed does not block unrelated edits.
   """
 
   use Ash.Resource.Validation
 
+  alias Ash.Changeset.OriginalDataNotAvailable
   alias ServiceRadar.Plugins.ValueUtils
   alias ServiceRadar.SRQLTargetQuery
   alias ServiceRadar.Validations.ProposedValue
@@ -44,29 +46,55 @@ defmodule ServiceRadar.Validations.TargetQuery do
 
     if changeset.action_type == :create or
          Ash.Changeset.changing_attribute?(changeset, attribute) do
-      changeset |> Ash.Changeset.get_attribute(attribute) |> validate_value(opts)
+      changeset
+      |> Ash.Changeset.get_attribute(attribute)
+      |> validate_value(stored_queries(changeset, opts), opts)
     else
       :ok
     end
   end
 
-  # An atomic update carries no original record, so read the value it is about
-  # to write; one that leaves the attribute alone keeps a value that passed
-  # this validation when it was stored.
+  # An atomic update reads the value it is about to write. A single-record
+  # update carries the stored row to compare against; a bulk update does not,
+  # so a query nested in a larger value cannot be told apart from its stored
+  # copy there and the update must load the row.
   @impl true
   def atomic(changeset, opts, _context) do
-    case ProposedValue.fetch(changeset, Keyword.fetch!(opts, :attribute)) do
+    attribute = Keyword.fetch!(opts, :attribute)
+
+    case ProposedValue.fetch(changeset, attribute) do
       :unchanged -> :ok
-      {:changed, value} -> validate_value(value, opts)
+      {:changed, value} -> validate_atomic(value, changeset, opts)
       {:not_atomic, _reason} = not_atomic -> not_atomic
     end
   end
 
-  defp validate_value(value, opts) do
-    default_target = Keyword.get(opts, :default_target, :devices)
+  defp validate_atomic(value, %{data: %OriginalDataNotAvailable{}}, opts) do
+    if Keyword.get(opts, :shape, :query) == :query do
+      validate_value(value, [], opts)
+    else
+      {:not_atomic,
+       "#{Keyword.fetch!(opts, :attribute)} nests its target queries, so the stored " <>
+         "value is needed to tell which of them changed"}
+    end
+  end
 
+  defp validate_atomic(value, changeset, opts) do
+    validate_value(value, stored_queries(changeset, opts), opts)
+  end
+
+  defp stored_queries(%{action_type: :create}, _opts), do: []
+
+  defp stored_queries(changeset, opts) do
+    changeset.data
+    |> Map.get(Keyword.fetch!(opts, :attribute))
+    |> queries(Keyword.get(opts, :shape, :query), Keyword.get(opts, :default_target, :devices))
+  end
+
+  defp validate_value(value, stored_queries, opts) do
     value
-    |> queries(Keyword.get(opts, :shape, :query), default_target)
+    |> queries(Keyword.get(opts, :shape, :query), Keyword.get(opts, :default_target, :devices))
+    |> Enum.reject(&(&1 in stored_queries))
     |> Enum.find_value(:ok, &query_error(&1, opts))
   end
 

@@ -415,23 +415,28 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
 
   # A contract's `target_input` names the param that holds its SRQL device
   # query. That query is a target query like `target_query`, so it follows the
-  # same rule, checked when the params or the contract are written.
+  # same rule, checked when it is written: a write that leaves it as stored,
+  # even one changing other params or contract fields, keeps it.
   defp validate_target_input_query(changeset, _context) do
-    if changeset.action_type == :create or
-         Ash.Changeset.changing_attribute?(changeset, :params) or
-         Ash.Changeset.changing_attribute?(changeset, :contract) do
-      changeset |> target_input_query() |> check_target_input_query()
-    else
+    query =
+      target_input_query(
+        Ash.Changeset.get_attribute(changeset, :contract),
+        Ash.Changeset.get_attribute(changeset, :params)
+      )
+
+    if changeset.action_type != :create and query == stored_target_input_query(changeset.data) do
       :ok
+    else
+      check_target_input_query(query)
     end
   end
 
-  defp target_input_query(changeset) do
-    contract = Ash.Changeset.get_attribute(changeset, :contract) || %{}
-    params = Ash.Changeset.get_attribute(changeset, :params) || %{}
+  defp stored_target_input_query(data),
+    do: target_input_query(Map.get(data, :contract), Map.get(data, :params))
 
-    case Map.get(contract, "target_input") do
-      %{"query_param" => param} when is_binary(param) -> Map.get(params, param)
+  defp target_input_query(contract, params) do
+    case Map.get(contract || %{}, "target_input") do
+      %{"query_param" => param} when is_binary(param) -> Map.get(params || %{}, param)
       _ -> nil
     end
   end
