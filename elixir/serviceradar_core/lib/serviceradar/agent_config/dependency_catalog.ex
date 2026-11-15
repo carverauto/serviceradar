@@ -184,7 +184,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         ServiceRadar.NetworkDiscovery.MapperJob,
         :mapper,
         MapperCompiler,
-        action_names: [:create, :update, :destroy]
+        action_names: [:create, :update, :destroy, :complete_snmp_credential_backfill]
       ),
       config_server_entry(
         :mapper_seed_config,

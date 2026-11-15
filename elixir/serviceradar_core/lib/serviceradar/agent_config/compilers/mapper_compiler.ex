@@ -344,7 +344,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       consumer_id: "mapper_job:#{job.id}",
       target_kind: "mapper_job",
       target_id: to_string(job.id),
-      purpose: "snmp_discovery"
+      purpose: "mapper_discovery"
     )
     |> encode_job_credential(job)
   end

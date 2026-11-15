@@ -80,6 +80,79 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
     assert compiled_community(partition, agent_id, job, actor) == "rule-community"
   end
 
+  test "a superseded agent row never counted toward a partition job's credential", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-superseded-#{suffix}"
+
+    [kept, superseded] =
+      for {name, community} <- [{"kept", "kept-community"}, {"old", "old-community"}] do
+        agent_id = agent_fixture("agent-#{name}-#{suffix}", partition, actor)
+        secret = credential_fixture("Agent #{name} #{suffix}", community, actor)
+        rule_fixture("Agent #{name} #{suffix}", agent_id, secret.id, actor)
+        {agent_id, secret}
+      end
+
+    {superseded_id, _secret} = superseded
+
+    Repo.query!("UPDATE platform.ocsf_agents SET status = 'superseded' WHERE uid = $1", [
+      superseded_id
+    ])
+
+    job = marked_job("Superseded #{suffix}", partition, nil, actor)
+
+    {_kept_id, kept_secret} = kept
+    assert {:ok, [%{outcome: {:bound, bound_id, :existing}}]} = Backfill.run()
+    assert bound_id == kept_secret.id
+    assert reload(job).snmp_credential_secret_id == kept_secret.id
+  end
+
+  test "a job that already references a credential is decided without being rebound later", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-referenced-#{suffix}"
+    agent_fixture("agent-referenced-#{suffix}", partition, actor)
+    own = credential_fixture("Own #{suffix}", "own-community", actor)
+    default = credential_fixture("Default #{suffix}", "default-community", actor)
+    profile_fixture("Default #{suffix}", %{credential_secret_id: default.id}, actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Referenced #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp,
+          snmp_credential_secret_id: own.id
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    Repo.query!(
+      "UPDATE platform.mapper_jobs SET snmp_credential_backfill_pending = true WHERE id = $1",
+      [Ecto.UUID.dump!(job.id)]
+    )
+
+    assert {:ok, [%{outcome: :not_needed}]} = Backfill.run()
+
+    assert %{snmp_credential_secret_id: own_id, snmp_credential_backfill_pending: false} =
+             reload(job)
+
+    assert own_id == own.id
+
+    MapperJob
+    |> Ash.get!(job.id, actor: actor)
+    |> Ash.Changeset.for_update(:update, %{snmp_credential_secret_id: nil}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    assert {:ok, []} = Backfill.run()
+    assert reload(job).snmp_credential_secret_id == nil
+  end
+
   test "a job whose agents are not registered stays marked for a retry", %{
     actor: actor,
     suffix: suffix
@@ -137,8 +210,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
     assert {:ok, [%{outcome: {:bound, _id, :existing}}]} = Backfill.run()
 
     # The operator clears the credential on purpose; the backfill leaves it so.
-    job
-    |> reload()
+    MapperJob
+    |> Ash.get!(job.id, actor: actor)
     |> Ash.Changeset.for_update(:update, %{snmp_credential_secret_id: nil}, actor: actor)
     |> Ash.update!(actor: actor)
 

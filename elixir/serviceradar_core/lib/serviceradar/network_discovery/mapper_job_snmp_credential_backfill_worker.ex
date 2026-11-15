@@ -16,10 +16,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
 
   For each job the migration marked, this worker replays that chain for every
   agent the job compiles for: its assigned agent, or every agent registered in
-  its partition (the persisted agent rows, with each row's `device_uid`). An
-  agent-assigned job whose agent has no row, or a partition with no registered
-  agent, fails the job so Oban retries it. When every agent resolves the same
-  credential, the job is bound to a reusable credential that reproduces it:
+  its partition (the persisted, non-superseded agent rows, with each row's
+  `device_uid`). An agent-assigned job whose agent has no row, or a partition
+  with no registered agent, fails the job so Oban retries it. When every agent
+  resolves the same credential, the job is bound to a reusable credential that
+  reproduces it:
 
   * the source's own reusable credential, when referencing it from the job
     yields the same mapper credential;
@@ -61,7 +62,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
 
   @type outcome ::
           :not_needed
-          | :operator_changed
           | {:bind, :existing | :promote | :copy}
           | {:bound, String.t(), :existing | :promoted | :copied}
           | {:unbound, :no_legacy_credential | :agents_disagree | :not_reproducible}
@@ -121,13 +121,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
     |> Ash.read(actor: actor)
   end
 
-  # Agents are read only when a partition-assigned job needs them. An agent's
-  # partition is the one AgentAssignment validates jobs against.
+  # Agents are read only when a partition-assigned job needs them. These are the
+  # persisted rows, not the live registry, which is empty until gateways sync
+  # after boot. An agent's partition is the one AgentAssignment validates jobs
+  # against.
   defp registered_agents(jobs, actor) do
     if Enum.any?(jobs, &(needs_binding?(&1) and is_nil(&1.agent_id))) do
       Agent
       |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.select([:uid, :device_uid, :metadata])
+      |> Ash.Query.select([:uid, :device_uid, :metadata, :status])
       |> Ash.read(actor: actor)
     else
       {:ok, []}
@@ -160,7 +162,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   # Without the agents the job compiled for, the old chain cannot be replayed:
   # that is a failure to retry, not an agreed absence of a credential.
   defp agent_contexts(job, agents, _actor) do
-    case Enum.filter(agents, &(agent_partition(&1) == job.partition)) do
+    # A superseded agent row stays behind with its partition, but it never
+    # receives mapper config, so its credentials never reached the job.
+    case Enum.filter(agents, &(&1.status != :superseded and agent_partition(&1) == job.partition)) do
       [] -> {:error, {:no_registered_agents, job.partition}}
       matching -> {:ok, Enum.map(matching, &{&1.uid, job.partition, &1.device_uid})}
     end
@@ -330,7 +334,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
 
         case finish(job, secret.id, {:bound, secret.id, outcome}, actor, true) do
           {:error, reason} -> Repo.rollback(reason)
-          :operator_changed -> Repo.rollback(:operator_changed)
           bound -> bound
         end
       else
@@ -342,7 +345,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
     |> case do
       {:ok, outcome} -> outcome
       {:error, :not_reproducible} -> finish(job, nil, {:unbound, :not_reproducible}, actor, true)
-      {:error, :operator_changed} -> :operator_changed
       {:error, reason} -> {:error, reason}
     end
   end
@@ -426,16 +428,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   defp finish(job, secret_id, outcome, actor, true) do
     params = if secret_id, do: %{snmp_credential_secret_id: secret_id}, else: %{}
 
-    # Compare-and-set: a job an operator bound while the backfill ran keeps the
-    # operator's credential.
+    # Compare-and-set against the credential this run read. A job changed since
+    # (an operator bound or cleared it) records no decision: it stays marked and
+    # fails the run, so the retry re-reads it.
     job
     |> Ash.Changeset.for_update(:complete_snmp_credential_backfill, params, actor: actor)
     |> Ash.Changeset.filter(unchanged_since_read(job))
     |> Ash.update(actor: actor)
     |> case do
-      {:ok, _job} -> outcome
-      {:error, %Invalid{errors: [%Ash.Error.Changes.StaleRecord{} | _]}} -> :operator_changed
-      {:error, reason} -> {:error, reason}
+      {:ok, _job} ->
+        outcome
+
+      {:error, %Invalid{errors: [%Ash.Error.Changes.StaleRecord{} | _]}} ->
+        {:error, :changed_since_read}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -452,7 +460,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
       consumer_id: "mapper_job:#{job.id}",
       target_kind: "mapper_job",
       target_id: to_string(job.id),
-      purpose: "snmp_discovery_backfill"
+      purpose: "mapper_discovery_backfill"
     ]
   end
 
