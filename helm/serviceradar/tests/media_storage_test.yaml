@@ -46,6 +46,10 @@ tests:
       - equal:
           path: spec.template.spec.securityContext.seccompProfile
           value: {type: RuntimeDefault}
+      # RuntimeDefault needs no node preparation, so it must not wait for the label.
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value: {kubernetes.io/arch: amd64}
       - equal:
           path: spec.template.metadata.annotations["serviceradar.io/init-storage-revision"]
           value: "8"
@@ -93,7 +97,7 @@ tests:
                 defaultMode: 288
                 items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
 
-  - it: applies the installed io_uring profile while retaining the restricted pod identity
+  - it: applies the installed io_uring profile only on prepared nodes while retaining the restricted pod identity
     template: templates/media-storage.yaml
     set:
       mediaStorage.enabled: true
@@ -113,6 +117,11 @@ tests:
             seccompProfile:
               type: Localhost
               localhostProfile: serviceradar/media-storage-uring-v1.json
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: amd64
+            serviceradar.io/media-storage-node-prepared: "true"
       - equal:
           path: spec.template.spec.containers[0].securityContext
           value:

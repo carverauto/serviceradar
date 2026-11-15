@@ -30,6 +30,12 @@
 {{- else if $seccompPath -}}
 {{- fail "mediaStorage.seccompProfile.localhostProfile requires type Localhost" -}}
 {{- end -}}
+{{- $nodeSelector := deepCopy (default (dict) $mediaStorage.nodeSelector) -}}
+{{- if eq $seccompType "Localhost" -}}
+{{- /* An io_uring client also needs a raised locked-memory limit that only the node can set.
+The node administrator labels a node once both prerequisites are in place. */ -}}
+{{- $_ := set $nodeSelector "serviceradar.io/media-storage-node-prepared" "true" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -69,7 +75,7 @@ spec:
           {{- if eq $seccompType "Localhost" }}
           localhostProfile: {{ $seccompPath | quote }}
           {{- end }}
-      {{- with $mediaStorage.nodeSelector }}
+      {{- with $nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}

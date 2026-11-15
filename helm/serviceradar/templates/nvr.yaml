@@ -19,7 +19,90 @@
 {{- include "serviceradar.validateNvrIngest" . -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
 {{- $ingestEnabled := default false $ingest.enabled -}}
-{{- $ingestPort := int (default 8443 $ingest.port) }}
+{{- $ingestPort := int (default 8443 $ingest.port) -}}
+{{- $archive := default (dict) $nvr.archive -}}
+{{- $archiveEnabled := default false $archive.enabled -}}
+{{- $podSecurity := include "serviceradar.elixirReleasePodSecurityContext" . -}}
+{{- $nodeSelector := deepCopy (default (dict) $nvr.nodeSelector) -}}
+{{- $archiveEgress := default (dict) $archive.providerEgress -}}
+{{- $archiveCIDRs := default (list) $archiveEgress.cidrs -}}
+{{- $archivePort := 0 -}}
+{{- if $archiveEnabled -}}
+{{- /* The archive request is served on the ingest listener with the ingest token. */ -}}
+{{- if not $ingestEnabled -}}
+{{- fail "nvr.archive.enabled requires nvr.ingest.enabled" -}}
+{{- end -}}
+{{- /* Same accepted profiles and path rule as mediaStorage.seccompProfile. */ -}}
+{{- $seccomp := default (dict) $archive.seccompProfile -}}
+{{- $seccompType := default "RuntimeDefault" $seccomp.type -}}
+{{- $seccompPath := default "" $seccomp.localhostProfile -}}
+{{- if not (has $seccompType (list "RuntimeDefault" "Localhost")) -}}
+{{- fail "nvr.archive.seccompProfile.type must be RuntimeDefault or Localhost" -}}
+{{- end -}}
+{{- if eq $seccompType "Localhost" -}}
+{{- if not (kindIs "string" $seccompPath) -}}
+{{- fail "nvr.archive.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$" $seccompPath) -}}
+{{- fail "nvr.archive.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments" -}}
+{{- end -}}
+{{- /* Longshore's io_uring client also needs a raised locked-memory limit that only
+the node can set; the node administrator labels a node once both are in place. */ -}}
+{{- $_ := set $nodeSelector "serviceradar.io/media-storage-node-prepared" "true" -}}
+{{- else if $seccompPath -}}
+{{- fail "nvr.archive.seccompProfile.localhostProfile requires type Localhost" -}}
+{{- end -}}
+{{- $profile := dict "type" $seccompType -}}
+{{- if eq $seccompType "Localhost" -}}
+{{- $_ := set $profile "localhostProfile" $seccompPath -}}
+{{- end -}}
+{{- $podSecurityValues := fromYaml $podSecurity -}}
+{{- $_ := set $podSecurityValues.securityContext "seccompProfile" $profile -}}
+{{- $podSecurity = toYaml $podSecurityValues -}}
+{{- /* Explicit provider addresses only: NetworkPolicy cannot match a hostname. */ -}}
+{{- if not (kindIs "slice" $archiveCIDRs) -}}
+{{- fail "nvr.archive.providerEgress.cidrs must list the provider endpoint CIDRs" -}}
+{{- end -}}
+{{- if eq (len $archiveCIDRs) 0 -}}
+{{- fail "nvr.archive.providerEgress.cidrs must list the provider endpoint CIDRs" -}}
+{{- end -}}
+{{- range $cidr := $archiveCIDRs -}}
+{{- $validCIDR := false -}}
+{{- if kindIs "string" $cidr -}}
+{{- $validCIDR = regexMatch `^((0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([1-9]|[12][0-9]|3[0-2])$` $cidr -}}
+{{- $parts := splitList "/" $cidr -}}
+{{- if and (not $validCIDR) (contains ":" $cidr) (eq (len $parts) 2) -}}
+{{- $address := index $parts 0 -}}
+{{- $compressed := splitList "::" $address -}}
+{{- if and (regexMatch `^([1-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$` (index $parts 1)) (regexMatch `^[0-9A-Fa-f:]+$` $address) (not (contains ":::" $address)) (le (len $compressed) 2) -}}
+{{- $groups := list -}}
+{{- range $side := $compressed -}}
+{{- if ne $side "" -}}
+{{- $groups = concat $groups (splitList ":" $side) -}}
+{{- end -}}
+{{- end -}}
+{{- $groupsValid := true -}}
+{{- range $group := $groups -}}
+{{- if not (regexMatch `^[0-9A-Fa-f]{1,4}$` $group) -}}
+{{- $groupsValid = false -}}
+{{- end -}}
+{{- end -}}
+{{- $validCIDR = and $groupsValid (ternary (lt (len $groups) 8) (eq (len $groups) 8) (eq (len $compressed) 2)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $validCIDR -}}
+{{- fail (printf "nvr.archive.providerEgress.cidrs contains invalid or catch-all CIDR %v" $cidr) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch `^[1-9][0-9]{0,4}$` (toString $archiveEgress.port)) -}}
+{{- fail "nvr.archive.providerEgress.port must be in 1..65535" -}}
+{{- end -}}
+{{- $archivePort = int $archiveEgress.port -}}
+{{- if gt $archivePort 65535 -}}
+{{- fail "nvr.archive.providerEgress.port must be in 1..65535" -}}
+{{- end -}}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -63,7 +146,7 @@ spec:
       {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
-      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
+      {{- $podSecurity | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       affinity:
         podAntiAffinity:
@@ -74,7 +157,7 @@ spec:
                 labelSelector:
                   matchLabels:
                     app: serviceradar-nvr
-      {{- with $nvr.nodeSelector }}
+      {{- with $nodeSelector }}
       nodeSelector: {{ toYaml . | nindent 8 }}
       {{- end }}
       {{- with $nvr.tolerations }}
@@ -215,4 +298,14 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+    {{- if $archiveEnabled }}
+    - to:
+        {{- range $archiveCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $archivePort }}
+    {{- end }}
 {{- end }}
