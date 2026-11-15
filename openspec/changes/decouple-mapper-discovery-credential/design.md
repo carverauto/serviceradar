@@ -127,8 +127,10 @@ The Ecto migration adds the nullable reference column and FK, and a per-job
 mark, `mapper_jobs.snmp_credential_backfill_pending boolean NOT NULL`. The column
 is added with a constant `DEFAULT true`, so every pre-existing row is marked
 without an `UPDATE` (a catalog-only change), and the default is then set to
-`false`, so a job created after the migration is never marked. The mark is not
-accepted by any `MapperJob` action. A one-shot Oban worker,
+`false`, so a job created after the migration is never marked. The mark is
+written only by the system-only `MapperJob` action
+`:complete_snmp_credential_backfill` (step 4); no operator-facing action accepts
+it. A one-shot Oban worker,
 `MapperJobSNMPCredentialBackfillWorker`, enqueued on core start and unique per
 deployment, does the binding, because it needs SRQL rule matching and, for inline
 material, decryption. It visits only marked jobs:
@@ -170,18 +172,28 @@ material, decryption. It visits only marked jobs:
 3. If agents disagree, or the chain agrees on no credential, decide the job as
    deliberately unbound. It then shows the Decision 3 warning, the honest state,
    since no single credential reproduces the old behaviour.
-4. Every decision (bound, deliberately unbound, or not needed) clears that job's
-   mark in the same compare-and-set update that binds it
-   (`WHERE id = ? AND snmp_credential_backfill_pending AND
-   snmp_credential_secret_id IS NULL` for a bind). A credential read failure, a
-   missing or unloadable agent set, or a failed promote, rebind or bind
-   transaction leaves only that job marked; the worker continues with the other
+4. Every decision (bound, deliberately unbound, or not needed) is written by one
+   system-only Ash update action on `MapperJob`,
+   `:complete_snmp_credential_backfill`. It sets `snmp_credential_secret_id` when
+   binding and always clears `snmp_credential_backfill_pending`. Its
+   compare-and-set filter is: the mark is still set AND `snmp_credential_secret_id`
+   equals the value the worker read (`IS NULL` when it read nil, `= <id>` when the
+   job already referenced a credential). So "not needed" for a job that already
+   has a credential, or for an API-only job, clears the mark without writing the
+   secret, and an operator who set a credential before the backfill reached the
+   job still has the mark cleared. A zero-row update (the job changed since it
+   was read) records no decision: the job stays marked and the run fails, so the
+   retry re-reads it. A credential read failure, a missing or unloadable agent
+   set, or a failed promote, rebind or bind transaction likewise leaves only that
+   job marked; the worker continues with the other
    marked jobs, then fails the run so Oban retries. A retry re-evaluates only the
    jobs still marked. A decided job is never visited again, so a job an operator
    later clears, and a job created after the migration, are never rebound.
 
-Binding a job updates the record, and `DependencyNotifier` recompiles the
-affected agents.
+`:complete_snmp_credential_backfill` is listed in the `DependencyCatalog`
+`mapper_job_config` `action_names`, so each committed decision invalidates mapper
+config through the normal `DependencyNotifier` path and the affected agents get
+the bound credential on their next poll, without waiting for the config cache TTL.
 
 ### Decision 5: the profile edit path is not the bug, and gets a contract test
 
@@ -217,7 +229,8 @@ consequence.
 
 - **Startup window.** A mapper config compiled after the upgrade and before the
   backfill binds jobs has base `{}`. The backfill runs seconds after boot, and
-  binding triggers a recompile. Discovery runs on job intervals, so at most a run
+  each committed bind invalidates mapper config through `DependencyNotifier`
+  (Decision 4), so the window ends at that invalidation, not at the cache TTL. Discovery runs on job intervals, so at most a run
   that fires inside that window probes only known devices once.
 - **Behaviour change for rule-fallback deployments.** A deployment whose fallback
   came from an agent-scoped monitoring rule is migrated to that rule's secret. A

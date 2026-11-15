@@ -125,7 +125,8 @@ The compiler MUST NOT emit an SNMPv1/v2c credential with no community string as 
 Upgrading MUST bind each existing SNMP-mode mapper job, enabled or disabled, to the credential its pre-upgrade fallback chain resolved to, without operators re-entering secrets.
 Only a job whose legacy chain, evaluated on a non-empty agent set, resolves to no credential, or to different credentials on different agents, MAY remain unbound. A read or write failure, a missing assigned agent, or an empty or unloadable partition agent set during the backfill MUST NOT be treated as an empty result.
 The agent set MUST come from persisted agent records: the assigned agent for an agent-assigned job, or every agent that is not superseded and whose `partition_id` (default `default`) equals the job's partition for a partition-assigned job. Each agent in the set MUST be evaluated with its own id as the agent rule scope, the job's partition as the partition scope, and its own device for host resolution.
-Each job that existed before the upgrade MUST carry a backfill mark. The backfill MUST visit only marked jobs, and MUST clear a job's mark in the same update that records its decision: bound, deliberately unbound, or not needed because the job is API-only or already references a credential. Jobs created after the upgrade MUST NOT be marked.
+Each job that existed before the upgrade MUST carry a backfill mark. The backfill MUST visit only marked jobs, and MUST clear a job's mark in the same update that records its decision: bound, deliberately unbound, or not needed because the job is API-only or already references a credential. That update MUST apply only if the mark is still set and the job's SNMP credential reference still equals the value the backfill read; an update that applies to no row MUST NOT record a decision, and the job MUST stay marked for a retry. Jobs created after the upgrade MUST NOT be marked.
+Each committed decision MUST invalidate the compiled mapper configuration of the affected agents, so a bound credential reaches them without waiting for the configuration cache to expire.
 
 #### Scenario: Disabled job is bound
 - **GIVEN** a disabled SNMP-mode job whose pre-upgrade fallback resolved to reusable credential C
@@ -198,6 +199,24 @@ Each job that existed before the upgrade MUST carry a backfill mark. The backfil
 - **AND** an operator then clears K's SNMP credential
 - **WHEN** the backfill retries
 - **THEN** it SHALL NOT rebind K
+
+#### Scenario: Job that already references a credential is decided as not needed
+- **GIVEN** a marked SNMP-mode job that an operator bound to reusable credential C before the backfill reached it
+- **WHEN** the backfill runs
+- **THEN** the job SHALL still reference C and its mark SHALL be cleared
+- **AND** if the operator later clears the job's credential, a later retry SHALL NOT rebind it
+
+#### Scenario: Job changed between read and decision
+- **GIVEN** the backfill read a marked job with no referenced credential
+- **AND** an operator set or changed the job's credential before the backfill wrote its decision
+- **WHEN** the backfill writes its decision
+- **THEN** the write SHALL apply to no row and SHALL NOT overwrite the operator's credential
+- **AND** the job SHALL stay marked and the run SHALL fail so the retry re-reads it
+
+#### Scenario: Binding reaches the agent promptly
+- **GIVEN** an agent whose mapper config was compiled with base `{}` before the backfill bound its job
+- **WHEN** the backfill commits the job's binding to credential C
+- **THEN** the agent's mapper config SHALL be invalidated, and its next config poll SHALL carry C as the job's base credentials
 
 #### Scenario: Job created after the upgrade is not bound
 - **GIVEN** an SNMP-mode job created after the upgrade with no referenced SNMP credential

@@ -10,8 +10,8 @@
 - [ ] 1.1 Migration: nullable `mapper_jobs.snmp_credential_secret_id` FK to
       `network_credential_secrets` with `ON DELETE RESTRICT`, plus index; and
       `mapper_jobs.snmp_credential_backfill_pending boolean NOT NULL DEFAULT true`
-      then `SET DEFAULT false` (catalog-only, no `UPDATE`), not accepted by any
-      `MapperJob` action
+      then `SET DEFAULT false` (catalog-only, no `UPDATE`), written only by the
+      system-only `MapperJob` action `:complete_snmp_credential_backfill`
 - [ ] 1.2 `MapperJob`: attribute, `belongs_to :snmp_credential_secret`,
       `references ... on_delete: :restrict`, accept on `:create`/`:update`,
       validation that the referenced secret's `credential_kind` is `:snmp`
@@ -50,13 +50,20 @@
       one promoted secret; a missing agent row, empty partition agent set, or read
       or write failure leaves only that job marked, decides the others, and fails
       the run; a retry does not rebind a decided job an operator cleared; a job
-      created after the migration is never marked or bound
+      created after the migration is never marked or bound; a job that already references a
+      credential has its mark cleared without its secret changing; a job changed
+      between read and decision stays marked and the run fails
 - [ ] 3.2 `MapperJobSNMPCredentialBackfillWorker`: one-shot, unique, enqueued on
       core start, private copy of the legacy chain, visits only marked jobs
       (including disabled ones), agent set from persisted non-superseded `Agent`
       rows, promote/rebind/bind in one transaction (audit purpose
-      `mapper_discovery_backfill`), each decision clears the job's mark in the
-      same compare-and-set update
+      `mapper_discovery_backfill`), each decision written by
+      `:complete_snmp_credential_backfill` (sets the secret when binding, clears
+      the mark; filter: mark set AND secret id equals the value read; zero rows
+      leaves the job marked and fails the run)
+- [ ] 3.2a Add `:complete_snmp_credential_backfill` to the `DependencyCatalog`
+      `mapper_job_config` `action_names`, with a test that a committed bind
+      invalidates mapper config
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 
