@@ -1,6 +1,7 @@
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
 load("//build:elixir_quality.bzl", "elixir_quality")
+load("//build:elixir_release.bzl", "SHIPPED_ERTS_OTP_ROOT", "SHIPPED_ERTS_ROOT_MARKER", "elixir_release")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -30,9 +31,27 @@ mix_app(
     deps = STORAGE_DEPS,
 )
 
+# The same NIF and tests can run in a pod with the required kernel policy.
+elixir_release(
+    name = "qualification_release",
+    testonly = True,
+    srcs = ["mix.exs", "mix.lock"],
+    out = "serviceradar-object-storage-qualification.tar.gz",
+    app = ":erlang_app",
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    extra_config = [
+        "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
+    ],
+    release_name = "serviceradar_object_storage",
+)
+
 ex_unit_tests(
     name = "unit_tests",
-    srcs = ["test/object_storage_test.exs"],
+    srcs = [
+        "test/config_test.exs",
+        "test/object_storage_test.exs",
+    ],
     load_config = False,
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],

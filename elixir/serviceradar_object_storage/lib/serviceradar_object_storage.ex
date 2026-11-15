@@ -8,6 +8,7 @@ defmodule ServiceRadarObjectStorage do
 
   Open accepts a map with host, port, region, bucket (or nil), access_key,
   secret_key, session_token (or nil), tls, concurrency and buffer_size.
+  Missing, unknown or incorrectly typed fields return {:error, :bad_config}.
   Only numeric loopback hosts allow plaintext HTTP. TLS uses public roots.
   Each client owns one I/O thread and at most concurrency native workers.
   There are at most two live clients per VM, including draining clients.

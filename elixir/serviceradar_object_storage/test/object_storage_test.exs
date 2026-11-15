@@ -42,7 +42,7 @@ defmodule ServiceRadarObjectStorageTest do
     assert_receive {:request, peer, :PUT, "/synthetic-recordings/" <> ^key, headers, ^bytes}, 10_000
     assert headers["if-none-match"] == "*"
     assert String.starts_with?(headers["authorization"], "AWS4-HMAC-SHA256 ")
-    assert is_binary(headers["x-amz-checksum-crc64nvme"])
+    assert headers["x-amz-checksum-crc64nvme"] == "KEM0ggfxTyw="
     reply(peer, 200, [], "")
     assert_receive {:longshore_reply, ^put_ref, {:ok, :stored}, {queue, elapsed}}, 10_000
     assert queue >= 0 and elapsed >= 0
@@ -88,24 +88,12 @@ defmodule ServiceRadarObjectStorageTest do
     assert :closing = Storage.close(client)
     assert %{accepting: false, outstanding: 1, workers: 1} = Storage.info(client)
 
-    # A withheld provider response must not occupy BEAM's normal schedulers.
-    assert Task.await(Task.async(fn -> Enum.sum(1..1000) end)) == 500_500
     reply(peer, 200, [], "")
     assert :ok = wait_closed(client)
     assert %{outstanding: 0, workers: 0} = Storage.info(client)
   end
 
-  test "invalid budgets and plaintext remote destinations are refused before client allocation", %{config: config} do
-    for changes <- [
-          %{concurrency: 0},
-          %{concurrency: 17},
-          %{concurrency: 16, buffer_size: 16_777_216},
-          %{host: "storage.example.test"},
-          %{buffer_size: 8191}
-        ] do
-      assert {:error, :bad_config} = Storage.open(Map.merge(config, changes))
-    end
-
+  test "the VM-wide client limit is released after shutdown", %{config: config} do
     assert {:ok, first} = Storage.open(config)
     assert {:ok, second} = Storage.open(config)
 

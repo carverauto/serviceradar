@@ -68,16 +68,15 @@ from the runtime default with the three io_uring syscalls allowed, installed on
 every eligible node. The chart configuration and installation runbook ship
 separately from this integration. Profile selection alone does not qualify the
 client: ring creation and buffer registration have independent failure modes.
-The integration will expose `pin_buffers` after that upstream setting merges and
-the immutable dependency pin advances, defaulting to true to preserve zero-copy
-sends. The target deployment needs adequate memlock supplied by node/runtime
-configuration; qualify a workload-specific runtime handler before proposing
-broader node changes. Those infrastructure changes require separate operator
-authorization and do not come from the seccomp setting. Explicitly selected
-`pin_buffers = false` is a fallback where the limit has not been raised and must
-be visible in reported recorder configuration. Do not silently accept or ignore
-an option absent from the pinned API, raise container privileges to bypass
-memlock, or claim the unpinned copy cost is negligible without measurement.
+Longshore retains registered buffers and zero-copy sends. The proposed upstream
+`pin_buffers` option was withdrawn; the integration must reject it rather than
+pretend to offer a fallback. The target deployment needs adequate soft and hard
+memlock limits supplied by node/runtime configuration. Those infrastructure
+changes require separate operator authorization and do not come from the seccomp
+setting. Verify the inherited limit in newly created pods on every eligible node,
+and include both the profile and the limit in node provisioning. Do not silently
+accept options absent from the pinned API or raise container privileges to bypass
+memlock. Node preparation does not by itself prove the NIF works.
 
 Set connections, buffers, operations, buffer size and I/O threads explicitly.
 Account for TLS buffers and outstanding BEAM binaries in the pod budget.

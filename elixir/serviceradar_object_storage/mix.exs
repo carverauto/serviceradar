@@ -7,6 +7,13 @@ defmodule ServiceRadarObjectStorage.MixProject do
       version: "0.1.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
+      releases: [
+        serviceradar_object_storage: [
+          include_executables_for: [:unix],
+          include_erts: &shipped_erts/0,
+          applications: [ex_unit: :none]
+        ]
+      ],
       deps: [
         {:rustler, "~> 0.38"},
         {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -19,4 +26,5 @@ defmodule ServiceRadarObjectStorage.MixProject do
   end
 
   def application, do: [extra_applications: [:logger]]
+  defp shipped_erts, do: System.get_env("SERVICERADAR_RELEASE_ERTS") || true
 end

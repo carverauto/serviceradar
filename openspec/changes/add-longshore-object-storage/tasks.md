@@ -3,14 +3,16 @@
 - [ ] 1.1 Review the pinned public API against existing archive authority; hand off missing attempt/deadline, metadata, identity-bound reads, encryption and request-evidence APIs to the Longshore owner.
 - [ ] 1.2 Qualify actual Linux/container io_uring, memlock and TLS requirements with explicit unsupported results.
 - [ ] 1.3 Add immutable Cargo dependencies and hermetic Bazel AWS-LC support; verify supported Linux release architectures remotely.
-- [ ] 1.4 Land the separate media-storage seccomp chart setting, node-installation runbook and rendering tests; verify the reviewed profile on every eligible node before pod qualification.
-- [ ] 1.5 After upstream buffer-pinning selection merges, advance the immutable dependency pin, expose the setting with pinned buffers as the default, and verify both pinned initialization with adequate memlock and the explicit unpinned fallback under a low limit.
+- [x] 1.4 Land the separate media-storage seccomp chart setting, node-installation runbook and rendering tests (PR #6607).
+- [ ] 1.5 Verify the reviewed seccomp profile on every eligible node before pod qualification; reject unsupported configuration such as the withdrawn buffer-pinning option.
 - [ ] 1.6 Qualify the node/runtime memlock configuration needed for pinned zero-copy sends; obtain separate authorization before changing node configuration and verify every eligible node.
 
 ## 2. Rustler integration
 
 - [ ] 2.1 Add the reusable library with bounded operation/byte admission, correlated asynchronous completion, panic containment and off-scheduler teardown.
 - [ ] 2.2 Verify synthetic store/fetch/range, multipart, saturation, caller loss, deadline and shutdown behavior through the shipped NIF.
+- [x] 2.2.1 Run the compiled qualification release in a prepared pod and verify synthetic conditional PUT, exact full/range reads, client/operation admission, caller exit and drain behavior.
+- [ ] 2.2.2 Qualify the CI executor's native runtime policy and run the same runtime tests there; a pod pass does not substitute for a CI pass.
 - [ ] 2.3 After upstream contract closure, connect the isolated archive provider adapter while preserving grant, no-clobber, exact-identity verification and unknown-outcome handling.
 - [ ] 2.4 Verify credential rotation, failed writes, lost replies and preservation/reconciliation without automatic transport fallback.
 

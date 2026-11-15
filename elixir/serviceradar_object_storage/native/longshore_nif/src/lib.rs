@@ -117,7 +117,10 @@ impl Drop for WorkerLease {
 
 enum Operation {
     Put(Vec<u8>),
-    Fetch(Option<(u64, u64)>),
+    Fetch {
+        range: Option<(u64, u64)>,
+        limit: usize,
+    },
 }
 
 struct Job {
@@ -147,15 +150,20 @@ fn operate(client: &Client, key: &str, operation: Operation) -> Result<Outcome, 
             let (result, _buffer) = client.store_no_clobber(key, buffer, bytes.len()).wait();
             result.map(Outcome::Stored).map_err(classify)
         }
-        Operation::Fetch(range) => {
+        Operation::Fetch { range, limit } => {
             let pending = match range {
                 Some((first, last)) => client.fetch_range(key, first, last, buffer),
                 None => client.fetch(key, buffer),
             };
             let (result, buffer) = pending.wait();
-            result
-                .map(|length| Outcome::Fetched(length.map(|n| buffer.as_slice()[..n].to_vec())))
-                .map_err(classify)
+            match result.map_err(classify)? {
+                // TLS can round the native buffer above the requested payload
+                // budget. Enforce the API limit before allocating a result copy.
+                Some(n) if n > limit => Err(atoms::too_large()),
+                length => Ok(Outcome::Fetched(
+                    length.map(|n| buffer.as_slice()[..n].to_vec()),
+                )),
+            }
         }
     }
 }
@@ -220,7 +228,7 @@ fn worker(client: Client, receiver: Receiver<Job>, lease: WorkerLease) {
     drop(lease);
 }
 
-fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<i32>)> {
+fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<String>)> {
     let concurrency = config.concurrency;
     let buffer_size = config.buffer_size;
     let builder = config.builder().map_err(|reason| (reason, None))?;
@@ -234,7 +242,9 @@ fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<i32>)> {
         BuildError::Unsupported => (atoms::unsupported(), None),
         BuildError::Setting(_) => (atoms::bad_config(), None),
         BuildError::NoNameserver => (atoms::no_nameserver(), None),
-        BuildError::Io(error) => (atoms::io_setup_failed(), error.raw_os_error()),
+        // Longshore can wrap the OS error with setup context, losing raw errno.
+        // Preserve that local initialization diagnostic for operator remediation.
+        BuildError::Io(error) => (atoms::io_setup_failed(), Some(error.to_string())),
     })?;
     let (sender, receiver) = bounded(concurrency);
     let workers = Arc::new(AtomicUsize::new(0));
@@ -261,12 +271,22 @@ fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<i32>)> {
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn open(env: Env, config: Config) -> Term {
-    match catch_unwind(AssertUnwindSafe(|| start(config)))
-        .unwrap_or_else(|_| Err((atoms::native_panic(), None)))
+fn open<'a>(env: Env<'a>, config: Term<'a>) -> Term<'a> {
+    match catch_unwind(AssertUnwindSafe(|| {
+        // NifMap decodes required fields but otherwise ignores unknown options.
+        // Check the exact schema before allocating a client or native buffers.
+        if config.map_size().ok() != Some(10) {
+            return Err((atoms::bad_config(), None));
+        }
+        let config = config
+            .decode::<Config>()
+            .map_err(|_| (atoms::bad_config(), None))?;
+        start(config)
+    }))
+    .unwrap_or_else(|_| Err((atoms::native_panic(), None)))
     {
         Ok(handle) => (atoms::ok(), handle).encode(env),
-        Err((reason, Some(errno))) => (atoms::error(), (reason, errno)).encode(env),
+        Err((reason, Some(detail))) => (atoms::error(), (reason, detail)).encode(env),
         Err((reason, None)) => (atoms::error(), reason).encode(env),
     }
 }
@@ -322,7 +342,8 @@ fn put<'a>(env: Env<'a>, handle: ResourceArc<Handle>, key: String, bytes: Binary
 
 #[rustler::nif]
 fn fetch<'a>(env: Env<'a>, handle: ResourceArc<Handle>, key: String) -> Term<'a> {
-    submit(env, handle, key, || Operation::Fetch(None))
+    let limit = handle.buffer_size;
+    submit(env, handle, key, || Operation::Fetch { range: None, limit })
 }
 
 #[rustler::nif]
@@ -336,7 +357,10 @@ fn fetch_range<'a>(
     if last < first || last - first >= handle.buffer_size as u64 {
         return (atoms::error(), atoms::bad_range()).encode(env);
     }
-    submit(env, handle, key, || Operation::Fetch(Some((first, last))))
+    submit(env, handle, key, || Operation::Fetch {
+        range: Some((first, last)),
+        limit: (last - first + 1) as usize,
+    })
 }
 
 #[rustler::nif]

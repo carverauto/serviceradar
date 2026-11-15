@@ -57,11 +57,10 @@ inconclusive. Do not use production cameras as a load generator.
 - Preserve TLS, checksums, encryption, addressing, retries, CPU affinity,
   container CPU/memory limits and object verification settings across paired
   native/NIF runs. Diagnostic checksum-off runs cannot qualify production.
-- Match and record buffer pinning mode, effective memlock limit and seccomp
-  profile across native/NIF pairs. Compare unpinned production-mode runs with
-  unpinned native runs; report published pinned-buffer results separately. Where
-  both modes can run, measure their CPU and throughput difference explicitly
-  rather than attributing kernel-copy cost to the Rustler bridge.
+- Preserve registered buffers and zero-copy sends across native/NIF pairs.
+  Record effective memlock limits and seccomp profiles and verify initialization
+  before measuring. Measure the Rustler bridge's payload copies separately from
+  Longshore's kernel send path; do not substitute an unpinned implementation.
 - Record CPU/NUMA architecture, kernel, runtime/compiler versions, network path,
   provider placement, release SHA, Longshore SHA and configured limits privately.
 - Warm up for 30 seconds, then use at least five interleaved paired runs of
