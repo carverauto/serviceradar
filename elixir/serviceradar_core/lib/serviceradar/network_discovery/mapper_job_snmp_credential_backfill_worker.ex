@@ -73,12 +73,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   def perform(%Oban.Job{}) do
     case run() do
       {:ok, report} ->
-        Logger.info("Mapper job SNMP credential backfill finished", report: summarize(report))
+        Logger.info("Mapper job SNMP credential backfill finished: #{inspect(summarize(report))}")
         :ok
 
       {:error, report} ->
-        Logger.warning("Mapper job SNMP credential backfill incomplete",
-          report: summarize(report)
+        Logger.warning(
+          "Mapper job SNMP credential backfill incomplete: #{inspect(summarize(report))}"
         )
 
         {:error, :mapper_job_snmp_credential_backfill_incomplete}
