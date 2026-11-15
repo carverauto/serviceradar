@@ -907,6 +907,54 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       end
     end
 
+    test "a re-created AWX host is not a distinct host, but current rows are" do
+      old = awx_id(11)
+      new = awx_id(12)
+
+      row = fn host, inventory, current, expired? ->
+        %{
+          controller_id: @controller,
+          inventory_id: inventory,
+          awx_host_id: host,
+          ansible_host: "recreated",
+          current: current,
+          expired_at: if(expired?, do: ~U[2026-01-01 00:00:00Z])
+        }
+      end
+
+      base =
+        awx_merge(%{
+          source_identifiers: [old],
+          to_own_identifiers: [new],
+          guest_provider_ref: nil
+        })
+
+      # The old row expired and not current, the new row current at the same
+      # controller, inventory and ansible_host: no proof.
+      superseded =
+        Map.put(base, :awx_memberships, [row.(11, 7, false, true), row.(12, 7, true, false)])
+
+      assert %{verdict: :ambiguous, reason: :no_distinguishing_evidence} =
+               Decisions.awx_merge_evidence(superseded)
+
+      # Two current rows still prove different, as do rows of different
+      # inventories, and an id with no membership data keeps the old behavior.
+      current =
+        Map.put(base, :awx_memberships, [row.(11, 7, true, false), row.(12, 7, true, false)])
+
+      assert %{verdict: :different_machines, proofs: [:different_awx_hosts]} =
+               Decisions.awx_merge_evidence(current)
+
+      other_inventory =
+        Map.put(base, :awx_memberships, [row.(11, 7, false, true), row.(12, 8, true, false)])
+
+      assert %{verdict: :different_machines, proofs: [:different_awx_hosts]} =
+               Decisions.awx_merge_evidence(other_inventory)
+
+      assert %{verdict: :different_machines, proofs: [:different_awx_hosts]} =
+               Decisions.awx_merge_evidence(base)
+    end
+
     test "keys a v2 id and a v3 reference of one cluster and VMID alike" do
       assert Decisions.awx_guest_key(guest_b_ref()) == {"cluster-b", "101"}
       assert Decisions.awx_guest_key("proxmox:v2:Cluster-B:vm:101") == {"cluster-b", "101"}
