@@ -67,7 +67,7 @@ chart pins only those repositories present in the release commit's inventory.
 Before uploads and promotion, the shared tool requires fresh registry capacity
 metrics and less than 85% physical-volume usage. Harbor project quotas are a
 separate backstop. Missing metrics, failed source copies, missing architecture
-children, missing signatures/SBOMs or quota errors fail publication. The build
+children, missing signatures or quota errors fail publication. The build
 and promotion credentials live in separate temporary Docker configs and are
 removed by the final cleanup step.
 
