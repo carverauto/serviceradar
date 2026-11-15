@@ -1092,11 +1092,6 @@ jobs:
           echo "Verified required platform packages, runtimes, checksums, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
-  # `publish` tolerates a failed macOS job, but a job whose `if` carries no status
-  # function is implicitly `success() && ...`, and success() fails when ANY job
-  # upstream of it failed, transitively. Without the explicit status checks below,
-  # a failed macOS installer silently skips everything after publish and strands
-  # the release as a draft.
       - name: Retain Harbor promotion receipts
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1109,6 +1104,11 @@ jobs:
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
         run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup
 
+  # `publish` tolerates a failed macOS job, but a job whose `if` carries no status
+  # function is implicitly `success() && ...`, and success() fails when ANY job
+  # upstream of it failed, transitively. Without the explicit status checks below,
+  # a failed macOS installer silently skips everything after publish and strands
+  # the release as a draft.
   image-security-dispatch:
     needs: publish
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.dry_run != 'true' }}
