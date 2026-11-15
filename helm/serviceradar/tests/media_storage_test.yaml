@@ -44,6 +44,9 @@ tests:
           path: spec.template.spec.automountServiceAccountToken
           value: false
       - equal:
+          path: spec.template.spec.securityContext.seccompProfile
+          value: {type: RuntimeDefault}
+      - equal:
           path: spec.template.metadata.annotations["serviceradar.io/init-storage-revision"]
           value: "8"
       - equal:
@@ -89,6 +92,81 @@ tests:
                 secretName: example-storage-tls
                 defaultMode: 288
                 items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+
+  - it: applies the installed io_uring profile while retaining the restricted pod identity
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.type: Localhost
+      mediaStorage.seccompProfile.localhostProfile: serviceradar/media-storage-uring-v1.json
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: Localhost
+              localhostProfile: serviceradar/media-storage-uring-v1.json
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+
+  - it: refuses an unconfined media storage workload
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.type: Unconfined
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.seccompProfile.type must be RuntimeDefault or Localhost
+
+  - it: refuses Localhost without an installed profile path
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.type: Localhost
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments
+
+  - it: refuses an absolute host path
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.type: Localhost
+      mediaStorage.seccompProfile.localhostProfile: /var/lib/kubelet/seccomp/example.json
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments
+
+  - it: refuses traversal out of the node seccomp directory
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.type: Localhost
+      mediaStorage.seccompProfile.localhostProfile: serviceradar/../example.json
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments
+
+  - it: refuses a profile path that RuntimeDefault would ignore
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.seccompProfile.localhostProfile: serviceradar/media-storage-uring-v1.json
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.seccompProfile.localhostProfile requires type Localhost
 
   - it: keeps provider credentials out of the web workload when storage is enabled
     template: templates/web.yaml
