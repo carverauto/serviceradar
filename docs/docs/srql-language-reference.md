@@ -347,6 +347,7 @@ fields; using a field that the entity does not support returns an
 | Entity (`in:`) | Aliases | Description |
 |----------------|---------|-------------|
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
+| `device_availability_history` | `device_availability_transitions`, `availability_history` | Merged device availability changes: each row is `from_state` from `from_since` until `changed_at`, then `to_state`. Row listing only; `stats:`, `rollup_stats:` and `bucket:` are refused. Requires `devices.view`. |
 | `events` | `activity` | Normalized OCSF events and activity |
 | `security_events` | | Control-plane security audit log. Requires `settings.audit.view`. |
 | `logs` | — | Application and system logs (OpenTelemetry) |

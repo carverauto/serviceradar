@@ -100,6 +100,32 @@ defmodule ServiceRadar.Inventory.AvailabilityResolutionIntegrationTest do
       assert transition_jobs() == jobs
     end
 
+    # The history record of a change names the interval it closes: the state the device
+    # left, from the previous availability_changed_at, until this decision.
+    test "every state change is history carrying the interval it closes", %{actor: actor} do
+      device = create_device!(actor, "192.0.2.193")
+
+      {:ok, _} = Availability.record_evidence([wifi(device.uid, :up, minutes_ago(3))])
+      first_changed_at = DateTime.from_naive!(changed_at(device.uid), "Etc/UTC")
+
+      {:ok, _} = Availability.record_evidence([wifi(device.uid, :down, minutes_ago(0))])
+
+      assert [
+               %{"from" => "unknown", "to" => "available", "changed_at" => first},
+               %{
+                 "from" => "available",
+                 "to" => "unavailable",
+                 "from_since" => since,
+                 "changed_at" => second
+               }
+             ] = Enum.filter(history_only(transition_jobs()), &(&1["uid"] == device.uid))
+
+      assert DateTime.compare(parse_iso!(first), first_changed_at) == :eq
+      assert DateTime.compare(parse_iso!(since), first_changed_at) == :eq
+      latest_changed_at = DateTime.from_naive!(changed_at(device.uid), "Etc/UTC")
+      assert DateTime.compare(parse_iso!(second), latest_changed_at) == :eq
+    end
+
     test "the sync path writes its availability to the compatibility table only", %{actor: actor} do
       sync!(actor, "192.0.2.192", false)
       device = device_by_ip("192.0.2.192")
@@ -553,6 +579,12 @@ defmodule ServiceRadar.Inventory.AvailabilityResolutionIntegrationTest do
   end
 
   defp transitions_only(jobs), do: Enum.flat_map(jobs, &Map.get(&1, "transitions", []))
+  defp history_only(jobs), do: Enum.flat_map(jobs, &Map.get(&1, "history", []))
+
+  defp parse_iso!(value) do
+    {:ok, at, 0} = DateTime.from_iso8601(value)
+    at
+  end
 
   defp evidence_keys(uid) do
     %{rows: rows} =

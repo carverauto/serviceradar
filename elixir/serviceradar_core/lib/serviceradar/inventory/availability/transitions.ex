@@ -17,6 +17,10 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
       `emit_availability_events` (Open Question 6). A transition to `unknown` has no
       device event.
 
+  Before any of that, the job publishes the history record of every state change
+  (`ServiceRadar.Inventory.Availability.History`), the reconciliation's included and
+  ungated.
+
   Display-only changes (provenance, conflict, agent counters) are carried only for the
   UI invalidation. The resolver is the only emitter of availability transitions.
   """
@@ -25,6 +29,7 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
 
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.StateChangePublisher
+  alias ServiceRadar.Inventory.Availability.History
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Repo
 
@@ -45,14 +50,21 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
 
   @doc """
   Inserts the outbox job for one resolved batch, in the caller's transaction.
-  `transitions` are state changes; `invalidated` are every changed device's uids.
+  `transitions` are the state changes to announce; `history` are every state change,
+  including the reconciliation's, with the interval each one closes
+  (`ServiceRadar.Inventory.Availability.History`); `invalidated` are every changed
+  device's uids.
   """
-  @spec enqueue([transition()], [String.t()], keyword()) :: :ok
-  def enqueue(transitions, invalidated, query_opts \\ [])
-  def enqueue([], [], _query_opts), do: :ok
+  @spec enqueue([transition()], [map()], [String.t()], keyword()) :: :ok
+  def enqueue(transitions, history, invalidated, query_opts \\ [])
+  def enqueue([], [], [], _query_opts), do: :ok
 
-  def enqueue(transitions, invalidated, query_opts) do
-    %{"transitions" => Enum.map(transitions, &stringify/1), "invalidated" => invalidated}
+  def enqueue(transitions, history, invalidated, query_opts) do
+    %{
+      "transitions" => Enum.map(transitions, &stringify/1),
+      "history" => Enum.map(history, &stringify/1),
+      "invalidated" => invalidated
+    }
     |> new()
     |> Repo.insert!([prefix: "platform"] ++ query_opts)
 
@@ -72,6 +84,15 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
+    # History first: if it cannot be published or queued, the job retries before anything
+    # below is announced, and its message ids store a republish once.
+    case History.publish(Map.get(args, "history", [])) do
+      :ok -> announce(args)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp announce(args) do
     transitions = Map.get(args, "transitions", [])
     DevicePubSub.broadcast_invalidated(Map.get(args, "invalidated", []))
     Enum.each(transitions, &publish_state_feed/1)

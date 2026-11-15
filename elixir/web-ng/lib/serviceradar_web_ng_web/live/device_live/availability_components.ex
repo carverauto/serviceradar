@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:offline_checks, offline_checks)
       |> assign(:unknown_checks, unknown_checks)
       |> assign(:segments, segments)
-      |> assign(:plugin_reported, source == :plugin_reported)
+      |> assign(:source, source)
 
     ~H"""
     <div id="device-availability-timeline" class="rounded-xl border border-sr-line bg-sr-surface">
@@ -45,17 +45,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
           <div>
             <div class="text-sm font-semibold">Availability Timeline</div>
             <div class="text-xs text-sr-muted">
-              Last 24h · 30m buckets (partial at edges) · gaps are unknown
-              <%= if @plugin_reported do %>
-                · <span class="badge badge-sm badge-ghost">plugin-reported</span>
-              <% end %>
+              Last 24h · 30m buckets (partial at edges) · gaps are unknown ·
+              <span id="device-availability-source" data-source={@source}>
+                {timeline_source_label(@source)}
+              </span>
             </div>
           </div>
           <div class="text-right">
             <div id="device-availability-percent" class="text-sm font-semibold tabular-nums">
               {if is_number(@uptime_pct), do: "#{format_pct(@uptime_pct)}%", else: "—"}
             </div>
-            <div class="text-xs text-sr-muted">online among observed buckets</div>
+            <div class="text-xs text-sr-muted">{uptime_caption(@source)}</div>
           </div>
         </div>
       </div>
@@ -117,6 +117,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
     </div>
     """
   end
+
+  # The merged history is the badge's value; probe history is what probes saw and is
+  # labelled so it is never read as the device's availability.
+  defp timeline_source_label(:merged), do: "merged availability (the badge's value)"
+  defp timeline_source_label(:agent_probe), do: "probe history of the selected agent"
+  defp timeline_source_label(_source), do: "probe history (not the merged availability)"
+
+  defp uptime_caption(:merged), do: "available share of known time"
+  defp uptime_caption(_source), do: "online among observed buckets"
 
   defp availability_color(:online), do: "bg-emerald-500"
   defp availability_color(:offline), do: "bg-red-500"

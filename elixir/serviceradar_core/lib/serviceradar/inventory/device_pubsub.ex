@@ -78,6 +78,19 @@ defmodule ServiceRadar.Inventory.DevicePubSub do
   def broadcast_updated(_), do: :ok
 
   @doc """
+  Broadcast that merged availability history rows for these devices are stored, so a
+  reader can redraw their availability timelines without reloading anything else.
+  """
+  def broadcast_availability_history_stored(uids) when is_list(uids) do
+    case uids |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq() do
+      [] -> :ok
+      stored -> safe_broadcast(@topic, {:availability_history_stored, stored})
+    end
+
+    :ok
+  end
+
+  @doc """
   Broadcast that a device was deleted.
   """
   def broadcast_deleted(%{uid: uid}) when is_binary(uid) do

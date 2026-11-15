@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     "settings.audit.view" => ~w(security_events),
     "devices.view" => ~w(
       devices device device_inventory
+      device_availability_history device_availability_transitions availability_history
       agents agent ocsf_agents
       addon_fleet addon_fleets addon_statuses addon_status
       gateways gateway

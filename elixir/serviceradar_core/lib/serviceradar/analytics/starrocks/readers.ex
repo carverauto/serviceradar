@@ -190,6 +190,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       e when e in ~w(bmp_events bmp_event bmp_routing_events) ->
         :bmp
 
+      e
+      when e in ~w(device_availability_history device_availability_transitions
+                   availability_history) ->
+        :availability_history
+
       e when e in ~w(otel_metrics metrics otel_metric_points metric_points) ->
         :otel_metrics
 
@@ -236,6 +241,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # So do spans (`OtelTraces.store/2`), and their summaries are derived in the
   # same backend (`RefreshTraceSummariesWorker`).
   def mode_for(:otel_traces), do: if(enabled?(), do: "starrocks")
+
+  # The merged device availability history follows the same rule:
+  # `AvailabilityTransitions` writes it to the warehouse only when it is enabled.
+  def mode_for(:availability_history), do: if(enabled?(), do: "starrocks")
 
   # BMP routing events follow the same rule: AnalyticsSignals writes them to
   # the warehouse only when it is enabled (`store_routing_events/1`).

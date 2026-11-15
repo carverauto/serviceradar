@@ -192,6 +192,131 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     refute_receive {:query, _, _}
   end
 
+  describe "merged availability history" do
+    # A managing controller decided the device available long before the window, while a
+    # probing agent that cannot reach it reports failures: the timeline follows the badge.
+    test "a device available since before the window is online in every bucket" do
+      result = load_merged(%{state: :available, changed_at: ~U[1999-06-01 00:00:00Z]}, [])
+
+      assert result.source == :merged
+      assert result.bucket_count == 49
+      assert result.online_checks == 49
+      assert result.uptime_pct == 100.0
+
+      assert_receive {:query, query, %{scope: @scope}}
+      assert query =~ "in:device_availability_history"
+      assert query =~ ~s(uid:"#{@device_uid}")
+      assert query =~ "time:[1999-06-15T12:15:00Z,1999-06-16T12:15:00Z]"
+      assert query =~ "sort:changed_at:desc limit:1000"
+      refute_receive {:query, _, _}
+    end
+
+    test "time before the first recorded state is unknown, never synthesized" do
+      # First decided at 10:00; a record without from_since closes an interval whose start
+      # is not known, so it covers nothing.
+      result =
+        load_merged(
+          %{state: :available, changed_at: ~U[1999-06-16 10:00:00Z]},
+          [history("unknown", nil, "1999-06-16T10:00:00Z", "available")]
+        )
+
+      # 10:00 to 12:15 is the 10:00..12:00 buckets (5) plus the partial 12:00 bucket.
+      assert result.online_checks == 5
+      assert result.unknown_checks == 44
+      assert result.offline_checks == 0
+      assert result.uptime_pct == 100.0
+      assert Enum.find(result.segments, &(&1.timestamp == "1999-06-16T09:30:00Z")).status == :unknown
+    end
+
+    test "any unavailable time marks its bucket offline with the minutes down, and uptime is time-weighted" do
+      # Available all window except 03:10-03:20 (10 minutes down).
+      result =
+        load_merged(
+          %{state: :available, changed_at: ~U[1999-06-16 03:20:00Z]},
+          [
+            history("available", "1999-06-01T00:00:00Z", "1999-06-16T03:10:00Z", "unavailable"),
+            history("unavailable", "1999-06-16T03:10:00Z", "1999-06-16T03:20:00Z", "available")
+          ]
+        )
+
+      bucket = Enum.find(result.segments, &(&1.timestamp == "1999-06-16T03:00:00Z"))
+      assert bucket.status == :offline
+      assert bucket.minutes_down == 10
+      assert bucket.title == "Offline (10 min down)"
+      assert result.offline_checks == 1
+      assert result.online_checks == 48
+      # 600 of 86_400 known seconds down.
+      assert result.uptime_pct == Float.round((86_400 - 600) / 86_400 * 100.0, 1)
+    end
+
+    test "a change decided within the current second shows in the timeline the badge reflects" do
+      # Available for weeks, then unavailable 0.7 seconds before the page reloads.
+      now = ~U[1999-06-16 12:15:00.800000Z]
+
+      respond_with([
+        rows([history("available", "1999-06-01T00:00:00Z", "1999-06-16T12:15:00.100000Z", "unavailable")])
+      ])
+
+      result =
+        load(
+          now: now,
+          converged?: true,
+          merged_availability: %{state: :unavailable, changed_at: ~U[1999-06-16 12:15:00.100000Z]}
+        )
+
+      assert_receive {:query, query, _}
+      assert query =~ "time:[1999-06-15T12:15:00Z,1999-06-16T12:15:00.800000Z]"
+
+      assert result.window_end == now
+      assert result.bucket_count == 49
+      last = List.last(result.segments)
+      assert last.timestamp == "1999-06-16T12:00:00Z"
+      assert last.status == :offline
+      assert last.minutes_down == 1
+      assert result.offline_checks == 1
+      assert result.online_checks == 48
+      assert_in_delta Enum.sum(Enum.map(result.segments, & &1.width)), 100.0, 0.00001
+    end
+
+    test "an outage shorter than a second marks its bucket offline with one minute down" do
+      # Unavailable from 03:10:00.100 to 03:10:00.400, within a single second.
+      result =
+        load_merged(
+          %{state: :available, changed_at: ~U[1999-06-16 03:10:00.400000Z]},
+          [
+            history("available", "1999-06-01T00:00:00Z", "1999-06-16T03:10:00.100000Z", "unavailable"),
+            history("unavailable", "1999-06-16T03:10:00.100000Z", "1999-06-16T03:10:00.400000Z", "available")
+          ]
+        )
+
+      bucket = Enum.find(result.segments, &(&1.timestamp == "1999-06-16T03:00:00Z"))
+      assert bucket.status == :offline
+      assert bucket.minutes_down == 1
+      assert bucket.title == "Offline (1 min down)"
+      assert result.offline_checks == 1
+      assert result.online_checks == 48
+    end
+
+    test "an unknown current decision leaves the time since it unknown" do
+      result = load_merged(%{state: :unknown, changed_at: ~U[1999-06-01 00:00:00Z]}, [])
+      assert result.unknown_checks == 49
+      assert is_nil(result.uptime_pct)
+    end
+
+    test "a failed history query does not become an unknown or healthy timeline" do
+      respond_with([{:error, :query_unavailable}])
+      assert is_nil(load(converged?: true, merged_availability: %{state: :available}))
+    end
+  end
+
+  test "a selected agent always reads that agent's probe history, labelled as such" do
+    respond_with([rows([]), rows([])])
+    result = load(agent_id: "agent-north", converged?: true, merged_availability: %{state: :available})
+    assert result.source == :agent_probe
+    assert_receive {:query, query, _}
+    assert query =~ ~s(agent_id:"agent-north")
+  end
+
   def query(query, opts) do
     send(self(), {:query, query, opts})
 
@@ -238,13 +363,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     end)
   end
 
+  # Probe history unless a test selects the merged history (`converged?: true`).
   defp load(opts \\ []) do
     AvailabilityData.load_availability(
       __MODULE__,
       @device_uid,
       @scope,
-      Keyword.put_new(opts, :now, @now)
+      opts |> Keyword.put_new(:now, @now) |> Keyword.put_new(:converged?, false)
     )
+  end
+
+  defp load_merged(merged, records) do
+    respond_with([rows(records)])
+    load(converged?: true, merged_availability: merged)
+  end
+
+  defp history(from_state, from_since, changed_at, to_state) do
+    %{
+      "device_uid" => @device_uid,
+      "from_state" => from_state,
+      "from_since" => from_since,
+      "changed_at" => changed_at,
+      "to_state" => to_state
+    }
   end
 
   defp respond_with([{:ok, _} = preferred]), do: respond_with([preferred, rows([])])

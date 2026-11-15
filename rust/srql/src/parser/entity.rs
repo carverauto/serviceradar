@@ -163,6 +163,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "merge_audit" | "device_merges" | "merges" => Ok(Entity::MergeAudit),
         "device_revival_audit" | "device_revivals" | "revivals" => Ok(Entity::DeviceRevivalAudit),
+        "device_availability_history"
+        | "device_availability_transitions"
+        | "availability_history" => Ok(Entity::DeviceAvailabilityHistory),
         "device_identifiers" | "identifiers" | "device_identity" => Ok(Entity::DeviceIdentifiers),
         "identity_reconciliation_runs" | "reconciliation_runs" | "dire_runs" => {
             Ok(Entity::IdentityReconciliationRuns)

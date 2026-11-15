@@ -8,6 +8,7 @@ use chrono::{SecondsFormat, Timelike, Utc};
 use flow_spread::FlowSpread;
 
 mod bmp_events;
+mod device_availability_history;
 mod flow_filters;
 mod flow_spread;
 mod mtr;
@@ -71,6 +72,11 @@ fn translate_inner(
     // dialect answers the same queries the CNPG `bmp_events` builder answers.
     if matches!(plan.entity, Entity::BmpEvents) {
         return bmp_events::translate(plan, database);
+    }
+    // The merged device availability history is likewise a row listing; the
+    // dialect answers the queries the CNPG builder answers.
+    if matches!(plan.entity, Entity::DeviceAvailabilityHistory) {
+        return device_availability_history::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {

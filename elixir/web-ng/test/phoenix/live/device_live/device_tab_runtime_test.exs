@@ -77,14 +77,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       assert is_nil(completed.assigns.availability_request_ref)
     end
 
-    test "synthesizes fallback availability from the canonical state, keeping unknown unknown" do
-      for {merged_availability, expected_uptime, expected_source} <- [
-            {%{state: :unavailable}, 0.0, :plugin_reported},
-            {%{state: :available}, 100.0, :plugin_reported},
-            {%{state: :unknown}, nil, nil}
-          ] do
+    # Before convergence the timeline is probe history. A device's current state is
+    # never painted across the window: with no probe samples every bucket is unknown.
+    test "probe history without samples stays unknown whatever the canonical state is" do
+      for state <- [:unavailable, :available, :unknown] do
         socket =
-          Phoenix.Component.assign(availability_socket(), :merged_availability, merged_availability)
+          Phoenix.Component.assign(availability_socket(), :merged_availability_loader, fn ->
+            %{state: state, changed_at: ~U[2000-01-01 00:00:00Z]}
+          end)
 
         pending =
           DeviceTabRuntime.maybe_reload_availability_for_active_tab(
@@ -107,30 +107,103 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
                         {:start,
                          {_async_ref, nil, {:device_availability, @device_uid, ^request_ref}, {:ok, availability}}}}
 
-        completed =
-          DeviceTabRuntime.finish_availability_refresh(
-            pending,
-            @device_uid,
-            request_ref,
-            {:ok, availability}
-          )
-
-        assert completed.assigns.availability.uptime_pct == expected_uptime
-        assert Map.get(completed.assigns.availability, :source) == expected_source
-
-        if expected_source == :plugin_reported do
-          observed =
-            completed.assigns.availability.offline_checks + completed.assigns.availability.online_checks
-
-          assert observed == completed.assigns.availability.bucket_count
-          assert completed.assigns.availability.unknown_checks == 0
-        else
-          assert completed.assigns.availability.offline_checks == 0
-
-          assert completed.assigns.availability.unknown_checks ==
-                   completed.assigns.availability.bucket_count
-        end
+        assert availability.source == :probe
+        assert is_nil(availability.uptime_pct)
+        assert availability.unknown_checks == availability.bucket_count
       end
+    end
+
+    test "after convergence the timeline reads the device's merged availability history" do
+      socket =
+        Phoenix.Component.assign(availability_socket(true), :merged_availability_loader, fn ->
+          %{state: :available, changed_at: ~U[2000-01-01 00:00:00Z]}
+        end)
+
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(
+          socket,
+          "details",
+          @device_uid,
+          __MODULE__
+        )
+
+      assert_receive {:availability_query, task, query}
+      assert query =~ "in:device_availability_history"
+      assert query =~ ~s(uid:"#{@device_uid}")
+      request_ref = pending.assigns.availability_request_ref
+      send(task, :finish)
+
+      key = {:device_availability, @device_uid, request_ref}
+      assert_receive {:phoenix, :async_result, {:start, {_async_ref, nil, ^key, {:ok, availability}}}}
+
+      # Available since long before the window, so every bucket is online.
+      assert availability.source == :merged
+      assert availability.uptime_pct == 100.0
+      assert availability.online_checks == availability.bucket_count
+    end
+
+    # A refresh runs before the details batch replaces the summary the page holds, so the
+    # timeline reads the decision current when its history is read, as the badge will.
+    test "a refresh paints the device's current decision, not the summary the page still holds" do
+      socket =
+        true
+        |> availability_socket()
+        |> Phoenix.Component.assign(:merged_availability, %{
+          state: :available,
+          changed_at: ~U[2000-01-01 00:00:00Z]
+        })
+        |> Phoenix.Component.assign(:merged_availability_loader, fn ->
+          %{state: :unavailable, changed_at: ~U[2000-01-02 00:00:00Z]}
+        end)
+
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(socket, "details", @device_uid, __MODULE__)
+
+      assert_receive {:availability_query, task, _query}
+      request_ref = pending.assigns.availability_request_ref
+      send(task, :finish)
+
+      key = {:device_availability, @device_uid, request_ref}
+      assert_receive {:phoenix, :async_result, {:start, {_async_ref, nil, ^key, {:ok, availability}}}}
+
+      assert availability.offline_checks == availability.bucket_count
+      assert availability.uptime_pct == 0.0
+    end
+
+    # A load already in flight may have read the history before the stored rows existed.
+    test "history stored during an in-flight timeline load runs exactly one more load after it" do
+      socket = Phoenix.Component.assign(availability_socket(), :active_tab, "details")
+
+      first = DeviceTabRuntime.reload_availability(socket, @device_uid, __MODULE__)
+      assert_receive {:availability_query, task, _query}
+      first_ref = first.assigns.availability_request_ref
+
+      noticed = DeviceTabRuntime.reload_availability(first, @device_uid, __MODULE__)
+      assert noticed.assigns.availability_request_ref == first_ref
+      refute_received {:availability_query, _task, _query}
+
+      send(task, :finish)
+      assert_receive {:availability_query, ^task, _sweep_query}
+      send(task, :finish)
+
+      key = {:device_availability, @device_uid, first_ref}
+      assert_receive {:phoenix, :async_result, {:start, {_async_ref, nil, ^key, result}}}
+
+      second =
+        noticed
+        |> DeviceTabRuntime.finish_availability_refresh(@device_uid, first_ref, result)
+        |> DeviceTabRuntime.run_pending_availability_reload(__MODULE__)
+
+      assert_receive {:availability_query, second_task, _query}
+      assert is_reference(second.assigns.availability_request_ref)
+      refute second.assigns.availability_request_ref == first_ref
+
+      assert DeviceTabRuntime.run_pending_availability_reload(second, __MODULE__) == second
+      refute_received {:availability_query, _task, _query}
+
+      send(second_task, :finish)
+      assert_receive {:availability_query, ^second_task, _sweep_query}
+      send(second_task, :finish)
     end
 
     test "a source change cancels the old scan and starts one for the selected agent" do
@@ -260,12 +333,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
     end
   end
 
-  defp availability_socket do
+  # `converged?` false keeps the timeline on probe history; true selects the merged
+  # availability history.
+  defp availability_socket(converged? \\ false) do
     Phoenix.Component.assign(metrics_socket(),
       current_scope: %{test_pid: self(), loader: :availability},
       availability: %{uptime_pct: 75.0},
       availability_request_ref: nil,
-      availability_request_source: {@device_uid, nil}
+      availability_request_source: {@device_uid, nil},
+      availability_converged?: converged?
     )
   end
 

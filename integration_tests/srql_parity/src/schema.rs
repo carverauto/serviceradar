@@ -376,6 +376,34 @@ pub const POST_BASELINE_COLUMNS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// Tables created by migrations newer than the baseline, restated from the migration named
+/// beside each. `IF NOT EXISTS`, so a regenerated baseline that already has them is a no-op.
+pub const POST_BASELINE_TABLES: &[&str] = &[
+    // 20261115000000_create_device_availability_transitions.exs
+    "CREATE TABLE IF NOT EXISTS platform.device_availability_transitions (
+       device_uid text NOT NULL,
+       changed_at timestamptz NOT NULL,
+       to_state text NOT NULL,
+       from_state text NOT NULL,
+       from_since timestamptz,
+       authority_class text,
+       source_kind text,
+       reporter_agent_id text,
+       rule text,
+       conflict boolean NOT NULL DEFAULT false,
+       created_at timestamptz NOT NULL DEFAULT now(),
+       CONSTRAINT device_availability_transitions_states CHECK (
+         from_state IN ('available', 'unavailable', 'unknown')
+         AND to_state IN ('available', 'unavailable', 'unknown')
+       )
+     )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS device_availability_transitions_identity_idx
+       ON platform.device_availability_transitions (device_uid, changed_at, to_state)",
+    "SELECT create_hypertable('platform.device_availability_transitions', 'changed_at', \
+     chunk_time_interval => INTERVAL '7 days', create_default_indexes => false, \
+     migrate_data => true, if_not_exists => true)",
+];
+
 /// Hypertables and continuous aggregates, restated from the migrations named beside each.
 pub const CNPG_TIMESCALE_DDL: &[&str] = &[
     // 20260909105000_ensure_timeseries_metrics_hypertable.exs
@@ -518,6 +546,7 @@ pub fn cnpg_ddl(baseline: &str) -> Result<Vec<String>, String> {
             "ALTER TABLE platform.{table} ADD COLUMN IF NOT EXISTS {column} {kind}"
         ));
     }
+    ddl.extend(POST_BASELINE_TABLES.iter().map(|s| s.to_string()));
     ddl.extend(CNPG_TIMESCALE_DDL.iter().map(|s| s.to_string()));
     Ok(ddl)
 }

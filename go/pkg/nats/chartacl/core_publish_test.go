@@ -70,6 +70,7 @@ func coreAllowedSubjects() []string {
 	return []string{
 		"scans.results.run01",
 		"mtr.results.ingest",
+		"availability.transitions.device",
 		"events.example",
 		"metrics.event_writer.warehouse",
 		"metrics.sysmon.sysmon_cpu.cpu_usage_percent",

@@ -187,6 +187,34 @@ pub(super) fn device_revival_audit() -> VizMeta {
     }
 }
 
+pub(super) fn device_availability_history() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "changed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("to_state", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("from_state", ColumnType::Text, None),
+            col("from_since", ColumnType::Timestamptz, None),
+            col("authority_class", ColumnType::Text, None),
+            col("source_kind", ColumnType::Text, None),
+            col("reporter_agent_id", ColumnType::Text, None),
+            col("rule", ColumnType::Text, None),
+            col("conflict", ColumnType::Bool, None),
+            col("created_at", ColumnType::Timestamptz, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn device_identifiers() -> VizMeta {
     VizMeta {
         columns: vec![

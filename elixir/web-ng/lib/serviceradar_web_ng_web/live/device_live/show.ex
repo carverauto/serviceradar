@@ -59,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       DevicePubSub.subscribe()
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
     end
@@ -129,6 +130,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info({:device_deleted, uid}, socket) do
     maybe_refresh_current_device(socket, uid)
+  end
+
+  def handle_info({:devices_invalidated, uids}, socket) when is_list(uids) do
+    if socket.assigns.device_uid in uids,
+      do: maybe_refresh_current_device(socket, socket.assigns.device_uid),
+      else: {:noreply, socket}
+  end
+
+  def handle_info({:availability_history_stored, uids}, socket) when is_list(uids) do
+    uid = socket.assigns.device_uid
+
+    if uid in uids,
+      do: {:noreply, DeviceTabRuntime.reload_availability(socket, uid, srql_module())},
+      else: {:noreply, socket}
   end
 
   # Trailing refresh scheduled by coalesce_device_refresh/2: a broadcast
@@ -353,7 +368,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_availability, device_uid, request_ref}, result, socket) do
-    {:noreply, DeviceTabRuntime.finish_availability_refresh(socket, device_uid, request_ref, result)}
+    {:noreply,
+     socket
+     |> DeviceTabRuntime.finish_availability_refresh(device_uid, request_ref, result)
+     |> DeviceTabRuntime.run_pending_availability_reload(srql_module())}
   end
 
   def handle_async({:interface_metrics, device_uid, request_ref}, {:ok, metrics}, socket) do

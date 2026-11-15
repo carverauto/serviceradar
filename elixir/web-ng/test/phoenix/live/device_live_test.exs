@@ -3897,6 +3897,70 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-after"
     end
 
+    # Stored availability history is announced only as an invalidation hint.
+    @tag :web_ng_shared_fixture_db
+    test "an invalidation naming the device refreshes it, and one naming others does not", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Repo.query!("UPDATE ocsf_devices SET hostname = 'refresh-host-after' WHERE uid = $1", [device_uid])
+
+      send(view.pid, {:devices_invalidated, ["sr:other-device"]})
+      render_async(view, 15_000)
+      assert current_hostname(view) == "refresh-host-before"
+
+      send(view.pid, {:devices_invalidated, ["sr:other-device", device_uid]})
+      render_async(view, 15_000)
+      assert current_hostname(view) == "refresh-host-after"
+    end
+
+    # DevicePubSub pairs every lifecycle message with an invalidation of the same device.
+    @tag :web_ng_shared_fixture_db
+    test "an update's companion invalidation does not schedule a second full reload", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      ref = refresh_assigns(view).device_details_request_ref
+      assert is_reference(ref)
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 60_000)
+      send(view.pid, {:devices_invalidated, [device_uid]})
+      assigns = refresh_assigns(view)
+      assert assigns.device_details_request_ref == ref
+      assert assigns.device_refresh_timer == nil
+
+      render_async(view, 15_000)
+    end
+
+    # Stored history redraws the timeline alone; the details batch does not reload.
+    @tag :web_ng_shared_fixture_db
+    test "stored availability history reloads only the timeline", %{conn: conn, device_uid: device_uid} do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      render_async(view, 15_000)
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+      before = refresh_assigns(view)
+
+      send(view.pid, {:availability_history_stored, ["sr:other-device", device_uid]})
+      assigns = refresh_assigns(view)
+      assert assigns.device_details_request_ref == before.device_details_request_ref
+      assert is_reference(assigns.availability_request_ref)
+      refute assigns.availability_request_ref == before.availability_request_ref
+
+      render_async(view, 15_000)
+    end
+
     @tag :web_ng_shared_fixture_db
     test "broadcasts are ignored while a refresh is in flight", %{
       conn: conn,

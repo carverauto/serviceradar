@@ -1,11 +1,11 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_statuses, advisory_coordinates, agents,
     alerts, bmp_events, build_query_plan, camera_sources, capacity_forecasts, composite_results,
-    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
-    interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, otel_services, public_endpoints, security_events, services,
+    dashboard_service_views, dashboards, device_availability_history, device_graph,
+    device_sweep_overlap, devices, downsample, endpoint_inventory_scans, endpoint_package_catalog,
+    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql,
+    identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
+    otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events, services,
     source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
     sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
     traces, virtualization, viz, vulnerability_advisories, wifi_map,
@@ -68,6 +68,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::SecurityEvents => security_events::to_sql_and_params(&plan)?,
             Entity::MergeAudit => identity::merge_audit::to_sql_and_params(&plan)?,
             Entity::DeviceRevivalAudit => identity::device_revival_audit::to_sql_and_params(&plan)?,
+            Entity::DeviceAvailabilityHistory => {
+                device_availability_history::to_sql_and_params(&plan)?
+            }
             Entity::DeviceIdentifiers => identity::device_identifiers::to_sql_and_params(&plan)?,
             Entity::IdentityReconciliationRuns => {
                 identity::reconciliation_runs::to_sql_and_params(&plan)?

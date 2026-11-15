@@ -264,7 +264,8 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
       decided_by: decided_by,
       conflict: conflict,
       agents: agents,
-      is_available: available?
+      is_available: available?,
+      changed_at: to_datetime(changed_at)
     }
 
     previous = %{state: state, decided_by: decided_by, changed_at: to_datetime(changed_at)}
@@ -404,8 +405,26 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
         }
       end
 
-    Transitions.enqueue(transitions, Enum.map(changed, &elem(&1, 0)), query_opts)
+    # Every state change is history, including the reconciliation's, whose events stay
+    # suppressed above.
+    history =
+      for {uid, decision, stored} <- changed, stored.state != decision.state do
+        %{
+          uid: uid,
+          from: Atom.to_string(stored.state),
+          to: Atom.to_string(decision.state),
+          from_since: iso8601(stored.changed_at),
+          changed_at: iso8601(decision.changed_at),
+          decided_by: Map.delete(decision.decided_by, "previous"),
+          conflict: decision.conflict
+        }
+      end
+
+    Transitions.enqueue(transitions, history, Enum.map(changed, &elem(&1, 0)), query_opts)
   end
+
+  defp iso8601(nil), do: nil
+  defp iso8601(at), do: at |> to_datetime() |> DateTime.to_iso8601()
 
   defp previous_decision(_state, nil, available?, true),
     do: {mirror_state(available?), %{"rule" => "legacy_mirror"}}

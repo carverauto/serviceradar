@@ -1698,6 +1698,7 @@ if config_env() == :prod do
         # entry missing here refuses every publish to its subject.
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
+        Config.availability_transitions_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
         Config.exposure_snapshots_stream(),

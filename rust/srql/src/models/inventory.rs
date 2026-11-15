@@ -700,3 +700,39 @@ impl SweepCoverageRow {
         })
     }
 }
+
+/// One change of a device's merged availability state
+/// (`platform.device_availability_transitions`).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::device_availability_transitions, check_for_backend(diesel::pg::Pg))]
+pub struct DeviceAvailabilityTransitionRow {
+    pub device_uid: String,
+    pub changed_at: DateTime<Utc>,
+    pub to_state: String,
+    pub from_state: String,
+    pub from_since: Option<DateTime<Utc>>,
+    pub authority_class: Option<String>,
+    pub source_kind: Option<String>,
+    pub reporter_agent_id: Option<String>,
+    pub rule: Option<String>,
+    pub conflict: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+impl DeviceAvailabilityTransitionRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "device_uid": self.device_uid,
+            "changed_at": self.changed_at,
+            "to_state": self.to_state,
+            "from_state": self.from_state,
+            "from_since": self.from_since,
+            "authority_class": self.authority_class,
+            "source_kind": self.source_kind,
+            "reporter_agent_id": self.reporter_agent_id,
+            "rule": self.rule,
+            "conflict": self.conflict,
+            "created_at": self.created_at,
+        })
+    }
+}

@@ -23,6 +23,7 @@ mod capacity_forecasts;
 mod composite_results;
 mod dashboard_service_views;
 mod dashboards;
+mod device_availability_history;
 mod device_graph;
 mod device_sweep_overlap;
 mod devices;

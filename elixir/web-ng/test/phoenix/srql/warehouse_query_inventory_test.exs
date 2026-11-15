@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
   alias ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary, as: DashboardNetflowSummary
   alias ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic
   alias ServiceRadarWebNGWeb.DashboardLive.Window
+  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry
@@ -185,6 +186,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
          capture(fn ->
            ICMPData.load(CapturingSRQL, @devices, @scope, opts)
            ICMPData.load_availability(CapturingSRQL, @device, @scope, opts)
+         end)
+       end},
+      {"DeviceLive.AvailabilityData.load_availability/4 (merged history)",
+       fn ->
+         capture(fn ->
+           AvailabilityData.load_availability(CapturingSRQL, @device, @scope,
+             converged?: true,
+             merged_availability: %{state: :available, changed_at: ~U[2000-01-01 00:00:00Z]}
+           )
          end)
        end},
       {"DeviceLive.IndexData.Telemetry.metric_presence/2 and icmp_sparklines/2",

@@ -604,6 +604,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     :falco,
     :trivy,
     :mtr_results,
+    :availability_transitions,
     :bmp_causal,
     :arancini_causal,
     :siem_causal,
@@ -758,6 +759,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:k8s_inventory, &k8s_inventory_subject?/1},
       {:scan_results, &scan_results_subject?/1},
       {:mtr_results, &mtr_results_subject?/1},
+      {:availability_transitions, &String.starts_with?(&1, "availability.transitions.")},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
@@ -841,6 +843,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     do: subject == "mtr.results" or String.starts_with?(subject, "mtr.results.")
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
+
+  defp get_processor(:availability_transitions),
+    do: ServiceRadar.EventWriter.Processors.AvailabilityTransitions
+
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
 
   defp get_processor(:flow_attribution),

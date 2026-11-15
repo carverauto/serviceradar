@@ -1095,6 +1095,29 @@
     {
       "id": "bmp.events.negated_router",
       "query": "in:bmp_events {window_main} !router_ip:192.0.2.1 sort:time:desc limit:50"
+    },
+    {
+      "id": "availability.history.device_timeline",
+      "query": "in:device_availability_history uid:\"sr:parity-dev-a\" {window_main} sort:changed_at:desc limit:1000",
+      "sources": [
+        "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/availability_data.ex"
+      ]
+    },
+    {
+      "id": "availability.history.recent",
+      "query": "in:device_availability_history {window_main} limit:100"
+    },
+    {
+      "id": "availability.history.devices_to_state",
+      "query": "in:availability_history {window_main} uid:(sr:parity-dev-a,sr:parity-dev-b) to_state:unavailable sort:changed_at:desc limit:50"
+    },
+    {
+      "id": "availability.history.negated_source_kind",
+      "query": "in:device_availability_transitions {window_main} !source_kind:sweep sort:changed_at:asc limit:100"
+    },
+    {
+      "id": "availability.history.conflicts",
+      "query": "in:device_availability_history {window_main} conflict:true sort:changed_at:asc limit:100"
     }
   ]
 }
