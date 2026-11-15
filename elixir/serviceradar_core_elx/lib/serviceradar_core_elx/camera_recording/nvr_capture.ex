@@ -41,6 +41,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       with {:ok, source_id} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
            {:ok, profile_id} <- cast_uuid(stream_profile_id, :invalid_stream_profile_id),
            {:ok, _target} <- NVRTargetConfig.resolve(member, opts),
+           true <- RecordingSupervisor.enabled?() || {:error, :recording_disabled},
            {:ok, {origin, requested}} <- RelaySessionManager.request_open(source_id, profile_id, open_opts) do
         capture_requested_session({origin, requested}, member, actor, {caller, caller_monitor}, deadline, opts)
       end
@@ -104,17 +105,25 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:ok, active_relay} ->
         case await_relay_host(active_relay.id, active_relay.media_ingest_id, caller_monitor, deadline) do
           {:ok, host_node} ->
-            dispatch_to_host(host_node, active_relay.id, member, watch, deadline, opts)
+            host_node
+            |> dispatch_to_host(active_relay.id, member, watch, deadline, opts)
+            |> close_unless_started(active_relay.id, origin, actor)
 
           {:error, _reason} = error ->
-            maybe_close_unstarted_relay(active_relay.id, origin, actor)
-            error
+            close_unless_started(error, active_relay.id, origin, actor)
         end
 
       {:error, _reason} = error ->
-        maybe_close_unstarted_relay(session.id, origin, actor)
-        error
+        close_unless_started(error, session.id, origin, actor)
     end
+  end
+
+  defp close_unless_started({:ok, _receipt} = ok, _relay_id, _origin, _actor), do: ok
+  defp close_unless_started({:error, {:nvr_ingest_uncertain, _}} = uncertain, _relay_id, _origin, _actor), do: uncertain
+
+  defp close_unless_started({:error, _reason} = error, relay_id, origin, actor) do
+    maybe_close_unstarted_relay(relay_id, origin, actor)
+    error
   end
 
   defp dispatch_to_host(host_node, relay_id, member, {caller, caller_monitor}, deadline, opts) do

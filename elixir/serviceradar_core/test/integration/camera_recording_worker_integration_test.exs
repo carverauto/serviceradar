@@ -1449,6 +1449,50 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert opened.status in [:closing, :closed, :failed]
   end
 
+  test "NVRCapture.once_source closes a relay it opened when capture fails after the relay is hosted",
+       ctx do
+    nvr_ctx = Fixtures.context()
+    nvr = setup_nvr_release(ctx.tmp_dir)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        NVRCapture.once_source(
+          nvr_ctx.source.id,
+          nvr_ctx.profile.id,
+          "serviceradar-nvr-0",
+          actor: nvr_ctx.actor,
+          control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
+          dispatch_open: fn _agent, payload, opts, _requester ->
+            send(parent, {:nvr_relay_open_dispatched, payload.relay_session_id})
+            {:ok, opts[:command_id]}
+          end,
+          config_file: nvr.client_config,
+          token_file: nvr.token_file,
+          timeout_ms: 15_000
+        )
+      end)
+
+    assert_receive {:nvr_relay_open_dispatched, relay_id}, 5_000
+    Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, false)
+    assert {:ok, pending_relay} = RelaySession.get_by_id(relay_id, actor: nvr_ctx.actor)
+    ingest_id = Ecto.UUID.generate()
+    assert {:ok, active_relay} = Fixtures.activate(nvr_ctx, pending_relay, ingest_id)
+
+    {:ok, %{pipeline_pid: pipeline}} =
+      PipelineManager.open_session(%{
+        relay_session_id: active_relay.id,
+        media_ingest_id: ingest_id
+      })
+
+    on_exit(fn -> Membrane.Pipeline.terminate(pipeline, force?: true) end)
+
+    assert {:error, :recording_disabled} = Task.await(task, 30_000)
+    assert [closed] = Fixtures.sessions(nvr_ctx)
+    assert closed.id == relay_id
+    assert closed.status in [:closing, :closed, :failed]
+  end
+
   test "NVRCapture returns a verified seal receipt when worker cleanup outlasts the exit wait",
        ctx do
     owner = owner(ctx, 30_000)

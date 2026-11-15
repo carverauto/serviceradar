@@ -145,6 +145,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
                config_file: files.config,
                token_file: files.token
              )
+
+    parent = self()
+
+    assert {:error, :recording_disabled} =
+             NVRCapture.once_source(source_id, profile_id, "serviceradar-nvr-0",
+               config_file: files.config,
+               token_file: files.token,
+               dispatch_open: fn _agent, _payload, opts, _requester ->
+                 send(parent, :unexpected_relay_open)
+                 {:ok, opts[:command_id]}
+               end
+             )
+
+    refute_received :unexpected_relay_open
   end
 
   defp write_client_fixture(dir) do
