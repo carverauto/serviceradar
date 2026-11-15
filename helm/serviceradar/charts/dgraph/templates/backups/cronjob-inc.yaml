@@ -1,0 +1,145 @@
+{{- /* Determine Backup is REST or GraphQL */}}
+{{- define "backups.api_type" -}}
+{{- $apiType := "graphql" -}}
+{{- $safeVersion := include "dgraph.version" . -}}
+{{- if semverCompare "< 20.3.0" $safeVersion -}}
+  {{- $apiType = "rest" -}}
+{{- end -}}
+{{- if .Values.backups.override_api_type -}}
+  {{- printf "%s" .Values.backups.override_api_type -}}
+{{- else -}}
+  {{- printf "%s" $apiType -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.backups.incremental.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ template "dgraph.backups.fullname" . }}-inc
+  namespace: {{ include "dgraph.namespace" . }}
+  labels:
+    app: {{ template "dgraph.name" . }}
+    chart: {{ template "dgraph.chart" . }}
+    component: {{ .Values.backups.name }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  schedule: "{{ .Values.backups.incremental.schedule }}"
+  jobTemplate:
+    metadata:
+      labels:
+        cronjob: {{ template "dgraph.backups.fullname" . }}-inc
+    spec:
+      template:
+        metadata:
+          labels:
+            cronjob: {{ template "dgraph.backups.fullname" . }}-inc
+            {{- if .Values.backups.podLabels }}
+{{ .Values.backups.podLabels | toYaml | indent 12}}
+            {{- end }}
+        spec:
+          {{- include "dgraph.podDnsConfig" . | nindent 10 }}
+          {{- if .Values.serviceAccount.create }}
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          {{- end }}
+          {{- if .Values.backups.schedulerName }}
+          schedulerName: {{ .Values.backups.schedulerName }}
+          {{- end }}
+          containers:
+          - name: {{ template "dgraph.backups.fullname" . }}-inc
+            image: {{ template "dgraph.backups.image" . }}
+            imagePullPolicy: {{ .Values.backups.image.pullPolicy | quote }}
+            command:
+             - /usr/bin/bash
+             - "-c"
+             - |
+                {{- if .Values.backups.incremental.debug }}
+                set -ex
+                {{- else }}
+                set -e
+                {{- end }}
+
+                source /scripts/backup.sh
+
+                ## Use Single Alpha in Cluster to avoid potential issues with concurrent backups
+                ## ref. https://discuss.dgraph.io/t/concurrent-backups-can-lead-to-issues/9934/2
+                ALPHA_HOST="{{ template "dgraph.alpha.fullname" . }}-0.{{ template "dgraph.alpha.fullname" . }}-headless.${POD_NAMESPACE}.svc{{- if .Values.global.domain }}.{{ .Values.global.domain }}{{- end }}"
+
+                BACKUP_DESTINATION={{ .Values.backups.destination }}
+                SUBPATH={{ .Values.backups.subpath }}
+                API_TYPE={{ template "backups.api_type" . }}
+                MINIO_SECURE={{ .Values.backups.minioSecure }}
+
+                ## Get Tokens
+                {{- if .Values.backups.admin.auth_token }}
+                AUTH_TOKEN=$(cat /backup_secrets/backup_auth_token)
+                {{- end }}
+
+                {{- if .Values.alpha.acl.enabled }}
+                ACCESS_TOKEN=$(get_token {{ .Values.backups.admin.user }} $(cat /backup_secrets/backup_admin_password) $AUTH_TOKEN )
+                {{- end }}
+
+                ## Incremental Backup with optional access and auth tokens
+                FORCE_FULL=false backup "$ACCESS_TOKEN" "$AUTH_TOKEN"
+            volumeMounts:
+            - name: backup-config-volume
+              mountPath: /scripts
+            {{- if .Values.alpha.tls.enabled }}
+            - name: tls-volume
+              mountPath: /dgraph/tls
+            {{- end }}
+            {{- if .Values.alpha.acl.enabled }}
+            - name: backup-secret-volume
+              mountPath: /backup_secrets
+            {{- end }}
+            ## Mount NFS Backup volume so that datestamp directories can be created
+            {{- if .Values.backups.nfs.enabled }}
+            - name: backups-nfs-volume
+              mountPath: {{ .Values.backups.nfs.mountPath }}
+            {{- end }}
+            ## Mount Backup volume so that datestamp directories can be created
+            {{- if .Values.backups.volume.enabled }}
+            - name: backups-vol-volume
+              mountPath: {{ .Values.backups.volume.mountPath }}
+            {{- end }}
+            env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.alpha.tls.enabled }}
+            - name: CACERT_PATH
+              value: /dgraph/tls/ca.crt
+            {{- if .Values.backups.admin.tls_client }}
+            - name: CLIENT_CERT_PATH
+              value: /dgraph/tls/client.{{ .Values.backups.admin.tls_client }}.crt
+            - name: CLIENT_KEY_PATH
+              value: /dgraph/tls/client.{{ .Values.backups.admin.tls_client }}.key
+            {{- end }}
+            {{- end }}
+          restartPolicy: {{ .Values.backups.incremental.restartPolicy }}
+          volumes:
+          - name: backup-config-volume
+            configMap:
+              name: {{ template "dgraph.backups.fullname" . }}-config
+          {{- if .Values.alpha.tls.enabled }}
+          - name: tls-volume
+            secret:
+              secretName: {{ template "dgraph.alpha.fullname" . }}-tls-secret
+          {{- end }}
+          {{- if or .Values.alpha.acl.enabled .Values.backups.admin.auth_token }}
+          - name: backup-secret-volume
+            secret:
+              secretName: {{ template "dgraph.backups.fullname" . }}-secret
+          {{- end }}
+          {{- if .Values.backups.nfs.enabled }}
+          - name: backups-nfs-volume
+            persistentVolumeClaim:
+              claimName: {{ template "dgraph.backups.fullname" . }}-claim
+          {{- end }}
+          {{- if .Values.backups.volume.enabled }}
+          - name: backups-vol-volume
+            persistentVolumeClaim:
+              claimName: {{ .Values.backups.volume.claim }}
+          {{- end }}
+{{- end }}

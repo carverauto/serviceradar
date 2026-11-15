@@ -16,7 +16,7 @@ data:
 
     [[bmp-servers]]
       [bmp-servers.config]
-        address = "{{ .Values.gobgp.bmp.address | default "serviceradar-bmp-collector" }}"
+        address = "{{ .Values.gobgp.bmp.address | default (printf "serviceradar-bmp-collector.%s.svc.cluster.local" .Release.Namespace) }}"
         port = {{ .Values.gobgp.bmp.port | default 11019 }}
         route-monitoring-policy = "all"
         statistics-timeout = 600
@@ -65,6 +65,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-gobgp") | nindent 6 }}
       {{- with .Values.gobgp.nodeSelector }}

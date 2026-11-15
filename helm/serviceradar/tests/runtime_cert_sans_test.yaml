@@ -1,15 +1,65 @@
 suite: runtime certificate SANs
 templates:
   - templates/cert-scripts-configmap.yaml
-# A client in another namespace must dial the namespace-qualified Service name,
-# and TLS verifies the name it dials. The namespace is deliberately distinctive:
-# asserting a plausible default cannot tell `.Release.Namespace` from a
-# hardcoded string. See README.md in this directory.
+  - templates/cert-generator-job.yaml
+# A client dialing the explicit 4-dot Service FQDN verifies TLS against
+# DNS:<service-name>.<namespace>.svc.cluster.local. The namespace is deliberately
+# distinctive: asserting a plausible default cannot tell `.Release.Namespace`
+# from a hardcoded string. See README.md in this directory.
 release:
   namespace: sr-san-test
 tests:
-  - it: issues the log-collector cert with its namespace-qualified Service name
+  - it: issues every TLS-serving Service leaf cert with its 4-dot Service FQDN and preserves short names
+    template: templates/cert-scripts-configmap.yaml
     asserts:
       - matchRegex:
           path: data["generate-certs.sh"]
-          pattern: 'generate_cert "log-collector" "serviceradar-log-collector" "[^"]*DNS:serviceradar-log-collector\.sr-san-test\.svc\.cluster\.local[,"]'
+          pattern: 'generate_cert "nats" "serviceradar-nats" "[^"]*DNS:serviceradar-nats,[^"]*DNS:nats,[^"]*DNS:serviceradar-nats\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "core" "serviceradar-core" "[^"]*DNS:serviceradar-core,DNS:core,[^"]*DNS:serviceradar-core\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "web" "serviceradar-web-ng" "[^"]*DNS:serviceradar-web-ng,DNS:web-ng,[^"]*DNS:serviceradar-web-ng\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "kv" "serviceradar-datasvc" "[^"]*DNS:serviceradar-datasvc,DNS:kv,[^"]*DNS:serviceradar-datasvc\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "agent" "serviceradar-agent" "[^"]*DNS:serviceradar-agent,DNS:agent,[^"]*DNS:serviceradar-agent\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "gateway" "serviceradar-agent-gateway" "[^"]*DNS:serviceradar-agent-gateway,DNS:agent-gateway,[^"]*DNS:serviceradar-agent-gateway\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "rperf-client" "serviceradar-rperf-client" "[^"]*DNS:serviceradar-rperf-client,DNS:rperf-client,[^"]*DNS:serviceradar-rperf-client\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "log-collector" "serviceradar-log-collector" "[^"]*DNS:serviceradar-log-collector,DNS:log-collector,[^"]*DNS:serviceradar-log-collector\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "flow-collector" "serviceradar-flow-collector" "[^"]*DNS:serviceradar-flow-collector,DNS:flow-collector,[^"]*DNS:serviceradar-flow-collector\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "bmp-collector" "serviceradar-bmp-collector" "[^"]*DNS:serviceradar-bmp-collector,DNS:bmp-collector,[^"]*DNS:serviceradar-bmp-collector\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "[^"]*DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,[^"]*DNS:serviceradar-trivy-sidecar\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "k8s-inventory" "serviceradar-k8s-inventory" "[^"]*DNS:serviceradar-k8s-inventory,DNS:k8s-inventory,[^"]*DNS:serviceradar-k8s-inventory\.sr-san-test\.svc\.cluster\.local[,"]'
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "trapd" "serviceradar-trapd" "[^"]*DNS:serviceradar-trapd,DNS:trapd,[^"]*DNS:serviceradar-trapd\.sr-san-test\.svc\.cluster\.local[,"]'
+
+  - it: bumps runtimeLayoutVersion so helm upgrade re-mints leaf certs with expanded SANs
+    template: templates/cert-generator-job.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RUNTIME_CERT_LAYOUT_VERSION
+            value: "6"

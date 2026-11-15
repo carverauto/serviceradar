@@ -40,7 +40,7 @@ data:
       "publish_messages_per_second" (default 1000 $cfg.publishMessagesPerSecond)
       "publish_bytes_per_second" (default 4194304 $cfg.publishBytesPerSecond)
       "stream_discard_policy" (default "new" $cfg.streamDiscardPolicy)
-      "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
+      "nats_url" (default (printf "nats://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $cfg.natsUrl)
       "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
       "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
       "nats_tls_required" (include "serviceradar.boolDefaultTrue" (list $cfg "natsTlsRequired") | eq "true")
@@ -78,6 +78,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-bmp-collector") | nindent 6 }}
       serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "bmpCollector")) }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}

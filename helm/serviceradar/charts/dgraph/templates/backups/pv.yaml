@@ -1,0 +1,21 @@
+{{- if and (or .Values.backups.full.enabled .Values.backups.incremental.enabled) .Values.backups.nfs.enabled -}}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ template "dgraph.backups.fullname" . }}-fileserver
+  namespace: {{ include "dgraph.namespace" . }}
+  labels:
+    app: {{ template "dgraph.name" . }}
+    chart: {{ template "dgraph.chart" . }}
+    component: {{ .Values.backups.name }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  capacity:
+    storage: {{ .Values.backups.nfs.storage }}
+  accessModes:
+    - ReadWriteMany
+  nfs:
+    path: {{ .Values.backups.nfs.path }}
+    server: {{ .Values.backups.nfs.server }}
+{{- end }}

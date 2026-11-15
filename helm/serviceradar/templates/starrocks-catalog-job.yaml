@@ -11,6 +11,7 @@
      who needs a statement this template does not produce. */ -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- $cat := default (dict) $sr.catalog -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- if and $sr.enabled $cat.enabled }}
 apiVersion: batch/v1
 kind: Job
@@ -33,6 +34,7 @@ spec:
         app.kubernetes.io/name: serviceradar
         app.kubernetes.io/component: starrocks-catalog
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       restartPolicy: Never
       automountServiceAccountToken: false
       containers:
@@ -74,7 +76,7 @@ spec:
             - name: CATALOG_NAME
               value: {{ default "cnpg_platform" $cat.name | quote }}
             - name: JDBC_URI
-              value: {{ required "analytics.starrocks.catalog.jdbcUri is required when catalog.enabled is true" $cat.jdbcUri | quote }}
+              value: {{ default (printf "jdbc:postgresql://%s:%v/%s?ssl=true&sslmode=require" (include "serviceradar.cnpgDirectHost" .) (default 5432 $cnpg.port) (default "serviceradar" $cnpg.database)) $cat.jdbcUri | quote }}
             - name: DRIVER_CLASS
               value: {{ default "org.postgresql.Driver" $cat.driverClass | quote }}
             - name: DRIVER_URL

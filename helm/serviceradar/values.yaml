@@ -101,7 +101,7 @@ trivySidecar:
   replicaCount: 1
   clusterId: ""
   nats:
-    hostPort: "tls://serviceradar-nats:4222"
+    hostPort: ""
     subjectPrefix: "trivy.report"
     stream: "trivy_reports"
     caCertFile: "/etc/serviceradar/certs/ca.crt"
@@ -145,7 +145,7 @@ k8sInventory:
   envoyProxyCRD:
     enabled: false
   nats:
-    hostPort: "tls://serviceradar-nats:4222"
+    hostPort: ""
     subject: "inventory.k8s.public_endpoints"
     stream: "k8s_inventory"
     caCertFile: "/etc/serviceradar/certs/ca.crt"
@@ -174,7 +174,7 @@ kv:
   enabled: true
   configSource: file
   bucket: serviceradar-datasvc
-  address: serviceradar-datasvc:50057
+  address: ""
   secMode: mtls
   trustDomain: ""
   certDir: /etc/serviceradar/certs
@@ -313,7 +313,7 @@ certs:
   # runtime Secret.
   issuerSecretName: ""
   cnpgIssuerSecretName: ""
-  runtimeLayoutVersion: "5"
+  runtimeLayoutVersion: "6"
   # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
   # all certificate consumers restart onto the reconciled Secret generation.
   runtimeRevision: initial
@@ -339,8 +339,9 @@ checkerTemplates:
 # Points to the OTEL collector deployed in the same namespace.
 otelExporter:
   enabled: true
-  # OTLP/gRPC endpoint (uses the unified log-collector service)
-  endpoint: "https://serviceradar-log-collector:4317"
+  # OTLP/gRPC endpoint (uses the unified log-collector service; empty derives
+  # https://serviceradar-log-collector.<namespace>.svc.cluster.local:4317)
+  endpoint: ""
   # TLS certificate directory
   certDir: "/etc/serviceradar/certs"
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
@@ -410,6 +411,12 @@ observability:
 # archive. Infrastructure custody creates the named Secrets before enabling it.
 mediaStorage:
   enabled: false
+  # Localhost profiles must be installed on every eligible node before enabling.
+  # See docs/media-storage-seccomp.md for the io_uring profile, the locked-memory
+  # limit and node setup.
+  seccompProfile:
+    type: RuntimeDefault
+    localhostProfile: ""
   # Bump with every desired configuration/credential change to force a new boot.
   revision: ""
   port: 4443
@@ -621,11 +628,8 @@ core:
     # strictly inside these retentions before a shorter value applies.
     spansRedDays: 90
     otelMetricsHourlyStatsDays: 90
-    # traces_stats_5m. Leave unset to keep the migration window (14 days) and
-    # to leave a window the cold-tier fence widened unchanged. A target
-    # shorter than the fence window is not written while the cold tier is
-    # on. A target at or above that window is written whether or not the
-    # tier is on.
+    # traces_stats_5m. Not capped by defaultDays. Leave unset for the
+    # migration window (14 days).
     # tracesStatsDays: 14
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
@@ -968,7 +972,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261112193000"
+    expectedVersion: "20261115000000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1037,7 +1041,7 @@ faker:
       gobgpApiAddress: "127.0.0.1:50051"
       gobgpBinary: "gobgpd"
       gobgpCliBinary: "gobgp"
-      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      bmpCollectorAddress: ""
       routerId: "204.209.51.59"
       maxPrefixesPerTick: 3
       localAsn: 401642
@@ -1163,7 +1167,7 @@ gobgp:
     routerId: "204.209.51.59"
     listenPort: 179
   bmp:
-    address: "serviceradar-bmp-collector"
+    address: ""
     port: 11019
   # By default we reuse faker BGP peers to keep topology aligned.
   peers: []
@@ -1412,64 +1416,6 @@ cnpg:
   clientCASecret: ""
   clientCAFromCerts: false
   requireClientCert: false
-
-# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
-# Everything below is DISABLED by default and renders nothing. Activation is a
-# deployment decision made by supplying complete cold-tier configuration
-# (object-store location/credentials + this analytics head); there is no
-# supported OSS enablement path.
-coldTier:
-  # The read-only role the analytics head uses to reach hot rows on the primary
-  # over postgres_fdw. Migration 20260716220000 always creates it NOLOGIN with
-  # SELECT-only grants; setting `enabled` here hands login + password to CNPG
-  # `managed.roles`, which is what actually makes it connectable. Leave it off
-  # unless you are running the cold tier: an off deployment carries the role as
-  # an inert grant set that cannot authenticate.
-  exportRole:
-    enabled: false
-    name: cold_reader
-    # Name of a Secret of type kubernetes.io/basic-auth whose `username`
-    # matches `name` above and whose `password` CNPG will set. Required when
-    # enabled; there is no default, because a defaulted database password is
-    # worse than a failed render.
-    passwordSecret: ""
-    # Bounds concurrent cold_reader sessions so a runaway cannot exhaust the
-    # primary's connection slots. Sized for the exporter's export/verify
-    # sessions plus concurrent stitched-view reads; raise alongside
-    # analyticsHead.poolSize.
-    connectionLimit: 10
-  analyticsHead:
-    enabled: false
-    # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT
-    # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
-    # TimescaleDB-loaded instance — never point this at the primary image).
-    imageName: ""
-    # The analytics image is based on the official pgduckdb image, whose
-    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
-    # MUST match the image or the instance dies during initdb. Override only
-    # if you build the image on a base with a different postgres UID.
-    postgresUID: 999
-    postgresGID: 999
-    # Defaults to image.registryPullSecret; set only to use a dedicated secret.
-    registryPullSecret: ""
-    clusterName: cnpg-analytics
-    instances: 1
-    storageSize: 20Gi
-    storageClass: ""
-    # ColdRepo pool size drives the memory request:
-    # request = poolSize * duckdb.maxMemoryMb + overheadMb (per-connection
-    # DuckDB memory is NOT accounted inside PostgreSQL's own limits).
-    poolSize: 4
-    overheadMb: 1536
-    duckdb:
-      maxMemoryMb: 1536
-      threads: 2
-      # Spill lives under PGDATA (pg_duckdb default); the cap prevents a
-      # runaway query from filling the volume.
-      maxTempDirectorySize: 10GB
-    # Extra postgresql.parameters merged into the Cluster spec.
-    postgresqlParameters: {}
-    resources: {}
 
 # Storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that
@@ -1734,7 +1680,7 @@ webNg:
   clusterCookie: ""
   kubernetesNodeBasename: "serviceradar_web_ng"
   datasvc:
-    host: "serviceradar-datasvc"
+    host: ""
     port: 50057
     secMode: "mtls"
     certDir: "/etc/serviceradar/certs"
@@ -2171,7 +2117,7 @@ flowCollector:
   # config.stream_replicas (serialized into flow-collector.json); there is no
   # top-level flowCollector.streamReplicas key.
   config:
-    nats_url: "tls://serviceradar-nats:4222"
+    nats_url: ""
     stream_name: "flows"
     # flows reservation. Unset: nats.jetstream.profile supplies it (small =
     # 8 GiB). The budget counts flows at this size and stream_replicas even
@@ -2297,7 +2243,7 @@ bmpCollector:
     publishMessagesPerSecond: 1000
     publishBytesPerSecond: 4194304
     streamDiscardPolicy: "new"
-    natsUrl: "nats://serviceradar-nats:4222"
+    natsUrl: ""
     natsDomain: ""
     natsCredsFile: ""
     natsTlsRequired: true
@@ -3219,7 +3165,7 @@ analytics:
     # probes. A failed probe is never cached.
     rollupCacheTtlSeconds: 60
     fe:
-      service: lab-fe-service.starrocks.svc
+      service: lab-fe-service.starrocks.svc.cluster.local
       queryPort: 9030
       httpPort: 8030
     sharedData:
@@ -3289,9 +3235,9 @@ analytics:
       # builds the statement from the settings here and the reader Secret.
       secretName: ""
       # JDBC URI the catalog connects to. Lab FE/BE run in namespace starrocks,
-      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
-      # the same-namespace short name.
-      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
+      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc.cluster.local),
+      # not the same-namespace short name. Empty auto-derives the 4-dot FQDN.
+      jdbcUri: ""
       # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
       sourceNamespace: starrocks
       # Secret, in the release namespace, holding the StarRocks Frontend `root`
@@ -3311,11 +3257,26 @@ analytics:
       fePasswordSecretKey: password
 
 
-# NVR runtime packaging checkpoint. Pool enrollment, ingress routing and local
-# archive publication are not enabled by this workload.
+# NVR runtime packaging checkpoint. Pool enrollment and local archive
+# publication are not enabled by this workload; private workload-authenticated
+# ingest remains opt-in under nvr.ingest.
 nvr:
   enabled: false
   replicas: 2
+  ingest:
+    # Private workload-authenticated HTTPS ingest listener per NVR replica and
+    # matching Core client mounts. Infrastructure custody provisions the
+    # distinct server/client TLS and token Secrets before enabling.
+    enabled: false
+    port: 8443
+    configSecretName: ""
+    tokenSecretName: ""
+    tlsSecretName: ""
+    client:
+      cameraRecordingEnabled: false
+      configSecretName: ""
+      tokenSecretName: ""
+      tlsSecretName: ""
   recovery:
     # Operator-owned state, outside the CNPG/PVC restore set. Keys: generation
     # (canonical UUID) and state.json (canonical generation/state JSON).

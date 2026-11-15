@@ -20,8 +20,20 @@ helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/c
 `my-values.yaml` holds only your site overrides. The chart version is the
 release version without the leading `v` (release `vX.Y.Z` is chart `X.Y.Z`).
 The chart and the first-party images under `registry.carverauto.dev/serviceradar`
-pull anonymously, so no registry login is needed. Every first-party image tag
-except `serviceradar-cnpg` (pinned by digest) defaults to the chart appVersion, so `--version` alone selects matching images.
+pull anonymously, so no registry login is needed. Release packaging fills
+`image.digests` from the verified image promotion receipt, so published chart
+packages select exact first-party image contents. CNPG preserves its version tag
+alongside its digest. The source chart keeps an empty digest map for development.
+Older packages retain their original tag defaults.
+
+A release chart is uploaded to the disposable build project and promoted only
+after checking its protected image dependencies. Its `files/artifact-bundle.json`
+records those dependency references for supported-release inventory. Packaging
+uses a temporary copy and does not modify the release checkout.
+
+To deliberately replace a component image, set its `image.digests.<service>` to
+the desired digest. Changing its tag alone does not override a packaged digest;
+clear that specific digest explicitly when a development tag override is intended.
 Leave `global.imageTag` unset; if you do set it, it must be `v<chart-version>`,
 or the core migrations `expectedVersion` and the templates drift from the
 images. To upgrade, rerun the same command with the new `--version`.
@@ -95,7 +107,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `global.imageTag` | Override image tag for first-party components (not `serviceradar-cnpg`). Empty uses `v<appVersion>` from the chart; if set, it must equal `v<chart-version>` | `""` |
-| `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
+| `image.digests.<service>` | Component digest, overriding tags; populated in release packages | `{}` in source chart |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
 | `ingress.tls.secretName` | TLS secret name | `""` |
@@ -188,6 +200,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
 | `agent.runtimeStorage.enabled` | Persist managed agent release runtime under `/var/lib/serviceradar/agent` | `true` |
 | `nvr.enabled` | Render the `serviceradar-nvr` StatefulSet (runtime and health probes only; recording pools are not enrolled). Requires `nvr.storage.storageClassName` and one distinct `nvr.storage.storageIds` UUID per ordinal. See [NVR runtime and replicated storage](../../docs/nvr-runtime.md) | `false` |
+| `nvr.ingest.enabled` | With `nvr.enabled`, mount the private mTLS ingest listener on each NVR replica (`nvr.ingest.port`, default `8443`) and the matching client credentials on `serviceradar-core`, and add a network-policy rule letting `serviceradar-core` reach that port. Requires distinct pre-provisioned Secrets: `nvr.ingest.configSecretName` (`config.json`), `tokenSecretName` (`ingest-token`), `tlsSecretName` (`tls.crt`, `tls.key`, `ca.crt`) and the same three under `nvr.ingest.client`; server and client TLS Secrets must differ. `nvr.ingest.client.cameraRecordingEnabled` additionally permits explicit one-shot capture. See [Private NVR recording input](../../docs/nvr-ingest.md) | `false` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (`host:port`). Set this explicitly when the agent gateway is exposed on a different host than the web endpoint. Otherwise the chart derives port `50052` from `webNg.host`, `ingress.host`, or `gatewayApi.host` (in that order), then falls back to the in-cluster service name. | `""` |
 
 ### Storage Encryption
@@ -346,7 +359,7 @@ Installs that keep telemetry in CNPG set retention under `core.observabilityRete
 
 Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in StarRocks. Migration `20261019160000` dropped `platform.ocsf_network_activity`, so `ocsfNetworkActivityDays` and `ocsfNetworkActivityChunkIntervalHours` no longer govern a live CNPG hypertable and `defaultDays` does not apply to them. They remain for the older migration that still reads them.
 
-The migration-only tables (`adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`) and rollup aggregates (`spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) are reconciled retention-only: their chunk intervals and compression stay as migrations installed them. Before a shorter retention applies, the worker clamps the refresh `start_offset` of `endpoint_inventory_package_counts_hourly`, `endpoint_inventory_cpe_counts_hourly`, `services_availability_5m`, and `otel_metrics_hourly_stats` strictly inside it, and floors each aggregate's own retention at that clamped window. `endpointInventoryHistoryDays` and `tracesStatsDays` are not capped by `defaultDays`. `tracesStatsDays` is the explicit value, or 14 days when omitted, floored at the clamped refresh window. While the cold tier is enabled the fence widens `traces_stats_5m`, and the worker does not write a shorter target first, including when no retention policy is installed. An unset `tracesStatsDays` leaves a widened window in place after the cold tier is disabled. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals `tracesStatsDays`, including 14 days and shorter.
+The migration-only tables (`adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`) and rollup aggregates (`spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) are reconciled retention-only: their chunk intervals and compression stay as migrations installed them. Before a shorter retention applies, the worker clamps the refresh `start_offset` of `endpoint_inventory_package_counts_hourly`, `endpoint_inventory_cpe_counts_hourly`, `services_availability_5m`, and `otel_metrics_hourly_stats` strictly inside it, and floors each aggregate's own retention at that clamped window. `endpointInventoryHistoryDays` and `tracesStatsDays` are not capped by `defaultDays`. `tracesStatsDays` is the explicit value, or 14 days when omitted, floored at the clamped refresh window. The worker sets `traces_stats_5m` to that target whatever window is installed. A later run leaves an installed value that already equals it, including 14 days and shorter.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -367,7 +380,7 @@ The migration-only tables (`adhocScanResultsDays`, `serviceStatusDays`, `endpoin
 | `core.observabilityRetention.endpointInventoryHistoryDays` | Endpoint inventory scan/package history retention. Not capped by `defaultDays` | `395` |
 | `core.observabilityRetention.spansRedDays` | `spans_red_1h` aggregate retention | `90` |
 | `core.observabilityRetention.otelMetricsHourlyStatsDays` | `otel_metrics_hourly_stats` aggregate retention | `90` |
-| `core.observabilityRetention.tracesStatsDays` | `traces_stats_5m` aggregate retention. Not capped by `defaultDays`. Omit to keep the 14-day migration window and leave a cold-tier-widened window unchanged. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals it | unset |
+| `core.observabilityRetention.tracesStatsDays` | `traces_stats_5m` aggregate retention. Not capped by `defaultDays`. Omit for the 14-day migration window | unset |
 | `core.observabilityRetention.otelTracesChunkIntervalHours` | Chunk interval for new trace chunks | `6` |
 | `core.observabilityRetention.logsChunkIntervalHours` | Chunk interval for new log chunks | `24` |
 | `core.observabilityRetention.otelMetricsChunkIntervalHours` | Chunk interval for new OTel metric chunks | `24` |

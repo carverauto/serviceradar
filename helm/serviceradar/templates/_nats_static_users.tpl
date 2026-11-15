@@ -120,6 +120,11 @@ Add or change a built-in identity's subjects only here.
            PubAck, so a missing entry here fails loudly rather than dropping
            traces. */}}
       - "mtr.results.>"
+      {{- /* Merged device availability history
+           (Inventory.Availability.History). Core publishes one record per state
+           change; EventWriter stores them from the events stream. The publish
+           waits for a PubAck, so a missing entry retries the transition job. */}}
+      - "availability.transitions.device"
       {{- /* Flow process attribution observations
            (FlowAttribution.Observations). Core publishes them on the flows
            stream; EventWriter loads them into the warehouse. The publish waits
