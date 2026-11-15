@@ -75,10 +75,10 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
 
   Each page is a separate offset query, so rows must come back in a unique
   order or rows with equal sort values can move between pages and be skipped.
-  SRQL already ends device and interface orders on a unique key; agents default
-  to `last_seen_time` alone, so `sort:uid:asc` is appended to an agents query
-  as its final sort key (repeated `sort:` tokens extend the order, after any
-  operator-supplied sort).
+  SRQL already ends device and interface orders (history and `latest:true`) on
+  a unique key; agents default to `last_seen_time` alone, so `sort:uid:asc` is
+  appended to an agents query as its final sort key (repeated `sort:` tokens
+  extend the order, after any operator-supplied sort).
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}

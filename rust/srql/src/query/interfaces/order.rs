@@ -1,10 +1,6 @@
 use crate::parser::{OrderClause, OrderDirection};
 
-pub(super) fn build_order_clause(
-    order: &[OrderClause],
-    stable_history_order: bool,
-    alias: Option<&str>,
-) -> Option<String> {
+pub(super) fn build_order_clause(order: &[OrderClause], alias: Option<&str>) -> Option<String> {
     let mut clauses = Vec::new();
     let mut ordered_fields = Vec::new();
 
@@ -40,14 +36,12 @@ pub(super) fn build_order_clause(
         ordered_fields.push("timestamp");
     }
 
-    if stable_history_order {
-        append_interface_history_tiebreakers(&mut clauses, &ordered_fields, alias);
-    }
+    append_interface_tiebreakers(&mut clauses, &ordered_fields, alias);
 
     Some(format!("ORDER BY {}", clauses.join(", ")))
 }
 
-fn append_interface_history_tiebreakers(
+fn append_interface_tiebreakers(
     clauses: &mut Vec<String>,
     ordered_fields: &[&str],
     alias: Option<&str>,

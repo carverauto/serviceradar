@@ -108,7 +108,7 @@ pub(super) fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         let mut page = String::from("SELECT * FROM (");
         page.push_str(&inner);
         page.push_str(") AS latest");
-        if let Some(order_clause) = build_order_clause(&plan.order, false, Some("latest")) {
+        if let Some(order_clause) = build_order_clause(&plan.order, Some("latest")) {
             page.push(' ');
             page.push_str(&order_clause);
         }
@@ -122,7 +122,7 @@ pub(super) fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         outer.push_str(&page);
         outer.push_str(") AS paged");
         outer.push_str(&interface_error_metric_joins("paged"));
-        if let Some(order_clause) = build_order_clause(&plan.order, false, Some("paged")) {
+        if let Some(order_clause) = build_order_clause(&plan.order, Some("paged")) {
             outer.push(' ');
             outer.push_str(&order_clause);
         }
@@ -138,7 +138,7 @@ pub(super) fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         page.push_str(interface_settings_projection());
         page.push(' ');
         page.push_str(&discovered_interfaces_from);
-        if let Some(order_clause) = build_order_clause(&plan.order, true, Some("di")) {
+        if let Some(order_clause) = build_order_clause(&plan.order, Some("di")) {
             page.push(' ');
             page.push_str(&order_clause);
         }
@@ -152,7 +152,7 @@ pub(super) fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         outer.push_str(&page);
         outer.push_str(") AS paged");
         outer.push_str(&interface_error_metric_joins("paged"));
-        if let Some(order_clause) = build_order_clause(&plan.order, true, Some("paged")) {
+        if let Some(order_clause) = build_order_clause(&plan.order, Some("paged")) {
             outer.push(' ');
             outer.push_str(&order_clause);
         }
