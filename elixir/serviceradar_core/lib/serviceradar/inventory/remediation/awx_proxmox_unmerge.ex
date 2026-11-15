@@ -157,6 +157,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       repaired: repaired_records(related),
       devices: devices(uids),
       identifiers: identifiers,
+      awx_memberships: awx_memberships(identifiers),
       guests: guests(refs),
       interface_macs: interface_macs(uids),
       truncated?: truncated?
@@ -287,6 +288,126 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       }
     end)
     |> Enum.group_by(& &1.device_id)
+  end
+
+  # The membership rows for the AWX v2 host ids the candidate merges name, plus the
+  # current rows that could be their replacements: same controller, inventory and
+  # `ansible_host`. A re-created host keeps its `ansible_host`; the old row is
+  # expired and not current, the new row is current.
+  defp awx_memberships(identifiers) do
+    pairs =
+      identifiers
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.flat_map(fn row -> List.wrap(awx_v2_pair(row[:value])) end)
+      |> Enum.uniq()
+
+    rows = membership_rows(pairs)
+    rows ++ current_replacements(rows)
+  end
+
+  defp awx_v2_pair(value) when is_binary(value) do
+    case Decisions.awx_v2_host(value) do
+      {controller, host} ->
+        case Integer.parse(host) do
+          {host_id, ""} -> [{controller, host_id}]
+          _ -> []
+        end
+
+      nil ->
+        []
+    end
+  end
+
+  defp awx_v2_pair(_value), do: []
+
+  defp membership_rows([]), do: []
+
+  defp membership_rows(pairs) do
+    {controllers, hosts} = Enum.unzip(pairs)
+
+    %{rows: rows} =
+      query!(
+        """
+        SELECT controller_id::text, inventory_id, awx_host_id, ansible_host, current, expired_at
+        FROM platform.ansible_awx_host_memberships
+        WHERE controller_id::text = ANY($1::text[])
+          AND awx_host_id = ANY($2::int[])
+        """,
+        [Enum.uniq(controllers), Enum.uniq(hosts)]
+      )
+
+    rows
+    |> Enum.map(&membership_row/1)
+    |> Enum.filter(fn row ->
+      Enum.any?(pairs, fn {controller, host} ->
+        row.controller_id == controller and row.awx_host_id == host
+      end)
+    end)
+  end
+
+  defp current_replacements([]), do: []
+
+  defp current_replacements(rows) do
+    triples =
+      rows
+      |> Enum.flat_map(fn row ->
+        if is_binary(row.ansible_host),
+          do: [{row.controller_id, row.inventory_id, row.ansible_host}],
+          else: []
+      end)
+      |> Enum.uniq()
+
+    case triples do
+      [] ->
+        []
+
+      _ ->
+        controllers = triples |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+        inventories = triples |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+        ansible_hosts = triples |> Enum.map(&elem(&1, 2)) |> Enum.uniq()
+
+        %{rows: found} =
+          query!(
+            """
+            SELECT controller_id::text, inventory_id, awx_host_id, ansible_host, current,
+                   expired_at
+            FROM platform.ansible_awx_host_memberships
+            WHERE current = true
+              AND controller_id::text = ANY($1::text[])
+              AND inventory_id = ANY($2::int[])
+              AND ansible_host = ANY($3::text[])
+            """,
+            [controllers, inventories, ansible_hosts]
+          )
+
+        found
+        |> Enum.map(&membership_row/1)
+        |> Enum.filter(fn row ->
+          Enum.any?(triples, fn {controller, inventory, ansible_host} ->
+            row.controller_id == controller and row.inventory_id == inventory and
+              row.ansible_host == ansible_host
+          end)
+        end)
+    end
+  end
+
+  defp membership_row([
+         controller_id,
+         inventory_id,
+         awx_host_id,
+         ansible_host,
+         current,
+         expired_at
+       ]) do
+    %{
+      controller_id: controller_id,
+      inventory_id: inventory_id,
+      awx_host_id: awx_host_id,
+      ansible_host: ansible_host,
+      current: current,
+      expired_at: expired_at
+    }
   end
 
   defp guests([]), do: %{}
@@ -474,6 +595,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       to_own_identifiers: own_identifiers(data, audit.to_uid, to),
       to_absorbed_before: absorbed_before,
       to_mac: to && to.mac,
+      awx_memberships: Map.get(data, :awx_memberships),
       guest_macs: guest_macs(data.guests, audit.details["guest_provider_ref"]),
       unmerged_at: Map.get(data.reversed, audit.event_id),
       from_state: from_state(from),

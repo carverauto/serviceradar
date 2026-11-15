@@ -13,7 +13,9 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Deduplication
@@ -23,6 +25,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
   alias ServiceRadar.Inventory.Remediation.DireRemediation
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
   @moduletag :capture_log
@@ -568,6 +571,174 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
       assert %{status: "fail", sample: sample} = check(verify, name)
       assert Enum.map(sample, & &1.event_id) == [late], name
     end
+  end
+
+  # A merge proved only by AWX host ids where the from-side id names a superseded
+  # membership row (expired, not current, quarantined) and the survivor-side id names
+  # its current replacement in the same inventory is not a different machine: no unit
+  # is planned for it.
+  test "a merge on a re-created AWX host is not proved different", ctx do
+    w = recreated_host_world!(ctx, :superseded)
+
+    assert {:ok, %{reports: %{@step => plan}}} =
+             DireRemediation.run(
+               steps: [@step],
+               awx_proxmox_unmerge_event_ids: [w.merge]
+             )
+
+    entry = Enum.find(plan.reported_merges, &(&1.event_id == w.merge))
+    assert entry.disposition == "no_distinguishing_evidence"
+    assert Enum.flat_map(plan.unmerge_plan, & &1.merges) == []
+  end
+
+  # The guard must not clear real distinct-host merges: two current rows still prove
+  # different, as do rows of different inventories.
+  test "two current AWX hosts still prove different", ctx do
+    w = recreated_host_world!(ctx, :both_current)
+
+    assert {:ok, %{reports: %{@step => plan}}} =
+             DireRemediation.run(
+               steps: [@step],
+               awx_proxmox_unmerge_event_ids: [w.merge]
+             )
+
+    planned = Enum.flat_map(plan.unmerge_plan, & &1.merges)
+
+    assert %{proofs: ["different_awx_hosts"], disposition: "unmerge"} =
+             Enum.find(planned, &(&1.event_id == w.merge))
+  end
+
+  test "AWX hosts of different inventories still prove different", ctx do
+    w = recreated_host_world!(ctx, :different_inventory)
+
+    assert {:ok, %{reports: %{@step => plan}}} =
+             DireRemediation.run(
+               steps: [@step],
+               awx_proxmox_unmerge_event_ids: [w.merge]
+             )
+
+    planned = Enum.flat_map(plan.unmerge_plan, & &1.merges)
+
+    assert %{proofs: ["different_awx_hosts"], disposition: "unmerge"} =
+             Enum.find(planned, &(&1.event_id == w.merge))
+  end
+
+  # A VM record merged into another record on AWX host ids, with membership rows for
+  # the re-created host: the old row expired, quarantined and not current, the new row
+  # current at the same controller, inventory and ansible_host. Variants keep both rows
+  # current, or put the replacement in another inventory, and must still prove different.
+  defp recreated_host_world!(ctx, variant) do
+    controller = seed_controller!(ctx)
+    controller_id = controller.id
+    old_host = 100 + rem(ctx.n, 89_999)
+    new_host = old_host + 1
+    inventory = 10 + rem(ctx.n, 89)
+    ansible_host = "qemu136-#{ctx.n}.example.com"
+
+    from = device!(ctx.actor, "vm136-#{ctx.n}")
+
+    identifier!(
+      ctx.actor,
+      from,
+      :integration_id,
+      "awx:v2:#{controller_id}:host:#{old_host}",
+      awx_metadata()
+    )
+
+    survivor = device!(ctx.actor, "survivor#{ctx.n}")
+
+    identifier!(
+      ctx.actor,
+      survivor,
+      :integration_id,
+      "awx:v2:#{controller_id}:host:#{new_host}",
+      awx_metadata()
+    )
+
+    {old_inventory, old_current, old_expired, old_disposition, new_inventory} =
+      case variant do
+        :superseded -> {inventory, false, true, "quarantined", inventory}
+        :both_current -> {inventory, true, false, "approved", inventory}
+        :different_inventory -> {inventory, false, true, "quarantined", inventory + 1}
+      end
+
+    quarantined_at = DateTime.truncate(DateTime.utc_now(), :second)
+
+    old_extra =
+      if old_disposition == "quarantined",
+        do: [quarantine_reason: "approved_device_changed", quarantined_at: quarantined_at],
+        else: [canonical_device_uid: from]
+
+    membership!(
+      controller_id,
+      old_inventory,
+      old_host,
+      ansible_host,
+      [current: old_current, expired?: old_expired, link_disposition: old_disposition] ++
+        old_extra
+    )
+
+    membership!(controller_id, new_inventory, new_host, ansible_host,
+      current: true,
+      expired?: false,
+      link_disposition: "approved",
+      canonical_device_uid: survivor
+    )
+
+    merge =
+      historical_merge!(ctx, %{uid: from}, %{uid: survivor},
+        minutes_ago: 60,
+        reason: "awx_host_network_match",
+        details: %{"corroboration" => "ip_host_name"}
+      )
+
+    %{merge: merge}
+  end
+
+  defp seed_controller!(ctx) do
+    Seed.seed!(Controller, %{
+      name: "recreated-host-#{ctx.n}",
+      base_url: "https://awx.example.com",
+      agent_id: "recreated-host-agent-#{ctx.n}",
+      credential_secret_id: CredentialIntegrationFixtures.secret_id!()
+    })
+  end
+
+  defp membership!(controller_id, inventory, host, ansible_host, opts) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    expired_at =
+      if Keyword.fetch!(opts, :expired?),
+        do: DateTime.shift(now, hour: -1)
+
+    %{rows: [[_id]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.ansible_awx_host_memberships
+          (controller_id, inventory_id, awx_host_id, host_name, ansible_host, current,
+           last_seen_at, expired_at, link_disposition, canonical_device_uid,
+           quarantine_reason, quarantined_at, source_generation, source_fingerprint)
+        VALUES (($1::text)::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13)
+        RETURNING id
+        """,
+        [
+          controller_id,
+          inventory,
+          host,
+          "qemu136-#{host}.example.com",
+          ansible_host,
+          Keyword.fetch!(opts, :current),
+          now,
+          expired_at,
+          Keyword.fetch!(opts, :link_disposition),
+          Keyword.get(opts, :canonical_device_uid),
+          Keyword.get(opts, :quarantine_reason),
+          Keyword.get(opts, :quarantined_at),
+          "recreated-host-fixture"
+        ]
+      )
+
+    :ok
   end
 
   # -- worlds -------------------------------------------------------------------------------
