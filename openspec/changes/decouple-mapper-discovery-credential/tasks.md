@@ -35,11 +35,13 @@
 
 - [ ] 3.1 Fail-first tests for the backfill: reusable default-profile secret bound;
       inline profile material promoted and source rebound; agent-scoped rule secret
-      bound; divergent partition agents left unbound; completion marker prevents a
-      second run
+      bound; disabled job bound; disabled partition job evaluated against the
+      partition's registered agents; divergent partition agents left unbound; a
+      read or write failure leaves no completion marker and retries; completion
+      marker prevents a second run
 - [ ] 3.2 `MapperJobSNMPCredentialBackfillWorker`: one-shot, unique, enqueued on
-      core start, private copy of the legacy chain, deployment-level completion
-      marker
+      core start, private copy of the legacy chain, all SNMP-mode jobs including
+      disabled ones, deployment-level completion marker recorded only on success
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 

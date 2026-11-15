@@ -8,7 +8,23 @@ Discovery credentials (SNMP and API) MUST be stored using AshCloak encryption in
 - **WHEN** the job is saved
 - **THEN** the job SHALL reference a reusable SNMP credential in `platform.network_credential_secrets` and SHALL NOT store SNMP secret material on the job record
 - **AND** per-device SNMP credentials SHALL continue to come from device overrides, SNMP credential rules and SNMP profiles
+- **AND** any stored credentials (reusable credential, profile or device override) SHALL be encrypted at rest via AshCloak
 - **AND** API responses to the UI SHALL redact sensitive fields
+
+### Requirement: Discovery job definition schema
+Discovery jobs SHALL capture the minimum fields required for mapper execution, including schedule, seeds, and credentials.
+
+#### Scenario: Job schema completeness
+- **GIVEN** a mapper discovery job
+- **THEN** it includes:
+  - `name`
+  - `enabled`
+  - `interval`
+  - `seeds`
+  - `discovery_mode` (SNMP or API)
+  - `assignment` (agent or partition)
+- **AND** the job MAY hold a reference to a reusable SNMP credential (`snmp_credential_secret_id`)
+- **AND** SNMP secret material SHALL NOT be stored on the job record
 
 ## ADDED Requirements
 
@@ -72,7 +88,8 @@ A mapper job's SNMP credential reference MUST be restricted at the database, inc
 - **THEN** the lookup SHALL report usage as unavailable rather than return a partial consumer list
 
 ### Requirement: Missing mapper discovery credential fails closed and is visible
-An SNMP-mode mapper job without a usable referenced SNMP credential MUST compile with an empty base credential that the mapper refuses, and MUST be shown to operators as missing its SNMP credential.
+An SNMP-mode mapper job with no referenced SNMP credential MUST compile with an empty base credential that the mapper refuses, and MUST be shown to operators as missing its SNMP credential.
+A referenced credential that deterministically cannot be built (broker refusal, unknown security level) MUST also compile to an empty base credential for that job. A failure to read the referenced credential from storage or the broker MUST fail the compile instead, so the previously cached config stays in place.
 The compiler MUST NOT emit an SNMPv1/v2c credential with no community string as a substitute.
 
 #### Scenario: No referenced credential
@@ -104,7 +121,24 @@ The compiler MUST NOT emit an SNMPv1/v2c credential with no community string as 
 - **THEN** the compiler SHALL NOT log a warning for that job on every compile
 
 ### Requirement: Mapper discovery credential migration
-Upgrading MUST bind each existing SNMP-mode mapper job to the credential its pre-upgrade fallback chain resolved to, without operators re-entering secrets.
+Upgrading MUST bind each existing SNMP-mode mapper job, enabled or disabled, to the credential its pre-upgrade fallback chain resolved to, without operators re-entering secrets.
+Only a job whose legacy chain resolves to no credential, or to different credentials on different agents, MAY remain unbound. A read or write failure during the backfill MUST NOT be treated as an empty result.
+
+#### Scenario: Disabled job is bound
+- **GIVEN** a disabled SNMP-mode job whose pre-upgrade fallback resolved to reusable credential C
+- **WHEN** the one-time backfill runs
+- **THEN** the job SHALL reference C, so re-enabling it later uses C
+
+#### Scenario: Disabled partition job uses the partition's agents
+- **GIVEN** a disabled partition-assigned SNMP-mode job
+- **WHEN** the one-time backfill runs
+- **THEN** the legacy chain SHALL be evaluated against every agent registered in that partition
+
+#### Scenario: Backfill failure is retried
+- **GIVEN** the backfill hits a credential read failure or a failed promote, rebind or bind write
+- **WHEN** the run ends
+- **THEN** the completion marker SHALL NOT be recorded
+- **AND** the backfill SHALL run again until it completes
 
 #### Scenario: Default profile with a reusable credential
 - **GIVEN** before upgrade, an SNMP-mode job's fallback resolved to the default SNMP profile, which references reusable credential C

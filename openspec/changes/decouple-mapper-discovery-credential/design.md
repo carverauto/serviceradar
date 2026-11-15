@@ -126,8 +126,11 @@ The Ecto migration only adds the nullable column and FK. A one-shot Oban worker,
 deployment, does the binding, because it needs SRQL rule matching and, for inline
 material, decryption:
 
-1. For each SNMP-mode job with a nil reference, and for each agent the job
-   compiles for (its agent, or every agent registered in its partition), evaluate
+1. For each SNMP-mode job with a nil reference, enabled or disabled (the worker
+   reads jobs directly, not through `for_agent_partition`, which returns only
+   enabled jobs), and for each agent the job compiles for (its assigned agent, or
+   every agent registered in its partition, including for a disabled partition
+   job), evaluate
    the **pre-change** fallback chain: host device resolution, then
    `resolve_default`. The worker carries a private copy of that legacy logic,
    deleted along with the worker in a later release.
@@ -138,11 +141,16 @@ material, decryption:
      to a reusable SNMP credential (same builder as the profile form's "Save as
      reusable"), rebind the source record to the new secret, then bind the job.
      There is still one copy, so rotation stays single-source.
-3. If agents disagree, or nothing resolves, leave the job unbound. It then shows
+3. If agents disagree, or the chain agrees on no credential, leave the job unbound. It then shows
    the Decision 3 warning, the honest state, since no single credential reproduces
    the old behaviour.
-4. Record completion in a deployment-level marker. The worker never runs again, so
-   it never rebinds a job an operator later cleared on purpose.
+4. Record completion in a deployment-level marker only after every job has been
+   bound or deliberately left unbound under step 3. A credential read failure or a
+   failed promote, rebind or bind write is not an empty result: the run aborts
+   without the marker and Oban retries it. Binding is idempotent (only nil
+   references are touched), so a retry does not double-promote a source already
+   rebound. Once the marker exists the worker never runs again, so it never
+   rebinds a job an operator later cleared on purpose.
 
 Binding a job updates the record, and `DependencyNotifier` recompiles the
 affected agents.
