@@ -31,6 +31,9 @@ import (
 // ErrNilResultsChannel indicates the collector returned a nil results channel.
 var ErrNilResultsChannel = errors.New("collector returned nil results channel")
 
+// sysNameOID is SNMPv2-MIB::sysName.0; a polled value becomes the target's host name.
+const sysNameOID = ".1.3.6.1.2.1.1.5.0"
+
 type targetStatusSummary struct {
 	Available  bool      `json:"available"`
 	LastPoll   time.Time `json:"last_poll,omitempty"`
@@ -107,23 +110,21 @@ func NewSNMPServiceForAgent(config *SNMPConfig, log logger.Logger) (*SNMPService
 
 // newSNMPServiceInternal creates the service without validation.
 func newSNMPServiceInternal(config *SNMPConfig, log logger.Logger) *SNMPService {
-	service := &SNMPService{
-		collectors:  make(map[string]Collector),
-		aggregators: make(map[string]Aggregator),
-		config:      config,
-		done:        make(chan struct{}),
-		status:      make(map[string]TargetStatus),
-		logger:      log,
+	return &SNMPService{
+		targets:           make(map[string]*targetRuntime),
+		config:            config,
+		done:              make(chan struct{}),
+		logger:            log,
+		collectorFactory:  &defaultCollectorFactory{sessions: newSessionSlots(maxOpenSessions)},
+		aggregatorFactory: &defaultAggregatorFactory{},
 	}
-
-	// Create collector factory with database service
-	service.collectorFactory = &defaultCollectorFactory{}
-	service.aggregatorFactory = &defaultAggregatorFactory{}
-
-	return service
 }
 
 // Start implements the Service interface.
+//
+// A target that cannot be set up is reported as unavailable with the reason and
+// the remaining targets still start: one bad target must not stop polling of
+// every other one.
 func (s *SNMPService) Start(ctx context.Context) error {
 	s.logger.Info().Int("target_count", len(s.config.Targets)).Msg("Starting SNMP Service")
 
@@ -134,14 +135,7 @@ func (s *SNMPService) Start(ctx context.Context) error {
 		s.serviceCtx = nil
 
 		// Ensure collectors from the previous run are stopped and cleared.
-		for name, c := range s.collectors {
-			if err := c.Stop(); err != nil {
-				s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector during restart")
-			}
-		}
-		s.collectors = make(map[string]Collector)
-		s.aggregators = make(map[string]Aggregator)
-		s.status = make(map[string]TargetStatus)
+		s.stopTargetsLocked()
 	}
 	select {
 	case <-s.done:
@@ -151,9 +145,10 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	s.serviceCtx, s.cancel = context.WithCancel(ctx)
 	s.mu.Unlock()
 
-	// Initialize collectors for each target using indexing to avoid copying
+	failed := 0
+
 	for i := range s.config.Targets {
-		target := &s.config.Targets[i] // Get pointer to target
+		target := &s.config.Targets[i]
 		s.logger.Info().
 			Str("target_name", target.Name).
 			Str("target_host", target.Host).
@@ -161,14 +156,18 @@ func (s *SNMPService) Start(ctx context.Context) error {
 			Msg("Initializing target")
 
 		if err := s.initializeTarget(target); err != nil {
-			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
+			failed++
+			s.recordFailedTarget(target, err)
 		}
 	}
 
 	s.mu.RLock()
-	collectorCount := len(s.collectors)
+	targetCount := len(s.targets)
 	s.mu.RUnlock()
-	s.logger.Info().Int("collector_count", collectorCount).Msg("SNMP Service started")
+	s.logger.Info().
+		Int("target_count", targetCount).
+		Int("failed_target_count", failed).
+		Msg("SNMP Service started")
 
 	return nil
 }
@@ -189,22 +188,32 @@ func (s *SNMPService) Stop() error {
 		close(s.done)
 	}
 
-	var errs []error
-
-	for name, collector := range s.collectors {
-		if err := collector.Stop(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
-		}
-	}
-
-	s.collectors = make(map[string]Collector)
-	s.aggregators = make(map[string]Aggregator)
-
-	if len(errs) > 0 {
+	if errs := s.stopTargetsLocked(); len(errs) > 0 {
 		return fmt.Errorf("%w: %v", ErrStoppingCollectors, errs)
 	}
 
 	return nil
+}
+
+// stopTargetsLocked stops every collector and forgets every target. The caller
+// holds s.mu.
+func (s *SNMPService) stopTargetsLocked() []error {
+	var errs []error
+
+	for name, rt := range s.targets {
+		if rt.collector == nil {
+			continue
+		}
+
+		if err := rt.collector.Stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
+			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
+		}
+	}
+
+	s.targets = make(map[string]*targetRuntime)
+
+	return errs
 }
 
 // AddTarget implements the Service interface.
@@ -213,7 +222,7 @@ func (s *SNMPService) AddTarget(ctx context.Context, target *Target) error {
 		return err
 	}
 	if err := s.initializeTarget(target); err != nil {
-		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
+		return fmt.Errorf("%w: %w", errFailedToInitTarget, err)
 	}
 
 	return nil
@@ -224,64 +233,44 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	collector, exists := s.collectors[targetName]
+	rt, exists := s.targets[targetName]
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	if err := collector.Stop(); err != nil {
-		return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
+	if rt.collector != nil {
+		if err := rt.collector.Stop(); err != nil {
+			return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
+		}
 	}
 
-	delete(s.collectors, targetName)
-	delete(s.aggregators, targetName)
-	delete(s.status, targetName)
+	delete(s.targets, targetName)
 
 	return nil
 }
 
-// GetStatus implements the Service interface.
-func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, error) {
+// runningTargets returns the current targets without holding s.mu afterwards.
+func (s *SNMPService) runningTargets() []*targetRuntime {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	s.logger.Debug().Int("collector_count", len(s.collectors)).Msg("SNMP GetStatus called")
+	runtimes := make([]*targetRuntime, 0, len(s.targets))
+	for _, rt := range s.targets {
+		runtimes = append(runtimes, rt)
+	}
 
-	status := make(map[string]TargetStatus)
+	return runtimes
+}
 
-	// Check each collector's status
-	for name, collector := range s.collectors {
-		s.logger.Debug().Str("collector_name", name).Msg("Getting status for collector")
+// GetStatus implements the Service interface.
+func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, error) {
+	runtimes := s.runningTargets()
 
-		collectorStatus := collector.GetStatus()
-		s.logger.Debug().Str("collector_name", name).Interface("status", collectorStatus).Msg("Collector status")
+	s.logger.Debug().Int("target_count", len(runtimes)).Msg("SNMP GetStatus called")
 
-		// Merge collector status with service status to preserve HostIP and HostName
-		if serviceStatus, exists := s.status[name]; exists {
-			s.logger.Debug().
-				Str("target_name", name).
-				Str("host_ip", serviceStatus.HostIP).
-				Str("host_name", serviceStatus.HostName).
-				Msg("Merging status")
-			// Use service status as base and update with collector data
-			mergedStatus := serviceStatus
-			mergedStatus.Available = collectorStatus.Available
-			mergedStatus.LastPoll = collectorStatus.LastPoll
-			mergedStatus.OIDStatus = collectorStatus.OIDStatus
-			mergedStatus.Error = collectorStatus.Error
-			// HostIP and HostName are preserved from serviceStatus
-
-			status[name] = mergedStatus
-			s.logger.Debug().
-				Str("target_name", name).
-				Str("host_ip", mergedStatus.HostIP).
-				Str("host_name", mergedStatus.HostName).
-				Msg("Merged status")
-		} else {
-			s.logger.Warn().Str("target_name", name).Msg("No service status found, using collector status only")
-			// Fallback to collector status if service status doesn't exist
-			status[name] = collectorStatus
-		}
+	status := make(map[string]TargetStatus, len(runtimes))
+	for _, rt := range runtimes {
+		status[rt.target.Name] = rt.status()
 	}
 
 	if len(status) == 0 {
@@ -292,20 +281,23 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 	return status, nil
 }
 
-// DrainMetrics implements the MetricProvider interface.
+// DrainMetrics implements the MetricProvider interface. Each target's
+// aggregator is drained on its own, so a drain never blocks another target's
+// results.
 func (s *SNMPService) DrainMetrics(_ context.Context) (map[string][]DataPoint, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	allMetrics := make(map[string][]DataPoint)
-	for targetName, aggregator := range s.aggregators {
-		metrics := aggregator.Drain()
-		for oidName, points := range metrics {
+
+	for _, rt := range s.runningTargets() {
+		if rt.aggregator == nil {
+			continue
+		}
+
+		for oidName, points := range rt.aggregator.Drain() {
 			// Create a unique key for each metric stream
-			key := targetName + "|" + oidName
-			allMetrics[key] = points
+			allMetrics[rt.target.Name+"|"+oidName] = points
 		}
 	}
+
 	return allMetrics, nil
 }
 
@@ -391,7 +383,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	// Create collector
 	collector, err := s.collectorFactory.CreateCollector(target, s.logger)
 	if err != nil {
-		return fmt.Errorf("%w: %s", errFailedToCreateCollector, target.Name)
+		return fmt.Errorf("%w %s: %w", errFailedToCreateCollector, target.Name, err)
 	}
 
 	s.logger.Info().
@@ -402,7 +394,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	// Create aggregator
 	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval), target.MaxPoints)
 	if err != nil {
-		return fmt.Errorf("%w: %s", errFailedToCreateAggregator, target.Name)
+		return fmt.Errorf("%w %s: %w", errFailedToCreateAggregator, target.Name, err)
 	}
 
 	s.mu.RLock()
@@ -414,7 +406,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 
 	// Start collector with the service context so it stops on service shutdown.
 	if err := collector.Start(serviceCtx); err != nil {
-		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
+		return fmt.Errorf("%w %s: %w", errFailedToStartCollector, target.Name, err)
 	}
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Started collector for target")
@@ -428,27 +420,23 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		return ErrNilResultsChannel
 	}
 
+	rt := &targetRuntime{
+		target:     target,
+		collector:  collector,
+		aggregator: aggregator,
+		hostName:   target.Name, // Target name for display until sysName is polled
+	}
+
 	// Store components
 	s.mu.Lock()
-	if _, exists := s.collectors[target.Name]; exists {
+	if _, exists := s.targets[target.Name]; exists {
 		s.mu.Unlock()
 		if err := collector.Stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop duplicate collector")
 		}
 		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
 	}
-	s.collectors[target.Name] = collector
-	s.aggregators[target.Name] = aggregator
-
-	// Initialize status
-	s.status[target.Name] = TargetStatus{
-		Available: true,
-		LastPoll:  time.Now(),
-		OIDStatus: make(map[string]OIDStatus),
-		HostIP:    target.Host, // Actual IP address for device registration
-		HostName:  target.Name, // Target name for display
-		Target:    target,      // Include target configuration for internal use
-	}
+	s.targets[target.Name] = rt
 	s.mu.Unlock()
 
 	s.logger.Info().
@@ -457,15 +445,38 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	go s.processResults(serviceCtx, target.Name, results, aggregator)
+	go s.processResults(serviceCtx, rt, results)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
 	return nil
 }
 
+// recordFailedTarget keeps a target that could not start in the status, as
+// unavailable with the reason, so it is reported rather than silently missing.
+func (s *SNMPService) recordFailedTarget(target *Target, err error) {
+	s.logger.Error().
+		Err(err).
+		Str("target_name", target.Name).
+		Str("target_host", target.Host).
+		Msg("Failed to initialize SNMP target; remaining targets still poll")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.targets[target.Name]; exists {
+		return
+	}
+
+	s.targets[target.Name] = &targetRuntime{
+		target:   target,
+		startErr: err.Error(),
+		hostName: target.Name,
+	}
+}
+
 // processResults handles the data points from a collector.
-func (s *SNMPService) processResults(ctx context.Context, targetName string, results <-chan DataPoint, aggregator Aggregator) {
+func (s *SNMPService) processResults(ctx context.Context, rt *targetRuntime, results <-chan DataPoint) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -477,75 +488,76 @@ func (s *SNMPService) processResults(ctx context.Context, targetName string, res
 				return
 			}
 
-			s.handleDataPoint(targetName, &point, aggregator)
+			s.handleDataPoint(rt, &point)
 		}
 	}
 }
 
-// handleDataPoint processes a single data point.
-func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggregator Aggregator) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// handleDataPoint processes a single data point. It touches only the target's
+// own state.
+func (s *SNMPService) handleDataPoint(rt *targetRuntime, point *DataPoint) {
+	rt.aggregator.AddPoint(point)
 
-	// Update aggregator
-	aggregator.AddPoint(point)
+	// Update hostname if this is the sysName OID
+	if point.OIDName != sysNameOID && point.OIDName != "sysName" {
+		return
+	}
 
-	// Update status
-	if status, exists := s.status[targetName]; exists {
-		if status.OIDStatus == nil {
-			status.OIDStatus = make(map[string]OIDStatus)
+	if hostName, ok := point.Value.(string); ok && hostName != "" {
+		if previous, changed := rt.setHostName(hostName); changed {
+			s.logger.Info().
+				Str("target_name", rt.target.Name).
+				Str("old_hostname", previous).
+				Str("new_hostname", hostName).
+				Msg("Updating hostname")
 		}
-
-		status.OIDStatus[point.OIDName] = OIDStatus{
-			LastValue:  point.Value,
-			LastUpdate: point.Timestamp,
-		}
-
-		// Update hostname if this is the sysName OID
-		if point.OIDName == ".1.3.6.1.2.1.1.5.0" || point.OIDName == "sysName" {
-			if stringValue, ok := point.Value.(string); ok && stringValue != "" {
-				s.logger.Info().
-					Str("target_name", targetName).
-					Str("old_hostname", status.HostName).
-					Str("new_hostname", stringValue).
-					Msg("Updating hostname")
-
-				status.HostName = stringValue
-			}
-		}
-
-		status.LastPoll = point.Timestamp
-		s.status[targetName] = status
-
-		// Create message for service status
-		message := map[string]interface{}{
-			"oid_name":  point.OIDName,
-			"value":     point.Value,
-			"timestamp": point.Timestamp,
-			"data_type": point.DataType,
-			"scale":     point.Scale,
-			"delta":     point.Delta,
-		}
-
-		messageJSON, err := json.Marshal(message)
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Error marshaling data point")
-			return
-		}
-
-		s.logger.Debug().
-			Str("target_name", targetName).
-			Str("oid_name", point.OIDName).
-			RawJSON("message", messageJSON).
-			Msg("Updated status for target")
 	}
 }
 
-// defaultCollectorFactory implements CollectorFactory.
-type defaultCollectorFactory struct{}
+// setHostName records the target's polled sysName and reports the previous
+// value when it changed.
+func (rt *targetRuntime) setHostName(hostName string) (previous string, changed bool) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
 
-func (*defaultCollectorFactory) CreateCollector(target *Target, log logger.Logger) (Collector, error) {
-	return NewCollector(target, log)
+	previous = rt.hostName
+	rt.hostName = hostName
+
+	return previous, previous != hostName
+}
+
+// status merges the collector's poll state with the target's identity.
+func (rt *targetRuntime) status() TargetStatus {
+	rt.mu.Lock()
+	hostName := rt.hostName
+	rt.mu.Unlock()
+
+	var status TargetStatus
+	if rt.collector != nil {
+		status = rt.collector.GetStatus()
+	} else {
+		status = TargetStatus{
+			Available: false,
+			Error:     rt.startErr,
+			OIDStatus: make(map[string]OIDStatus),
+		}
+	}
+
+	status.HostIP = rt.target.Host // Actual IP address for device registration
+	status.HostName = hostName
+	status.Target = rt.target // Include target configuration for internal use
+
+	return status
+}
+
+// defaultCollectorFactory implements CollectorFactory. Its collectors share one
+// bound on open SNMP sessions.
+type defaultCollectorFactory struct {
+	sessions sessionSlots
+}
+
+func (f *defaultCollectorFactory) CreateCollector(target *Target, log logger.Logger) (Collector, error) {
+	return newCollector(target, log, f.sessions)
 }
 
 // defaultAggregatorFactory implements AggregatorFactory.

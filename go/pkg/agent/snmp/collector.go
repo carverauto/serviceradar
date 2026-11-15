@@ -30,7 +30,6 @@ import (
 
 const (
 	defaultByteBuffer               = 1024
-	defaultErrorChan                = 10
 	defaultDataChanBufferMultiplier = 2
 	// defaultWalkChanBufferRows is the results-channel budget for a walked OID.
 	// A GET contributes one value per poll, a walk one per discovered row.
@@ -46,10 +45,48 @@ const (
 	// (see ifHCInOctets::ifindex:7), so every row of a table gets its own series
 	// and the index survives into the metric envelope as a tag.
 	walkIndexSeparator = "::index:"
+	// maxOpenSessions bounds how many targets of one service hold an open SNMP
+	// session at once. A session is a UDP socket on an ephemeral port plus
+	// gosnmp's 64 KiB receive buffer, and it is open only while its target is
+	// being polled. The bound keeps a burst of polls, or many unresponsive
+	// targets waiting out their retries, well inside a stock Linux ephemeral
+	// port range (32768-60999); polls past it wait for a free session.
+	maxOpenSessions = 8192
 )
 
-// NewCollector creates a new SNMP collector for a target.
-func NewCollector(target *Target, log logger.Logger) (Collector, error) {
+// sessionSlots bounds the SNMP sessions open at once across the collectors that
+// share it. A nil sessionSlots does not bound.
+type sessionSlots chan struct{}
+
+func newSessionSlots(n int) sessionSlots {
+	return make(sessionSlots, n)
+}
+
+// acquire waits for a free session and reports false if ctx or done ends first.
+func (s sessionSlots) acquire(ctx context.Context, done <-chan struct{}) bool {
+	if s == nil {
+		return true
+	}
+
+	select {
+	case s <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-done:
+		return false
+	}
+}
+
+func (s sessionSlots) release() {
+	if s != nil {
+		<-s
+	}
+}
+
+// newCollector creates a new SNMP collector for a target. sessions bounds the
+// sessions it may hold open together with the other collectors sharing it.
+func newCollector(target *Target, log logger.Logger, sessions sessionSlots) (Collector, error) {
 	if err := validateTarget(target); err != nil {
 		return nil, fmt.Errorf("%w %w", ErrInvalidTargetConfig, err)
 	}
@@ -60,11 +97,11 @@ func NewCollector(target *Target, log logger.Logger) (Collector, error) {
 	}
 
 	collector := &SNMPCollector{
-		target:    target,
-		client:    client,
-		dataChan:  make(chan DataPoint, dataChanBuffer(target)),
-		errorChan: make(chan error, defaultErrorChan),
-		done:      make(chan struct{}),
+		target:   target,
+		client:   client,
+		sessions: sessions,
+		dataChan: make(chan DataPoint, dataChanBuffer(target)),
+		done:     make(chan struct{}),
 		status: TargetStatus{
 			OIDStatus: make(map[string]OIDStatus),
 		},
@@ -99,18 +136,11 @@ func dataChanBuffer(target *Target) int {
 	return buffer
 }
 
-// Start implements the Collector interface.
+// Start implements the Collector interface. It opens nothing: each poll opens
+// the target's SNMP session and closes it when the poll ends, so a target holds
+// a socket only while it is being polled.
 func (c *SNMPCollector) Start(ctx context.Context) error {
-	// Connect to the SNMP device
-	if err := c.client.Connect(); err != nil {
-		return fmt.Errorf("%w - %w", ErrSNMPConnect, err)
-	}
-
-	// Start collection goroutine
 	go c.collect(ctx)
-
-	// Start error handling goroutine
-	go c.handleErrors(ctx)
 
 	return nil
 }
@@ -149,18 +179,24 @@ func (c *SNMPCollector) collect(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := c.pollTarget(ctx); err != nil {
-				select {
-				case c.errorChan <- err:
-				default:
-					c.logger.Warn().Err(err).Msg("Error channel full, dropping error")
-				}
+				c.logger.Error().
+					Err(err).
+					Str("target_name", c.target.Name).
+					Msg("Error collecting from target")
 			}
 		}
 	}
 }
 
-// pollTarget performs a single poll of all OIDs for the target.
+// pollTarget performs a single poll of all OIDs for the target. The target's
+// SNMP session is open only for the duration of the poll.
 func (c *SNMPCollector) pollTarget(ctx context.Context) error {
+	if !c.sessions.acquire(ctx, c.done) {
+		return nil
+	}
+	defer c.sessions.release()
+	defer c.closeSession()
+
 	getOIDs, walkOIDs := c.partitionOIDs()
 
 	c.logger.Debug().
@@ -563,20 +599,13 @@ func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (inte
 	}
 }
 
-// handleErrors processes errors from the collection process.
-func (c *SNMPCollector) handleErrors(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-c.done:
-			return
-		case err := <-c.errorChan:
-			c.logger.Error().
-				Err(err).
-				Str("target_name", c.target.Name).
-				Msg("Error collecting from target")
-		}
+// closeSession closes the poll's SNMP session.
+func (c *SNMPCollector) closeSession() {
+	if err := c.client.Close(); err != nil {
+		c.logger.Debug().
+			Err(err).
+			Str("target_name", c.target.Name).
+			Msg("Error closing SNMP session")
 	}
 }
 

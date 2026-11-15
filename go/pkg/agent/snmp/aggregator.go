@@ -79,18 +79,24 @@ func NewAggregator(interval time.Duration, maxDataPoints int) Aggregator {
 	}
 }
 
-// AddPoint implements Aggregator interface.
+// AddPoint implements Aggregator interface. Only creating a new series takes
+// the aggregator's write lock; an existing series is written under its own
+// buffer lock, so adds and a concurrent Drain do not wait on each other.
 func (a *SNMPAggregator) AddPoint(point *DataPoint) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// Get or create time series for this OID
+	a.mu.RLock()
 	series, exists := a.data[point.OIDName]
+	a.mu.RUnlock()
+
 	if !exists {
-		series = &TimeSeriesData{
-			buffer: core.NewRingBuffer[DataPoint](a.maxSize),
+		a.mu.Lock()
+		series, exists = a.data[point.OIDName]
+		if !exists {
+			series = &TimeSeriesData{
+				buffer: core.NewRingBuffer[DataPoint](a.maxSize),
+			}
+			a.data[point.OIDName] = series
 		}
-		a.data[point.OIDName] = series
+		a.mu.Unlock()
 	}
 
 	series.buffer.Write(*point)
@@ -137,12 +143,13 @@ func (a *SNMPAggregator) Drain() map[string][]DataPoint {
 
 // Reset implements Aggregator interface.
 func (a *SNMPAggregator) Reset() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
-	// Re-initialize buffers
+	// Discard buffered points in place: AddPoint writes a series' buffer
+	// without the aggregator lock, so the buffer itself is never replaced.
 	for _, series := range a.data {
-		series.buffer = core.NewRingBuffer[DataPoint](a.maxSize)
+		series.buffer.Drain()
 	}
 }
 

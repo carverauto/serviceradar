@@ -92,16 +92,9 @@ func NewMockServiceForTesting(config *SNMPConfig, log logger.Logger) (*SNMPServi
 	// Skip validation for testing - the config may not have all required fields
 	// because we're not actually polling
 
-	service := &SNMPService{
-		collectors:        make(map[string]Collector),
-		aggregators:       make(map[string]Aggregator),
-		config:            config,
-		done:              make(chan struct{}),
-		status:            make(map[string]TargetStatus),
-		logger:            log,
-		collectorFactory:  &noopCollectorFactory{},
-		aggregatorFactory: &noopAggregatorFactory{},
-	}
+	service := newSNMPServiceInternal(config, log)
+	service.collectorFactory = &noopCollectorFactory{}
+	service.aggregatorFactory = &noopAggregatorFactory{}
 
 	return service, nil
 }

@@ -82,8 +82,9 @@ func TestRingBuffer_DrainClearsRetainedSlots(t *testing.T) {
 
 	values := rb.Drain()
 	assert.Len(t, values, 2)
-	assert.Nil(t, rb.values[0])
-	assert.Nil(t, rb.values[1])
+	for _, retained := range rb.values[:cap(rb.values)] {
+		assert.Nil(t, retained)
+	}
 }
 
 func TestRingBuffer_EmptyDrain(t *testing.T) {
