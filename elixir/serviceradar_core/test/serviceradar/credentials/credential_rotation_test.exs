@@ -78,7 +78,10 @@ defmodule ServiceRadar.Credentials.CredentialRotationTest do
     assert catalog_actor.role == :system
     refute catalog_actor.id == authorized_actor.id
 
-    assert_receive {:build_rotation, ^secret, ^profile, ^submitted, []}
+    assert_receive {:build_rotation, ^secret, ^profile, ^submitted,
+                    [current_payload: current_payload]}
+
+    assert is_function(current_payload, 0)
     assert_receive {:start_rotation, ^secret, lifecycle_actor}
     assert lifecycle_actor.role == :system
     refute lifecycle_actor.id in [authorized_actor.id, catalog_actor.id]

@@ -791,6 +791,58 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  )
       end
     end
+
+    test "an SNMP community rotation left on a blank version keeps the stored version" do
+      secret = snmp_community_secret()
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 secret,
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community", "version" => ""},
+                 current_payload: fn ->
+                   {:ok, Jason.encode!(%{"community" => "old-community", "version" => "v1"})}
+                 end
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "rotated-community",
+               "version" => "v1"
+             }
+    end
+
+    test "an explicit version wins, and the stored payload is not read for it" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 snmp_community_secret(),
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community", "version" => "v2c"},
+                 current_payload: fn -> flunk("an explicit version must not read the payload") end
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "rotated-community",
+               "version" => "v2c"
+             }
+    end
+
+    test "a blank version whose stored payload cannot be read refuses the rotation" do
+      assert {:error, :invalid_credential_rotation} =
+               CredentialSecretBuilder.build_rotation(
+                 snmp_community_secret(),
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community"},
+                 current_payload: fn -> {:error, :unavailable} end
+               )
+    end
+  end
+
+  defp snmp_community_secret do
+    rotatable_secret(%{
+      provider: "snmp",
+      credential_kind: :snmp,
+      metadata: %{"credential_descriptor" => "package_manifest.v1", "auth_method" => "community"}
+    })
   end
 
   # Everything the form can submit for a v3 credential. Each case using it

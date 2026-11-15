@@ -290,6 +290,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
              reload(job)
   end
 
+  test "agents where only some fell back on a credential disagree rather than resolve nothing",
+       %{actor: actor, suffix: suffix} do
+    partition = "backfill-partial-#{suffix}"
+    agent_fixture("agent-bare-#{suffix}", partition, actor)
+    agent_id = agent_fixture("agent-ruled-#{suffix}", partition, actor)
+    secret = credential_fixture("Partial #{suffix}", "partial-community", actor)
+    rule_fixture("Partial #{suffix}", agent_id, secret.id, actor)
+    job = marked_job("Partial #{suffix}", partition, nil, actor)
+
+    assert {:ok, [%{outcome: {:unbound, :agents_disagree}}]} = Backfill.plan()
+    assert {:ok, [%{outcome: {:unbound, :agents_disagree}}]} = Backfill.run()
+
+    assert %{snmp_credential_secret_id: nil, snmp_credential_backfill_pending: false} =
+             reload(job)
+  end
+
   test "a read failure leaves the job marked, and a finished job is never revisited", %{
     actor: actor,
     suffix: suffix

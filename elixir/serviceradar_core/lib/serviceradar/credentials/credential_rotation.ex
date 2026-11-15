@@ -6,12 +6,15 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
   refreshes human authority, reloads the public credential, and resolves the
   provider profile under a dedicated system actor before any lifecycle state is
   changed. Submitted material is passed only to the bounded credential builder
-  and the secret-bearing completion action.
+  and the secret-bearing completion action. The current payload is read, with
+  an audit row, only when a descriptor field that keeps its value on rotation
+  is submitted blank.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Identity.CurrentUserAuthority
   alias ServiceRadar.Plugins.IntegrationCatalog
 
@@ -96,6 +99,7 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
               load_secret: &default_load_secret/2,
               profile_for: &default_profile_for/2,
               build_rotation: &CredentialSecretBuilder.build_rotation/4,
+              current_payload: &default_current_payload/2,
               start_rotation: &default_start_rotation/2,
               complete_rotation: &default_complete_rotation/3,
               fail_rotation: &default_fail_rotation/3,
@@ -120,6 +124,7 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
       is_function(dependencies.load_secret, 2) and
       is_function(dependencies.profile_for, 2) and
       is_function(dependencies.build_rotation, 4) and
+      is_function(dependencies.current_payload, 2) and
       is_function(dependencies.start_rotation, 2) and
       is_function(dependencies.complete_rotation, 3) and
       is_function(dependencies.fail_rotation, 3) and
@@ -165,10 +170,24 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
   defp load_profile(_dependencies, _secret), do: {:error, :credential_descriptor_unavailable}
 
   defp build_rotation(dependencies, secret, profile, submitted_values) do
-    case invoke(dependencies.build_rotation, [secret, profile, submitted_values, []]) do
+    current_payload = fn -> invoke_current_payload(dependencies, secret) end
+
+    case invoke(dependencies.build_rotation, [
+           secret,
+           profile,
+           submitted_values,
+           [current_payload: current_payload]
+         ]) do
       {:returned, {:ok, attrs}} -> validate_rotation_attrs(attrs)
       {:returned, {:error, reason}} -> {:error, safe_builder_error(reason)}
       _other -> {:error, :invalid_credential_rotation}
+    end
+  end
+
+  defp invoke_current_payload(dependencies, secret) do
+    case invoke(dependencies.current_payload, [secret, @lifecycle_actor]) do
+      {:returned, {:ok, payload}} when is_binary(payload) -> {:ok, payload}
+      _other -> {:error, :credential_payload_unavailable}
     end
   end
 
@@ -257,6 +276,23 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
   defp default_load_secret(secret_id, actor) do
     NetworkCredentialSecret.get_by_id(secret_id, actor: actor)
   end
+
+  defp default_current_payload(secret, actor) do
+    case SecretBroker.resolve_network_credential_secret(to_string(secret.id),
+           actor: actor,
+           audit?: true,
+           consumer_kind: consumer_kind(secret),
+           consumer_id: "credential_rotation:#{secret.id}",
+           purpose: "credential_rotation",
+           resolution_location: :control_plane
+         ) do
+      {:ok, %{value: payload}} -> {:ok, payload}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp consumer_kind(%{provider: "snmp"}), do: :snmp
+  defp consumer_kind(_secret), do: :plugin
 
   defp default_profile_for(provider, actor) do
     IntegrationCatalog.profile_for(provider, actor: actor)

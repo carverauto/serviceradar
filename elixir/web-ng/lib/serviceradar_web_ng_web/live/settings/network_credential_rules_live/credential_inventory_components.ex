@@ -296,6 +296,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
             form_name="credential_rotation"
             values={@values}
             errors={@field_errors}
+            rotation
             data-credential-rotation-field
           />
         </div>

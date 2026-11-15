@@ -72,6 +72,12 @@
       and compiled as v1, versionless v1 secret copied with v1, versionless job
       credential compiles v2c, taken name suffixed, rebind refused for non-system
       actors
+- [ ] 3.2c Rotation keeps a community credential's stored version when the
+      submission leaves it blank (descriptor `keep_on_rotation`, payload read
+      server-side and audited only in that case); an explicit version wins; the
+      rotate form labels the blank choice "Keep current version"; the backfill
+      reports `no_legacy_credential` only when every agent resolves nothing, and
+      `agents_disagree` for a mix
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 

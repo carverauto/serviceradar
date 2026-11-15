@@ -285,6 +285,35 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialFieldComponentsTest do
 
       assert Enum.empty?(LazyHTML.query(document, "#credential_rotation_fields_priv_password"))
     end
+
+    test "a community rotation offers to keep the current version, a new credential starts on v2c" do
+      method = Enum.find(NativeDescriptors.snmp()["auth_methods"], &(&1["id"] == "community"))
+
+      rotation =
+        (&CredentialFieldComponents.descriptor_fields/1)
+        |> render_component(
+          method: method,
+          form_name: "credential_rotation",
+          values: CredentialFieldComponents.values(method, %{}, false),
+          rotation: true
+        )
+        |> LazyHTML.from_fragment()
+
+      blank = LazyHTML.query(rotation, ~s(select#credential_rotation_fields_version option[value=""]))
+      assert blank |> LazyHTML.text() |> String.trim() == "Keep current version"
+
+      created =
+        (&CredentialFieldComponents.descriptor_fields/1)
+        |> render_component(
+          method: method,
+          form_name: "credential_secret",
+          values: CredentialFieldComponents.values(method, %{}, true)
+        )
+        |> LazyHTML.from_fragment()
+
+      selected = LazyHTML.query(created, "select#credential_secret_fields_version option[selected]")
+      assert LazyHTML.attribute(selected, "value") == ["v2c"]
+    end
   end
 
   defp render_fields(values, opts \\ []) do

@@ -145,6 +145,21 @@ A reusable SNMP community credential SHALL carry an optional SNMP version, `v1` 
 - **WHEN** it creates the credential
 - **THEN** it SHALL append the first free numeric suffix (` 2`, ` 3`, ...) to the name and bind that credential
 
+### Requirement: Community credential rotation keeps its SNMP version
+A rotation of a reusable SNMP community credential that leaves the SNMP version blank SHALL keep the version stored in the credential's current payload, read server-side by the rotation; a version chosen in the rotation SHALL replace it, and the rotate form SHALL label the blank choice "Keep current version".
+
+#### Scenario: Blank version keeps v1
+- **GIVEN** a reusable community credential stored with version `v1`
+- **WHEN** an operator rotates it with a new community and leaves the version blank
+- **THEN** the rotated payload SHALL carry version `v1` and the new community
+- **AND** a mapper job referencing it SHALL deliver version `v1`
+
+#### Scenario: Explicit version replaces the stored one
+- **GIVEN** a reusable community credential stored with version `v1`
+- **WHEN** an operator rotates it with a new community and version `v2c`
+- **THEN** the rotated payload SHALL carry version `v2c`
+- **AND** the stored payload SHALL NOT be read for the version
+
 ### Requirement: Mapper discovery credential migration
 Upgrading MUST bind each existing SNMP-mode mapper job, enabled or disabled, to the credential its pre-upgrade fallback chain resolved to, without operators re-entering secrets.
 Only a job whose legacy chain, evaluated on a non-empty agent set, resolves to no credential, or to different credentials on different agents, MAY remain unbound. A read or write failure, a missing assigned agent, or an empty or unloadable partition agent set during the backfill MUST NOT be treated as an empty result.

@@ -187,7 +187,12 @@ material, decryption. It visits only marked jobs:
      job delivers, and a legacy SNMPv1 community round-trips through promotion
      or copy instead of reading back as `v2c`. A credential that still cannot be
      reproduced leaves the job unbound (`not_reproducible`) and clears its mark.
-3. If agents disagree, or the chain agrees on no credential, decide the job as
+     Rotating such a credential with the version left blank keeps the stored
+     version: the descriptor marks the field `keep_on_rotation`, and only then
+     does the rotation read the current payload (audited) to carry it over. An
+     explicit version in the rotation replaces it.
+3. If agents disagree (including some resolving a credential and others
+   none), or every agent resolves no credential, decide the job as
    deliberately unbound. It then shows the Decision 3 warning, the honest state,
    since no single credential reproduces the old behaviour.
 4. Every decision (bound, deliberately unbound, or not needed) is written by one

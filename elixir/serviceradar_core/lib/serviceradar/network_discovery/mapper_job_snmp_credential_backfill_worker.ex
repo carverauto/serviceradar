@@ -189,9 +189,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
     end
   end
 
-  defp agree([%{encoded: encoded} = first | rest]) do
+  defp agree([%{encoded: encoded} = first | rest] = resolutions) do
     cond do
-      encoded == %{} -> {:unbound, :no_legacy_credential}
+      Enum.all?(resolutions, &(&1.encoded == %{})) -> {:unbound, :no_legacy_credential}
       Enum.all?(rest, &(&1.encoded == encoded)) -> {:bind, first}
       true -> {:unbound, :agents_disagree}
     end
