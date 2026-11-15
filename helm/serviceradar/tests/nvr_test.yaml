@@ -1,17 +1,23 @@
 suite: independently replicated NVR runtime and retained storage
 templates:
   - templates/nvr.yaml
+  - templates/core.yaml
+  - templates/network-policy.yaml
+  - templates/calico-network-policy.yaml
 tests:
   - it: creates no NVR resources by default
+    template: templates/nvr.yaml
     asserts:
       - hasDocuments: {count: 0}
   - it: requires explicit durable storage selection
+    template: templates/nvr.yaml
     set:
       nvr.enabled: true
     asserts:
       - failedTemplate:
           errorMessage: nvr.storage.storageClassName must name a qualified node-loss-tolerant CSI class
   - it: requires a distinct identity for every replica
+    template: templates/nvr.yaml
     set:
       nvr.enabled: true
       nvr.storage.storageClassName: example-replicated
@@ -22,6 +28,7 @@ tests:
       - failedTemplate:
           errorMessage: NVR replicas must have distinct storage identities
   - it: requires independently managed recovery state
+    template: templates/nvr.yaml
     set:
       nvr.enabled: true
       nvr.storage.storageClassName: example-replicated
@@ -32,6 +39,7 @@ tests:
       - failedTemplate:
           errorMessage: nvr.recovery.existingConfigMap must name operator-owned recovery state
   - it: retains per-replica volumes through scale-down and workload deletion
+    template: templates/nvr.yaml
     set:
       nvr.enabled: true
       nvr.storage.storageClassName: example-replicated
@@ -87,3 +95,139 @@ tests:
             name: recovery
             configMap: {name: synthetic-nvr-recovery, optional: false}
       - notExists: {path: "spec.template.spec.containers[0].volumeMounts[2].subPath"}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_INGEST_CONFIG_FILE}
+          any: true
+  - it: refuses shared server and client TLS secrets for private NVR ingest
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-shared-tls
+      nvr.ingest.client.configSecretName: example-nvr-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-shared-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.ingest server and client TLS Secrets must be distinct
+  - it: mounts private workload mTLS and token inputs on NVR and Core when ingest is enabled
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.port: 8443
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-server-tls
+      nvr.ingest.client.cameraRecordingEnabled: true
+      nvr.ingest.client.configSecretName: example-nvr-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-client-tls
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+      networkPolicy.calicoLogDenied.enabled: true
+    asserts:
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: Service
+        contains:
+          path: spec.ports
+          content: {name: ingest-https, port: 8443, targetPort: ingest-https}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_INGEST_CONFIG_FILE, value: /etc/serviceradar/nvr-ingest/config/config.json}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_INGEST_TOKEN_FILE, value: /etc/serviceradar/nvr-ingest/auth/ingest-token}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+        equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-core
+              ports:
+                - {protocol: TCP, port: 8443}
+      - template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_CLIENT_CONFIG_FILE, value: /etc/serviceradar/nvr-client/config/config.json}
+      - template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_CLIENT_TOKEN_FILE, value: /etc/serviceradar/nvr-client/auth/ingest-token}
+      - template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_CAMERA_RECORDING_ENABLED, value: "true"}
+      - template: templates/network-policy.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-egress
+        contains:
+          path: spec.podSelector.matchExpressions
+          content:
+            key: app
+            operator: NotIn
+            values: [serviceradar-nvr]
+      - template: templates/network-policy.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-egress
+        contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app: serviceradar-nvr
+            ports:
+              - {protocol: TCP, port: 8443}
+      - template: templates/calico-network-policy.yaml
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+        contains:
+          path: spec.egress
+          content:
+            action: Allow
+            protocol: TCP
+            source:
+              selector: "app == 'serviceradar-core'"
+            destination:
+              selector: "app == 'serviceradar-nvr'"
+              ports: [8443]

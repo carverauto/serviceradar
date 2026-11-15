@@ -53,16 +53,23 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
            ) do
       case plan do
         {:reuse, session} ->
-          {:ok, session}
+          open_result(:reuse, session, opts)
 
         {:new, session} ->
           with {:ok, persisted} <- dispatch_reserved_session(session, requester, opts, write_opts),
-               do: RelaySession.get_by_id(persisted.id, read_opts)
+               {:ok, loaded} <- RelaySession.get_by_id(persisted.id, read_opts),
+               do: open_result(:new, loaded, opts)
       end
     else
       {:ok, nil} -> {:error, :not_found}
       {:error, _} = error -> error
     end
+  end
+
+  defp open_result(origin, session, opts) do
+    if Keyword.get(opts, :return_origin?, false),
+      do: {:ok, {origin, session}},
+      else: {:ok, session}
   end
 
   def open_session(source_id, profile_id, opts \\ []),
@@ -430,7 +437,8 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       :control_gateway_resolver,
       :write_actor,
       :reason,
-      :scope
+      :scope,
+      :return_origin?
     ])
     |> Keyword.put(:actor, actor)
     |> Keyword.put(:required_gateway_node, gateway)

@@ -3257,11 +3257,26 @@ analytics:
       fePasswordSecretKey: password
 
 
-# NVR runtime packaging checkpoint. Pool enrollment, ingress routing and local
-# archive publication are not enabled by this workload.
+# NVR runtime packaging checkpoint. Pool enrollment and local archive
+# publication are not enabled by this workload; private workload-authenticated
+# ingest remains opt-in under nvr.ingest.
 nvr:
   enabled: false
   replicas: 2
+  ingest:
+    # Private workload-authenticated HTTPS ingest listener per NVR replica and
+    # matching Core client mounts. Infrastructure custody provisions the
+    # distinct server/client TLS and token Secrets before enabling.
+    enabled: false
+    port: 8443
+    configSecretName: ""
+    tokenSecretName: ""
+    tlsSecretName: ""
+    client:
+      cameraRecordingEnabled: false
+      configSecretName: ""
+      tokenSecretName: ""
+      tlsSecretName: ""
   recovery:
     # Operator-owned state, outside the CNPG/PVC restore set. Keys: generation
     # (canonical UUID) and state.json (canonical generation/state JSON).

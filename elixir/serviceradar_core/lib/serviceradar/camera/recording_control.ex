@@ -62,12 +62,15 @@ defmodule ServiceRadar.Camera.RecordingControl do
 
     with :ok <- outside_transaction() do
       RecoveryGate.with_ready(gate, fn ->
-        transaction(fn ->
-          with {:ok, current} <- locked(opts),
-               :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
-            fun.()
-          end
-        end)
+        transaction(
+          fn ->
+            with {:ok, current} <- locked(opts),
+                 :ok <- if(current.stopped, do: {:error, :recording_stopped}, else: :ok) do
+              fun.()
+            end
+          end,
+          opts
+        )
       end)
     end
   end
@@ -196,22 +199,25 @@ defmodule ServiceRadar.Camera.RecordingControl do
     if Repo.in_transaction?(), do: {:error, :ambient_transaction}, else: :ok
   end
 
-  defp transaction(fun) do
+  defp transaction(fun, opts \\ []) do
     [RecordingControlState]
-    |> Ash.transact(fn ->
-      case fun.() do
-        {:error, reason} when is_atom(reason) ->
-          {:error,
-           InvalidArgument.exception(
-             field: :recording_control,
-             value: reason,
-             message: "recording operation refused"
-           )}
+    |> Ash.transact(
+      fn ->
+        case fun.() do
+          {:error, reason} when is_atom(reason) ->
+            {:error,
+             InvalidArgument.exception(
+               field: :recording_control,
+               value: reason,
+               message: "recording operation refused"
+             )}
 
-        result ->
-          result
-      end
-    end)
+          result ->
+            result
+        end
+      end,
+      Keyword.take(opts, [:timeout])
+    )
     |> transaction_result()
   rescue
     _error in [DBConnection.ConnectionError, Postgrex.Error] ->

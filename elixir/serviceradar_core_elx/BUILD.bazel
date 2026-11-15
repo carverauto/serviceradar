@@ -138,6 +138,7 @@ mix_app(
     mix_env = "prod",
     deps = [
         "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_nvr_client:erlang_app",
         "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app_prod",
     ] + CORE_ELX_DEPS,
@@ -158,6 +159,7 @@ mix_app(
     mix_env = "test",
     deps = [
         "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_nvr_client:erlang_app",
         "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app",
     ] + CORE_ELX_DEPS,
@@ -175,6 +177,7 @@ elixir_release(
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_nvr_client:mix.exs",
         "//elixir/serviceradar_object_storage:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
@@ -359,6 +362,7 @@ elixir_quality(
     source_deps = ["@hexpm//:ex_dna"],
     tool_deps = [
         "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_nvr_client:erlang_app",
         "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app_prod",
     ] + CORE_ELX_DEPS + [

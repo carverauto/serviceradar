@@ -64,6 +64,13 @@
 {{- if $archiveReader.enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-archive-reader'" $selector -}}
 {{- end -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $nvrIngest := default (dict) $nvr.ingest -}}
+{{- $nvrIngestEnabled := and $nvr.enabled (default false $nvrIngest.enabled) -}}
+{{- $nvrIngestPort := int (default 8443 $nvrIngest.port) -}}
+{{- if $nvr.enabled -}}
+{{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
+{{- end -}}
 ---
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
@@ -88,6 +95,16 @@ spec:
         selector: "app == 'serviceradar-archive-reader'"
         ports:
           - {{ $archiveReader.port }}
+{{- end }}
+{{- if $nvrIngestEnabled }}
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: "app == 'serviceradar-core'"
+      destination:
+        selector: "app == 'serviceradar-nvr'"
+        ports:
+          - {{ $nvrIngestPort }}
 {{- end }}
 {{- if $allowDNS }}
     - action: Allow

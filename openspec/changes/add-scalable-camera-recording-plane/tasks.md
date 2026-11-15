@@ -54,6 +54,22 @@ authenticated assignment and the agent/gateway consumer are not wired yet. This
 checkpoint does not activate a camera, publish playable catalog entries or
 complete 2.3.
 
+Bounded relay-to-NVR capture checkpoint for 2.3/2.4: `NVRCapture`, `NVRWorker`
+and `NVRTargetConfig` in `serviceradar_core_elx` connect an authorized camera
+source/profile or active shared relay to a configured NVR replica over private
+workload mTLS and bearer-token authentication. `NVRCapture` reuses `RelaySessionManager`
+and `RelayHosts` so one shared relay serves concurrent live viewers and the
+bounded NVR producer on the relay-owning `core-elx` node without duplicating
+upstream RTSP sessions or passing media through NATS/JetStream or ERTS
+distribution. `NVRWorker` enforces `IngestOwnership`, `RecorderOwnership` and
+`RecoveryGate`, reserves `block_sequence: 0` against the target NVR replica's
+provisioned `storage_id`, and leaves uncertain outcomes unretried on the
+original storage identity and recorder epoch. Helm adds opt-in `nvr.ingest`
+workload mTLS/token mounts and NetworkPolicy isolation. Continuous pool
+scheduling, automatic source assignment, local-copy catalog publication, UI
+playback and physical node-loss qualification remain open; tasks 2.3 and 2.4
+are not yet complete.
+
 Shared-library extraction checkpoint for 2.1: `serviceradar_recording` owns the
 existing bounded inbox, H264/CMAF packaging, storage identity and journaled spool.
 Core consumes this library instead of owning duplicate implementations. Remote

@@ -791,7 +791,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   describe "camera recording storage identity" do
     setup do
       for name <-
-            ~w(SERVICERADAR_CAMERA_RECORDING_STORAGE_ID SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE SERVICERADAR_CAMERA_RECORDING_MEMBER SERVICERADAR_CAMERA_RECORDING_ENABLED) do
+            ~w(SERVICERADAR_CAMERA_RECORDING_STORAGE_ID SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE SERVICERADAR_CAMERA_RECORDING_MEMBER SERVICERADAR_CAMERA_RECORDING_ENABLED SERVICERADAR_NVR_CLIENT_CONFIG_FILE SERVICERADAR_NVR_CLIENT_TOKEN_FILE) do
         with_env(name, nil)
       end
 
@@ -802,10 +802,32 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       config = read_prod_config()[:serviceradar_core_elx]
       assert config[:camera_recording_storage_id] == nil
       assert config[:camera_recording_enabled] == false
+      assert config[:camera_nvr_client_config_file] == nil
+      assert config[:camera_nvr_client_token_file] == nil
 
       scalar = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
       with_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID", scalar)
       assert read_prod_config()[:serviceradar_core_elx][:camera_recording_storage_id] == scalar
+    end
+
+    test "requires paired absolute paths for NVR client configuration" do
+      with_env("SERVICERADAR_NVR_CLIENT_CONFIG_FILE", "/run/serviceradar/nvr-client/config.json")
+      with_env("SERVICERADAR_NVR_CLIENT_TOKEN_FILE", "/run/serviceradar/nvr-client/token")
+      config = read_prod_config()[:serviceradar_core_elx]
+      assert config[:camera_nvr_client_config_file] == "/run/serviceradar/nvr-client/config.json"
+      assert config[:camera_nvr_client_token_file] == "/run/serviceradar/nvr-client/token"
+
+      for {cfg, tok, expected} <- [
+            {"/run/serviceradar/nvr-client/config.json", nil, "must be configured together"},
+            {nil, "/run/serviceradar/nvr-client/token", "must be configured together"},
+            {"relative/config.json", "/run/serviceradar/nvr-client/token", "must be absolute paths"},
+            {"/run/serviceradar/nvr-client/config.json", "relative/token", "must be absolute paths"}
+          ] do
+        with_env("SERVICERADAR_NVR_CLIENT_CONFIG_FILE", cfg)
+        with_env("SERVICERADAR_NVR_CLIENT_TOKEN_FILE", tok)
+        error = catch_error(read_prod_config())
+        assert Exception.message(error) =~ expected
+      end
     end
 
     test "selects the installed member without adopting or initializing a volume" do
