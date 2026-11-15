@@ -387,7 +387,7 @@ k8sInventory:
   envoyProxyCRD:
     enabled: false
   nats:
-    hostPort: "tls://serviceradar-nats:4222"
+    hostPort: ""                # empty = tls://serviceradar-nats.<namespace>.svc.cluster.local:4222
     subject: "inventory.k8s.public_endpoints"
     stream: "k8s_inventory"
   metrics:

@@ -40,7 +40,8 @@ file is the complete configuration.
 ## The KV store (datasvc)
 
 The KV store is provided by the **`datasvc`** service. It exposes a gRPC
-`KvService` API (default address `serviceradar-datasvc:50057`) backed by a NATS
+`KvService` API (Helm default address
+`serviceradar-datasvc.<namespace>.svc.cluster.local:50057`) backed by a NATS
 JetStream KV bucket named **`serviceradar-datasvc`**.
 
 `datasvc` also serves an object bucket (`serviceradar-objects`) for larger
@@ -72,7 +73,7 @@ chart these are emitted automatically when `kv.enabled` is true:
 | Variable | Purpose |
 |----------|---------|
 | `CONFIG_SOURCE` | Config source selector (`file` is the default). |
-| `KV_ADDRESS` | Datasvc gRPC address (default `serviceradar-datasvc:50057`). |
+| `KV_ADDRESS` | Datasvc gRPC address (default `serviceradar-datasvc.<namespace>.svc.cluster.local:50057`). |
 | `KV_SEC_MODE` | `mtls` or `none` (production uses `mtls`). |
 | `KV_CERT_DIR` | Directory holding KV client certificates. |
 | `KV_CERT_FILE` / `KV_KEY_FILE` / `KV_CA_FILE` | mTLS materials for the KV connection. |
