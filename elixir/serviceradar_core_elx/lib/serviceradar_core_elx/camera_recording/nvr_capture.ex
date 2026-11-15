@@ -236,14 +236,25 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     result
   end
 
+  defp unterminated_result(_worker, worker_monitor, nil, {:error, _reason} = result) do
+    Process.demonitor(worker_monitor, [:flush])
+    result
+  end
+
   defp unterminated_result(worker, worker_monitor, started_info, _result),
     do: abandon_worker(worker, worker_monitor, started_info, :worker_terminate_timeout)
 
-  defp abandon_worker(worker, worker_monitor, started_info, reason) do
+  defp abandon_worker(worker, worker_monitor, nil, reason) do
+    Process.exit(worker, :shutdown)
+    Process.demonitor(worker_monitor, [:flush])
+    cancelled_or_uncertain(nil, reason)
+  end
+
+  defp abandon_worker(worker, worker_monitor, started_info, reason) when is_map(started_info) do
     Process.exit(worker, :shutdown)
     Process.demonitor(worker_monitor, [:flush])
 
-    {:error, {:nvr_ingest_uncertain, Map.merge(started_info || %{}, %{reason: reason, worker_unterminated: true})}}
+    {:error, {:nvr_ingest_uncertain, Map.merge(started_info, %{reason: reason, worker_unterminated: true})}}
   end
 
   defp terminal_result({:completed, receipt}), do: {:ok, receipt}
