@@ -123,18 +123,17 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
     assert_received {:deleted, ^second_key}
   end
 
-  test "cleans malformed results, hash failures and fetch exceptions" do
+  test "cleans malformed results, hash failures and fetch exceptions on non-deferred path" do
     malformed = put_in(payload(), ["labels", "device_uid"], nil)
     malformed = Map.put(malformed, "details", %{"artifact" => %{"object_key" => @object_key}})
 
-    cases = [
+    refused_cases = [
       {malformed, fn _ -> flunk("malformed result must not fetch") end, :missing_running_config},
-      {payload(), fn _ -> {:ok, "tampered"} end, :running_config_artifact_hash_mismatch},
-      {payload(), fn _ -> raise "download unavailable" end, :running_config_ingest_failed}
+      {payload(), fn _ -> {:ok, "tampered"} end, :running_config_artifact_hash_mismatch}
     ]
 
-    for {input, fetch, error} <- cases do
-      assert {:error, ^error} =
+    for {input, fetch, reason} <- refused_cases do
+      assert {:refused, ^reason, _meta} =
                PluginIngestor.ingest(input, @status,
                  artifact_fetcher: fetch,
                  artifact_deleter: fn key ->
@@ -145,6 +144,82 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
 
       assert_received {:deleted, @object_key}
     end
+
+    assert {:error, :running_config_ingest_failed} =
+             PluginIngestor.ingest(payload(), @status,
+               artifact_fetcher: fn _ -> raise "download unavailable" end,
+               artifact_deleter: fn key ->
+                 send(self(), {:deleted, key})
+                 :ok
+               end
+             )
+
+    assert_received {:deleted, @object_key}
+  end
+
+  test "defer_artifact_cleanup preserves staged references on retryable and refused outcomes" do
+    assert {:error, {:running_config_artifact_fetch_failed, :timeout}} =
+             PluginIngestor.ingest(payload(), @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fn _ -> {:error, :timeout} end,
+               artifact_deleter: fn key ->
+                 send(self(), {:deleted, key})
+                 :ok
+               end
+             )
+
+    refute_received {:deleted, @object_key}
+
+    assert {:refused, :running_config_artifact_hash_mismatch, _meta} =
+             PluginIngestor.ingest(payload(), @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fn _ -> {:ok, "tampered"} end,
+               artifact_deleter: fn key ->
+                 send(self(), {:deleted, key})
+                 :ok
+               end
+             )
+
+    refute_received {:deleted, @object_key}
+  end
+
+  test "a refused entry does not hide a later retryable entry in the same result" do
+    second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
+
+    batch = %{
+      "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
+      "details" => %{
+        "running_configs" => [
+          %{
+            "device_uid" => "sr:host01.example.com",
+            "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}
+          },
+          %{
+            "device_uid" => "sr:host02.example.com",
+            "artifact" => %{"object_key" => second_key, "sha256" => @sha256}
+          }
+        ]
+      }
+    }
+
+    fetcher = fn
+      @object_key -> {:ok, "tampered"}
+      ^second_key -> {:error, :timeout}
+    end
+
+    assert {:error, {:running_config_artifact_fetch_failed, :timeout}} =
+             PluginIngestor.ingest(batch, @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fetcher
+             )
+
+    reversed = update_in(batch, ["details", "running_configs"], &Enum.reverse/1)
+
+    assert {:error, {:running_config_artifact_fetch_failed, :timeout}} =
+             PluginIngestor.ingest(reversed, @status,
+               defer_artifact_cleanup: true,
+               artifact_fetcher: fetcher
+             )
   end
 
   test "an incomplete staging result deletes references without ingesting them" do
@@ -163,7 +238,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
       }
     }
 
-    assert {:error, :running_config_result_incomplete} =
+    assert {:refused, :running_config_result_incomplete, _meta} =
              PluginIngestor.ingest(batch, @status,
                artifact_fetcher: fn _ -> flunk("must not ingest partial staging") end,
                artifact_deleter: fn key ->

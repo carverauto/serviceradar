@@ -506,7 +506,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       }
     }
 
-    assert {:error, {:proxmox_v3_identity_required, ^guest_ref}} =
+    assert {:refused, :proxmox_v3_identity_required, %{provider_ref: ^guest_ref}} =
              HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
 
     assert [] ==

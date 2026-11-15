@@ -15,17 +15,44 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     * `:artifact_fetcher` - `(object_key -> {:ok, binary} | {:error, term})`.
       Defaults to the datasvc object-store download. Override in tests.
     * `:artifact_deleter` - deletes a staged object after every ingest attempt,
-      including invalid results and failed downloads or parsing.
+      including invalid results and failed downloads or parsing, unless
+      `:defer_artifact_cleanup` is set.
+    * `:defer_artifact_cleanup` - skips that deletion. The edge-record path
+      (`ServiceRadar.Edge.Projectors.WasmPluginResult`) sets it so a staged
+      object survives retries and dead-letter replay, and deletes it in
+      `committed/3` only after the ledger commits.
   """
+
+  @behaviour ServiceRadar.Observability.PluginResultHandler
 
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.NetworkConfig.Ingest
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Sync.Client, as: SyncClient
 
   require Logger
 
   @artifact_timeout 30_000
 
+  @refused_reasons [
+    :missing_running_config,
+    :running_config_result_incomplete,
+    :running_config_artifact_agent_unknown,
+    :running_config_artifact_key_invalid,
+    :running_config_artifact_key_not_owned,
+    :running_config_artifact_assignment_not_owned,
+    :running_config_artifact_not_found,
+    :running_config_artifact_hash_mismatch,
+    :running_config_artifact_not_utf8
+  ]
+
+  @impl true
+  def settled_reasons, do: []
+
+  @impl true
+  def refused_reasons, do: @refused_reasons
+
+  @impl true
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -39,11 +66,12 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl true
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, _status, opts \\ [])
 
   def ingest(payload, status, opts) when is_map(payload) or is_list(payload) do
-    result =
+    raw_result =
       try do
         ingest_payload(payload, status, opts)
       rescue
@@ -56,21 +84,44 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
           {:error, :running_config_ingest_failed}
       end
 
-    case discard_artifacts(payload, status, opts) do
-      :ok -> result
-      {:error, _reason} = error -> error
+    result = classify_ingest_result(raw_result, payload, status)
+
+    if Keyword.get(opts, :defer_artifact_cleanup, false) do
+      result
+    else
+      case discard_artifacts(payload, status, opts) do
+        :ok -> result
+        {:error, _reason} = error -> error
+      end
     end
+  end
+
+  defp classify_ingest_result(:ok, _payload, _status), do: :ok
+
+  defp classify_ingest_result({:error, reason}, payload, status)
+       when reason in @refused_reasons do
+    {:refused, reason, refusal_metadata(payload, status)}
+  end
+
+  defp classify_ingest_result({:error, _reason} = error, _payload, _status), do: error
+
+  defp refusal_metadata(payload, status) when is_map(payload) do
+    %{
+      agent_id: status_agent_id(status),
+      assignment_id: assignment_id(payload),
+      device_uid: string_or_nil(extract_device_uid(payload)),
+      object_key: artifact_object_key(payload)
+    }
+  end
+
+  defp refusal_metadata(_payload, status) do
+    %{agent_id: status_agent_id(status)}
   end
 
   defp ingest_payload(payload, status, opts) when is_list(payload) do
     payload
     |> Enum.filter(&supports?(&1, status))
-    |> Enum.reduce_while(:ok, fn item, :ok ->
-      case ingest_payload(item, status, opts) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    |> reduce_entry_results(&ingest_payload(&1, status, opts))
   end
 
   defp ingest_payload(payload, status, opts) do
@@ -79,14 +130,22 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     else
       payload
       |> config_entries()
-      |> Enum.reduce_while(:ok, fn entry, :ok ->
-        case ingest_entry(entry, status, opts) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      |> reduce_entry_results(&ingest_entry(&1, status, opts))
     end
   end
+
+  defp reduce_entry_results(entries, ingest_fun) do
+    Enum.reduce_while(entries, :ok, fn entry, acc ->
+      case ingest_fun.(entry) do
+        :ok -> {:cont, acc}
+        {:error, reason} when reason in @refused_reasons -> {:cont, first_refusal(acc, reason)}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp first_refusal(:ok, reason), do: {:error, reason}
+  defp first_refusal(refusal, _reason), do: refusal
 
   defp ingest_entry(payload, status, opts) do
     with {:ok, ref} <- extract(payload),
@@ -96,7 +155,9 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
         |> Map.take([:device_uid, :source, :config_kind])
         |> Map.put(:body, body)
 
-      case Ingest.submit(attrs, Keyword.take(opts, [:actor, :parser, :projector])) do
+      submitter = Keyword.get(opts, :submitter, &Ingest.submit/2)
+
+      case submitter.(attrs, Keyword.take(opts, [:actor, :parser, :projector])) do
         {:ok, _status, _revision} -> :ok
         {:ok, _status, _revision, _facts} -> :ok
         {:error, reason} -> {:error, reason}
@@ -264,10 +325,24 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
   defp normalize_fetch({:ok, {_info, data}}) when is_binary(data), do: {:ok, data}
   defp normalize_fetch({:ok, data}) when is_binary(data), do: {:ok, data}
 
-  defp normalize_fetch({:error, reason}),
-    do: {:error, {:running_config_artifact_fetch_failed, reason}}
+  defp normalize_fetch({:error, :not_found}), do: {:error, :running_config_artifact_not_found}
+
+  defp normalize_fetch({:error, {:not_found, _detail}}),
+    do: {:error, :running_config_artifact_not_found}
+
+  defp normalize_fetch({:error, reason}) do
+    if artifact_not_found_error?(reason) do
+      {:error, :running_config_artifact_not_found}
+    else
+      {:error, {:running_config_artifact_fetch_failed, reason}}
+    end
+  end
 
   defp normalize_fetch(other), do: {:error, {:running_config_artifact_fetch_failed, other}}
+
+  defp artifact_not_found_error?(%{status: 5}), do: true
+  defp artifact_not_found_error?(%{code: :not_found}), do: true
+  defp artifact_not_found_error?(_reason), do: false
 
   defp verify_body(body, expected_sha256) do
     actual = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)

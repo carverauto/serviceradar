@@ -217,8 +217,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateRank do
         "handler_set" => %{"id" => id, "version" => 1},
         "observation_timestamp" => timestamp
       }
-      when status in ["failed", "succeeded"] and generation in 1..128 and is_binary(id) and
-             id != "" and is_binary(timestamp),
+      when status in ["failed", "settled", "succeeded"] and generation in 1..128 and
+             is_binary(id) and id != "" and is_binary(timestamp),
       Map.get(details, "downstream_ingest")
     ) and Map.has_key?(details, "reported_result")
   end

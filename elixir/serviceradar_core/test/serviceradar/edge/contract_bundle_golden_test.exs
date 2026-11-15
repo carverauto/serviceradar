@@ -30,32 +30,35 @@ defmodule ServiceRadar.Edge.ContractBundleGoldenTest do
   end
 
   test "every catalog bundle is the latest entry of its recorded history", ctx do
-    for {ref, entry} <- ctx.local.contracts do
-      digest = Base.encode16(entry.contract_bundle_sha256, case: :lower)
-      revision = entry.projection_revision
+    mismatches =
+      Enum.flat_map(ctx.local.contracts, fn {ref, entry} ->
+        digest = Base.encode16(entry.contract_bundle_sha256, case: :lower)
+        revision = entry.projection_revision
 
-      case ctx.history |> Map.get(ref, []) |> List.last() do
-        {^revision, ^digest} ->
-          :ok
+        case ctx.history |> Map.get(ref, []) |> List.last() do
+          {^revision, ^digest} ->
+            []
 
-        nil ->
-          flunk("#{inspect(ref)} has no recorded history; append {#{revision}, #{digest}}")
+          nil ->
+            ["#{inspect(ref)} has no recorded history; append {#{revision}, #{digest}}"]
 
-        {^revision, recorded} ->
-          flunk(
-            "#{inspect(ref)} changed at projection_revision #{revision} " <>
-              "(recorded #{recorded}, now #{digest}); bump projection_revision"
-          )
+          {^revision, recorded} ->
+            [
+              "#{inspect(ref)} changed at projection_revision #{revision} " <>
+                "(recorded #{recorded}, now #{digest}); bump projection_revision"
+            ]
 
-        {recorded_revision, _recorded} when revision < recorded_revision ->
-          flunk(
-            "#{inspect(ref)} projection_revision decreased from #{recorded_revision} to #{revision}"
-          )
+          {recorded_revision, _recorded} when revision < recorded_revision ->
+            [
+              "#{inspect(ref)} projection_revision decreased from #{recorded_revision} to #{revision}"
+            ]
 
-        {_recorded_revision, _recorded} ->
-          flunk("#{inspect(ref)} is a new bundle; append {#{revision}, #{digest}} to its history")
-      end
-    end
+          {_recorded_revision, _recorded} ->
+            ["#{inspect(ref)} is a new bundle; append {#{revision}, #{digest}} to its history"]
+        end
+      end)
+
+    assert mismatches == [], Enum.join(mismatches, "\n")
   end
 
   test "the recorded history only moves forward and never repeats a digest", ctx do

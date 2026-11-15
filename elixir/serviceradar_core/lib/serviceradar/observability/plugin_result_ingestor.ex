@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.NetworkConfig.PluginIngestor
   alias ServiceRadar.Observability.AdvisoryLocks
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Observability.PluginResultProvenance
   alias ServiceRadar.Observability.PluginResultReportedMarker
   alias ServiceRadar.Observability.PluginResultSlot
@@ -67,6 +68,86 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   @sensitive_quoted_value_pattern ~r/\b((?:private[_ -]?key|credentials?|token)\s+)("[^"]*"|'[^']*')/iu
   @sensitive_bare_value_pattern ~r/\b((?:private[_ -]?key|credentials?|token)\s+)([A-Za-z0-9_.\/+\-=:]{8,})/iu
 
+  @doc false
+  @spec ingest_durable(map() | list(), map(), keyword()) ::
+          :ok | {:settled, term()} | {:refused, term()} | {:error, term()}
+  def ingest_durable(payload, status, opts \\ [])
+
+  def ingest_durable(payload, status, opts) when is_map(payload) do
+    actor = SystemActor.system(:plugin_result_ingestor)
+    created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    observed_at = resolve_observed_at(payload, status)
+    summary = resolve_summary(payload)
+    status_label = fetch_string(payload, ["status"])
+    available = resolve_available(status, status_label)
+    defer_cleanup? = Keyword.get(opts, :defer_artifact_cleanup, true)
+    persistence = Keyword.get(opts, :persistence, %{})
+    handlers = Keyword.get_lazy(opts, :handlers, fn -> plugin_result_handlers() end)
+
+    remap_fn = Map.get(persistence, :remap_service_name, &remap_service_name/1)
+    insert_fn = Map.get(persistence, :insert_status, &insert_status/2)
+
+    case remap_fn.(status) do
+      {:ok, remapped_status} ->
+        status_row =
+          build_status_row(
+            payload,
+            remapped_status,
+            observed_at,
+            created_at,
+            summary,
+            available
+          )
+
+        case insert_fn.(status_row, actor) do
+          {:ok, reported_status, :inserted} ->
+            reported_status
+            |> run_handlers_durable(
+              payload,
+              status,
+              observed_at,
+              handlers,
+              persistence,
+              defer_cleanup?,
+              actor
+            )
+            |> strip_legacy_errors()
+
+          {:ok, reported_status, :existing} ->
+            reported_status
+            |> redeliver_durable(
+              payload,
+              status,
+              observed_at,
+              handlers,
+              persistence,
+              defer_cleanup?,
+              actor
+            )
+            |> strip_legacy_errors()
+
+          {:error, persistence_error} ->
+            maybe_discard_artifacts(defer_cleanup?, payload, status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result status persistence failed: #{error_text}")
+            {:error, {:plugin_result_status_persistence_failed, error_text}}
+        end
+
+      {:error, _reason} = error ->
+        maybe_discard_artifacts(defer_cleanup?, payload, status)
+        error
+    end
+  rescue
+    e ->
+      maybe_discard_artifacts(Keyword.get(opts, :defer_artifact_cleanup, true), payload, status)
+      error_text = handler_error_text(e)
+      Logger.error("Plugin result ingest failed: #{error_text}")
+      {:error, {:plugin_result_ingest_failed, error_text}}
+  end
+
+  def ingest_durable(_payload, _status, _opts),
+    do: {:refused, {:invalid_plugin_result_payload, %{}}}
+
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
     actor = SystemActor.system(:plugin_result_ingestor)
@@ -75,6 +156,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     summary = resolve_summary(payload)
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
+    handlers = plugin_result_handlers()
 
     case remap_service_name(status) do
       {:ok, remapped_status} ->
@@ -90,10 +172,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
         case insert_status(status_row, actor) do
           {:ok, reported_status, :inserted} ->
-            run_handlers(reported_status, payload, status, observed_at, actor)
+            reported_status
+            |> run_handlers_durable(payload, status, observed_at, handlers, %{}, false, actor)
+            |> to_legacy_ingest_result()
 
           {:ok, reported_status, :existing} ->
-            redeliver(reported_status, payload, status, observed_at, actor)
+            reported_status
+            |> redeliver_durable(payload, status, observed_at, handlers, %{}, false, actor)
+            |> to_legacy_ingest_result()
 
           {:error, persistence_error} ->
             PluginIngestor.discard_artifacts(payload, status)
@@ -138,46 +224,103 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   def ingest(_payload, _status), do: {:error, :invalid_payload}
 
-  defp run_handlers(reported_status, payload, status, observed_at, actor) do
-    handlers = plugin_result_handlers()
+  defp maybe_discard_artifacts(true, _payload, _status), do: :ok
 
-    case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
-      :ok ->
-        case persist_handler_success(
-               service_status_attributes(reported_status),
-               payload,
-               handlers,
-               actor
-             ) do
+  defp maybe_discard_artifacts(false, payload, status) do
+    _ = PluginIngestor.discard_artifacts(payload, status)
+    :ok
+  end
+
+  defp strip_legacy_errors({:refused, reason_tuple, _errors}), do: {:refused, reason_tuple}
+  defp strip_legacy_errors(other), do: other
+
+  defp to_legacy_ingest_result(:ok), do: :ok
+  defp to_legacy_ingest_result({:settled, _reason}), do: :ok
+
+  defp to_legacy_ingest_result({:refused, _reason_tuple, errors}),
+    do: {:error, {:plugin_result_handlers_failed, errors}}
+
+  defp to_legacy_ingest_result({:error, _reason} = error), do: error
+
+  defp run_handlers_durable(
+         reported_status,
+         payload,
+         status,
+         observed_at,
+         handlers,
+         persistence,
+         defer_cleanup?,
+         actor
+       ) do
+    persist_ok_fn =
+      Map.get(persistence, :persist_applied, fn row, p, outcomes, act ->
+        persist_handler_success(row, p, outcomes, handlers, act)
+      end)
+
+    persist_settled_fn =
+      Map.get(persistence, :persist_settled, fn row, p, outcomes, act ->
+        persist_handler_settled(row, p, outcomes, handlers, act)
+      end)
+
+    persist_err_fn = Map.get(persistence, :persist_failed, &persist_handler_failure/5)
+    publish_fn = Map.get(persistence, :publish_status, &publish_committed_status/1)
+    attrs = service_status_attributes(reported_status)
+
+    case evaluate_registered_handlers(
+           handlers,
+           payload,
+           status,
+           observed_at,
+           defer_cleanup?,
+           actor
+         ) do
+      {:applied, outcomes} ->
+        case persist_ok_fn.(attrs, payload, outcomes, actor) do
           {:ok, status_event} ->
-            publish_committed_status(status_event || reported_status)
+            publish_fn.(status_event || reported_status)
             :ok
 
           {:error, persistence_error} ->
-            publish_committed_status(reported_status)
+            publish_fn.(reported_status)
             error_text = handler_error_text(persistence_error)
             Logger.error("Plugin result handler success persistence failed: #{error_text}")
             {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
         end
 
-      {:error, {failure_kind, errors}} = handler_error
-      when failure_kind in [
-             :plugin_result_handlers_failed,
-             :plugin_result_artifact_cleanup_failed
-           ] ->
-        case persist_handler_failure(
-               service_status_attributes(reported_status),
-               payload,
-               errors,
-               handlers,
-               actor
-             ) do
+      {:settled, primary_reason, detail, outcomes} ->
+        case persist_settled_fn.(attrs, payload, outcomes, actor) do
           {:ok, status_event} ->
-            publish_committed_status(status_event || reported_status)
-            handler_error
+            publish_fn.(status_event || reported_status)
+            {:settled, {primary_reason, detail}}
+
+          {:error, persistence_error} ->
+            publish_fn.(reported_status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result handler settled persistence failed: #{error_text}")
+            {:error, {:plugin_result_handler_settled_persistence_failed, error_text}}
+        end
+
+      {:refused, primary_reason, detail, _outcomes, errors} ->
+        case persist_err_fn.(attrs, payload, errors, handlers, actor) do
+          {:ok, status_event} ->
+            publish_fn.(status_event || reported_status)
+            {:refused, {primary_reason, detail}, errors}
 
           {:error, persistence_error_text} ->
-            publish_committed_status(reported_status)
+            publish_fn.(reported_status)
+
+            {:error,
+             {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
+        end
+
+      {:retryable, failure_kind, _outcomes, errors} ->
+        case persist_err_fn.(attrs, payload, errors, handlers, actor) do
+          {:ok, status_event} ->
+            publish_fn.(status_event || reported_status)
+            {:error, {failure_kind, errors}}
+
+          {:error, persistence_error_text} ->
+            publish_fn.(reported_status)
 
             {:error,
              {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
@@ -185,25 +328,51 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  # A delivery whose reported row is already committed is a redelivery: the
-  # agent retries every result the gateway did not confirm, including one whose
-  # run committed just after the retained lane's budget expired. When the current
-  # handler set's success for this observation is visible, the result is
-  # committed, so the redelivery is acknowledged without running the handlers
-  # again. Anything else (a handler failure, another handler set's outcome, or no
-  # visible outcome) reruns the handlers, as every redelivery did before.
-  defp redeliver(reported_status, payload, status, observed_at, actor) do
-    handlers = plugin_result_handlers()
+  defp redeliver_durable(
+         reported_status,
+         payload,
+         status,
+         observed_at,
+         handlers,
+         persistence,
+         defer_cleanup?,
+         actor
+       ) do
+    if server_reported_status?(reported_status) do
+      case committed_outcome(service_status_attributes(reported_status), handlers, actor) do
+        {:committed, "succeeded"} ->
+          :ok
 
-    if server_reported_status?(reported_status) and
-         committed_by?(service_status_attributes(reported_status), handlers, actor) do
-      :ok
+        {:committed, "settled"} ->
+          {:settled, {:already_settled, %{}}}
+
+        :not_committed ->
+          run_handlers_durable(
+            reported_status,
+            payload,
+            status,
+            observed_at,
+            handlers,
+            persistence,
+            defer_cleanup?,
+            actor
+          )
+      end
     else
-      run_handlers(reported_status, payload, status, observed_at, actor)
+      run_handlers_durable(
+        reported_status,
+        payload,
+        status,
+        observed_at,
+        handlers,
+        persistence,
+        defer_cleanup?,
+        actor
+      )
     end
   end
 
-  defp committed_by?(status_row, handlers, actor) do
+  defp committed_outcome(status_row, handlers, actor) do
     provenance = handler_set_provenance(handlers)
     observation_timestamp = PluginResultSlot.logical_observation_timestamp(status_row)
     payload_digest = reported_status_payload_digest(status_row.details)
@@ -220,13 +389,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       end)
       |> Enum.max_by(&DateTime.to_unix(&1.timestamp, :microsecond), fn -> nil end)
       |> case do
-        %{status: "succeeded", handler_set: ^provenance} -> true
-        _latest -> false
+        %{status: marker_status, handler_set: ^provenance}
+        when marker_status in ["succeeded", "settled"] ->
+          {:committed, marker_status}
+
+        _latest ->
+          :not_committed
       end
     else
-      # The lookup failing leaves the outcome unknown; rerunning is the
-      # behaviour every redelivery had before.
-      {:error, _reason} -> false
+      {:error, _reason} -> :not_committed
     end
   end
 
@@ -644,59 +815,192 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
-    {errors, cleanup_failed?} =
-      Enum.reduce(handlers, {[], false}, fn handler, {errors, cleanup_failed?} ->
+  defp optional_identity_string(map, keys) do
+    case fetch_value(map, keys) do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      value when is_atom(value) and not is_boolean(value) ->
+        Atom.to_string(value)
+
+      value when is_integer(value) ->
+        Integer.to_string(value)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp outcome_identity_context(payload, status) do
+    assignment_id =
+      Enum.find_value(
+        [fetch_value(status, [:plugin_provenance]), fetch_value(payload, ["labels"])],
+        &optional_identity_string(&1, ["assignment_id"])
+      )
+
+    %{
+      agent_id: optional_identity_string(status, [:agent_id]),
+      assignment_id: assignment_id,
+      partition: optional_identity_string(status, [:partition])
+    }
+  end
+
+  defp evaluate_registered_handlers(handlers, payload, status, observed_at, defer_cleanup?, actor) do
+    identity = outcome_identity_context(payload, status)
+
+    outcomes =
+      handlers
+      |> Enum.reduce([], fn handler, acc ->
         case handler_support(handler, payload, status) do
           {:ok, true} ->
-            case ingest_handler(handler, payload, status, observed_at, actor) do
-              :ok ->
-                {errors, cleanup_failed?}
-
-              {:error, reason} ->
-                retry_cleanup? =
-                  handler_module(handler) == PluginIngestor and
-                    reason == :running_config_artifact_cleanup_failed
-
-                {add_handler_failure(errors, handler, reason), cleanup_failed? or retry_cleanup?}
-
-              other ->
-                {add_handler_failure(errors, handler, {:unexpected_handler_result, other}),
-                 cleanup_failed?}
-            end
+            raw = ingest_handler(handler, payload, status, observed_at, defer_cleanup?, actor)
+            classified = classify_and_emit(handler, raw, identity)
+            [classified | acc]
 
           {:ok, false} ->
-            {errors, cleanup_failed?}
+            acc
 
           {:error, reason} ->
-            {add_handler_failure(errors, handler, reason), cleanup_failed?}
+            classified = classify_and_emit(handler, {:error, reason}, identity)
+            [classified | acc]
         end
       end)
+      |> Enum.reverse()
 
-    case Enum.reverse(errors) do
-      [] ->
-        :ok
+    case PluginResultHandlerOutcome.combine(outcomes) do
+      {:applied, all_outcomes} ->
+        {:applied, all_outcomes}
 
-      errors ->
+      {:settled, primary_reason, detail, all_outcomes} ->
+        {:settled, primary_reason, detail, all_outcomes}
+
+      {:refused, primary_reason, detail, all_outcomes} ->
+        {:refused, primary_reason, detail, all_outcomes,
+         failure_pairs_from_outcomes(all_outcomes)}
+
+      {:retryable, all_outcomes} ->
+        cleanup_failed? =
+          Enum.any?(all_outcomes, fn item ->
+            item.handler_module == PluginIngestor and
+              item.raw_error == :running_config_artifact_cleanup_failed
+          end)
+
         failure_kind =
           if cleanup_failed?,
             do: :plugin_result_artifact_cleanup_failed,
             else: :plugin_result_handlers_failed
 
-        {:error, {failure_kind, errors}}
+        {:retryable, failure_kind, all_outcomes, failure_pairs_from_outcomes(all_outcomes)}
     end
   end
 
-  defp add_handler_failure(errors, handler, reason) do
-    error_text = handler_error_text(reason)
-    log_handler_failure(handler, error_text)
-    [{handler_module(handler), error_text} | errors]
+  defp classify_and_emit(handler, raw_result, identity) do
+    mod = handler_module(handler)
+
+    classified =
+      if is_atom(mod) do
+        PluginResultHandlerOutcome.classify(mod, raw_result)
+      else
+        ServiceRadar.Observability.PluginResultHandler
+        |> PluginResultHandlerOutcome.classify({:error, {:invalid_handler, mod}})
+        |> Map.put(:handler_module, mod)
+      end
+
+    :telemetry.execute(
+      [:serviceradar, :plugin_result, :handler, :outcome],
+      %{count: 1},
+      %{
+        outcome: classified.outcome,
+        handler: classified.handler,
+        reason: classified.reason,
+        agent_id: identity.agent_id,
+        assignment_id: identity.assignment_id
+      }
+    )
+
+    log_classified_outcome(classified, identity)
+    classified
   end
 
-  defp log_handler_failure(handler, error_text) do
-    Logger.warning(
-      "Plugin result handler #{inspect(handler_module(handler))} failed: #{error_text}"
+  defp log_classified_outcome(%{outcome: :applied}, _identity), do: :ok
+
+  defp log_classified_outcome(%{outcome: :settled} = classified, identity) do
+    Logger.info(
+      "Plugin result handler #{inspect(classified.handler_module)} settled: reason=#{classified.reason}",
+      outcome_logger_metadata(classified, identity)
     )
+  end
+
+  defp log_classified_outcome(%{outcome: :refused} = classified, identity) do
+    error_text = handler_error_text(classified.raw_error)
+
+    Logger.warning(
+      "Plugin result handler #{inspect(classified.handler_module)} refused: reason=#{classified.reason} detail=#{error_text}",
+      outcome_logger_metadata(classified, identity)
+    )
+  end
+
+  defp log_classified_outcome(%{outcome: :retryable} = classified, identity) do
+    error_text = handler_error_text(classified.raw_error)
+
+    Logger.warning(
+      "Plugin result handler #{inspect(classified.handler_module)} failed: #{error_text}",
+      outcome_logger_metadata(classified, identity)
+    )
+  end
+
+  defp outcome_logger_metadata(classified, identity) do
+    Enum.reject(
+      [
+        outcome: classified.outcome,
+        handler: classified.handler,
+        reason: classified.reason,
+        agent_id: identity.agent_id,
+        assignment_id: identity.assignment_id,
+        partition: identity.partition
+      ],
+      fn {_k, v} -> is_nil(v) end
+    )
+  end
+
+  defp failure_pairs_from_outcomes(outcomes) do
+    for item <- outcomes, item.outcome in [:refused, :retryable] do
+      {item.handler_module, handler_error_text(item.raw_error)}
+    end
+  end
+
+  defp serialize_handler_outcomes(outcomes) do
+    Enum.map(outcomes, fn item ->
+      status_str =
+        case item.outcome do
+          :applied -> "succeeded"
+          :settled -> "settled"
+          _ -> "failed"
+        end
+
+      base = %{
+        "handler" => handler_label(item.handler_module),
+        "status" => status_str,
+        "reason" => Atom.to_string(item.reason)
+      }
+
+      cond do
+        item.outcome == :settled and map_size(item.metadata) > 0 ->
+          Map.put(base, "metadata", item.metadata)
+
+        item.outcome in [:refused, :retryable] ->
+          Map.put(base, "error", handler_error_text(item.raw_error))
+
+        true ->
+          base
+      end
+    end)
   end
 
   defp persist_handler_failure(status_row, payload, errors, handlers, actor) do
@@ -757,12 +1061,29 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          status_row,
          _failure_row,
          payload,
+         %{settled_recorded?: true} = marker,
+         actor
+       ) do
+    persist_handler_settled_state(
+      status_row,
+      payload,
+      [],
+      %{marker | failure_recorded?: true},
+      actor
+    )
+  end
+
+  defp persist_failure_state(
+         status_row,
+         _failure_row,
+         payload,
          %{success_recorded?: true} = marker,
          actor
        ) do
     persist_handler_success_state(
       status_row,
       payload,
+      [],
       %{marker | failure_recorded?: true},
       actor
     )
@@ -775,18 +1096,64 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp persist_handler_success(status_row, payload, handlers, actor) do
+  defp persist_handler_settled(status_row, payload, outcomes, handlers, actor) do
+    provenance = handler_set_provenance(handlers)
+
+    with_handler_marker_lock(status_row, fn ->
+      do_persist_handler_settled(
+        status_row,
+        payload,
+        outcomes,
+        provenance,
+        actor,
+        @handler_marker_insert_attempts
+      )
+    end)
+  end
+
+  defp do_persist_handler_settled(status_row, payload, outcomes, provenance, actor, attempts) do
+    with {:ok, marker} <- handler_marker_context(status_row, provenance, actor) do
+      case persist_handler_settled_state(status_row, payload, outcomes, marker, actor) do
+        {:error, :handler_marker_collision} when attempts > 1 ->
+          do_persist_handler_settled(
+            status_row,
+            payload,
+            outcomes,
+            provenance,
+            actor,
+            attempts - 1
+          )
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp persist_handler_settled_state(status_row, payload, outcomes, marker, actor) do
+    settled_row = handler_settled_status_row(status_row, payload, outcomes, marker)
+
+    with {:ok, history_notifications, inserted?, persisted} <-
+           insert_handler_marker_with_result(settled_row, marker, "settled", actor),
+         {:ok, state_notifications, side_effects} <-
+           upsert_current_state_with_notifications(settled_row) do
+      status_event = if inserted? or marker.failure_recorded?, do: persisted, else: settled_row
+      {:ok, history_notifications ++ state_notifications, side_effects, status_event}
+    end
+  end
+
+  defp persist_handler_success(status_row, payload, outcomes, handlers, actor) do
     provenance = handler_set_provenance(handlers)
 
     with_handler_marker_lock(status_row, fn ->
       with {:ok, marker} <- handler_marker_context(status_row, provenance, actor) do
-        persist_handler_success_state(status_row, payload, marker, actor)
+        persist_handler_success_state(status_row, payload, outcomes, marker, actor)
       end
     end)
   end
 
-  defp persist_handler_success_state(status_row, payload, marker, actor) do
-    success_row = handler_success_status_row(status_row, payload, marker)
+  defp persist_handler_success_state(status_row, payload, outcomes, marker, actor) do
+    success_row = handler_success_status_row(status_row, payload, outcomes, marker)
 
     with {:ok, history_notifications, history_status_event} <-
            maybe_insert_handler_recovery(status_row, success_row, marker, actor),
@@ -850,6 +1217,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                 Enum.map(errors, fn {handler, error_text} ->
                   %{
                     "handler" => handler_label(handler),
+                    "status" => "failed",
                     "error" => error_text
                   }
                 end)
@@ -869,8 +1237,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     }
   end
 
-  defp handler_success_status_row(status_row, payload, marker) do
+  defp handler_settled_status_row(status_row, payload, outcomes, marker) do
     reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
+
+    downstream_base = %{
+      "status" => "settled",
+      "generation" => marker.generation,
+      "handler_set" => marker.handler_set,
+      "observation_timestamp" => marker.observation_timestamp,
+      "payload_digest" => marker.payload_digest,
+      "recovered_from_failure" => marker.failure_recorded?,
+      "handlers" => serialize_handler_outcomes(outcomes)
+    }
 
     details =
       payload
@@ -881,14 +1259,47 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "reported_result" => reported_payload,
         "downstream_ingest" =>
           PluginResultProvenance.put(
-            %{
-              "status" => "succeeded",
-              "generation" => marker.generation,
-              "handler_set" => marker.handler_set,
-              "observation_timestamp" => marker.observation_timestamp,
-              "payload_digest" => marker.payload_digest,
-              "recovered_from_failure" => marker.failure_recorded?
-            },
+            downstream_base,
+            PluginResultProvenance.from_details(status_row.details)
+          )
+      })
+      |> FieldParser.encode_json()
+
+    %{
+      status_row
+      | timestamp: marker.success_at,
+        created_at: marker.success_at,
+        available: status_row.available,
+        details: details
+    }
+  end
+
+  defp handler_success_status_row(status_row, payload, outcomes, marker) do
+    reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
+
+    downstream_base =
+      maybe_put_handler_outcomes(
+        %{
+          "status" => "succeeded",
+          "generation" => marker.generation,
+          "handler_set" => marker.handler_set,
+          "observation_timestamp" => marker.observation_timestamp,
+          "payload_digest" => marker.payload_digest,
+          "recovered_from_failure" => marker.failure_recorded?
+        },
+        outcomes
+      )
+
+    details =
+      payload
+      |> drop_top_level_keys(@reserved_state_detail_keys)
+      |> Map.merge(%{
+        "status" => fetch_string(payload, ["status"]),
+        "summary" => status_row.message,
+        "reported_result" => reported_payload,
+        "downstream_ingest" =>
+          PluginResultProvenance.put(
+            downstream_base,
             PluginResultProvenance.from_details(status_row.details)
           )
       })
@@ -901,6 +1312,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         details: details
     }
   end
+
+  defp maybe_put_handler_outcomes(map, []), do: map
+
+  defp maybe_put_handler_outcomes(map, outcomes),
+    do: Map.put(map, "handlers", serialize_handler_outcomes(outcomes))
 
   defp insert_handler_marker(row, marker, marker_status, actor) do
     case insert_handler_marker_with_result(row, marker, marker_status, actor) do
@@ -1281,27 +1697,45 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          generation,
          slot_rows
        ) do
-    Enum.all?(["failed", "succeeded"], fn marker_status ->
-      timestamp = marker_timestamp(status_row.timestamp, generation, marker_status)
+    expected = %{
+      generation: generation,
+      handler_set: provenance,
+      observation_timestamp: observation_timestamp,
+      payload_digest: payload_digest
+    }
 
-      case Enum.find(slot_rows, &(DateTime.compare(&1.timestamp, timestamp) == :eq)) do
-        nil ->
-          true
+    failure_reusable? =
+      slot_timestamp_reusable?(status_row, slot_rows, generation, "failed", expected, ["failed"])
 
-        %ServiceStatus{} = row ->
-          exact_service_status_identity?(row, status_row) and
-            marker_matches?(
-              parse_handler_marker(row),
-              %{
-                generation: generation,
-                handler_set: provenance,
-                observation_timestamp: observation_timestamp,
-                payload_digest: payload_digest
-              },
-              marker_status
-            )
-      end
-    end)
+    terminal_reusable? =
+      slot_timestamp_reusable?(status_row, slot_rows, generation, "succeeded", expected, [
+        "succeeded",
+        "settled"
+      ])
+
+    failure_reusable? and terminal_reusable?
+  end
+
+  defp slot_timestamp_reusable?(
+         status_row,
+         slot_rows,
+         generation,
+         offset_status,
+         expected,
+         allowed_statuses
+       ) do
+    timestamp = marker_timestamp(status_row.timestamp, generation, offset_status)
+
+    case Enum.find(slot_rows, &(DateTime.compare(&1.timestamp, timestamp) == :eq)) do
+      nil ->
+        true
+
+      %ServiceStatus{} = row ->
+        persisted = parse_handler_marker(row)
+
+        exact_service_status_identity?(row, status_row) and
+          Enum.any?(allowed_statuses, &marker_matches?(persisted, expected, &1))
+    end
   end
 
   defp exact_service_status_identity?(left, right) do
@@ -1384,6 +1818,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          failure_at: failure_at,
          success_at: success_at,
          failure_recorded?: failure_recorded?,
+         settled_recorded?:
+           Enum.any?(current_markers, fn marker ->
+             marker.status == "settled" and marker.source == :state
+           end),
          success_recorded?:
            Enum.any?(current_markers, fn marker ->
              marker.status == "succeeded" and marker.source == :state
@@ -1462,7 +1900,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              "observation_timestamp" => observation_timestamp
            } = downstream_ingest
        } = decoded}
-      when status in ["failed", "succeeded"] and is_integer(generation) and generation > 0 and
+      when status in ["failed", "settled", "succeeded"] and is_integer(generation) and
+             generation > 0 and
              is_binary(id) and is_integer(version) and is_binary(observation_timestamp) ->
         %{
           status: status,
@@ -1491,7 +1930,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp marker_offset(generation, "failed"), do: generation * 2 - 1
-  defp marker_offset(generation, "succeeded"), do: generation * 2
+
+  defp marker_offset(generation, status) when status in ["succeeded", "settled"],
+    do: generation * 2
 
   defp handler_set_provenance(handlers) do
     descriptors = Enum.map(handlers, &handler_provenance_descriptor/1)
@@ -1747,27 +2188,35 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp handler_support_result(false), do: {:ok, false}
   defp handler_support_result(other), do: {:error, {:unexpected_support_result, other}}
 
-  defp ingest_handler(ProxmoxEnrichmentIngestor, payload, status, observed_at, actor) do
-    ingest_proxmox(payload, status, observed_at, actor, [])
+  defp ingest_handler(
+         ProxmoxEnrichmentIngestor,
+         payload,
+         status,
+         observed_at,
+         defer_cleanup?,
+         actor
+       ) do
+    ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, [])
   end
 
-  defp ingest_handler({ProxmoxEnrichmentIngestor, opts}, payload, status, observed_at, actor) do
-    ingest_proxmox(payload, status, observed_at, actor, opts)
+  defp ingest_handler(
+         {ProxmoxEnrichmentIngestor, opts},
+         payload,
+         status,
+         observed_at,
+         defer_cleanup?,
+         actor
+       ) do
+    ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, opts)
   end
 
-  defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
-    handler.ingest(payload, status, actor: actor, observed_at: observed_at)
-  rescue
-    e ->
-      {:error, e}
-  catch
-    kind, reason ->
-      {:error, {kind, reason}}
-  end
-
-  defp ingest_handler({handler, opts}, payload, status, observed_at, actor)
+  defp ingest_handler(handler, payload, status, observed_at, defer_cleanup?, actor)
        when is_atom(handler) do
-    handler.ingest(payload, status, Keyword.merge(opts, actor: actor, observed_at: observed_at))
+    handler.ingest(payload, status,
+      actor: actor,
+      observed_at: observed_at,
+      defer_artifact_cleanup: defer_cleanup?
+    )
   rescue
     e ->
       {:error, e}
@@ -1776,23 +2225,42 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, {kind, reason}}
   end
 
-  defp ingest_handler(handler, _payload, _status, _observed_at, _actor) do
+  defp ingest_handler({handler, opts}, payload, status, observed_at, defer_cleanup?, actor)
+       when is_atom(handler) do
+    merged_opts =
+      opts
+      |> Keyword.put_new(:defer_artifact_cleanup, defer_cleanup?)
+      |> Keyword.merge(actor: actor, observed_at: observed_at)
+
+    handler.ingest(payload, status, merged_opts)
+  rescue
+    e ->
+      {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
+
+  defp ingest_handler(handler, _payload, _status, _observed_at, _defer_cleanup?, _actor) do
     {:error, {:invalid_handler, handler}}
   end
 
-  defp ingest_proxmox(payload, status, observed_at, actor, opts) do
+  defp ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, opts) do
     case proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
       {:ok, source_scope} ->
-        ProxmoxEnrichmentIngestor.ingest(
-          payload,
-          status,
-          Keyword.merge(opts, actor: actor, observed_at: observed_at, source_scope: source_scope)
-        )
+        merged_opts =
+          opts
+          |> Keyword.put_new(:defer_artifact_cleanup, defer_cleanup?)
+          |> Keyword.merge(
+            actor: actor,
+            observed_at: observed_at,
+            source_scope: source_scope
+          )
+
+        ProxmoxEnrichmentIngestor.ingest(payload, status, merged_opts)
 
       {:error, reason} ->
-        if ProxmoxSourceScopeResolver.assignment_withdrawn?(reason),
-          do: settle_withdrawn_proxmox_result(reason, payload, status),
-          else: {:error, reason}
+        ProxmoxSourceScopeResolver.classify_error(reason, payload, status)
     end
   rescue
     e ->
@@ -1800,41 +2268,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   catch
     kind, reason ->
       {:error, {kind, reason}}
-  end
-
-  # The operator withdrew the assignment this result was produced under (disabled or deleted
-  # it, or its credential rule or package), so there is no source scope to apply the result
-  # in, and redelivering it fails the same way for as long as that stands. It is settled
-  # here: nothing is applied, the refusal is logged and counted, and the result is
-  # acknowledged. Whether a result is applied is decided by the assignment's state when it
-  # arrives, not by a retry that outlasts the withdrawal: if the operator restores the
-  # assignment the agent reports again, and each result carries the whole inventory.
-  defp settle_withdrawn_proxmox_result(reason, payload, status) do
-    assignment_id =
-      Enum.find_value(
-        [fetch_value(status, [:plugin_provenance]), fetch_value(payload, ["labels"])],
-        &fetch_string(&1, ["assignment_id"])
-      )
-
-    agent_id = fetch_string(status, [:agent_id])
-    partition = fetch_string(status, [:partition])
-
-    # An unknown assignment id is the one withdrawal that can also mean an agent is reporting
-    # under an assignment it was never given, so it warns; the others are routine.
-    level = if reason == :plugin_assignment_not_found, do: :warning, else: :info
-
-    Logger.log(
-      level,
-      "Proxmox inventory result not applied, its assignment was withdrawn: " <>
-        "reason=#{reason} assignment_id=#{assignment_id} agent_id=#{agent_id} " <>
-        "partition=#{partition}"
-    )
-
-    :telemetry.execute(
-      [:serviceradar, :inventory, :proxmox_result, :assignment_withdrawn],
-      %{count: 1},
-      %{reason: reason, assignment_id: assignment_id, agent_id: agent_id, partition: partition}
-    )
   end
 
   defp handler_module({handler, _opts}), do: handler
@@ -1864,7 +2297,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     )
   end
 
-  defp platform_contract_handlers do
+  @doc false
+  def platform_contract_handlers do
     [
       PluginIngestor,
       ServiceRadar.NetworkConfig.InterfaceCheckIngestor,

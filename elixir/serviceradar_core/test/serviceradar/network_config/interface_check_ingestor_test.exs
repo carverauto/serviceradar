@@ -106,7 +106,7 @@ defmodule ServiceRadar.NetworkConfig.InterfaceCheckIngestorTest do
   end
 
   test "rejects a result without a verdict list" do
-    assert {:error, :interface_check_invalid_result} =
+    assert {:refused, :interface_check_invalid_result, _meta} =
              InterfaceCheckIngestor.ingest(
                %{
                  "details" =>

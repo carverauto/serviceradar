@@ -49,7 +49,10 @@ a failed header, slot, wire or contract check, a grant or assignment that is no
 longer current, a delivery slot or event id bound to other bytes, or a
 projector refusal) is also dead-lettered on its first delivery, because the
 same bytes are refused again on every redelivery. `Sr-Edge-Dlq-Reason` is the
-refusal's class. A failed database write (a constraint race, a deadlock, a lock
+refusal's reason atom (for example `running_config_artifact_hash_mismatch`).
+A delivery a handler settles (its authority was withdrawn or superseded, so
+there is nothing to write) is acknowledged on its first delivery, counted as
+`settled` (`ServiceRadar.Edge.PipelineStats`), and never dead-lettered. A failed database write (a constraint race, a deadlock, a lock
 timeout, a failed bulk write, a caught exit or throw) is not a refusal: it is
 retried as above. Neither is a transient decode
 (`ServiceRadar.Edge.WireDecode.transient?/1`: `:not_ready`, a schema not
@@ -222,9 +225,10 @@ of line (for example a staged artifact's object key) is still in use while the
 record is in this stream. A projector must delete such an object only after its
 ledger transaction commits, never on a failed attempt. Any retention pass that
 deletes objects referenced by edge records must treat this stream as a reference
-source. No contract in `ServiceRadar.Edge.ContractCatalog` carries an
-out-of-line reference today, and no such pass exists yet. The change that adds
-the first one must add that check.
+source. Plugin results carrying a staged running-config artifact
+(`ServiceRadar.Edge.Projectors.WasmPluginResult`) are such records: the object
+is deleted only in `committed/3`. No such retention pass exists yet; the change
+that adds one must add that check.
 
 ## Source-stream retention and the upgrade cutover
 

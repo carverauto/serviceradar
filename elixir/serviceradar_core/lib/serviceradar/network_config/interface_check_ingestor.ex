@@ -24,7 +24,10 @@ defmodule ServiceRadar.NetworkConfig.InterfaceCheckIngestor do
       in tests.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
 
   require Logger
 
@@ -34,6 +37,17 @@ defmodule ServiceRadar.NetworkConfig.InterfaceCheckIngestor do
   @max_verdicts 10_000
   @max_missing 32
   @max_text 512
+
+  @refused_reasons [
+    :interface_check_invalid_result,
+    :interface_check_too_many_verdicts
+  ]
+
+  @impl true
+  def settled_reasons, do: []
+
+  @impl true
+  def refused_reasons, do: @refused_reasons
 
   defmodule DeviceStore do
     @moduledoc false
@@ -59,18 +73,24 @@ defmodule ServiceRadar.NetworkConfig.InterfaceCheckIngestor do
     end
   end
 
+  @impl true
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
   def supports?(payload, status) when is_list(payload),
     do: Enum.any?(payload, &supports?(&1, status))
 
-  def supports?(payload, _status) when is_map(payload),
-    do: Map.get(details_map(payload), "schema") == @schema
+  def supports?(payload, _status) when is_map(payload) do
+    details = details_map(payload)
+
+    Map.get(details, "schema") == @schema or
+      is_map(Map.get(details, "interface_config_check"))
+  end
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl true
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
@@ -79,23 +99,48 @@ defmodule ServiceRadar.NetworkConfig.InterfaceCheckIngestor do
     |> Enum.reduce_while(:ok, fn item, :ok ->
       case ingest(item, status, opts) do
         :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+        other -> {:halt, other}
       end
     end)
   end
 
-  def ingest(payload, _status, opts) when is_map(payload) do
+  def ingest(payload, status, opts) when is_map(payload) do
     store = Keyword.get(opts, :device_store, DeviceStore)
     actor = Keyword.get(opts, :actor) || SystemActor.system(:plugin_result_ingestor)
+    check_details = interface_check_details(details_map(payload))
 
-    with {:ok, patches} <- patches_by_device(details_map(payload)) do
-      patches
-      |> Enum.reduce(%{recorded: 0, skipped: 0, errors: []}, fn {uid, patch}, acc ->
-        record(store, uid, patch, actor, acc)
-      end)
-      |> finish()
+    case patches_by_device(check_details) do
+      {:ok, patches} ->
+        patches
+        |> Enum.reduce(%{recorded: 0, skipped: 0, errors: []}, fn {uid, patch}, acc ->
+          record(store, uid, patch, actor, acc)
+        end)
+        |> finish()
+
+      {:error, reason} when reason in @refused_reasons ->
+        {:refused, reason, %{agent_id: status_agent_id(status)}}
     end
   end
+
+  defp interface_check_details(%{"interface_config_check" => nested}) when is_map(nested),
+    do: nested
+
+  defp interface_check_details(details), do: details
+
+  defp status_agent_id(status) when is_map(status) do
+    case Map.get(status, :agent_id) || Map.get(status, "agent_id") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp status_agent_id(_status), do: nil
 
   @doc false
   @spec patches_by_device(map()) :: {:ok, %{String.t() => map()}} | {:error, term()}

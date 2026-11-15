@@ -215,9 +215,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
 
           if second_generation == 10 do
             # Superseded by the committed generation 20: settled, never applied.
-            assert :ok = result
+            assert {:settled, :stale_awx_membership_generation,
+                    %{source_generation: 10, recorded_generation: 20}} =
+                     result
           else
-            assert {:error, {:conflicting_awx_inventory_observation, _, 20}} = result
+            assert {:refused, :awx_inventory_observation_conflict, %{source_generation: 20}} =
+                     result
           end
 
           assert ledger_generation(controller) == 20

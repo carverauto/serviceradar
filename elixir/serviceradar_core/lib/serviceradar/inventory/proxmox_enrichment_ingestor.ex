@@ -3,16 +3,39 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   Ingests Proxmox plugin enrichment into provider-neutral virtualization inventory.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
 
   require Logger
 
   @provider "proxmox"
   @schema "serviceradar.proxmox_enrichment.v1"
 
+  @extra_refused_reasons [
+    :invalid_trusted_proxmox_source_scope,
+    :invalid_proxmox_v3_identity,
+    :invalid_proxmox_child_ref
+  ]
+
+  @impl true
+  def settled_reasons, do: ProxmoxSourceScopeResolver.settled_reasons()
+
+  @impl true
+  def refused_reasons do
+    Enum.uniq(
+      ProxmoxSourceScopeResolver.refused_reasons() ++
+        HypervisorEnrichmentIngestor.refused_reasons() ++ @extra_refused_reasons
+    )
+  end
+
+  @impl true
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -29,10 +52,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl true
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
+    opts = Keyword.put_new_lazy(opts, :actor, fn -> SystemActor.system(:proxmox_enrichment) end)
+
     payload
     |> Enum.filter(&supports?(&1, status))
     |> case do
@@ -40,31 +66,59 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         :ok
 
       entries ->
-        records =
-          entries
-          |> Enum.map(&records_for_payload(&1, status, opts))
-          |> HypervisorEnrichmentIngestor.merge_records()
-          |> HypervisorEnrichmentIngestor.dedupe_records()
+        try do
+          records =
+            entries
+            |> Enum.map(&records_for_payload(&1, status, opts))
+            |> HypervisorEnrichmentIngestor.merge_records()
+            |> HypervisorEnrichmentIngestor.dedupe_records()
 
-        persist =
-          Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
+          persist =
+            Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
 
-        persist.(records)
+          HypervisorEnrichmentIngestor.classify_persist_result(persist.(records), status)
+        catch
+          {:proxmox_scope_error, reason} ->
+            ProxmoxSourceScopeResolver.classify_error(reason, hd(entries), status)
+
+          {:proxmox_abort, {:refused, reason, extra}} ->
+            {:refused, reason, Map.merge(proxmox_meta(hd(entries), status), extra)}
+
+          {:proxmox_abort, {:error, _reason} = error} ->
+            error
+        end
     end
+  rescue
+    e ->
+      Logger.warning("Proxmox enrichment ingest failed: #{Exception.message(e)}")
+      {:error, e}
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
+    opts = Keyword.put_new_lazy(opts, :actor, fn -> SystemActor.system(:proxmox_enrichment) end)
+
     case details(payload) do
       %{"schema" => @schema} ->
-        records =
-          payload
-          |> records_for_payload(status, opts)
-          |> HypervisorEnrichmentIngestor.dedupe_records()
+        try do
+          records =
+            payload
+            |> records_for_payload(status, opts)
+            |> HypervisorEnrichmentIngestor.dedupe_records()
 
-        persist =
-          Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
+          persist =
+            Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
 
-        persist.(records)
+          HypervisorEnrichmentIngestor.classify_persist_result(persist.(records), status)
+        catch
+          {:proxmox_scope_error, reason} ->
+            ProxmoxSourceScopeResolver.classify_error(reason, payload, status)
+
+          {:proxmox_abort, {:refused, reason, extra}} ->
+            {:refused, reason, Map.merge(proxmox_meta(payload, status), extra)}
+
+          {:proxmox_abort, {:error, _reason} = error} ->
+            error
+        end
 
       _ ->
         :ok
@@ -77,6 +131,54 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
+  defp proxmox_meta(payload, status) do
+    labels =
+      case payload do
+        %{"labels" => map} when is_map(map) -> map
+        %{labels: map} when is_map(map) -> map
+        _ -> %{}
+      end
+
+    prov =
+      case status do
+        %{plugin_provenance: map} when is_map(map) -> map
+        %{"plugin_provenance" => map} when is_map(map) -> map
+        _ -> %{}
+      end
+
+    assignment_id =
+      Enum.find_value(
+        [
+          Map.get(prov, "assignment_id") || Map.get(prov, :assignment_id),
+          Map.get(labels, "assignment_id") || Map.get(labels, :assignment_id)
+        ],
+        &optional_trimmed_string/1
+      )
+
+    agent_id =
+      if is_map(status),
+        do: optional_trimmed_string(Map.get(status, :agent_id) || Map.get(status, "agent_id"))
+
+    partition =
+      if is_map(status),
+        do: optional_trimmed_string(Map.get(status, :partition) || Map.get(status, "partition"))
+
+    %{
+      assignment_id: assignment_id,
+      agent_id: agent_id,
+      partition: partition
+    }
+  end
+
+  defp optional_trimmed_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp optional_trimmed_string(_value), do: nil
+
   defp details(%{"details" => raw}) when is_binary(raw) do
     case Jason.decode(raw) do
       {:ok, decoded} when is_map(decoded) -> decoded
@@ -88,9 +190,17 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp details(_payload), do: nil
 
   defp records_for_payload(payload, status, opts) do
+    opts_with_context =
+      opts
+      |> Keyword.put_new(:raw_payload, payload)
+      |> Keyword.put_new(:raw_status, status)
+
     payload
     |> details()
-    |> build_records(Keyword.get(opts, :observed_at) || observed_at(payload, status), opts)
+    |> build_records(
+      Keyword.get(opts, :observed_at) || observed_at(payload, status),
+      opts_with_context
+    )
   end
 
   defp observed_at(payload, status) do
@@ -588,9 +698,21 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp source_scope_for_target!(target, opts) do
     candidate =
       case Keyword.get(opts, :source_scope_resolver) do
-        resolver when is_function(resolver, 1) -> resolver.(target)
-        resolver when is_function(resolver, 2) -> resolver.(target, opts)
-        _ -> Keyword.get(opts, :source_scope)
+        resolver when is_function(resolver, 1) ->
+          resolver.(target)
+
+        resolver when is_function(resolver, 2) ->
+          resolver.(target, opts)
+
+        resolver when is_function(resolver, 3) ->
+          resolver.(
+            Keyword.get(opts, :raw_payload, %{}),
+            Keyword.get(opts, :raw_status, %{}),
+            opts
+          )
+
+        _ ->
+          Keyword.get(opts, :source_scope)
       end
 
     case candidate do
@@ -604,10 +726,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         normalize_source_scope!(scope)
 
       {:error, reason} ->
-        raise ArgumentError, "Proxmox source-scope resolution failed: #{inspect(reason)}"
+        throw({:proxmox_scope_error, reason})
+
+      {:ok, other} ->
+        throw({:proxmox_abort, {:error, {:invalid_proxmox_source_scope_resolver_return, other}}})
 
       other ->
-        raise ArgumentError, "invalid trusted Proxmox source scope: #{inspect(other)}"
+        throw({:proxmox_abort, {:error, {:invalid_proxmox_source_scope_resolver_return, other}}})
     end
   end
 
@@ -642,8 +767,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       }
     else
       _ ->
-        raise ArgumentError,
-              "trusted Proxmox source scope requires integration_id/controller_id UUIDs and partition_id"
+        throw({:proxmox_abort, {:refused, :invalid_trusted_proxmox_source_scope, %{}}})
     end
   end
 
@@ -681,7 +805,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         identity
 
       {:error, reason} ->
-        raise ArgumentError, "cannot mint source-scoped Proxmox identity: #{inspect(reason)}"
+        throw(
+          {:proxmox_abort, {:refused, :invalid_proxmox_v3_identity, %{detail: inspect(reason)}}}
+        )
     end
   end
 
@@ -724,8 +850,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp scoped_child_ref(provider_instance_ref, kind, components, _legacy_ref) do
     case IntegrationIdentity.proxmox_v3_child_ref(provider_instance_ref, kind, components) do
-      {:ok, ref} -> ref
-      {:error, reason} -> raise ArgumentError, "cannot mint scoped child ref: #{inspect(reason)}"
+      {:ok, ref} ->
+        ref
+
+      {:error, reason} ->
+        throw(
+          {:proxmox_abort, {:refused, :invalid_proxmox_child_ref, %{detail: inspect(reason)}}}
+        )
     end
   end
 

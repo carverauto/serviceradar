@@ -1,34 +1,24 @@
 defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
   @moduledoc """
   Projects `serviceradar.plugin_results.batch` edge records into
-  `ServiceRadar.Observability.PluginResultIngestor`, the destination Wasm
-  plugin results have today.
+  `ServiceRadar.Observability.PluginResultIngestor`.
 
-  Each typed result item is turned back into the
-  `serviceradar.plugin_result.v1` payload map and gateway status the legacy
-  status push delivered, and ingested one result at a time, so the status
-  rows, the registered platform handlers, and their redelivery semantics are
-  unchanged. The batch provenance is host-stamped by the agent from its own
-  assignment record; it rides the status as `plugin_provenance`, which is
-  what keys the ingestor's per-assignment service identity
-  (`PluginServiceIdentity`: the primary assignment keeps the bare package
-  name, a coexisting assignment is `name#<assignment_id>`). A batch without
-  that provenance is refused at decode, never ingested under a shared bare
-  name.
+  Each typed result item is turned back into the `serviceradar.plugin_result.v1`
+  payload map and gateway status, and ingested via
+  `PluginResultIngestor.ingest_durable/3` under the four-way outcome contract
+  (`applied`, `settled`, `refused`, `retryable`).
 
   Before projecting, the record's standing grant is re-checked
   (`OutputGrants.check_current/5`); a grant that is not current refuses the
-  record. An ingest error is an error, so the record is redelivered; the
-  ingestor's own redelivery handling keeps a replay from running handlers
-  twice for a committed result. The one identity the durable path cannot
-  carry is the connecting gateway's id, which projected statuses leave unset
-  rather than guessing.
+  record. Partition `NotFound` refuses the record on delivery 1
+  (`:plugin_result_batch_partition_not_found`), whereas transient partition or
+  agent capability lookup errors return `{:error, ...}` so JetStream redelivers
+  with backoff rather than coercing DB errors into empty capabilities.
 
-  `delivery_capabilities` (which handlers such as the Proxmox source-scope
-  resolver gate on) come from the authenticated agent's recorded capability
-  list, read once per batch for the record's verified origin principal, never
-  from the record payload. An agent with no record projects an empty list, so
-  a capability-gated handler refuses the result.
+  Out-of-line staged artifacts (such as staged running-config objects) are
+  deleted only in `committed/3` after `edge_delivery_slots` and `event_ledger`
+  commit for an `applied` or `settled` primary delivery, preserving artifacts
+  intact across retries and dead-letter replay.
   """
 
   @behaviour ServiceRadar.Edge.Projector
@@ -42,6 +32,7 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.NetworkConfig.PluginIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
 
   require Logger
@@ -77,43 +68,113 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
 
   @doc """
   Ingests every result of a fresh primary record after checking its grant
-  is still current. The first ingest error stops the batch so the record is
-  redelivered; results already ingested are recognized by the ingestor's
-  redelivery handling.
+  is still current. Propagates `:ok`, `{:settled, reason}`, `{:refused, reason}`,
+  and `{:error, reason}` according to the lattice `retryable > refused > applied > settled`.
   """
   @impl true
-  def publish(%EdgeRecordV1{} = record, {%WasmPluginResultBatchV1{} = batch, provenance}, _opts) do
+  def publish(%EdgeRecordV1{} = record, {%WasmPluginResultBatchV1{} = batch, provenance}, opts) do
     context = record.producer_context
     agent_id = context.origin_principal_id
+    check_grant_fn = Keyword.get(opts, :check_grant_fn, &OutputGrants.check_current/5)
 
     with :ok <-
-           OutputGrants.check_current(
+           check_grant_fn.(
              Ecto.UUID.load!(context.producer_assignment_id),
              agent_id,
              record.output_contract.contract_id,
              Ecto.UUID.load!(record.network_scope_id),
              context.authority_epoch
            ),
-         {:ok, partition} <- partition(record.network_scope_id),
-         :ok <-
-           ingest_results(batch, provenance, agent_id, partition, delivery_capabilities(agent_id)) do
-      :ok
+         {:ok, partition} <- partition(record.network_scope_id, opts),
+         {:ok, capabilities} <- delivery_capabilities(agent_id, opts) do
+      ingest_results(batch, provenance, agent_id, partition, capabilities, opts)
     else
       {:error, :output_grant_not_current} -> {:refused, :output_grant_not_current}
-      {:error, reason} -> {:error, reason}
+      {:refused, _reason} = refused -> refused
+      {:error, _reason} = error -> error
     end
   end
 
-  defp ingest_results(batch, provenance, agent_id, partition, capabilities) do
-    Enum.reduce_while(batch.results, :ok, fn item, :ok ->
+  @doc """
+  Cleans up staged out-of-line artifacts after `edge_delivery_slots` and
+  `event_ledger` commit for a primary delivery (`applied` or `settled`).
+  """
+  @impl true
+  def committed(
+        %EdgeRecordV1{} = record,
+        {%WasmPluginResultBatchV1{} = batch, provenance},
+        %{primary?: true} = context
+      ) do
+    agent_id = record.producer_context.origin_principal_id
+    projector_opts = Map.get(context, :projector_opts, [])
+
+    cleanup_fn =
+      Keyword.get(
+        projector_opts,
+        :cleanup_artifacts_fn,
+        &PluginIngestor.discard_artifacts/2
+      )
+
+    Enum.each(batch.results, fn item ->
+      payload = result_payload(item)
+      status = %{agent_id: agent_id, plugin_provenance: provenance}
+
+      case cleanup_fn.(payload, status) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Staged plugin artifact cleanup after commit failed",
+            agent_id: agent_id,
+            assignment_id: provenance["assignment_id"],
+            reason: inspect(reason)
+          )
+      end
+    end)
+
+    :ok
+  end
+
+  def committed(_record, _body, _context), do: :ok
+
+  defp ingest_results(batch, provenance, agent_id, partition, capabilities, opts) do
+    ingestor_opts =
+      opts
+      |> Keyword.get(:ingestor_opts, [])
+      |> Keyword.put(:defer_artifact_cleanup, true)
+
+    batch.results
+    |> Enum.reduce_while({:initial, nil}, fn item, {acc_state, acc_reason} ->
       payload = result_payload(item)
       status = result_status(item, provenance, agent_id, partition, capabilities)
 
-      case PluginResultIngestor.ingest(payload, status) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:plugin_result_ingest_failed, reason}}}
+      case PluginResultIngestor.ingest_durable(payload, status, ingestor_opts) do
+        :ok ->
+          {:cont, if(acc_state == :refused, do: {acc_state, acc_reason}, else: {:applied, nil})}
+
+        {:settled, settled_reason} ->
+          case acc_state do
+            :initial -> {:cont, {:settled, settled_reason}}
+            _other -> {:cont, {acc_state, acc_reason}}
+          end
+
+        {:refused, refused_reason} ->
+          case acc_state do
+            :refused -> {:cont, {acc_state, acc_reason}}
+            _other -> {:cont, {:refused, refused_reason}}
+          end
+
+        {:error, reason} ->
+          {:halt, {:error, {:plugin_result_ingest_failed, reason}}}
       end
     end)
+    |> case do
+      {:applied, _} -> :ok
+      {:initial, _} -> :ok
+      {:settled, settled_reason} -> {:settled, settled_reason}
+      {:refused, refused_reason} -> {:refused, refused_reason}
+      {:error, _} = error -> error
+    end
   end
 
   # The status the gateway status push carried for one result, minus the
@@ -145,10 +206,28 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
     }
   end
 
-  defp delivery_capabilities(agent_id) do
-    case Agent.get_by_uid(agent_id, actor: SystemActor.system(:wasm_plugin_result_projector)) do
-      {:ok, %Agent{capabilities: capabilities}} when is_list(capabilities) -> capabilities
-      _ -> []
+  defp delivery_capabilities(agent_id, opts) do
+    lookup_fn =
+      Keyword.get(opts, :agent_lookup_fn, fn id ->
+        Agent.get_by_uid(id, actor: SystemActor.system(:wasm_plugin_result_projector))
+      end)
+
+    case lookup_fn.(agent_id) do
+      {:ok, %Agent{capabilities: capabilities}} when is_list(capabilities) ->
+        {:ok, capabilities}
+
+      {:ok, %Agent{}} ->
+        {:ok, []}
+
+      {:ok, nil} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        if ash_not_found?(reason) do
+          {:ok, []}
+        else
+          {:error, {:plugin_result_agent_lookup_failed, reason}}
+        end
     end
   end
 
@@ -170,15 +249,42 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
 
   defp observed_at_iso(_item), do: nil
 
-  defp partition(network_scope_id) do
-    with {:ok, scope_id} <- Ecto.UUID.load(network_scope_id),
-         {:ok, partition} <-
-           Partition.get_by_id(scope_id, actor: SystemActor.system(:wasm_plugin_result_projector)) do
-      {:ok, partition.slug}
-    else
-      _ -> {:error, :plugin_result_batch_partition}
+  defp partition(network_scope_id, opts) do
+    lookup_fn =
+      Keyword.get(opts, :partition_lookup_fn, fn id ->
+        Partition.get_by_id(id, actor: SystemActor.system(:wasm_plugin_result_projector))
+      end)
+
+    case Ecto.UUID.load(network_scope_id) do
+      {:ok, scope_id} ->
+        case lookup_fn.(scope_id) do
+          {:ok, %Partition{slug: slug}} when is_binary(slug) and slug != "" ->
+            {:ok, slug}
+
+          {:ok, _missing} ->
+            {:refused, :plugin_result_batch_partition_not_found}
+
+          {:error, reason} ->
+            if ash_not_found?(reason) do
+              {:refused, :plugin_result_batch_partition_not_found}
+            else
+              {:error, {:plugin_result_partition_lookup_failed, reason}}
+            end
+        end
+
+      :error ->
+        {:refused, :plugin_result_batch_partition_not_found}
     end
   end
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+  defp ash_not_found?(:not_found), do: true
+
+  defp ash_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_other), do: false
 
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, reason}

@@ -32,6 +32,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   mint a new duplicate device per rotation.
   """
 
+  @behaviour ServiceRadar.Observability.PluginResultHandler
+
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Inventory.Availability.Sources
@@ -46,12 +49,67 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Repo
 
   require Logger
 
   @schema "serviceradar.device_discovery.v1"
 
+  @settled_reasons [
+    :stale_awx_membership_generation,
+    :awx_inventory_observation_bootstrap_requires_newer_generation,
+    :stale_source_snapshot
+  ]
+
+  @refused_reasons [
+    :mixed_superseded_awx_observation,
+    :awx_inventory_observation_conflict,
+    :awx_existing_membership_ceiling_exceeded,
+    :too_many_awx_aggregates,
+    :too_many_hosts,
+    :too_many_awx_device_evidence_rows,
+    :invalid_awx_membership_aggregate,
+    :invalid_devices,
+    :controller_mismatch,
+    :missing_awx_host_metadata,
+    :invalid_awx_host,
+    :host_generation_mismatch,
+    :host_fingerprint_mismatch,
+    :duplicate_awx_controller_aggregate,
+    :duplicate_awx_host_source_tuple,
+    :invalid_controller_id,
+    :invalid_positive_integer,
+    :invalid_source_generation,
+    :invalid_source_fingerprint,
+    :invalid_boolean,
+    :invalid_observed_at,
+    :missing_required_string,
+    :incomplete_source_snapshot,
+    :invalid_inventory_source,
+    :invalid_source_instance,
+    :invalid_collection_id,
+    :invalid_content_hash,
+    :invalid_query_hash,
+    :invalid_snapshot_timestamp,
+    :source_snapshot_device_limit_exceeded,
+    :duplicate_source_object,
+    :invalid_source_object_id,
+    :invalid_source_integration_id,
+    :source_metadata_too_large,
+    :invalid_resolved_source_snapshot,
+    :invalid_resolved_source_observation,
+    :collection_content_mismatch,
+    :unresolved_source_identifiers
+  ]
+
+  @impl true
+  def settled_reasons, do: @settled_reasons
+
+  @impl true
+  def refused_reasons, do: @refused_reasons
+
+  @impl true
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -67,7 +125,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   def supports?(_payload, _status), do: false
 
-  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  @impl true
+  @spec ingest(map() | list(), map(), keyword()) :: PluginResultHandlerOutcome.t()
   def ingest(payload, status, opts \\ [])
 
   def ingest(payload, status, opts) when is_list(payload) do
@@ -80,8 +139,20 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
-    with {:ok, aggregates} <- AwxMembershipReconciler.parse(payload) do
-      ingest_with_membership_ordering(aggregates, payload, status, opts)
+    result =
+      case AwxMembershipReconciler.parse(payload) do
+        {:ok, aggregates} ->
+          ingest_with_membership_ordering(aggregates, payload, status, opts)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    case result do
+      :ok -> :ok
+      {:settled, _reason, _meta} = settled -> settled
+      {:refused, _reason, _meta} = refused -> refused
+      {:error, reason} -> classify_discovery_error(reason, status)
     end
   rescue
     e ->
@@ -110,7 +181,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
         AwxMembershipReconciler.notify_committed(notifications, opts)
 
       {:ok, {:superseded, superseded}} ->
-        settle_superseded(superseded, payload)
+        settle_superseded(superseded, payload, status)
 
       other ->
         other
@@ -119,34 +190,155 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   # A newer observation of the controller is already recorded and its generation only
   # advances, so this one can never be applied: redelivering it fails the same way every
-  # time. It is settled here, counted and logged, and the result is acknowledged. A payload
-  # that also carries an envelope the fence did not rule on keeps failing instead, so that
-  # envelope is never acknowledged unapplied.
-  defp settle_superseded([reason | _] = superseded, payload) do
+  # time. When every discovery envelope in the payload is covered by the fence, return
+  # `{:settled, :stale_awx_membership_generation, metadata}`. When the payload mixes a
+  # superseded AWX aggregate with an un-ruled generic `device_discovery` envelope, refuse
+  # on first delivery so the un-ruled envelope is never acknowledged unapplied.
+  defp settle_superseded([first | _] = superseded, payload, status) do
+    meta = superseded_metadata(first, status)
+
     if length(discovery_envelopes(payload)) == length(superseded) do
-      Enum.each(superseded, &record_superseded/1)
+      {:settled, :stale_awx_membership_generation, meta}
     else
-      {:error, reason}
+      {:refused, :mixed_superseded_awx_observation, meta}
     end
   end
 
-  defp record_superseded({:stale_awx_membership_generation, controller_id, generation, current}) do
-    Logger.info(
-      "AWX inventory observation superseded and not applied: controller_id=#{controller_id} " <>
-        "source_generation=#{generation} recorded_generation=#{current}"
-    )
-
-    :telemetry.execute(
-      [:serviceradar, :inventory, :awx_observation, :superseded],
-      %{count: 1},
-      %{
-        source: "awx",
-        source_instance: controller_id,
-        source_generation: generation,
-        recorded_generation: current
-      }
-    )
+  defp superseded_metadata(
+         {:stale_awx_membership_generation, controller_id, generation, current},
+         status
+       ) do
+    status
+    |> base_discovery_meta()
+    |> Map.merge(%{
+      controller_id: controller_id,
+      source_generation: generation,
+      recorded_generation: current
+    })
   end
+
+  defp superseded_metadata(_other, status), do: base_discovery_meta(status)
+
+  defp classify_discovery_error(
+         :awx_inventory_observation_bootstrap_requires_newer_generation,
+         status
+       ) do
+    {:settled, :awx_inventory_observation_bootstrap_requires_newer_generation,
+     base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error(:stale_source_snapshot, status) do
+    {:settled, :stale_source_snapshot, base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error(
+         {:stale_awx_membership_generation, controller_id, generation, current},
+         status
+       ) do
+    {:refused, :mixed_superseded_awx_observation,
+     Map.merge(base_discovery_meta(status), %{
+       controller_id: controller_id,
+       source_generation: generation,
+       recorded_generation: current
+     })}
+  end
+
+  defp classify_discovery_error(:awx_inventory_observation_conflict, status) do
+    {:refused, :awx_inventory_observation_conflict, base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error(
+         {:conflicting_awx_inventory_observation, controller_id, generation},
+         status
+       ) do
+    {:refused, :awx_inventory_observation_conflict,
+     Map.merge(base_discovery_meta(status), %{
+       controller_id: controller_id,
+       source_generation: generation
+     })}
+  end
+
+  defp classify_discovery_error(
+         {:conflicting_awx_membership_fingerprint, controller_id, generation},
+         status
+       ) do
+    {:refused, :awx_inventory_observation_conflict,
+     Map.merge(base_discovery_meta(status), %{
+       controller_id: controller_id,
+       source_generation: generation
+     })}
+  end
+
+  defp classify_discovery_error(
+         {:conflicting_same_generation_awx_membership_state, _membership_tuple},
+         status
+       ) do
+    {:refused, :awx_inventory_observation_conflict, base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error({:too_many_existing_awx_memberships, count, max}, status) do
+    {:refused, :awx_existing_membership_ceiling_exceeded,
+     Map.merge(base_discovery_meta(status), %{count: count, max: max})}
+  end
+
+  defp classify_discovery_error({:too_many_awx_aggregates, count, max}, status) do
+    {:refused, :too_many_awx_aggregates,
+     Map.merge(base_discovery_meta(status), %{count: count, max: max})}
+  end
+
+  defp classify_discovery_error({:too_many_hosts, count, max}, status) do
+    {:refused, :too_many_hosts, Map.merge(base_discovery_meta(status), %{count: count, max: max})}
+  end
+
+  defp classify_discovery_error({:too_many_awx_device_evidence_rows, max}, status) do
+    {:refused, :too_many_awx_device_evidence_rows,
+     Map.put(base_discovery_meta(status), :max, max)}
+  end
+
+  defp classify_discovery_error({:invalid_awx_membership_aggregate, inner}, status) do
+    {:refused, :invalid_awx_membership_aggregate,
+     Map.put(base_discovery_meta(status), :detail, inspect(inner))}
+  end
+
+  defp classify_discovery_error({:controller_mismatch, reported, expected}, status) do
+    {:refused, :controller_mismatch,
+     Map.merge(base_discovery_meta(status), %{
+       controller_id: expected,
+       reported_controller_id: reported
+     })}
+  end
+
+  defp classify_discovery_error({:unresolved_source_identifiers, unresolved}, status) do
+    {:refused, :unresolved_source_identifiers,
+     Map.put(base_discovery_meta(status), :unresolved_count, length(List.wrap(unresolved)))}
+  end
+
+  defp classify_discovery_error(:unresolved_source_identifier, status) do
+    {:refused, :unresolved_source_identifiers, base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error(reason, status) when reason in @refused_reasons do
+    {:refused, reason, base_discovery_meta(status)}
+  end
+
+  defp classify_discovery_error(reason, _status), do: {:error, reason}
+
+  defp base_discovery_meta(status) do
+    %{
+      agent_id: status_field(status, :agent_id),
+      assignment_id: status_field(status, :assignment_id),
+      partition: optional_partition(status)
+    }
+  end
+
+  defp optional_partition(status) when is_map(status) do
+    case Map.get(status, :partition) || Map.get(status, "partition") do
+      value when is_binary(value) -> blank_to_nil(String.trim(value))
+      _ -> nil
+    end
+  end
+
+  defp optional_partition(_status), do: nil
 
   # Only a complete observation proves a host absent, so only one queues the controller's
   # retirement pass, after it commits (`AwxSourceRetirementWorker`).
@@ -158,7 +350,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp ingest_payload(payload, status, opts, serialize_awx?) do
-    actor = Keyword.fetch!(opts, :actor)
+    actor =
+      Keyword.get_lazy(opts, :actor, fn -> SystemActor.system(:device_discovery_ingestor) end)
+
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
     membership_sync = Keyword.get(opts, :membership_sync, &sync_awx_memberships/2)
 
@@ -305,12 +499,12 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp preflight_source_observation_batches(batches, context, preflight) do
     batches
-    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, {:ok, acc} ->
+    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, acc ->
       case preflight.(envelope, updates, context) do
-        :ok -> {:cont, {:ok, [batch | acc]}}
-        {:ok, :process} -> {:cont, {:ok, [batch | acc]}}
-        {:ok, :idempotent} -> {:cont, {:ok, acc}}
-        {:error, _} = error -> {:halt, error}
+        :ok -> {:cont, keep_preflight_batch(acc, batch)}
+        {:ok, :process} -> {:cont, keep_preflight_batch(acc, batch)}
+        {:ok, :idempotent} -> {:cont, acc}
+        {:error, _} = error -> defer_or_halt(acc, error)
         _other -> {:halt, {:error, :invalid_source_observation_preflight_result}}
       end
     end)
@@ -321,14 +515,30 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp sync_source_observation_batches(batches, context, source_observation_sync) do
-    Enum.reduce_while(batches, :ok, fn {envelope, updates}, :ok ->
+    Enum.reduce_while(batches, :ok, fn {envelope, updates}, acc ->
       case source_observation_sync.(envelope, updates, context) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
+        :ok -> {:cont, acc}
+        {:error, _} = error -> defer_or_halt(acc, error)
         _other -> {:halt, {:error, :invalid_source_observation_result}}
       end
     end)
   end
+
+  defp keep_preflight_batch({:ok, batches}, batch), do: {:ok, [batch | batches]}
+  defp keep_preflight_batch(deferred_error, _batch), do: deferred_error
+
+  defp defer_or_halt(acc, {:error, reason} = error) do
+    case {deferred_outcome(acc), classify_discovery_error(reason, nil)} do
+      {_deferred, {:error, _reason}} -> {:halt, error}
+      {:refused, _outcome} -> {:cont, acc}
+      {:settled, {:settled, _reason, _meta}} -> {:cont, acc}
+      {_deferred, _outcome} -> {:cont, error}
+    end
+  end
+
+  defp deferred_outcome({:error, reason}), do: reason |> classify_discovery_error(nil) |> elem(0)
+
+  defp deferred_outcome(_acc), do: nil
 
   defp sync_awx_memberships(payload, context) do
     AwxMembershipReconciler.reconcile(payload,
