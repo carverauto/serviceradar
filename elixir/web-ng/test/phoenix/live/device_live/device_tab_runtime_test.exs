@@ -146,7 +146,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
     # timeline reads the decision current when its history is read, as the badge will.
     test "a refresh paints the device's current decision, not the summary the page still holds" do
       socket =
-        availability_socket(true)
+        true
+        |> availability_socket()
         |> Phoenix.Component.assign(:merged_availability, %{
           state: :available,
           changed_at: ~U[2000-01-01 00:00:00Z]

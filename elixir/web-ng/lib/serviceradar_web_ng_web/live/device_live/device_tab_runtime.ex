@@ -182,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     if is_nil(socket.assigns[:availability_request_ref]) do
       scope = socket.assigns.current_scope
       request_ref = make_ref()
+
       merged_availability =
         Map.get(socket.assigns, :merged_availability_loader, fn -> Map.get(MergedAvailability.load([uid]), uid) end)
 
