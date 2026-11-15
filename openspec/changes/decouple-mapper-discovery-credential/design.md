@@ -123,25 +123,34 @@ stops applying when the device stops being polled, which is consistent.
 
 ### Decision 4: one-time backfill replays the old chain
 
-The Ecto migration only adds the nullable column and FK. A one-shot Oban worker,
+The Ecto migration adds the nullable reference column and FK, and a per-job
+mark, `mapper_jobs.snmp_credential_backfill_pending boolean NOT NULL`. The column
+is added with a constant `DEFAULT true`, so every pre-existing row is marked
+without an `UPDATE` (a catalog-only change), and the default is then set to
+`false`, so a job created after the migration is never marked. The mark is not
+accepted by any `MapperJob` action. A one-shot Oban worker,
 `MapperJobSNMPCredentialBackfillWorker`, enqueued on core start and unique per
 deployment, does the binding, because it needs SRQL rule matching and, for inline
-material, decryption:
+material, decryption. It visits only marked jobs:
 
-1. For each SNMP-mode job with a nil reference, enabled or disabled (the worker
-   reads jobs directly, not through `for_agent_partition`, which returns only
-   enabled jobs), and for each agent the job compiles for, evaluate the
-   **pre-change** fallback chain: host device resolution from that agent row's
-   `device_uid`, then `resolve_default`. The agent set comes from persisted
-   `Agent` rows, never from the in-memory `AgentRegistry`, which is empty until
-   gateways sync after boot: an agent-assigned job uses its assigned agent's row;
-   a partition-assigned job, enabled or disabled, uses every `Agent` row whose
-   metadata `partition_id` (default `"default"`) equals the job's partition, the
-   same rule `AgentAssignment` validates. A missing assigned agent row, an empty
-   partition agent set, or a failure to load either is a retryable failure under
-   step 4, not an agreed empty chain; the job stays unbound and keeps showing the
-   Decision 3 warning until a retry binds it. The worker carries a private copy of that legacy logic,
-   deleted along with the worker in a later release.
+1. A marked job that needs no binding (`discovery_mode` `api`, or already
+   referencing an SNMP credential) is decided as "not needed". For every other
+   marked job, enabled or disabled (the worker reads jobs directly, not through
+   `for_agent_partition`, which returns only enabled jobs), and for each agent the
+   job compiles for, evaluate the **pre-change** fallback chain: host device
+   resolution, then `resolve_default`. The agent set comes from persisted `Agent`
+   rows, never from the in-memory `AgentRegistry`, which is empty until gateways
+   sync after boot: an agent-assigned job uses the single row it names; a
+   partition-assigned job uses every `Agent` row whose metadata `partition_id`
+   (default `"default"`) equals the job's partition, the same rule
+   `AgentAssignment` validates, excluding rows with status `:superseded`, which
+   never receive mapper config. Each agent row in the set contributes its own uid
+   as the agent rule scope, the job's partition as the partition scope, and its
+   `device_uid` for host resolution, the same scopes `MapperCompiler` passes to
+   `resolve_for_device` and `resolve_default`. A missing assigned agent row, an
+   empty partition agent set, or a failure to load either is a failure under
+   step 4, not an agreed empty chain. The worker carries a private copy of that
+   legacy logic, deleted along with the worker in a later release.
 2. If every agent resolves to the same credential, bind the job to it. Agreement
    is judged by credential, not by the record it came from: a source with a
    reusable secret (`credential_secret_id` on a profile or override, `secret_id`
@@ -149,26 +158,27 @@ material, decryption:
    different records on different agents still agrees; inline legacy material,
    which has no secret id yet, is compared by its source record.
    - the agreed credential is a reusable secret: bind that id.
-   - the agreed credential is inline legacy material on a profile or device override: promote it
-     to a reusable SNMP credential (same builder as the profile form's "Save as
-     reusable"), rebind the source record to the new secret, and bind the job,
-     all in one transaction. Decryption of the inline material is audited with
-     purpose `mapper_discovery_backfill`. A failure rolls back all three, so no
-     orphan secret is left for a retry to duplicate. A source that already has a
-     reusable secret id, including one rebound earlier in the same run for
-     another job sharing it, is bound to that id and never promoted again. There
-     is still one copy, so rotation stays single-source.
-3. If agents disagree, or the chain agrees on no credential, leave the job unbound. It then shows
-   the Decision 3 warning, the honest state, since no single credential reproduces
-   the old behaviour.
-4. Record completion in a deployment-level marker only after every job has been
-   bound or deliberately left unbound under step 3. A credential read failure, a
-   missing or unloadable agent set (step 1), or a failed promote, rebind or bind
-   transaction is not an empty result: the run aborts without the marker and Oban
-   retries it. Binding touches only nil references and step 2 binds an already
-   rebound source by its secret id, so a retry neither rebinds a bound job nor
-   promotes the same material twice. Once the marker exists the worker never runs again, so it never
-   rebinds a job an operator later cleared on purpose.
+   - the agreed credential is inline legacy material on a profile or device
+     override: promote it to a reusable SNMP credential (same builder as the
+     profile form's "Save as reusable"), rebind the source record to the new
+     secret, and bind the job, all in one transaction. Decryption of the inline
+     material is audited with purpose `mapper_discovery_backfill`. A failure rolls
+     back all three, so no orphan secret is left for a retry to duplicate. A
+     source that already has a reusable secret id, including one rebound earlier
+     in the same run for another job sharing it, is bound to that id and never
+     promoted again. There is still one copy, so rotation stays single-source.
+3. If agents disagree, or the chain agrees on no credential, decide the job as
+   deliberately unbound. It then shows the Decision 3 warning, the honest state,
+   since no single credential reproduces the old behaviour.
+4. Every decision (bound, deliberately unbound, or not needed) clears that job's
+   mark in the same compare-and-set update that binds it
+   (`WHERE id = ? AND snmp_credential_backfill_pending AND
+   snmp_credential_secret_id IS NULL` for a bind). A credential read failure, a
+   missing or unloadable agent set, or a failed promote, rebind or bind
+   transaction leaves only that job marked; the worker continues with the other
+   marked jobs, then fails the run so Oban retries. A retry re-evaluates only the
+   jobs still marked. A decided job is never visited again, so a job an operator
+   later clears, and a job created after the migration, are never rebound.
 
 Binding a job updates the record, and `DependencyNotifier` recompiles the
 affected agents.
@@ -220,11 +230,14 @@ consequence.
 
 1. Ecto migration: add `mapper_jobs.snmp_credential_secret_id uuid NULL
    REFERENCES platform.network_credential_secrets(id) ON DELETE RESTRICT` plus an
-   index.
+   index, and `mapper_jobs.snmp_credential_backfill_pending boolean NOT NULL
+   DEFAULT true` followed by `ALTER COLUMN ... SET DEFAULT false`.
 2. Deploy. The backfill binds jobs. Verify with
    `SELECT id, name FROM platform.mapper_jobs WHERE discovery_mode IN ('snmp','snmp_api') AND snmp_credential_secret_id IS NULL`,
-   which should list only jobs that legitimately had no fallback.
-3. Rollback: the column is nullable and ignored by older code, so a rollback to the
+   which should list only jobs that legitimately had no fallback, and
+   `SELECT id, name FROM platform.mapper_jobs WHERE snmp_credential_backfill_pending`,
+   which should be empty once the backfill has decided every job.
+3. Rollback: both columns are ignored by older code, so a rollback to the
    previous release restores the old chain. A credential promoted from inline
    material stays reusable, and the rebound profile/override keeps working on old
    code because it resolves `credential_secret_id` first.

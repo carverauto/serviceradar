@@ -46,8 +46,9 @@ A polling profile's flag should not silently decide whether discovery can log in
   flagged in the Discovery job list and form as missing its SNMP credential.
   Credential reads that fail for other reasons keep failing the compile, as they
   do today.
-- **One-time migration, no secret re-entry.** A backfill runs once per deployment.
-  For every SNMP-mode job it replays the pre-change fallback chain and binds the
+- **One-time migration, no secret re-entry.** A backfill decides each job that
+  existed before the upgrade exactly once, tracked by a per-job mark.
+  For every such SNMP-mode job it replays the pre-change fallback chain and binds the
   job to the credential that chain resolves today. Inline legacy material on a
   profile or device override is promoted to a reusable credential, and the source
   record is rebound to it, so one secret serves both consumers.

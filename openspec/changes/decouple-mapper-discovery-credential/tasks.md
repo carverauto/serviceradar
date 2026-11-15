@@ -8,7 +8,10 @@
 ## 1. Data model
 
 - [ ] 1.1 Migration: nullable `mapper_jobs.snmp_credential_secret_id` FK to
-      `network_credential_secrets` with `ON DELETE RESTRICT`, plus index
+      `network_credential_secrets` with `ON DELETE RESTRICT`, plus index; and
+      `mapper_jobs.snmp_credential_backfill_pending boolean NOT NULL DEFAULT true`
+      then `SET DEFAULT false` (catalog-only, no `UPDATE`), not accepted by any
+      `MapperJob` action
 - [ ] 1.2 `MapperJob`: attribute, `belongs_to :snmp_credential_secret`,
       `references ... on_delete: :restrict`, accept on `:create`/`:update`,
       validation that the referenced secret's `credential_kind` is `:snmp`
@@ -38,18 +41,22 @@
 - [ ] 3.1 Fail-first tests for the backfill: reusable default-profile secret bound;
       inline profile material promoted and source rebound; agent-scoped rule secret
       bound; disabled job bound; disabled partition job evaluated against the
-      partition's persisted agents (by `partition_id`, with no agent connected);
-      missing agent row or empty partition agent set leaves no marker and retries;
-      inline promotion failure rolls back secret, rebind and bind together; two
-      jobs sharing an inline source get one promoted secret; partition agents reaching the same secret id through different records
-      bound; divergent partition agents left unbound; a
-      read or write failure leaves no completion marker and retries; completion
-      marker prevents a second run
+      partition's persisted, non-superseded agents (by `partition_id`, with no
+      agent connected); superseded agent's rule ignored; each agent evaluated with
+      its own uid, the job partition and its `device_uid`; partition agents
+      reaching the same secret id through different records bound; divergent
+      partition agents left unbound and unmarked; inline promotion failure rolls
+      back secret, rebind and bind together; two jobs sharing an inline source get
+      one promoted secret; a missing agent row, empty partition agent set, or read
+      or write failure leaves only that job marked, decides the others, and fails
+      the run; a retry does not rebind a decided job an operator cleared; a job
+      created after the migration is never marked or bound
 - [ ] 3.2 `MapperJobSNMPCredentialBackfillWorker`: one-shot, unique, enqueued on
-      core start, private copy of the legacy chain, all SNMP-mode jobs including
-      disabled ones, agent set from persisted `Agent` rows, promote/rebind/bind in
-      one transaction (audit purpose `mapper_discovery_backfill`),
-      deployment-level completion marker recorded only on success
+      core start, private copy of the legacy chain, visits only marked jobs
+      (including disabled ones), agent set from persisted non-superseded `Agent`
+      rows, promote/rebind/bind in one transaction (audit purpose
+      `mapper_discovery_backfill`), each decision clears the job's mark in the
+      same compare-and-set update
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 
