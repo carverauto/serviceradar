@@ -237,7 +237,6 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
     case String.split(body, header, parts: 2) do
       [_before, rest] ->
         rest
-        # -- internals ------------------------------------------------------------------------------
         |> String.split(following, parts: 2)
         |> hd()
         |> SchemaSql.split()
@@ -262,6 +261,8 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
         raise RuntimeError, "failed to read schema baseline metadata #{path}: #{inspect(reason)}"
     end
   end
+
+  # -- internals ------------------------------------------------------------------------------
 
   defp create_migration_ledger!(repo, table) do
     repo.query!("""
