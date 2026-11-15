@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn the_device_page_query_compiles_to_the_warehouse_table() {
         let compiled = compile(&format!(
-            r#"in:device_availability_history uid:"{DEVICE_A}" time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z] sort:changed_at:asc limit:200"#
+            r#"in:device_availability_history uid:"{DEVICE_A}" time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z] sort:changed_at:desc limit:200"#
         ));
         assert_eq!(
             compiled.sql,
@@ -220,7 +220,7 @@ mod tests {
                  WHERE `changed_at` >= '2026-01-01 00:00:00.000000' \
                  AND `changed_at` <= '2026-01-02 00:00:00.000000' \
                  AND `device_uid` = '{DEVICE_A}' \
-                 ORDER BY `changed_at` ASC NULLS LAST LIMIT 200 OFFSET 0"
+                 ORDER BY `changed_at` DESC NULLS FIRST LIMIT 200 OFFSET 0"
             )
         );
         assert_eq!(compiled.params.len(), 2, "{:?}", compiled.params);

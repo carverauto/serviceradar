@@ -182,7 +182,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     if is_nil(socket.assigns[:availability_request_ref]) do
       scope = socket.assigns.current_scope
       request_ref = make_ref()
-      merged_availability = merged_availability(uid, socket.assigns[:merged_availability])
+      merged_availability =
+        Map.get(socket.assigns, :merged_availability_loader, fn -> Map.get(MergedAvailability.load([uid]), uid) end)
 
       socket
       |> assign(:availability_request_ref, request_ref)
@@ -197,14 +198,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     else
       socket
     end
-  end
-
-  # The details batch that loads the device's canonical availability runs alongside this
-  # refresh, so until it lands the decision is read on demand inside the async task.
-  defp merged_availability(_uid, %{state: _state} = summary), do: summary
-
-  defp merged_availability(uid, _availability) do
-    fn -> Map.get(MergedAvailability.load([uid]), uid) end
   end
 
   def finish_availability_refresh(socket, uid, request_ref, result) do

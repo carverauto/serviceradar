@@ -59,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       DevicePubSub.subscribe()
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
     end
@@ -129,6 +130,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info({:device_deleted, uid}, socket) do
     maybe_refresh_current_device(socket, uid)
+  end
+
+  def handle_info({:devices_invalidated, uids}, socket) when is_list(uids) do
+    if socket.assigns.device_uid in uids,
+      do: maybe_refresh_current_device(socket, socket.assigns.device_uid),
+      else: {:noreply, socket}
   end
 
   # Trailing refresh scheduled by coalesce_device_refresh/2: a broadcast

@@ -82,10 +82,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
     test "probe history without samples stays unknown whatever the canonical state is" do
       for state <- [:unavailable, :available, :unknown] do
         socket =
-          Phoenix.Component.assign(availability_socket(), :merged_availability, %{
-            state: state,
-            changed_at: ~U[2000-01-01 00:00:00Z]
-          })
+          Phoenix.Component.assign(availability_socket(), :merged_availability_loader, fn ->
+            %{state: state, changed_at: ~U[2000-01-01 00:00:00Z]}
+          end)
 
         pending =
           DeviceTabRuntime.maybe_reload_availability_for_active_tab(
@@ -116,10 +115,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
 
     test "after convergence the timeline reads the device's merged availability history" do
       socket =
-        Phoenix.Component.assign(availability_socket(true), :merged_availability, %{
-          state: :available,
-          changed_at: ~U[2000-01-01 00:00:00Z]
-        })
+        Phoenix.Component.assign(availability_socket(true), :merged_availability_loader, fn ->
+          %{state: :available, changed_at: ~U[2000-01-01 00:00:00Z]}
+        end)
 
       pending =
         DeviceTabRuntime.maybe_reload_availability_for_active_tab(
@@ -142,6 +140,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       assert availability.source == :merged
       assert availability.uptime_pct == 100.0
       assert availability.online_checks == availability.bucket_count
+    end
+
+    # A refresh runs before the details batch replaces the summary the page holds, so the
+    # timeline reads the decision current when its history is read, as the badge will.
+    test "a refresh paints the device's current decision, not the summary the page still holds" do
+      socket =
+        availability_socket(true)
+        |> Phoenix.Component.assign(:merged_availability, %{
+          state: :available,
+          changed_at: ~U[2000-01-01 00:00:00Z]
+        })
+        |> Phoenix.Component.assign(:merged_availability_loader, fn ->
+          %{state: :unavailable, changed_at: ~U[2000-01-02 00:00:00Z]}
+        end)
+
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(socket, "details", @device_uid, __MODULE__)
+
+      assert_receive {:availability_query, task, _query}
+      request_ref = pending.assigns.availability_request_ref
+      send(task, :finish)
+
+      key = {:device_availability, @device_uid, request_ref}
+      assert_receive {:phoenix, :async_result, {:start, {_async_ref, nil, ^key, {:ok, availability}}}}
+
+      assert availability.offline_checks == availability.bucket_count
+      assert availability.uptime_pct == 0.0
     end
 
     test "a source change cancels the old scan and starts one for the selected agent" do

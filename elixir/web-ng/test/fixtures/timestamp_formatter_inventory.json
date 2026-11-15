@@ -1099,7 +1099,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 3,
-    "fingerprint": "2462ef4a1b74304a802186d2e215704a75f7594468076e2040fa1bbec916f3c6",
+    "fingerprint": "0112b5b6f47da303217bddb546cb565b98c6d52fe9d6bfff0187fdc4314a776d",
     "classification": "canonical_machine",
     "reason": "Merged availability history window encoded as an SRQL time range"
   },
@@ -1107,7 +1107,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 4,
-    "fingerprint": "bfb1cc054e4b5a8bb82114d3400456544679948cac18b374c8c3b76706fa31ec",
+    "fingerprint": "267eba9883f9c4300625da16168a3707c6f4943a3c18929d613ed535bc4b9e7e",
     "classification": "canonical_machine",
     "reason": "Merged availability history window encoded as an SRQL time range"
   },

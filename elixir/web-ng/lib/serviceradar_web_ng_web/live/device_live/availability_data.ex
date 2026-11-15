@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   # One row per bucket and probed address: a full window spans up to 49 buckets, and a sweep probes a
   # device at its own address plus up to eight aliases.
   @row_limit 500
-  # One record per change of the device's merged state; a day holds few of them.
+  # One record per change of the device's merged state. Read newest first, so a device that
+  # changed more often than this in a day loses the oldest end of the window, not the newest.
   @history_limit 1_000
 
   @doc """
@@ -76,11 +77,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     query =
       ~s(in:device_availability_history uid:"#{escape_value(device_uid)}" ) <>
         "time:[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}] " <>
-        "sort:changed_at:asc limit:#{@history_limit}"
+        "sort:changed_at:desc limit:#{@history_limit}"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => records}} when is_list(records) ->
         records
+        |> Enum.reverse()
         |> history_intervals(merged, start_at, now)
         |> build_merged_availability(start_at, now)
 

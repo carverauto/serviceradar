@@ -3897,6 +3897,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-after"
     end
 
+    # Stored availability history is announced only as an invalidation hint.
+    @tag :web_ng_shared_fixture_db
+    test "an invalidation naming the device refreshes it, and one naming others does not", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Repo.query!("UPDATE ocsf_devices SET hostname = 'refresh-host-after' WHERE uid = $1", [device_uid])
+
+      send(view.pid, {:devices_invalidated, ["sr:other-device"]})
+      render_async(view, 15_000)
+      assert current_hostname(view) == "refresh-host-before"
+
+      send(view.pid, {:devices_invalidated, ["sr:other-device", device_uid]})
+      render_async(view, 15_000)
+      assert current_hostname(view) == "refresh-host-after"
+    end
+
     @tag :web_ng_shared_fixture_db
     test "broadcasts are ignored while a refresh is in flight", %{
       conn: conn,

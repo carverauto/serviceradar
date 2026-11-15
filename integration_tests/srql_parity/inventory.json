@@ -1098,7 +1098,7 @@
     },
     {
       "id": "availability.history.device_timeline",
-      "query": "in:device_availability_history uid:\"sr:parity-dev-a\" {window_main} sort:changed_at:asc limit:1000",
+      "query": "in:device_availability_history uid:\"sr:parity-dev-a\" {window_main} sort:changed_at:desc limit:1000",
       "sources": [
         "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/availability_data.ex"
       ]

@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
       assert query =~ "in:device_availability_history"
       assert query =~ ~s(uid:"#{@device_uid}")
       assert query =~ "time:[1999-06-15T12:15:00Z,1999-06-16T12:15:00Z]"
-      assert query =~ "sort:changed_at:asc"
+      assert query =~ "sort:changed_at:desc limit:1000"
       refute_receive {:query, _, _}
     end
 

@@ -4,8 +4,8 @@
 //! Each row of `platform.device_availability_transitions` says the device was
 //! `from_state` from `from_since` (NULL when there was no earlier decision) until
 //! `changed_at`, when it became `to_state`. The device page reads one device over
-//! a window, oldest first:
-//! `in:device_availability_history uid:"<uid>" time:[<start>,<end>] sort:changed_at:asc`.
+//! a window, newest first:
+//! `in:device_availability_history uid:"<uid>" time:[<start>,<end>] sort:changed_at:desc`.
 //!
 //! The entity is a row listing only. `stats:`, `rollup_stats:`, `bucket:` and
 //! `other:true` are refused by name on both backends; the StarRocks dialect
@@ -372,11 +372,11 @@ mod tests {
             .collect()
     }
 
-    /// The device page's query: one device, a closed window, oldest first.
+    /// The device page's query: one device, a closed window, newest first.
     #[test]
     fn the_device_page_query_binds_uid_window_and_page() {
         let (sql, params) = sql_for(&format!(
-            r#"in:device_availability_history uid:"{DEVICE_A}" time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z] sort:changed_at:asc limit:200"#
+            r#"in:device_availability_history uid:"{DEVICE_A}" time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z] sort:changed_at:desc limit:200"#
         ));
 
         assert!(
@@ -396,7 +396,7 @@ mod tests {
             "{sql}"
         );
         assert!(
-            sql.contains(r#"ORDER BY "device_availability_transitions"."changed_at" ASC"#),
+            sql.contains(r#"ORDER BY "device_availability_transitions"."changed_at" DESC"#),
             "{sql}"
         );
         assert!(sql.ends_with("LIMIT $4 OFFSET $5"), "{sql}");

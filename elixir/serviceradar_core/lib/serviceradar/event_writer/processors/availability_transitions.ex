@@ -9,12 +9,15 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitions do
   `(device_uid, changed_at, to_state)`, so a redelivered or republished record is stored
   once. A failed write fails the batch so JetStream redelivers it; a message that does not
   decode as a history record is dropped and counted, since a retry would fail the same way.
+  Once a batch is stored, its devices are announced through `DevicePubSub` so a reader
+  rebuilds their timelines from the stored rows.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.Inventory.DevicePubSub
 
   require Logger
 
@@ -36,10 +39,16 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitions do
       Logger.warning("AvailabilityTransitions dropped undecodable messages", count: rejected)
     end
 
-    cond do
-      rows == [] -> {:ok, 0}
-      Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) -> load(rows, opts)
-      true -> insert(rows)
+    result =
+      cond do
+        rows == [] -> {:ok, 0}
+        Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) -> load(rows, opts)
+        true -> insert(rows)
+      end
+
+    with {:ok, _count} <- result do
+      rows |> Enum.map(& &1.device_uid) |> Enum.uniq() |> DevicePubSub.broadcast_invalidated()
+      result
     end
   end
 

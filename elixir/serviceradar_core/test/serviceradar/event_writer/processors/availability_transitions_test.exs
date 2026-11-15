@@ -1,7 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitionsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.EventWriter.Processors.AvailabilityTransitions
+  alias ServiceRadar.Inventory.DevicePubSub
 
   @record %{
     "device_uid" => "sr:00000000-0000-4000-8000-000000000001",
@@ -16,7 +17,49 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitionsTest do
     "conflict" => false
   }
 
+  setup do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    if is_nil(Process.whereis(ServiceRadar.PubSub)) do
+      start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    end
+
+    :ok
+  end
+
   defp message(record), do: %{data: Jason.encode!(record), metadata: %{}}
+
+  # A reader that refreshed before the batch landed reads the stored rows only when told
+  # again, so the devices are announced after the store succeeds and never before.
+  test "devices are announced once their records are stored, and not when the store fails" do
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+    uid = @record["device_uid"]
+    later = %{@record | "changed_at" => "2026-01-01T07:00:00Z", "to_state" => "available"}
+
+    assert {:error, :warehouse_down} =
+             AvailabilityTransitions.process_batch([message(@record)],
+               starrocks_enabled: true,
+               load: fn _dataset, _rows -> {:error, :warehouse_down} end
+             )
+
+    refute_received {:devices_invalidated, [^uid]}
+
+    parent = self()
+
+    load = fn _dataset, rows ->
+      send(parent, :stored)
+      {:ok, %{loaded: length(rows)}}
+    end
+
+    assert {:ok, 2} =
+             AvailabilityTransitions.process_batch([message(@record), message(later)],
+               starrocks_enabled: true,
+               load: load
+             )
+
+    assert_received :stored
+    assert_receive {:devices_invalidated, [^uid]}
+  end
 
   test "with StarRocks enabled a batch loads the warehouse dataset only" do
     parent = self()
