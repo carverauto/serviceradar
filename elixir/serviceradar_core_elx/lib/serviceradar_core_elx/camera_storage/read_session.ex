@@ -1,8 +1,9 @@
 defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   @moduledoc false
-  use GenServer
+  use GenServer, shutdown: 40_000
 
   alias ServiceRadarCoreElx.CameraStorage.ReadTasks
+  alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   def start_link(config), do: GenServer.start_link(__MODULE__, config, name: __MODULE__)
   def reserve(deadline), do: GenServer.call(__MODULE__, {:reserve, deadline})
@@ -10,11 +11,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   @impl true
   def init(config) do
     provider = Map.merge(config.provider, %{socket_owner: self(), task_supervisor: ReadTasks})
-    {:ok, %{config: %{config | provider: provider}, slot: nil}}
+    {:ok, %{config: %{config | provider: provider}, slot: nil, draining_token: nil}}
   end
 
   @impl true
-  def handle_call({:reserve, deadline}, {owner, _}, %{slot: nil} = state) do
+  def handle_call({:reserve, deadline}, {owner, _}, %{slot: nil, draining_token: nil} = state) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     if remaining in 1..10_000 do
@@ -30,7 +31,12 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
         socket: nil
       }
 
-      {:reply, {:ok, state.config}, %{state | slot: slot}}
+      admitted_config = %{
+        state.config
+        | provider: Map.put(state.config.provider, :owner_token, token)
+      }
+
+      {:reply, {:ok, admitted_config}, %{state | slot: slot}}
     else
       {:reply, {:error, :archive_read_unavailable}, state}
     end
@@ -58,17 +64,40 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   def handle_info({:DOWN, monitor, :process, owner, _}, %{slot: %{owner: owner, monitor: monitor} = slot} = state) do
     stop_socket(slot.socket)
     Process.cancel_timer(slot.timer)
-    {:noreply, %{state | slot: nil}}
+    {:noreply, state |> Map.put(:slot, nil) |> hold_longshore_drain(slot.token)}
   end
 
   def handle_info({:DOWN, monitor, :process, socket, _}, %{slot: %{socket: {socket, monitor}} = slot} = state) do
     {:noreply, %{state | slot: %{slot | socket: nil}}}
   end
 
+  def handle_info({:token_drained, token}, %{draining_token: token} = state),
+    do: {:noreply, %{state | draining_token: nil}}
+
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_, state), do: {:noreply, state}
 
   @impl true
   def format_status(_), do: %{state: :redacted}
+
+  defp hold_longshore_drain(state, token) do
+    case Map.get(state.config.provider, :longshore_session) do
+      session when not is_nil(session) ->
+        if server_alive?(session) do
+          ObjectStorageSession.await_token_drain(session, token, self())
+          %{state | draining_token: token}
+        else
+          state
+        end
+
+      nil ->
+        state
+    end
+  end
+
+  defp server_alive?(pid) when is_pid(pid), do: Process.alive?(pid)
+  defp server_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
 
   defp stop_socket(nil), do: :ok
 

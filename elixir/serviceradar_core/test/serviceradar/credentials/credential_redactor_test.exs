@@ -46,9 +46,13 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
       "refresh_token" => "refresh-sentinel",
       "client_secret" => "client-secret-sentinel",
       "secret" => "bare-secret-sentinel",
+      "secret_access_key" => "s3-secret-sentinel",
+      "secret_key" => "legacy-s3-sentinel",
+      "session_token" => "sts-session-sentinel",
       "Authorization" => "Bearer header-sentinel",
       "X-Api-Key" => "header-key-sentinel",
       "api_key" => %{"value" => "nested-key-sentinel"},
+      "access_key_id" => "AKIAIOSFODNN7EXAMPLE",
       "secret_id" => "018f3f56-1111-7222-8333-123456789abc",
       "secret_ref" => "network-credential",
       "token_path" => "/oauth2/token",
@@ -63,11 +67,12 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
     redacted = CredentialRedactor.redact(payload)
 
     for key <-
-          ~w(token access_token refresh_token client_secret secret Authorization X-Api-Key api_key) do
+          ~w(token access_token refresh_token client_secret secret secret_access_key secret_key session_token Authorization X-Api-Key api_key) do
       assert redacted[key] == "REDACTED", key
     end
 
-    for key <- ~w(secret_id secret_ref token_path token_ttl_seconds credential_profiles callback) do
+    for key <-
+          ~w(access_key_id secret_id secret_ref token_path token_ttl_seconds credential_profiles callback) do
       assert redacted[key] == payload[key], key
     end
 

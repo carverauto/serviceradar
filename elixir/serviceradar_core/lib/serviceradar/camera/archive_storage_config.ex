@@ -12,6 +12,7 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   alias ServiceRadar.JSONDocument
 
   @fields ~w(schema_version deployment_ref generation provider_credentials_file listener runtime)
+  @optional_storage_fields ~w(provider_transport)
   @listener_fields ~w(port certfile keyfile cacertfile recorder_certificate_sha256 token_file)
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
@@ -37,11 +38,14 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   def load_read_storage(path) do
     with {:ok, document} <- read_json(path, 8192),
          true <-
-           exact?(
+           exact_with_optional?(
              document,
-             ~w(schema_version binding_id destination provider_credentials_file listener)
+             ~w(schema_version binding_id destination provider_credentials_file listener),
+             @optional_storage_fields
            ) and
              document["schema_version"] === 1,
+         {:ok, transport} <- provider_transport(document),
+         {:ok, proxy} <- provider_proxy(transport),
          {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
          {:ok, destination} <- ArchiveDestination.attributes(document["destination"]),
          {:ok, listener} <- listener(document["listener"], "reader_certificate_sha256"),
@@ -53,7 +57,8 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
          destination_sha256: destination.destination_sha256,
          listener: listener,
          provider: %{
-           proxy: EgressProxy.from_env(),
+           transport: transport,
+           proxy: proxy,
            cacerts: :public_key.cacerts_get(),
            credential: credential,
            destination: document["destination"]
@@ -85,6 +90,8 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
 
   def load(path) do
     with {:ok, document} <- read_json(path, 32_768),
+         {:ok, transport} <- provider_transport(document),
+         {:ok, proxy} <- provider_proxy(transport),
          {:ok, generation} <- decimal(document["generation"]),
          installation = %{deployment_ref: document["deployment_ref"], generation: generation},
          {:ok, purposes} <- purposes(document, installation),
@@ -103,7 +110,8 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
          listener: listener,
          runtime: runtime,
          provider: %{
-           proxy: EgressProxy.from_env(),
+           transport: transport,
+           proxy: proxy,
            cacerts: :public_key.cacerts_get(),
            credential: credential,
            destination: desired.report["destination"]
@@ -117,7 +125,7 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   end
 
   defp purposes(%{"schema_version" => 1} = document, installation) do
-    with true <- exact?(document, ["desired" | @fields]),
+    with true <- exact_with_optional?(document, ["desired" | @fields], @optional_storage_fields),
          {:ok, kind} <- ArchiveAuthorityConfig.kind(document["desired"]),
          {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, document["desired"]) do
       {:ok, %{kind => desired}}
@@ -128,7 +136,7 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
 
   defp purposes(%{"schema_version" => 2, "purposes" => purposes} = document, installation)
        when is_map(purposes) and map_size(purposes) in 1..3 do
-    if exact?(document, ["purposes" | @fields]) do
+    if exact_with_optional?(document, ["purposes" | @fields], @optional_storage_fields) do
       parse_purposes(purposes, installation)
     else
       {:error, :invalid_storage_configuration}
@@ -272,6 +280,30 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
         not String.contains?(path, <<0>>)
 
   defp exact?(value, keys), do: is_map(value) and Enum.sort(Map.keys(value)) == Enum.sort(keys)
+
+  defp exact_with_optional?(value, required_keys, optional_keys) do
+    is_map(value) and
+      Enum.all?(required_keys, &Map.has_key?(value, &1)) and
+      Map.keys(value) -- (required_keys ++ optional_keys) == []
+  end
+
+  defp provider_transport(document) when is_map(document) do
+    case Map.fetch(document, "provider_transport") do
+      :error -> {:ok, :http}
+      {:ok, "http"} -> {:ok, :http}
+      {:ok, "longshore"} -> {:ok, :longshore}
+      {:ok, _} -> {:error, :invalid_provider_transport}
+    end
+  end
+
+  defp provider_proxy(:http), do: {:ok, EgressProxy.from_env()}
+
+  defp provider_proxy(:longshore) do
+    case EgressProxy.from_env() do
+      nil -> {:ok, nil}
+      _proxy -> {:error, :unsupported_egress_proxy}
+    end
+  end
 
   defp decimal(value) when is_binary(value) and byte_size(value) in 1..19 do
     case Integer.parse(value) do

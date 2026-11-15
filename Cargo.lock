@@ -2428,7 +2428,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3730,12 +3730,12 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "longshore_common"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 
 [[package]]
 name = "longshore_crc"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 dependencies = [
  "crc-fast",
 ]
@@ -3743,7 +3743,7 @@ dependencies = [
 [[package]]
 name = "longshore_dns"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 dependencies = [
  "longshore_common",
 ]
@@ -3751,7 +3751,7 @@ dependencies = [
 [[package]]
 name = "longshore_http_client"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 dependencies = [
  "longshore_common",
  "longshore_tls",
@@ -3769,7 +3769,7 @@ dependencies = [
 [[package]]
 name = "longshore_s3"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 dependencies = [
  "longshore_common",
  "longshore_crc",
@@ -3783,7 +3783,7 @@ dependencies = [
 [[package]]
 name = "longshore_tls"
 version = "0.0.0"
-source = "git+https://github.com/carverauto/longshore?rev=1b85610adb6702772acfd8b9af607acea6b0404c#1b85610adb6702772acfd8b9af607acea6b0404c"
+source = "git+https://github.com/carverauto/longshore?rev=8759583fd1888f292f290a5adbe883c8c6eb6aee#8759583fd1888f292f290a5adbe883c8c6eb6aee"
 dependencies = [
  "aws-lc-sys",
  "longshore_common",
@@ -4232,7 +4232,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5442,7 +5442,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6230,7 +6230,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6324,7 +6324,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7904,7 +7904,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8990,7 +8990,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

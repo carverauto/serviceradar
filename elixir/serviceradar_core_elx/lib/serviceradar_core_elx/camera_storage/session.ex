@@ -1,11 +1,12 @@
 defmodule ServiceRadarCoreElx.CameraStorage.Session do
   @moduledoc false
-  use GenServer
+  use GenServer, shutdown: 40_000
 
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
   alias ServiceRadarCoreElx.CameraStorage.Tasks
   alias ServiceRadarCoreElx.CameraStorage.Upload
+  alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   @challenge_fields ~w(schema_version binding_id revision desired_sha256 state storage_boot_id nonce issued_at_ms expires_at_ms remaining_ms applied_revision recording_readiness archive_readiness reason)
 
@@ -38,6 +39,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
           task: nil,
           stage: nil,
           socket: nil,
+          draining_token: nil,
           scratch_root: scratch_root
         }
 
@@ -90,6 +92,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   def handle_call({:reserve, _, _, _, _}, _from, %{stage: %{cleanup_failed: true}} = state),
     do: {:reply, {:error, :storage_scratch_reconciliation_required}, state}
 
+  def handle_call({:reserve, _, _, _, _}, _from, %{draining_token: token} = state) when not is_nil(token),
+    do: {:reply, {:error, :storage_busy}, state}
+
   def handle_call({:reserve, _, _, _, _}, _from, %{stage: stage} = state) when not is_nil(stage),
     do: {:reply, {:error, :storage_busy}, state}
 
@@ -102,7 +107,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
         {:reply, {:ok, Map.take(stage, [:token, :deadline])}, %{state | stage: stage}}
 
       {:ok, stage} ->
-        config = owned_config(state.config, kind)
+        config = owned_config(state.config, kind, stage.token)
 
         task =
           Task.Supervisor.async_nolink(Tasks, fn ->
@@ -123,7 +128,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
       ) do
     if remaining(stage.deadline) > 0 do
       stage = phase(stage, :evidence)
-      config = owned_config(state.config, :init)
+      config = owned_config(state.config, :init, stage.token)
 
       task =
         Task.Supervisor.async_nolink(Tasks, fn ->
@@ -148,7 +153,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
       # Provider I/O still uses the original deadline. Only the two bounded
       # evidence callbacks may finish afterward, including a late receipt.
       stage = phase(stage, :evidence)
-      config = owned_config(state.config, kind)
+      config = owned_config(state.config, kind, stage.token)
 
       task =
         Task.Supervisor.async_nolink(Tasks, fn ->
@@ -204,8 +209,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task: {%Task{ref: ref}, from, _phase}} = state) do
+    token = state.stage && state.stage.token
     GenServer.reply(from, {:error, :storage_operation_failed})
-    {:noreply, state |> Map.put(:task, nil) |> stop_socket() |> clear_stage()}
+    {:noreply, state |> Map.put(:task, nil) |> stop_socket() |> hold_longshore_drain(token) |> clear_stage()}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{stage: %{monitor: ref}} = state),
@@ -219,15 +225,41 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{socket: %{monitor: ref}} = state),
     do: {:noreply, %{state | socket: nil}}
 
+  def handle_info({:token_drained, token}, %{draining_token: token} = state),
+    do: {:noreply, %{state | draining_token: nil}}
+
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_, state), do: {:noreply, state}
 
   defp cancel_operation(%{task: {task, from, _phase}} = state) do
+    token = state.stage && state.stage.token
     Task.shutdown(task, :brutal_kill)
     GenServer.reply(from, {:error, :storage_operation_failed})
-    state |> Map.put(:task, nil) |> stop_socket() |> clear_stage()
+    state |> Map.put(:task, nil) |> stop_socket() |> hold_longshore_drain(token) |> clear_stage()
   end
 
   defp cancel_operation(state), do: state |> stop_socket() |> clear_stage()
+
+  defp hold_longshore_drain(state, nil), do: state
+
+  defp hold_longshore_drain(state, token) do
+    case Map.get(state.config.provider, :longshore_session) do
+      session when not is_nil(session) ->
+        if server_alive?(session) do
+          ObjectStorageSession.await_token_drain(session, token, self())
+          %{state | draining_token: token}
+        else
+          state
+        end
+
+      nil ->
+        state
+    end
+  end
+
+  defp server_alive?(pid) when is_pid(pid), do: Process.alive?(pid)
+  defp server_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
 
   defp stop_ingress(%{stage: nil}), do: :ok
 
@@ -268,11 +300,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   defp removed({:error, :enoent}), do: :ok
   defp removed(error), do: error
 
-  defp owned_config(config, kind) do
+  defp owned_config(config, kind, token) do
     %{
       desired: Map.fetch!(config.purposes, kind),
       runtime: Map.merge(config.runtime, %{socket_owner: self(), task_supervisor: Tasks}),
-      provider: Map.merge(config.provider, %{socket_owner: self(), task_supervisor: Tasks})
+      provider: Map.merge(config.provider, %{socket_owner: self(), task_supervisor: Tasks, owner_token: token})
     }
   end
 

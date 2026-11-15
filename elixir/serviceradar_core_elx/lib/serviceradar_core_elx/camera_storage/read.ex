@@ -2,6 +2,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
   @moduledoc false
 
   alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
+  alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   @fields ~w(schema_version binding_id destination_sha256 descriptor_sha256 manifest_verification_sha256 block_id object_key first last size etag version_id sha256)
 
@@ -15,6 +16,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
   end
 
   defp fetch(provider, plan, timeout) do
+    case Map.get(provider, :transport, :http) do
+      :longshore -> fetch_longshore(provider, plan, timeout)
+      :http -> fetch_http(provider, plan, timeout)
+    end
+  end
+
+  defp fetch_http(provider, plan, timeout) do
     url = provider.destination["endpoint"] <> "/" <> provider.destination["bucket"] <> "/" <> plan["object_key"]
     url = if plan["version_id"], do: url <> "?versionId=" <> URI.encode_www_form(plan["version_id"]), else: url
     headers = [{"range", "bytes=#{plan["first"]}-#{plan["last"]}"}, {"if-match", plan["etag"]}]
@@ -30,6 +38,37 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
       _ -> {:error, :archive_read_unavailable}
     end
   end
+
+  defp fetch_longshore(provider, plan, timeout) do
+    first = plan["first"]
+    last = plan["last"]
+    size = last - first + 1
+    expect = %{etag: plan["etag"], version: plan["version_id"]}
+
+    with {:ok, %{end: {:answered, %{status: 206, malformed: false} = answer}}, _stats} <-
+           ObjectStorageSession.get(
+             provider.longshore_session,
+             plan["object_key"],
+             {first, last},
+             expect,
+             budget: %{timeout_ms: timeout},
+             owner_token: Map.get(provider, :owner_token)
+           ),
+         true <- answer.etag == plan["etag"],
+         true <- normalize_version(answer.version) == {:ok, plan["version_id"]},
+         true <- answer.content_range == %{first: first, last: last, size: plan["size"]},
+         true <- is_binary(answer.body) and byte_size(answer.body) == size and answer.body_len == size,
+         true <- Base.encode16(:crypto.hash(:sha256, answer.body), case: :lower) == plan["sha256"] do
+      {:ok, answer.body}
+    else
+      _ -> {:error, :archive_read_unavailable}
+    end
+  end
+
+  defp normalize_version(nil), do: {:ok, nil}
+  defp normalize_version("null"), do: {:ok, nil}
+  defp normalize_version(value) when is_binary(value), do: if(version?(value), do: {:ok, value}, else: :error)
+  defp normalize_version(_), do: :error
 
   defp valid?(config, plan) when is_map(plan) do
     Enum.sort(Map.keys(plan)) == Enum.sort(@fields) and plan["schema_version"] === 1 and

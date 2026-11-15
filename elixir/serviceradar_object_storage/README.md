@@ -1,9 +1,10 @@
 # ServiceRadar object storage
 
-This library qualifies the pinned Longshore S3 client through Rustler. It is not
-yet the production archive adapter: it does not issue archive receipts, grant
-uploads, publish catalog entries or authorize spool deletion. Required upstream
-API work is recorded in the
+This library wraps the pinned Longshore S3 client through Rustler. It is the
+transport behind the opt-in `:longshore` camera archive adapter in
+`ServiceRadarCoreElx.CameraStorage`, which owns verification and receipts; this
+library itself does not issue archive receipts, grant uploads, publish catalog
+entries or authorize spool deletion. The contract is recorded in the
 [Longshore design](../../openspec/changes/add-longshore-object-storage/design.md).
 
 ## API and lifecycle
@@ -27,10 +28,23 @@ preserving Longshore's local OS/setup diagnostic even when it wraps the errno.
 
 The returned resource supports:
 
-- `put/3`: conditional single-buffer write. A completed result is
-  `{:ok, :stored}` or `{:ok, :already_exists}`.
-- `fetch/2` and `fetch_range/4`: bounded reads returning bytes or
-  `{:ok, :not_found}`. These are not identity-bound archive playback APIs.
+- `put/4` and `put/5`: verified single-buffer write (`longshore_s3::Client::put`)
+  defaulting to `%{timeout_ms: 30_000}` (`Budget::once`). Options require exact
+  keys `%{no_clobber: boolean(), encryption: nil | :aes256, checksum: :none | :crc64nvme | {:crc64nvme, non_neg_integer()} | {:sha256, <<_::256>>}}`.
+- `head/3` and `head/4`: verified metadata probe (`longshore_s3::Client::head`)
+  defaulting to `Budget::once`, taking `%{etag: nil | binary(), version: nil | binary()}`.
+- `get/4` and `get/5`: verified full or inclusive byte-range read
+  (`longshore_s3::Client::get`) defaulting to `Budget::once`, taking `nil | {first, last}`
+  and `%{etag: nil | binary(), version: nil | binary()}`. Response body bytes are
+  populated only on HTTP `200` or `206` so error XML bodies are never returned as
+  object bytes.
+- `ServiceRadarObjectStorage.Session`: supervised `GenServer` owner that submits
+  verified `put`, `head`, and `get` calls from its own process, correlates
+  `{:longshore_reply, reference, result, {queue_us, operation_us}}` without
+  stranding late multi-MiB replies in caller mailboxes, and notifies admission
+  controllers when `owner_token` I/O drains.
+- `put/3`, `fetch/2`, and `fetch_range/4`: qualification helpers retained for
+  standalone probes.
 - `close/1`: stops admission and drains existing work; returns `:closing`.
 - `info/1`: reports admission state, outstanding operations, remaining workers
   and buffer size. Shutdown finishes when admission is closed and workers is zero.
