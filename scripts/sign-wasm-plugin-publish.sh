@@ -48,12 +48,9 @@ wasm_plugin_publish_init "${REPO_ROOT}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
+# One signature format: the classic `.sig` tag that admission reads, created once
+# per digest (no Sigstore bundle referrer). Keep tlog upload enabled by default.
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
-if [[ "${COSIGN_REFERRERS_MODE}" == "oci-1-1" ]]; then
-  export COSIGN_EXPERIMENTAL="${COSIGN_EXPERIMENTAL:-1}"
-fi
 
 if [[ "$#" -eq 0 ]]; then
   TAGS=("${COMMIT_TAG}")
@@ -266,7 +263,7 @@ attach_legacy_signature() {
   local legacy_state
   legacy_state="$(cosign_reconcile_legacy_signature "${ref}")" || return 1
   if [[ "${legacy_state}" == "reused" ]]; then
-    echo "verified canonical legacy signature for ${ref}; retaining exact bytes"
+    echo "verified existing legacy signature for ${ref}; not signing again"
     return 0
   fi
 
@@ -340,7 +337,6 @@ PY
     fi
     echo "signing ${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
     ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
-    cosign_sign_ref_idempotent "${ref}"
     attach_legacy_signature "${ref}"
   done
 done

@@ -95,17 +95,41 @@ push to the registry. Treat the signer and registry credentials as one trust
 boundary: protect branch/tag publishing, keep release environments approval
 gated, and prefer a dedicated signing runner over a general runner pool.
 
-## Verification example
+## Verifying published images
+
+Every published image carries one classic Cosign `.sig` signature, which every
+Cosign version checks by default, so no extra format flags are needed. Verify a
+released or immutable tag with the public key in
+[docs/cosign.pub](../cosign.pub):
 
 ```bash
 cosign verify \
-  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v<version>
+```
+
+For an exact build, prefer the immutable `sha-<commit>` tag:
+
+```bash
+cosign verify \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-<commit>
+```
+
+Successful verification proves the image was signed with the ServiceRadar
+release key and that the signature published in Harbor matches the requested
+image. A sigstore-bundle (OCI referrer) signature without the classic `.sig` is
+not a valid ServiceRadar signature: cluster admission reads only the classic
+`.sig` and rejects such an image.
+
+Until the custom Sigstore stack is active for releases, `docs/cosign.pub`
+remains the verification path. Once keyless signing is enabled, verify against
+the published trusted root and an issuer/identity constraint instead:
+
+```bash
+cosign verify \
   --trusted-root docs/sigstore/trusted-root.json \
   --certificate-identity-regexp '<issuer-specific SAN regex>' \
   --certificate-oidc-issuer https://issuer.example.com \
   registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-<commit>
 ```
-
-Until the custom Sigstore stack is active for releases, the legacy
-`docs/cosign.pub` key remains the verification path for existing key-based
-signatures.

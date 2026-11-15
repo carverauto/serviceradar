@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reuse a verified canonical legacy signature without writing protected tags."""
+"""Reuse a verified existing legacy signature for a digest; never write protected tags."""
 
 import argparse
 import base64
@@ -41,10 +41,6 @@ def strict_json(raw):
 def require(condition, message):
     if not condition:
         raise ValueError(message)
-
-
-class MigrationRequired(ValueError):
-    """An existing disposable accessory cannot be reconciled by moving its tag."""
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -114,23 +110,6 @@ class Registry:
                 "legacy signature blob hash or size mismatch")
         return raw
 
-    def legacy_referrers(self, repository, subject):
-        headers = self.headers(repository) | {"Accept": "application/vnd.oci.image.index.v1+json"}
-        raw, response_headers = self.request(f"/v2/{repository}/referrers/{subject}", headers)
-        require(not response_headers.get("Link"), "paginated legacy referrers require complete operator inspection")
-        descriptors = strict_json(raw).get("manifests")
-        require(isinstance(descriptors, list), "invalid registry referrer response")
-        signatures = set()
-        for descriptor in descriptors:
-            digest = descriptor.get("digest")
-            require(isinstance(digest, str) and DIGEST.fullmatch(digest), "invalid referrer digest")
-            _, manifest = self.manifest(repository, digest)
-            if not manifest.get("subject") and any(
-                layer.get("mediaType") == SIMPLE_SIGNING for layer in manifest.get("layers", [])
-            ):
-                signatures.add(digest)
-        return signatures
-
     def copy_to_build(self, repository, digest, tag):
         # The only write in this helper: scoped build identity, disposable alias.
         subprocess.run(["oras", "cp", f"{self.host}/serviceradar/{repository}@{digest}",
@@ -166,7 +145,7 @@ def verify(registry, repository, digest, subject, identities, public_key):
                                      "-signature", str(directory / "signature"), str(directory / "payload")],
                                     capture_output=True)
             require(result.returncode == 0,
-                    "canonical legacy signature does not verify under the configured key; "
+                    f"existing legacy signature {repository}@{digest} does not verify under the configured key; "
                     "restore approved trust or resolve key rotation without replacing the protected tag")
 
 
@@ -180,33 +159,22 @@ def reconcile(reference, public_key, registry):
     protected, build = "serviceradar/" + repository, "serviceradar-builds/" + repository
     # A retained canonical tag may have been signed before or after migration.
     identities = {registry.host + "/" + protected, registry.host + "/" + build}
+    # Sign once per digest: an existing verified signature is reused, never
+    # replaced. Promotion keeps the protected one and never copies another.
     canonical = registry.manifest(protected, tag, absent=True)
     current = registry.manifest(build, tag, absent=True)
-    if canonical is not None:
-        digest = canonical[0]
-        verify(registry, protected, digest, subject, identities, public_key)
-        if current is not None and current[0] != digest:
-            raise MigrationRequired(f"build legacy {current[0]} differs from protected canonical {digest}")
-        assert_legacy_closure(registry, build, subject, digest)
-        if current is None:
-            registry.copy_to_build(repository, digest, tag)
-        require(registry.manifest(build, tag)[0] == digest, "build legacy tag changed during reconciliation")
-        verify(registry, build, digest, subject, identities, public_key)
-        require(registry.manifest(protected, tag)[0] == digest, "protected legacy tag changed during reconciliation")
-        assert_legacy_closure(registry, build, subject, digest)
-        return "reused"
-    if current is not None:
+    if current is not None and (canonical is None or current[0] != canonical[0]):
+        # Pre-promotion verification reads this tag, so it must verify too.
         verify(registry, build, current[0], subject, identities, public_key)
-        assert_legacy_closure(registry, build, subject, current[0])
-        return "reused"
-    assert_legacy_closure(registry, build, subject, None)
-    return "absent"
-
-
-def assert_legacy_closure(registry, repository, subject, canonical):
-    obsolete = registry.legacy_referrers(repository, subject) - ({canonical} if canonical else set())
-    if obsolete:
-        raise MigrationRequired("obsolete build legacy accessories remain: " + ", ".join(sorted(obsolete)))
+    if canonical is None:
+        return "absent" if current is None else "reused"
+    digest = canonical[0]
+    verify(registry, protected, digest, subject, identities, public_key)
+    if current is None:
+        registry.copy_to_build(repository, digest, tag)
+        require(registry.manifest(build, tag)[0] == digest, "build legacy tag changed during reconciliation")
+    require(registry.manifest(protected, tag)[0] == digest, "protected legacy tag changed during reconciliation")
+    return "reused"
 
 
 def main():
@@ -217,11 +185,6 @@ def main():
     try:
         registry = Registry(os.environ.get("OCI_REGISTRY", "registry.carverauto.dev"))
         print(reconcile(args.reference, args.public_key, registry))
-    except MigrationRequired as error:
-        print(f"LEGACY_SIGNATURE_MIGRATION_REQUIRED: {error}; stop publication and request "
-              "reviewed disposable-artifact repair. Moving the tag does not remove Harbor accessories. "
-              "Do not overwrite protected tags or bypass graph verification.", file=sys.stderr)
-        return 2
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         print(f"legacy signature reconciliation failed: {error}", file=sys.stderr)
         return 1

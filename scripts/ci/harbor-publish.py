@@ -16,8 +16,8 @@ import sys
 import tempfile
 
 REGISTRY = "registry.carverauto.dev"
-TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:79b233b262f95c9b6562f6083f5cfe87bb194238b0adc8212f021f6b3882e409"
-TOOL_SHA = "619999e47449d5371607ad759c04c9db446241872756f172da4c8c4474bc4e35"
+TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:7d21a2b2f02fdd68b6c911a25b43ce403c367c9b1a33194cf7125de37bf0f847"
+TOOL_SHA = "90f8080a7603ad3807e24042684934f3cfc6cc33e4413573e51257a49dafab2a"
 ROOT = Path(os.environ.get("SERVICERADAR_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", Path(__file__).resolve().parents[2])))
 
 
@@ -119,16 +119,11 @@ def promote(directory, args):
         for tag in requested:
             if run("oras", "resolve", source + ":" + tag, env=build) != digest:
                 raise ValueError(f"build tags disagree: {repository}:{tag}")
-        referrers = json.loads(run("oras", "discover", "--format", "json", "--depth", "1", source + "@" + digest, env=build))
-        artifacts.append({"repository": repository, "digest": digest,
-                          "required_referrers": [item["digest"] for item in referrers["referrers"]]})
-        available_tags = json.loads(run("oras", "repo", "tags", "--format", "json", source, env=build))["tags"]
-        for suffix in ("sig", "att", "sbom"):
-            tag = digest.replace(":", "-") + "." + suffix
-            if tag in available_tags:
-                artifacts.append({"repository": repository,
-                                  "digest": run("oras", "resolve", source + ":" + tag, env=build),
-                                  "required_referrers": [], "legacy_tag": tag})
+        # One signature format: the digest's classic `.sig` tag, which admission
+        # reads. Promotion reuses a protected one or copies the verified build
+        # one; other build referrers (stale signatures, generated SBOMs) stay behind.
+        artifacts.append({"repository": repository, "digest": digest, "required_referrers": [],
+                          "legacy_signature": not args.unsigned})
         publish_tags.append((repository, digest, requested, static))
     bundle = directory / "bundle.json"
     bundle.write_text(json.dumps({"version": 1, "artifacts": artifacts}))
@@ -266,6 +261,8 @@ def main():
     selection.add_argument("--metadata-dir")
     selection.add_argument("--repositories", nargs="+")
     promote_parser.add_argument("--tag", dest="tags", action="append", required=True)
+    promote_parser.add_argument("--unsigned", action="store_true",
+                                help="artifacts without a Cosign signature (Helm chart bundles)")
     tool = commands.add_parser("publish-tool")
     tool.add_argument("--gitops-commit", required=True)
     tool.add_argument("--source", required=True, help="k8s/harbor/promote-artifacts.py at that commit")

@@ -125,7 +125,7 @@ def publish(version, release_tag):
         environment["HELM_REGISTRY_CONFIG"] = str(directory / "build/config.json")
         subprocess.run([sys.executable, str(tool_path), "--check-capacity-only"], check=True)
         subprocess.run([helm, "push", str(archive), f"oci://{publisher.REGISTRY}/serviceradar-builds/charts"], env=environment, check=True)
-        subprocess.run([sys.executable, helper, "promote", "--repositories", "charts/serviceradar", "--tag", version], check=True)
+        subprocess.run([sys.executable, helper, "promote", "--repositories", "charts/serviceradar", "--tag", version, "--unsigned"], check=True)
         print(f"Published verified chart bundle: {publisher.REGISTRY}/serviceradar/charts/serviceradar:{version}")
 
 

@@ -416,13 +416,12 @@ cosign_init_verify_args() {
   return 0
 }
 
-cosign_log_has_tlog_conflict() {
-  local log_file="$1"
-
-  (
-    grep -q 'createLogEntryConflict' "${log_file}" \
-      || grep -Eq '\[POST /api/v1/log/entries\]\[409\]' "${log_file}"
-  ) && grep -qi 'entry already exists' "${log_file}"
+# Images, native add-ons and Wasm plugins carry one signature format: the classic
+# `.sig` tag, which admission (Kyverno key-based verifyImages) reads. cosign v3
+# otherwise prefers a Sigstore bundle referrer and could pass an artifact that
+# admission rejects. Call after cosign_init_verify_args.
+cosign_verify_legacy_signature() {
+  cosign verify --new-bundle-format=false "${COSIGN_VERIFY_ARGS[@]}" "$1"
 }
 
 cosign_log_has_transient_tlog_error() {
@@ -475,34 +474,6 @@ cosign_init_tlog_args() {
   COSIGN_TLOG_ARGS+=(--tlog-upload="${tlog_upload}")
 }
 
-cosign_verify_existing_signature() {
-  local ref="$1"
-
-  if ! cosign_init_verify_args; then
-    echo "warning: cannot verify existing cosign signature for ${ref}; no verification identity configured" >&2
-    return 1
-  fi
-
-  cosign verify \
-    --experimental-oci11 \
-    "${COSIGN_VERIFY_ARGS[@]}" \
-    "${ref}" >/dev/null
-}
-
-cosign_sign_ref() {
-  local ref="$1"
-  local tlog_upload="$2"
-
-  cosign_init_tlog_args "${tlog_upload}"
-
-  cosign sign \
-    --yes \
-    "${COSIGN_TLOG_ARGS[@]}" \
-    --registry-referrers-mode="${COSIGN_REFERRERS_MODE:-oci-1-1}" \
-    "${COSIGN_SIGN_ARGS[@]}" \
-    "${ref}"
-}
-
 cosign_sign_blob_to_files() {
   local payload_file="$1"
   local bundle_file="$2"
@@ -543,62 +514,6 @@ cosign_sign_blob_to_files() {
     if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
       backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
       echo "warning: transient transparency-log blob signing failure; retrying attempt $((attempt + 1))/${max_attempts} after ${backoff_delay}s" >&2
-      sleep "${backoff_delay}"
-      attempt=$((attempt + 1))
-      continue
-    fi
-
-    break
-  done
-
-  return "${status}"
-}
-
-cosign_sign_ref_idempotent() {
-  local ref="$1"
-  local stderr_file
-  local status=1
-  local attempt=1
-  local max_attempts="${COSIGN_SIGN_MAX_ATTEMPTS:-4}"
-  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-5}"
-  local backoff_delay
-
-  stderr_file="$(mktemp)"
-  cosign_register_temp_file "${stderr_file}"
-
-  while ((attempt <= max_attempts)); do
-    : >"${stderr_file}"
-
-    if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2>"${stderr_file}"; then
-      cat "${stderr_file}" >&2
-      return 0
-    else
-      status=$?
-      cat "${stderr_file}" >&2
-    fi
-
-    if cosign_log_has_tlog_conflict "${stderr_file}"; then
-      echo "warning: transparency log already contains an equivalent entry for ${ref}; verifying existing signature" >&2
-      if cosign_verify_existing_signature "${ref}"; then
-        echo "verified existing cosign signature for ${ref}" >&2
-        return 0
-      fi
-
-      echo "warning: existing registry signature verification failed for ${ref} after transparency-log conflict" >&2
-      if ((attempt < max_attempts)); then
-        backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
-        echo "warning: retrying full signing for ${ref} (attempt $((attempt + 1))/${max_attempts}) after ${backoff_delay}s" >&2
-        sleep "${backoff_delay}"
-        attempt=$((attempt + 1))
-        continue
-      fi
-
-      return "${status}"
-    fi
-
-    if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
-      backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
-      echo "warning: transient transparency-log signing failure for ${ref}; retrying attempt $((attempt + 1))/${max_attempts} after ${backoff_delay}s" >&2
       sleep "${backoff_delay}"
       attempt=$((attempt + 1))
       continue

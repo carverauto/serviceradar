@@ -67,15 +67,20 @@ chart pins only those repositories present in the release commit's inventory.
 Before uploads and promotion, the shared tool requires fresh registry capacity
 metrics and less than 85% physical-volume usage. Harbor project quotas are a
 separate backstop. Missing metrics, failed source copies, missing architecture
-children, missing signatures/SBOMs or quota errors fail publication. The build
+children, missing signatures or quota errors fail publication. The build
 and promotion credentials live in separate temporary Docker configs and are
 removed by the final cleanup step.
 
-Promotion carries all OCI referrers plus explicit legacy Cosign attachment tags.
-Protected legacy attachment tags must be immutable before these workflows are
-enabled. Existing signature verification remains mandatory before and after
-promotion. Fixed protected tags are never replaced with a different digest;
-`latest` is updated only after the entire bundle has passed availability checks.
+Promotion copies each root with its platform manifests and blobs, plus the
+root's classic Cosign `.sig` tag. When the protected project already holds a
+`.sig` tag for that digest, promotion reuses it and does not copy the build
+signature. Other build referrers, such as stale signatures and Harbor-generated
+SBOMs, are not promoted; the protected project generates its own SBOMs. Helm
+chart bundles are not Cosign-signed and are promoted with `--unsigned`.
+Protected `.sig` tags must be immutable before these workflows are enabled.
+Signature verification remains mandatory before and after promotion. Fixed
+protected tags are never replaced with a different digest; `latest` is updated
+only after the entire bundle has passed availability checks.
 An inventory `static_tags` entry that already exists in the protected project
 keeps its existing image; it is created on the promoted digest only when absent.
 The successful receipt records verified root digests and tags in `published`,
@@ -380,32 +385,37 @@ and security verification succeeds. Never work around a failed parallel asset
 upload by publishing the draft first; immutable-release enforcement will
 prevent the missing asset from being attached afterward.
 
-### Canonical legacy signatures across Harbor projects
+### One signature format: classic Cosign `.sig` tags
 
-The image, native add-on, and Wasm signers share an exact-artifact verifier for
-legacy Cosign signatures. Before creating a build-project legacy signature they
-look for the protected project's canonical attachment. Reuse requires matching
+Images, native add-ons and Wasm plugins carry exactly one signature format: the
+classic Cosign `.sig` tag (`sha256-<digest>.sig`). Demo admission (the Kyverno
+`verify-serviceradar-images` policy, key-based `verifyImages`) reads only this
+format, and a digest whose only signature is a Sigstore bundle referrer is
+denied with `no signatures found`. The signers therefore never run
+`cosign sign`, which under cosign v3 writes a bundle referrer. The verifiers run
+`cosign verify --new-bundle-format=false` so that they check the same signature
+admission checks; cosign v3 otherwise prefers a bundle referrer.
+
+Each digest is signed once. Before signing, the shared helper
+(`scripts/reconcile-legacy-signature.py`) looks for an existing `.sig` tag in
+the protected project and then in the build project. Reuse requires matching
 manifest and blob hashes, a valid detached signature on every layer under the
 configured key, and the exact image digest and repository identity. The verifier
 accepts 1 through 32 signature layers; this is its operational safety cap, not a
 Cosign format limit. Repeated payload digests do not skip any signature check, and
 the original manifest and layer order are preserved. An attachment signed in
 either the protected or build project is valid for that same repository; another
-registry, project, or repository is refused. Modern signatures and their
-transparency verification remain mandatory.
+registry, project, or repository is refused.
 
-A verified canonical attachment is copied into the build project only when no
-conflicting build tag or obsolete legacy referrer exists. The protected tag is
-never replaced. Harbor retains inferred legacy referrers after a tag moves, so
-retagging a conflicting build attachment does not repair its graph. Publishers
-stop with `LEGACY_SIGNATURE_MIGRATION_REQUIRED` instead of hiding that mismatch.
-An operator must review a bounded disposable-artifact migration separately;
-ordinary CI has no artifact-delete permission and performs no automatic cleanup.
-A concurrent first publication can require that same migration, rather than an
-unbounded retry. Do not delete protected artifacts or weaken graph verification.
+A verified protected signature is reused: it is copied into the build project
+only when the build project has no `.sig` tag for the digest, so pre-promotion
+verification finds it. A build `.sig` tag that differs from the protected one
+(a byte-identical rebuild signed earlier) is kept if it verifies, and promotion
+keeps the protected signature without copying the build one. The protected tag
+is never replaced. Only when no verified signature exists is a new one created.
 
 Configured signing-key lookup failures and unsupported keyless legacy reuse fail
-closed. An old canonical signature that no longer verifies under the current key
+closed. An existing signature that no longer verifies under the current key
 requires an explicit trust/key-rotation decision. The signers do not fall back to
 an adjacent stale public key when exporting a configured signing key fails.
 Release retries snapshot this helper with the reviewed signer and Cosign common

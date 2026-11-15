@@ -106,10 +106,7 @@ PY
 
     if cosign_init_verify_args; then
       digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
-      cosign verify \
-        --experimental-oci11 \
-        "${COSIGN_VERIFY_ARGS[@]}" \
-        "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}" >/dev/null
+      cosign_verify_legacy_signature "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}" >/dev/null
     else
       echo "error: ${ref} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity" >&2
       exit 1

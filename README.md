@@ -164,42 +164,8 @@ ServiceRadar publishes Cosign-signed images to Harbor. The public verification k
 
 Publisher operations and artifact promotion are documented in the [release publishing guide](docs/RELEASE_PUBLISHING.md).
 
-For the self-hosted keyless migration path, keep custom Sigstore trust
-material under [docs/sigstore/README.md](docs/sigstore/README.md).
-The release scripts now support both legacy key-based verification and
-keyless verification against a custom trusted root.
-
-Verify a released or immutable image tag with:
-
-```bash
-cosign verify \
-  --experimental-oci11 \
-  --key docs/cosign.pub \
-  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.4.49
-```
-
-For build-specific images, prefer the immutable `sha-<commit>` tags:
-
-```bash
-cosign verify \
-  --experimental-oci11 \
-  --key docs/cosign.pub \
-  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
-```
-
-Successful verification proves the image was signed with the ServiceRadar release key and that the signature published in Harbor matches the requested image.
-
-For self-hosted keyless verification, use the published trusted root and
-certificate identity policy instead of `docs/cosign.pub`:
-
-```bash
-cosign verify \
-  --experimental-oci11 \
-  --trusted-root docs/sigstore/trusted-root.json \
-  --certificate-identity-regexp '<issuer-specific SAN regex>' \
-  --certificate-oidc-issuer https://issuer.example.com \
-  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
-```
+Verification commands, including the keyless path, are in
+[Verifying published images](docs/sigstore/README.md#verifying-published-images).
 
 Docker Compose notes:
 - Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.4.49`).

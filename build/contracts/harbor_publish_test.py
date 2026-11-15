@@ -363,7 +363,8 @@ class ImagePromotionTagsTest(unittest.TestCase):
                 "auth": base64.b64encode(f"{role}:synthetic-password".encode()).decode()}}}))
         tool = self.root / "tool/k8s/harbor/promote-artifacts.py"
         tool.parent.mkdir(parents=True)
-        tool.write_text("import json,sys\nbundle = json.load(open(sys.argv[1]))\n"
+        tool.write_text("import json,os,sys\nbundle = json.load(open(sys.argv[1]))\n"
+                        "json.dump(bundle, open(os.environ['BUNDLE_COPY'], 'w'))\n"
                         "print(json.dumps({'artifacts': [{'reference': 'registry.carverauto.dev/serviceradar/'"
                         " + a['repository'] + '@' + a['digest']} for a in bundle['artifacts']]}))\n")
         inventory = self.root / "docker/images/image_inventory.bzl"
@@ -388,7 +389,9 @@ class ImagePromotionTagsTest(unittest.TestCase):
                         "    if tag not in tags: raise SystemExit(1)\n"
                         "    print(tags[tag])\n"
                         "elif command[0] == 'discover':\n"
-                        "    print(json.dumps({'referrers': []}))\n"
+                        "    # Build storage also holds a stale Sigstore bundle referrer.\n"
+                        "    print(json.dumps({'referrers': [{'digest': 'sha256:' + '9' * 64,\n"
+                        "        'artifactType': 'application/vnd.dev.sigstore.bundle.v0.3+json'}]}))\n"
                         "elif command[:2] == ['repo', 'tags']:\n"
                         "    repository = command[-1].removeprefix('registry.carverauto.dev/')\n"
                         "    print(json.dumps({'tags': sorted(state.get(repository, {}))}))\n"
@@ -399,15 +402,19 @@ class ImagePromotionTagsTest(unittest.TestCase):
                         "    json.dump(state, open(state_path, 'w'))\n"
                         "else: raise SystemExit('unmodelled oras command')\n")
         oras.chmod(0o755)
+        self.bundle = self.root / "bundle-copy.json"
         self.env = os.environ | {"HARBOR_LIFECYCLE_DIR": str(self.root), "SERVICERADAR_REPO_ROOT": str(self.root),
                                  "REGISTRY_STATE": str(self.state), "TAG_CALLS": str(self.tag_calls),
+                                 "BUNDLE_COPY": str(self.bundle),
                                  "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
 
-    def promote(self, protected):
+    def promote(self, protected, *options):
         builds = {tag: self.NEW for tag in self.RELEASE + [self.STATIC]}
+        # The build alias for this digest's classic signature exists too.
+        builds[self.NEW.replace(":", "-") + ".sig"] = "sha256:" + "8" * 64
         self.state.write_text(json.dumps({"serviceradar-builds/example-db": builds,
                                           "serviceradar/example-db": protected}))
-        arguments = [sys.executable, str(SCRIPT), "promote", "--kind", "images"]
+        arguments = [sys.executable, str(SCRIPT), "promote", "--kind", "images", *options]
         for tag in self.RELEASE:
             arguments += ["--tag", tag]
         result = subprocess.run(arguments, env=self.env, text=True, capture_output=True)
@@ -415,6 +422,15 @@ class ImagePromotionTagsTest(unittest.TestCase):
         receipt = self.root / "receipt.json"
         published = json.loads(receipt.read_text())["published"] if receipt.exists() else None
         return result, registry, published
+
+    def test_bundle_requires_the_classic_signature_and_no_other_referrer(self):
+        for options, signed in (((), True), (("--unsigned",), False)):
+            with self.subTest(options=options):
+                result, _, _ = self.promote({}, *options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(self.bundle.read_text())["artifacts"], [
+                    {"repository": "example-db", "digest": self.NEW, "required_referrers": [],
+                     "legacy_signature": signed}])
 
     def test_existing_static_tag_with_another_image_is_kept_while_release_tags_publish(self):
         result, registry, published = self.promote({self.STATIC: self.OLD, "latest": self.OLD})
@@ -635,11 +651,22 @@ class PublicationVerificationTest(unittest.TestCase):
                   " print('synthetic public key')\n"
                   "elif sys.argv[1] == 'verify':\n"
                   " if mode == 'rejected': raise SystemExit(77)\n"
+                  # Measured cosign v3.0.3 behaviour: by default it accepts a valid
+                  # Sigstore bundle referrer even when the classic `.sig` does not
+                  # verify; --new-bundle-format=false checks only the `.sig`, which
+                  # is all admission reads.
+                  " if mode == 'only-bundle-verifies' and '--new-bundle-format=false' in sys.argv:\n"
+                  "  print('Error: no signatures found', file=sys.stderr); raise SystemExit(10)\n"
                   "else: raise SystemExit(9)\n")
+        # Harbor lists the subject's classic `.sig` manifest as its referrer.
         self.fake("curl", "url = sys.argv[-1]\n"
+                  "legacy = 'sha256:' + 'd'*64\n"
                   "if '/service/token?' in url: print('{\"token\":\"synthetic\"}')\n"
-                  "elif '/referrers/' in url: print(json.dumps({'manifests': [{'digest': 'sha256:'+'c'*64, "
-                  "'artifactType': 'application/vnd.dev.sigstore.bundle.v0.3+json'}]}))\n"
+                  "elif '/referrers/' in url: print(json.dumps({'manifests': [{'digest': legacy, "
+                  "'artifactType': 'application/vnd.oci.image.config.v1+json'}]}))\n"
+                  "elif url.endswith('/manifests/' + legacy): print(json.dumps({'layers': [{"
+                  "'mediaType': 'application/vnd.dev.cosign.simplesigning.v1+json', "
+                  "'annotations': {'dev.cosignproject.cosign/signature': 'c3ludGhldGlj'}}]}))\n"
                   "elif '/manifests/sha256-' not in url: raise SystemExit(9)\n")
         self.fake("oras", "digest = 'sha256:' + 'a'*64\n"
                   "if sys.argv[1:3] == ['manifest', 'fetch']:\n"
@@ -660,9 +687,9 @@ class PublicationVerificationTest(unittest.TestCase):
         path.write_text(f"#!{sys.executable}\nimport json,os,pathlib,sys\n" + body)
         path.chmod(0o755)
 
-    def test_all_verifiers_fail_when_identity_is_unavailable_or_signature_is_rejected(self):
+    def test_all_verifiers_fail_unless_the_classic_signature_verifies(self):
         for script in ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh"):
-            for mode in ("key-unavailable", "rejected", "valid"):
+            for mode in ("key-unavailable", "rejected", "only-bundle-verifies", "valid"):
                 with self.subTest(script=script, mode=mode):
                     self.calls.unlink(missing_ok=True)
                     result = subprocess.run(["bash", str(self.root / "scripts" / script), "sha-example"],
@@ -680,19 +707,13 @@ class PublicationVerificationTest(unittest.TestCase):
                         else:
                             self.assertIn("verify", calls)
 
-    def test_list_mode_and_optional_existing_signature_probe_keep_their_contracts(self):
+    def test_list_mode_reads_inventory_without_cosign(self):
         environment = self.env | {"VERIFY_MODE": "key-unavailable"}
         result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "--list-image-specs"],
                                 env=environment, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "registry.example/serviceradar/example|single\n")
         self.assertFalse(self.calls.exists())
-        result = subprocess.run(["bash", "-c", 'source "$1"; if cosign_verify_existing_signature "$2"; then exit 9; fi; echo retry',
-                                 "probe", str(self.root / "scripts/cosign_common.sh"), "registry.example/example@" + SYNTHETIC_DIGEST],
-                                env=environment, text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "retry\n")
-
 
 if __name__ == "__main__":
     unittest.main()
