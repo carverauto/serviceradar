@@ -92,26 +92,8 @@ The `publish_packages` binary performs the following:
 After the commands complete:
 
 - Confirm container images in Harbor (`registry.carverauto.dev/serviceradar/serviceradar-*`).
-- Verify at least one published image signature with the public key in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub):
-
-  ```bash
-  cosign verify \
-    --experimental-oci11 \
-    --key docs/cosign.pub \
-    registry.carverauto.dev/serviceradar/serviceradar-core-elx:v$(cat VERSION)
-  ```
-
-- For self-hosted keyless signing, verify with the published trusted root in [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md):
-
-  ```bash
-  cosign verify \
-    --experimental-oci11 \
-    --trusted-root docs/sigstore/trusted-root.json \
-    --certificate-identity-regexp '<issuer-specific SAN regex>' \
-    --certificate-oidc-issuer https://issuer.example.com \
-    registry.carverauto.dev/serviceradar/serviceradar-core-elx:v$(cat VERSION)
-  ```
-
+- Verify at least one published image signature for `v$(cat VERSION)` with the
+  commands in [Verifying published images](docs/sigstore/README.md#verifying-published-images).
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
 - Verify that the Forgejo release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
