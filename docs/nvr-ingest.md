@@ -82,8 +82,11 @@ sending media over NATS/JetStream or ERTS distribution:
    marker, never retries or fails over to another replica, and leaves the
    reserved block and epoch intact for inspection or recovery. The recorder
    lease keeps renewing until the NVR answers. A capture `timeout_ms` outside
-   1 through 300000 is refused before any recorder claim is taken. A verified
-   receipt is returned even if worker cleanup outlasts the drain window.
+   1 through 300000 is refused before any recorder claim is taken. A capture
+   with less than 250 ms left before its NVR stream opens stops with
+   `:capture_timeout` (not uncertain) and releases its recorder claim. A
+   verified receipt is returned even if worker cleanup outlasts the drain
+   window.
 
 ## Finite stream contract
 
