@@ -37,9 +37,10 @@ Two rule fields behave differently here than they do for a per-device
 integration. **Controller host** is the NetBox instance and becomes `base_url`,
 so set the full origin (`https://netbox.example.com`). **Target query** is only
 a delivery gate: the sync walks the instance named by the rule and ignores the
-resolved targets, so the manifest default resolves a single device
-(`in:devices sort:uid:asc limit:1`) and you narrow it to the NetBox host's own
-device record. What the rule does not fix is that it renders the flat
+resolved targets, so set it to the NetBox host's own device record (for example
+`in:devices ip:192.0.2.10`). The manifest ships no default: a target query cannot
+use `limit:` to select a single device, because the whole selection is always
+read. What the rule does not fix is that it renders the flat
 single-source fields, so an assignment with a non-empty `sources[]` ignores what
 the rule delivers.
 

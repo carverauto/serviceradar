@@ -38,18 +38,12 @@ defmodule ServiceRadar.Plugins.NetboxCredentialProfileTest do
     assert profile["scope_types"] == ["agent"]
   end
 
-  test "the default target query resolves and stays bounded", %{profile: profile} do
-    query = get_in(profile, ["rule_defaults", "target_query"])
-
-    # `metadata.netbox_candidate` has no writer anywhere in the tree -- unlike
-    # `proxmox_candidate`, which the mapper's Proxmox probe writes -- so a rule
-    # left on that default resolved nothing and materialized nothing. Nothing
-    # reported the miss, which is the failure the credential profile exists to
-    # remove.
-    refute query =~ "netbox_candidate"
-
-    # A single-cardinality consumer delivers the whole target set in one
-    # payload, so an unbounded default would be rejected rather than chunked.
-    assert query =~ ~r/\blimit:\d+\b/
+  test "the profile ships no default target query", %{profile: profile} do
+    # The target set only gates delivery, and a default would have to both
+    # resolve and stay small on every deployment. `metadata.netbox_candidate`
+    # has no writer, so a marker default resolved nothing, and `limit:` cannot
+    # bound the set because target queries are read whole and refuse it. The
+    # operator names the NetBox host's own device record instead.
+    refute Map.has_key?(profile["rule_defaults"] || %{}, "target_query")
   end
 end

@@ -75,7 +75,9 @@ rules:
     secret: demo-netbox
     scope_type: agent
     scope_value_from: SERVICERADAR_DEMO_AGENT_UID
-    target_query: "in:devices sort:uid:asc limit:1"
+    # The target set only gates delivery and is sent as one assignment, so name
+    # the NetBox host's own device record. A target query cannot use limit:.
+    target_query: 'in:devices hostname:"netbox"'
     tls_policy: verify
     allowed_ports: [443, 8443]
     controller_host_from: SERVICERADAR_DEMO_NETBOX_HOST

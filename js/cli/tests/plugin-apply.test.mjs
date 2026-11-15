@@ -59,7 +59,7 @@ rules:
     secret: demo-netbox
     scope_type: agent
     scope_value: agent-site01-01
-    target_query: "in:devices sort:uid:asc limit:1"
+    target_query: 'in:devices ip:"192.0.2.10"'
     tls_policy: verify
     controller_host: netbox.example.com
 assignments:

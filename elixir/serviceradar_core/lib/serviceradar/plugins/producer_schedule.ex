@@ -17,6 +17,8 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
   alias ServiceRadar.Plugins.ProducerScheduleDispatcher
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
+  alias ServiceRadar.SRQLTargetQuery
+  alias ServiceRadar.Validations.TargetQuery
 
   @operator_fields [
     :enabled,
@@ -126,6 +128,8 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
       ]
 
       validate &validate_schedule/2
+      validate {TargetQuery, attribute: :target_query}
+      validate &validate_target_input_query/2
       change &set_next_due/2
     end
 
@@ -142,6 +146,8 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
                ]
 
       validate &validate_schedule/2
+      validate {TargetQuery, attribute: :target_query}
+      validate &validate_target_input_query/2
       validate ServiceRadar.Plugins.Validations.ProducerSchedulePackageApproved
       change &set_next_due/2
     end
@@ -406,6 +412,42 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
         :ok
     end
   end
+
+  # A contract's `target_input` names the param that holds its SRQL device
+  # query. That query is a target query like `target_query`, so it follows the
+  # same rule, checked when the params or the contract are written.
+  defp validate_target_input_query(changeset, _context) do
+    if changeset.action_type == :create or
+         Ash.Changeset.changing_attribute?(changeset, :params) or
+         Ash.Changeset.changing_attribute?(changeset, :contract) do
+      changeset |> target_input_query() |> check_target_input_query()
+    else
+      :ok
+    end
+  end
+
+  defp target_input_query(changeset) do
+    contract = Ash.Changeset.get_attribute(changeset, :contract) || %{}
+    params = Ash.Changeset.get_attribute(changeset, :params) || %{}
+
+    case Map.get(contract, "target_input") do
+      %{"query_param" => param} when is_binary(param) -> Map.get(params, param)
+      _ -> nil
+    end
+  end
+
+  defp check_target_input_query(query) when is_binary(query) do
+    if blank?(query) do
+      :ok
+    else
+      case SRQLTargetQuery.validate(query, default_target: :devices) do
+        {:ok, _normalized} -> :ok
+        {:error, message} -> {:error, field: :params, message: message}
+      end
+    end
+  end
+
+  defp check_target_input_query(_query), do: :ok
 
   defp set_next_due(changeset, _context) do
     enabled = Ash.Changeset.get_attribute(changeset, :enabled)

@@ -1,13 +1,27 @@
 defmodule ServiceRadar.Changes.ValidateTargetQuery do
-  @moduledoc false
+  @moduledoc """
+  Validates a profile's or sweep group's target query with
+  `ServiceRadar.SRQLTargetQuery.validate/2` and stores it with its entity made
+  explicit. A blank query is stored as `nil`.
+
+  The query is checked on create and when an update changes it, so a query
+  saved before a rule existed does not block unrelated edits.
+  """
 
   alias Ash.Changeset
-  alias ServiceRadar.SRQLAst
-  alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.SRQLTargetQuery
 
   def change(changeset, opts) do
     field = Keyword.get(opts, :field, :target_query)
 
+    if changeset.action_type == :create or Changeset.changing_attribute?(changeset, field) do
+      normalize(changeset, field, opts)
+    else
+      changeset
+    end
+  end
+
+  defp normalize(changeset, field, opts) do
     case Changeset.get_attribute(changeset, field) do
       nil ->
         changeset
@@ -24,22 +38,14 @@ defmodule ServiceRadar.Changes.ValidateTargetQuery do
   end
 
   defp validate_query(changeset, field, query, opts) do
-    normalized_query = normalize_query(query, opts)
-
-    case SRQLAst.validate(normalized_query) do
-      :ok ->
+    case SRQLTargetQuery.validate(query,
+           default_target: Keyword.get(opts, :default_target, :devices)
+         ) do
+      {:ok, normalized_query} ->
         Changeset.change_attribute(changeset, field, normalized_query)
 
-      {:error, reason} ->
-        Changeset.add_error(changeset,
-          field: field,
-          message: "Invalid SRQL query: #{reason}"
-        )
+      {:error, message} ->
+        Changeset.add_error(changeset, field: field, message: message)
     end
-  end
-
-  defp normalize_query(query, opts) do
-    default_target = Keyword.get(opts, :default_target, :devices)
-    SRQLQuery.ensure_target(query, default_target)
   end
 end

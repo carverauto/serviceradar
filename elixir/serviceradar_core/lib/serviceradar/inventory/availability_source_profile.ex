@@ -12,7 +12,7 @@ defmodule ServiceRadar.Inventory.AvailabilitySourceProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  alias ServiceRadar.Inventory.Validations.AvailabilitySourceProfileTargetQuery
+  alias ServiceRadar.Validations.TargetQuery
 
   @create_fields [
     :name,
@@ -62,12 +62,12 @@ defmodule ServiceRadar.Inventory.AvailabilitySourceProfile do
 
     create :create do
       accept @create_fields
-      validate AvailabilitySourceProfileTargetQuery
+      validate {TargetQuery, attribute: :srql_query, entity: :devices, required?: true}
     end
 
     update :update do
       accept @update_fields
-      validate AvailabilitySourceProfileTargetQuery
+      validate {TargetQuery, attribute: :srql_query, entity: :devices, required?: true}
     end
   end
 
