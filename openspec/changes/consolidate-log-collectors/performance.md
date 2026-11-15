@@ -55,6 +55,46 @@ Increasing `nats_threads` is a useful diagnostic comparison, not the preferred
 architecture: each worker currently creates a runtime, connection and stream
 reconciliation. One logical output need not mean one outstanding publish.
 
+### Publish window measurement
+
+`rust/flowgger/examples/publish_window_bench.rs` runs one complete pipeline
+(TCP listener, RFC 5424 decoder, GELF encoder, NATS output) against a private
+`nats-server` with file storage and reports the time until the broker has
+stored every record. Runs differ only in `output.nats_max_inflight`; the stream
+settings, and therefore durability, are identical.
+
+```text
+cargo run --release --features nats-output --example publish_window_bench -- \
+    --window 1 --records 200000 --bytes 256
+```
+
+Three runs per window: 200,000 invented 256-byte records, loopback, one
+publisher worker, nats-server 2.12.8, ten-core arm64 workstation.
+
+| Window | Stored records/sec, three runs | Median |
+| --- | --- | --- |
+| 1 (serial) | 17,472 / 16,352 / 14,215 | 16,352 |
+| 8 | 43,179 / 37,148 / 33,873 | 37,148 |
+| 32 (default) | 17,225 / 31,612 / 46,178 | 31,612 |
+| 128 | 45,534 / 31,991 / 31,035 | 31,991 |
+
+What this supports, and what it does not:
+
+- The workstation was shared with other builds (load average above 10), which
+  is the likeliest cause of the spread, including the slow first run at window
+  32. Treat the figures as a direction, not a rating. Repeat on a quiet host
+  before quoting a multiplier.
+- Serial publishing was the limit at window 1: the sender finished in 2 to 3
+  seconds and the broker needed 11 to 14.
+- From window 8 upward the store time tracks the send time, and windows 8, 32
+  and 128 are indistinguishable within the noise. On loopback the publisher is
+  then no longer the bottleneck; the single listener thread and the
+  decode/encode path are. This is consistent with the listener findings above.
+- Loopback ACK latency is tens of microseconds. A real broker hop is slower,
+  so the serial ceiling is lower there, but that case was not measured.
+- The time ends at broker storage. It says nothing about EventWriter or
+  warehouse throughput.
+
 ## The consumer path contains more work than a protobuf decoder
 
 The current JSON syslog path is:

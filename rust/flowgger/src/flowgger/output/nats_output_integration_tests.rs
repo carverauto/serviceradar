@@ -50,6 +50,18 @@ impl Broker {
     }
 }
 
+impl Broker {
+    /// The broker numbers client connections in the order it accepts them, so
+    /// the difference between two readings counts every connection in between.
+    async fn next_client_id(&self) -> u64 {
+        async_nats::connect(&self.url)
+            .await
+            .unwrap()
+            .server_info()
+            .client_id
+    }
+}
+
 impl Drop for Broker {
     fn drop(&mut self) {
         let _ = self.process.kill();
@@ -62,18 +74,29 @@ fn worker(
     count: usize,
     bytes: usize,
 ) -> (NATSWorker, std::sync::mpsc::SyncSender<Vec<u8>>) {
+    worker_with(url, count, bytes, 250, "")
+}
+
+fn worker_with(
+    url: &str,
+    count: usize,
+    bytes: usize,
+    timeout_ms: u64,
+    extra: &str,
+) -> (NATSWorker, std::sync::mpsc::SyncSender<Vec<u8>>) {
     let config = Config::from_string(&format!(
         r#"
 [output]
 nats_url = "{url}"
 nats_stream = "SYNTHETIC_LOGS"
 nats_subject = "synthetic.logs"
-nats_timeout = 250
+nats_timeout = {timeout_ms}
 nats_connect_attempts = 5
 nats_connect_initial_backoff_ms = 10
 nats_connect_max_backoff_ms = 20
 nats_max_inflight = {count}
 nats_max_inflight_bytes = {bytes}
+{extra}
 "#,
     ))
     .unwrap();
@@ -204,5 +227,106 @@ fn record_larger_than_publish_byte_budget_fails_without_publishing() {
         );
         let mut stream = js.get_stream("SYNTHETIC_LOGS").await.unwrap();
         assert_eq!(stream.info().await.unwrap().state.messages, 0);
+    });
+}
+
+#[test]
+fn records_failing_together_share_one_replacement_connection() {
+    const PENDING: u64 = 8;
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut broker = Broker::start();
+        let js = broker.connect().await;
+        // The broker stores each record but withholds its ACK, so every pending
+        // record reaches its ACK timeout on the same connection.
+        let mut stream = js
+            .create_stream(jetstream::stream::Config {
+                name: "SYNTHETIC_LOGS".into(),
+                subjects: vec!["synthetic.logs".into()],
+                no_ack: true,
+                duplicate_window: Duration::from_secs(120),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let before = broker.next_client_id().await;
+        let (worker, tx) = worker_with(&broker.url, PENDING as usize, 1024 * 1024, 1_000, "");
+        for sequence in 0..PENDING as u8 {
+            tx.send(vec![b'a' + sequence; 64]).unwrap();
+        }
+        drop(tx);
+        let publishing = tokio::spawn(worker.run());
+        timeout(Duration::from_secs(5), async {
+            while stream.info().await.unwrap().state.messages < PENDING {
+                assert!(
+                    !publishing.is_finished(),
+                    "publisher exited before its records were pending"
+                );
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("publisher did not send every admitted record");
+
+        // Restore ACKs before the first timeout. The original attempts stay
+        // unacknowledged; the retries are acknowledged as duplicates.
+        let mut config = stream.info().await.unwrap().config.clone();
+        config.no_ack = false;
+        js.update_stream(config).await.unwrap();
+        timeout(Duration::from_secs(10), publishing)
+            .await
+            .expect("publisher failed to drain after ACKs were restored")
+            .unwrap()
+            .unwrap();
+
+        let replacements = broker.next_client_id().await - before - 2;
+        assert!(
+            replacements >= 1,
+            "the ACK timeouts never replaced the publisher connection"
+        );
+        assert!(
+            replacements < PENDING,
+            "{replacements} replacement connections for {PENDING} records that failed together"
+        );
+        assert_eq!(stream.info().await.unwrap().state.messages, PENDING);
+    });
+}
+
+#[test]
+fn certificate_policy_without_managed_tls_inputs_fails_closed() {
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        // The broker accepts plain connections, so only the configured policy
+        // can keep this record from being published.
+        let mut broker = Broker::start();
+        let js = broker.connect().await;
+        let (worker, tx) = worker_with(
+            &broker.url,
+            2,
+            1024,
+            250,
+            r#"nats_cert_policy_file = "/synthetic/absent/nats-policy.json""#,
+        );
+        tx.send(vec![b'x'; 64]).unwrap();
+        drop(tx);
+        let error = timeout(Duration::from_secs(5), worker.run())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            error.contains("NATS initial connection failed")
+                && error.contains("managed NATS TLS requires a CA file"),
+            "{error}"
+        );
+        assert!(
+            js.get_stream("SYNTHETIC_LOGS").await.is_err(),
+            "an unmanaged connection reached the broker"
+        );
     });
 }

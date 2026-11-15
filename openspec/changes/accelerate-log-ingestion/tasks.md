@@ -1,8 +1,9 @@
 ## 1. Publisher foundation
 - [x] 1.1 Implement count/byte-bounded concurrent publication and serial comparator.
 - [x] 1.2 Implement bounded persistent handoff and source-close draining under the configured retry policy.
-- [ ] 1.3 Complete verification of certificate errors and concurrent reconnect ownership. Delayed ACK concurrency, count/byte admission, oversized records, stable retry IDs/deduplication and source-close draining have passing coverage.
-- [ ] 1.4 Measure the publisher change with synthetic load and equivalent durability.
+- [x] 1.3 Verify concurrent reconnect ownership and fail-closed certificate policy configuration. Records whose ACKs fail together share one replacement connection, and a configured policy without managed TLS inputs stops the worker before any connection. Delayed ACK concurrency, count/byte admission, oversized records, stable retry IDs/deduplication and source-close draining already had coverage.
+- [ ] 1.3a Cover a policy revocation while ACKs are pending. Flowgger cannot exercise it today: the policy loader accepts only a root-owned path, so a test would need a production seam. `rust/cert-policy` tests own guard denial and socket closure.
+- [x] 1.4 Measure the publisher change with synthetic load and equivalent durability. Loopback results from a shared workstation are in `consolidate-log-collectors/performance.md`; repeat on a quiet host before quoting a multiplier.
 
 ## 2. Native Zen and control plane
 - [ ] 2.1 Extract shared normalization with conformance for merge, null, numeric, aliasing, errors and custom rules.

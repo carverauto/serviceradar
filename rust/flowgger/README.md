@@ -51,6 +51,15 @@ Closing the input queue drains pending publishes before flushing. An ambiguous
 ACK failure is retried only within the stream's duplicate window; send failures
 before possible persistence retain the configured connection retry policy.
 
+To compare windows on a workstation, run the synthetic benchmark once per
+window. It needs `nats-server` on `PATH` or in `NATS_SERVER_BIN`, and reports
+the time until the broker has stored every record:
+
+```text
+cargo run --release --features nats-output --example publish_window_bench -- \
+    --window 1 --records 200000 --bytes 256
+```
+
 The limits cover pending encoded payloads, not total process memory. Each worker
 also has a one-entry async queue, at most one record held by its blocking bridge,
 and at most one encoded record staged for byte admission. The upstream Flowgger
