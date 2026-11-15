@@ -459,13 +459,6 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     end)
   end
 
-  defp update_list(map, key, fun) do
-    case Map.get(map, key) do
-      list when is_list(list) -> Map.put(map, key, fun.(list))
-      _ -> map
-    end
-  end
-
   defp credential_secret_id(grant) do
     with ref when is_binary(ref) and ref != "" <- value(grant, "credential_secret_ref"),
          {:ok, secret_id} <- SecretRefs.network_credential_ref_id(ref) do
