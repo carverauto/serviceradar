@@ -17,8 +17,14 @@ import urllib.request
 
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 SIMPLE_SIGNING = "application/vnd.dev.cosign.simplesigning.v1+json"
+MAX_LEGACY_SIGNATURE_LAYERS = 32
 MANIFEST_TYPES = {"application/vnd.oci.image.manifest.v1+json",
                   "application/vnd.docker.distribution.manifest.v2+json"}
+FETCH_MANIFEST_TYPES = MANIFEST_TYPES | {
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.artifact.manifest.v1+json",
+}
 
 
 def strict_json(raw):
@@ -63,9 +69,15 @@ class Registry:
             # Only an authenticated registry's explicit missing manifest/repository
             # permits new signing. Authorization, transport and malformed errors fail.
             if absent and error.code == 404:
-                body = json.loads(error.read(1_048_576))
-                codes = [item.get("code") for item in body.get("errors", [])]
-                if codes and all(code in {"MANIFEST_UNKNOWN", "NAME_UNKNOWN"} for code in codes):
+                raw = error.read(1_048_577)
+                require(len(raw) <= 1_048_576, "registry error response exceeds 1 MiB")
+                body = strict_json(raw)
+                errors = body.get("errors") if isinstance(body, dict) else None
+                # Harbor's manifest controller uses NOT_FOUND for an absent tag.
+                if isinstance(errors, list) and errors and all(
+                    isinstance(item, dict) and item.get("code") in {"MANIFEST_UNKNOWN", "NAME_UNKNOWN", "NOT_FOUND"}
+                    for item in errors
+                ):
                     return None
             raise ValueError(f"registry lookup failed with HTTP {error.code}") from None
 
@@ -79,7 +91,7 @@ class Registry:
             require(isinstance(token, str) and token, "registry pull token missing")
             self.tokens[repository] = token
         return {"Authorization": "Bearer " + self.tokens[repository],
-                "Accept": ", ".join(sorted(MANIFEST_TYPES))}
+                "Accept": ", ".join(sorted(FETCH_MANIFEST_TYPES))}
 
     def manifest(self, repository, reference, absent=False):
         result = self.request(f"/v2/{repository}/manifests/{reference}", self.headers(repository), absent)
@@ -133,26 +145,29 @@ def verify(registry, repository, digest, subject, identities, public_key):
     require(not manifest.get("subject") and not manifest.get("artifactType"),
             "expected a classic simple-signing artifact, not a modern signature bundle")
     layers = manifest.get("layers")
-    require(isinstance(layers, list) and len(layers) == 1, "legacy signature must have exactly one layer")
-    require(layers[0].get("mediaType") == SIMPLE_SIGNING, "unsupported legacy signature payload")
+    require(isinstance(layers, list) and 1 <= len(layers) <= MAX_LEGACY_SIGNATURE_LAYERS,
+            f"legacy signature must have between 1 and {MAX_LEGACY_SIGNATURE_LAYERS} layers")
     registry.blob(repository, manifest["config"])
-    payload = registry.blob(repository, layers[0])
-    claims = strict_json(payload).get("critical", {})
-    require(claims.get("type") == "cosign container image signature", "wrong legacy signature type")
-    require(claims.get("image", {}).get("docker-manifest-digest") == subject, "wrong legacy signature subject")
-    require(claims.get("identity", {}).get("docker-reference") in identities, "wrong legacy signature repository")
-    signature = base64.b64decode(layers[0].get("annotations", {}).get("dev.cosignproject.cosign/signature", ""), validate=True)
-    require(signature, "legacy detached signature missing")
     with tempfile.TemporaryDirectory(prefix="legacy-signature-") as directory:
         directory = Path(directory)
-        (directory / "payload").write_bytes(payload)
-        (directory / "signature").write_bytes(signature)
-        result = subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public_key),
-                                 "-signature", str(directory / "signature"), str(directory / "payload")],
-                                capture_output=True)
-        require(result.returncode == 0,
-                "canonical legacy signature does not verify under the configured key; "
-                "restore approved trust or resolve key rotation without replacing the protected tag")
+        for layer in layers:
+            require(layer.get("mediaType") == SIMPLE_SIGNING, "unsupported legacy signature payload")
+            payload = registry.blob(repository, layer)
+            claims = strict_json(payload).get("critical", {})
+            require(claims.get("type") == "cosign container image signature", "wrong legacy signature type")
+            require(claims.get("image", {}).get("docker-manifest-digest") == subject, "wrong legacy signature subject")
+            require(claims.get("identity", {}).get("docker-reference") in identities, "wrong legacy signature repository")
+            signature = base64.b64decode(layer.get("annotations", {}).get("dev.cosignproject.cosign/signature", ""), validate=True)
+            require(signature, "legacy detached signature missing")
+            # Repeated payload digests still carry independent signature annotations.
+            (directory / "payload").write_bytes(payload)
+            (directory / "signature").write_bytes(signature)
+            result = subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public_key),
+                                     "-signature", str(directory / "signature"), str(directory / "payload")],
+                                    capture_output=True)
+            require(result.returncode == 0,
+                    "canonical legacy signature does not verify under the configured key; "
+                    "restore approved trust or resolve key rotation without replacing the protected tag")
 
 
 def reconcile(reference, public_key, registry):

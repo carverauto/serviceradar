@@ -366,8 +366,11 @@ prevent the missing asset from being attached afterward.
 The image, native add-on, and Wasm signers share an exact-artifact verifier for
 legacy Cosign signatures. Before creating a build-project legacy signature they
 look for the protected project's canonical attachment. Reuse requires matching
-manifest and blob hashes, a valid detached signature under the configured key,
-and the exact image digest and repository identity. An attachment signed in
+manifest and blob hashes, a valid detached signature on every layer under the
+configured key, and the exact image digest and repository identity. The verifier
+accepts 1 through 32 signature layers; this is its operational safety cap, not a
+Cosign format limit. Repeated payload digests do not skip any signature check, and
+the original manifest and layer order are preserved. An attachment signed in
 either the protected or build project is valid for that same repository; another
 registry, project, or repository is refused. Modern signatures and their
 transparency verification remain mandatory.

@@ -80,20 +80,37 @@ class LegacySignatureTest(unittest.TestCase):
     def setUp(self):
         self.registry = Registry()
 
-    def artifact(self, project, identity=None, subject=SUBJECT, key="trusted", corrupt=None):
-        repository = project + "/" + REPOSITORY
-        payload = encoded({"critical": {"type": "cosign container image signature", "identity": {"docker-reference": identity or "registry.example/" + repository}, "image": {"docker-manifest-digest": subject}}, "optional": None})
+    def signed_layer(self, repository, identity=None, subject=SUBJECT, key="trusted",
+                     payload_type="cosign container image signature", corrupt=None):
+        payload = encoded({"critical": {"type": payload_type, "identity": {"docker-reference": identity or "registry.example/" + repository}, "image": {"docker-manifest-digest": subject}}, "optional": None})
         signature = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", str(self.root / key)], input=payload)
+        if corrupt == "signature":
+            signature = b"invalid detached signature"
+        descriptor = {"digest": digest(payload), "size": len(payload), "mediaType": legacy.SIMPLE_SIGNING,
+                      "annotations": {"dev.cosignproject.cosign/signature": base64.b64encode(signature).decode()}}
+        if corrupt == "size":
+            descriptor["size"] += 1
+        elif corrupt == "digest":
+            descriptor["digest"] = "sha256:" + "0" * 64
+        elif corrupt == "media_type":
+            descriptor["mediaType"] = "application/octet-stream"
+        return descriptor, payload
+
+    def artifact(self, project, identity=None, subject=SUBJECT, key="trusted", corrupt=None, layer_options=None):
+        repository = project + "/" + REPOSITORY
         config = b'{"architecture":"","os":""}'
-        manifest = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": digest(config), "size": len(config), "mediaType": "application/vnd.oci.image.config.v1+json"}, "layers": [{"digest": digest(payload), "size": len(payload), "mediaType": legacy.SIMPLE_SIGNING, "annotations": {"dev.cosignproject.cosign/signature": base64.b64encode(signature).decode()}}]}
-        if corrupt == "multilayer":
-            manifest["layers"].append(dict(manifest["layers"][0]))
+        options = layer_options if layer_options is not None else [{"identity": identity, "subject": subject, "key": key}]
+        layers = []
+        for option in options:
+            descriptor, payload = self.signed_layer(repository, **option)
+            layers.append(descriptor)
+            self.registry.objects[f"/v2/{repository}/blobs/{descriptor['digest']}"] = b"corrupt" if corrupt == "payload" else payload
+        manifest = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": digest(config), "size": len(config), "mediaType": "application/vnd.oci.image.config.v1+json"}, "layers": layers}
         raw = encoded(manifest)
         value = digest(raw)
         self.registry.objects[f"/v2/{repository}/manifests/{TAG}"] = raw
         self.registry.objects[f"/v2/{repository}/manifests/{value}"] = raw
         self.registry.objects[f"/v2/{repository}/blobs/{digest(config)}"] = b"corrupt" if corrupt == "config" else config
-        self.registry.objects[f"/v2/{repository}/blobs/{digest(payload)}"] = b"corrupt" if corrupt == "payload" else payload
         if corrupt == "manifest":
             self.registry.objects[f"/v2/{repository}/manifests/{value}"] = raw + b" "
         if project == "serviceradar-builds":
@@ -112,6 +129,51 @@ class LegacySignatureTest(unittest.TestCase):
         self.assertEqual(self.reconcile(), "reused")
         self.assertEqual(len(self.registry.copies), 1)
         self.assertEqual(protected, {k: v for k, v in self.registry.objects.items() if k.startswith("/v2/serviceradar/")})
+
+    def test_multiple_signatures_reused_without_changing_manifest(self):
+        for count in (3, 32):
+            with self.subTest(count=count):
+                self.registry = Registry()
+                canonical = self.artifact("serviceradar", layer_options=[{} for _ in range(count)])
+                raw = self.registry.objects[f"/v2/serviceradar/example/manifests/{canonical}"]
+                layers = json.loads(raw)["layers"]
+                self.assertEqual(len({layer["digest"] for layer in layers}), 1)
+                self.assertEqual(len({layer["annotations"]["dev.cosignproject.cosign/signature"] for layer in layers}), count)
+                self.assertEqual(self.reconcile(), "reused")
+                self.assertEqual(self.registry.copies, [(REPOSITORY, canonical, TAG)])
+                self.assertEqual(self.registry.objects[f"/v2/serviceradar-builds/example/manifests/{TAG}"], raw)
+                self.assertEqual(self.registry.objects[f"/v2/serviceradar/example/manifests/{TAG}"], raw)
+
+    def test_invalid_later_signature_refuses_entire_artifact_before_copy(self):
+        cases = [
+            ({"key": "wrong"}, "configured key"),
+            ({"corrupt": "signature"}, "configured key"),
+            ({"subject": "sha256:" + "b" * 64}, "subject"),
+            ({"payload_type": "untrusted payload type"}, "type"),
+            ({"identity": "registry.example/serviceradar/other"}, "repository"),
+            ({"corrupt": "size"}, "hash or size"),
+            ({"corrupt": "digest"}, "hash or size"),
+            ({"corrupt": "media_type"}, "unsupported legacy signature payload"),
+        ]
+        for position in (1, 2):
+            for option, reason in cases:
+                with self.subTest(position=position, option=option):
+                    self.registry = Registry()
+                    layers = [{}, {}, {}]
+                    layers[position] = option
+                    self.artifact("serviceradar", layer_options=layers)
+                    with self.assertRaisesRegex(ValueError, reason):
+                        self.reconcile()
+                    self.assertEqual(self.registry.copies, [])
+
+    def test_empty_or_oversized_signature_list_refuses_before_copy(self):
+        for count in (0, 33):
+            with self.subTest(count=count):
+                self.registry = Registry()
+                self.artifact("serviceradar", layer_options=[{} for _ in range(count)])
+                with self.assertRaisesRegex(ValueError, "between 1 and 32"):
+                    self.reconcile()
+                self.assertEqual(self.registry.copies, [])
 
     def test_existing_different_build_signature_requires_migration_without_retag(self):
         canonical = self.artifact("serviceradar")
@@ -137,7 +199,7 @@ class LegacySignatureTest(unittest.TestCase):
         self.assertEqual(self.registry.copies[0][1], canonical)
 
     def test_invalid_canonical_refuses_before_any_copy(self):
-        cases = [{"key": "wrong"}, {"subject": "sha256:" + "b" * 64}, {"identity": "registry.example/serviceradar/other"}, {"identity": "other.example/serviceradar/example"}, {"identity": "registry.example/untrusted/example"}] + [{"corrupt": kind} for kind in ("payload", "config", "manifest", "multilayer")]
+        cases = [{"key": "wrong"}, {"subject": "sha256:" + "b" * 64}, {"identity": "registry.example/serviceradar/other"}, {"identity": "other.example/serviceradar/example"}, {"identity": "registry.example/untrusted/example"}] + [{"corrupt": kind} for kind in ("payload", "config", "manifest")]
         for case in cases:
             with self.subTest(case=case):
                 self.registry = Registry()
@@ -166,15 +228,77 @@ class LegacySignatureTest(unittest.TestCase):
 
     def test_only_explicit_registry_missing_response_means_absent(self):
         registry = legacy.Registry("registry.example")
-        for status, code, absent in [(404, "MANIFEST_UNKNOWN", True), (404, "NAME_UNKNOWN", True), (404, "DENIED", False), (401, "UNAUTHORIZED", False), (500, "UNKNOWN", False)]:
-            with self.subTest(status=status, code=code):
-                error = urllib.error.HTTPError("https://registry.example", status, "synthetic", {}, io.BytesIO(encoded({"errors": [{"code": code}]})))
+        def errors(*codes):
+            return encoded({"errors": [{"code": code} for code in codes]})
+        oversized = errors("NOT_FOUND").ljust(1_048_576, b" ") + b"invalid trailing data"
+        cases = [(404, errors(code), True, True) for code in ("MANIFEST_UNKNOWN", "NAME_UNKNOWN", "NOT_FOUND")]
+        cases += [
+            (404, errors("DENIED"), True, False),
+            (404, errors("NOT_FOUND", "UNAUTHORIZED"), True, False),
+            (404, errors("NOT_FOUND", "UNKNOWN"), True, False),
+            (404, errors(), True, False),
+            (404, oversized, True, False),
+            (404, b'{}', True, False),
+            (404, b'[]', True, False),
+            (404, b'{"errors":null}', True, False),
+            (404, b'{"errors":["NOT_FOUND"]}', True, False),
+            (404, b'{"errors":{"code":"NOT_FOUND"}}', True, False),
+            (404, b'{invalid JSON', True, False),
+            (404, b'{"errors":[{"code":"DENIED","code":"MANIFEST_UNKNOWN"}]}', True, False),
+            (404, b'{"errors":[{"code":"DENIED"}],"errors":[{"code":"NAME_UNKNOWN"}]}', True, False),
+            (401, errors("NOT_FOUND"), True, False),
+            (403, errors("NOT_FOUND"), True, False),
+            (500, errors("MANIFEST_UNKNOWN"), True, False),
+            (404, errors("NOT_FOUND"), False, False),
+        ]
+        for status, body, optional, absent in cases:
+            with self.subTest(status=status, body=body[:128], body_size=len(body), optional=optional):
+                error = urllib.error.HTTPError("https://registry.example", status, "synthetic", {}, io.BytesIO(body))
                 with patch.object(registry.http, "open", side_effect=error):
                     if absent:
-                        self.assertIsNone(registry.request("/v2/example/manifests/tag", {}, absent=True))
+                        self.assertIsNone(registry.request("/v2/example/manifests/tag", {}, absent=optional))
                     else:
                         with self.assertRaises(ValueError):
-                            registry.request("/v2/example/manifests/tag", {}, absent=True)
+                            registry.request("/v2/example/manifests/tag", {}, absent=optional)
+
+    def test_existing_unsupported_canonical_is_not_mistaken_for_absence(self):
+        types = ("application/vnd.oci.image.index.v1+json",
+                 "application/vnd.docker.distribution.manifest.list.v2+json",
+                 "application/vnd.oci.artifact.manifest.v1+json")
+        for media_type in types:
+            with self.subTest(media_type=media_type):
+                registry = legacy.Registry("registry.example")
+                content = {"schemaVersion": 2, "mediaType": media_type}
+                content["blobs" if "artifact.manifest" in media_type else "manifests"] = []
+                manifest = encoded(content)
+                def response(raw):
+                    result = io.BytesIO(raw)
+                    result.headers = {"Docker-Content-Digest": digest(raw)}
+                    return result
+                def missing(request, code):
+                    body = encoded({"errors": [{"code": code, "message": "synthetic manifest lookup failure"}]})
+                    raise urllib.error.HTTPError(request.full_url, 404, "synthetic", {}, io.BytesIO(body))
+                def open_request(request, timeout):
+                    if "/service/token?" in request.full_url:
+                        return response(encoded({"token": "synthetic"}))
+                    if "/v2/serviceradar/example/manifests/" in request.full_url:
+                        # Registry negotiation can return MANIFEST_UNKNOWN even
+                        # for an existing index when its media type is not accepted.
+                        if media_type not in request.get_header("Accept", ""):
+                            return missing(request, "MANIFEST_UNKNOWN")
+                        return response(manifest)
+                    if "/v2/serviceradar-builds/example/manifests/" in request.full_url:
+                        return missing(request, "NOT_FOUND")
+                    if "/referrers/" in request.full_url:
+                        return response(encoded({"manifests": []}))
+                    self.fail("unexpected registry request: " + request.full_url)
+                with patch.dict(os.environ, {"OCI_USERNAME": "synthetic", "OCI_TOKEN": "synthetic"}), \
+                     patch.object(registry.http, "open", side_effect=open_request), \
+                     patch.object(registry, "copy_to_build") as copy:
+                    with self.assertRaisesRegex(ValueError, "unsupported legacy signature manifest"):
+                        legacy.reconcile("registry.example/serviceradar-builds/example@" + SUBJECT,
+                                         self.public, registry)
+                    copy.assert_not_called()
 
     def test_paginated_referrers_refuse_before_copy(self):
         self.artifact("serviceradar")
