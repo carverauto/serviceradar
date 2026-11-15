@@ -34,5 +34,28 @@ Duplicate socket configurations and unknown input types fail startup. With
 multiple listeners, a listener panic or exit fails the whole pipeline so an
 embedding collector cannot continue reporting healthy after losing a listener.
 
+## JetStream publish window
+
+The NATS output pipelines acknowledgments on each worker's connection. Configure
+`output.nats_max_inflight` (default `32`) and
+`output.nats_max_inflight_bytes` (default `8388608`, or 8 MiB) to bound pending
+messages and their encoded payload bytes. Set the count to `1` for serial
+publishing. Both values must be positive integers. A record larger than the byte
+budget fails the output explicitly rather than waiting forever or being dropped.
+
+These limits apply **per `nats_threads` worker**, including records waiting for
+retry. Each worker still owns a connection and stream reconciliation. A retry
+retains its original message ID, payload and admission slot; reconnects within a
+worker are coordinated. Concurrent publishing does not guarantee completion order.
+Closing the input queue drains pending publishes before flushing. An ambiguous
+ACK failure is retried only within the stream's duplicate window; send failures
+before possible persistence retain the configured connection retry policy.
+
+The limits cover pending encoded payloads, not total process memory. Each worker
+also has a one-entry async queue, at most one record held by its blocking bridge,
+and at most one encoded record staged for byte admission. The upstream Flowgger
+record queue and client/TLS buffers have their own memory costs. One persistent
+bridge thread per worker keeps an idle synchronous queue off the Tokio runtime.
+
 ## Support
 This fork is maintained for ServiceRadar. We welcome contributions aligned with this use case but cannot support other applications.

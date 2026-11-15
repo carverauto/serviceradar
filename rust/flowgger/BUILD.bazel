@@ -72,7 +72,10 @@ rust_test(
         "tls",
     ],
     # Config::from_path tests read these fixtures by relative path.
-    data = glob(["tests/resources/*.toml"]),
+    data = glob(["tests/resources/*.toml"]) + ["//third_party/binaries:nats_server_linux_amd64"],
+    env = {
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
     deps = all_crate_deps(
         cargo_only = True,
         normal_dev = True,

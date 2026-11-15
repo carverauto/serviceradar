@@ -24,6 +24,8 @@ use {
     },
     tokio::{
         runtime::Builder as RtBuilder,
+        sync::{Mutex as AsyncMutex, mpsc},
+        task::JoinSet,
         time::{sleep, timeout},
     },
 };
@@ -164,19 +166,46 @@ fn panic_message(payload: &Box<dyn Any + Send>) -> String {
 }
 
 #[cfg(feature = "nats-output")]
-async fn receive_record(arx: Arc<Mutex<Receiver<Vec<u8>>>>) -> Result<Option<Vec<u8>>, String> {
-    tokio::task::spawn_blocking(move || {
-        let receiver = arx
-            .lock()
-            .map_err(|_| "Flowgger NATS output queue mutex is poisoned".to_string())?;
+fn receive_records(
+    arx: Arc<Mutex<Receiver<Vec<u8>>>>,
+) -> Result<mpsc::Receiver<Result<Vec<u8>, String>>, String> {
+    let (tx, rx) = mpsc::channel(1);
+    thread::Builder::new()
+        .name("flowgger-nats-queue".into())
+        .spawn(move || {
+            loop {
+                let record = match arx.lock() {
+                    Ok(receiver) => match receiver.recv() {
+                        Ok(bytes) => Ok(bytes),
+                        Err(_) => break,
+                    },
+                    Err(_) => {
+                        let _ = tx.blocking_send(Err(
+                            "Flowgger NATS output queue mutex is poisoned".into(),
+                        ));
+                        break;
+                    }
+                };
+                // Release the shared receiver lock before applying backpressure so
+                // other configured NATS workers can continue receiving records.
+                if tx.blocking_send(record).is_err() {
+                    break;
+                }
+            }
+        })
+        .map_err(|error| format!("Failed to start Flowgger NATS queue bridge: {error}"))?;
+    Ok(rx)
+}
 
-        match receiver.recv() {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(_) => Ok(None),
-        }
-    })
-    .await
-    .map_err(|err| format!("Flowgger NATS output queue task failed: {err}"))?
+#[cfg(feature = "nats-output")]
+fn positive_size(cfg: &Config, key: &str, default: usize) -> usize {
+    match cfg.lookup(key) {
+        None => default,
+        Some(value) => match value.as_integer().and_then(|n| usize::try_from(n).ok()) {
+            Some(n) if n > 0 => n,
+            _ => panic!("{key} must be a positive integer"),
+        },
+    }
 }
 
 #[cfg(feature = "nats-output")]
@@ -204,6 +233,8 @@ struct NATSConfig {
     connect_attempts: u32,
     connect_initial_backoff: Duration,
     connect_max_backoff: Duration,
+    max_inflight: usize,
+    max_inflight_bytes: usize,
 }
 
 #[cfg(feature = "nats-output")]
@@ -315,6 +346,12 @@ impl NATSOutput {
                 connect_attempts,
                 connect_initial_backoff,
                 connect_max_backoff,
+                max_inflight: positive_size(cfg, "output.nats_max_inflight", 32),
+                max_inflight_bytes: positive_size(
+                    cfg,
+                    "output.nats_max_inflight_bytes",
+                    8 * 1024 * 1024,
+                ),
             },
             workers,
         }
@@ -329,7 +366,12 @@ struct NATSWorker {
 }
 
 #[cfg(feature = "nats-output")]
-impl NATSWorker {
+struct NATSPublisher {
+    cfg: NATSConfig,
+}
+
+#[cfg(feature = "nats-output")]
+impl NATSPublisher {
     async fn connect_once(&self) -> Result<NATSConnection, async_nats::Error> {
         // Start with default connect options.
         // The outer worker owns long-lived reconnect policy. Keeping each
@@ -482,11 +524,12 @@ impl NATSWorker {
 
     async fn publish_with_retry(
         &self,
-        connection: &mut NATSConnection,
+        shared: &AsyncMutex<Arc<NATSConnection>>,
         publish: PublishMessage,
         message_id: &str,
         payload_size: usize,
     ) -> Result<(), String> {
+        let mut connection = shared.lock().await.clone();
         let mut retry_count = 0_u64;
         let mut first_possible_store = None;
         let mut retry_deadline = None;
@@ -496,6 +539,23 @@ impl NATSWorker {
         );
 
         loop {
+            if let Some(first_store) = first_possible_store {
+                let candidate_deadline = ack_retry_deadline(
+                    first_store,
+                    connection.duplicate_window,
+                    self.cfg.timeout,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "NATS reconnected for message_id={message_id}, but stream duplicate_window={:?} no longer leaves a safe acknowledgment retry horizon",
+                        connection.duplicate_window
+                    )
+                })?;
+                retry_deadline = Some(match retry_deadline {
+                    Some(existing) => min(existing, candidate_deadline),
+                    None => candidate_deadline,
+                });
+            }
             if let Some(deadline) = retry_deadline {
                 remaining_retry_budget(deadline, Instant::now()).ok_or_else(|| {
                     format!(
@@ -510,11 +570,16 @@ impl NATSWorker {
                 .as_ref()
                 .is_some_and(|guard| guard.ensure_authorized().is_err())
             {
-                sleep(backoff).await;
-                *connection = self
-                    .connect_with_retry()
-                    .await
-                    .map_err(|error| format!("managed NATS reconnect failed: {error}"))?;
+                let delay = match retry_deadline {
+                    Some(deadline) => remaining_retry_budget(deadline, Instant::now())
+                        .and_then(|remaining| retry_delay(backoff, remaining))
+                        .ok_or(
+                            "NATS policy reconnect would exceed the acknowledgment retry horizon",
+                        )?,
+                    None => backoff,
+                };
+                sleep(delay).await;
+                connection = self.reconnect(shared, &connection, retry_deadline).await?;
                 continue;
             }
             match self.publish_once(&connection.js, publish.clone()).await {
@@ -576,57 +641,44 @@ impl NATSWorker {
                     );
 
                     sleep(delay).await;
-                    let new_connection = match retry_deadline {
-                        Some(deadline) => {
-                            let remaining = remaining_retry_budget(deadline, Instant::now())
-                                .ok_or_else(|| {
-                                    format!(
-                                        "NATS acknowledgment retry horizon exhausted while reconnecting message_id={message_id} subject={}",
-                                        self.cfg.subject
-                                    )
-                                })?;
-                            timeout(remaining, self.connect_with_retry())
-                                .await
-                                .map_err(|_| {
-                                    format!(
-                                        "NATS reconnect exceeded the remaining {remaining:?} acknowledgment retry horizon for message_id={message_id} subject={}",
-                                        self.cfg.subject
-                                    )
-                                })?
-                        }
-                        // A send-stage failure cannot have reached the NATS
-                        // server. Until an ACK-ambiguous attempt occurs, retain
-                        // the configured unlimited reconnect behavior.
-                        None => self.connect_with_retry().await,
-                    }
-                    .map_err(|err| {
-                        format!(
-                            "NATS reconnect failed while retaining message_id={message_id} for retry: {err}"
-                        )
-                    })?;
+                    let new_connection =
+                        self.reconnect(shared, &connection, retry_deadline).await?;
 
-                    if let Some(first_store) = first_possible_store {
-                        let candidate_deadline = ack_retry_deadline(
-                            first_store,
-                            new_connection.duplicate_window,
-                            self.cfg.timeout,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "NATS reconnected for message_id={message_id}, but stream duplicate_window={:?} no longer leaves a safe acknowledgment retry horizon",
-                                new_connection.duplicate_window
-                            )
-                        })?;
-                        retry_deadline = Some(match retry_deadline {
-                            Some(existing) => min(existing, candidate_deadline),
-                            None => candidate_deadline,
-                        });
-                    }
-
-                    *connection = new_connection;
+                    connection = new_connection;
                     backoff = next_backoff(backoff, self.cfg.connect_max_backoff);
                 }
             }
+        }
+    }
+
+    async fn reconnect(
+        &self,
+        shared: &AsyncMutex<Arc<NATSConnection>>,
+        previous: &Arc<NATSConnection>,
+        deadline: Option<Instant>,
+    ) -> Result<Arc<NATSConnection>, String> {
+        let reconnect = async {
+            let mut current = shared.lock().await;
+            // A different record may already have replaced the failed client.
+            // Reconnect once, while existing ACK futures keep being polled.
+            if Arc::ptr_eq(&current, previous) {
+                *current = Arc::new(self.connect_with_retry().await.map_err(|err| {
+                    format!("NATS reconnect failed while retaining pending records: {err}")
+                })?);
+            }
+            Ok(current.clone())
+        };
+        match deadline {
+            Some(deadline) => {
+                let remaining = remaining_retry_budget(deadline, Instant::now())
+                    .ok_or("NATS acknowledgment retry horizon exhausted before reconnect")?;
+                timeout(remaining, reconnect).await.map_err(|_| {
+                    format!("NATS reconnect exceeded the remaining {remaining:?} acknowledgment retry horizon")
+                })?
+            }
+            // Before a possibly stored attempt, preserve configured reconnect
+            // behavior, including unlimited connection attempts.
+            None => reconnect.await,
         }
     }
 
@@ -644,60 +696,100 @@ impl NATSWorker {
             }
         }
     }
+}
+
+#[cfg(feature = "nats-output")]
+impl NATSWorker {
+    fn prepare_record(&self, mut bytes: Vec<u8>) -> Vec<u8> {
+        #[cfg(feature = "gelf")]
+        {
+            if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes)
+                && let Some(obj) = v.as_object_mut()
+            {
+                if let Some(addr_val) = obj.get_mut("_remote_addr")
+                    && let Some(s) = addr_val.as_str()
+                {
+                    *addr_val = Value::String(format!("{}:{}", self.cfg.partition, s));
+                }
+                bytes = serde_json::to_vec(&v).unwrap_or(bytes);
+            }
+        }
+        if let Some(m) = &self.merger {
+            m.frame(&mut bytes);
+        }
+        bytes
+    }
 
     async fn run(self) -> Result<(), String> {
-        let mut connection = self.connect_with_retry().await.map_err(|err| {
-            if self.cfg.connect_attempts == 0 {
-                format!("NATS connection failed after unlimited retries: {err}")
-            } else {
-                format!(
-                    "NATS connection failed after {} attempts: {err}",
-                    self.cfg.connect_attempts
-                )
-            }
-        })?;
+        let publisher = Arc::new(NATSPublisher {
+            cfg: self.cfg.clone(),
+        });
+        let connection = Arc::new(AsyncMutex::new(Arc::new(
+            publisher
+                .connect_with_retry()
+                .await
+                .map_err(|err| format!("NATS initial connection failed: {err}"))?,
+        )));
+        let mut records = receive_records(Arc::clone(&self.arx))?;
+        let mut pending = JoinSet::new();
+        let mut pending_bytes = 0usize;
+        let mut staged: Option<Vec<u8>> = None;
+        let mut closed = false;
 
         loop {
-            // The Flowgger queue is synchronous. Receive it on Tokio's blocking
-            // pool so async-nats heartbeat and reconnect tasks keep running while
-            // syslog traffic is idle.
-            let mut bytes = match receive_record(Arc::clone(&self.arx)).await? {
-                Some(bytes) => bytes,
-                None => {
-                    self.flush_on_close(&connection).await;
-                    return Ok(());
-                }
-            };
-
-            #[cfg(feature = "gelf")]
+            if let Some(bytes) = staged.as_ref()
+                && pending.len() < self.cfg.max_inflight
+                && bytes.len() <= self.cfg.max_inflight_bytes - pending_bytes
             {
-                if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes)
-                    && let Some(obj) = v.as_object_mut()
-                {
-                    if let Some(addr_val) = obj.get_mut("_remote_addr")
-                        && let Some(s) = addr_val.as_str()
-                    {
-                        *addr_val = Value::String(format!("{}:{}", self.cfg.partition, s));
+                let bytes = staged.take().unwrap();
+                let payload_size = bytes.len();
+                let message_id = new_message_id();
+                let publish = PublishMessage::build()
+                    .payload(bytes.into())
+                    .message_id(&message_id);
+                let publisher = Arc::clone(&publisher);
+                let connection = Arc::clone(&connection);
+                pending_bytes += payload_size;
+                pending.spawn(async move {
+                    let result = publisher
+                        .publish_with_retry(&connection, publish, &message_id, payload_size)
+                        .await;
+                    (payload_size, result)
+                });
+                continue;
+            }
+            if closed && staged.is_none() && pending.is_empty() {
+                let current = connection.lock().await.clone();
+                publisher.flush_on_close(&current).await;
+                return Ok(());
+            }
+            tokio::select! {
+                // Surface failures before accepting more records when both are
+                // ready. Completed tasks still occupy their admission slots.
+                biased;
+                completion = pending.join_next(), if !pending.is_empty() => {
+                    let (size, result) = completion.unwrap()
+                        .map_err(|err| format!("Flowgger NATS publish task failed: {err}"))?;
+                    pending_bytes -= size;
+                    result?;
+                }
+                record = records.recv(), if !closed && staged.is_none() && pending.len() < self.cfg.max_inflight => {
+                    match record {
+                        Some(Ok(bytes)) => {
+                            let bytes = self.prepare_record(bytes);
+                            if bytes.len() > self.cfg.max_inflight_bytes {
+                                return Err(format!(
+                                    "NATS encoded record has {} bytes, exceeding output.nats_max_inflight_bytes={}; refusing to drop it or exceed the publish budget",
+                                    bytes.len(), self.cfg.max_inflight_bytes,
+                                ));
+                            }
+                            staged = Some(bytes);
+                        }
+                        Some(Err(err)) => return Err(err),
+                        None => closed = true,
                     }
-                    bytes = serde_json::to_vec(&v).unwrap_or(bytes);
                 }
             }
-
-            if let Some(m) = &self.merger {
-                m.frame(&mut bytes);
-            }
-
-            // An ACK failure is ambiguous: JetStream may already have persisted
-            // the record. Reuse one message ID across safe retries so the
-            // stream's duplicate window suppresses a second stored copy.
-            let payload_size = bytes.len();
-            let message_id = new_message_id();
-            let publish = PublishMessage::build()
-                .payload(bytes.into())
-                .message_id(&message_id);
-
-            self.publish_with_retry(&mut connection, publish, &message_id, payload_size)
-                .await?;
         }
     }
 }
@@ -742,6 +834,10 @@ impl Output for NATSOutput {
 }
 
 #[cfg(all(test, feature = "nats-output"))]
+#[path = "nats_output_integration_tests.rs"]
+mod integration_tests;
+
+#[cfg(all(test, feature = "nats-output"))]
 mod tests {
     use super::*;
     use std::sync::mpsc::sync_channel;
@@ -773,7 +869,8 @@ nats_domain = "synthetic_edge"
         let arx = Arc::new(Mutex::new(rx));
 
         runtime.block_on(async move {
-            let receive_task = tokio::spawn(receive_record(arx));
+            let mut records = receive_records(arx).unwrap();
+            let receive_task = tokio::spawn(async move { records.recv().await });
 
             timeout(Duration::from_secs(1), sleep(Duration::from_millis(10)))
                 .await
@@ -781,7 +878,7 @@ nats_domain = "synthetic_edge"
             assert!(!receive_task.is_finished());
 
             drop(tx);
-            assert_eq!(receive_task.await.unwrap().unwrap(), None);
+            assert_eq!(receive_task.await.unwrap(), None);
         });
     }
 
