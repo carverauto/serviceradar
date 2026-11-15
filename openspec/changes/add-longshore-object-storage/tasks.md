@@ -12,7 +12,7 @@
 - [ ] 2.1 Add the reusable library with bounded operation/byte admission, correlated asynchronous completion, panic containment and off-scheduler teardown.
 - [ ] 2.2 Verify synthetic store/fetch/range, multipart, saturation, caller loss, deadline and shutdown behavior through the shipped NIF.
 - [x] 2.2.1 Run the compiled qualification release in a prepared pod and verify synthetic conditional PUT, exact full/range reads, client/operation admission, caller exit and drain behavior.
-- [ ] 2.2.2 Qualify the CI executor's native runtime policy and run the same runtime tests there; a pod pass does not substitute for a CI pass.
+- [x] 2.2.2 Qualify the CI executor's native runtime policy and run the same runtime tests there; a pod pass does not substitute for a CI pass. Both suites passed on the separately approved io_uring-capable executor pool.
 - [x] 2.2.3 Run a bounded synthetic MP4 through the shipped NIF against the selected real provider over TLS; verify full SHA-256, ranged bytes and independently decoded frame equality. This does not qualify archive authority or live-camera playback.
 - [ ] 2.3 After upstream contract closure, connect the isolated archive provider adapter while preserving grant, no-clobber, exact-identity verification and unknown-outcome handling.
 - [ ] 2.4 Verify credential rotation, failed writes, lost replies and preservation/reconciliation without automatic transport fallback.

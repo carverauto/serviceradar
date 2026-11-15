@@ -16,17 +16,16 @@ then verify the new executor's inherited memlock limit and actual action runtime
 The executor retains the chart's privileged OCI-host configuration; this is not
 permission to disable seccomp or add capabilities to the test action.
 
-After the pool is installed, run the existing NIF tests with
-`--define=longshore_qualification=true` and `--config=remote`. Only these tests
-select `test.Pool=longshore-qualification`; other targets keep their normal
-routing. A remote default execution-property flag is insufficient because the
-existing execution platform already supplies properties. Without the opt-in,
-native tests still exercise the default pool and fail if it cannot run io_uring.
-There is no unsupported-runtime skip or alternate transport.
+Run the existing NIF tests with `--config=remote`. These tests select
+`test.Pool=longshore-qualification`; other targets keep their normal routing.
+A remote default execution-property flag is insufficient because the existing
+execution platform already supplies properties. There is no unsupported-runtime
+skip or alternate transport. Install the pool before enabling this test target
+in CI; an unavailable pool cannot supply a passing result.
 
-Rendering and analysis are preparation, not runtime qualification. Retaining
-this pool for normal CI and making its routing the default require successful
-native tests and acceptance of the deployment. Full CI remains a separate gate.
+Rendering and analysis are preparation, not runtime qualification. The pool must
+pass the native tests and receive operator acceptance before being retained for
+normal CI. Full CI remains a separate gate.
 
 ## Overview
 

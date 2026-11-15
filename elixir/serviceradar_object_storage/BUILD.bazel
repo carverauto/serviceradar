@@ -7,11 +7,6 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["qualification/round_trip.exs"])
 
-config_setting(
-    name = "longshore_qualification_pool",
-    define_values = {"longshore_qualification": "true"},
-)
-
 filegroup(
     name = "srcs",
     srcs = glob(["lib/**"]) + ["mix.exs", "mix.lock"],
@@ -60,10 +55,7 @@ ex_unit_tests(
         "test/object_storage_test.exs",
     ],
     load_config = False,
-    exec_properties = select({
-        ":longshore_qualification_pool": {"test.Pool": "longshore-qualification"},
-        "//conditions:default": {},
-    }),
+    exec_properties = {"test.Pool": "longshore-qualification"},
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )

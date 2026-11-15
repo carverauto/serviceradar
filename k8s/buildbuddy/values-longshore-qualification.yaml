@@ -1,4 +1,4 @@
-# Overlay values.yaml for a SEPARATE, temporary Helm release. Never apply this
+# Overlay values.yaml for a SEPARATE Helm release. Never apply this
 # overlay to the default executor or workflow releases.
 # Only explicitly routed qualification actions use this pool.
 poolName: longshore-qualification
@@ -45,6 +45,8 @@ terminationGracePeriodSeconds: 120
 config:
   max_shutdown_duration: 90s
   executor:
+    # Removed upstream; do not inherit the older base fleet's unused setting.
+    default_task_size: null
     max_concurrent_tasks: 1
     local_cache_size_bytes: 4000000000
     warmup_additional_images: []
