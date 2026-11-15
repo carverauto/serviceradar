@@ -141,7 +141,7 @@ enum Outcome {
 fn operate(client: &Client, key: &str, operation: Operation) -> Result<Outcome, Atom> {
     let mut buffer = client.buffer_blocking();
     // A failed I/O thread can return a void buffer. Never index it.
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return Err(atoms::closed());
     }
     match operation {
