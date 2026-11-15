@@ -440,7 +440,7 @@ publish_images_step = workflow[
     workflow.index("- name: Publish Helm chart to OCI registry")
 ]
 for fragment in (
-    'SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh"',
+    'SERVICERADAR_COSIGN_COMMON="${RUNNER_TEMP}/cosign_common.sh"',
     'SERVICERADAR_REPO_ROOT="${PWD}"',
     'SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}"',
     '"${sign_script}"',
@@ -726,16 +726,8 @@ for worker_name, script_path in (
             raise SystemExit(
                 f"{worker_name} publisher cannot recover an immutable Harbor extra tag: {fragment}"
             )
-for worker_name, script_path in (
-    ("native add-on", repo_root / "scripts/sign-native-addon-publish.sh"),
-    ("Wasm plugin", repo_root / "scripts/sign-wasm-plugin-publish.sh"),
-    ("OCI image", repo_root / "scripts/sign-oci-publish.sh"),
-):
-    script = script_path.read_text()
-    if "legacy_signature_tag_exists" not in script:
-        raise SystemExit(
-            f"{worker_name} signer cannot skip an existing immutable cosign signature tag"
-        )
+# Legacy signature reuse/refusal is exercised through all three signers by
+# //build/contracts:legacy_signature_reconciliation_test.
 
 install_skopeo = (repo_root / "scripts/install-skopeo.sh").read_text()
 if "docker create" in install_skopeo or "docker cp" in install_skopeo:
@@ -1016,6 +1008,11 @@ chmod +x "${sign_test_dir}/bin/cosign"
 mkdir -p "${sign_test_dir}/lifecycle/tool/k8s/harbor"
 printf '# synthetic capacity endpoint\n' >"${sign_test_dir}/lifecycle/tool/k8s/harbor/promote-artifacts.py"
 
+# These cases own modern signing/transparency retry behavior. Exact legacy
+# migration is exercised independently through all callers by its owner test.
+cp "${repo_root}/scripts/cosign_common.sh" "${sign_test_dir}/cosign_common.sh"
+printf '\ncosign_reconcile_legacy_signature() { printf "reused\\n"; }\n' >>"${sign_test_dir}/cosign_common.sh"
+
 run_fake_sign_oci() {
   local mode="$1"
   local log_file="$2"
@@ -1024,6 +1021,7 @@ run_fake_sign_oci() {
   : > "${log_file}"
   PATH="${sign_test_dir}/bin:${PATH}" \
     FAKE_COSIGN_MODE="${mode}" \
+    SERVICERADAR_COSIGN_COMMON="${sign_test_dir}/cosign_common.sh" \
     FAKE_COSIGN_LOG="${log_file}" \
     FAKE_COSIGN_STATE_DIR="${state_dir}" \
     SERVICERADAR_REPO_ROOT="${sign_test_dir}" \

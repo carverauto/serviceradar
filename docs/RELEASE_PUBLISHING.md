@@ -360,3 +360,32 @@ Keep the GitHub release draft until all package, image, native add-on, Wasm,
 and security verification succeeds. Never work around a failed parallel asset
 upload by publishing the draft first; immutable-release enforcement will
 prevent the missing asset from being attached afterward.
+
+### Canonical legacy signatures across Harbor projects
+
+The image, native add-on, and Wasm signers share an exact-artifact verifier for
+legacy Cosign signatures. Before creating a build-project legacy signature they
+look for the protected project's canonical attachment. Reuse requires matching
+manifest and blob hashes, a valid detached signature under the configured key,
+and the exact image digest and repository identity. An attachment signed in
+either the protected or build project is valid for that same repository; another
+registry, project, or repository is refused. Modern signatures and their
+transparency verification remain mandatory.
+
+A verified canonical attachment is copied into the build project only when no
+conflicting build tag or obsolete legacy referrer exists. The protected tag is
+never replaced. Harbor retains inferred legacy referrers after a tag moves, so
+retagging a conflicting build attachment does not repair its graph. Publishers
+stop with `LEGACY_SIGNATURE_MIGRATION_REQUIRED` instead of hiding that mismatch.
+An operator must review a bounded disposable-artifact migration separately;
+ordinary CI has no artifact-delete permission and performs no automatic cleanup.
+A concurrent first publication can require that same migration, rather than an
+unbounded retry. Do not delete protected artifacts or weaken graph verification.
+
+Configured signing-key lookup failures and unsupported keyless legacy reuse fail
+closed. An old canonical signature that no longer verifies under the current key
+requires an explicit trust/key-rotation decision. The signers do not fall back to
+an adjacent stale public key when exporting a configured signing key fails.
+Release retries snapshot this helper with the reviewed signer and Cosign common
+code before checking out an older release; trust material still comes from the
+explicit release checkout.
