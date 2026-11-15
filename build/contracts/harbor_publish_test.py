@@ -287,5 +287,106 @@ class HarborPublishTest(unittest.TestCase):
         self.assertEqual(pins, {"worker": SYNTHETIC_DIGEST})
 
 
+class ImagePromotionTagsTest(unittest.TestCase):
+    """Run `promote --kind images` against a fake two-project registry."""
+
+    OLD = "sha256:" + "1" * 64
+    NEW = "sha256:" + "2" * 64
+    RELEASE = ["latest", "sha-example", "v1.2.3"]
+    STATIC = "16.0-example1"
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for role in ("build", "promotion"):
+            path = self.root / role / "config.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps({"auths": {"registry.carverauto.dev": {
+                "auth": base64.b64encode(f"{role}:synthetic-password".encode()).decode()}}}))
+        tool = self.root / "tool/k8s/harbor/promote-artifacts.py"
+        tool.parent.mkdir(parents=True)
+        tool.write_text("import json,sys\nbundle = json.load(open(sys.argv[1]))\n"
+                        "print(json.dumps({'artifacts': [{'reference': 'registry.carverauto.dev/serviceradar/'"
+                        " + a['repository'] + '@' + a['digest']} for a in bundle['artifacts']]}))\n")
+        inventory = self.root / "docker/images/image_inventory.bzl"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text('PUBLISHABLE_IMAGES = [{"image":"example_db",'
+                             '"repository":"registry.carverauto.dev/serviceradar/example-db",'
+                             f'"static_tags":["{self.STATIC}"]}}]\n')
+        self.state = self.root / "registry.json"
+        self.tag_calls = self.root / "tag-calls"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        oras = bin_dir / "oras"
+        oras.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
+                        "state_path = os.environ['REGISTRY_STATE']\nstate = json.load(open(state_path))\n"
+                        "def split(ref):\n"
+                        "    repository, tag = ref.removeprefix('registry.carverauto.dev/').rsplit(':', 1)\n"
+                        "    return repository.split('@')[0], tag\n"
+                        "command = sys.argv[1:]\n"
+                        "if command[0] == 'resolve':\n"
+                        "    repository, tag = split(command[1])\n"
+                        "    tags = state.get(repository, {})\n"
+                        "    if tag not in tags: raise SystemExit(1)\n"
+                        "    print(tags[tag])\n"
+                        "elif command[0] == 'discover':\n"
+                        "    print(json.dumps({'referrers': []}))\n"
+                        "elif command[:2] == ['repo', 'tags']:\n"
+                        "    repository = command[-1].removeprefix('registry.carverauto.dev/')\n"
+                        "    print(json.dumps({'tags': sorted(state.get(repository, {}))}))\n"
+                        "elif command[0] == 'tag':\n"
+                        "    repository, digest = command[1].removeprefix('registry.carverauto.dev/').split('@')\n"
+                        "    open(os.environ['TAG_CALLS'], 'a').write(json.dumps(command[2:]) + '\\n')\n"
+                        "    for tag in command[2:]: state.setdefault(repository, {})[tag] = digest\n"
+                        "    json.dump(state, open(state_path, 'w'))\n"
+                        "else: raise SystemExit('unmodelled oras command')\n")
+        oras.chmod(0o755)
+        self.env = os.environ | {"HARBOR_LIFECYCLE_DIR": str(self.root), "SERVICERADAR_REPO_ROOT": str(self.root),
+                                 "REGISTRY_STATE": str(self.state), "TAG_CALLS": str(self.tag_calls),
+                                 "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
+
+    def promote(self, protected):
+        builds = {tag: self.NEW for tag in self.RELEASE + [self.STATIC]}
+        self.state.write_text(json.dumps({"serviceradar-builds/example-db": builds,
+                                          "serviceradar/example-db": protected}))
+        arguments = [sys.executable, str(SCRIPT), "promote", "--kind", "images"]
+        for tag in self.RELEASE:
+            arguments += ["--tag", tag]
+        result = subprocess.run(arguments, env=self.env, text=True, capture_output=True)
+        registry = json.loads(self.state.read_text())["serviceradar/example-db"]
+        receipt = self.root / "receipt.json"
+        published = json.loads(receipt.read_text())["published"] if receipt.exists() else None
+        return result, registry, published
+
+    def test_existing_static_tag_with_another_image_is_kept_while_release_tags_publish(self):
+        result, registry, published = self.promote({self.STATIC: self.OLD, "latest": self.OLD})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(registry, {self.STATIC: self.OLD, **{tag: self.NEW for tag in self.RELEASE}})
+        self.assertEqual(published, [{"repository": "example-db", "digest": self.NEW, "tags": self.RELEASE}])
+
+    def test_missing_static_tag_is_created_on_the_promoted_image(self):
+        result, registry, published = self.promote({})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(registry, {tag: self.NEW for tag in self.RELEASE + [self.STATIC]})
+        self.assertEqual(published[0]["tags"], self.RELEASE + [self.STATIC])
+
+    def test_unchanged_static_tag_is_reported_without_being_rewritten(self):
+        result, registry, published = self.promote({self.STATIC: self.NEW})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(registry, {tag: self.NEW for tag in self.RELEASE + [self.STATIC]})
+        self.assertEqual(published[0]["tags"], self.RELEASE + [self.STATIC])
+        self.assertEqual([json.loads(line) for line in self.tag_calls.read_text().splitlines()], [self.RELEASE])
+
+    def test_conflicting_requested_fixed_tag_moves_no_tag(self):
+        protected = {"v1.2.3": self.OLD}
+        result, registry, published = self.promote(protected)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refusing to replace fixed protected tag", result.stderr)
+        self.assertEqual(registry, protected)
+        self.assertFalse(self.tag_calls.exists())
+        self.assertIsNone(published)
+
+
 if __name__ == "__main__":
     unittest.main()

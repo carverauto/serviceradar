@@ -416,9 +416,8 @@ if not remote_tag_check < oci_occupancy_check < first_release_mutation:
 # Chart credential scope, package ordering and promotion failures are exercised
 # through the executable publisher by //build/contracts:helm_bundle_pins_test.
 
-digest_check = 'python3 "${HARBOR_PUBLISH_TOOL}" build "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
-if workflow.count(digest_check) != 2:
-    raise SystemExit("release workflow must run the same all-image digest check before and after publish")
+# Release tag gates, signing, promotion and protected verification are executed
+# by //build/contracts:release_package_workflow_test.
 
 checkout_step = workflow[
     workflow.index("- name: Checkout release commit"):

@@ -1,5 +1,6 @@
 """Execute the release package step against synthetic Git trees; never publish."""
 
+import base64
 import os
 import json
 import platform
@@ -7,6 +8,7 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import textwrap
@@ -464,6 +466,82 @@ def _run_job(job, *, workspace, trees, context, env):
         if "id" in step:
             outputs[step["id"]] = _read_command_file(github_output)
     return None, None
+
+
+class ReleaseImagePublicationRoutingTest(unittest.TestCase):
+    """Execute the release image step; record which Harbor project each registry check reads."""
+
+    COMMIT = "c" * 40
+    TAG = "v9.8.7"
+
+    @classmethod
+    def setUpClass(cls):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+        cls.step = next(step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                        if step.get("name") == "Publish container images")
+
+    def run_step(self, *, already_built):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace, runner, lifecycle, bin_dir = (root / name for name in ("workspace", "runner", "lifecycle", "bin"))
+            for path in (workspace / "scripts/ci", runner, bin_dir):
+                path.mkdir(parents=True)
+            (workspace / "scripts/ci/prepare-openbao-cosign-env.sh").write_text(":\n")
+            for role in ("build", "promotion"):
+                (lifecycle / role).mkdir(parents=True)
+                (lifecycle / role / "config.json").write_text(json.dumps({"auths": {"registry.carverauto.dev": {
+                    "auth": base64.b64encode(f"{role}:synthetic-password".encode()).decode()}}}))
+            tool = lifecycle / "tool/k8s/harbor/promote-artifacts.py"
+            tool.parent.mkdir(parents=True)
+            tool.write_text("# synthetic capacity check\n")
+            calls, built = root / "calls", root / "built"
+            if already_built:
+                built.touch()
+            recorder = 'printf "%s %s %s\\n" "$(basename "$0")" "${OCI_PROJECT}" "$*" >> "${CALLS}"\n'
+            _write_executables(runner, {
+                "check-oci-image-tags-exist.sh": recorder + '[[ -e "${BUILT}" ]]\n',
+                "sign-oci-publish.sh": recorder,
+                "verify-oci-publish.sh": recorder,
+            })
+            _write_executables(bin_dir, {
+                "oras": "exit 0",
+                "python3": textwrap.dedent(f"""\
+                    case "$2" in
+                      push-images) touch "${{BUILT}}"; printf "%s - %s\\n" "$2" "${{*:3}}" >> "${{CALLS}}" ;;
+                      promote) printf "%s - %s\\n" "$2" "${{*:3}}" >> "${{CALLS}}" ;;
+                      *) exec {sys.executable} "$@" ;;
+                    esac
+                """),
+            })
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RUNNER_TEMP=str(runner),
+                       RELEASE_TAG=self.TAG, RELEASE_COMMIT=self.COMMIT, OCI_PROJECT="serviceradar",
+                       HARBOR_LIFECYCLE_DIR=str(lifecycle), CALLS=str(calls), BUILT=str(built),
+                       HARBOR_PUBLISH_TOOL=str(ROOT / "scripts/ci/harbor-publish.py"))
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", self.step["run"]],
+                                    cwd=workspace, env=env, capture_output=True, text=True, timeout=60)
+            return result, calls.read_text().splitlines() if calls.exists() else []
+
+    def expected(self, *, pushed):
+        tags = f"latest sha-{self.COMMIT} {self.TAG}"
+        check = f"check-oci-image-tags-exist.sh serviceradar-builds sha-{self.COMMIT} {self.TAG} latest"
+        before = [check, f"push-images - --tag {self.TAG}"] if pushed else [check]
+        return before + [
+            check,
+            "sign-oci-publish.sh serviceradar-builds ",
+            f"verify-oci-publish.sh serviceradar-builds {tags}",
+            "promote - --kind images " + " ".join(f"--tag {tag}" for tag in tags.split()),
+            f"verify-oci-publish.sh serviceradar {tags}",
+        ]
+
+    def test_new_release_checks_build_storage_then_verifies_protected_copy(self):
+        result, calls = self.run_step(already_built=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, self.expected(pushed=True))
+
+    def test_retry_with_matching_build_tags_skips_push_and_still_promotes(self):
+        result, calls = self.run_step(already_built=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, self.expected(pushed=False))
 
 
 class ImageSecurityManualRescanTest(unittest.TestCase):
