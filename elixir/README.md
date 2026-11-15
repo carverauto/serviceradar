@@ -59,7 +59,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_recording` | `erlang_app`, `erlang_app_prod`, `unit_tests` | Shared recording library consumed by core; see its `README.md` |
 | `elixir/serviceradar_nvr` | `release_tar`, `release_test` | Standalone NVR runtime with per-replica durable storage; see its `README.md` |
 | `elixir/serviceradar_nvr_client` | `erlang_app`, `release_fixture` (test-only) | Library that streams one finite capture to the NVR ingest endpoint; see its `README.md` |
-| `elixir/serviceradar_object_storage` | `erlang_app`, `unit_tests`, `quality_check`, `qualification_release` (test-only) | Rustler NIF qualifying the pinned Longshore S3 client; not the production archive adapter. See its `README.md` |
+| `elixir/serviceradar_object_storage` | `erlang_app`, `unit_tests`, `quality_check`, `qualification_release` (test-only) | Rustler NIF and supervised session wrapping the pinned Longshore S3 client; opt-in transport for isolated camera archive storage. See its `README.md` |
 | `elixir/palisade` | none | Not compiled by Bazel; its `BUILD.bazel` only exports `mix.lock` for the Hex closure |
 
 Vendored Hex packages that used to sit in this tree now live in

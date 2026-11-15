@@ -445,6 +445,101 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
     end
   end
 
+  describe "native s3_compatible descriptor" do
+    alias ServiceRadar.Credentials.NativeDescriptors
+
+    test "builds opaque JSON access-key credentials with public access_key_id and rotates legacy opaque records" do
+      profile = NativeDescriptors.s3_compatible()
+      assert profile["supports_rules"] == false
+      assert profile["purposes"] == ["camera_archive_write", "camera_archive_read"]
+      synthetic_secret = String.duplicate("s", 24)
+      rotated_secret = String.duplicate("r", 24)
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "access_key",
+                 %{
+                   "access_key_id" => "SYNTHETICACCESSKEY01",
+                   "secret_access_key" => synthetic_secret
+                 },
+                 %{name: "Synthetic archive writer", description: nil}
+               )
+
+      assert attrs.provider == "s3_compatible"
+      assert attrs.credential_kind == :opaque
+      assert attrs.username == "SYNTHETICACCESSKEY01"
+      assert attrs.metadata["plugin_id"] == "s3_compatible"
+      assert attrs.metadata["plugin_version"] == "native"
+      assert attrs.metadata["auth_method"] == "access_key"
+      refute inspect(Map.delete(attrs, :secret_payload)) =~ synthetic_secret
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "access_key_id" => "SYNTHETICACCESSKEY01",
+               "secret_access_key" => synthetic_secret
+             }
+
+      legacy_secret =
+        rotatable_secret(%{
+          provider: "s3_compatible",
+          credential_kind: :opaque,
+          metadata: %{}
+        })
+
+      assert {:ok, rotated} =
+               CredentialSecretBuilder.build_rotation(
+                 legacy_secret,
+                 profile,
+                 %{
+                   "access_key_id" => "SYNTHETICACCESSKEY02",
+                   "secret_access_key" => rotated_secret
+                 },
+                 []
+               )
+
+      assert rotated.username == "SYNTHETICACCESSKEY02"
+      assert rotated.metadata["auth_method"] == "access_key"
+      assert rotated.metadata["plugin_id"] == "s3_compatible"
+      assert rotated.metadata["plugin_version"] == "native"
+      refute inspect(Map.delete(rotated, :secret_payload)) =~ rotated_secret
+    end
+
+    test "rejects missing, oversized, or undeclared S3 fields" do
+      profile = NativeDescriptors.s3_compatible()
+
+      assert {:error, {:missing_credential_field, "secret_access_key"}} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "access_key",
+                 %{"access_key_id" => "SYNTHETICACCESSKEY01"},
+                 %{name: "Incomplete"}
+               )
+
+      assert {:error, {:invalid_credential_field, "secret_access_key"}} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "access_key",
+                 %{
+                   "access_key_id" => "SYNTHETICACCESSKEY01",
+                   "secret_access_key" => String.duplicate("s", 513)
+                 },
+                 %{name: "Oversized"}
+               )
+
+      assert {:error, :undeclared_credential_field} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "access_key",
+                 %{
+                   "access_key_id" => "SYNTHETICACCESSKEY01",
+                   "secret_access_key" => String.duplicate("x", 16),
+                   "session_token" => String.duplicate("t", 16)
+                 },
+                 %{name: "Unsupported STS"}
+               )
+    end
+  end
+
   describe "build_rotation/4" do
     test "defaults AWX token next_rotation_due_at to 90 days on build and rotation when omitted" do
       now = ~U[2026-10-25 12:00:00.000000Z]

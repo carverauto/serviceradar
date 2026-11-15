@@ -23,7 +23,8 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
   # material at all, such as `secret_id`, `secret_ref` and `token_path`.
   @exact_sensitive_keys ~w(
     token access_token refresh_token id_token auth_token bearer bearer_token
-    secret client_secret authorization api_key apikey x_api_key
+    secret secret_access_key secret_key session_token client_secret
+    authorization api_key apikey x_api_key
   )
   @version "serviceradar_credential_redactor_v2"
 

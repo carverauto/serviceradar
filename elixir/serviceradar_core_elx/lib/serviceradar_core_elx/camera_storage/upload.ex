@@ -8,6 +8,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   """
   alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
+  alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
+
+  @readback_chunk_bytes 4_194_304
 
   def run_init(config, boot, lease, bytes, deadline) do
     envelope = %{"schema_version" => 1, "lease" => lease}
@@ -86,6 +89,16 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   end
 
   defp execute(kind, config, request, grant, bytes, object_sha, deadline) do
+    case Map.get(config.provider, :transport, :http) do
+      :longshore ->
+        execute_longshore(kind, config, request, grant, bytes, object_sha, deadline)
+
+      :http ->
+        execute_http(kind, config, request, grant, bytes, object_sha, deadline)
+    end
+  end
+
+  defp execute_http(kind, config, request, grant, bytes, object_sha, deadline) do
     provider = config.provider
     destination = provider.destination
     url = destination["endpoint"] <> "/" <> destination["bucket"] <> "/" <> grant["object_key"]
@@ -110,6 +123,236 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
         CoreClient.request(config.runtime, kind, :observe, observation(request, "unknown"), 1_000)
         failure(kind, :unknown)
     end
+  end
+
+  defp execute_longshore(kind, config, request, grant, source, object_sha, deadline) do
+    provider = config.provider
+    destination = provider.destination
+    url = destination["endpoint"] <> "/" <> destination["bucket"] <> "/" <> grant["object_key"]
+
+    with {:ok, payload_bytes} <- load_longshore_payload(source, object_sha),
+         timeout_ms when timeout_ms > 0 <- remaining(deadline) do
+      raw_sha256 = Base.decode16!(object_sha, case: :lower)
+      put_opts = %{no_clobber: true, encryption: :aes256, checksum: {:sha256, raw_sha256}}
+
+      result =
+        ObjectStorageSession.put(
+          provider.longshore_session,
+          grant["object_key"],
+          payload_bytes,
+          put_opts,
+          budget: %{timeout_ms: timeout_ms},
+          owner_token: Map.get(provider, :owner_token)
+        )
+
+      handle_longshore_put(kind, config, request, %{
+        provider: provider,
+        url: url,
+        grant: grant,
+        object_sha: object_sha,
+        raw_sha256: raw_sha256,
+        deadline: deadline,
+        result: result
+      })
+    else
+      {:error, :storage_staging_refused} = error -> error
+      _ -> failure(kind, :not_sent)
+    end
+  end
+
+  defp handle_longshore_put(kind, _config, _request, %{result: {:error, _reason}}) do
+    failure(kind, :not_sent)
+  end
+
+  defp handle_longshore_put(kind, _config, _request, %{result: {:ok, %{end: {:not_sent, _cause}}, _stats}}) do
+    failure(kind, :not_sent)
+  end
+
+  defp handle_longshore_put(kind, config, request, %{result: {:ok, %{end: {:unknown, _cause}}, _stats}}) do
+    CoreClient.request(config.runtime, kind, :observe, observation(request, "unknown"), 1_000)
+    failure(kind, :unknown)
+  end
+
+  defp handle_longshore_put(
+         kind,
+         config,
+         request,
+         %{result: {:ok, %{end: {:answered, answer}, request: signed_req}, _stats}} = ctx
+       ) do
+    verified = verified_longshore_object(kind, answer, signed_req, ctx)
+    observe_longshore(kind, config, request, answer)
+    record(kind, config, request, verified)
+  end
+
+  defp verified_longshore_object(kind, %{status: 200, malformed: false} = answer, signed_req, ctx)
+       when is_map(signed_req) do
+    with :ok <- valid_longshore_put_answer(answer, ctx.raw_sha256),
+         {:ok, identity} <- longshore_identity(answer),
+         {:ok, canonical_sha} <- canonical_put_sha(kind, ctx.url, signed_req, ctx.object_sha),
+         {:ok, verification} <- verify_longshore(identity, canonical_sha, ctx) do
+      verification
+    else
+      _ -> nil
+    end
+  end
+
+  defp verified_longshore_object(_kind, _answer, _signed_req, _ctx), do: nil
+
+  defp valid_longshore_put_answer(%{encryption: :aes256, sha256: echoed_sha}, raw_sha256) do
+    if valid_optional_sha256?(echoed_sha, raw_sha256), do: :ok, else: {:error, :checksum_mismatch}
+  end
+
+  defp valid_longshore_put_answer(_, _), do: {:error, :missing_encryption_attestation}
+
+  defp canonical_put_sha(kind, url, request, object_sha) when is_map(request) do
+    with %{
+           method: method,
+           date: date,
+           canonical_request_sha256: digest,
+           signed_headers: headers
+         } <- request,
+         true <- valid_canonical_fields?(method, date, digest, headers) do
+      canonical_hex = Base.encode16(digest, case: :lower)
+
+      encoded =
+        Jason.encode!([
+          "#{kind}-put-canonical-v1",
+          method,
+          url,
+          date,
+          headers,
+          canonical_hex,
+          object_sha
+        ])
+
+      {:ok, sha256(encoded)}
+    else
+      _ -> {:error, :invalid_signed_request_evidence}
+    end
+  end
+
+  defp canonical_put_sha(_, _, _, _), do: {:error, :invalid_signed_request_evidence}
+
+  defp valid_canonical_fields?(method, date, digest, headers) do
+    is_binary(method) and is_binary(date) and is_binary(digest) and
+      byte_size(digest) == 32 and is_binary(headers)
+  end
+
+  defp verify_longshore(identity, canonical_sha, ctx) do
+    expect = %{etag: identity.etag, version: identity.version}
+    expected_length = ctx.grant["byte_length"]
+
+    with timeout_ms when timeout_ms > 0 <- remaining(ctx.deadline),
+         {:ok, %{end: {:answered, %{status: 200, malformed: false} = head}}, _stats} <-
+           ObjectStorageSession.head(
+             ctx.provider.longshore_session,
+             ctx.grant["object_key"],
+             expect,
+             budget: %{timeout_ms: timeout_ms},
+             owner_token: Map.get(ctx.provider, :owner_token)
+           ),
+         {:ok, ^identity} <- longshore_identity(head),
+         true <- head.content_length == expected_length,
+         true <- head.encryption == :aes256,
+         true <- valid_optional_sha256?(head.sha256, ctx.raw_sha256),
+         {:ok, sha} <-
+           readback_longshore(ctx, identity, expected_length, 0, :crypto.hash_init(:sha256)),
+         true <- sha == ctx.grant["object_sha256"] and remaining(ctx.deadline) > 0 do
+      {:ok,
+       %{
+         "schema_version" => 1,
+         "put_request_sha256" => canonical_sha,
+         "etag" => identity.etag,
+         "version_id" => identity.version,
+         "byte_length" => expected_length,
+         "object_sha256" => ctx.grant["object_sha256"],
+         "encryption" => "AES256"
+       }}
+    else
+      _ -> {:error, :init_object_not_verified}
+    end
+  end
+
+  defp readback_longshore(_ctx, _identity, size, size, hash),
+    do: {:ok, hash |> :crypto.hash_final() |> Base.encode16(case: :lower)}
+
+  defp readback_longshore(ctx, identity, size, first, hash) do
+    last = min(size - 1, first + @readback_chunk_bytes - 1)
+    expected_chunk = last - first + 1
+    expect = %{etag: identity.etag, version: identity.version}
+
+    with timeout_ms when timeout_ms > 0 <- remaining(ctx.deadline),
+         {:ok, %{end: {:answered, %{status: 206, malformed: false} = get_ans}}, _stats} <-
+           ObjectStorageSession.get(
+             ctx.provider.longshore_session,
+             ctx.grant["object_key"],
+             {first, last},
+             expect,
+             budget: %{timeout_ms: timeout_ms},
+             owner_token: Map.get(ctx.provider, :owner_token)
+           ),
+         {:ok, ^identity} <- longshore_identity(get_ans),
+         true <- get_ans.content_range == %{first: first, last: last, size: size},
+         true <-
+           is_binary(get_ans.body) and byte_size(get_ans.body) == expected_chunk and get_ans.body_len == expected_chunk do
+      readback_longshore(ctx, identity, size, last + 1, :crypto.hash_update(hash, get_ans.body))
+    else
+      _ -> {:error, :object_range_not_verified}
+    end
+  end
+
+  defp load_longshore_payload(bytes, object_sha) when is_binary(bytes) do
+    if sha256(bytes) == object_sha do
+      {:ok, bytes}
+    else
+      {:error, :storage_staging_refused}
+    end
+  end
+
+  defp load_longshore_payload({:file, path, expected_length}, object_sha) do
+    with {:ok, %File.Stat{type: :regular, size: ^expected_length}} <- File.stat(path),
+         {:ok, bytes} <- File.read(path),
+         true <- byte_size(bytes) == expected_length and sha256(bytes) == object_sha do
+      {:ok, bytes}
+    else
+      _ -> {:error, :storage_staging_refused}
+    end
+  end
+
+  defp valid_optional_sha256?(nil, _expected), do: true
+  defp valid_optional_sha256?(echoed, expected), do: echoed == expected
+
+  defp longshore_identity(%{etag: etag, version: raw_version}) do
+    with true <- is_binary(etag) and byte_size(etag) in 3..256,
+         true <- Regex.match?(~r/\A"[\x21\x23-\x7e]+"\z/, etag),
+         {:ok, normalized_version} <- longshore_version(raw_version) do
+      {:ok, %{etag: etag, version: normalized_version}}
+    else
+      _ -> {:error, :invalid_object_identity}
+    end
+  end
+
+  defp longshore_version(nil), do: {:ok, nil}
+  defp longshore_version("null"), do: {:ok, nil}
+  defp longshore_version(value) when is_binary(value), do: version([value])
+  defp longshore_version(_), do: {:error, :invalid_version}
+
+  defp observe_longshore(kind, config, request, answer) do
+    metadata =
+      Enum.reduce(
+        [{"etag", answer.etag, 256}, {"version_id", answer.version, 1024}, {"request_id", answer.request_id, 256}],
+        %{"status" => answer.status},
+        fn {key, value, limit}, acc ->
+          if is_binary(value) and byte_size(value) in 1..limit//1 do
+            Map.put(acc, key, value)
+          else
+            acc
+          end
+        end
+      )
+
+    document = request |> observation("response") |> Map.put("response", metadata)
+    CoreClient.request(config.runtime, kind, :observe, document, 1_000)
   end
 
   defp verified_object(provider, url, %{status: 200} = response, grant, wire_sha, deadline) do
@@ -173,7 +416,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     do: {:ok, hash |> :crypto.hash_final() |> Base.encode16(case: :lower)}
 
   defp readback(provider, url, identity, size, first, hash, deadline) do
-    last = min(size - 1, first + 4_194_304 - 1)
+    last = min(size - 1, first + @readback_chunk_bytes - 1)
     headers = [{"range", "bytes=#{first}-#{last}"}, {"if-match", identity.etag}]
     signed = HTTP.sign(provider, :get, url, headers, nil)
     range = {first, last, size, identity.etag, identity.version}
@@ -196,6 +439,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   defp object_key?(:init, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/init\.mp4\z/, key)
   defp object_key?(:media, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/media\.m4s\z/, key)
   defp object_key?(:manifest, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/manifest\.json\z/, key)
+  defp failure(:init, :not_sent), do: {:error, :init_upload_not_sent}
+  defp failure(:media, :not_sent), do: {:error, :media_upload_not_sent}
+  defp failure(:manifest, :not_sent), do: {:error, :manifest_upload_not_sent}
   defp failure(:init, :unknown), do: {:error, :init_upload_unknown}
   defp failure(:media, :unknown), do: {:error, :media_upload_unknown}
   defp failure(:manifest, :unknown), do: {:error, :manifest_upload_unknown}

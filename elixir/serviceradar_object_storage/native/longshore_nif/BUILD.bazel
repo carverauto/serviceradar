@@ -1,4 +1,5 @@
 load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_shared_library.bzl", "rust_shared_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -15,4 +16,14 @@ rust_shared_library(
         "//conditions:default": [],
     }),
     deps = all_crate_deps(cargo_only = True, normal = True),
+)
+
+rust_binary(
+    name = "longshore_bench",
+    testonly = True,
+    srcs = ["bench/longshore_bench.rs"],
+    crate_root = "bench/longshore_bench.rs",
+    edition = "2021",
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = ["@crates//:longshore_s3"],
 )

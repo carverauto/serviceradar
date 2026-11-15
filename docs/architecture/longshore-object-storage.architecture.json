@@ -1,0 +1,394 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Longshore S3 Object Storage Architecture",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "repository": {
+      "url": "https://github.com/carverauto/serviceradar",
+      "revision": "0bd19190124931f8f46a285dcf5b17e89054ee37"
+    },
+    "viewBox": [
+      1372,
+      476
+    ]
+  },
+  "components": [
+    {
+      "id": "cred_store",
+      "type": "database",
+      "label": "CNPG Credential Store",
+      "sublabel": "NativeDescriptors · Broker",
+      "tag": "CNPG",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/credentials/native_descriptors.ex",
+          "label": "S3 descriptor"
+        },
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/credentials/credential_redactor.ex",
+          "label": "payload redaction"
+        }
+      ],
+      "pos": [
+        40,
+        64
+      ],
+      "size": [
+        212,
+        68
+      ]
+    },
+    {
+      "id": "authority_runtime",
+      "type": "backend",
+      "label": "Core Upload Authority",
+      "sublabel": "grant · verify · commit receipts",
+      "tag": "Ed25519 lease",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/camera/archive_storage_config.ex",
+          "label": "archive storage config"
+        }
+      ],
+      "pos": [
+        40,
+        212
+      ],
+      "size": [
+        212,
+        68
+      ]
+    },
+    {
+      "id": "browser_playback",
+      "type": "frontend",
+      "label": "Web-NG HLS / fMP4",
+      "sublabel": "recorded segment playback",
+      "tag": "WebRTC stays live",
+      "sources": [
+        {
+          "path": "openspec/changes/add-longshore-object-storage/design.md",
+          "label": "playback boundary"
+        }
+      ],
+      "pos": [
+        40,
+        368
+      ],
+      "size": [
+        212,
+        68
+      ]
+    },
+    {
+      "id": "camera_service",
+      "type": "backend",
+      "label": "CameraStorage.Service",
+      "sublabel": "adapter :longshore | :http",
+      "tag": "opt-in",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_storage/service.ex",
+          "label": "adapter lifecycle"
+        },
+        {
+          "path": "elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_storage/session.ex",
+          "label": "upload session"
+        }
+      ],
+      "pos": [
+        396,
+        64
+      ],
+      "size": [
+        216,
+        68
+      ]
+    },
+    {
+      "id": "camera_upload",
+      "type": "backend",
+      "label": "CameraStorage.Upload",
+      "sublabel": "PUT + HEAD + 4 MiB SHA-256",
+      "tag": "*-put-canonical-v1",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_storage/upload.ex",
+          "label": "verified archive write"
+        }
+      ],
+      "pos": [
+        396,
+        212
+      ],
+      "size": [
+        216,
+        68
+      ]
+    },
+    {
+      "id": "camera_read",
+      "type": "backend",
+      "label": "CameraStorage.Read",
+      "sublabel": "ReadSession · byte-range GET",
+      "tag": "200/206 only",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_storage/read.ex",
+          "label": "archive range read"
+        },
+        {
+          "path": "elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_storage/read_session.ex",
+          "label": "read session"
+        }
+      ],
+      "pos": [
+        396,
+        368
+      ],
+      "size": [
+        216,
+        68
+      ]
+    },
+    {
+      "id": "storage_session",
+      "type": "backend",
+      "label": "ObjectStorage.Session",
+      "sublabel": "correlated ref · zero leak",
+      "tag": "GenServer",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_object_storage/lib/serviceradar_object_storage.ex",
+          "label": "public API"
+        },
+        {
+          "path": "elixir/serviceradar_object_storage/test/object_storage_test.exs",
+          "label": "session contract tests"
+        }
+      ],
+      "pos": [
+        756,
+        212
+      ],
+      "size": [
+        216,
+        68
+      ]
+    },
+    {
+      "id": "rustler_nif",
+      "type": "backend",
+      "label": "longshore_nif (Rustler)",
+      "sublabel": "ScratchBuf + OwnedBinary",
+      "tag": "strict decode",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_object_storage/native/longshore_nif/src/lib.rs",
+          "label": "Rustler NIF bridge"
+        }
+      ],
+      "pos": [
+        756,
+        368
+      ],
+      "size": [
+        216,
+        68
+      ]
+    },
+    {
+      "id": "s3_store",
+      "type": "cloud",
+      "label": "S3 Object Store",
+      "sublabel": "BUCKET · SigV4 + If-None-Match",
+      "tag": "S3-compatible",
+      "sources": [
+        {
+          "path": "openspec/changes/add-longshore-object-storage/specs/object-storage-client/spec.md",
+          "label": "storage contract"
+        }
+      ],
+      "pos": [
+        1116,
+        140
+      ],
+      "size": [
+        208,
+        68
+      ]
+    },
+    {
+      "id": "longshore_worker",
+      "type": "backend",
+      "label": "longshore_s3::Client",
+      "sublabel": "io_uring + AWS-LC · Budget::once",
+      "tag": "PR #28 · 8759583",
+      "sources": [
+        {
+          "path": "Cargo.toml",
+          "label": "pinned crate rev"
+        },
+        {
+          "path": "elixir/serviceradar_object_storage/native/longshore_nif/src/lib.rs",
+          "label": "worker thread"
+        }
+      ],
+      "pos": [
+        1116,
+        368
+      ],
+      "size": [
+        208,
+        68
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Control Plane · serviceradar_core",
+      "wraps": [
+        "cred_store",
+        "authority_runtime"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Media Storage · serviceradar_core_elx",
+      "wraps": [
+        "camera_service",
+        "camera_upload",
+        "camera_read"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "BEAM Bridge · serviceradar_object_storage",
+      "wraps": [
+        "storage_session",
+        "rustler_nif"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "creds-to-service",
+      "from": "cred_store",
+      "to": "camera_service",
+      "label": "resolved credentials"
+    },
+    {
+      "id": "service-to-upload",
+      "from": "camera_service",
+      "to": "camera_upload",
+      "label": "target + creds",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        504,
+        172
+      ]
+    },
+    {
+      "id": "authority-to-upload",
+      "from": "authority_runtime",
+      "to": "camera_upload",
+      "label": "lease + receipt"
+    },
+    {
+      "id": "playback-to-read",
+      "from": "browser_playback",
+      "to": "camera_read",
+      "label": "range request"
+    },
+    {
+      "id": "service-to-session",
+      "from": "camera_service",
+      "to": "storage_session",
+      "label": "start_link",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "top",
+      "via": [
+        [
+          864,
+          98
+        ]
+      ],
+      "labelAt": [
+        738,
+        82
+      ]
+    },
+    {
+      "id": "upload-to-session",
+      "from": "camera_upload",
+      "to": "storage_session",
+      "label": "put · head · get"
+    },
+    {
+      "id": "read-to-session",
+      "from": "camera_read",
+      "to": "storage_session",
+      "label": "get range"
+    },
+    {
+      "id": "session-to-nif",
+      "from": "storage_session",
+      "to": "rustler_nif",
+      "label": "DirtyCpu + nif_send",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        864,
+        324
+      ]
+    },
+    {
+      "id": "nif-to-longshore",
+      "from": "rustler_nif",
+      "to": "longshore_worker",
+      "label": "registered Buffer"
+    },
+    {
+      "id": "longshore-to-s3",
+      "from": "longshore_worker",
+      "to": "s3_store",
+      "label": "HTTPS SigV4",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Verified Write & Readback",
+      "items": [
+        "Budget::once single-attempt PUT with If-None-Match: * when no_clobber is true",
+        "Records *-put-canonical-v1 canonical_request_sha256 before authority verify",
+        "Requires independent HEAD + 4 MiB ranged GET SHA-256 readback; Answer.sha256 is optional"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Safe BEAM + io_uring Bridge",
+      "items": [
+        "Supervised ObjectStorage.Session correlates replies by ref with zero caller mailbox leaks",
+        "Strict config/option decoding rejects missing, unknown, or wrongly-typed fields with :bad_config",
+        "Pooled ScratchBuf on PUT and direct OwnedBinary release on 200/206 GET avoid redundant copies"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Unified Credential & Media Scope",
+      "items": [
+        "Binds s3_compatible secrets from platform.network_credential_secrets via SecretBroker",
+        "Opt-in :longshore adapter preserves :http fallback without changing Core wire schemas",
+        "Live camera viewing stays WebRTC; recorded browser playback stays HLS / fMP4"
+      ]
+    }
+  ]
+}

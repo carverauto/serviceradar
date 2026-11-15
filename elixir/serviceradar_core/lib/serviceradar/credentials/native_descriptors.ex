@@ -36,6 +36,7 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
 
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
 
+  @s3_compatible_provider "s3_compatible"
   @snmp_provider "snmp"
   @vulncheck_provider "vulncheck"
 
@@ -43,6 +44,7 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   @spec all() :: %{String.t() => map()}
   def all,
     do: %{
+      @s3_compatible_provider => s3_compatible(),
       @snmp_provider => snmp(),
       @vulncheck_provider => vulncheck(),
       "alienvault-otx-core" => otx()
@@ -222,6 +224,60 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
       "plugin_id" => "alienvault-otx-core",
       "purposes" => ["threat_intel_sync"]
     })
+  end
+
+  @doc """
+  The S3-compatible object-storage credential descriptor for camera archive bindings.
+
+  `ServiceRadar.Camera.ArchiveBinding` defines the immutable control-plane
+  destination endpoint, region, and bucket rather than a monitored device target
+  query (`supports_rules: false`, `scope_types: []`). The single `"access_key"`
+  auth method encodes JSON into `credential_kind: "opaque"`, matching stored
+  `s3_compatible` records in `platform.network_credential_secrets` so existing
+  credentials resolve and rotate without re-keying their kind.
+  """
+  @spec s3_compatible() :: map()
+  def s3_compatible do
+    %{
+      "provider" => @s3_compatible_provider,
+      "label" => "S3-Compatible Object Storage",
+      "description" =>
+        "Access key credentials for camera archive S3-compatible object storage destinations.",
+      "plugin_id" => "s3_compatible",
+      "plugin_version" => "native",
+      "supports_rules" => false,
+      "purposes" => ["camera_archive_write", "camera_archive_read"],
+      "scope_types" => [],
+      "auth_methods" => [
+        %{
+          "id" => "access_key",
+          "label" => "Access key",
+          "credential_kind" => "opaque",
+          "fields" => [
+            %{
+              "id" => "access_key_id",
+              "label" => "Access key ID",
+              "control" => "text",
+              "required" => true,
+              "secret" => false,
+              "public" => true,
+              "max_length" => 256
+            },
+            %{
+              "id" => "secret_access_key",
+              "label" => "Secret access key",
+              "control" => "password",
+              "required" => true,
+              "secret" => true,
+              "public" => false,
+              "max_length" => 512
+            }
+          ],
+          "payload" => %{"format" => "json", "username_field" => "access_key_id"}
+        }
+      ],
+      "provisioning" => %{"mode" => "credential_only"}
+    }
   end
 
   # A field the operator chooses from a fixed list. The options come from the

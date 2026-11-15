@@ -50,6 +50,7 @@ filegroup(
         exclude = [
             "bazel-*",
             "_build/**",
+            "bench/**",
             "deps/**",
             "tmp/**",
             "test/**",
@@ -130,12 +131,14 @@ mix_app(
     # release through serviceradar_core's own priv.
     extra_config = [
         "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     mix_env = "prod",
     deps = [
         "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app_prod",
     ] + CORE_ELX_DEPS,
 )
@@ -148,12 +151,14 @@ mix_app(
     app_name = "serviceradar_core_elx",
     extra_config = [
         "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     mix_env = "test",
     deps = [
         "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app",
     ] + CORE_ELX_DEPS,
 )
@@ -170,6 +175,7 @@ elixir_release(
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_object_storage:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
         "//elixir/serviceradar_recording:mix.exs",
@@ -184,6 +190,7 @@ elixir_release(
     # when an Application.compile_env/2 key differs between compile and release time.
     extra_config = [
         "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
@@ -200,6 +207,7 @@ ex_unit_tests(
         exclude = [
             "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
             "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
+            "test/serviceradar_core_elx/camera_storage_longshore_test.exs",
             "test/serviceradar_core_elx/camera_storage_test.exs",
             "test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs",
             "test/serviceradar_core_elx/camera_recording/codec_capability_test.exs",
@@ -237,6 +245,24 @@ ex_unit_test(
     size = "medium",
     srcs = ["test/serviceradar_core_elx/camera_storage_test.exs"],
     exec_properties = {"test.network": "off"},
+    deps = [":erlang_app"],
+)
+
+ex_unit_test(
+    name = "camera_storage_longshore_test",
+    size = "medium",
+    srcs = ["test/serviceradar_core_elx/camera_storage_longshore_test.exs"],
+    exec_properties = {"test.Pool": "longshore-qualification"},
+    deps = [":erlang_app"],
+)
+
+ex_unit_test(
+    name = "camera_storage_bench_test",
+    size = "large",
+    srcs = ["bench/camera_storage_bench_test.exs"],
+    exec_properties = {"test.Pool": "longshore-qualification"},
+    tags = ["benchmark"],
+    target_compatible_with = ["@platforms//os:linux"],
     deps = [":erlang_app"],
 )
 
@@ -329,9 +355,11 @@ camera_browser_fixture(
 # `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
 # See //build:elixir_quality.bzl.
 elixir_quality(
+    extra_inputs = ["bench/**/*.exs"],
     source_deps = ["@hexpm//:ex_dna"],
     tool_deps = [
         "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_object_storage:erlang_app",
         "//elixir/serviceradar_recording:erlang_app_prod",
     ] + CORE_ELX_DEPS + [
         "@hexpm//:ash_credo",
