@@ -686,8 +686,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # themselves incompatible, otherwise stayed paused for good under
   # tolerated_failures 0 and held their source on the previous package -- which
   # an upgraded updater then refuses outright. Once no rolled-back target is
-  # left the rollout resumes; a failure of the candidate itself keeps it paused
-  # for an operator.
+  # left and no rollback is still pending the rollout resumes; until a pending
+  # rollback settles it stays paused so the next reconcile judges the full set,
+  # and a failure of the candidate itself keeps it paused for an operator.
   defp resume_past_host_failures(paused, candidate, actor, now, stats) do
     paused.id
     |> in_locked_rollout(actor, &exclude_host_failures_locked(&1, &2, candidate, actor, now))
@@ -721,7 +722,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          {:ok, agents} <- load_agents(rolled_back, actor),
          [_ | _] = verdicts <- host_failure_verdicts(rolled_back, agents, candidate, now),
          :ok <- exclude_host_failures(rollout, verdicts, actor, now) do
-      if length(verdicts) == length(rolled_back) do
+      if length(verdicts) == length(rolled_back) and
+           not Enum.any?(targets, &(&1.state == :rollback_pending)) do
         with {:ok, _resumed} <-
                update_rollout(
                  rollout,

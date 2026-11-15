@@ -1546,6 +1546,91 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert [%{state: :rolled_back}] = list_rollout_targets(rollout.id, actor)
   end
 
+  # Rollbacks settle one agent at a time. A rollout judged while one target is
+  # still rolling back would resume, and that rollback completing on the running
+  # rollout would fail the candidate without the host-failure rule seeing it.
+  test "a paused rollout is not released while a host failure is still rolling back" do
+    actor = SystemActor.system(:addon_rollout_paused_pending_rollback_test)
+    fixture = updater_profile_fixture(actor, ["a", "b"])
+    [first_uid, second_uid] = fixture.agent_uids
+    error = updater_flag_error(fixture)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual,
+               policy: %{
+                 "canary_size" => 2,
+                 "batch_size" => 2,
+                 "max_parallel" => 2,
+                 "soak_seconds" => 0,
+                 "health_timeout_seconds" => 60,
+                 "tolerated_failures" => 0
+               }
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+    record_addons_section_failure(first_uid, error, failed_at)
+    record_addons_section_failure(second_uid, error, failed_at)
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    first_recovered_at = DateTime.shift(failed_at, second: 5)
+    report_recovered(fixture, first_uid, first_recovered_at, actor)
+
+    assert :ok =
+             AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: first_recovered_at)
+
+    targets = Map.new(list_rollout_targets(rollout.id, actor), &{&1.agent_uid, &1})
+    assert get_rollout(rollout.id, actor).state == :paused
+    assert targets[first_uid].state == :rolled_back
+    assert targets[second_uid].state == :rollback_pending
+
+    reconcile_at = DateTime.shift(first_recovered_at, second: 5)
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: reconcile_at)
+
+    paused = get_rollout(rollout.id, actor)
+    assert paused.state == :paused
+    assert paused.blocked_reason == "candidate_install_failed"
+
+    targets = Map.new(list_rollout_targets(rollout.id, actor), &{&1.agent_uid, &1})
+    assert targets[first_uid].state == :excluded
+    assert targets[first_uid].reason_code == "agent_updater_outdated"
+    assert targets[first_uid].error == error
+    assert targets[second_uid].state == :rollback_pending
+
+    second_recovered_at = DateTime.shift(reconcile_at, second: 5)
+    report_recovered(fixture, second_uid, second_recovered_at, actor)
+
+    for offset <- [5, 10] do
+      assert {:ok, _stats} =
+               AddonRolloutCoordinator.reconcile(
+                 actor: actor,
+                 now: DateTime.shift(second_recovered_at, second: offset)
+               )
+    end
+
+    ended = get_rollout(rollout.id, actor)
+    assert ended.state == :canceled
+    assert ended.blocked_reason == "no_eligible_targets"
+
+    for target <- list_rollout_targets(rollout.id, actor) do
+      assert target.state == :excluded
+      assert target.reason_code == "agent_updater_outdated"
+    end
+  end
+
+  defp report_recovered(fixture, agent_uid, recovered_at, actor) do
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: agent_uid},
+      fixture.current.version,
+      "running",
+      true,
+      recovered_at,
+      actor
+    )
+  end
+
   # Starts the profile's rollout, fails its single target with `error` on the
   # addons config section and recovers the previous version, leaving the rollout
   # paused with that target rolled back.
@@ -1622,7 +1707,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
               uid: uid,
               name: "Rollout updater test agent #{uid}",
               version: "1.4.23",
-              capabilities: [],
+              capabilities: ["addon.systemd.updater"],
               host: "192.0.2.10",
               port: 50_051,
               metadata: %{"os" => "linux", "arch" => "amd64"}

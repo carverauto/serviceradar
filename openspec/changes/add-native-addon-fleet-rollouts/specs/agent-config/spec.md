@@ -106,6 +106,14 @@ Re-evaluation SHALL NOT change what an attempted target already recorded.
 - **THEN** the rollout SHALL snapshot each target and its classification/reason
 - **AND** only compatible eligible targets SHALL enter delivery batches
 
+#### Scenario: Systemd add-on targets require a reported updater
+- **GIVEN** a systemd-supervised candidate and bare-metal agents that satisfy its platform and version requirements
+- **WHEN** a rollout or profile reconcile classifies those agents
+- **THEN** an agent reporting `addon.systemd.updater` SHALL be eligible
+- **AND** an agent reporting `addon.systemd.updater.unavailable` SHALL be excluded as incompatible with reason `agent_updater_outdated`
+- **AND** an agent reporting neither capability SHALL be excluded as incompatible with reason `agent_updater_unreported` until it is upgraded to an agent that reports its updater
+- **AND** packages that are not systemd-supervised SHALL NOT be affected by either capability
+
 #### Scenario: Resume re-evaluates queued targets
 - **GIVEN** a paused rollout with two queued targets that were eligible when it was created
 - **AND** one of those agents now reports `addon.systemd.updater.unavailable` for a systemd-supervised candidate
@@ -179,7 +187,8 @@ batch.
 - **GIVEN** a paused rollout whose rolled-back targets failed only because their agents could not run the candidate: the agent now reports itself incompatible, or its recorded failure is the host updater lacking a flag the install needs
 - **WHEN** the control plane reconciles the rollout's source
 - **THEN** it SHALL exclude those targets with the compatibility reason code (`agent_updater_outdated` for the updater failure) and keep their reported errors
-- **AND** it SHALL resume the rollout once no rolled-back target remains, so the rollout advances, or ends `canceled` with `no_eligible_targets` when no target is left to run the candidate
+- **AND** it SHALL resume the rollout once no rolled-back target remains and no target is still rolling back, so the rollout advances, or ends `canceled` with `no_eligible_targets` when no target is left to run the candidate
+- **AND** while any target is still rolling back the rollout SHALL stay paused, so the next reconcile judges the complete set of rolled-back targets
 - **AND** a target rolled back because the candidate itself failed SHALL keep the rollout paused for an operator
 
 #### Scenario: Successful rollout promotes authoritative state

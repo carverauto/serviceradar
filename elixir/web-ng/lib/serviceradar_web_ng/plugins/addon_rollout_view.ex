@@ -69,6 +69,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "agent_updater_outdated" =>
       "the ServiceRadar agent package on this host is too old to install systemd add-ons; upgrade the package on the host (agent self-update does not replace its updater)",
     "unsupported_agent_version" => "this agent is too old to install systemd add-ons; upgrade the agent",
+    "agent_updater_unreported" =>
+      "this agent is too old to report its add-on updater, so it cannot install systemd add-ons; upgrade the agent",
     "operator_canceled" => "canceled by an operator"
   }
 
@@ -224,6 +226,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
           action(
             "Agent upgrade required",
             "Upgrade the ServiceRadar agent on this host. It is too old to install systemd add-ons, so it is skipped and stays on #{current}.",
+            if(field(row, :rollout_id), do: :review_rollout)
+          )
+
+        {:action_required, "agent_updater_unreported"} ->
+          action(
+            "Agent upgrade required",
+            "Upgrade the ServiceRadar agent on this host. It is too old to report its add-on updater, so it cannot install systemd add-ons and is skipped. It stays on #{current}.",
             if(field(row, :rollout_id), do: :review_rollout)
           )
 
