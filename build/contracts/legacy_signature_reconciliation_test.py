@@ -80,20 +80,37 @@ class LegacySignatureTest(unittest.TestCase):
     def setUp(self):
         self.registry = Registry()
 
-    def artifact(self, project, identity=None, subject=SUBJECT, key="trusted", corrupt=None):
-        repository = project + "/" + REPOSITORY
-        payload = encoded({"critical": {"type": "cosign container image signature", "identity": {"docker-reference": identity or "registry.example/" + repository}, "image": {"docker-manifest-digest": subject}}, "optional": None})
+    def signed_layer(self, repository, identity=None, subject=SUBJECT, key="trusted",
+                     payload_type="cosign container image signature", corrupt=None):
+        payload = encoded({"critical": {"type": payload_type, "identity": {"docker-reference": identity or "registry.example/" + repository}, "image": {"docker-manifest-digest": subject}}, "optional": None})
         signature = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", str(self.root / key)], input=payload)
+        if corrupt == "signature":
+            signature = b"invalid detached signature"
+        descriptor = {"digest": digest(payload), "size": len(payload), "mediaType": legacy.SIMPLE_SIGNING,
+                      "annotations": {"dev.cosignproject.cosign/signature": base64.b64encode(signature).decode()}}
+        if corrupt == "size":
+            descriptor["size"] += 1
+        elif corrupt == "digest":
+            descriptor["digest"] = "sha256:" + "0" * 64
+        elif corrupt == "media_type":
+            descriptor["mediaType"] = "application/octet-stream"
+        return descriptor, payload
+
+    def artifact(self, project, identity=None, subject=SUBJECT, key="trusted", corrupt=None, layer_options=None):
+        repository = project + "/" + REPOSITORY
         config = b'{"architecture":"","os":""}'
-        manifest = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": digest(config), "size": len(config), "mediaType": "application/vnd.oci.image.config.v1+json"}, "layers": [{"digest": digest(payload), "size": len(payload), "mediaType": legacy.SIMPLE_SIGNING, "annotations": {"dev.cosignproject.cosign/signature": base64.b64encode(signature).decode()}}]}
-        if corrupt == "multilayer":
-            manifest["layers"].append(dict(manifest["layers"][0]))
+        options = layer_options if layer_options is not None else [{"identity": identity, "subject": subject, "key": key}]
+        layers = []
+        for option in options:
+            descriptor, payload = self.signed_layer(repository, **option)
+            layers.append(descriptor)
+            self.registry.objects[f"/v2/{repository}/blobs/{descriptor['digest']}"] = b"corrupt" if corrupt == "payload" else payload
+        manifest = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": digest(config), "size": len(config), "mediaType": "application/vnd.oci.image.config.v1+json"}, "layers": layers}
         raw = encoded(manifest)
         value = digest(raw)
         self.registry.objects[f"/v2/{repository}/manifests/{TAG}"] = raw
         self.registry.objects[f"/v2/{repository}/manifests/{value}"] = raw
         self.registry.objects[f"/v2/{repository}/blobs/{digest(config)}"] = b"corrupt" if corrupt == "config" else config
-        self.registry.objects[f"/v2/{repository}/blobs/{digest(payload)}"] = b"corrupt" if corrupt == "payload" else payload
         if corrupt == "manifest":
             self.registry.objects[f"/v2/{repository}/manifests/{value}"] = raw + b" "
         if project == "serviceradar-builds":
@@ -112,6 +129,51 @@ class LegacySignatureTest(unittest.TestCase):
         self.assertEqual(self.reconcile(), "reused")
         self.assertEqual(len(self.registry.copies), 1)
         self.assertEqual(protected, {k: v for k, v in self.registry.objects.items() if k.startswith("/v2/serviceradar/")})
+
+    def test_multiple_signatures_reused_without_changing_manifest(self):
+        for count in (3, 32):
+            with self.subTest(count=count):
+                self.registry = Registry()
+                canonical = self.artifact("serviceradar", layer_options=[{} for _ in range(count)])
+                raw = self.registry.objects[f"/v2/serviceradar/example/manifests/{canonical}"]
+                layers = json.loads(raw)["layers"]
+                self.assertEqual(len({layer["digest"] for layer in layers}), 1)
+                self.assertEqual(len({layer["annotations"]["dev.cosignproject.cosign/signature"] for layer in layers}), count)
+                self.assertEqual(self.reconcile(), "reused")
+                self.assertEqual(self.registry.copies, [(REPOSITORY, canonical, TAG)])
+                self.assertEqual(self.registry.objects[f"/v2/serviceradar-builds/example/manifests/{TAG}"], raw)
+                self.assertEqual(self.registry.objects[f"/v2/serviceradar/example/manifests/{TAG}"], raw)
+
+    def test_invalid_later_signature_refuses_entire_artifact_before_copy(self):
+        cases = [
+            ({"key": "wrong"}, "configured key"),
+            ({"corrupt": "signature"}, "configured key"),
+            ({"subject": "sha256:" + "b" * 64}, "subject"),
+            ({"payload_type": "untrusted payload type"}, "type"),
+            ({"identity": "registry.example/serviceradar/other"}, "repository"),
+            ({"corrupt": "size"}, "hash or size"),
+            ({"corrupt": "digest"}, "hash or size"),
+            ({"corrupt": "media_type"}, "unsupported legacy signature payload"),
+        ]
+        for position in (1, 2):
+            for option, reason in cases:
+                with self.subTest(position=position, option=option):
+                    self.registry = Registry()
+                    layers = [{}, {}, {}]
+                    layers[position] = option
+                    self.artifact("serviceradar", layer_options=layers)
+                    with self.assertRaisesRegex(ValueError, reason):
+                        self.reconcile()
+                    self.assertEqual(self.registry.copies, [])
+
+    def test_empty_or_oversized_signature_list_refuses_before_copy(self):
+        for count in (0, 33):
+            with self.subTest(count=count):
+                self.registry = Registry()
+                self.artifact("serviceradar", layer_options=[{} for _ in range(count)])
+                with self.assertRaisesRegex(ValueError, "between 1 and 32"):
+                    self.reconcile()
+                self.assertEqual(self.registry.copies, [])
 
     def test_existing_different_build_signature_requires_migration_without_retag(self):
         canonical = self.artifact("serviceradar")
@@ -137,7 +199,7 @@ class LegacySignatureTest(unittest.TestCase):
         self.assertEqual(self.registry.copies[0][1], canonical)
 
     def test_invalid_canonical_refuses_before_any_copy(self):
-        cases = [{"key": "wrong"}, {"subject": "sha256:" + "b" * 64}, {"identity": "registry.example/serviceradar/other"}, {"identity": "other.example/serviceradar/example"}, {"identity": "registry.example/untrusted/example"}] + [{"corrupt": kind} for kind in ("payload", "config", "manifest", "multilayer")]
+        cases = [{"key": "wrong"}, {"subject": "sha256:" + "b" * 64}, {"identity": "registry.example/serviceradar/other"}, {"identity": "other.example/serviceradar/example"}, {"identity": "registry.example/untrusted/example"}] + [{"corrupt": kind} for kind in ("payload", "config", "manifest")]
         for case in cases:
             with self.subTest(case=case):
                 self.registry = Registry()
