@@ -5,6 +5,8 @@ load("//build:elixir_release.bzl", "SHIPPED_ERTS_OTP_ROOT", "SHIPPED_ERTS_ROOT_M
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["qualification/round_trip.exs"])
+
 filegroup(
     name = "srcs",
     srcs = glob(["lib/**"]) + ["mix.exs", "mix.lock"],
@@ -58,6 +60,7 @@ ex_unit_tests(
 )
 
 elixir_quality(
+    extra_inputs = ["qualification/**/*.exs"],
     source_deps = ["@hexpm//:ex_dna"],
     tool_deps = STORAGE_DEPS + [
         "@hexpm//:credo",

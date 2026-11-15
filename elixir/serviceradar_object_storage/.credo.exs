@@ -6,7 +6,7 @@
 extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
 
 build_config.(
-  included: ["config/", "lib/", "test/"],
+  included: ["config/", "lib/", "test/", "qualification/"],
   extra: extra_checks,
   requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"],
   disabled: [{Credo.Check.Design.DuplicatedCode, []}]

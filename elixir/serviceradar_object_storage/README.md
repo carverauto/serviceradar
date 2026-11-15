@@ -121,3 +121,25 @@ digest, source revision, effective security profile, limits and results in
 private operational evidence. Remove the pod, its network policy and exported
 archive after qualification. A successful pod run does not qualify a different
 CI executor sandbox; that environment must permit the same native operations.
+
+### Bounded provider probe
+
+The same export target also writes `artifacts/longshore-round-trip.exs`.
+Run it only in an operator-approved provider test scope. Supply a private JSON
+file containing exactly the NIF configuration fields (TLS must be true), a sealed
+MP4 of at most 16 MiB that fits the configured buffer, and a new output path:
+
+```sh
+LONGSHORE_QUAL_CONFIG=/work/private-client.json \
+LONGSHORE_QUAL_INPUT=/work/sealed-clip.mp4 \
+LONGSHORE_QUAL_OUTPUT=/work/readback.mp4 \
+  /work/release/bin/serviceradar_object_storage eval 'Code.eval_file("/work/longshore-round-trip.exs")'
+```
+
+The probe conditionally writes one random key below `qualification/longshore/`,
+verifies full SHA-256 and ranged readback through the NIF, and saves the verified
+bytes without overwriting another file. It reports the key before dispatch and
+retains both the input and object even on failure. It adds no application-level
+retries; Longshore's internal retries still apply. Decode the output independently.
+No catalog entry or archive receipt is issued, and this probe does not qualify
+browser playback, production authority, or performance.

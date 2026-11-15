@@ -25,6 +25,6 @@ defmodule ServiceRadarObjectStorage.MixProject do
     ]
   end
 
-  def application, do: [extra_applications: [:logger]]
+  def application, do: [extra_applications: [:logger, :crypto]]
   defp shipped_erts, do: System.get_env("SERVICERADAR_RELEASE_ERTS") || true
 end

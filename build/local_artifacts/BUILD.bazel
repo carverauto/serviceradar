@@ -9,6 +9,7 @@ write_source_files(
     diff_test = False,
     files = {
         "artifacts/longshore-qualification.tar.gz": "//elixir/serviceradar_object_storage:qualification_release",
+        "artifacts/longshore-round-trip.exs": "//elixir/serviceradar_object_storage:qualification/round_trip.exs",
     },
     tags = ["manual"],
 )
