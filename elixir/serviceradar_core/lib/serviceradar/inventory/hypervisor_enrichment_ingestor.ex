@@ -1040,17 +1040,31 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp parse_time(_value), do: nil
 
+  # One record per `{provider, provider_ref}`, the newest observation winning, at
+  # the position its ref was first reported. Downstream choices that fall back
+  # to report order (a guest's primary address and MAC among equally preferred
+  # NICs) depend on that order surviving the dedupe.
   defp dedupe_provider_refs(records) do
-    records
-    |> Enum.reduce(%{}, fn record, acc ->
-      key = {record.provider, record.provider_ref}
+    {keys, by_key} =
+      Enum.reduce(records, {[], %{}}, fn record, {keys, by_key} ->
+        key = {record.provider, record.provider_ref}
 
-      Map.update(acc, key, record, fn current ->
-        if newer_record?(record, current), do: record, else: current
+        case by_key do
+          %{^key => current} ->
+            {keys, Map.put(by_key, key, newer_of(record, current))}
+
+          _ ->
+            {[key | keys], Map.put(by_key, key, record)}
+        end
       end)
-    end)
-    |> Map.values()
+
+    keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(by_key, &1))
   end
+
+  defp newer_of(candidate, current),
+    do: if(newer_record?(candidate, current), do: candidate, else: current)
 
   defp newer_record?(candidate, current) do
     case {candidate[:observed_at], current[:observed_at]} do
@@ -1729,18 +1743,17 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     }
   end
 
+  # A guest's MACs, its device MAC first. Ordered by `GuestAddress.preference_order/1`,
+  # the order `primary_ip_by_guest/1` takes its address from, so the device's MAC and
+  # IP come from the same NIC.
   defp guest_macs_by_ref(network_interfaces) do
     network_interfaces
-    |> Enum.filter(fn iface ->
-      present?(Map.get(iface, :guest_provider_ref)) and
-        not host_internal_guest_interface?(iface)
-    end)
-    |> Enum.sort_by(fn iface ->
-      {
-        guest_interface_identity_rank(iface),
-        to_string(Map.get(iface, :name) || ""),
-        to_string(Map.get(iface, :provider_ref) || "")
-      }
+    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.group_by(&Map.get(&1, :guest_provider_ref))
+    |> Enum.flat_map(fn {_guest_ref, interfaces} ->
+      interfaces
+      |> GuestAddress.preference_order()
+      |> Enum.reject(&host_internal_guest_interface?/1)
     end)
     |> mac_list_by_ref(:guest_provider_ref)
   end
@@ -1765,18 +1778,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp guest_interface_identity_rank(iface) do
-    if hypervisor_attached_interface?(iface), do: 0, else: 1
-  end
-
-  defp hypervisor_attached_interface?(iface) do
-    iface
-    |> Map.get(:source)
-    |> to_string()
-    |> String.split(",", trim: true)
-    |> Enum.any?(&(String.trim(&1) == "config"))
-  end
-
   defp host_internal_guest_interface?(iface) when is_map(iface) do
     name =
       iface
@@ -1786,7 +1787,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> String.downcase()
 
     name == "lo" or
-      (not hypervisor_attached_interface?(iface) and GuestAddress.host_internal_name?(name))
+      (not GuestAddress.hypervisor_attached?(iface) and GuestAddress.host_internal_name?(name))
   end
 
   defp host_internal_guest_interface?(_iface), do: false

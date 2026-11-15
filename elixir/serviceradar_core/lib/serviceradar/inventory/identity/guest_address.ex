@@ -37,15 +37,18 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   read from the record's `config_key`, top-level or in its `metadata`. A
   dual-homed guest therefore presents the NIC its configuration lists first,
   and its other NICs stay secondary. Report order cannot carry that preference:
-  the enrichment ingestor dedupes NIC records through a map keyed by provider
-  ref, so the order they reach this module follows the NICs' MACs, not the
-  guest's configuration. An attached NIC without a configuration index ranks
-  after the indexed ones.
+  a connector need not list NICs by index (`net10` sorts before `net2` as
+  text), and interface names are the guest's own choice (`mgmt`, `data`). An
+  attached NIC without a configuration index ranks after the indexed ones.
 
   Otherwise report order decides, and an interface contributes its first
   address, so a guest that never carried a host-internal address keeps the
   address it had. `nil` when no interface qualifies: callers keep the device's
   current address rather than taking a host-internal one.
+
+  `preference_order/1` is that ordering on its own. The device's MAC must come
+  from the same NIC as its address, so whoever picks a guest's MAC orders its
+  interfaces with it rather than by a rule of its own.
   """
 
   import Bitwise
@@ -88,15 +91,26 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   """
   @spec primary([map()]) :: String.t() | nil
   def primary(interfaces) when is_list(interfaces) do
-    {attached, other} = Enum.split_with(interfaces, &hypervisor_attached?/1)
-
-    attached = Enum.sort_by(attached, &configured_order/1)
-
-    first_address(attached, fn _iface, _address -> true end) ||
-      first_address(other, &(not host_internal?(&1, &2)))
+    interfaces
+    |> preference_order()
+    |> first_address(&(hypervisor_attached?(&1) or not host_internal?(&1, &2)))
   end
 
   def primary(_interfaces), do: nil
+
+  @doc """
+  One guest's `interfaces`, most preferred first: hypervisor-attached NICs by
+  configured index (unindexed ones after them), then every other interface.
+  Ties, and the other interfaces, keep report order.
+
+  This orders interfaces and filters none; `primary/1` takes the first address
+  it accepts from this order.
+  """
+  @spec preference_order([map()]) :: [map()]
+  def preference_order(interfaces) when is_list(interfaces) do
+    {attached, other} = Enum.split_with(interfaces, &hypervisor_attached?/1)
+    Enum.sort_by(attached, &configured_order/1) ++ other
+  end
 
   # `{0, n}` for the NIC configured as `net<n>`; `{1, 0}` for one without a
   # configuration index, so it follows every indexed NIC. `Enum.sort_by/2` is
@@ -164,7 +178,13 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
     end
   end
 
-  defp hypervisor_attached?(iface) do
+  @doc """
+  Whether the hypervisor attached `iface` to the guest: its `source` lists
+  `config`, which the Proxmox connector sets on every NIC defined in the
+  guest's configuration.
+  """
+  @spec hypervisor_attached?(map()) :: boolean()
+  def hypervisor_attached?(iface) when is_map(iface) do
     iface
     |> field(:source)
     |> to_string()
