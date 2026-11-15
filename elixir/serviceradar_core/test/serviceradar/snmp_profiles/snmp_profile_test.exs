@@ -11,6 +11,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
   alias Ash.Resource.Info, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
@@ -261,5 +262,109 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       {:ok, reloaded_profile1} = Ash.get(SNMPProfile, profile1.id, actor: actor)
       assert reloaded_profile1.is_default == false
     end
+  end
+
+  # Ash casts a blank :string argument to nil, so "" can only ever mean "keep".
+  # Removing a stored secret is its own explicit input.
+  describe "removing stored inline credentials" do
+    @describetag :integration
+
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      %{actor: SystemActor.system(:test), unique: System.unique_integer([:positive])}
+    end
+
+    test "a blank value keeps the stored community and clear_credentials removes it", %{
+      actor: actor,
+      unique: unique
+    } do
+      profile =
+        create_profile!(actor, %{name: "Clear #{unique}", community: "example-ro-#{unique}"})
+
+      assert profile.community_encrypted
+
+      update_profile!(profile, actor, %{community: ""})
+      assert reload!(profile, actor).community_encrypted
+
+      update_profile!(profile, actor, %{clear_credentials: [:community]})
+      assert reload!(profile, actor).community_encrypted == nil
+    end
+
+    test "binding a reusable credential removes the inline credentials it replaces", %{
+      actor: actor,
+      unique: unique
+    } do
+      profile =
+        create_profile!(actor, %{
+          name: "Bind #{unique}",
+          version: :v2c,
+          community: "example-ro-#{unique}"
+        })
+
+      secret = create_v3_secret!(actor, unique)
+
+      update_profile!(profile, actor, %{credential_secret_id: secret.id, version: :v3})
+
+      reloaded = reload!(profile, actor)
+      assert reloaded.credential_secret_id == secret.id
+      assert reloaded.version == :v3
+      assert reloaded.community_encrypted == nil
+    end
+
+    test "a call that both supplies and removes a community is rejected", %{
+      actor: actor,
+      unique: unique
+    } do
+      profile =
+        create_profile!(actor, %{name: "Conflict #{unique}", community: "example-ro-#{unique}"})
+
+      secret = create_v3_secret!(actor, unique)
+
+      for removal <- [%{clear_credentials: [:community]}, %{credential_secret_id: secret.id}] do
+        input = Map.put(removal, :community, "example-rw-#{unique}")
+
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 profile
+                 |> Ash.Changeset.for_update(:update, input, actor: actor)
+                 |> Ash.update(actor: actor)
+
+        assert Enum.any?(errors, &(Map.get(&1, :field) == :community))
+      end
+
+      reloaded = reload!(profile, actor)
+      assert reloaded.community_encrypted == profile.community_encrypted
+      assert reloaded.credential_secret_id == nil
+    end
+
+    defp create_profile!(actor, attrs) do
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+      |> Ash.create!(actor: actor)
+    end
+
+    defp create_v3_secret!(actor, unique) do
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "snmp-v3-#{unique}",
+          provider: "snmp",
+          credential_kind: :snmp,
+          username: "example-user",
+          secret_payload: Jason.encode!(%{"username" => "example-user"}),
+          metadata: %{"auth_method" => "v3"}
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+    end
+
+    defp update_profile!(profile, actor, attrs) do
+      profile
+      |> Ash.Changeset.for_update(:update, attrs, actor: actor)
+      |> Ash.update!(actor: actor)
+    end
+
+    defp reload!(profile, actor), do: Ash.get!(SNMPProfile, profile.id, actor: actor)
   end
 end
