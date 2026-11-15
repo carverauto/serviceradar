@@ -1,0 +1,183 @@
+suite: NVR archive upload pod profile, scheduling and provider egress
+templates:
+  - templates/nvr.yaml
+set:
+  nvr.enabled: true
+  nvr.storage.storageClassName: example-replicated
+  nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+  nvr.storage.storageIds:
+    serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+    serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+  nvr.nodeSelector:
+    kubernetes.io/arch: amd64
+  nvr.ingest.enabled: true
+  nvr.ingest.configSecretName: example-nvr-ingest-config
+  nvr.ingest.tokenSecretName: example-nvr-ingest-token
+  nvr.ingest.tlsSecretName: example-nvr-server-tls
+  nvr.ingest.client.configSecretName: example-nvr-client-config
+  nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+  nvr.ingest.client.tlsSecretName: example-nvr-client-tls
+  nvr.archive.providerEgress.cidrs: [192.0.2.0/24, "2001:db8:10::/48"]
+tests:
+  - it: leaves the pod profile, scheduling and egress unchanged while archive is disabled
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.securityContext.seccompProfile
+          value: {type: RuntimeDefault}
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.nodeSelector
+          value: {kubernetes.io/arch: amd64}
+      - documentSelector: {path: kind, value: NetworkPolicy}
+        equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: kube-system
+              ports:
+                - {protocol: UDP, port: 53}
+                - {protocol: TCP, port: 53}
+
+  - it: applies the installed io_uring profile only on prepared nodes and allows only the provider
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.seccompProfile.type: Localhost
+      nvr.archive.seccompProfile.localhostProfile: example/archive-uring-v1.json
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: Localhost
+              localhostProfile: example/archive-uring-v1.json
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: amd64
+            serviceradar.io/media-storage-node-prepared: "true"
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      - documentSelector: {path: kind, value: NetworkPolicy}
+        contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock: {cidr: 192.0.2.0/24}
+              - ipBlock: {cidr: "2001:db8:10::/48"}
+            ports:
+              - {protocol: TCP, port: 443}
+
+  - it: keeps RuntimeDefault off the prepared-node label
+    set:
+      nvr.archive.enabled: true
+    documentSelector: {path: kind, value: StatefulSet}
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile
+          value: {type: RuntimeDefault}
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value: {kubernetes.io/arch: amd64}
+
+  - it: refuses archive without the ingest listener that serves it
+    set:
+      nvr.archive.enabled: true
+      nvr.ingest.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.enabled requires nvr.ingest.enabled
+
+  - it: refuses an unconfined archive workload
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.seccompProfile.type: Unconfined
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.seccompProfile.type must be RuntimeDefault or Localhost
+
+  - it: refuses Localhost without an installed profile path
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.seccompProfile.type: Localhost
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments
+
+  - it: refuses traversal out of the node seccomp directory
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.seccompProfile.type: Localhost
+      nvr.archive.seccompProfile.localhostProfile: example/../archive.json
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.seccompProfile.localhostProfile must be a non-empty relative path without dot or parent segments
+
+  - it: refuses a profile path that RuntimeDefault would ignore
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.seccompProfile.localhostProfile: example/archive-uring-v1.json
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.seccompProfile.localhostProfile requires type Localhost
+
+  - it: refuses archive without explicit provider egress
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.providerEgress.cidrs: []
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.providerEgress.cidrs must list the provider endpoint CIDRs
+
+  - it: refuses a catch-all provider CIDR
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.providerEgress.cidrs: [0.0.0.0/0]
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.providerEgress.cidrs contains invalid or catch-all CIDR 0.0.0.0/0
+
+  - it: refuses a provider hostname in place of a CIDR
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.providerEgress.cidrs: [objects.example.com]
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.providerEgress.cidrs contains invalid or catch-all CIDR objects.example.com
+
+  - it: refuses a provider port outside the TCP range
+    set:
+      nvr.archive.enabled: true
+      nvr.archive.providerEgress.port: 70000
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.archive.providerEgress.port must be in 1..65535
+
+  - it: the demo overlay archives only from prepared amd64 nodes
+    values:
+      - ../values-demo.yaml
+    documentSelector: {path: kind, value: StatefulSet}
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: Localhost
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: amd64
+            serviceradar.io/media-storage-node-prepared: "true"
