@@ -78,6 +78,17 @@ promotion. Fixed protected tags are never replaced with a different digest;
 `latest` is updated only after the entire bundle has passed availability checks.
 The successful receipt records verified root digests and tags in `published`,
 separate from accessory artifacts, for chart packaging.
+Publication verification fails if no trusted Cosign verification identity can
+be resolved; finding signature attachment layers alone is insufficient.
+
+Each promotion retains a separate JSON receipt under `receipts/`, while
+`receipt.json` remains the latest receipt used by chart assembly. The publisher
+workflows upload only those receipt JSON files as `harbor-promotion-` artifacts
+identified by workflow, job, run ID and run attempt, before removing credentials.
+Image and chart receipts are both retained. Missing receipts fail the upload;
+cleanup still runs if the upload fails. Receipts retained from a failed run are
+diagnostic evidence only: deployment requires a successful run with mandatory
+signature verification before and after promotion.
 
 The separate GitOps rollout gate still controls retention activation: do not
 enable disposable deletion until all deployment paths reject that project and
