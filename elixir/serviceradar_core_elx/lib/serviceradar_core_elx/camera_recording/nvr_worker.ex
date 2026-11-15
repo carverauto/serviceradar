@@ -82,6 +82,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         inbox: nil,
         detached?: false,
         input_complete?: false,
+        bound_reached?: false,
         drain_reason: nil,
         abort_reason: nil,
         queue: :queue.new(),
@@ -167,7 +168,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   @impl true
   def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
-    if state.input_complete? or state.abort_reason != nil do
+    if state.bound_reached? or state.input_complete? or state.abort_reason != nil do
       release_inbox_credit(state, byte_size(unit.payload))
       {:noreply, state}
     else
@@ -179,12 +180,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     if state.sender_pid == nil do
       stop_before_stream(%{state | detached?: true, input_complete?: true}, state.drain_reason || :no_recorded_media)
     else
-      next =
-        state
-        |> Map.merge(%{detached?: true, input_complete?: true})
-        |> maybe_reply_puller()
-
-      {:noreply, next}
+      complete_input(state, drain_usable(state))
     end
   end
 
@@ -212,7 +208,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     abort_stream(%{state | detached?: true}, :ingest_stopped)
   end
 
-  def handle_info(:renew_lease, %{input_complete?: true} = state), do: {:noreply, %{state | lease_timer: nil}}
+  def handle_info(:renew_lease, %{detached?: true} = state), do: {:noreply, %{state | lease_timer: nil}}
   def handle_info(:renew_lease, %{abort_reason: reason} = state) when not is_nil(reason), do: {:noreply, state}
 
   def handle_info(:renew_lease, state) do
@@ -378,7 +374,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       if state.frames_accepted == 0 do
         abort_stream(state, :frame_exceeds_max_bytes)
       else
-        next = state |> detach_recorder() |> maybe_reply_puller()
+        next = state |> Map.put(:bound_reached?, true) |> detach_recorder() |> maybe_reply_puller()
         {:noreply, next}
       end
     else
@@ -399,7 +395,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       }
 
       next = ensure_sender_started(next)
-      next = if reached_bound?, do: detach_recorder(next), else: next
+      next = if reached_bound?, do: detach_recorder(%{next | bound_reached?: true}), else: next
       {:noreply, maybe_reply_puller(next)}
     end
   end
@@ -444,34 +440,71 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp detach_recorder(%{detached?: true} = state), do: %{state | input_complete?: true}
+  defp detach_recorder(%{detached?: true} = state), do: state
 
   defp detach_recorder(state) do
     if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
 
-    state = if state.inbox, do: drain_or_cancel_inbox(state), else: state
-
-    %{state | detached?: true, input_complete?: true, lease_timer: nil}
+    state = %{state | detached?: true, lease_timer: nil}
+    if state.inbox, do: drain_or_cancel_inbox(state), else: %{state | input_complete?: true}
   end
 
   defp drain_or_cancel_inbox(state) do
-    case check_capture(state.capture) do
-      :ok ->
-        timeout = min(@call_cap_ms, max(1, min(Inbox.remaining_ms(state.inbox), state.capture.deadline - now())))
-        drain_inbox(state, timeout)
-        record_capture_abort(state, check_capture(state.capture))
-
-      {:error, _reason} = error ->
-        Inbox.cancel(state.inbox)
-        record_capture_abort(state, error)
+    with :ok <- drain_usable(state),
+         :ok <- drain_inbox(state, drain_timeout(state)),
+         :ok <- drain_usable(state) do
+      state
+    else
+      {:error, reason} -> fail_drain(state, reason)
     end
   end
 
-  defp record_capture_abort(state, :ok), do: state
-  defp record_capture_abort(state, {:error, reason}), do: %{state | abort_reason: state.abort_reason || reason}
+  defp drain_timeout(state) do
+    min(@call_cap_ms, max(1, min(Inbox.remaining_ms(state.inbox), state.capture.deadline - now())))
+  end
+
+  defp drain_inbox(state, timeout) do
+    case Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :recording_drain_failed}
+    end
+  catch
+    :exit, _ -> {:error, :recording_drain_failed}
+  end
+
+  defp fail_drain(state, reason) do
+    resolved = resolve_drain_abort_reason(state, reason)
+    Inbox.cancel(state.inbox)
+    %{state | input_complete?: true, abort_reason: state.abort_reason || resolved}
+  end
+
+  defp resolve_drain_abort_reason(state, reason) do
+    case drain_usable(state) do
+      {:error, usable_reason} when usable_reason != :recording_closed -> usable_reason
+      _ -> reason
+    end
+  end
+
+  defp drain_usable(state) do
+    with :ok <- check_capture(state.capture) do
+      if state.inbox, do: Inbox.usable(state.inbox), else: :ok
+    end
+  end
+
+  defp complete_input(state, :ok) do
+    next =
+      state
+      |> Map.merge(%{detached?: true, input_complete?: true})
+      |> maybe_reply_puller()
+
+    {:noreply, next}
+  end
+
+  defp complete_input(state, {:error, reason}), do: abort_stream(state, reason)
 
   defp eof_or_abort(state) do
-    case check_capture(state.capture) do
+    case drain_usable(state) do
       :ok ->
         {:eof, state}
 
@@ -479,12 +512,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         abort = state.abort_reason || reason
         {{:abort, abort}, %{state | abort_reason: abort}}
     end
-  end
-
-  defp drain_inbox(state, timeout) do
-    Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout)
-  catch
-    :exit, _ -> Inbox.cancel(state.inbox)
   end
 
   defp abort_stream(state, reason) do

@@ -1181,6 +1181,92 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_live_delivery(ctx, List.last(ctx.media.units))
   end
 
+  test "NVRCapture refuses a clean seal when the relay drain fails after a bound and keeps the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = setup_nvr_release(ctx.tmp_dir)
+    _daemon = start_nvr_daemon(nvr)
+
+    task =
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: nvr.client_config,
+          token_file: nvr.token_file,
+          bounds: %{max_frames: 5, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+
+    worker = await_nvr_worker_attached(owner)
+    :ok = :sys.suspend(worker)
+    Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
+    _ = :sys.get_state(ctx.pipeline)
+    :ok = :sys.suspend(ctx.pipeline)
+
+    result =
+      try do
+        :ok = :sys.resume(worker)
+        Task.await(task, 20_000)
+      after
+        :sys.resume(ctx.pipeline)
+      end
+
+    assert {:error, {:nvr_ingest_uncertain, details}} = result
+    assert details.storage_id == nvr.storage_id
+    assert details.recorder_epoch == 1
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :active
+    assert claim.storage_id == nvr.storage_id
+    assert claim.recorder_epoch == 1
+
+    [block] = recording_blocks(ctx)
+    assert block.block_key == details.block_key
+    assert block.state == :open_local
+    assert block.descriptor == nil
+  end
+
+  test "NVRCapture administrative stop drains admitted units, seals them, and releases the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = setup_nvr_release(ctx.tmp_dir)
+    _daemon = start_nvr_daemon(nvr)
+
+    task =
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: nvr.client_config,
+          token_file: nvr.token_file,
+          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+
+    _worker = await_nvr_worker_attached(owner)
+    Enum.each(Enum.take(ctx.media.units, 12), &send(ctx.pipeline, {:media_chunk, &1}))
+    _ = :sys.get_state(ctx.pipeline)
+
+    assert {:ok, _control} =
+             RecordingControl.stop(
+               %{deployment_ref: Ecto.UUID.generate(), generation: 1},
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               actor: ctx.actor
+             )
+
+    assert {:ok, receipt} = Task.await(task, 20_000)
+    assert receipt.status == :sealed_local
+    assert receipt.storage_id == nvr.storage_id
+    assert receipt.frames_sent == 12
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :released
+    assert claim.recorder_epoch == 1
+
+    [block] = recording_blocks(ctx)
+    assert block.block_key == receipt.block_key
+    assert block.state == :open_local
+  end
+
   defp await_nvr_worker_attached(owner) do
     await_capture(
       fn ->
