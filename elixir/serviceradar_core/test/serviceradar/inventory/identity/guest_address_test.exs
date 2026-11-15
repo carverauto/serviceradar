@@ -24,10 +24,9 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
   end
 
   test "a dual-homed guest's primary is its lowest configured NIC, whatever the report order" do
-    # The ingestor dedupes NIC records through a map keyed by provider ref, so
-    # the order they arrive in follows the NIC MACs, not the guest config. The
-    # Proxmox connector carries the config key (`netN`) in each record's
-    # metadata; that index is the guest's NIC order.
+    # Report order is the connector's, not the guest config's. The Proxmox
+    # connector carries the config key (`netN`) in each record's metadata;
+    # that index is the guest's NIC order.
     second_nic_first = [
       %{
         name: "eth1",
