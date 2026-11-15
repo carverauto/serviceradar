@@ -3,7 +3,12 @@ defmodule ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia do
 
   @aud <<0, 0, 0, 1, 9>>
 
-  def generate(directory, name, codec_args \\ ["-profile:v", "baseline", "-bf", "0", "-g", "30"]) do
+  def generate(
+        directory,
+        name,
+        codec_args \\ ["-profile:v", "baseline", "-bf", "0", "-g", "30"],
+        x264_params \\ "aud=1:repeat-headers=1"
+      ) do
     path = Path.join(directory, name <> ".h264")
 
     args =
@@ -24,7 +29,7 @@ defmodule ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia do
         "-sc_threshold",
         "0",
         "-x264-params",
-        "aud=1:repeat-headers=1"
+        x264_params
       ] ++ codec_args ++ ["-f", "h264", path]
 
     {"", 0} = System.cmd(tool("ffmpeg"), args, stderr_to_stdout: true)

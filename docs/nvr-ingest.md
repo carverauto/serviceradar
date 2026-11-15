@@ -104,9 +104,12 @@ byte order (big endian).
 2. Each access unit has a four-byte payload length from 1 through 1048576,
    then eight-byte `sequence`, `pts` and `dts` values, then that many payload
    bytes. Payloads are complete H264 AnnexB access units. The existing writer
-   validates baseline/constrained-baseline H264, keyframe acquisition, timestamp
-   and sequence continuity. Timestamps use a 90000 Hz timebase with no frame
-   reordering. UTC mapping is explicitly unknown; receipt time is not capture time.
+   validates the H264 profile, keyframe acquisition, timestamp and sequence
+   continuity. Baseline and constrained-baseline streams are accepted. Main and
+   High streams are accepted only when every sequence parameter set rules out
+   frame reordering, by picture order count type 2 or a declared reorder depth
+   of zero. Timestamps use a 90000 Hz timebase with no frame reordering. UTC
+   mapping is explicitly unknown; receipt time is not capture time.
 3. A zero four-byte payload length terminates the application stream. It must
    be followed immediately by HTTP body completion. Truncation, extra bytes or
    an HTTP EOF without this marker do not request a seal.

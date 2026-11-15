@@ -15,6 +15,8 @@ defmodule ServiceRadarNVR.Ingest do
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
+  require Logger
+
   @impl true
   def init(config), do: config
 
@@ -55,7 +57,8 @@ defmodule ServiceRadarNVR.Ingest do
                 respond(conn, 503, %{error: "ingest_unavailable"})
             end
 
-          _ ->
+          outcome ->
+            Logger.warning("NVR ingest incomplete: #{inspect(refusal(worker, outcome), limit: 5, printable_limit: 120)}")
             respond(conn, 422, %{error: "ingest_incomplete"})
         end
       after
@@ -126,6 +129,20 @@ defmodule ServiceRadarNVR.Ingest do
         error
     after
       Inbox.remaining_ms(inbox) -> {:error, :seal_timeout}
+    end
+  end
+
+  # The writer's own reason, when it reported one, explains the refusal better
+  # than the status call that failed because the writer had already stopped.
+  defp refusal(worker, outcome) do
+    receive do
+      {:nvr_recording, ^worker, {:error, reason}} -> reason
+    after
+      0 ->
+        case outcome do
+          {:error, reason} -> reason
+          _ -> :unexpected_writer_status
+        end
     end
   end
 
