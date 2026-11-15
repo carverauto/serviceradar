@@ -112,7 +112,8 @@ share one limit. A finite limit has to cover the client's whole buffer pool, whi
 is most of its memory. The pool is allocated at startup, so the pod's memory
 limit must cover it as well.
 
-Verify from inside the running pod:
+Verify from inside the running pod, using the deployment's namespace in place of the
+synthetic `example-monitoring`:
 
 ```sh
 kubectl -n example-monitoring exec deploy/serviceradar-media-storage -- sh -c 'ulimit -l'
@@ -140,7 +141,8 @@ The workload must still run as UID/GID 10001, with all capabilities dropped,
 privilege escalation disabled, and a read-only root filesystem.
 
 Seccomp permission and the locked-memory limit are independent. Ring creation
-can succeed and buffer registration still fail; see the next section.
+can succeed and buffer registration still fail; see
+[Raise the locked-memory limit on the same nodes](#raise-the-locked-memory-limit-on-the-same-nodes).
 
 Also verify the provider network path. Longshore currently lacks HTTP CONNECT
 support; allowing io_uring does not make `mediaStorage.egressProxy` work with that
