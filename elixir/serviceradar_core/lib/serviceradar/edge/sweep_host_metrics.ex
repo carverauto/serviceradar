@@ -11,26 +11,26 @@ defmodule ServiceRadar.Edge.SweepHostMetrics do
   batch, so an agent whose sweep is leased produces the same per-host availability
   telemetry as one whose sweep is not (`fix-device-availability-timeline`, Decision 1).
 
-  `ServiceRadar.Edge.Projectors.SweepObservation.committed/3` calls `publish/4` after the
-  ledger transaction that projected the batch commits, for a fresh primary delivery only.
-  A replay, a late-fenced delivery or a refused projection therefore derives nothing.
+  `ServiceRadar.Edge.SweepHostGauges` owns when they are published: after the ledger
+  transaction that projected the batch commits, for a fresh primary delivery only, and again
+  from its pending marker if that publish never completed. A replay, a late-fenced delivery
+  or a refused projection therefore derives nothing.
 
   The series, units, tags and identity are the ones the agent's unleased batch carries
   once core attests it (`ServiceRadar.Edge.MetricsBatchProjection`), and a host counts as
   available under the rule the projection stores (`SweepProjection.host_available?/1`).
   The gauges are split in host order into messages of at most `max_points/0` points, and
-  message `n` carries the `Nats-Msg-Id` `<event_id>:sweep-host-metrics:<n>`, so a retry is
-  stored once. Each message goes through `ServiceRadar.NATS.DurablePublish`, which falls
+  message `n` carries the `Nats-Msg-Id` `<event_id>:sweep-host-metrics:<n>`. A republish
+  of the same batch builds the same messages and points, so JetStream deduplicates it within
+  its window and the metrics store, keyed by `(timestamp, gateway_id, series_key)`, keeps one
+  row per point after it. Each message goes through `ServiceRadar.NATS.DurablePublish`, which falls
   back to a durable retry job when the publish fails.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.MetricsBatchProjection
   alias ServiceRadar.Edge.SweepProjection
-  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
-  alias ServiceRadar.Infrastructure.Partition
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -60,34 +60,20 @@ defmodule ServiceRadar.Edge.SweepHostMetrics do
   def max_points, do: @max_points
 
   @doc """
-  Derives and publishes the gauges of a projected leased batch. `gateway_id` is the
-  publishing gateway the EdgeRecord processor saw. A message that can be neither
-  published nor queued is logged; the projected host rows are already committed.
+  Derives and publishes the gauges of `batch`, attributed to `identity`. Returns `:ok` once
+  every message is stored in JetStream or queued as a durable retry job, and
+  `{:error, reason}` when one could be neither; the caller keeps its pending marker then
+  (`ServiceRadar.Edge.SweepHostGauges`).
   """
-  @spec publish(EdgeRecordV1.t(), SweepObservationBatchV1.t(), String.t() | nil, keyword()) ::
-          :ok
-  def publish(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        gateway_id,
-        opts \\ []
-      ) do
-    event_id = Ecto.UUID.load!(record.event_id)
-
-    identity = %{
-      agent_id: record.producer_context.origin_principal_id,
-      gateway_id: gateway_id,
-      partition: Keyword.get_lazy(opts, :partition, fn -> partition(record.network_scope_id) end),
-      event_id: event_id
-    }
-
+  @spec publish(SweepObservationBatchV1.t(), identity(), keyword()) :: :ok | {:error, term()}
+  def publish(%SweepObservationBatchV1{} = batch, identity, opts \\ []) do
     publish_opts = Keyword.take(opts, @publish_opts)
 
     batch
     |> build(identity)
     |> Enum.with_index()
-    |> Enum.each(fn {metric_batch, index} ->
-      msg_id = "#{event_id}:sweep-host-metrics:#{index}"
+    |> Enum.reduce_while(:ok, fn {metric_batch, index}, :ok ->
+      msg_id = "#{identity.event_id}:sweep-host-metrics:#{index}"
 
       case DurablePublish.publish(
              MetricsBatchProjection.subject(@family, metric_batch),
@@ -95,16 +81,18 @@ defmodule ServiceRadar.Edge.SweepHostMetrics do
              [msg_id: msg_id] ++ publish_opts
            ) do
         :ok ->
-          :ok
+          {:cont, :ok}
 
         {:ok, :enqueued} ->
-          :ok
+          {:cont, :ok}
 
         {:error, reason} ->
-          Logger.error("Leased sweep host gauges were not published",
+          Logger.warning("Leased sweep host gauges were not published; the marker stays",
             msg_id: msg_id,
             reason: inspect(reason)
           )
+
+          {:halt, {:error, reason}}
       end
     end)
   end
@@ -283,17 +271,5 @@ defmodule ServiceRadar.Edge.SweepHostMetrics do
     map
     |> Enum.sort()
     |> Enum.map(fn {key, value} -> %StringMapEntry{key: key, value: value} end)
-  end
-
-  # The projection that just committed resolved this partition, so a failed read is
-  # transient; the gauges still publish, without a partition, rather than not at all.
-  defp partition(network_scope_id) do
-    with {:ok, scope_id} <- Ecto.UUID.load(network_scope_id),
-         {:ok, %Partition{slug: slug}} <-
-           Partition.get_by_id(scope_id, actor: SystemActor.system(:sweep_host_metrics)) do
-      slug
-    else
-      _ -> nil
-    end
   end
 end

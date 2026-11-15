@@ -13,7 +13,9 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
 
   After a primary delivery commits, `committed/3` publishes the batch's per-host gauges on the
   metrics stream (`ServiceRadar.Edge.SweepHostMetrics`): a leased execution emits no metric
-  batch of its own, so core derives them.
+  batch of its own, so core derives them. A primary projection also records the batch's
+  pending gauge marker in the same transaction (`ServiceRadar.Edge.SweepHostGauges`), so
+  gauges whose publish never completes are republished by the sweeper.
 
   The service state is a health report about data that is already stored, so it never refuses
   the batch: when neither the publishing gateway's header nor the agent's gateway column names a
@@ -25,7 +27,7 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.SweepCorrelate
-  alias ServiceRadar.Edge.SweepHostMetrics
+  alias ServiceRadar.Edge.SweepHostGauges
   alias ServiceRadar.Edge.SweepProjection
   alias ServiceRadar.Edge.SweepServiceState
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -67,6 +69,15 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
         case SweepProjection.project(repo, record, batch) do
           {:ok, progress} ->
             project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
+
+            SweepHostGauges.mark(
+              repo,
+              record,
+              batch,
+              progress.partition,
+              Map.get(context, :gateway_id)
+            )
+
             record_service_state(repo, progress, Map.get(context, :gateway_id))
 
           {:error, reason} ->
@@ -80,17 +91,15 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
 
   @doc """
   Publishes the per-host gauges of a batch whose projection committed
-  (`ServiceRadar.Edge.SweepHostMetrics`). The EdgeRecord processor calls this only after
-  the ledger transaction commits, for a fresh primary delivery, so a replay, a late-fenced
-  delivery or a refused projection derives nothing.
+  (`ServiceRadar.Edge.SweepHostGauges.publish_committed/3`) and clears its pending marker.
+  The EdgeRecord processor calls this only after the ledger transaction commits, for a fresh
+  primary delivery, so a replay, a late-fenced delivery or a refused projection derives
+  nothing. A publish that fails leaves the marker for `ServiceRadar.Edge.SweepHostGaugeSweeper`.
   """
   @impl true
-  def committed(
-        %EdgeRecordV1{} = record,
-        %SweepObservationBatchV1{} = batch,
-        %{primary?: true} = context
-      ) do
-    SweepHostMetrics.publish(record, batch, Map.get(context, :gateway_id))
+  def committed(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch, %{primary?: true}) do
+    _ = SweepHostGauges.publish_committed(record, batch)
+    :ok
   end
 
   def committed(_record, _batch, _context), do: :ok

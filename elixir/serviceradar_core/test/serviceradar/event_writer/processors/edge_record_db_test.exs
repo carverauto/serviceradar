@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordValidate
   alias ServiceRadar.Edge.SemanticDigest
+  alias ServiceRadar.Edge.SweepHostGauges
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceV1
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
@@ -196,6 +197,57 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
              } = Jason.decode!(details)
 
       assert execution_id == Ecto.UUID.cast!(batch.execution_id)
+    end
+
+    # build_frame/1's host answers ICMP and has 443 open.
+    @host_gauges [
+      {"sweep.host.available", 1.0},
+      {"sweep.host.icmp_available", 1.0},
+      {"sweep.host.port.available", 1.0}
+    ]
+
+    test "a projected leased batch publishes its per-host gauges and clears its marker" do
+      %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} =
+        build_frame(gateway_header: "gw-sweep-publish")
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+
+      refute gauge_marker?(record)
+
+      assert host_gauge_rows(slot.authenticated_agent_id, "192.0.2.1") == @host_gauges
+    end
+
+    # The gap the marker closes: the ledger transaction committed, and the node died before
+    # the committed publish ran. Without the marker the gauges were never published.
+    test "a crash between commit and publish leaves the marker, and the sweeper republishes it once" do
+      %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} =
+        build_frame(gateway_header: "gw-sweep-publish")
+
+      crash = fn
+        :transaction_result, _event_id, {:ok, :inserted} -> raise "injected crash after commit"
+        _point, _event_id, _result -> :ok
+      end
+
+      assert_raise RuntimeError, "injected crash after commit", fn ->
+        EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: crash)
+      end
+
+      agent_id = slot.authenticated_agent_id
+      assert gauge_marker?(record)
+      assert host_gauge_rows(agent_id, "192.0.2.1") == []
+
+      # Inside the grace period the committed publish may still be running.
+      SweepHostGauges.republish_stale()
+      assert gauge_marker?(record)
+      assert host_gauge_rows(agent_id, "192.0.2.1") == []
+
+      assert SweepHostGauges.republish_stale(grace_seconds: 0) >= 1
+      refute gauge_marker?(record)
+      assert host_gauge_rows(agent_id, "192.0.2.1") == @host_gauges
+
+      # The marker is gone, so a later pass publishes nothing for this batch again.
+      SweepHostGauges.republish_stale(grace_seconds: 0)
+      assert host_gauge_rows(agent_id, "192.0.2.1") == @host_gauges
     end
 
     test "a batch that commits after the slot was marked missed reopens the slot" do
@@ -4431,6 +4483,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       )
 
     count
+  end
+
+  defp gauge_marker?(record) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.sweep_host_gauge_pending WHERE event_id = $1::uuid",
+        [record.event_id]
+      )
+
+    count == 1
+  end
+
+  defp host_gauge_rows(agent_id, target) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT metric_name, value FROM platform.timeseries_metrics
+        WHERE agent_id = $1 AND target_device_ip = $2 AND metric_name LIKE 'sweep.host.%'
+        ORDER BY metric_name, timestamp
+        """,
+        [agent_id, target]
+      )
+
+    Enum.map(rows, &List.to_tuple/1)
   end
 
   defp sweep_batch_slot_count(record, batch) do
