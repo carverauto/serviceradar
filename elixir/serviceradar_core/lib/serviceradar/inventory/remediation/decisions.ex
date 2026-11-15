@@ -846,11 +846,18 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       merge);
     * `to_mac` — the survivor's display MAC;
     * `guest_macs` — the NIC MACs of the guest the merge bound (`guest_provider_ref`).
+    * `awx_memberships` — the AWX host membership rows for the ids the merge names,
+      each `%{controller_id, inventory_id, awx_host_id, ansible_host, current, expired_at}`,
+      or `nil` when the caller loaded none (then every id counts as recorded).
+      The loader collects those ids from the live identifier rows and the merge
+      audit snapshots, since retirement can archive the superseded row.
 
   The merge joined different machines only on one of these proofs:
 
     * `:different_awx_hosts` — each side holds an AWX v2 host id of a controller they share,
-      and no id is common to both;
+      and no id is common to both. An id naming an expired, non-current membership row
+      counts as the id naming its current replacement for the same controller, inventory
+      and `ansible_host`, so a re-created host never proves this;
     * `:proxmox_guest_mismatch` — each side holds a Proxmox guest identity (v2 or v3), and no
       cluster and VMID is common to both. The guest the merge bound counts on the survivor's
       side only when the survivor holds that guest's identity itself;
@@ -919,7 +926,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
   defp awx_proofs(merge, facts) do
     [
-      {:different_awx_hosts, different_awx_hosts?(facts.from_awx_hosts, facts.to_awx_hosts)},
+      {:different_awx_hosts,
+       different_awx_hosts?(facts.from_awx_hosts, facts.to_awx_hosts, merge[:awx_memberships])},
       {:proxmox_guest_mismatch, both_disjoint?(facts.from_guests, facts.to_guests)},
       {:laa_only_corroboration, laa_only_corroboration?(merge, facts.holder)}
     ]
@@ -927,11 +935,46 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     |> Enum.map(&elem(&1, 0))
   end
 
-  defp different_awx_hosts?(from_hosts, to_hosts) do
+  defp different_awx_hosts?(from_hosts, to_hosts, memberships) do
+    from = canonical_awx_hosts(from_hosts, memberships)
+    to = canonical_awx_hosts(to_hosts, memberships)
     controllers = fn hosts -> MapSet.new(hosts, &elem(&1, 0)) end
 
-    both_disjoint?(from_hosts, to_hosts) and
-      not MapSet.disjoint?(controllers.(from_hosts), controllers.(to_hosts))
+    both_disjoint?(from, to) and
+      not MapSet.disjoint?(controllers.(from), controllers.(to))
+  end
+
+  # An AWX host id naming an expired, non-current membership row is the id naming
+  # its current replacement for the same controller, inventory and `ansible_host`:
+  # a re-created host is not a distinct machine. Anything else -- two current
+  # rows, rows of different inventories, an id with no single current replacement
+  # -- keeps its recorded id, so those merges still prove distinct.
+  defp canonical_awx_hosts(hosts, memberships) when is_list(memberships) do
+    MapSet.new(hosts, &canonical_awx_host(&1, memberships))
+  end
+
+  defp canonical_awx_hosts(hosts, _memberships), do: hosts
+
+  defp canonical_awx_host({controller, host} = id, memberships) do
+    replacements =
+      for superseded <- memberships,
+          superseded.controller_id == controller,
+          to_string(superseded.awx_host_id) == host,
+          superseded.current == false,
+          not is_nil(superseded.expired_at),
+          is_binary(superseded.ansible_host),
+          current <- memberships,
+          current.current == true,
+          current.controller_id == superseded.controller_id,
+          current.inventory_id == superseded.inventory_id,
+          current.ansible_host == superseded.ansible_host,
+          uniq: true,
+          do: {controller, to_string(current.awx_host_id)}
+
+    case replacements do
+      [replacement] -> replacement
+      _ -> id
+    end
   end
 
   defp both_disjoint?(%MapSet{} = a, %MapSet{} = b),
@@ -983,15 +1026,24 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         do: value
   end
 
+  @doc """
+  The `{controller, host}` an AWX v2 integration id names, or `nil` for anything
+  else. Both come back as the strings the id records them in.
+  """
+  @spec awx_v2_host(term()) :: {String.t(), String.t()} | nil
+  def awx_v2_host(value) when is_binary(value) do
+    case Regex.run(@awx_v2_id, value) do
+      [_, controller, host] -> {controller, host}
+      _ -> nil
+    end
+  end
+
+  def awx_v2_host(_value), do: nil
+
   defp awx_hosts(identifiers) do
     identifiers
     |> awx_ids()
-    |> Enum.flat_map(fn value ->
-      case Regex.run(@awx_v2_id, value) do
-        [_, controller, host] -> [{controller, host}]
-        _ -> []
-      end
-    end)
+    |> Enum.flat_map(fn value -> List.wrap(awx_v2_host(value)) end)
     |> MapSet.new()
   end
 
