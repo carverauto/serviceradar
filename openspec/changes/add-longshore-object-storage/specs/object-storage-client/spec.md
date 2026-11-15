@@ -45,4 +45,3 @@ ServiceRadar SHALL verify a bounded selected-camera recording through object rea
 - **WHEN** an object write succeeds but integrity, publication or playback verification is missing
 - **THEN** the milestone remains incomplete and the local recording remains preserved
 - **AND** live media, credentials and operational identifiers remain outside committed artifacts
-

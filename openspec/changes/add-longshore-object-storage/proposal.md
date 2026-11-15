@@ -36,4 +36,3 @@ establish performance or correctness inside BEAM or the recording pipeline.
   replication supplied by the storage provider; this adds no media replication.
 - The user authorized Rustler integration, live dogfooding and benchmarking.
   Physical worker-loss testing remains a separate operational action.
-

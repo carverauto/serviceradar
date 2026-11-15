@@ -113,4 +113,3 @@ Every report states PASS, FAIL or INCONCLUSIVE per gate, the measured limiting
 stage, unresolved telemetry gaps and the next targeted change. Use profiles to
 justify optimizations; repeat the same paired cases after changes. Do not claim
 that no bottleneck exists: report the limiting stage and remaining headroom.
-

@@ -33,4 +33,3 @@
 - [ ] 4.5 Profile the limiting stage, fix demonstrated avoidable overhead, and rerun matched cases; classify failed, passed and inconclusive gates.
 - [ ] 4.6 Run the steady-state and bounded backlog-recovery soak, prove no unreported gaps or unbounded growth, and record supported capacity without extrapolating from one camera.
 - [ ] 4.7 Require green relevant remote tests and full CI, including Core Integration and Web-NG DB, before implementation handoff. Do not mark unexecuted measurements complete.
-

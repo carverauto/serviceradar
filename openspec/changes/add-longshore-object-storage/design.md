@@ -132,4 +132,3 @@ objects. Do not replay a one-shot dispatch through the old transport as fallback
 - Credential binding and selected provider capabilities.
 - Source assignment, publication and playback readiness from the recorder plan.
 - Same-host benchmark baselines and measured supported capacity.
-
