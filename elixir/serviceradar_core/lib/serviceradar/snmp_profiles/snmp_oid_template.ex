@@ -80,6 +80,24 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
       end
     end
 
+    create :seed_builtin do
+      description """
+      Writes a shipped template under its fixed id, marked built-in. Only the
+      system actor may call it (see ServiceRadar.SNMPProfiles.BuiltinTemplates).
+      """
+
+      accept @template_fields
+      argument :builtin_id, :uuid, allow_nil?: false
+
+      change fn changeset, _context ->
+        id = Ash.Changeset.get_argument(changeset, :builtin_id)
+
+        changeset
+        |> Ash.Changeset.force_change_attribute(:id, id)
+        |> Ash.Changeset.force_change_attribute(:is_builtin, true)
+      end
+    end
+
     update :update do
       accept @template_fields
 
@@ -117,6 +135,13 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
 
     system_bypass()
     admin_action_type(:create)
+
+    # Built-in rows are product data: only the system actor, which the bypass
+    # above admits, may write one. Every policy that applies must pass, so this
+    # forbids an admin the create policy would otherwise authorize.
+    policy action(:seed_builtin) do
+      forbid_if always()
+    end
 
     # Can only update/delete non-builtin templates
     policy action_type(:update) do
