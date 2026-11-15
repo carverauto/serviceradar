@@ -21,10 +21,10 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
-  alias ServiceRadar.Plugins.Validations.AddonProfileTargetQuery
   alias ServiceRadar.Plugins.Validations.NoDuplicateAddonProfileTarget
   alias ServiceRadar.Plugins.Validations.NotHeldByActiveRollout
   alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
+  alias ServiceRadar.Validations.TargetQuery
 
   @mutable_fields [
     :name,
@@ -100,7 +100,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change NormalizeAddonProfileTargetQuery
       validate AddonPackageApproved
       validate AddonAssignmentParams
-      validate AddonProfileTargetQuery
+      validate {TargetQuery, attribute: :target_query, default_target: :agents, entity: :agents}
       validate SingleEnabledAddonProfile
       validate NoDuplicateAddonProfileTarget
       change CheckAddonProfileTargetLimit
@@ -120,7 +120,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change NormalizeAddonProfileTargetQuery
       validate AddonPackageApproved
       validate AddonAssignmentParams
-      validate AddonProfileTargetQuery
+      validate {TargetQuery, attribute: :target_query, default_target: :agents, entity: :agents}
       validate SingleEnabledAddonProfile
       validate NoDuplicateAddonProfileTarget
       change CheckAddonProfileTargetLimit

@@ -15,7 +15,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
 
   alias ServiceRadar.CompositeChecks.Changes.DeriveSlug
   alias ServiceRadar.CompositeChecks.Validations.EnforceReadiness
-  alias ServiceRadar.CompositeChecks.Validations.ScopeQuery
+  alias ServiceRadar.Validations.TargetQuery
 
   @create_fields [
     :name,
@@ -67,13 +67,13 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     create :create do
       accept @create_fields
       change DeriveSlug
-      validate ScopeQuery
+      validate {TargetQuery, attribute: :scope_query, entity: :devices, required?: true}
       change after_action(&create_catch_all_rule/3)
     end
 
     update :update do
       accept @update_fields
-      validate ScopeQuery
+      validate {TargetQuery, attribute: :scope_query, entity: :devices, required?: true}
     end
 
     update :set_state do

@@ -15,6 +15,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
   alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
   alias ServiceRadar.Plugins.Changes.RetractOwnedAssignments
   alias ServiceRadar.Plugins.PluginTargetPolicyOps
+  alias ServiceRadar.Validations.TargetQuery
 
   @mutable_fields [
     :name,
@@ -63,11 +64,13 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
 
     create :create do
       accept @mutable_fields
+      validate {TargetQuery, attribute: :input_definitions, shape: :input_definitions}
       change ApplyPluginUpdatePolicy
     end
 
     update :update do
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
+      validate {TargetQuery, attribute: :input_definitions, shape: :input_definitions}
       change ApplyPluginUpdatePolicy
       change {RetractOwnedAssignments, owner: :plugin_target_policy}
     end

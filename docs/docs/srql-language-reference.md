@@ -338,6 +338,30 @@ in. `stats:"sum(bytes_total) as bytes by time:1m"` is spread the same way.
   same way, so the two sources agree. The cost is that the part of a flow that ran
   before an hour boundary appears in the hour it ended.
 
+## Target queries
+
+A target query is SRQL that says which records a feature acts on: the devices a
+credential rule, SNMP or sysmon profile, visibility profile, sweep group,
+composite check, availability source profile, reverse-DNS cohort, ephemeral
+expiry exclusion or MTR policy covers, the agents an add-on profile assigns,
+and the inputs of a plugin target policy or producer schedule. The control
+plane reads a target query's whole selection, a page at a time with its own
+page limit, and acts on every record it matches.
+
+Tokens that bound or reshape a result therefore have no effect in a target
+query. Saving a target query that contains one fails with an error naming it:
+
+| Token | Why it is refused |
+| --- | --- |
+| `limit:` | The whole selection is always read, so a limit would be ignored. Narrow the selection with filters. |
+| `stats:`, `rollup_stats:`, `other:` | They return aggregate rows, not records to target. |
+| `bucket:` / `downsample:` | They return time-bucketed series, not records to target. |
+
+`sort:` is allowed. It does not change which records match, and a paged read
+appends its own unique tie-break after it. `time:` is a filter and is allowed.
+A target query saved before this rule keeps working and is still read whole;
+the rule applies when the query is next edited.
+
 ## Queryable entities
 
 Target data with `in:<entity>`. Each entity exposes its own set of filterable

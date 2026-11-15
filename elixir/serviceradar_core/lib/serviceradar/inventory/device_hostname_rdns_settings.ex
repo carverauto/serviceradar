@@ -16,8 +16,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceHostnameRdns
   alias ServiceRadar.Policies.Checks.ActorIsNil
-  alias ServiceRadar.SRQLAst
-  alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.Validations.TargetQuery
 
   require Logger
 
@@ -86,7 +85,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       accept @settings_fields
       change set_attribute(:key, "default")
       validate &validate_cron/2
-      validate &validate_srql/2
+      validate {TargetQuery, attribute: :srql_query, entity: :devices, required?: true}
       change &set_initial_next_run/2
     end
 
@@ -95,7 +94,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       require_atomic? false
       accept @settings_fields
       validate &validate_cron/2
-      validate &validate_srql/2
+      validate {TargetQuery, attribute: :srql_query, entity: :devices, required?: true}
       change &refresh_next_run_on_schedule_change/2
     end
 
@@ -365,28 +364,6 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     case Expression.parse(cron) do
       {:ok, _} -> false
       _ -> true
-    end
-  end
-
-  defp validate_srql(changeset, _context) do
-    query = Ash.Changeset.get_attribute(changeset, :srql_query)
-
-    if is_nil(query) or String.trim(to_string(query)) == "" do
-      {:error, field: :srql_query, message: "cannot be empty"}
-    else
-      normalized = SRQLQuery.ensure_target(query, :devices)
-
-      if SRQLAst.entity(normalized) == "devices" do
-        case SRQLAst.validate(normalized) do
-          :ok ->
-            :ok
-
-          {:error, reason} ->
-            {:error, field: :srql_query, message: "is not valid SRQL (#{inspect(reason)})"}
-        end
-      else
-        {:error, field: :srql_query, message: "must target devices"}
-      end
     end
   end
 
