@@ -686,6 +686,198 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     assert warnings.(capture_log(fn -> resolve.("198.51.100.51") end)) == 1
   end
 
+  test "inventory binding_id stays stable across target-set and device-metadata changes and deduplicates shared origins" do
+    initial_params =
+      multi_target_trust_material_params(%{})
+
+    {_public_v1, host_v1} =
+      partition("proxmox-inventory", "run_check", initial_params, "assignment-stable")
+
+    by_origin_v1 = Map.new(host_v1["bindings"], &{&1["origin"], &1["binding_id"]})
+    pve01_binding_id = by_origin_v1["https://192.0.2.10:8006"]
+    assert pve01_binding_id =~ ~r/\Aproxmox-[0-9a-f]{32}\z/
+
+    # Sibling target removed, device_uid and provider metadata mutated, plus a
+    # second target row resolving to the same controller origin added.
+    updated_params =
+      %{}
+      |> trust_material_params()
+      |> Map.put("inputs", [
+        %{
+          "name" => "targets",
+          "items" => [
+            %{
+              "uid" => "sr:device:merged-canonical-pve01",
+              "ip" => "192.0.2.10",
+              "integration_id" => @integration_id,
+              "controller_id" => @controller_id,
+              "provider_instance_ref" => "proxmox:v3:#{@integration_id}:#{@controller_id}:lab01",
+              "provider_ref" =>
+                "proxmox:v3:#{@integration_id}:#{@controller_id}:lab01:node:pve01-renamed",
+              "native_cluster_id" => "lab01",
+              "object_kind" => "node",
+              "native_object_id" => "pve01-renamed",
+              "cluster" => "lab01",
+              "node" => "pve01-renamed",
+              "target_kind" => "pve_host"
+            },
+            %{
+              "uid" => "sr:device:secondary-member-via-vip",
+              "proxmox_base_url" => "https://192.0.2.10:8006",
+              "integration_id" => @integration_id,
+              "controller_id" => @controller_id,
+              "provider_ref" =>
+                "proxmox:v3:#{@integration_id}:#{@controller_id}:lab01:node:pve03",
+              "target_kind" => "pve_host"
+            },
+            %{
+              "uid" => "sr:device:new-sibling-pve04",
+              "ip" => "192.0.2.14",
+              "provider_ref" => "proxmox:node:pve04",
+              "target_kind" => "pve_host"
+            }
+          ]
+        }
+      ])
+
+    {_public_v2, host_v2} =
+      partition("proxmox-inventory", "run_check", updated_params, "assignment-stable")
+
+    # Duplicate controller origins collapse to one binding so the agent host
+    # authority decoder never sees duplicate binding_ids.
+    assert length(host_v2["bindings"]) == 2
+    by_origin_v2 = Map.new(host_v2["bindings"], &{&1["origin"], &1})
+    assert by_origin_v2["https://192.0.2.10:8006"]["binding_id"] == pve01_binding_id
+  end
+
+  test "console binding_id stays stable across target changes and every public target keeps a matching binding" do
+    guest_155 = fn uid, controller_uid, cluster ->
+      %{
+        "uid" => uid,
+        "ip" => "192.0.2.126",
+        "proxmox_base_url" => "https://192.0.2.10:8006/api2/json",
+        "integration_id" => @integration_id,
+        "controller_id" => @controller_id,
+        "provider_instance_ref" => "proxmox:v3:#{@integration_id}:#{@controller_id}:#{cluster}",
+        "provider_ref" => "proxmox:v3:#{@integration_id}:#{@controller_id}:#{cluster}:qemu:155",
+        "native_cluster_id" => cluster,
+        "object_kind" => "qemu",
+        "native_object_id" => "155",
+        "node" => "pve01",
+        "cluster" => cluster,
+        "vmid" => "155",
+        "controller_device_uid" => controller_uid,
+        "controller_provider_ref" =>
+          "proxmox:v3:#{@integration_id}:#{@controller_id}:#{cluster}:node:pve01",
+        "target_kind" => "qemu_guest"
+      }
+    end
+
+    guest_156 =
+      "sr:device:guest-156"
+      |> guest_155.("sr:device:pve01-b", "lab02")
+      |> Map.merge(%{
+        "provider_ref" => "proxmox:v3:#{@integration_id}:#{@controller_id}:lab02:qemu:156",
+        "native_object_id" => "156",
+        "vmid" => "156"
+      })
+
+    params_v1 = %{
+      "schema" => "serviceradar.plugin_inputs.v1",
+      "template" => %{
+        "credential_broker" => console_grant("proxmox_api_token"),
+        "api_token_secret_ref" => "secretref:network_credential:secret-1"
+      },
+      "inputs" => [%{"name" => "targets", "items" => [guest_155.("guest-a", "pve-a", "lab01")]}]
+    }
+
+    params_v2 = %{
+      "schema" => "serviceradar.plugin_inputs.v1",
+      "template" => %{
+        "credential_broker" => console_grant("proxmox_api_token"),
+        "api_token_secret_ref" => "secretref:network_credential:secret-1"
+      },
+      "inputs" => [
+        %{
+          "name" => "targets",
+          "items" => [guest_155.("guest-merged", "pve-merged", "lab02"), guest_156]
+        }
+      ]
+    }
+
+    {_pub1, %{"bindings" => [b1]}} =
+      partition("proxmox-console", "run_console", params_v1, "assignment-console-stable")
+
+    {pub2, %{"bindings" => [b2]}} =
+      partition("proxmox-console", "run_console", params_v2, "assignment-console-stable")
+
+    assert b2["binding_id"] == b1["binding_id"]
+
+    assert [%{"vmid" => public_vmid}] = Enum.flat_map(pub2["inputs"], & &1["items"])
+
+    assert public_vmid == b2["target_ids"]["vmid"]
+
+    rotated_secret =
+      put_in(
+        params_v2,
+        ["template", "credential_broker", "credential_secret_ref"],
+        "credentialref:network-credential-secret:secret-2"
+      )
+
+    {_pub3, %{"bindings" => [b3]}} =
+      partition("proxmox-console", "run_console", rotated_secret, "assignment-console-stable")
+
+    refute b3["binding_id"] == b1["binding_id"]
+  end
+
+  test "live_target_scope_contains_binding?/6 verifies live scope membership separately from binding_id" do
+    params_v1 = multi_target_trust_material_params(%{})
+
+    {_pub, %{"bindings" => bindings}} =
+      partition("proxmox-inventory", "run_check", params_v1, "assignment-live-scope")
+
+    by_origin = Map.new(bindings, &{&1["origin"], &1})
+    pve01_binding = by_origin["https://192.0.2.10:8006"]
+    pve02_binding = by_origin["https://192.0.2.11:8006"]
+
+    only_pve01_with_renamed_uid =
+      %{}
+      |> trust_material_params()
+      |> Map.merge(%{
+        "policy_id" => "network-credential-rule:rule-inventory:inventory_enrichment",
+        "policy_version" => 1,
+        "inputs" => [
+          %{
+            "name" => "targets",
+            "items" => [
+              %{
+                "uid" => "sr:device:pve01-after-merge",
+                "ip" => "192.0.2.10",
+                "provider_ref" => "proxmox:node:pve01-after-merge",
+                "target_kind" => "pve_host"
+              }
+            ]
+          }
+        ]
+      })
+
+    assert ProxmoxHostAuthority.live_target_scope_contains_binding?(
+             "proxmox-inventory",
+             "run_check",
+             only_pve01_with_renamed_uid,
+             "assignment-live-scope",
+             pve01_binding
+           )
+
+    refute ProxmoxHostAuthority.live_target_scope_contains_binding?(
+             "proxmox-inventory",
+             "run_check",
+             only_pve01_with_renamed_uid,
+             "assignment-live-scope",
+             pve02_binding
+           )
+  end
+
   defp san_item(uid, ip, extra) do
     %{
       "uid" => uid,
@@ -778,7 +970,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
       "grant_id" => "grant-inventory",
       "grant_type" => "proxmox_api_token",
       "credential_rule_id" => "rule-inventory",
-      "credential_secret_ref" => "secretref:network_credential:secret-1",
+      "credential_secret_ref" => "credentialref:network-credential-secret:secret-1",
       "consumer" => %{
         "kind" => "plugin",
         "id" => "proxmox-inventory",
@@ -805,7 +997,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
       "grant_id" => "grant-console",
       "grant_type" => "proxmox_console",
       "credential_rule_id" => "rule-console",
-      "credential_secret_ref" => "secretref:network_credential:secret-1",
+      "credential_secret_ref" => "credentialref:network-credential-secret:secret-1",
       "consumer" => %{
         "kind" => "plugin",
         "id" => "proxmox-console",
