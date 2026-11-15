@@ -24,6 +24,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   @release_command_type "agent.update_release"
   @release_ack_timeout_seconds 60
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
+  # In-flight states still waiting on their command's result. A staged or
+  # restarting target already applied its result and completes by version match.
+  @awaiting_result_statuses [:dispatched, :downloading, :verifying]
   @terminal_statuses [:healthy, :failed, :rolled_back, :canceled]
   @retryable_target_statuses [:failed, :rolled_back]
   # Command states from which no further result can reach an in-flight target:
@@ -367,14 +370,14 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   # none can arrive any more, resolve the target here: a command the agent never
   # acknowledged is re-sent, and a command whose result was lost (or that never
   # reached the agent) goes through the failed-result path and its bounded
-  # auto-retry. Every case but the unacknowledged one waits until the target has
-  # been quiet for the acknowledgement timeout, so a result still being applied
-  # is not resolved twice.
+  # auto-retry. A terminal command is only resolved once it has been terminal for
+  # the acknowledgement timeout, so a result still being applied is not resolved
+  # twice; a missing command waits until the target has been quiet that long.
   defp recover_stalled_release_command(
          %AgentReleaseTarget{status: status, command_id: command_id} = target,
          actor
        )
-       when status in @inflight_statuses and not is_nil(command_id) do
+       when status in @awaiting_result_statuses and not is_nil(command_id) do
     case AgentCommand.get_by_id(command_id, actor: actor) do
       {:ok, %AgentCommand{status: :sent, sent_at: %DateTime{} = sent_at, acknowledged_at: nil}} ->
         if elapsed_past_ack_timeout?(sent_at),
@@ -383,7 +386,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
       {:ok, %AgentCommand{status: command_status} = command}
       when command_status in @unresolved_command_statuses ->
-        if elapsed_past_ack_timeout?(target.updated_at),
+        if elapsed_past_ack_timeout?(command_terminal_at(command)),
           do: apply_lost_release_result(target, command, actor),
           else: :not_stalled
 
@@ -471,6 +474,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       :not_stalled
     end
   end
+
+  defp command_terminal_at(%AgentCommand{} = command),
+    do: command.completed_at || command.canceled_at || command.updated_at
 
   defp elapsed_past_ack_timeout?(%DateTime{} = since),
     do: DateTime.diff(DateTime.utc_now(), since, :second) >= release_ack_timeout_seconds()

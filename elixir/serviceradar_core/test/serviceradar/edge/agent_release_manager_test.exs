@@ -438,12 +438,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       target = read_release_target(actor, agent_id, rollout.id)
       assert target.status == :dispatched
 
-      strand_release_command(@scenario, first_command.command_id)
-
-      Repo.query!(
-        "UPDATE platform.agent_release_targets SET updated_at = NOW() - INTERVAL '2 minutes' WHERE target_id = $1::uuid",
-        [Ecto.UUID.dump!(target.id)]
-      )
+      strand_release_command(@scenario, first_command.command_id, "2 minutes")
+      age_release_target(target.id)
 
       assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
 
@@ -455,6 +451,77 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       assert target.command_id == retry_command.command_id
       assert target.metadata["auto_retry_count"] == 1
     end
+  end
+
+  test "reconcile_agent leaves a failed result that just landed to the live result handler", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, command, _context}, 1_000
+    target = read_release_target(actor, agent_id, rollout.id)
+
+    strand_release_command(:result_never_applied, command.command_id, "0 seconds")
+    age_release_target(target.id)
+
+    assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
+
+    refute_receive {:send_command, _command, _context}, 200
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :dispatched
+    assert target.command_id == command.command_id
+    assert target.metadata["auto_retry_count"] == nil
+  end
+
+  test "reconcile_agent leaves a staged target alone after its completed command is pruned", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, command, _context}, 1_000
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: command.command_id,
+        success: true,
+        message: "release staged",
+        payload: %{"status" => "staged", "version" => "1.1.0"}
+      })
+
+    target = read_release_target(actor, agent_id, rollout.id)
+    assert target.status == :staged
+
+    strand_release_command(:command_record_pruned, command.command_id, "2 days")
+    age_release_target(target.id)
+
+    assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
+
+    refute_receive {:send_command, _command, _context}, 200
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :staged
+    assert target.command_id == command.command_id
+    assert target.metadata["auto_retry_count"] == nil
   end
 
   test "handle_command_expired marks an inflight release target failed", %{
@@ -1122,26 +1189,35 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   # The agent's transient download failure reached the command record but never
   # its rollout target.
-  defp strand_release_command(:result_never_applied, command_id) do
+  defp strand_release_command(:result_never_applied, command_id, age) do
     Repo.query!(
       """
       UPDATE platform.agent_commands
-      SET status = 'failed', completed_at = NOW(), failure_reason = 'command_failed',
+      SET status = 'failed', completed_at = NOW() - ($3::text)::interval,
+          failure_reason = 'command_failed',
           message = 'download failed: status 403', result_payload = $2
       WHERE command_id = $1::uuid
       """,
       [
         Ecto.UUID.dump!(command_id),
-        %{"status" => "failed", "reason" => "download failed: status 403"}
+        %{"status" => "failed", "reason" => "download failed: status 403"},
+        age
       ]
     )
   end
 
   # Retention pruned the terminal command record before anything revisited the target.
-  defp strand_release_command(:command_record_pruned, command_id) do
+  defp strand_release_command(:command_record_pruned, command_id, _age) do
     Repo.query!("DELETE FROM platform.agent_commands WHERE command_id = $1::uuid", [
       Ecto.UUID.dump!(command_id)
     ])
+  end
+
+  defp age_release_target(target_id) do
+    Repo.query!(
+      "UPDATE platform.agent_release_targets SET updated_at = NOW() - INTERVAL '2 days' WHERE target_id = $1::uuid",
+      [Ecto.UUID.dump!(target_id)]
+    )
   end
 
   defp register_agent(actor, agent_id) do
