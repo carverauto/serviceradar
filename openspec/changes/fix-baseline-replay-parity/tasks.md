@@ -12,5 +12,5 @@
 - [x] 3.1 Freshness contract test: covered seeds and policies must be in the baseline.
 - [x] 3.2 Bootstrap integration test: policy state equals the replayed lane database; seeded rows are present.
 
-## 4. Follow-up
-- [ ] 4.1 Repair databases already created from a baseline without seed rows or policy state (separate change).
+## 4. Existing installs
+- [x] 4.1 Repair databases already created from a baseline without seed rows or policy state: `BaselineInstallRepairWorker`, enqueued once on baseline-created databases by migration `20261115233000_repair_baseline_install_state`.
