@@ -26,6 +26,14 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
   @terminal_statuses [:healthy, :failed, :rolled_back, :canceled]
   @retryable_target_statuses [:failed, :rolled_back]
+  # Command states from which no further result can reach an in-flight target:
+  # either the agent's result was persisted on the command but never applied to
+  # the target, or the command never reached the agent.
+  @unresolved_command_statuses [:failed, :expired, :canceled, :offline]
+  # Reasons the release manager itself assigns when it resolves a target whose
+  # result went missing. Re-dispatching is safe for both, within the auto-retry
+  # budget.
+  @lost_release_result_reasons [:release_result_lost, :release_command_undelivered]
   @max_auto_release_retries 3
   # HTTP statuses the gateway serves for a not-ready/transient artifact state and
   # transient network markers. A download failure whose reason matches is auto-
@@ -337,13 +345,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       maybe_complete_rollout(target.rollout_id, actor)
       :ok
     else
-      case retry_unacknowledged_release_command(target, actor) do
-        {:retried, _target} ->
-          :ok
-
-        :no_retry ->
-          maybe_dispatch_rollout(target.rollout_id, actor: actor)
+      if recover_stalled_release_command(target, actor) == :recovered do
+        maybe_complete_rollout(target.rollout_id, actor)
       end
+
+      maybe_dispatch_rollout(target.rollout_id, actor: actor)
     end
   end
 
@@ -357,51 +363,126 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp reconcile_completion_message(%AgentReleaseTarget{}), do: "release activated"
 
-  defp retry_unacknowledged_release_command(
+  # An in-flight target only moves when a message for its command arrives. When
+  # none can arrive any more, resolve the target here: a command the agent never
+  # acknowledged is re-sent, and a command whose result was lost (or that never
+  # reached the agent) goes through the failed-result path and its bounded
+  # auto-retry. Every case but the unacknowledged one waits until the target has
+  # been quiet for the acknowledgement timeout, so a result still being applied
+  # is not resolved twice.
+  defp recover_stalled_release_command(
          %AgentReleaseTarget{status: status, command_id: command_id} = target,
          actor
        )
        when status in @inflight_statuses and not is_nil(command_id) do
-    if release_command_unacknowledged_timed_out?(command_id, actor) do
-      case mark_target_status(
-             target,
-             :pending,
-             %{
-               command_id: nil,
-               progress_percent: 0,
-               last_status_message: "release command was not acknowledged; retrying dispatch",
-               last_error: "command_ack_timeout"
-             },
-             actor
-           ) do
-        {:ok, updated_target} ->
-          maybe_dispatch_rollout(updated_target.rollout_id, actor: actor)
-          {:retried, updated_target}
-
-        _ ->
-          :no_retry
-      end
-    else
-      :no_retry
-    end
-  end
-
-  defp retry_unacknowledged_release_command(_target, _actor), do: :no_retry
-
-  defp release_command_unacknowledged_timed_out?(command_id, actor) do
     case AgentCommand.get_by_id(command_id, actor: actor) do
-      {:ok,
-       %AgentCommand{
-         status: :sent,
-         sent_at: %DateTime{} = sent_at,
-         acknowledged_at: nil
-       }} ->
-        DateTime.diff(DateTime.utc_now(), sent_at, :second) >= release_ack_timeout_seconds()
+      {:ok, %AgentCommand{status: :sent, sent_at: %DateTime{} = sent_at, acknowledged_at: nil}} ->
+        if elapsed_past_ack_timeout?(sent_at),
+          do: retry_unacknowledged_release_command(target, actor),
+          else: :not_stalled
+
+      {:ok, %AgentCommand{status: command_status} = command}
+      when command_status in @unresolved_command_statuses ->
+        if elapsed_past_ack_timeout?(target.updated_at),
+          do: apply_lost_release_result(target, command, actor),
+          else: :not_stalled
+
+      {:ok, nil} ->
+        resolve_missing_release_command(target, actor)
+
+      {:error, error} ->
+        if not_found_error?(error),
+          do: resolve_missing_release_command(target, actor),
+          else: :not_stalled
 
       _ ->
-        false
+        :not_stalled
     end
   end
+
+  defp recover_stalled_release_command(_target, _actor), do: :not_stalled
+
+  defp retry_unacknowledged_release_command(target, actor) do
+    case mark_target_status(
+           target,
+           :pending,
+           %{
+             command_id: nil,
+             progress_percent: 0,
+             last_status_message: "release command was not acknowledged; retrying dispatch",
+             last_error: "command_ack_timeout"
+           },
+           actor
+         ) do
+      {:ok, _updated_target} -> :recovered
+      _ -> :not_stalled
+    end
+  end
+
+  # The agent's result was persisted on the command, so replay it.
+  defp apply_lost_release_result(target, %AgentCommand{status: :failed} = command, actor) do
+    mark_release_result_status(
+      target,
+      %{
+        payload: command.result_payload || %{"reason" => command.failure_reason},
+        success: false,
+        message: command.message
+      },
+      actor
+    )
+
+    :recovered
+  end
+
+  defp apply_lost_release_result(target, %AgentCommand{status: :expired}, actor) do
+    handle_failed_release_result(
+      target,
+      "command_expired",
+      "release command expired before the agent reported a result",
+      actor
+    )
+
+    :recovered
+  end
+
+  defp apply_lost_release_result(target, %AgentCommand{status: :canceled}, actor) do
+    handle_failed_release_result(
+      target,
+      "command_canceled",
+      "release command was canceled before the agent reported a result",
+      actor
+    )
+
+    :recovered
+  end
+
+  defp apply_lost_release_result(target, %AgentCommand{status: :offline}, actor) do
+    handle_failed_release_result(target, :release_command_undelivered, nil, actor)
+    :recovered
+  end
+
+  # Retention prunes terminal commands, so a target stranded longer than that
+  # has no command record left to replay.
+  defp resolve_missing_release_command(target, actor) do
+    if elapsed_past_ack_timeout?(target.updated_at) do
+      handle_failed_release_result(target, :release_result_lost, nil, actor)
+      :recovered
+    else
+      :not_stalled
+    end
+  end
+
+  defp elapsed_past_ack_timeout?(%DateTime{} = since),
+    do: DateTime.diff(DateTime.utc_now(), since, :second) >= release_ack_timeout_seconds()
+
+  defp elapsed_past_ack_timeout?(_since), do: false
+
+  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &not_found_error?/1)
+
+  defp not_found_error?(_error), do: false
 
   defp release_ack_timeout_seconds do
     :serviceradar_core
@@ -442,19 +523,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
          agent = AgentRuntimeMetadata.hydrate_agent(agent),
          false <- version_matches?(agent.version, target.desired_version),
          {:ok, artifact} <- select_artifact(release, agent),
-         {:ok, command_id} <-
-           dispatch_release_command(target, rollout, release, artifact, agent, actor) do
-      mark_target_status(
-        target,
-        :dispatched,
-        %{
-          command_id: command_id,
-          current_version: agent.version,
-          last_status_message: "release command dispatched",
-          progress_percent: 0
-        },
-        actor
-      )
+         {:ok, payload} <- release_command_payload(target, rollout, release, artifact, agent) do
+      send_release_command(target, rollout, release, payload, agent, actor)
     else
       true ->
         mark_target_status(
@@ -468,91 +538,125 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           actor
         )
 
-      {:error, {:agent_offline, agent_id}} ->
-        mark_target_waiting_for_control_stream(target, actor, {:agent_offline, agent_id})
-
-      {:error, :agent_offline} ->
-        mark_target_waiting_for_control_stream(target, actor, :agent_offline)
-
-      # The artifact mirror is not ready to serve yet. Keep the target pending so
-      # dispatch retries once the mirror settles rather than terminally failing an
-      # agent for a transient not-ready condition.
-      {:error, :artifact_not_mirrored} ->
-        _ =
-          mark_target_status(
-            target,
-            :pending,
-            %{
-              last_status_message: "waiting for release artifact mirror",
-              last_error: normalize_reason(:artifact_not_mirrored)
-            },
-            actor
-          )
-
-        :pending
-
       {:error, reason} ->
-        mark_target_status(
-          target,
-          :failed,
-          %{last_status_message: "release dispatch failed", last_error: normalize_reason(reason)},
-          actor
-        )
+        mark_dispatch_failure(target, reason, %{}, actor)
     end
   end
 
-  defp mark_target_waiting_for_control_stream(target, actor, reason) do
+  # The agent fetches its artifact and reports progress and its result against
+  # the command id, and each of those is resolved through the target row. The id
+  # is therefore committed on the target before the command can reach the agent;
+  # otherwise the download is refused and the result finds no target to update.
+  defp send_release_command(target, rollout, release, payload, agent, actor) do
+    command_id = Ecto.UUID.generate()
+
+    with {:ok, dispatched_target} <-
+           mark_target_status(
+             target,
+             :dispatched,
+             %{
+               command_id: command_id,
+               current_version: agent.version,
+               last_status_message: "release command dispatched",
+               progress_percent: 0
+             },
+             actor
+           ) do
+      case AgentCommandBus.dispatch(
+             target.agent_id,
+             @release_command_type,
+             payload,
+             command_id: command_id,
+             ttl_seconds: 900,
+             context: %{
+               rollout_id: rollout.id,
+               target_id: target.id,
+               release_id: release.id,
+               desired_version: release.version
+             },
+             actor: actor
+           ) do
+        {:ok, _command_id} ->
+          _ = AgentReleaseRollout.touch_dispatch(rollout, actor: actor)
+          {:ok, command_id}
+
+        # The command never reached the agent, so withdraw its id from the target.
+        {:error, reason} ->
+          mark_dispatch_failure(
+            dispatched_target,
+            reason,
+            %{command_id: nil, dispatched_at: target.dispatched_at},
+            actor
+          )
+      end
+    end
+  end
+
+  defp mark_dispatch_failure(target, {:agent_offline, _agent_id} = reason, revert_attrs, actor),
+    do: mark_target_waiting_for_control_stream(target, reason, revert_attrs, actor)
+
+  defp mark_dispatch_failure(target, :agent_offline, revert_attrs, actor),
+    do: mark_target_waiting_for_control_stream(target, :agent_offline, revert_attrs, actor)
+
+  # The artifact mirror is not ready to serve yet. Keep the target pending so
+  # dispatch retries once the mirror settles rather than terminally failing an
+  # agent for a transient not-ready condition.
+  defp mark_dispatch_failure(target, :artifact_not_mirrored, revert_attrs, actor) do
     _ =
       mark_target_status(
         target,
         :pending,
-        %{
-          last_status_message: "waiting for agent control stream",
-          last_error: normalize_reason(reason)
-        },
+        Map.merge(revert_attrs, %{
+          last_status_message: "waiting for release artifact mirror",
+          last_error: normalize_reason(:artifact_not_mirrored)
+        }),
         actor
       )
 
     :pending
   end
 
-  defp dispatch_release_command(target, rollout, release, artifact, agent, actor) do
+  defp mark_dispatch_failure(target, reason, revert_attrs, actor) do
+    mark_target_status(
+      target,
+      :failed,
+      Map.merge(revert_attrs, %{
+        last_status_message: "release dispatch failed",
+        last_error: normalize_reason(reason)
+      }),
+      actor
+    )
+  end
+
+  defp mark_target_waiting_for_control_stream(target, reason, revert_attrs, actor) do
+    _ =
+      mark_target_status(
+        target,
+        :pending,
+        Map.merge(revert_attrs, %{
+          last_status_message: "waiting for agent control stream",
+          last_error: normalize_reason(reason)
+        }),
+        actor
+      )
+
+    :pending
+  end
+
+  defp release_command_payload(target, rollout, release, artifact, agent) do
     with {:ok, transport} <- ReleaseArtifactDelivery.gateway_transport(target, release, agent) do
-      payload =
-        compact_map(%{
-          "release_id" => release.id,
-          "rollout_id" => rollout.id,
-          "target_id" => target.id,
-          "version" => release.version,
-          "manifest" => release.manifest,
-          "signature" => release.signature,
-          "artifact" => artifact,
-          "artifact_transport" => transport,
-          "helper_install" => helper_install_payload(artifact)
-        })
-
-      context = %{
-        rollout_id: rollout.id,
-        target_id: target.id,
-        release_id: release.id,
-        desired_version: release.version
-      }
-
-      case AgentCommandBus.dispatch(
-             target.agent_id,
-             @release_command_type,
-             payload,
-             ttl_seconds: 900,
-             context: context,
-             actor: actor
-           ) do
-        {:ok, command_id} ->
-          _ = AgentReleaseRollout.touch_dispatch(rollout, actor: actor)
-          {:ok, command_id}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:ok,
+       compact_map(%{
+         "release_id" => release.id,
+         "rollout_id" => rollout.id,
+         "target_id" => target.id,
+         "version" => release.version,
+         "manifest" => release.manifest,
+         "signature" => release.signature,
+         "artifact" => artifact,
+         "artifact_transport" => transport,
+         "helper_install" => helper_install_payload(artifact)
+       })}
     end
   end
 
@@ -615,7 +719,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
       :ok
     else
-      {status, attrs} = release_result_update_attrs({:failed, reason}, target, message)
+      {status, attrs} =
+        release_result_update_attrs(
+          {:failed, reason && normalize_reason(reason)},
+          target,
+          message
+        )
+
       _ = mark_target_status(target, status, attrs, actor)
       :ok
     end
@@ -700,6 +810,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:max_auto_release_retries, @max_auto_release_retries)
   end
+
+  defp transient_release_failure?(reason) when reason in @lost_release_result_reasons, do: true
 
   defp transient_release_failure?(reason) do
     normalized = reason |> normalize_reason() |> String.downcase()
@@ -1241,6 +1353,12 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp normalize_reason(:agent_offline), do: "agent control stream is offline"
 
+  defp normalize_reason(:release_result_lost),
+    do: "release command result was lost before it reached the rollout target"
+
+  defp normalize_reason(:release_command_undelivered),
+    do: "release command never reached the agent"
+
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
 
@@ -1262,7 +1380,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   defp compact_map(map) when is_map(map) do
     map
     |> Enum.reject(fn
-      {key, nil} when key in [:command_id, :last_error] -> false
+      {key, nil} when key in [:command_id, :last_error, :dispatched_at] -> false
       {_key, nil} -> true
       {_key, ""} -> true
       {_key, %{} = value} -> map_size(value) == 0

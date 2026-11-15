@@ -62,11 +62,14 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     @impl true
     def init(opts) do
-      {:ok, %{test_pid: opts[:test_pid]}}
+      {:ok, %{test_pid: opts[:test_pid], on_send: opts[:on_send]}}
     end
 
     @impl true
     def handle_call({:send_command, command, context}, _from, state) do
+      # `on_send` plays the agent acting on the command before the send returns
+      # to the dispatcher.
+      if state.on_send, do: state.on_send.(command)
       send(state.test_pid, {:send_command, command, context})
       {:reply, {:ok, command.command_id}, state}
     end
@@ -375,6 +378,83 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert target.status == :dispatched
     assert target.command_id == second_command.command_id
     assert target.last_error == nil
+  end
+
+  test "an agent acting on a release command as it arrives is matched to its target", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    test_pid = self()
+
+    # The agent fetches its artifact and reports its result while the command is
+    # still being sent: both must resolve against the rollout target.
+    on_send = fn command ->
+      target_id = Jason.decode!(command.payload_json)["artifact_transport"]["target_id"]
+
+      send(
+        test_pid,
+        {:download,
+         ReleaseArtifactDelivery.resolve_download(target_id, command.command_id, agent_id)}
+      )
+
+      :ok = fail_release_command(command.command_id, "release artifact platform does not match")
+    end
+
+    {_pid, _metadata} = start_control_session(agent_id, self(), on_send: on_send)
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:download, download}, 1_000
+    assert {:ok, %{agent_id: ^agent_id}} = download
+    assert_receive {:send_command, command, _context}, 1_000
+
+    target = read_release_target(actor, agent_id, rollout.id)
+    assert target.command_id == command.command_id
+    assert target.status == :failed
+    assert target.last_error == "release artifact platform does not match"
+  end
+
+  for scenario <- [:result_never_applied, :command_record_pruned] do
+    @scenario scenario
+
+    test "reconcile_agent re-dispatches an in-flight target whose release result was lost (#{scenario})",
+         %{actor: actor, agent_id: agent_id, release: release} do
+      {_pid, _metadata} = start_control_session(agent_id, self())
+
+      {:ok, rollout} =
+        AgentReleaseManager.create_rollout(%{
+          release_id: release.id,
+          agent_ids: [agent_id],
+          batch_size: 1
+        })
+
+      assert_receive {:send_command, first_command, _context}, 1_000
+      target = read_release_target(actor, agent_id, rollout.id)
+      assert target.status == :dispatched
+
+      strand_release_command(@scenario, first_command.command_id)
+
+      Repo.query!(
+        "UPDATE platform.agent_release_targets SET updated_at = NOW() - INTERVAL '2 minutes' WHERE target_id = $1::uuid",
+        [Ecto.UUID.dump!(target.id)]
+      )
+
+      assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
+
+      assert_receive {:send_command, retry_command, _context}, 1_000
+      refute retry_command.command_id == first_command.command_id
+
+      target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+      assert target.status == :dispatched
+      assert target.command_id == retry_command.command_id
+      assert target.metadata["auto_retry_count"] == 1
+    end
   end
 
   test "handle_command_expired marks an inflight release target failed", %{
@@ -1040,6 +1120,30 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     })
   end
 
+  # The agent's transient download failure reached the command record but never
+  # its rollout target.
+  defp strand_release_command(:result_never_applied, command_id) do
+    Repo.query!(
+      """
+      UPDATE platform.agent_commands
+      SET status = 'failed', completed_at = NOW(), failure_reason = 'command_failed',
+          message = 'download failed: status 403', result_payload = $2
+      WHERE command_id = $1::uuid
+      """,
+      [
+        Ecto.UUID.dump!(command_id),
+        %{"status" => "failed", "reason" => "download failed: status 403"}
+      ]
+    )
+  end
+
+  # Retention pruned the terminal command record before anything revisited the target.
+  defp strand_release_command(:command_record_pruned, command_id) do
+    Repo.query!("DELETE FROM platform.agent_commands WHERE command_id = $1::uuid", [
+      Ecto.UUID.dump!(command_id)
+    ])
+  end
+
   defp register_agent(actor, agent_id) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{
@@ -1054,7 +1158,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     |> Ash.create(actor: actor)
   end
 
-  defp start_control_session(agent_id, test_pid) do
+  defp start_control_session(agent_id, test_pid, opts \\ []) do
     metadata = %{
       agent_id: agent_id,
       partition_id: "default",
@@ -1063,7 +1167,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     }
 
     name = ProcessRegistry.via({:agent_control, "default", agent_id, node()}, metadata)
-    {:ok, pid} = TestControlSession.start_link(name: name, test_pid: test_pid)
+
+    {:ok, pid} =
+      TestControlSession.start_link(
+        name: name,
+        test_pid: test_pid,
+        on_send: Keyword.get(opts, :on_send)
+      )
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
