@@ -1,0 +1,101 @@
+{{- if (eq .Values.ratel.enabled true) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "dgraph.ratel.fullname" . }}
+  namespace: {{ include "dgraph.namespace" . }}
+  labels:
+    app: {{ template "dgraph.name" . }}
+    chart: {{ template "dgraph.chart" . }}
+    component: {{ .Values.ratel.name }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ template "dgraph.name" . }}
+      chart: {{ template "dgraph.chart" . }}
+      component: {{ .Values.ratel.name }}
+      release: {{ .Release.Name }}
+  replicas: {{ .Values.ratel.replicaCount }}
+  template:
+    metadata:
+      {{- if .Values.ratel.extraAnnotations }}
+      annotations:
+        {{- with .Values.ratel.extraAnnotations }}
+{{- toYaml . | trimSuffix "\n" | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      labels:
+        app: {{ template "dgraph.name" . }}
+        chart: {{ template "dgraph.chart" . }}
+        component: {{ .Values.ratel.name }}
+        release: {{ .Release.Name }}
+        {{- if .Values.ratel.podLabels }}
+{{ .Values.ratel.podLabels | toYaml | indent 8}}
+        {{- end }}
+    spec:
+      {{- include "dgraph.podDnsConfig" . | nindent 6 }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.ratel.automountServiceAccountToken }}
+      {{- end }}
+      {{- if .Values.ratel.schedulerName }}
+      schedulerName: {{ .Values.ratel.schedulerName }}
+      {{- end }}
+      {{- if .Values.ratel.securityContext.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.ratel.securityContext.fsGroup }}
+        runAsUser: {{ .Values.ratel.securityContext.runAsUser }}
+      {{- end }}
+{{- include "dgraph.imagePullSecrets" . | indent 6 }}
+      containers:
+      - name: "{{ template "dgraph.ratel.fullname" . }}"
+        image: "{{ template "dgraph.ratel.image" . }}"
+        imagePullPolicy: {{ .Values.ratel.image.pullPolicy | quote }}
+        {{- if .Values.ratel.extraEnvs }}
+        env:
+        {{- with .Values.ratel.extraEnvs }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.ratel.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        args: {{ .Values.ratel.args | toYaml | nindent 10 }}
+        command:
+          - dgraph-ratel
+        ports:
+        - name: http-ratel
+          containerPort: 8000
+        {{- if .Values.ratel.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            port: {{ .Values.ratel.livenessProbe.port }}
+            path: {{ .Values.ratel.livenessProbe.path }}
+          initialDelaySeconds: {{ .Values.ratel.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.ratel.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.ratel.livenessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.ratel.livenessProbe.successThreshold }}
+          failureThreshold: {{ .Values.ratel.livenessProbe.failureThreshold }}
+        {{- else if .Values.ratel.customLivenessProbe }}
+        livenessProbe: {{- toYaml .Values.ratel.customLivenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.ratel.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            port: {{ .Values.ratel.readinessProbe.port }}
+            path: {{ .Values.ratel.readinessProbe.path }}
+          initialDelaySeconds: {{ .Values.ratel.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.ratel.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.ratel.readinessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.ratel.readinessProbe.successThreshold }}
+          failureThreshold: {{ .Values.ratel.readinessProbe.failureThreshold }}
+        {{- else if .Values.ratel.customReadinessProbe }}
+        readinessProbe: {{- toYaml .Values.ratel.customReadinessProbe | nindent 10 }}
+        {{- end }}
+        resources:
+{{ toYaml .Values.ratel.resources | indent 10 }}
+
+{{- end }}

@@ -101,7 +101,7 @@ trivySidecar:
   replicaCount: 1
   clusterId: ""
   nats:
-    hostPort: "tls://serviceradar-nats:4222"
+    hostPort: ""
     subjectPrefix: "trivy.report"
     stream: "trivy_reports"
     caCertFile: "/etc/serviceradar/certs/ca.crt"
@@ -145,7 +145,7 @@ k8sInventory:
   envoyProxyCRD:
     enabled: false
   nats:
-    hostPort: "tls://serviceradar-nats:4222"
+    hostPort: ""
     subject: "inventory.k8s.public_endpoints"
     stream: "k8s_inventory"
     caCertFile: "/etc/serviceradar/certs/ca.crt"
@@ -174,7 +174,7 @@ kv:
   enabled: true
   configSource: file
   bucket: serviceradar-datasvc
-  address: serviceradar-datasvc:50057
+  address: ""
   secMode: mtls
   trustDomain: ""
   certDir: /etc/serviceradar/certs
@@ -313,7 +313,7 @@ certs:
   # runtime Secret.
   issuerSecretName: ""
   cnpgIssuerSecretName: ""
-  runtimeLayoutVersion: "5"
+  runtimeLayoutVersion: "6"
   # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
   # all certificate consumers restart onto the reconciled Secret generation.
   runtimeRevision: initial
@@ -339,8 +339,9 @@ checkerTemplates:
 # Points to the OTEL collector deployed in the same namespace.
 otelExporter:
   enabled: true
-  # OTLP/gRPC endpoint (uses the unified log-collector service)
-  endpoint: "https://serviceradar-log-collector:4317"
+  # OTLP/gRPC endpoint (uses the unified log-collector service; empty derives
+  # https://serviceradar-log-collector.<namespace>.svc.cluster.local:4317)
+  endpoint: ""
   # TLS certificate directory
   certDir: "/etc/serviceradar/certs"
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
@@ -1040,7 +1041,7 @@ faker:
       gobgpApiAddress: "127.0.0.1:50051"
       gobgpBinary: "gobgpd"
       gobgpCliBinary: "gobgp"
-      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      bmpCollectorAddress: ""
       routerId: "204.209.51.59"
       maxPrefixesPerTick: 3
       localAsn: 401642
@@ -1166,7 +1167,7 @@ gobgp:
     routerId: "204.209.51.59"
     listenPort: 179
   bmp:
-    address: "serviceradar-bmp-collector"
+    address: ""
     port: 11019
   # By default we reuse faker BGP peers to keep topology aligned.
   peers: []
@@ -1679,7 +1680,7 @@ webNg:
   clusterCookie: ""
   kubernetesNodeBasename: "serviceradar_web_ng"
   datasvc:
-    host: "serviceradar-datasvc"
+    host: ""
     port: 50057
     secMode: "mtls"
     certDir: "/etc/serviceradar/certs"
@@ -2116,7 +2117,7 @@ flowCollector:
   # config.stream_replicas (serialized into flow-collector.json); there is no
   # top-level flowCollector.streamReplicas key.
   config:
-    nats_url: "tls://serviceradar-nats:4222"
+    nats_url: ""
     stream_name: "flows"
     # flows reservation. Unset: nats.jetstream.profile supplies it (small =
     # 8 GiB). The budget counts flows at this size and stream_replicas even
@@ -2242,7 +2243,7 @@ bmpCollector:
     publishMessagesPerSecond: 1000
     publishBytesPerSecond: 4194304
     streamDiscardPolicy: "new"
-    natsUrl: "nats://serviceradar-nats:4222"
+    natsUrl: ""
     natsDomain: ""
     natsCredsFile: ""
     natsTlsRequired: true
@@ -3164,7 +3165,7 @@ analytics:
     # probes. A failed probe is never cached.
     rollupCacheTtlSeconds: 60
     fe:
-      service: lab-fe-service.starrocks.svc
+      service: lab-fe-service.starrocks.svc.cluster.local
       queryPort: 9030
       httpPort: 8030
     sharedData:
@@ -3234,9 +3235,9 @@ analytics:
       # builds the statement from the settings here and the reader Secret.
       secretName: ""
       # JDBC URI the catalog connects to. Lab FE/BE run in namespace starrocks,
-      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
-      # the same-namespace short name.
-      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
+      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc.cluster.local),
+      # not the same-namespace short name. Empty auto-derives the 4-dot FQDN.
+      jdbcUri: ""
       # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
       sourceNamespace: starrocks
       # Secret, in the release namespace, holding the StarRocks Frontend `root`

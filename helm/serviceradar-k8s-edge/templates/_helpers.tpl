@@ -122,3 +122,18 @@ which turns an explicit false back into true.
 {{- else -}}false
 {{- end -}}
 {{- end -}}
+
+{{/*
+Bounded pod DNS resolver options applied unconditionally across chart workloads.
+*/}}
+{{- define "serviceradar.podDnsConfig" -}}
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+    - name: timeout
+      value: "2"
+    - name: attempts
+      value: "2"
+    - name: single-request-reopen
+{{- end -}}

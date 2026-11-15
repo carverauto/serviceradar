@@ -1,0 +1,28 @@
+suite: edge deployment renders bounded pod dnsConfig
+templates:
+  - templates/deployment.yaml
+  - templates/configmap-agent.yaml
+release:
+  namespace: sr-edge-dns-test
+set:
+  clusterId: synthetic-edge-cluster
+  agent.gatewayAddress: gateway.example.com:50052
+  agent.existingTlsSecret: synthetic-edge-mtls
+tests:
+  - it: renders fixed pod dnsConfig options unconditionally
+    template: templates/deployment.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.dnsConfig
+          value:
+            options:
+              - name: ndots
+                value: "2"
+              - name: timeout
+                value: "2"
+              - name: attempts
+                value: "2"
+              - name: single-request-reopen

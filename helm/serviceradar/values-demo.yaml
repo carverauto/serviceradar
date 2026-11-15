@@ -94,7 +94,7 @@ analytics:
       enabled: true
       # The reader credential is minted by the secret generator and the catalog
       # DDL is built by the catalog Job; nothing here is provisioned by hand.
-      jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
+      jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc.cluster.local:5432/serviceradar?ssl=true&sslmode=require"
       sourceNamespace: starrocks
       # Frontend root password. Created by hand in this namespace AND, with the
       # same value, as the operator's initPassword Secret in namespace
@@ -662,10 +662,10 @@ faker:
     bgp:
       enabled: false
       manageDaemon: false
-      gobgpApiAddress: "serviceradar-gobgp:50051"
+      gobgpApiAddress: "serviceradar-gobgp.demo.svc.cluster.local:50051"
       gobgpBinary: "/opt/gobgp/gobgpd"
       gobgpCliBinary: "/opt/gobgp/gobgp"
-      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      bmpCollectorAddress: "serviceradar-bmp-collector.demo.svc.cluster.local:11019"
 
 gobgp:
   enabled: true
@@ -790,7 +790,7 @@ core:
   extraEnv:
     SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
-    EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
+    EVENT_WRITER_NATS_URL: "tls://serviceradar-nats.demo.svc.cluster.local:4222"
     EVENT_WRITER_NATS_TLS: "true"
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
@@ -1092,7 +1092,7 @@ bmpCollector:
     - "--bmp-address=0.0.0.0:11019"
     - "--kafka-disable"
     - "--nats-enable"
-    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-server=nats://serviceradar-nats.demo.svc.cluster.local:4222"
     - "--nats-subject=arancini.updates"
     - "--nats-tls-required"
     - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"

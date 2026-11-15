@@ -64,6 +64,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-agent") | nindent 6 }}
       serviceAccountName: {{ $agentSA }}
       hostNetwork: {{ $agentHostNetwork }}

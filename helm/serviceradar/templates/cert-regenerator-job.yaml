@@ -68,6 +68,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
         app.kubernetes.io/component: cert-regenerator
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: serviceradar-cert-regenerator
@@ -130,7 +131,7 @@ spec:
                 data[key] = base64.b64encode(handle.read()).decode("ascii")
 
           payload = {"data": data}
-          base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
+          base_url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{namespace}/secrets"
           secret_url = f"{base_url}/{secret_name}"
           headers = {
             "Authorization": f"Bearer {token}",

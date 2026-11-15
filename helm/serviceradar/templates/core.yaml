@@ -177,6 +177,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
@@ -702,7 +703,7 @@ spec:
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
         {{- end }}
         - name: DATASVC_HOST
-          value: "serviceradar-datasvc"
+          value: {{ printf "serviceradar-datasvc.%s.svc.cluster.local" .Release.Namespace | quote }}
         - name: DATASVC_PORT
           value: "50057"
         - name: DATASVC_SEC_MODE
@@ -716,7 +717,7 @@ spec:
         - name: NATS_ENABLED
           value: "true"
         - name: NATS_URL
-          value: "tls://serviceradar-nats:4222"
+          value: {{ printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace | quote }}
         - name: NATS_TLS
           value: "true"
         - name: NATS_SERVER_NAME
@@ -949,7 +950,7 @@ spec:
         {{- with .Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ .endpoint | quote }}
+          value: {{ include "serviceradar.otelExporterEndpoint" $ | quote }}
         - name: OTEL_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
         - name: OTEL_CERT_NAME

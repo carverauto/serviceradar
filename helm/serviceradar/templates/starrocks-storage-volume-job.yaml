@@ -27,6 +27,7 @@ spec:
         app.kubernetes.io/name: serviceradar
         app.kubernetes.io/component: starrocks-storage-volume
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       restartPolicy: Never
       automountServiceAccountToken: false
       containers:

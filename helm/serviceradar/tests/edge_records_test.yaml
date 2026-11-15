@@ -117,7 +117,7 @@ tests:
       path: spec.template.spec.containers[0].env
       content:
         name: AGENT_GATEWAY_NATS_URL
-        value: tls://serviceradar-nats:4222
+        value: tls://serviceradar-nats.serviceradar-test.svc.cluster.local:4222
     template: templates/agent-gateway.yaml
     documentSelector:
       path: kind

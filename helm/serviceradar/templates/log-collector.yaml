@@ -46,7 +46,7 @@ data:
     format = "gelf"
     framing = "noop"
     partition = "default"
-    nats_url = "tls://serviceradar-nats:4222"
+    nats_url = "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
     nats_subject = "logs.syslog"
     nats_stream = "events"
     nats_stream_replicas = {{ $eventsJs.replicas }}
@@ -104,7 +104,7 @@ data:
 {{- end }}
 
     [nats]
-    url = "tls://serviceradar-nats:4222"
+    url = "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
     subject = "otel"
     logs_subject = "logs.otel"
     stream = "events"
@@ -163,6 +163,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-log-collector") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) }}

@@ -105,6 +105,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-k8s-inventory") | nindent 6 }}
       serviceAccountName: serviceradar-k8s-inventory
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
@@ -123,7 +124,7 @@ spec:
             - name: K8S_INVENTORY_SUBJECT
               value: {{ default "inventory.k8s.public_endpoints" $nats.subject | quote }}
             - name: NATS_HOSTPORT
-              value: {{ default "tls://serviceradar-nats:4222" $nats.hostPort | quote }}
+              value: {{ default (printf "tls://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $nats.hostPort | quote }}
             - name: NATS_STREAM
               value: {{ default "k8s_inventory" $nats.stream | quote }}
             - name: NATS_CACERTFILE

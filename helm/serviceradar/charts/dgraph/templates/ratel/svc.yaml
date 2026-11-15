@@ -1,0 +1,42 @@
+{{- if (eq .Values.ratel.enabled true) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "dgraph.ratel.fullname" . }}
+  namespace: {{ include "dgraph.namespace" . }}
+  labels:
+    app: {{ template "dgraph.name" . }}
+    chart: {{ template "dgraph.chart" . }}
+    component: {{ .Values.ratel.name }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    {{- with .Values.ratel.service.labels }}
+    {{- toYaml . | trimSuffix "\n" | nindent 4 }}
+    {{- end }}
+  {{- with .Values.ratel.service.annotations }}
+  annotations:
+    {{- toYaml . | trimSuffix "\n" | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.ratel.service.type }}
+  {{- if .Values.ratel.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.ratel.service.loadBalancerIP }}
+  {{- end }}
+  {{- if .Values.ratel.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.ratel.service.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+  - port: 80
+    targetPort: 8000
+    name: http-ratel
+  {{- with .Values.ratel.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    app: {{ template "dgraph.name" . }}
+    chart: {{ template "dgraph.chart" . }}
+    component: {{ .Values.ratel.name }}
+    release: {{ .Release.Name }}
+
+{{- end }}

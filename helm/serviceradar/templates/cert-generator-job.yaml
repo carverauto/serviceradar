@@ -86,6 +86,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
         app.kubernetes.io/component: runtime-cert-generator
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       serviceAccountName: serviceradar-runtime-cert-generator
       restartPolicy: Never
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
@@ -132,7 +133,7 @@ spec:
           namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
           cafile = os.path.join(serviceaccount, "ca.crt")
           context = ssl.create_default_context(cafile=cafile)
-          secret_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+          secret_url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{namespace}/secrets/{secret_name}"
           headers = {"Authorization": f"Bearer {token}"}
 
           try:
@@ -257,7 +258,7 @@ spec:
             "data": data,
           }
 
-          base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
+          base_url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{namespace}/secrets"
           secret_url = f"{base_url}/{secret_name}"
           headers = {"Authorization": f"Bearer {token}"}
 

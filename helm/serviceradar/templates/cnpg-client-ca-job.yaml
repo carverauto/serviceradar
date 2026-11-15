@@ -81,6 +81,7 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       serviceAccountName: serviceradar-cnpg-client-ca
       restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
@@ -105,7 +106,7 @@ spec:
           CA_KEY="${CERT_DIR}/cnpg-ca-key.pem"
           CNPG_CA_CERT="/etc/serviceradar/cnpg/ca.crt"
 
-          APISERVER="https://kubernetes.default.svc"
+          APISERVER="https://kubernetes.default.svc.cluster.local"
           SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
           TOKEN=$(cat "${SERVICEACCOUNT}/token")
           NAMESPACE=$(cat "${SERVICEACCOUNT}/namespace")

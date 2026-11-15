@@ -51,6 +51,7 @@ spec:
       labels:
         app: serviceradar-nvr
     spec:
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
