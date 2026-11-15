@@ -2,9 +2,7 @@
 
 ## Purpose
 Ingestion, retention, compression, querying, and presentation of telemetry signals including logs, metrics, traces, and OCSF events across hot storage and long-term retention.
-
 ## Requirements
-
 ### Requirement: Signal taxonomy
 The system SHALL classify observability data into logs (raw), events (derived OCSF), and alerts (stateful escalation) with consistent tenant scoping.
 
@@ -1229,7 +1227,7 @@ disposition, source generation/as-of time, freshness, and version evidence.
 
 `DataRetentionWorker` SHALL reconcile the TimescaleDB retention policy of `adhoc_scan_results`, `service_status`, `events`, `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, `endpoint_inventory_cpe_count_history`, `spans_red_1h`, `traces_stats_5m`, and `otel_metrics_hourly_stats` on every run, using operator-configured values whose defaults equal the retention intervals the migrations install today (30, 14, 14, 395, 395, 395, 395, 90, 14, and 90 days respectively).
 
-Reconciliation covers retention only: chunk intervals and compression policies for these tables remain migration-owned and the worker SHALL NOT alter them. The values SHALL be set through `core.observabilityRetention` (`adhocScanResultsDays`, `serviceStatusDays` covering `service_status` and `events`, `endpointInventoryHistoryDays` covering `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, and `endpoint_inventory_cpe_count_history`, `spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) and read identically by the `serviceradar_core` and `serviceradar_core_elx` release runtime configs. The `defaultDays` ceiling SHALL apply to every new key except `endpointInventoryHistoryDays` and `tracesStatsDays`. `endpointInventoryHistoryDays` keeps its own horizon like capacity forecasts. `tracesStatsDays` stays off that ceiling because the cold-tier fence is a second owner of `traces_stats_5m`. The worker's target for `traces_stats_5m` is the explicit `tracesStatsDays` when set, otherwise the 14-day migration default, floored at the clamped refresh window. A failed read of the installed `drop_after` SHALL skip the write. While the cold tier is enabled, the worker SHALL NOT write a target shorter than `RetentionFence.cagg_cold_window_days/1` for `traces_stats_5m`, whether or not a policy is already installed, so it does not drop chunks the fence will only re-widen the policy over. When no policy is installed and that skip does not apply, the worker SHALL write the target. While the cold tier is disabled, an unset `tracesStatsDays` SHALL leave a window already at or above that fence target unchanged. Otherwise the worker writes the target, so an explicit value may narrow or raise the window, including above the fence target. An installed `drop_after` that already equals that target SHALL stay at that value on a later run, including 14 days and shorter. The fence stays widen-only (cold-tier runbook, Rollup retention widening): an unset `tracesStatsDays` SHALL NOT shrink a widened window, and this requirement SHALL NOT stop the fence from widening a shorter window while the cold tier is enabled. Before that retention is applied, the worker SHALL clamp refresh `start_offset` strictly under the retention about to be applied, through the existing continuous-aggregate refresh specs: `endpoint_inventory_package_counts_hourly` and `endpoint_inventory_cpe_counts_hourly` from the effective `endpointInventoryHistoryDays`; `services_availability_5m` from the effective `serviceStatusDays`, after the `defaultDays` ceiling; and `otel_metrics_hourly_stats` from the shorter of raw otel metrics retention and the effective `otelMetricsHourlyStatsDays`. `end_offset` and `schedule_interval` stay as installed. A continuous aggregate's own retention SHALL then be floored at that already-clamped refresh window, and that floor SHALL NOT keep `drop_after` above the configured value. A table or aggregate that does not exist (for example TimescaleDB absent) SHALL be skipped without failing the run.
+Reconciliation covers retention only: chunk intervals and compression policies for these tables remain migration-owned and the worker SHALL NOT alter them. The values SHALL be set through `core.observabilityRetention` (`adhocScanResultsDays`, `serviceStatusDays` covering `service_status` and `events`, `endpointInventoryHistoryDays` covering `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, and `endpoint_inventory_cpe_count_history`, `spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) and read identically by the `serviceradar_core` and `serviceradar_core_elx` release runtime configs. The `defaultDays` ceiling SHALL apply to every new key except `endpointInventoryHistoryDays` and `tracesStatsDays`, which keep their own horizons like capacity forecasts. The worker's target for `traces_stats_5m` is the explicit `tracesStatsDays` when set, otherwise the 14-day migration default, floored at the clamped refresh window. The worker SHALL set `traces_stats_5m` to that target whatever window is installed, and SHALL install it when no policy exists. An installed `drop_after` that already equals that target SHALL stay at that value on a later run, including 14 days and shorter. Before that retention is applied, the worker SHALL clamp refresh `start_offset` strictly under the retention about to be applied, through the existing continuous-aggregate refresh specs: `endpoint_inventory_package_counts_hourly` and `endpoint_inventory_cpe_counts_hourly` from the effective `endpointInventoryHistoryDays`; `services_availability_5m` from the effective `serviceStatusDays`, after the `defaultDays` ceiling; and `otel_metrics_hourly_stats` from the shorter of raw otel metrics retention and the effective `otelMetricsHourlyStatsDays`. `end_offset` and `schedule_interval` stay as installed. A continuous aggregate's own retention SHALL then be floored at that already-clamped refresh window, and that floor SHALL NOT keep `drop_after` above the configured value. A table or aggregate that does not exist (for example TimescaleDB absent) SHALL be skipped without failing the run.
 
 #### Scenario: Operator shortens migration-only retention through values
 
@@ -1258,57 +1256,36 @@ Reconciliation covers retention only: chunk intervals and compression policies f
 - **THEN** `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, and `endpoint_inventory_cpe_count_history` keep 395-day retention
 - **AND** `adhoc_scan_results` is capped at 7 days
 
-#### Scenario: Ceiling and unset traces stats leave a widened window
-
-- **GIVEN** `traces_stats_5m` retention is 90 days because the cold-tier fence widened it, `tracesStatsDays` is unset, and `defaultDays` is 7
-- **WHEN** `DataRetentionWorker` runs
-- **THEN** `traces_stats_5m` stays at 90 days
-- **AND** a later run with the cold tier disabled still leaves it at 90 days
-
-#### Scenario: Explicit traces stats shorter than the fence waits until the cold tier is disabled
-
-- **GIVEN** `traces_stats_5m` retention is 90 days because the cold-tier fence widened it and `tracesStatsDays` is 30
-- **WHEN** `DataRetentionWorker` runs while the cold tier is enabled
-- **THEN** `traces_stats_5m` stays at 90 days
-- **AND** a run after the cold tier is disabled sets `drop_after` to 30 days
-- **AND** a later run with `tracesStatsDays` still 30 and `defaultDays` 7 leaves `drop_after` at 30 days
-
-#### Scenario: An installed explicit traces stats window stays on the next run
-
-- **GIVEN** the cold tier is disabled, `defaultDays` is 7, and `traces_stats_5m` `drop_after` already equals `tracesStatsDays` of 10 or of 14
-- **WHEN** `DataRetentionWorker` runs again
-- **THEN** `drop_after` stays at that explicit value
-
 #### Scenario: The ceiling does not cap traces stats
 
 - **GIVEN** `traces_stats_5m` is on its 14-day migration interval, `tracesStatsDays` is unset, and `defaultDays` is 7
 - **WHEN** `DataRetentionWorker` runs
 - **THEN** `traces_stats_5m` stays at 14 days
 
-#### Scenario: The cold tier does not drop traces stats to a shorter target first
+#### Scenario: An explicit traces stats value replaces any installed window
 
-- **GIVEN** `traces_stats_5m` retention is 14 days, the cold tier is enabled, `tracesStatsDays` is 30, and `defaultDays` is 7
-- **WHEN** `DataRetentionWorker` runs
-- **THEN** the worker leaves `traces_stats_5m` at 14 days for the fence to widen
+- **GIVEN** `traces_stats_5m` retention is 90 days and `defaultDays` is 7
+- **WHEN** `DataRetentionWorker` runs with `tracesStatsDays` set to 30, or to 120
+- **THEN** `drop_after` is 30 days, or 120 days
+- **AND** a later run with the same `tracesStatsDays` leaves `drop_after` at that value
 
-#### Scenario: A missing traces stats policy stays missing while the cold tier is enabled
+#### Scenario: An installed explicit traces stats window stays on the next run
 
-- **GIVEN** `traces_stats_5m` has no retention policy and the cold tier is enabled
-- **WHEN** `DataRetentionWorker` runs with `tracesStatsDays` unset, or set to 30
-- **THEN** no `traces_stats_5m` retention policy is installed
-- **AND** a run with the cold tier disabled and no policy installs 14 days when `tracesStatsDays` is unset, or the explicit value when it is set
+- **GIVEN** `defaultDays` is 7 and `traces_stats_5m` `drop_after` already equals `tracesStatsDays` of 10 or of 14
+- **WHEN** `DataRetentionWorker` runs again
+- **THEN** `drop_after` stays at that explicit value
 
-#### Scenario: An explicit traces stats value above the fence target is written
+#### Scenario: An unset traces stats window returns to the migration default
 
-- **GIVEN** the cold tier is disabled, `traces_stats_5m` retention is 90 days, `tracesStatsDays` is 120, and `defaultDays` is 7
-- **WHEN** `DataRetentionWorker` runs
-- **THEN** `drop_after` is 120 days
-
-#### Scenario: An unset traces stats window below 14 days returns to the migration default
-
-- **GIVEN** `traces_stats_5m` retention is 7 days, `tracesStatsDays` is unset, and `defaultDays` is 7
+- **GIVEN** `traces_stats_5m` retention is 7 days or 90 days, `tracesStatsDays` is unset, and `defaultDays` is 7
 - **WHEN** `DataRetentionWorker` runs
 - **THEN** `traces_stats_5m` `drop_after` is 14 days
+
+#### Scenario: A missing traces stats policy is installed
+
+- **GIVEN** `traces_stats_5m` has no retention policy
+- **WHEN** `DataRetentionWorker` runs
+- **THEN** `drop_after` is 14 days when `tracesStatsDays` is unset, or the explicit value when it is set
 
 #### Scenario: One-day service status retention clamps its availability refresh
 
@@ -1329,3 +1306,27 @@ Reconciliation covers retention only: chunk intervals and compression policies f
 - **GIVEN** a database without TimescaleDB, or without one of the listed tables
 - **WHEN** `DataRetentionWorker` runs
 - **THEN** the run completes without error and the remaining tables are still reconciled
+
+### Requirement: Continuous-aggregate refresh hazards are reported on every deployment
+
+`DataRetentionWorker` SHALL, on every run and on every deployment, report each continuous aggregate in the `platform` schema whose refresh policy `start_offset` reaches at or past its source hypertable's retention, because a refresh that covers a dropped-chunk region recomputes those buckets from absent raw rows and deletes materialized history. The source retention SHALL be the source's in-database retention policy when one exists, and otherwise the window the worker itself drops that raw telemetry hypertable's chunks by. A source with neither SHALL NOT be reported. The report SHALL be an error log naming each aggregate, its source, its refresh start and the source retention, and it SHALL NOT change any policy. A catalog that cannot be read SHALL produce no report rather than fail the run.
+
+#### Scenario: A refresh window reaching the source retention is reported
+
+- **GIVEN** a continuous aggregate whose refresh `start_offset` is 30 days over a source with a 30-day retention policy
+- **WHEN** `DataRetentionWorker` runs
+- **THEN** an error log names that aggregate, its source, `30 days` refresh start and `30 days` source retention
+- **AND** neither policy is changed
+
+#### Scenario: Clamped shipped aggregates are not reported
+
+- **GIVEN** the worker has clamped every shipped refresh window strictly inside its source retention
+- **WHEN** the hazard check runs
+- **THEN** no aggregate is reported
+
+#### Scenario: A worker-dropped source without a policy is compared with its configured window
+
+- **GIVEN** a raw telemetry hypertable with no in-database retention policy, a configured worker retention of 3 days, and an aggregate over it that refreshes from 5 days back
+- **WHEN** `DataRetentionWorker` runs
+- **THEN** the aggregate is reported with the configured 3-day window as its source retention
+

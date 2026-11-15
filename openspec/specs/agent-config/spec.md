@@ -2,9 +2,7 @@
 
 ## Purpose
 Management, distribution, and derivation of edge agent configurations, plugin credentials, and capability bindings.
-
 ## Requirements
-
 ### Requirement: Ash Config Resources
 
 The system SHALL provide Ash resources for managing agent configurations with tenant isolation via Ash context scopes.
@@ -169,7 +167,7 @@ The agent configuration pipeline SHALL deliver Wasm plugin assignments with pack
 - **AND** the agent applies the new limits on the next config refresh
 
 ### Requirement: Plugin credential grants are resolved at use
-For plugin assignments delivered to an agent that advertises the `credential_broker_resolve_by_binding` capability, the agent config SHALL carry each credential binding's scope and identity but no credential-broker grant id, and core SHALL authorize, reuse or mint, and resolve the grant when the agent requests credential material for that binding.
+For plugin assignments delivered to an agent that advertises the `credential_broker_resolve_by_binding` capability, the agent config SHALL carry each credential binding's scope and identity but no credential-broker grant id, and core SHALL authorize, reuse or mint, and resolve the grant when the agent requests credential material for that binding. A Proxmox host-authority binding's `binding_id` SHALL derive solely from the assignment id, credential secret id, canonical controller origin, auth method, and TLS verification setting, remaining stable across sibling target-set changes and per-device inventory metadata updates, while core SHALL verify separately against the current assignment's live target scope that at least one live target still maps to that binding before issuing or resolving a grant.
 
 #### Scenario: Capable agent resolves by binding
 - **GIVEN** an enabled policy assignment for agent `agent-a` with credential binding `b1`
@@ -183,6 +181,18 @@ For plugin assignments delivered to an agent that advertises the `credential_bro
 - **GIVEN** a capable agent whose binding's grant has been reissued
 - **WHEN** its config is generated again
 - **THEN** the config version SHALL be unchanged
+
+#### Scenario: Binding identity survives target-set and device-metadata updates while target remains in live scope
+- **GIVEN** an enabled Proxmox policy assignment for `agent-a` delivering binding `b1` for controller origin `https://192.0.2.10:8006`
+- **WHEN** sibling targets are added or removed or the target's `device_uid` or provider metadata changes while at least one live target in the assignment still resolves to `b1`'s authority scope
+- **THEN** `b1`'s `binding_id` SHALL remain unchanged
+- **AND** core SHALL authorize and resolve `agent-a`'s credential request for `b1`
+
+#### Scenario: Target removed from live scope is denied even with a previously issued binding id
+- **GIVEN** `agent-a` holds binding id `b1` for controller origin `https://192.0.2.10:8006` from an earlier config
+- **WHEN** the assignment's live target scope changes so no live target resolves to `b1`'s authority scope and `agent-a` requests material for `b1`
+- **THEN** core SHALL deny the request and record a denial audit
+- **AND** it SHALL NOT issue a grant
 
 #### Scenario: Authorization follows the current assignment
 - **GIVEN** binding `b1`'s credential rule has been disabled or its secret changed
@@ -255,3 +265,34 @@ other than the one selected for it.
 - **THEN** it SHALL receive the `shared-targets/v1` format
 - **AND** the config version SHALL differ from its previous one, so the new
   config is applied rather than reported as not modified
+
+### Requirement: Add-On Profile Target Limit
+Add-on profile reconciliation SHALL read a profile's whole target query and SHALL refuse, whole, a profile whose target query selects more distinct agents than its `max_targets`. The system SHALL NOT cut a profile's targets down to its `max_targets`, and SHALL NOT treat one page of the target query as the whole selection.
+
+#### Scenario: Profile over max_targets is refused whole
+- **GIVEN** an enabled add-on profile with `max_targets` 2
+- **AND** its target query selects three agents
+- **WHEN** add-on profile reconciliation runs
+- **THEN** the system SHALL materialize no assignments for the profile
+- **AND** the system SHALL disable the profile's existing assignments
+- **AND** the reconcile summary SHALL record the profile as refused, with a message naming the limit
+- **AND** the system SHALL emit a target-limit telemetry event for the profile.
+
+#### Scenario: Other add-on config still delivers
+- **GIVEN** an agent selected by a refused add-on profile
+- **AND** the agent has an add-on assignment from another profile or a manual assignment
+- **WHEN** add-on profile reconciliation refuses the profile
+- **THEN** the other assignment SHALL remain enabled and SHALL still be delivered to the agent.
+
+#### Scenario: Selection larger than one SRQL page
+- **GIVEN** an add-on profile whose target query selects more agents than one SRQL page returns
+- **AND** the selection is within the profile's `max_targets`
+- **WHEN** add-on profile reconciliation runs
+- **THEN** every selected agent SHALL be a target of the profile.
+
+#### Scenario: Saving a profile over max_targets
+- **GIVEN** an operator saves an enabled add-on profile
+- **AND** its target query selects more agents than its `max_targets`
+- **WHEN** the save is submitted
+- **THEN** the save SHALL fail with a message naming the limit and how to narrow the profile.
+
