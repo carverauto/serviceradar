@@ -59,9 +59,9 @@ defmodule ServiceRadar.Integrations.Changes.SetOutboundMailSecrets do
     end
   end
 
+  # A blank value means "keep"; any other value is stored exactly as given.
   defp normalized_secret(value) when is_binary(value) do
-    value = String.trim(value)
-    if value == "", do: nil, else: value
+    if String.trim(value) == "", do: nil, else: value
   end
 
   defp normalized_secret(_value), do: nil

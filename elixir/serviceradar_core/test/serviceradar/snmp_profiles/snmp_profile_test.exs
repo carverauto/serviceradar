@@ -266,6 +266,63 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     end
   end
 
+  # A community string, SNMPv3 user name or password may legitimately begin or
+  # end with whitespace; storing anything else fails authentication against the
+  # device. Only an empty or whitespace-only value means "keep".
+  describe "storing inline credentials" do
+    @describetag :integration
+
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      %{actor: SystemActor.system(:test), unique: System.unique_integer([:positive])}
+    end
+
+    test "keeps leading and trailing whitespace on create and update", %{
+      actor: actor,
+      unique: unique
+    } do
+      community = "  example ro #{unique} "
+
+      v2c = create_profile!(actor, %{name: "Exact v2c #{unique}", community: community})
+      assert decrypt!(reload!(v2c, actor).community_encrypted) == community
+
+      v3_credentials = %{
+        username: " example user ",
+        auth_password: "\texample auth #{unique}  ",
+        priv_password: " example priv #{unique}\n"
+      }
+
+      v3 =
+        create_profile!(
+          actor,
+          Map.merge(v3_credentials, %{
+            name: "Exact v3 #{unique}",
+            version: :v3,
+            security_level: :auth_priv,
+            auth_protocol: :sha256,
+            priv_protocol: :aes
+          })
+        )
+
+      reloaded_v3 = reload!(v3, actor)
+      assert reloaded_v3.username == v3_credentials.username
+      assert decrypt!(reloaded_v3.auth_password_encrypted) == v3_credentials.auth_password
+      assert decrypt!(reloaded_v3.priv_password_encrypted) == v3_credentials.priv_password
+
+      replacement = " example rw #{unique}  "
+      update_profile!(v2c, actor, %{community: replacement})
+      assert decrypt!(reload!(v2c, actor).community_encrypted) == replacement
+
+      update_profile!(v2c, actor, %{community: "   "})
+      assert decrypt!(reload!(v2c, actor).community_encrypted) == replacement
+    end
+
+    defp decrypt!(ciphertext) do
+      {:ok, plaintext} = ServiceRadar.Vault.decrypt(ciphertext)
+      plaintext
+    end
+  end
+
   # Ash casts a blank :string argument to nil, so "" can only ever mean "keep".
   # Removing a stored secret is its own explicit input.
   describe "removing stored inline credentials" do

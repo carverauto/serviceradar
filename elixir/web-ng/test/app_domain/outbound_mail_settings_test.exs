@@ -7,7 +7,13 @@ defmodule ServiceRadarWebNG.OutboundMailSettingsTest do
 
   @moduletag :web_ng_shared_fixture_db
 
+  # Whitespace at either end is part of a credential, so the values carry it to
+  # prove they reach the relay exactly as entered.
   test "stores local mail credentials encrypted and reloads them for delivery config" do
+    username = " mailer "
+    password = "  smtp-secret\t"
+    api_key = " provider-secret\n"
+
     # A missing settings row is "no operator override", not a failure, so the
     # test owns its row before exercising the update path.
     {:ok, settings} =
@@ -25,27 +31,29 @@ defmodule ServiceRadarWebNG.OutboundMailSettingsTest do
                  adapter: "smtp",
                  relay: "smtp.example.test",
                  port: 587,
-                 username: "mailer",
-                 password: "smtp-secret",
-                 api_key: "provider-secret"
+                 username: username,
+                 password: password,
+                 api_key: api_key
                },
                actor: system_actor()
              )
              |> Ash.update(actor: system_actor())
 
-    assert updated.password == "smtp-secret"
-    assert updated.api_key == "provider-secret"
+    assert updated.password == password
+    assert updated.api_key == api_key
     assert is_binary(Map.get(updated, :encrypted_password))
     assert is_binary(Map.get(updated, :encrypted_api_key))
-    refute Map.get(updated, :encrypted_password) == "smtp-secret"
-    refute Map.get(updated, :encrypted_api_key) == "provider-secret"
+    refute Map.get(updated, :encrypted_password) == password
+    refute Map.get(updated, :encrypted_api_key) == api_key
 
     {:ok, reloaded} = OutboundMailSettings.get_settings(actor: system_actor())
-    assert reloaded.password == "smtp-secret"
-    assert reloaded.api_key == "provider-secret"
+    assert reloaded.username == username
+    assert reloaded.password == password
+    assert reloaded.api_key == api_key
 
     assert {:ok, config} = OutboundMail.config(reloaded)
-    assert Keyword.fetch!(config, :password) == "smtp-secret"
-    assert Keyword.fetch!(config, :api_key) == "provider-secret"
+    assert Keyword.fetch!(config, :username) == username
+    assert Keyword.fetch!(config, :password) == password
+    assert Keyword.fetch!(config, :api_key) == api_key
   end
 end
