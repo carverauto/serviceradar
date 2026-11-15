@@ -2310,7 +2310,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert {:ok, %{"status" => "aborted"}} = ExposureSnapshotState.get(lost_start["generation"])
       assert {:ok, 1} = consume_retained(conn, replacement_subject, replacement_body)
       {replacement_pages, _} = consume_snapshot_until_end(conn, [])
-      # The publisher waits for completion; finalize from here while it waits.
+      # The publisher also finalizes inline while it waits; either side may
+      # complete the generation first, and the other then observes completion.
       live_finalize!(replacement_start["generation"], 20)
       assert :ok = Task.await(adopted, @step_timeout)
 
@@ -2487,6 +2488,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     empty = finalizing_generation!(nil)
     assert :ok = ExposureSnapshotFinalizer.step(empty)
     assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(empty)
+    # The publisher pass and the maintenance tick both step a generation; the
+    # one that arrives second observes completion, not an incomplete generation.
+    assert :ok = ExposureSnapshotFinalizer.step(empty)
 
     flowing = finalizing_generation!(nil)
     insert_journal!(bucket, "capturing")
