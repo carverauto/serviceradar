@@ -511,6 +511,16 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     target = read_release_target(actor, agent_id, rollout.id)
     assert target.status == :staged
 
+    # The staged binary is not running yet: the agent's heartbeat still reports the
+    # old version, so version-match promotion cannot complete the target.
+    {:ok, _agent} =
+      agent_id
+      |> Agent.get_by_uid!(actor: actor)
+      |> Ash.Changeset.for_update(:update_release_status, %{version: "1.0.0"})
+      |> Ash.update(actor: actor)
+
+    assert Agent.get_by_uid!(agent_id, actor: actor).version == "1.0.0"
+
     strand_release_command(:command_record_pruned, command.command_id, "2 days")
     age_release_target(target.id)
 
