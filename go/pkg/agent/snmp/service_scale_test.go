@@ -133,7 +133,11 @@ func TestServiceStartKeepsOtherTargetsWhenOneFailsToStart(t *testing.T) {
 	assert.Contains(t, status["target-b"].Error, errTestCollectorStart.Error())
 	assert.Equal(t, "192.0.2.1", status["target-b"].HostIP)
 
-	factory.collector("target-c").results <- DataPoint{OIDName: "sysUpTime", Value: 1.0, Timestamp: time.Now()}
+	results := factory.collector("target-c").results
+	results <- DataPoint{OIDName: "sysUpTime", Value: 1.0, Timestamp: time.Now()}
+	// The results channel is unbuffered and read by one goroutine, so once
+	// this send returns the point above has been added.
+	results <- DataPoint{OIDName: "flush", Value: 1.0, Timestamp: time.Now()}
 
 	metrics, err := service.DrainMetrics(context.Background())
 	require.NoError(t, err)
