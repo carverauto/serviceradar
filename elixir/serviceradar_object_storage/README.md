@@ -1,9 +1,10 @@
 # ServiceRadar object storage
 
-This library qualifies the pinned Longshore S3 client through Rustler. It is not
-yet the production archive adapter: it does not issue archive receipts, grant
-uploads, publish catalog entries or authorize spool deletion. Required upstream
-API work is recorded in the
+This library wraps the pinned Longshore S3 client through Rustler. It is the
+transport behind the opt-in `:longshore` camera archive adapter in
+`ServiceRadarCoreElx.CameraStorage`, which owns verification and receipts; this
+library itself does not issue archive receipts, grant uploads, publish catalog
+entries or authorize spool deletion. The contract is recorded in the
 [Longshore design](../../openspec/changes/add-longshore-object-storage/design.md).
 
 ## API and lifecycle
