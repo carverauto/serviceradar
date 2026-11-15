@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Repo
@@ -363,6 +364,68 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
   # One Proxmox cluster, reported by its own integration, holding one node and one QEMU guest.
   # Every call reports the same cluster name, node name and the given VMID, as two clusters
   # built the same way do. Returns the guest's device.
+  # Two same-named guests of different clusters, once welded into one record and since split:
+  # the AWX host's integration id stayed on one record while its MAC names the other. The merge
+  # guards hold the pair as different machines, so the match must not propose it; a refused
+  # proposal recurs on every sync. The AWX update stays with the record holding its integration
+  # id, and no other device is merged in the holder's place.
+  for {case_name, distinct} <- [
+        {"an operator or remediation asserted them distinct", :asserted},
+        {"they hold different hypervisor guests", :guests}
+      ] do
+    test "an AWX host does not propose merging records #{case_name}",
+         %{actor: actor, suffix: suffix} do
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      holder_uid =
+        create_device!(actor, %{
+          ip: test_ip(),
+          hostname: "host#{suffix}",
+          discovery_sources: ["sweep"]
+        })
+
+      register_mac!(actor, holder_uid, mac(suffix, 1))
+      make_distinct!(actor, unquote(distinct), awx_uid, holder_uid, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", nil, [mac(suffix, 1)])
+
+      assert_not_merged(awx_uid, holder_uid)
+      assert integration_owner(integration_id) == awx_uid
+      assert awx_match_blocks(awx_uid, holder_uid) == []
+    end
+  end
+
+  defp make_distinct!(actor, :asserted, a, b, _suffix) do
+    {:ok, _assertion} = Deduplication.assert_distinct(a, b, "test: split guests", actor)
+  end
+
+  defp make_distinct!(actor, :guests, a, b, suffix) do
+    for {uid, vmid} <- [{a, vmid(suffix)}, {b, vmid(suffix) + 1}] do
+      {:ok, identity} =
+        IntegrationIdentity.proxmox_v3_fields(
+          Ecto.UUID.generate(),
+          Ecto.UUID.generate(),
+          @proxmox_cluster,
+          "lxc",
+          vmid
+        )
+
+      register_identifier!(actor, uid, :integration_id, identity.provider_ref, "proxmox")
+    end
+  end
+
+  # The blocked-merge decisions the AWX host match recorded for the pair, in either direction.
+  defp awx_match_blocks(a, b) do
+    Repo.query!(
+      """
+      SELECT reason FROM platform.identity_decisions
+      WHERE decision_kind = 'guard_block' AND source = 'awx_host_network_match'
+        AND device_uids @> ARRAY[$1, $2]::text[]
+      """,
+      [a, b]
+    ).rows
+  end
+
   defp ingest_proxmox_guest!(actor, vmid, interfaces) do
     scope = %{
       integration_id: Ecto.UUID.generate(),
