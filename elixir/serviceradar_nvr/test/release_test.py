@@ -1446,6 +1446,63 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertNotEqual(status, 200)
         self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
 
+    def encode_profile(self, codec_args, x264_params="aud=1:repeat-headers=1", pix_fmt="yuv420p"):
+        source = self.env["NVR_TEST_H264"]
+        # Each stream replaces the previous one at the shared source path.
+        subprocess.run([self.ffmpeg, "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=size=64x64:rate=15", "-frames:v", "75", "-pix_fmt", pix_fmt,
+                        "-c:v", "libx264", "-sc_threshold", "0", "-x264-params", x264_params,
+                        *codec_args, "-f", "h264", source],
+                       check=True, capture_output=True, timeout=30)
+        return source
+
+    def test_network_ingest_admits_main_and_high_only_without_frame_reordering(self):
+        self.ingest_installation()
+        proc = self.start_ingest_release()
+        admitted = {
+            "main": (["-profile:v", "main", "-bf", "0", "-g", "30"], "aud=1:repeat-headers=1", b"avcC\x01\x4d"),
+            "high": (["-profile:v", "high", "-bf", "0", "-g", "30"], "aud=1:repeat-headers=1", b"avcC\x01\x64"),
+            # Interlaced x264 output uses POC type 0, so only its VUI restriction excludes reordering.
+            "interlaced-main": (["-profile:v", "main", "-bf", "0", "-g", "30", "-flags", "+ildct+ilme"],
+                                "tff=1:aud=1:repeat-headers=1", b"avcC\x01\x4d"),
+        }
+        for name, (args, params, avcc) in admitted.items():
+            with self.subTest(stream=name):
+                source = self.encode_profile(args, params)
+                status, receipt = self.ingest_request(self.ingest_header(source=f"synthetic-{name}-camera")
+                                                      + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+                self.assertEqual(status, 200, receipt)
+                self.assertEqual(receipt["status"], "sealed_local")
+                decoded = bytearray()
+                for block_id in receipt["block_ids"]:
+                    block = self.spool / block_id
+                    init = (block / "init.mp4").read_bytes()
+                    self.assertEqual(init.count(avcc), 1)
+                    output = self.root / (block_id + ".mp4")
+                    output.write_bytes(init + (block / "media.m4s").read_bytes())
+                    decoded.extend(self.decode(str(output)))
+                self.assertEqual(bytes(decoded), self.decode(source))
+        sealed = sorted(p.name for p in self.spool.iterdir() if p.is_dir())
+        refused = {
+            "reordering-main": (["-profile:v", "main", "-bf", "2", "-g", "30"], "yuv420p", "h264_frame_reordering"),
+            "high422": (["-profile:v", "high422", "-bf", "0", "-g", "30"], "yuv422p", "unsupported_h264_profile"),
+        }
+        for name, (args, pix_fmt, _) in refused.items():
+            with self.subTest(stream=name):
+                self.encode_profile(args, pix_fmt=pix_fmt)
+                status, result = self.ingest_request(self.ingest_header(source=f"synthetic-{name}-camera")
+                                                     + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+                self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
+        for block in self.spool.iterdir():
+            if block.is_dir() and block.name not in sealed:
+                journal = (block / "journal").read_bytes() if (block / "journal").exists() else b""
+                self.assertNotIn(b'"type":"seal"', journal.replace(b" ", b""))
+        proc.send_signal(signal.SIGTERM)
+        log = proc.communicate(timeout=15)[0].decode(errors="replace")
+        warnings = [line for line in log.splitlines() if "NVR ingest incomplete:" in line]
+        self.assertEqual([w.split("NVR ingest incomplete: ", 1)[1].strip() for w in warnings],
+                         [":" + reason for _, _, reason in refused.values()])
+
     def test_network_ingest_authentication_binding_and_incomplete_input(self):
         self.ingest_installation()
         self.make_media()
