@@ -20,39 +20,74 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
 
   An aggregate older than its controller's recorded generation is superseded:
   a newer observation already committed, and the generation only advances, so
-  no later delivery of it can be applied. When every aggregate is superseded
-  the transaction commits nothing and returns `{:ok, {:superseded, reasons}}`
-  without running `fun`, so the caller can settle the delivery instead of
-  failing it into redelivery. Any other refusal, and a superseded aggregate
-  beside one that is not, is an error.
+  no later delivery of it can be applied. When every aggregate is already
+  superseded according to the committed watermark, `with_locks/3` returns
+  `{:ok, {:superseded, reasons}}` immediately without opening a transaction,
+  waiting on the controller advisory lock, or running `fun`, so redeliveries
+  settle instead of forming an advisory-lock convoy behind an active ingest.
+  Otherwise it acquires each controller lock in sorted order and re-checks the
+  watermark inside the transaction. Any other refusal, and a superseded
+  aggregate beside one that is not, is an error.
   """
-  @spec with_locks([map()], (-> {:ok, result} | {:error, term()})) ::
+  @spec with_locks([map()], (-> {:ok, result} | {:error, term()}), keyword()) ::
           {:ok, result} | {:ok, {:superseded, [superseded(), ...]}} | {:error, term()}
         when result: term()
-  def with_locks(aggregates, fun) do
-    Repo.transaction(
-      fn ->
-        case lock_and_admit(Enum.sort_by(aggregates, & &1.controller_id)) do
-          :ok -> run_admitted(fun)
-          {:superseded, reasons} -> {:superseded, reasons}
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end,
-      timeout: :infinity
-    )
-  end
+  def with_locks(aggregates, fun, opts \\ []) do
+    read_fn = Keyword.get(opts, :read, &read/1)
+    lock_fn = Keyword.get(opts, :lock, &lock_controller/1)
+    rollback_fn = Keyword.get(opts, :rollback, &Repo.rollback/1)
+    sorted = Enum.sort_by(aggregates, & &1.controller_id)
 
-  defp run_admitted(fun) do
-    case fun.() do
-      {:ok, result} -> result
-      {:error, reason} -> Repo.rollback(reason)
+    transaction_fn =
+      Keyword.get(opts, :transaction, fn tx_fun ->
+        Repo.transaction(tx_fun, timeout: :infinity)
+      end)
+
+    case precheck_superseded(sorted, read_fn) do
+      {:superseded, reasons} ->
+        {:ok, {:superseded, reasons}}
+
+      :proceed ->
+        transaction_fn.(fn ->
+          case lock_and_admit(sorted, lock_fn, read_fn) do
+            :ok -> run_admitted(fun, rollback_fn)
+            {:superseded, reasons} -> {:superseded, reasons}
+            {:error, reason} -> rollback_fn.(reason)
+          end
+        end)
     end
   end
 
-  defp lock_and_admit(aggregates) do
+  defp precheck_superseded([], _read_fn), do: :proceed
+
+  defp precheck_superseded(aggregates, read_fn) do
+    aggregates
+    |> Enum.reduce_while([], fn aggregate, superseded ->
+      case check(aggregate, read_fn) do
+        {:error, {:stale_awx_membership_generation, _, _, _} = reason} ->
+          {:cont, [reason | superseded]}
+
+        _other ->
+          {:halt, :proceed}
+      end
+    end)
+    |> case do
+      :proceed -> :proceed
+      superseded -> {:superseded, Enum.reverse(superseded)}
+    end
+  end
+
+  defp run_admitted(fun, rollback_fn) do
+    case fun.() do
+      {:ok, result} -> result
+      {:error, reason} -> rollback_fn.(reason)
+    end
+  end
+
+  defp lock_and_admit(aggregates, lock_fn, read_fn) do
     aggregates
     |> Enum.reduce_while([], fn aggregate, checks ->
-      case lock_and_check(aggregate) do
+      case lock_and_check(aggregate, lock_fn, read_fn) do
         {:error, {:stale_awx_membership_generation, _, _, _}} = check -> {:cont, [check | checks]}
         {:error, _reason} = error -> {:halt, error}
         {:ok, _disposition} = check -> {:cont, [check | checks]}
@@ -73,16 +108,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
     end
   end
 
-  def check(aggregate) do
-    case read(aggregate.controller_id) do
+  def check(aggregate, read_fn \\ &read/1) do
+    case read_fn.(aggregate.controller_id) do
       {:ok, current} -> disposition(aggregate, current)
       {:error, _} = error -> error
     end
   end
 
-  def lock_and_check(aggregate) do
-    with :ok <- lock_controller(aggregate.controller_id) do
-      check(aggregate)
+  def lock_and_check(aggregate, lock_fn \\ &lock_controller/1, read_fn \\ &read/1) do
+    with :ok <- lock_fn.(aggregate.controller_id) do
+      check(aggregate, read_fn)
     end
   end
 

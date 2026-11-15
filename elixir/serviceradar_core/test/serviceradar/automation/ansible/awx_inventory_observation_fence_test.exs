@@ -56,6 +56,81 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceTest do
     refute Fence.digest(empty) == Fence.digest(%{empty | complete: false})
   end
 
+  test "already-superseded observations short-circuit before opening a transaction or waiting on the controller advisory lock" do
+    stale = %{aggregate() | source_generation: 9}
+
+    recorded = %{
+      source_generation: 20,
+      observation_digest: "sha256:" <> String.duplicate("9", 64)
+    }
+
+    assert {:ok,
+            {:superseded,
+             [{:stale_awx_membership_generation, "11111111-2222-4333-8444-555555555555", 9, 20}]}} =
+             Fence.with_locks(
+               [stale],
+               fn -> flunk("superseded observation must not execute callback") end,
+               read: fn "11111111-2222-4333-8444-555555555555" -> {:ok, recorded} end,
+               lock: fn _controller_id ->
+                 flunk(
+                   "already-superseded observation must not block on controller advisory lock"
+                 )
+               end,
+               transaction: fn _tx_fun ->
+                 flunk("already-superseded observation must not open lock transaction")
+               end
+             )
+
+    # A non-superseded aggregate must still acquire the controller advisory lock inside the transaction.
+    fresh = %{aggregate() | source_generation: 21}
+    parent = self()
+
+    assert {:ok, :applied} =
+             Fence.with_locks(
+               [fresh],
+               fn -> {:ok, :applied} end,
+               read: fn "11111111-2222-4333-8444-555555555555" -> {:ok, recorded} end,
+               lock: fn controller_id ->
+                 send(parent, {:locked, controller_id})
+                 :ok
+               end,
+               transaction: fn tx_fun -> {:ok, tx_fun.()} end
+             )
+
+    assert_received {:locked, "11111111-2222-4333-8444-555555555555"}
+
+    # Mixed superseded + fresh aggregates must NOT short-circuit as superseded:
+    # they must enter the locked transaction and reject the mixed batch.
+    second_controller = "66666666-7777-4888-8999-aaaaaaaaaaaa"
+    mixed_fresh = %{aggregate() | controller_id: second_controller, source_generation: 21}
+
+    assert {:error,
+            {:stale_awx_membership_generation, "11111111-2222-4333-8444-555555555555", 9, 20}} =
+             Fence.with_locks(
+               [mixed_fresh, stale],
+               fn -> flunk("mixed superseded batch must not execute callback") end,
+               read: fn
+                 "11111111-2222-4333-8444-555555555555" -> {:ok, recorded}
+                 ^second_controller -> {:ok, recorded}
+               end,
+               lock: fn controller_id ->
+                 send(parent, {:mixed_locked, controller_id})
+                 :ok
+               end,
+               rollback: fn reason -> throw({:rolled_back, reason}) end,
+               transaction: fn tx_fun ->
+                 try do
+                   {:ok, tx_fun.()}
+                 catch
+                   {:rolled_back, reason} -> {:error, reason}
+                 end
+               end
+             )
+
+    assert_received {:mixed_locked, "11111111-2222-4333-8444-555555555555"}
+    assert_received {:mixed_locked, ^second_controller}
+  end
+
   defp aggregate do
     %{
       controller_id: "11111111-2222-4333-8444-555555555555",
