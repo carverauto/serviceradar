@@ -75,10 +75,12 @@ Promotion copies each root with its platform manifests and blobs, plus the
 root's classic Cosign `.sig` tag. When the protected project already holds a
 `.sig` tag for that digest, promotion reuses it and does not copy the build
 signature. Other build referrers, such as stale signatures and Harbor-generated
-SBOMs, are not promoted; the protected project generates its own SBOMs.
+SBOMs, are not promoted; the protected project generates its own SBOMs. Helm
+chart bundles are not Cosign-signed and are promoted with `--unsigned`.
 Protected `.sig` tags must be immutable before these workflows are enabled.
 Signature verification remains mandatory before and after promotion. Fixed
-protected tags are never replaced with a different digest; `latest` is updated only after the entire bundle has passed availability checks.
+protected tags are never replaced with a different digest; `latest` is updated
+only after the entire bundle has passed availability checks.
 An inventory `static_tags` entry that already exists in the protected project
 keeps its existing image; it is created on the promoted digest only when absent.
 The successful receipt records verified root digests and tags in `published`,
