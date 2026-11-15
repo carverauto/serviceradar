@@ -13,6 +13,9 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
 
   alias ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
   alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+  alias ServiceRadar.SNMPProfiles.CredentialDsl
+
+  require CredentialDsl
 
   @snmp_credential_fields [
     :version,
@@ -49,9 +52,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     create :create do
       accept @device_snmp_credential_fields
 
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      CredentialDsl.credential_action_arguments()
 
       change EncryptCredentials
       change InvalidateSnmpConfigs
@@ -60,9 +61,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     update :update do
       accept @snmp_credential_fields
 
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      CredentialDsl.credential_action_arguments()
 
       change EncryptCredentials
       change InvalidateSnmpConfigs
@@ -77,9 +76,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
 
       accept @snmp_credential_fields
 
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      CredentialDsl.credential_action_arguments()
 
       change set_attribute(:device_id, arg(:device_id))
       change EncryptCredentials

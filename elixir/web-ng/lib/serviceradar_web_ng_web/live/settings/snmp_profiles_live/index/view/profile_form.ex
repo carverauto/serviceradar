@@ -47,6 +47,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
       |> assign(:credential_secret_id, credential_secret_id)
       |> assign(:selected_credential, selected_credential)
       |> assign(:credential_options, Data.snmp_credential_options(assigns.snmp_credentials))
+      |> assign(
+        :stored_credentials,
+        stored_credentials(assigns.selected_profile, version, credential_secret_id)
+      )
+      |> assign(:clear_credentials, Enum.map(assigns.form[:clear_credentials].value || [], &to_string/1))
 
     ~H"""
     <.ui_panel>
@@ -197,6 +202,36 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </div>
           </div>
 
+          <div
+            :if={@stored_credentials != []}
+            id="snmp-profile-stored-credentials"
+            class="rounded-md border border-sr-line/60 p-3 space-y-3"
+          >
+            <div>
+              <p class="text-sm font-medium text-sr-ink">Stored on this profile</p>
+              <p class="text-xs text-sr-muted">
+                Tick a credential to remove it when you save. Choosing a different reusable
+                credential removes all of them.
+              </p>
+            </div>
+            <label :for={stored <- @stored_credentials} class="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id={"snmp-profile-clear-#{stored.field}"}
+                name="form[clear_credentials][]"
+                value={stored.field}
+                class={ui_checkbox_class()}
+                checked={stored.field in @clear_credentials}
+              />
+              <span class="text-sm text-sr-ink">
+                Remove stored {stored.label}
+                <span :if={stored.unused_reason} class="block text-xs text-sr-muted">
+                  {stored.unused_reason}
+                </span>
+              </span>
+            </label>
+          </div>
+
           <%= if @credential_secret_id == "" do %>
             <%= if @version in ["v1", "v2c"] do %>
               <div>
@@ -206,6 +241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="password"
                   name="form[community]"
+                  errors={credential_errors(@form, :community)}
                   value=""
                   class={ui_field_class(class: "w-full")}
                   placeholder={
@@ -270,6 +306,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   <.input
                     type="password"
                     name="form[auth_password]"
+                    errors={credential_errors(@form, :auth_password)}
                     value=""
                     class={ui_field_class(class: "w-full")}
                     placeholder={
@@ -301,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   <.input
                     type="password"
                     name="form[priv_password]"
+                    errors={credential_errors(@form, :priv_password)}
                     value=""
                     class={ui_field_class(class: "w-full")}
                     placeholder={
@@ -752,6 +790,39 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     ~p"/settings/networks/credentials?credential_id=#{secret_id}" <>
       "#credential-secret-#{secret_id}"
   end
+
+  @stored_credential_fields [
+    {:community, :community_encrypted, "community string"},
+    {:auth_password, :auth_password_encrypted, "auth password"},
+    {:priv_password, :priv_password_encrypted, "privacy password"}
+  ]
+
+  # The inline secrets an edited profile still holds, each with why it is unused
+  # when the current selection means polling never reads it.
+  defp stored_credentials(nil, _version, _credential_secret_id), do: []
+
+  defp stored_credentials(profile, version, credential_secret_id) do
+    for {field, encrypted_field, label} <- @stored_credential_fields,
+        not is_nil(Map.get(profile, encrypted_field)) do
+      %{
+        field: Atom.to_string(field),
+        label: label,
+        unused_reason: unused_reason(field, version, credential_secret_id)
+      }
+    end
+  end
+
+  defp unused_reason(_field, _version, credential_secret_id) when credential_secret_id != "",
+    do: "Not used while a reusable credential is selected."
+
+  defp unused_reason(:community, "v3", _credential_secret_id), do: "Not used by SNMPv3."
+
+  defp unused_reason(field, version, _credential_secret_id)
+       when field in [:auth_password, :priv_password] and version in ["v1", "v2c"], do: "Not used by SNMPv1/v2c."
+
+  defp unused_reason(_field, _version, _credential_secret_id), do: nil
+
+  defp credential_errors(form, field), do: Enum.map(form[field].errors, &translate_error/1)
 
   def version_badge_variant(:v1), do: "ghost"
   def version_badge_variant(:v2c), do: "info"
