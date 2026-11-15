@@ -69,7 +69,7 @@ SELECT
   last_run_duration,
   last_successful_finish
 FROM timescaledb_information.job_stats
-WHERE hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces')
+WHERE hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces', 'timeseries_metrics')
   AND hypertable_schema = 'platform'
 ORDER BY hypertable_name, job_type;
 ```
@@ -87,7 +87,7 @@ FROM timescaledb_information.hypertable_detailed_size h
 LEFT JOIN timescaledb_information.hypertable_compression_stats c
   ON h.hypertable_name = c.hypertable_name
 WHERE h.hypertable_schema = 'platform'
-  AND h.hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces')
+  AND h.hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces', 'timeseries_metrics')
 ORDER BY mb DESC;
 ```
 

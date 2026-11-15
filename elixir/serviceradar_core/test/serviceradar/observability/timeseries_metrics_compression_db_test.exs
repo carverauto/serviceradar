@@ -66,6 +66,23 @@ defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
       assert schedule_hours(job_id) == 1.0
     end
 
+    test "enables compression on a table bootstrapped without it, then leaves it alone" do
+      # The schema baseline is a schema-only dump: a database bootstrapped from
+      # it has the hypertable but neither compression settings nor a policy.
+      remove_compression!()
+      assert compression_settings() == nil
+
+      assert :ok = reconcile(2)
+
+      assert compression_settings() ==
+               {"device_id,metric_type,metric_name", ~s("timestamp" DESC,gateway_id,series_key)}
+
+      assert {job_id, 2.0} = policy()
+
+      assert :ok = reconcile(2)
+      assert {^job_id, 2.0} = policy()
+    end
+
     test "warns when the lag is not shorter than retention" do
       log =
         capture_log(fn ->
@@ -164,6 +181,57 @@ defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
     case rows do
       [[job_id, hours]] -> {job_id, hours}
       other -> flunk("expected one timeseries_metrics compression policy, got #{inspect(other)}")
+    end
+  end
+
+  # Puts the table in the bootstrapped-from-baseline state. Compression cannot
+  # be turned off while a chunk is compressed; the sandbox rolls all of it back.
+  defp remove_compression! do
+    if compression_settings(), do: turn_compression_off!()
+  end
+
+  defp turn_compression_off! do
+    SQL.query!(
+      Repo,
+      "SELECT remove_compression_policy('platform.timeseries_metrics', if_exists => true)",
+      []
+    )
+
+    SQL.query!(
+      Repo,
+      """
+      SELECT decompress_chunk(c, if_compressed => true)
+      FROM show_chunks('platform.timeseries_metrics') c
+      """,
+      []
+    )
+
+    SQL.query!(
+      Repo,
+      "ALTER TABLE platform.timeseries_metrics SET (timescaledb.compress = false)",
+      []
+    )
+  end
+
+  defp compression_settings do
+    %{rows: rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT s.segmentby, s.orderby
+        FROM timescaledb_information.hypertables h
+        JOIN timescaledb_information.hypertable_compression_settings s
+          ON s.hypertable = format('%I.%I', h.hypertable_schema, h.hypertable_name)::regclass
+        WHERE h.hypertable_schema = 'platform'
+          AND h.hypertable_name = 'timeseries_metrics'
+          AND h.compression_enabled
+        """,
+        []
+      )
+
+    case rows do
+      [] -> nil
+      [[segmentby, orderby]] -> {segmentby, orderby}
     end
   end
 
