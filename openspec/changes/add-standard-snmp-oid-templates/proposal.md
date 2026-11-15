@@ -68,7 +68,10 @@ about 6,300 devices compiles only its 25 explicit targets.
 - Affected spec: `snmp-checker` (three ADDED requirements).
 - Affected code: `SNMPProfiles.BuiltinTemplates`, `SNMPOIDTemplate`
   (`:seed_builtin`), new `BuiltinTemplateSeeder` and `MissingOIDs`,
-  `SNMPCompiler`, the web-ng SNMP profile list and form, one migration.
+  `SNMPCompiler`, the web-ng SNMP profile list and form, one migration, and
+  the Go agent's value conversion (TimeTicks reach a gauge as the raw
+  hundredths-of-a-second count, and an INTEGER is accepted as a gauge), without
+  which the seeded sysUpTime and ifOperStatus series were dropped.
 - Deployments: every enabled default profile with no templates starts walking
   the interface table of every device its query selects, from the agents it
   is pinned to (or every agent). Review the default profile's target query
