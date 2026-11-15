@@ -1390,6 +1390,96 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert claim.storage_id == storage_id
   end
 
+  test "NVRCapture.once_source closes only a relay it opened when capture aborts before recorder start",
+       ctx do
+    abs_tmp = Path.expand(ctx.tmp_dir)
+    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "origin-certs"))
+    token_file = Path.join(abs_tmp, "origin-token")
+    config_file = Path.join(abs_tmp, "origin-client.json")
+    File.write!(token_file, "synthetic-nvr-origin-token-0123456789")
+
+    File.write!(
+      config_file,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => free_local_port(),
+        "ca_file" => certs.client_ca,
+        "cert_file" => certs.client_cert,
+        "key_file" => certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => Ecto.UUID.generate()}
+        }
+      })
+    )
+
+    capture_opts = [
+      config_file: config_file,
+      token_file: token_file,
+      timeout_ms: 300,
+      control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
+      dispatch_open: fn _agent, _payload, opts, _requester -> {:ok, opts[:command_id]} end
+    ]
+
+    shared_ctx = Fixtures.context()
+    assert {:ok, shared} = Fixtures.open(shared_ctx)
+
+    assert {:error, :capture_timeout} =
+             NVRCapture.once_source(
+               shared_ctx.source.id,
+               shared_ctx.profile.id,
+               "serviceradar-nvr-0",
+               [actor: shared_ctx.actor] ++ capture_opts
+             )
+
+    assert [retained] = Fixtures.sessions(shared_ctx)
+    assert retained.id == shared.id
+    assert retained.status == shared.status
+
+    own_ctx = Fixtures.context()
+
+    assert {:error, :capture_timeout} =
+             NVRCapture.once_source(
+               own_ctx.source.id,
+               own_ctx.profile.id,
+               "serviceradar-nvr-0",
+               [actor: own_ctx.actor] ++ capture_opts
+             )
+
+    assert [opened] = Fixtures.sessions(own_ctx)
+    assert opened.status in [:closing, :closed, :failed]
+  end
+
+  test "NVRCapture returns a verified seal receipt when worker cleanup outlasts the exit wait",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = setup_nvr_release(ctx.tmp_dir)
+    _daemon = start_nvr_daemon(nvr)
+    _release_hook = capture_slow_recorder_release(10_000)
+
+    task =
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: nvr.client_config,
+          token_file: nvr.token_file,
+          bounds: %{max_frames: 5, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+
+    worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
+    Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
+
+    assert {:ok, receipt} = Task.await(task, 30_000)
+    assert receipt.status == :sealed_local
+    assert receipt.storage_id == nvr.storage_id
+    assert receipt.frames_sent == 5
+
+    assert_receive {:recorder_claim_released_by, ^worker}, 5_000
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
+    assert recorder_claim(ctx).state == :released
+  end
+
   defp await_nvr_worker_attached(owner) do
     await_capture(
       fn ->

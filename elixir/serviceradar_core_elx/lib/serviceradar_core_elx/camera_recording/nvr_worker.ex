@@ -640,19 +640,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp release_clean_consumer(state) do
     case RecorderOwnership.release(state.owner, state.claim, actor: state.actor, timeout: @cleanup_timeout_ms) do
       {:ok, :released} ->
-        _ =
-          RelaySessionManager.request_close(state.owner.relay_session_id,
-            reason: "recorder detached",
-            actor: state.actor
-          )
-
-        :ok
+        request_relay_close(state.owner.relay_session_id, state.actor)
 
       _ ->
         :ok
     end
   catch
     _kind, _reason -> :ok
+  end
+
+  defp request_relay_close(relay_session_id, actor) do
+    {_pid, ref} =
+      spawn_monitor(fn ->
+        RelaySessionManager.request_close(relay_session_id, reason: "recorder detached", actor: actor)
+      end)
+
+    receive do
+      {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+    after
+      @cleanup_timeout_ms -> Process.demonitor(ref, [:flush])
+    end
+
+    :ok
   end
 
   defp normalize_bounds(overrides) when is_map(overrides) do

@@ -32,13 +32,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   def once_source(camera_source_id, stream_profile_id, member, opts \\ []) do
     run_bounded(opts, fn caller, caller_monitor, deadline ->
       actor = resolve_actor(opts)
-      open_opts = opts |> Keyword.take([:control_gateway_resolver, :dispatch_open]) |> Keyword.put(:actor, actor)
+
+      open_opts =
+        opts
+        |> Keyword.take([:control_gateway_resolver, :dispatch_open])
+        |> Keyword.merge(actor: actor, return_origin?: true)
 
       with {:ok, source_id} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
            {:ok, profile_id} <- cast_uuid(stream_profile_id, :invalid_stream_profile_id),
            {:ok, _target} <- NVRTargetConfig.resolve(member, opts),
-           {:ok, requested} <- RelaySessionManager.request_open(source_id, profile_id, open_opts) do
-        capture_requested_session(requested, member, actor, {caller, caller_monitor}, deadline, opts)
+           {:ok, {origin, requested}} <- RelaySessionManager.request_open(source_id, profile_id, open_opts) do
+        capture_requested_session({origin, requested}, member, actor, {caller, caller_monitor}, deadline, opts)
       end
     end)
   end
@@ -95,7 +99,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   def capture_on_host(_relay_session_id, _member, _remote_caller, timeout_ms, _worker_opts)
       when timeout_ms not in 1..@max_timeout_ms, do: {:error, :invalid_capture_timeout}
 
-  defp capture_requested_session(session, member, actor, {_caller, caller_monitor} = watch, deadline, opts) do
+  defp capture_requested_session({origin, session}, member, actor, {_caller, caller_monitor} = watch, deadline, opts) do
     case await_active_relay(session.id, actor, caller_monitor, deadline) do
       {:ok, active_relay} ->
         case await_relay_host(active_relay.id, active_relay.media_ingest_id, caller_monitor, deadline) do
@@ -103,12 +107,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
             dispatch_to_host(host_node, active_relay.id, member, watch, deadline, opts)
 
           {:error, _reason} = error ->
-            maybe_close_unstarted_relay(active_relay.id, actor)
+            maybe_close_unstarted_relay(active_relay.id, origin, actor)
             error
         end
 
       {:error, _reason} = error ->
-        maybe_close_unstarted_relay(session.id, actor)
+        maybe_close_unstarted_relay(session.id, origin, actor)
         error
     end
   end
@@ -137,7 +141,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       __MODULE__,
       :capture_on_host,
       [relay_id, member, caller, timeout_ms, worker_opts],
-      timeout_ms + @interrupt_drain_ms + 2_000
+      timeout_ms + @interrupt_drain_ms + 3_000
     )
   catch
     :error, {:erpc, erpc_reason} ->
@@ -203,10 +207,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     receive do
       {:DOWN, ^worker_monitor, :process, ^worker, _exit_reason} -> result
     after
-      remaining(drain_deadline) ->
-        abandon_worker(worker, worker_monitor, started_info, :worker_terminate_timeout)
+      remaining(drain_deadline) -> unterminated_result(worker, worker_monitor, started_info, result)
     end
   end
+
+  defp unterminated_result(_worker, worker_monitor, _started_info, {:ok, _receipt} = result) do
+    Process.demonitor(worker_monitor, [:flush])
+    result
+  end
+
+  defp unterminated_result(worker, worker_monitor, started_info, _result),
+    do: abandon_worker(worker, worker_monitor, started_info, :worker_terminate_timeout)
 
   defp abandon_worker(worker, worker_monitor, started_info, reason) do
     Process.exit(worker, :shutdown)
@@ -308,7 +319,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     end
   end
 
-  defp maybe_close_unstarted_relay(relay_id, actor) do
+  defp maybe_close_unstarted_relay(_relay_id, :reuse, _actor), do: :ok
+
+  defp maybe_close_unstarted_relay(relay_id, :new, actor) do
     _ =
       RelaySessionManager.request_close(relay_id,
         reason: "nvr capture aborted before recorder start",
@@ -337,7 +350,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
     {pid, monitor} =
       spawn_monitor(fn ->
-        {:ok, timer} = :timer.kill_after(remaining(deadline) + @interrupt_drain_ms + 4_000, self())
+        {:ok, timer} = :timer.kill_after(remaining(deadline) + @interrupt_drain_ms + 6_000, self())
         caller_monitor = Process.monitor(caller)
 
         result =
@@ -369,7 +382,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:DOWN, ^monitor, :process, ^pid, _reason} ->
         unfinished_result(dispatched_info, deadline)
     after
-      remaining(deadline) + @interrupt_drain_ms + 6_000 ->
+      remaining(deadline) + @interrupt_drain_ms + 8_000 ->
         unfinished_result(dispatched_info, deadline)
     end
   end
