@@ -25,8 +25,10 @@ it:
    and listing it in the same call is rejected. A blank value still means
    "keep", by design.
 2. A call that binds a reusable credential (changes `credential_secret_id` to a
-   non-nil value) removes all inline credential material. Supplying inline
-   values in that same call is rejected. Changing only the SNMP version does not
+   different non-nil value) removes all inline credential material; re-sending
+   the id already bound removes nothing. A call that supplies a non-nil
+   `credential_secret_id`, changed or re-sent, cannot also supply inline
+   values. Changing only the SNMP version does not
    remove anything: switching v2c to v3 and back is a reversible configuration
    change, and the form now shows the stored material it would leave unused.
 3. The SNMP profile edit form lists the inline credentials the profile still

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 ### Requirement: Stored inline SNMP credentials can be removed
 The system SHALL let an operator remove an inline SNMP community string, auth password or privacy password stored on an SNMP profile, SNMP target or per-device SNMP override through an explicit `clear_credentials` input, and SHALL NOT treat a blank credential value as a removal.
-A call that binds a reusable credential SHALL remove the inline credential material the record stores, because credential resolution never reads it while a reusable credential is bound.
+A call that binds a different reusable credential SHALL remove the inline credential material the record stores, because credential resolution never reads it while a reusable credential is bound. Re-sending the reusable credential already bound SHALL NOT remove it. A call that supplies a reusable credential, changed or re-sent, SHALL NOT also supply an inline credential value.
 
 #### Scenario: Blank value keeps the stored credential
 - **GIVEN** an SNMP profile with a stored community string
@@ -20,7 +20,7 @@ A call that binds a reusable credential SHALL remove the inline credential mater
 
 #### Scenario: Conflicting inputs are rejected
 - **GIVEN** an SNMP profile with a stored community string
-- **WHEN** an update supplies a community value and also lists `community` in `clear_credentials`, or supplies a community value while binding a reusable credential
+- **WHEN** an update supplies a community value and also lists `community` in `clear_credentials`, or supplies a community value together with a reusable credential
 - **THEN** the update is rejected and the stored community string is unchanged
 
 #### Scenario: Operator removes a credential in settings

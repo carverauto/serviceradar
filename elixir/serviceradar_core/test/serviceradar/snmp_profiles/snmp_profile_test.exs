@@ -12,6 +12,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
   alias Ash.Resource.Info, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
@@ -334,6 +336,50 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       reloaded = reload!(profile, actor)
       assert reloaded.community_encrypted == profile.community_encrypted
       assert reloaded.credential_secret_id == nil
+    end
+
+    test "binding a reusable credential on an atomic device override removes its community", %{
+      actor: actor,
+      unique: unique
+    } do
+      device_uid = Ecto.UUID.generate()
+
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          hostname: "host#{unique}.example.com",
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+      override =
+        DeviceSNMPCredential
+        |> Ash.Changeset.for_create(
+          :create,
+          %{device_id: device_uid, version: :v2c, community: "example-ro-#{unique}"},
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      assert override.community_encrypted
+
+      secret = create_v3_secret!(actor, unique)
+
+      override
+      |> Ash.Changeset.for_update(:update, %{credential_secret_id: secret.id, version: :v3},
+        actor: actor
+      )
+      |> Ash.update!(actor: actor)
+
+      reloaded = Ash.get!(DeviceSNMPCredential, override.id, actor: actor)
+      assert reloaded.credential_secret_id == secret.id
+      assert reloaded.community_encrypted == nil
     end
 
     defp create_profile!(actor, attrs) do
