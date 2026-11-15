@@ -346,8 +346,21 @@ segment. New attributed generations SHALL enforce cumulative recovery bounds bef
 sequence allocation so one operation covers the complete physical generation.
 Known attribution SHALL NOT be downgraded to UNATTRIBUTABLE for sizing.
 Existing flat or oversized storage that cannot satisfy these bounds SHALL
-remain intact, accounted and reported as unsupported. The agent SHALL NOT
-migrate, drain or partition that storage into recovery operations.
+remain intact, accounted and reported as unsupported while it may hold a
+record. The agent SHALL NOT migrate, drain or partition that storage into
+recovery operations. Flat storage that provably holds no record (every segment
+and both commit evidence copies empty) SHALL be removed at open and recorded in
+an audit log line, and SHALL NOT be reported as retained.
+
+#### Scenario: Drained flat storage is retired
+- **GIVEN** flat storage left by an agent before the lane format whose segments and evidence copies are all empty
+- **WHEN** the agent opens its edge record root
+- **THEN** it SHALL remove that storage, log the removed entries and bytes, and report zero retained legacy bytes
+
+#### Scenario: Flat storage that may hold a record is kept
+- **GIVEN** flat storage with any segment byte or evidence entry, or any root entry the agent cannot account for
+- **WHEN** the agent opens its edge record root
+- **THEN** it SHALL leave every file untouched, keep it charged to the shared budget and report it as unsupported legacy storage
 
 Known attribution SHALL NEVER be downgraded to `UNATTRIBUTABLE` because coarsening
 or sizing failed. `UNATTRIBUTABLE` states that provenance could not be proven; using

@@ -70,13 +70,29 @@ const defaultEdgeSpoolMaxBytes = 1 << 30
 // other setup failure (security provider before its certificate files
 // exist, client or sender construction) is retried with a doubling delay capped
 // at the poll interval until setup succeeds or ctx ends.
+// logLegacyEdgeStorage is the audit line for flat storage left by an agent before
+// the lane format: what was retired as drained, or why bytes remain retained.
+func logLegacyEdgeStorage(sp *agent.RecordSpool, log logger.Logger) {
+	inv, err := sp.LegacyRetirement()
+	if err == nil && inv.Present() {
+		log.Info().Strs("entries", inv.Entries).Uint64("bytes", inv.Bytes).
+			Msg("Retired drained legacy edge storage: no record remained above the resolved prefix")
+	}
+	if sp.RetainedLegacyBytes() == 0 {
+		return
+	}
+	event := log.Warn().Uint64("retained_legacy_bytes", sp.RetainedLegacyBytes()).Strs("unrecognized", inv.Unrecognized)
+	if err != nil {
+		event = event.Err(err)
+	}
+	event.Msg("Legacy edge storage retained untouched; it may hold undelivered records and only bounded lanes are delivered")
+}
+
 func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *agent.RecordSpool, log logger.Logger) {
 	if sp == nil {
 		return
 	}
-	if sp.RetainedLegacyBytes() > 0 {
-		log.Warn().Uint64("retained_legacy_bytes", sp.RetainedLegacyBytes()).Msg("Unsupported legacy edge storage retained; only bounded lanes are delivered")
-	}
+	logLegacyEdgeStorage(sp, log)
 	var startup agent.RecordSpoolCursor
 	for source, ok := sp.NextSource(&startup); ok; source, ok = sp.NextSource(&startup) {
 		logEdgeSpoolRestart(source.Source.RestartResolution(), source.Identity, log)
