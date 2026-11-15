@@ -32,7 +32,17 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
        bridge network (`172.17.0.0/16`); or the first host of its own prefix,
        the gateway a host assigns itself on a bridge it creates.
 
-  Within a tier, report order decides and an interface contributes its first
+  Among hypervisor-attached NICs, the guest's configured NIC order decides: the
+  lowest configuration index (`net0`, then `net1`, ... compared as numbers),
+  read from the record's `config_key`, top-level or in its `metadata`. A
+  dual-homed guest therefore presents the NIC its configuration lists first,
+  and its other NICs stay secondary. Report order cannot carry that preference:
+  the enrichment ingestor dedupes NIC records through a map keyed by provider
+  ref, so the order they reach this module follows the NICs' MACs, not the
+  guest's configuration. An attached NIC without a configuration index ranks
+  after the indexed ones.
+
+  Otherwise report order decides, and an interface contributes its first
   address, so a guest that never carried a host-internal address keeps the
   address it had. `nil` when no interface qualifies: callers keep the device's
   current address rather than taking a host-internal one.
@@ -73,18 +83,40 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   @doc """
   The guest's primary address among `interfaces`, or `nil`.
 
-  Each interface is a map with any of `:name`, `:source`, `:ip_addresses`,
-  `:cidr`, and `:address` (atom or string keys).
+  Each interface is a map with any of `:name`, `:source`, `:config_key`,
+  `:metadata`, `:ip_addresses`, `:cidr`, and `:address` (atom or string keys).
   """
   @spec primary([map()]) :: String.t() | nil
   def primary(interfaces) when is_list(interfaces) do
     {attached, other} = Enum.split_with(interfaces, &hypervisor_attached?/1)
+
+    attached = Enum.sort_by(attached, &configured_order/1)
 
     first_address(attached, fn _iface, _address -> true end) ||
       first_address(other, &(not host_internal?(&1, &2)))
   end
 
   def primary(_interfaces), do: nil
+
+  # `{0, n}` for the NIC configured as `net<n>`; `{1, 0}` for one without a
+  # configuration index, so it follows every indexed NIC. `Enum.sort_by/2` is
+  # stable, so equal keys keep report order.
+  defp configured_order(iface) do
+    with "net" <> digits <- config_key(iface),
+         {index, ""} when index >= 0 <- Integer.parse(digits) do
+      {0, index}
+    else
+      _ -> {1, 0}
+    end
+  end
+
+  defp config_key(iface) do
+    case {field(iface, :config_key), field(iface, :metadata)} do
+      {key, _metadata} when is_binary(key) -> key
+      {_key, metadata} when is_map(metadata) -> field(metadata, :config_key)
+      _ -> nil
+    end
+  end
 
   @doc """
   Whether `address` on `iface` belongs to a network the guest runs for itself
