@@ -311,18 +311,21 @@ defmodule ServiceRadar.Camera.IngestOwnership do
 
   @doc "Runs short CNPG work under the current epoch's transaction fence."
   def with_current_owner(lease, fun, opts \\ []) when is_function(fun, 1) do
-    transaction(fn ->
-      with {:ok, owner} <- lock_current(lease, [:active], opts),
-           {:ok, result} <- publication_result(fun.(owner)),
-           {:ok, current} <-
-             IngestOwner
-             |> Ash.Query.filter(id == ^owner.id)
-             |> Ash.Query.load(:database_now)
-             |> Ash.read_one(caller(opts)),
-           {:ok, _owner} <- require_current(owner, current, [:active]) do
-        result
-      end
-    end)
+    transaction(
+      fn ->
+        with {:ok, owner} <- lock_current(lease, [:active], opts),
+             {:ok, result} <- publication_result(fun.(owner)),
+             {:ok, current} <-
+               IngestOwner
+               |> Ash.Query.filter(id == ^owner.id)
+               |> Ash.Query.load(:database_now)
+               |> Ash.read_one(caller(opts)),
+             {:ok, _owner} <- require_current(owner, current, [:active]) do
+          result
+        end
+      end,
+      opts
+    )
   end
 
   defp with_active_owner(lease, fun, opts) do
@@ -512,20 +515,26 @@ defmodule ServiceRadar.Camera.IngestOwnership do
 
   defp lookup(opts), do: Keyword.put(caller(opts), :not_found_error?, false)
 
-  defp caller(opts), do: [actor: Keyword.get(opts, :actor)]
+  defp caller(opts), do: Keyword.take(opts, [:actor, :timeout])
 
-  defp transaction(fun) do
+  defp transaction(fun, opts \\ []) do
     @resources
-    |> Ash.transact(fn ->
-      case fun.() do
-        {:error, reason} = error ->
-          if domain_reason?(reason), do: {:error, ownership_refusal(reason)}, else: error
+    |> Ash.transact(
+      fn ->
+        case fun.() do
+          {:error, reason} = error ->
+            if domain_reason?(reason), do: {:error, ownership_refusal(reason)}, else: error
 
-        result ->
-          result
-      end
-    end)
+          result ->
+            result
+        end
+      end,
+      Keyword.take(opts, [:timeout])
+    )
     |> transaction_result()
+  rescue
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :ingest_ownership_unavailable}
   end
 
   defp ownership_refusal(reason) do

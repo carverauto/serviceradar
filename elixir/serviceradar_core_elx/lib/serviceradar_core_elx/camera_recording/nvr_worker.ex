@@ -30,6 +30,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   alias ServiceRadarRecordingControl.RecoveryGate
 
   @lease_ms 30_000
+  @call_cap_ms 5_000
+  @cleanup_timeout_ms 2_000
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
   @default_bounds %{
     max_frames: 240,
@@ -108,10 +110,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   def handle_continue(:acquire_and_attach, state) do
     request_start = now()
 
-    with :ok <- check_capture(state.capture),
+    with {:ok, owner_opts} <- capture_call_opts(state),
          {:ok, gate} <- check_recovery_gate(),
-         {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, actor: state.actor),
+         {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, owner_opts),
          true <- is_binary(owner.relay_session_id) || {:error, :relay_unbound},
+         {:ok, acquire_opts} <- capture_call_opts(state),
          {:ok, claim} <-
            RecorderOwnership.acquire(
              owner,
@@ -119,7 +122,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
              state.media_ingest_id,
              state.storage_id,
              @lease_ms,
-             actor: state.actor
+             acquire_opts
            ) do
       state = %{state | owner: owner, claim: claim, recovery_gate: gate}
       open_and_attach(state, compute_deadline(request_start, claim, state.capture))
@@ -214,9 +217,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   def handle_info(:renew_lease, state) do
     request_start = now()
 
-    with :ok <- check_capture(state.capture),
+    with {:ok, renew_opts} <- capture_call_opts(state),
          {:ok, _gate} <- check_recovery_gate(),
-         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, actor: state.actor),
+         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, renew_opts),
          :ok <- Inbox.renew(state.inbox, compute_deadline(request_start, claim, state.capture)) do
       {:noreply, schedule_renewal(%{state | claim: claim, lease_timer: nil})}
     else
@@ -268,9 +271,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
              state.inbox_opts
            ),
          :ok <- Inbox.usable(inbox),
-         {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, actor: state.actor),
+         {:ok, reserve_opts} <- capture_call_opts(state),
+         {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, reserve_opts),
          {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block, clock_epoch),
-         :ok <- attach_pipeline(state.pipeline, inbox) do
+         {:ok, attach_timeout} <- capture_call_timeout(state.capture),
+         :ok <- attach_pipeline(state.pipeline, inbox, attach_timeout) do
       next =
         state
         |> Map.merge(%{inbox: inbox, block: block, wire_header: header, drain_reason: nil})
@@ -299,8 +304,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
      }}
   end
 
-  defp attach_pipeline(pipeline, inbox) do
-    Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox}, 5_000)
+  defp attach_pipeline(pipeline, inbox, timeout) do
+    Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox}, timeout)
   catch
     :exit, _reason -> {:error, :ingest_stopped}
   end
@@ -442,18 +447,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp detach_recorder(state) do
     if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
 
-    if state.inbox do
-      timeout = min(5_000, max(1, Inbox.remaining_ms(state.inbox)))
-
-      _ =
-        try do
-          Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout)
-        catch
-          :exit, _ -> Inbox.cancel(state.inbox)
-        end
-    end
+    if state.inbox, do: drain_or_cancel_inbox(state)
 
     %{state | detached?: true, input_complete?: true, lease_timer: nil}
+  end
+
+  defp drain_or_cancel_inbox(%{capture: %{deadline: deadline}} = state) do
+    budget_ms = deadline - now()
+
+    if budget_ms > 0 do
+      timeout = min(@call_cap_ms, max(1, min(Inbox.remaining_ms(state.inbox), budget_ms)))
+      drain_inbox(state, timeout)
+    else
+      Inbox.cancel(state.inbox)
+    end
+  end
+
+  defp drain_inbox(state, timeout) do
+    Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout)
+  catch
+    :exit, _ -> Inbox.cancel(state.inbox)
   end
 
   defp abort_stream(state, reason) do
@@ -555,7 +568,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp release_inbox_credit(_state, _bytes), do: :ok
 
   defp release_clean_consumer(state) do
-    case RecorderOwnership.release(state.owner, state.claim, actor: state.actor) do
+    case RecorderOwnership.release(state.owner, state.claim, actor: state.actor, timeout: @cleanup_timeout_ms) do
       {:ok, :released} ->
         _ =
           RelaySessionManager.request_close(state.owner.relay_session_id,
@@ -616,6 +629,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp start_capture_timer(capture, {:error, _reason} = error) do
     Process.demonitor(capture.monitor, [:flush])
     error
+  end
+
+  defp capture_call_opts(state) do
+    with {:ok, timeout} <- capture_call_timeout(state.capture) do
+      {:ok, [actor: state.actor, timeout: timeout]}
+    end
+  end
+
+  defp capture_call_timeout(capture) do
+    with :ok <- check_capture(capture) do
+      {:ok, min(@call_cap_ms, max(1, capture.deadline - now()))}
+    end
   end
 
   defp check_capture(%{deadline: deadline} = capture) do

@@ -25,7 +25,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
   @default_timeout_ms 30_000
   @poll_interval_ms 100
-  @interrupt_drain_ms 1_500
+  @interrupt_drain_ms 8_500
 
   @spec once_source(String.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def once_source(camera_source_id, stream_profile_id, member, opts \\ []) do
@@ -133,7 +133,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       __MODULE__,
       :capture_on_host,
       [relay_id, member, caller, timeout_ms, worker_opts],
-      timeout_ms + @interrupt_drain_ms + 1_500
+      timeout_ms + @interrupt_drain_ms + 2_000
     )
   catch
     :error, {:erpc, erpc_reason} ->
@@ -160,17 +160,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:camera_nvr_capture, ^worker, {:started, info}} ->
         await_worker_loop(worker, worker_monitor, caller_monitor, deadline, info)
 
-      {:camera_nvr_capture, ^worker, {:completed, receipt}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:ok, receipt}
-
-      {:camera_nvr_capture, ^worker, {:uncertain, details}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:error, {:nvr_ingest_uncertain, details}}
-
-      {:camera_nvr_capture, ^worker, {:failed, %{reason: reason}}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:error, reason}
+      {:camera_nvr_capture, ^worker, {tag, _payload} = event} when tag in [:completed, :uncertain, :failed] ->
+        await_worker_exit(worker, worker_monitor, started_info, terminal_result(event), now() + @interrupt_drain_ms)
 
       {:DOWN, ^caller_monitor, :process, _pid, _reason} ->
         interrupt_worker(worker, worker_monitor, started_info, :capture_cancelled)
@@ -193,27 +184,36 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:camera_nvr_capture, ^worker, {:started, info}} ->
         await_interrupted_worker(worker, worker_monitor, info, reason, drain_deadline)
 
-      {:camera_nvr_capture, ^worker, {:completed, receipt}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:ok, receipt}
-
-      {:camera_nvr_capture, ^worker, {:uncertain, details}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:error, {:nvr_ingest_uncertain, details}}
-
-      {:camera_nvr_capture, ^worker, {:failed, %{reason: failed_reason}}} ->
-        Process.demonitor(worker_monitor, [:flush])
-        {:error, failed_reason}
+      {:camera_nvr_capture, ^worker, {tag, _payload} = event} when tag in [:completed, :uncertain, :failed] ->
+        await_worker_exit(worker, worker_monitor, started_info, terminal_result(event), drain_deadline)
 
       {:DOWN, ^worker_monitor, :process, ^worker, _exit_reason} ->
         cancelled_or_uncertain(started_info, reason)
     after
       remaining(drain_deadline) ->
-        Process.exit(worker, :kill)
-        Process.demonitor(worker_monitor, [:flush])
-        cancelled_or_uncertain(started_info, reason)
+        abandon_worker(worker, worker_monitor, started_info, reason)
     end
   end
+
+  defp await_worker_exit(worker, worker_monitor, started_info, result, drain_deadline) do
+    receive do
+      {:DOWN, ^worker_monitor, :process, ^worker, _exit_reason} -> result
+    after
+      remaining(drain_deadline) ->
+        abandon_worker(worker, worker_monitor, started_info, :worker_terminate_timeout)
+    end
+  end
+
+  defp abandon_worker(worker, worker_monitor, started_info, reason) do
+    Process.exit(worker, :shutdown)
+    Process.demonitor(worker_monitor, [:flush])
+
+    {:error, {:nvr_ingest_uncertain, Map.merge(started_info || %{}, %{reason: reason, worker_unterminated: true})}}
+  end
+
+  defp terminal_result({:completed, receipt}), do: {:ok, receipt}
+  defp terminal_result({:uncertain, details}), do: {:error, {:nvr_ingest_uncertain, details}}
+  defp terminal_result({:failed, %{reason: reason}}), do: {:error, reason}
 
   defp cancelled_or_uncertain(nil, :capture_cancelled), do: {:error, :capture_cancelled}
   defp cancelled_or_uncertain(nil, :capture_timeout), do: {:error, :capture_timeout}
@@ -333,7 +333,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
     {pid, monitor} =
       spawn_monitor(fn ->
-        {:ok, timer} = :timer.kill_after(remaining(deadline) + @interrupt_drain_ms + 3_500, self())
+        {:ok, timer} = :timer.kill_after(remaining(deadline) + @interrupt_drain_ms + 4_000, self())
         caller_monitor = Process.monitor(caller)
 
         result =
@@ -365,7 +365,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:DOWN, ^monitor, :process, ^pid, _reason} ->
         unfinished_result(dispatched_info, deadline)
     after
-      remaining(deadline) + @interrupt_drain_ms + 5_000 ->
+      remaining(deadline) + @interrupt_drain_ms + 6_000 ->
         unfinished_result(dispatched_info, deadline)
     end
   end
