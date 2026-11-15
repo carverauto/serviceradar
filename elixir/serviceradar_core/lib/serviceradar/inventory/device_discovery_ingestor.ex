@@ -46,6 +46,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
@@ -1357,8 +1358,15 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
           }
         ]
 
+        # A pair the merge guards hold as different machines is never proposed: it would be
+        # refused again on every sync, and recorded as blocked each time. That happens when the
+        # record holding this AWX host's integration id is not the machine its address or MAC
+        # names, as after a split of two same-named guests. The AWX update then stays where its
+        # integration id is, as a refused merge left it; no other device is tried in its place.
         merged_uids =
-          Enum.filter(rest, fn source_uid ->
+          rest
+          |> Enum.reject(&MergeEngine.distinct_machines_violation(&1, survivor_uid, actor))
+          |> Enum.filter(fn source_uid ->
             IdentityReconciler.merge_devices(source_uid, survivor_uid, merge_opts) == :ok
           end)
 

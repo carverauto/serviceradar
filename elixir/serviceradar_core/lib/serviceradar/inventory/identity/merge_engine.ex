@@ -228,16 +228,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       manual_override_merge_reason?(reason) or reason == "unmerge" ->
         nil
 
-      # An operator resolved a de-duplication task for this pair as "different devices" (#4604).
-      Deduplication.asserted_distinct?(from_device_id, to_device_id) ->
-        {:asserted_distinct, %{}}
-
-      AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
-        {:distinct_agent_identity, %{}}
-
-      # Each record holds a hypervisor guest the other does not: two virtual machines.
-      guest_conflict = GuestIdentityGuard.merge_conflict(from_device_id, to_device_id, actor) ->
-        {:distinct_guest_identity, guest_conflict}
+      distinct = distinct_machines_violation(from_device_id, to_device_id, actor) ->
+        distinct
 
       source_conflict = source_conflict(from_device_id, to_device_id, succession) ->
         _ =
@@ -252,6 +244,35 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
       recent_pair_merge?(from_device_id, to_device_id, actor) ->
         {:merge_cooldown, %{}}
+
+      true ->
+        nil
+    end
+  end
+
+  @doc """
+  The guard that refuses an automatic merge of `from_device_id` into `to_device_id` because the
+  two records are known to be different machines, as `{guard, evidence}`, or `nil`.
+
+  These are the first guards `merge_devices/3` applies to an automatic merge. A matcher that
+  proposes merges asks this first, so that it never proposes a pair these guards refuse: such a
+  proposal is refused again on every pass, recording a block each time and never converging.
+  `merge_devices/3` still applies them as the backstop.
+  """
+  @spec distinct_machines_violation(String.t(), String.t(), term()) :: {atom(), map()} | nil
+  def distinct_machines_violation(from_device_id, to_device_id, actor) do
+    cond do
+      # An operator resolved a de-duplication task for this pair as "different devices" (#4604),
+      # or a remediation split them and recorded the same.
+      Deduplication.asserted_distinct?(from_device_id, to_device_id) ->
+        {:asserted_distinct, %{}}
+
+      AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
+        {:distinct_agent_identity, %{}}
+
+      # Each record holds a hypervisor guest the other does not: two virtual machines.
+      guest_conflict = GuestIdentityGuard.merge_conflict(from_device_id, to_device_id, actor) ->
+        {:distinct_guest_identity, guest_conflict}
 
       true ->
         nil
