@@ -134,18 +134,16 @@ func (mr *MockAggregatorMockRecorder) AddPoint(point any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPoint", reflect.TypeOf((*MockAggregator)(nil).AddPoint), point)
 }
 
-// Drain mocks base method.
-func (m *MockAggregator) Drain() map[string][]DataPoint {
+// DrainInto mocks base method.
+func (m *MockAggregator) DrainInto(dst map[string][]DataPoint) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Drain")
-	ret0, _ := ret[0].(map[string][]DataPoint)
-	return ret0
+	m.ctrl.Call(m, "DrainInto", dst)
 }
 
-// Drain indicates an expected call of Drain.
-func (mr *MockAggregatorMockRecorder) Drain() *gomock.Call {
+// DrainInto indicates an expected call of DrainInto.
+func (mr *MockAggregatorMockRecorder) DrainInto(dst any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Drain", reflect.TypeOf((*MockAggregator)(nil).Drain))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DrainInto", reflect.TypeOf((*MockAggregator)(nil).DrainInto), dst)
 }
 
 // GetAggregatedData mocks base method.
@@ -334,18 +332,18 @@ func (m *MockAggregatorFactory) EXPECT() *MockAggregatorFactoryMockRecorder {
 }
 
 // CreateAggregator mocks base method.
-func (m *MockAggregatorFactory) CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error) {
+func (m *MockAggregatorFactory) CreateAggregator(targetName string, interval time.Duration, maxPoints int) (Aggregator, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateAggregator", interval, maxPoints)
+	ret := m.ctrl.Call(m, "CreateAggregator", targetName, interval, maxPoints)
 	ret0, _ := ret[0].(Aggregator)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateAggregator indicates an expected call of CreateAggregator.
-func (mr *MockAggregatorFactoryMockRecorder) CreateAggregator(interval, maxPoints any) *gomock.Call {
+func (mr *MockAggregatorFactoryMockRecorder) CreateAggregator(targetName, interval, maxPoints any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAggregator", reflect.TypeOf((*MockAggregatorFactory)(nil).CreateAggregator), interval, maxPoints)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAggregator", reflect.TypeOf((*MockAggregatorFactory)(nil).CreateAggregator), targetName, interval, maxPoints)
 }
 
 // MockSNMPClient is a mock of SNMPClient interface.

@@ -20,6 +20,7 @@ package snmp
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/core"
@@ -33,14 +34,31 @@ const (
 // TimeSeriesData holds time-series data points for an OID.
 type TimeSeriesData struct {
 	buffer *core.RingBuffer[DataPoint]
+	// metricKey is the series' key in a drained metric set, built once when
+	// the series is created so that a drain allocates nothing per series.
+	metricKey string
+	// queued is set while the series is on its aggregator's pending list.
+	queued atomic.Bool
 }
 
 // SNMPAggregator implements the Aggregator interface.
+//
+// A drain visits only the series written since the previous drain: a write
+// queues its series on the pending list, and a drain takes that list. Visiting
+// every series instead made a drain's cost follow the number of series the
+// target has ever had, not the points it moves.
 type SNMPAggregator struct {
-	interval time.Duration
-	data     map[string]*TimeSeriesData // map[oidName]*TimeSeriesData
-	mu       sync.RWMutex
-	maxSize  int
+	targetName string
+	interval   time.Duration
+	data       map[string]*TimeSeriesData // map[oidName]*TimeSeriesData
+	mu         sync.RWMutex
+	maxSize    int
+
+	pendingMu sync.Mutex
+	pending   []*TimeSeriesData // series written since the last drain took the list
+
+	drainMu  sync.Mutex
+	draining []*TimeSeriesData // the list the last drain took, reused as the next pending list
 }
 
 // AggregateType defines different types of aggregation.
@@ -62,8 +80,8 @@ const (
 	minInterval = 5 * time.Second
 )
 
-// NewAggregator creates a new SNMPAggregator.
-func NewAggregator(interval time.Duration, maxDataPoints int) Aggregator {
+// NewAggregator creates a new SNMPAggregator for the series of one target.
+func NewAggregator(targetName string, interval time.Duration, maxDataPoints int) Aggregator {
 	if interval < minInterval {
 		interval = minInterval
 	}
@@ -73,9 +91,10 @@ func NewAggregator(interval time.Duration, maxDataPoints int) Aggregator {
 	}
 
 	return &SNMPAggregator{
-		interval: interval,
-		data:     make(map[string]*TimeSeriesData),
-		maxSize:  maxDataPoints,
+		targetName: targetName,
+		interval:   interval,
+		data:       make(map[string]*TimeSeriesData),
+		maxSize:    maxDataPoints,
 	}
 }
 
@@ -92,7 +111,8 @@ func (a *SNMPAggregator) AddPoint(point *DataPoint) {
 		series, exists = a.data[point.OIDName]
 		if !exists {
 			series = &TimeSeriesData{
-				buffer: core.NewRingBuffer[DataPoint](a.maxSize),
+				buffer:    core.NewRingBuffer[DataPoint](a.maxSize),
+				metricKey: metricKey(a.targetName, point.OIDName),
 			}
 			a.data[point.OIDName] = series
 		}
@@ -100,6 +120,15 @@ func (a *SNMPAggregator) AddPoint(point *DataPoint) {
 	}
 
 	series.buffer.Write(*point)
+
+	// The flag is set after the write, and a drain clears it before draining
+	// the buffer, so a point is either drained by a drain that already holds
+	// the series or queues the series for the next one.
+	if !series.queued.Load() && series.queued.CompareAndSwap(false, true) {
+		a.pendingMu.Lock()
+		a.pending = append(a.pending, series)
+		a.pendingMu.Unlock()
+	}
 }
 
 // GetAggregatedData implements Aggregator interface.
@@ -126,19 +155,25 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	return a.aggregatePoints(points, AggregateAvg)
 }
 
-// Drain implements Aggregator interface.
-func (a *SNMPAggregator) Drain() map[string][]DataPoint {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+// DrainInto implements Aggregator interface.
+func (a *SNMPAggregator) DrainInto(dst map[string][]DataPoint) {
+	a.drainMu.Lock()
+	defer a.drainMu.Unlock()
 
-	result := make(map[string][]DataPoint)
-	for oidName, series := range a.data {
-		points := series.buffer.Drain()
-		if len(points) > 0 {
-			result[oidName] = points
+	a.pendingMu.Lock()
+	written := a.pending
+	a.pending = a.draining[:0]
+	a.pendingMu.Unlock()
+
+	for _, series := range written {
+		series.queued.Store(false)
+
+		if points := series.buffer.Drain(); len(points) > 0 {
+			dst[series.metricKey] = points
 		}
 	}
-	return result
+
+	a.draining = written
 }
 
 // Reset implements Aggregator interface.

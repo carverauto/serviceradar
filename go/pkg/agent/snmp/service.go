@@ -284,21 +284,31 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 // DrainMetrics implements the MetricProvider interface. Each target's
 // aggregator is drained on its own, so a drain never blocks another target's
 // results.
+//
+// The result is keyed by metric key ("<target>|<oid name>"). A drain visits
+// only the series written since the previous drain, and each series builds its
+// key once, when it is created, so the cost of a drain follows the points it
+// moves, not the number of series.
 func (s *SNMPService) DrainMetrics(_ context.Context) (map[string][]DataPoint, error) {
-	allMetrics := make(map[string][]DataPoint)
+	allMetrics := make(map[string][]DataPoint, s.lastDrainSize.Load())
 
 	for _, rt := range s.runningTargets() {
 		if rt.aggregator == nil {
 			continue
 		}
 
-		for oidName, points := range rt.aggregator.Drain() {
-			// Create a unique key for each metric stream
-			allMetrics[rt.target.Name+"|"+oidName] = points
-		}
+		rt.aggregator.DrainInto(allMetrics)
 	}
 
+	s.lastDrainSize.Store(int64(len(allMetrics)))
+
 	return allMetrics, nil
+}
+
+// metricKey is the key of one target's series in the DrainMetrics result. The
+// agent push loop splits it at the first "|".
+func metricKey(targetName, oidName string) string {
+	return targetName + "|" + oidName
 }
 
 // GetServiceStatus implements the proto.AgentServiceServer interface.
@@ -392,7 +402,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		Msg("Creating aggregator for target")
 
 	// Create aggregator
-	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval), target.MaxPoints)
+	aggregator, err := s.aggregatorFactory.CreateAggregator(target.Name, time.Duration(target.Interval), target.MaxPoints)
 	if err != nil {
 		return fmt.Errorf("%w %s: %w", errFailedToCreateAggregator, target.Name, err)
 	}
@@ -563,7 +573,7 @@ func (f *defaultCollectorFactory) CreateCollector(target *Target, log logger.Log
 // defaultAggregatorFactory implements AggregatorFactory.
 type defaultAggregatorFactory struct{}
 
-// CreateAggregator creates a new Aggregator with the given interval and max points per series to store.
-func (*defaultAggregatorFactory) CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error) {
-	return NewAggregator(interval, maxPoints), nil
+// CreateAggregator creates a new Aggregator for one target's series with the given interval and max points per series to store.
+func (*defaultAggregatorFactory) CreateAggregator(targetName string, interval time.Duration, maxPoints int) (Aggregator, error) {
+	return NewAggregator(targetName, interval, maxPoints), nil
 }

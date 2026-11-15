@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -264,6 +265,9 @@ type SNMPService struct {
 	collectorFactory  CollectorFactory
 	aggregatorFactory AggregatorFactory
 	logger            logger.Logger
+	// lastDrainSize is the number of series the previous DrainMetrics
+	// returned, used to size the next result instead of growing it.
+	lastDrainSize atomic.Int64
 }
 
 // targetRuntime is the running state of one target.

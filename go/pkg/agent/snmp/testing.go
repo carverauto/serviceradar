@@ -72,16 +72,14 @@ func (a *noopAggregator) GetAggregatedData(_ string, _ Interval) (*DataPoint, er
 	return nil, nil
 }
 
-func (a *noopAggregator) Drain() map[string][]DataPoint {
-	return nil
-}
+func (a *noopAggregator) DrainInto(_ map[string][]DataPoint) {}
 
 func (a *noopAggregator) Reset() {}
 
 // noopAggregatorFactory creates noop aggregators for testing.
 type noopAggregatorFactory struct{}
 
-func (f *noopAggregatorFactory) CreateAggregator(_ time.Duration, _ int) (Aggregator, error) {
+func (f *noopAggregatorFactory) CreateAggregator(_ string, _ time.Duration, _ int) (Aggregator, error) {
 	return &noopAggregator{}, nil
 }
 
