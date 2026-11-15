@@ -40,10 +40,44 @@ means partial or complete recordings may remain at the original NVR. The client
 never retries media, increments the epoch or selects another endpoint. Discover
 and reconcile retained blocks before authorizing any later operation.
 
+## Archiving a sealed block
+
+`ServiceRadarNVRClient.archive_block/4` asks the same NVR endpoint, with the same
+installed CA, client certificate and bearer token, to copy one sealed local
+block to an S3-compatible bucket (`POST /v1/blocks/<block_id>/archive`). The
+caller passes the 64-character lowercase hex block id returned by ingest and a
+string-keyed request with exactly `version` (1), `storage_id`,
+`recovery_generation`, `destination` (`host`, `region`, `bucket`, `object_prefix`,
+and an optional integer `port` that defaults to 443 and is named only for a
+loopback peer)
+and `credential` (`access_key_id`, `secret_access_key`). The client checks the
+block id and the request shape and encodes the request as canonical JSON of at
+most 8192 bytes before it connects; anything else returns
+`{:error, :invalid_archive_request}`. The default total timeout is 120000
+milliseconds (1 through 300000).
+
+A 200 response must be a receipt for the same storage, block and destination
+listing exactly `init.mp4`, `media.m4s` and `descriptor.json` under
+`<object_prefix>/<storage_id>/<block_id>/`; the result is `{:ok, receipt}` with the
+decoded string-keyed receipt. Unlike ingest, a non-200 response body is read and
+returned as `{:error, {:archive_status, status, error}}`, where `error` is the
+NVR's decoded JSON object (for example `%{"error" => "block_not_sealed"}`) or
+`%{}` when the body is not one, so the operator can see why. A lost, truncated or
+uncorrelated response is `{:error, :outcome_unknown}`. The client never retries.
+Repeating the request is safe: the NVR returns an existing receipt for the same
+destination and never overwrites an object.
+
+The credential is held only for the request. No returned error, and nothing this
+library logs, contains it. It is a bucket credential resolved by Core for this
+one request, never a camera credential or an installed workload credential.
+
+## Test ownership
+
 The receiver's `//elixir/serviceradar_nvr:release_test` owns end-to-end transport
 coverage. Its client cases run this library in an independent release VM,
 exercise real mutual TLS, and independently decode NVR footage after restart.
 An independent HTTP peer checks exact wire bytes, uncorrelated/malformed
 receipts, server identity, no retries, aborted producers and deadline cleanup.
 The test-only release artifact is a harness for this library, not a deployed
-recorder or a new service.
+recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
+with the request file's `block_id` and `archive_request`.

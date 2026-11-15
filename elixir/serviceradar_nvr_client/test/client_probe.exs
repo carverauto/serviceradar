@@ -44,41 +44,52 @@ units =
 
 result =
   with {:ok, config} <- ServiceRadarNVRClient.Config.load(request["config_path"], request["token_path"]) do
-    if mode == "caller_loss" do
-      {caller, caller_monitor} =
-        spawn_monitor(fn ->
-          ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
-        end)
+    case mode do
+      "archive" ->
+        ServiceRadarNVRClient.archive_block(
+          config,
+          request["block_id"],
+          request["archive_request"],
+          request["timeout_ms"]
+        )
 
-      sender =
+      "caller_loss" ->
+        {caller, caller_monitor} =
+          spawn_monitor(fn ->
+            ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
+          end)
+
+        sender =
+          receive do
+            {:sender_started, pid} -> pid
+          after
+            5000 -> raise "sender never started"
+          end
+
+        sender_monitor = Process.monitor(sender)
+        Process.exit(caller, :kill)
+
         receive do
-          {:sender_started, pid} -> pid
+          {:DOWN, ^caller_monitor, :process, ^caller, :killed} -> :ok
         after
-          5000 -> raise "sender never started"
+          1000 -> raise "caller survived"
         end
 
-      sender_monitor = Process.monitor(sender)
-      Process.exit(caller, :kill)
+        receive do
+          {:DOWN, ^sender_monitor, :process, ^sender, _} -> {:ok, %{caller_loss_bounded: true}}
+        after
+          request["timeout_ms"] + 1000 -> raise "sender survived its caller and deadline"
+        end
 
-      receive do
-        {:DOWN, ^caller_monitor, :process, ^caller, :killed} -> :ok
-      after
-        1000 -> raise "caller survived"
-      end
-
-      receive do
-        {:DOWN, ^sender_monitor, :process, ^sender, _} -> {:ok, %{caller_loss_bounded: true}}
-      after
-        request["timeout_ms"] + 1000 -> raise "sender survived its caller and deadline"
-      end
-    else
-      ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
+      _ ->
+        ServiceRadarNVRClient.send_recording(config, request["header"], units, request["timeout_ms"])
     end
   end
 
 result =
   case result do
     {:ok, receipt} -> %{ok: receipt}
+    {:error, {:archive_status, status, error}} -> %{error: "archive_status", status: status, body: error}
     {:error, reason} -> %{error: inspect(reason)}
   end
 
