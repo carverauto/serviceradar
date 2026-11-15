@@ -903,7 +903,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     claims? =
       source == "camera_recorder_claims" or String.contains?(sql, "camera_recorder_claims")
 
-    successful_query?(metadata) and claims? and update_statement?(sql)
+    params = List.wrap(metadata[:params])
+
+    released? =
+      Enum.any?(params, &(&1 in ["released", :released])) or String.contains?(sql, "'released'")
+
+    successful_query?(metadata) and claims? and released? and update_statement?(sql)
   end
 
   defp recorder_claim_release_update?(_metadata), do: false
@@ -1187,7 +1192,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert block.state == :open_local
     assert block.descriptor == nil
 
-    assert [%{id: viewer_id, kind: :viewer}, %{kind: :recorder}] =
+    assert [%{kind: :recorder}, %{id: viewer_id, kind: :viewer}] =
              Enum.sort_by(consumers(owner, ctx.actor), & &1.kind)
 
     assert viewer_id == viewer.id
@@ -1251,7 +1256,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
           actor: ctx.actor,
           config_file: nvr.client_config,
           token_file: nvr.token_file,
-          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 30_000}
+          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 20_000}
         )
       end)
 
@@ -1272,11 +1277,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              )
 
     # The worker observes the stop on its next lease renewal. Keep the NVR ingest
-    # read alive meanwhile, staying inside the first GOP (sequences 9..28).
-    Enum.reduce_while(Enum.slice(ctx.media.units, 8, 20), :ok, fn unit, :ok ->
+    # read alive meanwhile, staying inside the first GOP (sequences 9..33 at most
+    # span 7.5s, past the 5s renewal, with gaps well under the 1s NVR read timeout).
+    Enum.reduce_while(Enum.slice(ctx.media.units, 8, 25), :ok, fn unit, :ok ->
       if Process.alive?(worker) and not :sys.get_state(worker).detached? do
         send(ctx.pipeline, {:media_chunk, unit})
-        Process.sleep(350)
+        Process.sleep(300)
         {:cont, :ok}
       else
         {:halt, :ok}
@@ -1286,7 +1292,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert {:ok, receipt} = Task.await(task, 20_000)
     assert receipt.status == :sealed_local
     assert receipt.storage_id == nvr.storage_id
-    assert receipt.frames_sent in 8..28
+    assert receipt.frames_sent in 8..33
 
     claim = recorder_claim(ctx)
     assert claim.state == :released
@@ -1354,7 +1360,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
           actor: ctx.actor,
           config_file: config_file,
           token_file: token_file,
-          timeout_ms: 14_000,
+          timeout_ms: 8_500,
           bounds: %{max_frames: 3, max_bytes: 8_388_608, max_duration_ms: 6_000}
         )
       end)
@@ -1498,7 +1504,6 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     owner = owner(ctx, 30_000)
     nvr = setup_nvr_release(ctx.tmp_dir)
     _daemon = start_nvr_daemon(nvr)
-    _release_hook = capture_slow_recorder_release(10_000)
 
     task =
       Task.async(fn ->
@@ -1506,11 +1511,14 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
           actor: ctx.actor,
           config_file: nvr.client_config,
           token_file: nvr.token_file,
+          exit_wait_ms: 150,
           bounds: %{max_frames: 5, max_bytes: 8_388_608, max_duration_ms: 6_000}
         )
       end)
 
     worker = await_nvr_worker_attached(owner)
+    # Slower than the 150ms exit wait, faster than the worker's 2s cleanup timeout.
+    _release_hook = capture_slow_recorder_release(600)
     worker_ref = Process.monitor(worker)
     Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
 

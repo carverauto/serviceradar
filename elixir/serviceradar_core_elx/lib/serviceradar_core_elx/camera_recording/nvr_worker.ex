@@ -32,6 +32,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   @lease_ms 30_000
   @call_cap_ms 5_000
   @cleanup_timeout_ms 2_000
+  @min_call_timeout_ms 250
   @max_capture_timeout_ms 300_000
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
   @default_bounds %{
@@ -720,7 +721,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp capture_call_timeout(capture) do
     with :ok <- check_capture(capture) do
-      {:ok, min(@call_cap_ms, max(1, capture.deadline - now()))}
+      remaining_ms = capture.deadline - now()
+
+      if remaining_ms < @min_call_timeout_ms,
+        do: {:error, :capture_timeout},
+        else: {:ok, min(@call_cap_ms, remaining_ms)}
     end
   end
 

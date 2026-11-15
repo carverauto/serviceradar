@@ -90,7 +90,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
                inbox_opts: Keyword.get(worker_opts, :inbox_opts, []),
                notify: self()
              ) do
-        await_worker(worker, caller_monitor, deadline)
+        await_worker(worker, %{
+          caller_monitor: caller_monitor,
+          deadline: deadline,
+          exit_wait_ms: exit_wait_ms(worker_opts)
+        })
       end
     after
       Process.demonitor(caller_monitor, [:flush])
@@ -127,7 +131,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   end
 
   defp dispatch_to_host(host_node, relay_id, member, {caller, caller_monitor}, deadline, opts) do
-    worker_opts = Keyword.take(opts, [:bounds, :inbox_opts, :config_file, :token_file])
+    worker_opts = Keyword.take(opts, [:bounds, :inbox_opts, :config_file, :token_file, :exit_wait_ms])
     timeout_ms = max(1, remaining(deadline))
 
     with :ok <- check_caller(caller_monitor, deadline) do
@@ -164,21 +168,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
         }}}
   end
 
-  defp await_worker(worker, caller_monitor, deadline) do
-    worker_monitor = Process.monitor(worker)
-    await_worker_loop(worker, worker_monitor, caller_monitor, deadline, nil)
+  defp exit_wait_ms(worker_opts) do
+    case Keyword.get(worker_opts, :exit_wait_ms) do
+      ms when is_integer(ms) and ms in 1..@interrupt_drain_ms -> ms
+      _ -> @interrupt_drain_ms
+    end
   end
 
-  defp await_worker_loop(worker, worker_monitor, caller_monitor, deadline, started_info) do
+  defp await_worker(worker, watch) do
+    worker_monitor = Process.monitor(worker)
+    await_worker_loop(worker, worker_monitor, watch, nil)
+  end
+
+  defp await_worker_loop(worker, worker_monitor, %{caller_monitor: caller_monitor} = watch, started_info) do
     receive do
       {:camera_nvr_capture, ^worker, {:attached, _info}} ->
-        await_worker_loop(worker, worker_monitor, caller_monitor, deadline, started_info)
+        await_worker_loop(worker, worker_monitor, watch, started_info)
 
       {:camera_nvr_capture, ^worker, {:started, info}} ->
-        await_worker_loop(worker, worker_monitor, caller_monitor, deadline, info)
+        await_worker_loop(worker, worker_monitor, watch, info)
 
       {:camera_nvr_capture, ^worker, {tag, _payload} = event} when tag in [:completed, :uncertain, :failed] ->
-        await_worker_exit(worker, worker_monitor, started_info, terminal_result(event), now() + @interrupt_drain_ms)
+        await_worker_exit(worker, worker_monitor, started_info, terminal_result(event), now() + watch.exit_wait_ms)
 
       {:DOWN, ^caller_monitor, :process, _pid, _reason} ->
         interrupt_worker(worker, worker_monitor, started_info, :capture_cancelled)
@@ -186,7 +197,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       {:DOWN, ^worker_monitor, :process, ^worker, reason} ->
         cancelled_or_uncertain(started_info, {:worker_exited, reason})
     after
-      remaining(deadline) ->
+      remaining(watch.deadline) ->
         interrupt_worker(worker, worker_monitor, started_info, :capture_timeout)
     end
   end
