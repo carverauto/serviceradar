@@ -16,9 +16,10 @@ Mapper discovery MUST resolve SNMP credentials via SNMP profiles and per-device 
 #### Scenario: Discovery uses SNMPv3 credential rules
 - **GIVEN** an enabled credential rule for provider `snmp`, auth method `v3`, purpose `snmp_monitoring`
 - **AND** the rule payload is SNMPv3 `authPriv` with username, auth protocol/password, and privacy protocol/password
-- **WHEN** a mapper discovery job runs for an agent in the rule's edge scope
-- **THEN** the compiled job credentials SHALL include `version` `v3`, `username`, `security_level`, auth fields, and privacy fields
-- **AND** the mapper SHALL open a USM session with those credentials against seed targets
+- **AND** a known device whose address is a seed of a mapper discovery job on an agent in the rule's edge scope, and that the rule's target query matches
+- **WHEN** the mapper config is compiled for that agent
+- **THEN** the compiled `target_specific` credentials for that device's address SHALL include `version` `v3`, `username`, `security_level`, auth fields, and privacy fields
+- **AND** the mapper SHALL open a USM session with those credentials against that seed
 - **AND** the compiler MUST NOT require a profile `credential_secret_id` or a Kubernetes/Vault secret
 
 ## ADDED Requirements
