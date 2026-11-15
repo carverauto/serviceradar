@@ -32,7 +32,7 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitionsTest do
   # A reader that refreshed before the batch landed reads the stored rows only when told
   # again, so the devices are announced after the store succeeds and never before.
   test "devices are announced once their records are stored, and not when the store fails" do
-    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.topic())
     uid = @record["device_uid"]
     later = %{@record | "changed_at" => "2026-01-01T07:00:00Z", "to_state" => "available"}
 
@@ -42,7 +42,7 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitionsTest do
                load: fn _dataset, _rows -> {:error, :warehouse_down} end
              )
 
-    refute_received {:devices_invalidated, [^uid]}
+    refute_received {:availability_history_stored, _uids}
 
     parent = self()
 
@@ -58,7 +58,7 @@ defmodule ServiceRadar.EventWriter.Processors.AvailabilityTransitionsTest do
              )
 
     assert_received :stored
-    assert_receive {:devices_invalidated, [^uid]}
+    assert_receive {:availability_history_stored, [^uid]}
   end
 
   test "with StarRocks enabled a batch loads the warehouse dataset only" do

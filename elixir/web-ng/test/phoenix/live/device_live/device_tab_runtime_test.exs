@@ -169,6 +169,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       assert availability.uptime_pct == 0.0
     end
 
+    # A load already in flight may have read the history before the stored rows existed.
+    test "history stored during an in-flight timeline load runs exactly one more load after it" do
+      socket = Phoenix.Component.assign(availability_socket(), :active_tab, "details")
+
+      first = DeviceTabRuntime.reload_availability(socket, @device_uid, __MODULE__)
+      assert_receive {:availability_query, task, _query}
+      first_ref = first.assigns.availability_request_ref
+
+      noticed = DeviceTabRuntime.reload_availability(first, @device_uid, __MODULE__)
+      assert noticed.assigns.availability_request_ref == first_ref
+      refute_received {:availability_query, _task, _query}
+
+      send(task, :finish)
+      assert_receive {:availability_query, ^task, _sweep_query}
+      send(task, :finish)
+
+      key = {:device_availability, @device_uid, first_ref}
+      assert_receive {:phoenix, :async_result, {:start, {_async_ref, nil, ^key, result}}}
+
+      second =
+        noticed
+        |> DeviceTabRuntime.finish_availability_refresh(@device_uid, first_ref, result)
+        |> DeviceTabRuntime.run_pending_availability_reload(__MODULE__)
+
+      assert_receive {:availability_query, second_task, _query}
+      assert is_reference(second.assigns.availability_request_ref)
+      refute second.assigns.availability_request_ref == first_ref
+
+      assert DeviceTabRuntime.run_pending_availability_reload(second, __MODULE__) == second
+      refute_received {:availability_query, _task, _query}
+
+      send(second_task, :finish)
+      assert_receive {:availability_query, ^second_task, _sweep_query}
+      send(second_task, :finish)
+    end
+
     test "a source change cancels the old scan and starts one for the selected agent" do
       pending =
         DeviceTabRuntime.maybe_reload_availability_for_active_tab(

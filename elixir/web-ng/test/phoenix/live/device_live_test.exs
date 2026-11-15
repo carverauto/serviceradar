@@ -3918,9 +3918,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-after"
     end
 
-    # The device's history is stored, and announced, after a refresh already in flight read it.
+    # DevicePubSub pairs every lifecycle message with an invalidation of the same device.
     @tag :web_ng_shared_fixture_db
-    test "an invalidation during an in-flight refresh schedules a trailing refresh", %{
+    test "an update's companion invalidation does not schedule a second full reload", %{
       conn: conn,
       device_uid: device_uid
     } do
@@ -3937,8 +3937,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       send(view.pid, {:devices_invalidated, [device_uid]})
       assigns = refresh_assigns(view)
       assert assigns.device_details_request_ref == ref
-      assert is_reference(assigns.device_refresh_timer)
-      assert Process.read_timer(assigns.device_refresh_timer) > 0
+      assert assigns.device_refresh_timer == nil
+
+      render_async(view, 15_000)
+    end
+
+    # Stored history redraws the timeline alone; the details batch does not reload.
+    @tag :web_ng_shared_fixture_db
+    test "stored availability history reloads only the timeline", %{conn: conn, device_uid: device_uid} do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      render_async(view, 15_000)
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+      before = refresh_assigns(view)
+
+      send(view.pid, {:availability_history_stored, ["sr:other-device", device_uid]})
+      assigns = refresh_assigns(view)
+      assert assigns.device_details_request_ref == before.device_details_request_ref
+      assert is_reference(assigns.availability_request_ref)
+      refute assigns.availability_request_ref == before.availability_request_ref
 
       render_async(view, 15_000)
     end

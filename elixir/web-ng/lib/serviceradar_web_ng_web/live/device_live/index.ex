@@ -141,6 +141,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, schedule_device_refresh(socket)}
   end
 
+  def handle_info({:availability_history_stored, _uids}, socket), do: {:noreply, socket}
+
   def handle_info({:device_deleted, _uid}, socket) do
     {:noreply, schedule_device_refresh(socket)}
   end

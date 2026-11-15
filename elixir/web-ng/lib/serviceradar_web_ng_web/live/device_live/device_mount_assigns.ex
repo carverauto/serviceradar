@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:available_profiles, [])
     |> assign(:availability, nil)
     |> assign(:availability_request_ref, nil)
+    |> assign(:availability_reload_pending, false)
     |> assign(:availability_request_source, nil)
     |> assign(:agent_availability, [])
     |> assign(:merged_availability, nil)

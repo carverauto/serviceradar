@@ -200,6 +200,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     end
   end
 
+  @doc """
+  Reloads only the availability timeline. A load already in flight may have read the
+  history before the newly stored rows, so one more load runs after it completes.
+  """
+  def reload_availability(socket, uid, srql_module) do
+    if is_reference(socket.assigns[:availability_request_ref]) do
+      assign(socket, :availability_reload_pending, true)
+    else
+      maybe_reload_availability_for_active_tab(socket, socket.assigns[:active_tab], uid, srql_module)
+    end
+  end
+
+  def run_pending_availability_reload(socket, srql_module) do
+    if socket.assigns[:availability_reload_pending] == true and is_nil(socket.assigns[:availability_request_ref]) do
+      socket
+      |> assign(:availability_reload_pending, false)
+      |> reload_availability(socket.assigns.device_uid, srql_module)
+    else
+      socket
+    end
+  end
+
   def finish_availability_refresh(socket, uid, request_ref, result) do
     source = {uid, AvailabilityData.source_agent_id(socket.assigns[:device_row])}
 
