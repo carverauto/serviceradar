@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Cosign-signs the published native add-on OCI artifacts (issue 3425,
 # add-native-addon-build-signing §2.1). Adapted from sign-wasm-plugin-publish.sh:
-# identical OCI/cosign mechanics (OCI 1.1 referrer signature + a legacy detached
-# signature, so the WASM-derived verify-then-mirror importer accepts it), only the
+# identical OCI/cosign mechanics (one classic `.sig` signature per digest, which
+# the WASM-derived verify-then-mirror importer accepts), only the
 # metadata source differs (//build/native_addons:all_metadata). Per-arch
 # agent-release ed25519 signatures are produced at push time
 # (build/native_addons/publish_addon.sh); the bundle is covered by the Cosign
@@ -42,12 +42,9 @@ METADATA_DIR="${METADATA_DIR:-${BAZEL_BIN_DIR}/build/native_addons}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
+# One signature format: the classic `.sig` tag that admission reads, created once
+# per digest (no Sigstore bundle referrer). Keep tlog upload enabled by default.
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
-if [[ "${COSIGN_REFERRERS_MODE}" == "oci-1-1" ]]; then
-  export COSIGN_EXPERIMENTAL="${COSIGN_EXPERIMENTAL:-1}"
-fi
 
 if [[ "$#" -eq 0 ]]; then
   TAGS=("${COMMIT_TAG}")
@@ -260,7 +257,7 @@ attach_legacy_signature() {
   local legacy_state
   legacy_state="$(cosign_reconcile_legacy_signature "${ref}")" || return 1
   if [[ "${legacy_state}" == "reused" ]]; then
-    echo "verified canonical legacy signature for ${ref}; retaining exact bytes"
+    echo "verified existing legacy signature for ${ref}; not signing again"
     return 0
   fi
 
@@ -334,7 +331,6 @@ PY
     fi
     echo "signing ${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
     ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
-    cosign_sign_ref_idempotent "${ref}"
     attach_legacy_signature "${ref}"
   done
 done

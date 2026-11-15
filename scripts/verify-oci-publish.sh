@@ -253,18 +253,8 @@ check_signature_accessory() {
       "https://${REGISTRY_HOST}/v2/${repo_path}/referrers/${digest}"
   )"
 
-  if jq -e '
-    (.manifests // []) as $m
-    | ($m | length) > 0
-    and any(
-      $m[];
-      ((.artifactType // "") | startswith("application/vnd.dev.sigstore"))
-      or ((.annotations["dev.sigstore.bundle.predicateType"] // "") == "https://sigstore.dev/cosign/sign/v1")
-    )
-  ' <<<"${referrers}" >/dev/null; then
-    return 0
-  fi
-
+  # Harbor associates the classic `.sig` tag with its subject; a Sigstore bundle
+  # referrer is not an accepted signature format.
   local referrer_digests=()
   mapfile -t referrer_digests < <(jq -r '.manifests[]?.digest // empty' <<<"${referrers}")
   [[ ${#referrer_digests[@]} -gt 0 ]] || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
@@ -337,10 +327,7 @@ check_cosign_verify() {
     fail "${ref}:${tag} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
   fi
 
-  cosign verify \
-    --experimental-oci11 \
-    "${COSIGN_VERIFY_ARGS[@]}" \
-    "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
+  cosign_verify_legacy_signature "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
 }
 
 for tag in "${TAGS[@]}"; do

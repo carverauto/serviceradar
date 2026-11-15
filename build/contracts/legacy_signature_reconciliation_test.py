@@ -1,4 +1,4 @@
-"""Canonical legacy attachment migration: real crypto, synthetic registry responses."""
+"""One legacy signature per digest: real crypto, synthetic registry responses."""
 import base64
 import hashlib
 import importlib.util
@@ -37,7 +37,6 @@ class Registry(legacy.Registry):
         self.objects = {}
         self.copies = []
         self.lookup_error = None
-        self.accessories = set()
 
     def headers(self, repository):
         return {}
@@ -45,8 +44,6 @@ class Registry(legacy.Registry):
     def request(self, path, headers, absent=False):
         if self.lookup_error:
             raise self.lookup_error
-        if "/referrers/" in path:
-            return encoded({"manifests": [{"digest": value} for value in sorted(self.accessories)]}), {}
         if path not in self.objects:
             if absent:
                 return None
@@ -56,7 +53,6 @@ class Registry(legacy.Registry):
 
     def copy_to_build(self, repository, value, tag):
         self.copies.append((repository, value, tag))
-        self.accessories.add(value)
         for path, raw in list(self.objects.items()):
             if path.startswith("/v2/serviceradar/" + repository + "/") and ("/manifests/sha256:" in path or "/blobs/" in path):
                 self.objects[path.replace("/serviceradar/", "/serviceradar-builds/", 1)] = raw
@@ -113,8 +109,6 @@ class LegacySignatureTest(unittest.TestCase):
         self.registry.objects[f"/v2/{repository}/blobs/{digest(config)}"] = b"corrupt" if corrupt == "config" else config
         if corrupt == "manifest":
             self.registry.objects[f"/v2/{repository}/manifests/{value}"] = raw + b" "
-        if project == "serviceradar-builds":
-            self.registry.accessories.add(value)
         return value
 
     def reconcile(self):
@@ -175,21 +169,21 @@ class LegacySignatureTest(unittest.TestCase):
                     self.reconcile()
                 self.assertEqual(self.registry.copies, [])
 
-    def test_existing_different_build_signature_requires_migration_without_retag(self):
+    def test_differing_verified_build_signature_is_kept_while_protected_is_reused(self):
+        # A byte-identical rebuild whose build alias was signed separately: no
+        # new signature, no copy, no tag moved in either project.
         canonical = self.artifact("serviceradar")
         previous = self.artifact("serviceradar-builds")
-        with self.assertRaisesRegex(legacy.MigrationRequired, "differs"):
-            self.reconcile()
+        self.assertNotEqual(previous, canonical)
+        self.assertEqual(self.reconcile(), "reused")
         self.assertEqual(self.registry.copies, [])
         self.assertEqual(self.registry.manifest("serviceradar-builds/example", TAG)[0], previous)
         self.assertEqual(self.registry.manifest("serviceradar/example", TAG)[0], canonical)
 
-    def test_stale_accessory_after_retag_requires_explicit_repair(self):
-        canonical = self.artifact("serviceradar")
-        previous = self.artifact("serviceradar-builds")
-        self.registry.copy_to_build(REPOSITORY, canonical, TAG)
-        self.registry.copies.clear()
-        with self.assertRaisesRegex(legacy.MigrationRequired, previous):
+    def test_differing_unverifiable_build_signature_refuses(self):
+        self.artifact("serviceradar")
+        self.artifact("serviceradar-builds", key="wrong")
+        with self.assertRaisesRegex(ValueError, "configured key"):
             self.reconcile()
         self.assertEqual(self.registry.copies, [])
 
@@ -289,8 +283,6 @@ class LegacySignatureTest(unittest.TestCase):
                         return response(manifest)
                     if "/v2/serviceradar-builds/example/manifests/" in request.full_url:
                         return missing(request, "NOT_FOUND")
-                    if "/referrers/" in request.full_url:
-                        return response(encoded({"manifests": []}))
                     self.fail("unexpected registry request: " + request.full_url)
                 with patch.dict(os.environ, {"OCI_USERNAME": "synthetic", "OCI_TOKEN": "synthetic"}), \
                      patch.object(registry.http, "open", side_effect=open_request), \
@@ -299,23 +291,6 @@ class LegacySignatureTest(unittest.TestCase):
                         legacy.reconcile("registry.example/serviceradar-builds/example@" + SUBJECT,
                                          self.public, registry)
                     copy.assert_not_called()
-
-    def test_paginated_referrers_refuse_before_copy(self):
-        self.artifact("serviceradar")
-        request = self.registry.request
-        def paginated(path, headers, absent=False):
-            raw, response_headers = request(path, headers, absent)
-            if "/referrers/" in path:
-                response_headers = {"Link": '</v2/example/referrers/digest?page=2>; rel="next"'}
-            return raw, response_headers
-        # Keep an existing matching source tag so every non-referrer lookup exists.
-        canonical = self.registry.manifest("serviceradar/example", TAG)[0]
-        self.registry.copy_to_build(REPOSITORY, canonical, TAG)
-        self.registry.copies.clear()
-        self.registry.request = paginated
-        with self.assertRaisesRegex(ValueError, "paginated"):
-            self.reconcile()
-        self.assertEqual(self.registry.copies, [])
 
     def test_duplicate_claims_are_ambiguous(self):
         with self.assertRaisesRegex(ValueError, "duplicate"):
@@ -328,7 +303,7 @@ class LegacySignatureTest(unittest.TestCase):
 
 
 class SignerIntegrationTest(unittest.TestCase):
-    def test_all_signers_propagate_migration_refusal_and_preserve_tlog_signing(self):
+    def test_all_signers_create_only_classic_signatures_through_reconciliation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scripts = root / "scripts"
@@ -341,8 +316,10 @@ class SignerIntegrationTest(unittest.TestCase):
             (scripts / "reconcile-legacy-signature.py").write_text(
                 "import os,sys\n"
                 "open(os.environ['CALLS'],'a').write('reconcile '+sys.argv[1]+'\\n')\n"
-                "print('LEGACY_SIGNATURE_MIGRATION_REQUIRED: synthetic existing conflict',file=sys.stderr)\n"
-                "raise SystemExit(2)\n")
+                "if os.environ['RECONCILE'] == 'refuse':\n"
+                "    print('legacy signature reconciliation failed: synthetic',file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+                "print(os.environ['RECONCILE'])\n")
             tool = root / "tool/k8s/harbor/promote-artifacts.py"
             tool.parent.mkdir(parents=True)
             tool.write_text("pass\n")
@@ -362,28 +339,36 @@ class SignerIntegrationTest(unittest.TestCase):
             fake("bazel", "pass\n")
             fake("oras", "print(json.dumps({'digest': 'sha256:'+'a'*64}))\n")
             fake("jq", "d=json.load(sys.stdin); print(d.get('digest',d.get('token','')))\n")
-            # Old existence-only signers see the conflicting build legacy tag and
-            # incorrectly succeed; the fixed caller must invoke the refusing owner.
             fake("curl", "print('200' if '-I' in sys.argv else '{\"token\":\"synthetic\"}')\n")
+            # Record every cosign command: under cosign v3 `sign` writes a Sigstore
+            # bundle referrer, a second format admission does not read.
             fake("cosign", "command=sys.argv[1]\n"
+                 "open(os.environ['CALLS'],'a').write('cosign '+command+'\\n')\n"
                  "if command=='public-key': print('synthetic caller-test public key')\n"
                  "elif command=='triangulate': print(sys.argv[-1].replace('@sha256:',':sha256-')+'.sig')\n"
-                 "elif command=='sign': open(os.environ['CALLS'],'a').write('modern '+str('--tlog-upload=true' in sys.argv)+'\\n')\n")
+                 "elif command=='generate': print('{}')\n"
+                 "elif command=='sign-blob': open(sys.argv[sys.argv.index('--output-signature')+1],'w').write('c3ludGhldGlj')\n"
+                 "else: raise SystemExit(2)\n")
             calls = root / "calls"
             env = os.environ | {"PATH": str(binaries) + os.pathsep + os.environ["PATH"], "CALLS": str(calls),
                 "OCI_REGISTRY": "registry.example", "OCI_PROJECT": "serviceradar-builds", "OCI_USERNAME": "synthetic", "OCI_TOKEN": "synthetic",
                 "HARBOR_LIFECYCLE_DIR": str(root), "COSIGN_KEY_REF": "env://SYNTHETIC_KEY", "COSIGN_TLOG_UPLOAD": "true",
                 "SERVICERADAR_SIGN_REGISTRY_TAG": "sha-synthetic", "SERVICERADAR_REPO_ROOT": str(root),
                 "BAZEL_BIN_DIR": str(root), "METADATA_DIR": str(metadata), "WASM_PLUGIN_METADATA_DIR": str(metadata)}
+            reconciled = "reconcile registry.example/serviceradar-builds/example@" + SUBJECT
+            # absent: one new classic signature; reused: none; refuse: publication stops.
+            expectations = {"absent": (True, ["cosign sign-blob"]), "reused": (True, []), "refuse": (False, [])}
             for name in ("sign-oci-publish.sh", "sign-native-addon-publish.sh", "sign-wasm-plugin-publish.sh"):
-                with self.subTest(signer=name):
-                    calls.unlink(missing_ok=True)
-                    result = subprocess.run(["bash", str(scripts / name), "sha-synthetic"], env=env, capture_output=True, text=True)
-                    self.assertNotEqual(result.returncode, 0, result.stdout)
-                    self.assertIn("LEGACY_SIGNATURE_MIGRATION_REQUIRED", result.stderr)
-                    observed = calls.read_text().splitlines()
-                    self.assertIn("modern True", observed)
-                    self.assertIn("reconcile registry.example/serviceradar-builds/example@" + SUBJECT, observed)
+                for state, (succeeds, signing) in expectations.items():
+                    with self.subTest(signer=name, reconcile=state):
+                        calls.unlink(missing_ok=True)
+                        result = subprocess.run(["bash", str(scripts / name), "sha-synthetic"],
+                                                env=env | {"RECONCILE": state}, capture_output=True, text=True)
+                        self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                        observed = calls.read_text().splitlines()
+                        self.assertIn(reconciled, observed)
+                        self.assertEqual([call for call in observed if call in ("cosign sign", "cosign sign-blob")],
+                                         signing)
 
 
 class KeySelectionTest(unittest.TestCase):

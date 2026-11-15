@@ -72,15 +72,9 @@ else
   IMAGE_METADATA_DIR="${BAZEL_BIN}/docker/images"
 fi
 
-# Harbor verification checks the OCI referrers API for the signature accessory,
-# while older consumers still rely on classic cosign signature tags below.
-# Keep tlog upload enabled by default so local publish matches cluster policy.
-export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
+# One signature format: the classic `.sig` tag that admission reads, created once
+# per digest (no Sigstore bundle referrer). Keep tlog upload enabled by default.
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
-if [[ "${COSIGN_REFERRERS_MODE}" == "oci-1-1" ]]; then
-  export COSIGN_EXPERIMENTAL="${COSIGN_EXPERIMENTAL:-1}"
-fi
 
 if [[ -z "${SIGN_REGISTRY_TAG}" && ! -d "${IMAGE_METADATA_DIR}" ]]; then
   echo "error: bazel image metadata directory not found: ${IMAGE_METADATA_DIR}" >&2
@@ -288,12 +282,12 @@ attach_legacy_signature() {
   signature_ref="$(cosign triangulate "${ref}")" || return 1
   signature_tag="${signature_ref##*:}"
 
-  # Reconcile against the protected canonical attachment before accepting an
-  # existing disposable tag. Modern signature and transparency checks stay separate.
+  # Sign once per digest: reuse a verified existing signature (protected first,
+  # then build) and create a new one only when none exists.
   local legacy_state
   legacy_state="$(cosign_reconcile_legacy_signature "${ref}")" || return 1
   if [[ "${legacy_state}" == "reused" ]]; then
-    echo "verified canonical legacy signature for ${ref}; retaining exact bytes"
+    echo "verified existing legacy signature for ${ref}; not signing again"
     return 0
   fi
 
@@ -312,9 +306,9 @@ attach_legacy_signature() {
   cosign_register_temp_file "${config_file}"
   cosign_register_temp_file "${manifest_file}"
 
-  # Publish a classic cosign signature tag alongside the OCI bundle accessory
-  # using a local sign-blob bundle, which works even when cosign does not
-  # reliably populate the detached signature file or stdout on this version.
+  # Publish the classic cosign signature tag from a local sign-blob, which works
+  # even when cosign does not reliably populate the detached signature file or
+  # stdout on this version.
   cosign generate "${ref}" >"${payload_file}" || return 1
   cosign_sign_blob_to_files \
     "${payload_file}" \
@@ -353,7 +347,6 @@ sign_image_ref() {
   local ref="$1"
 
   echo "signing ${ref}"
-  cosign_sign_ref_idempotent "${ref}" || return 1
   attach_legacy_signature "${ref}" || return 1
 }
 

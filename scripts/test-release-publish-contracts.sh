@@ -859,145 +859,49 @@ shift || true
 case "${cmd}" in
   public-key)
     printf 'test-public-key\n'
-    exit 0
     ;;
   triangulate)
     ref="${1:?}"
-    repo="${ref%@*}"
-    digest="${ref##*@}"
-    printf '%s:%s.sig\n' "${repo}" "${digest/:/-}"
-    exit 0
+    printf '%s:%s.sig\n' "${ref%@*}" "${ref##*@}" | sed 's/:sha256:/:sha256-/'
     ;;
   generate)
-    printf '{"critical":{"type":"cosign container image signature"}}\n'
-    exit 0
+    # The payload names its image so sign-blob failures can be keyed per image.
+    printf '{"critical":{"identity":{"docker-reference":"%s"},"type":"cosign container image signature"}}\n' "${1%@*}"
     ;;
   sign-blob)
-    bundle_file=""
-    sig_file=""
-    while (($# > 0)); do
-      case "$1" in
-        --bundle)
-          bundle_file="$2"
-          shift 2
-          ;;
-        --output-signature)
-          sig_file="$2"
-          shift 2
-          ;;
-        *)
-          shift
-          ;;
-      esac
-    done
-    [[ -n "${sig_file}" ]] && printf 'ZmFrZS1zaWc=\n' > "${sig_file}"
-    [[ -n "${bundle_file}" ]] && printf '{"base64Signature":"ZmFrZS1zaWc="}\n' > "${bundle_file}"
-    exit 0
-    ;;
-  verify)
-    has_key="false"
-    ref="${!#}"
-    while (($# > 0)); do
-      case "$1" in
-        --key)
-          if [[ -n "${2:-}" && -f "${2}" ]]; then
-            has_key="true"
-          fi
-          shift 2
-          ;;
-        --key=*)
-          key_path="${1#--key=}"
-          if [[ -n "${key_path}" && -f "${key_path}" ]]; then
-            has_key="true"
-          fi
-          shift
-          ;;
-        *)
-          shift
-          ;;
-      esac
-    done
-    if [[ "${has_key}" != "true" ]]; then
-      echo "Error: cosign verify called without --key" >&2
-      exit 1
-    fi
-    case "${FAKE_COSIGN_MODE:-}" in
-      conflict_verified)
-        exit 0
-        ;;
-      conflict_unverified_then_signed)
-        if [[ -f "${state_dir}/signed-with-tlog" ]]; then
-          exit 0
-        fi
-        echo "Error: no signatures found" >&2
-        exit 1
-        ;;
-      conflict_never_verified)
-        echo "Error: no signatures found" >&2
-        exit 1
-        ;;
-      *)
-        exit 0
-        ;;
-    esac
-    ;;
-  sign)
-    if [[ "$*" == *"--tlog-upload=false"* || "$*" == *"--signing-config"* ]]; then
-      echo "Error: unexpected unlogged cosign sign fallback: $*" >&2
-      touch "${state_dir}/unlogged-sign-called"
-      exit 1
-    fi
-    ref="${!#}"
-    key="$(printf '%s' "${ref}" | tr '/:@' '___')"
-    count_file="${state_dir}/count-${key}"
-    count=0
-    if [[ -f "${count_file}" ]]; then
-      count="$(<"${count_file}")"
-    fi
-    count=$((count + 1))
+    payload="${!#}"
+    image="$(sed -E 's/.*serviceradar-builds\/([a-z]+).*/\1/' "${payload}")"
+    count_file="${state_dir}/count-${image}"
+    count=$(( $(cat "${count_file}" 2>/dev/null || echo 0) + 1 ))
     printf '%s\n' "${count}" > "${count_file}"
-
-    case "${FAKE_COSIGN_MODE:-}" in
-      conflict_verified)
-        if [[ "${ref}" == *"/first@"* ]]; then
-          echo "Error: signing [${ref}]: Rekor [POST /api/v1/log/entries][409] (entry already exists)" >&2
-          exit 1
-        fi
-        exit 0
-        ;;
-      conflict_unverified_then_signed)
-        if [[ "${ref}" == *"/first@"* && "${count}" -eq 1 ]]; then
-          echo 'Error: signing ['"${ref}"']: [POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log"}' >&2
-          exit 1
-        fi
-        touch "${state_dir}/signed-with-tlog"
-        exit 0
-        ;;
-      conflict_never_verified)
-        echo "Error: signing [${ref}]: Rekor [POST /api/v1/log/entries][409] (entry already exists)" >&2
+    case "${FAKE_COSIGN_MODE:-}:${image}" in
+      partial_failure_and_transient_retry:first)
+        echo "Error: signing blob: OpenBao transit: permission denied" >&2
         exit 1
         ;;
-      partial_failure_and_transient_retry)
-        if [[ "${ref}" == *"/first@"* ]]; then
-          echo "Error: signing [${ref}]: POST https://registry.example/v2/serviceradar/first/manifests: UNAUTHORIZED: authentication required" >&2
+      partial_failure_and_transient_retry:second)
+        if [[ "${count}" -eq 1 ]]; then
+          echo 'Error: signing blob: Post "https://rekor.example/api/v1/log/entries": 503 Service Unavailable' >&2
           exit 1
         fi
-        if [[ "${ref}" == *"/second@"* && "${count}" -eq 1 ]]; then
-          echo "Error: signing [${ref}]: Post \"https://rekor.example/api/v1/log/entries\": 503 Service Unavailable" >&2
-          exit 1
-        fi
-        if [[ "${ref}" == *"/third@"* ]]; then
-          echo "Error: signing [${ref}]: Post \"https://rekor.example/api/v1/log/entries\": 503 Service Unavailable" >&2
-          exit 1
-        fi
-        exit 0
         ;;
-      *)
-        exit 0
+      partial_failure_and_transient_retry:third)
+        echo 'Error: signing blob: Post "https://rekor.example/api/v1/log/entries": 503 Service Unavailable' >&2
+        exit 1
         ;;
     esac
+    while (($# > 0)); do
+      case "$1" in
+        --bundle) printf '{"base64Signature":"ZmFrZS1zaWc="}\n' > "$2"; shift 2 ;;
+        --output-signature) printf 'ZmFrZS1zaWc=\n' > "$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
     ;;
   *)
+    # Images carry exactly one signature format: the classic `.sig` tag that
+    # admission reads. Any other cosign command (notably `sign`, which writes a
+    # Sigstore bundle referrer under cosign v3) is a contract violation.
     echo "unexpected fake cosign command: ${cmd}" >&2
     exit 2
     ;;
@@ -1008,10 +912,10 @@ chmod +x "${sign_test_dir}/bin/cosign"
 mkdir -p "${sign_test_dir}/lifecycle/tool/k8s/harbor"
 printf '# synthetic capacity endpoint\n' >"${sign_test_dir}/lifecycle/tool/k8s/harbor/promote-artifacts.py"
 
-# These cases own modern signing/transparency retry behavior. Exact legacy
-# migration is exercised independently through all callers by its owner test.
+# Exact legacy reuse/verification is owned by legacy_signature_reconciliation_test;
+# these cases replace only that boundary to drive new-signature creation.
 cp "${repo_root}/scripts/cosign_common.sh" "${sign_test_dir}/cosign_common.sh"
-printf '\ncosign_reconcile_legacy_signature() { printf "reused\\n"; }\n' >>"${sign_test_dir}/cosign_common.sh"
+printf '\ncosign_reconcile_legacy_signature() { printf "%%s\\n" "${FAKE_LEGACY_STATE:-absent}"; }\n' >>"${sign_test_dir}/cosign_common.sh"
 
 run_fake_sign_oci() {
   local mode="$1"
@@ -1036,50 +940,45 @@ run_fake_sign_oci() {
     "${sign_oci_publish}"
 }
 
-# 1. Rekor 409 with valid existing signature verifies via cosign verify --key and succeeds without retrying sign.
-run_fake_sign_oci "conflict_verified" "${sign_test_dir}/conflict-verified.log" "${sign_test_dir}/state-1"
-if ! grep -q "^verify .*--key " "${sign_test_dir}/conflict-verified.log"; then
-  echo "sign-oci-publish did not verify existing signature with cosign verify --key on Rekor 409" >&2
+# 1. Unsigned digests receive exactly one classic signature each and no other format.
+if ! run_fake_sign_oci "" "${sign_test_dir}/new.log" "${sign_test_dir}/state-1" >"${sign_test_dir}/new.out" 2>&1; then
+  echo "sign-oci-publish failed to create classic signatures" >&2
+  cat "${sign_test_dir}/new.out" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
-  echo "sign-oci-publish retried cosign sign after cosign verify --key already succeeded" >&2
+for image in first second third; do
+  if [[ "$(<"${sign_test_dir}/state-1/count-${image}")" -ne 1 ]]; then
+    echo "sign-oci-publish did not sign ${image} exactly once" >&2
+    exit 1
+  fi
+done
+
+# 2. A digest that already holds a verified signature is never signed again.
+if ! FAKE_LEGACY_STATE=reused run_fake_sign_oci "" "${sign_test_dir}/reused.log" "${sign_test_dir}/state-2" \
+  >"${sign_test_dir}/reused.out" 2>&1; then
+  echo "sign-oci-publish failed when every digest already held a verified signature" >&2
+  exit 1
+fi
+if grep -q '^sign-blob' "${sign_test_dir}/reused.log"; then
+  echo "sign-oci-publish re-signed a digest that already holds a verified signature" >&2
   exit 1
 fi
 
-# 2. Rekor 409 when registry has no signature yet retries full tlog signing instead of pushing an unlogged bundle.
-run_fake_sign_oci "conflict_unverified_then_signed" "${sign_test_dir}/conflict-retry.log" "${sign_test_dir}/state-2"
-if [[ -f "${sign_test_dir}/state-2/unlogged-sign-called" ]]; then
-  echo "sign-oci-publish attempted an unlogged cosign sign after Rekor 409" >&2
-  exit 1
-fi
-if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
-  echo "sign-oci-publish did not retry full signing when existing signature verification failed after Rekor 409" >&2
-  exit 1
-fi
-
-# 3. Rekor 409 when cosign verify --key never succeeds must fail (never ignore the error).
-if run_fake_sign_oci "conflict_never_verified" "${sign_test_dir}/conflict-unverified.log" "${sign_test_dir}/state-3" \
-  >"${sign_test_dir}/conflict-unverified.out" 2>&1; then
-  echo "sign-oci-publish ignored a Rekor 409 when cosign verify --key failed" >&2
-  exit 1
-fi
-
-# 4. When one image fails, sign-oci-publish still signs remaining images, retries only transient errors, and lists all failed images at the end.
-if run_fake_sign_oci "partial_failure_and_transient_retry" "${sign_test_dir}/partial.log" "${sign_test_dir}/state-4" \
+# 3. When one image fails, sign-oci-publish still signs remaining images, retries only transient errors, and lists all failed images at the end.
+if run_fake_sign_oci "partial_failure_and_transient_retry" "${sign_test_dir}/partial.log" "${sign_test_dir}/state-3" \
   >"${sign_test_dir}/partial.out" 2>&1; then
   echo "sign-oci-publish succeeded despite image signing failures" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
-  echo "sign-oci-publish retried a permanent authentication failure" >&2
+if [[ "$(<"${sign_test_dir}/state-3/count-first")" -ne 1 ]]; then
+  echo "sign-oci-publish retried a permanent signing failure" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
+if [[ "$(<"${sign_test_dir}/state-3/count-second")" -ne 2 ]]; then
   echo "sign-oci-publish did not retry a transient 503 failure on second image" >&2
   exit 1
 fi
-if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar-builds_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
+if [[ "$(<"${sign_test_dir}/state-3/count-third")" -ne 3 ]]; then
   echo "sign-oci-publish did not attempt third image after first image failed" >&2
   exit 1
 fi
@@ -1094,7 +993,7 @@ if grep -q "  - registry.example/serviceradar-builds/second@sha256:" "${sign_tes
   exit 1
 fi
 
-# 5. Exponential backoff schedule scales by 2^(attempt-1).
+# 4. Exponential backoff schedule scales by 2^(attempt-1).
 (
   source "${repo_root}/scripts/cosign_common.sh"
   [[ "$(cosign_retry_delay_seconds 5 1)" == "5" ]]
@@ -1102,7 +1001,7 @@ fi
   [[ "$(cosign_retry_delay_seconds 5 3)" == "20" ]]
 )
 
-# 6. Rekor 409 on blob signing fails instead of producing an unlogged signature.
+# 5. Rekor 409 on blob signing fails instead of producing an unlogged signature.
 blob_test_dir="${tmp_dir}/sign-blob-conflict"
 mkdir -p "${blob_test_dir}/bin"
 cat > "${blob_test_dir}/bin/cosign" <<'EOF'

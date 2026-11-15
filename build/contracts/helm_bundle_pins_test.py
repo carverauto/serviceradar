@@ -127,7 +127,7 @@ else: raise SystemExit('unsupported fixture Helm operation')
         self.assertEqual(push, {"operation": "push", "target": "oci://registry.example.invalid/serviceradar-builds/charts",
                                 "config": str(self.directory / "build/config.json"), "project": "serviceradar-builds"})
         promotion = next(event for event in events if event["operation"] == "promote")
-        self.assertEqual(promotion["arguments"], ["promote", "--repositories", "charts/serviceradar", "--tag", "1.2.3"])
+        self.assertEqual(promotion["arguments"], ["promote", "--repositories", "charts/serviceradar", "--tag", "1.2.3", "--unsigned"])
         with tarfile.open(self.directory / "published.tgz") as archive:
             values = archive.extractfile("serviceradar/values.yaml").read().decode()
             pins = json.loads(values.split("digests: ", 1)[1])

@@ -69,8 +69,9 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
    - Port-forward OpenBao if needed: `kubectl port-forward -n vault svc/openbao 18200:8200`
    - Exchange the Forgejo runner service account token for a Vault token and set `VAULT_ADDR=http://127.0.0.1:18200`
    - `export COSIGN_KEY_REF=hashivault://cosign-release`
-   - `export COSIGN_YES=true COSIGN_DOCKER_MEDIA_TYPES=1 COSIGN_REFERRERS_MODE=legacy COSIGN_TLOG_UPLOAD=true`
-   - `cosign sign --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
+   - `export COSIGN_YES=true`
+   - `cosign sign --new-bundle-format=false --use-signing-config=false --tlog-upload=true --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng@<digest>`
+   - Images carry only the classic `.sig` signature that demo admission reads; cosign v3's default bundle format is denied.
 6. Patch the Argo app override instead of editing chart values for one-off demo tests:
    - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
 7. Watch the rollout to completion:
