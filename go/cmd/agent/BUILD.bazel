@@ -50,6 +50,7 @@ go_test(
     size = "medium",
     srcs = [
         "edge_delivery_grant_live_test.go",
+        "edge_legacy_flat_live_test.go",
         "edge_producer_grant_live_test.go",
         "edge_record_sender_test.go",
         "edge_spool_default_on_live_test.go",

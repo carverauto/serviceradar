@@ -56,20 +56,6 @@ const (
 // (AgentConfigResponse.edge_spool_max_bytes), equal to core's code default.
 const defaultEdgeSpoolMaxBytes = 1 << 30
 
-// runEdgeRecordSender drains the agent spool over a dedicated
-// EdgeRecordIngestService.Stream mTLS connection: one concurrent worker per
-// configured lane, for as long as ctx stays alive. It runs while the spool is
-// open; a spool that did not open leaves nothing to send.
-//
-// The sender persists validated terminal dispositions before advancing its
-// local resolved prefix, then reclaims a drained segment whose records are
-// accepted or permanently rejected. Permanently rejected records are
-// quarantined first, and each rejection code is logged once per run.
-//
-// A missing gateway address is a configuration error and stops the sender. Any
-// other setup failure (security provider before its certificate files
-// exist, client or sender construction) is retried with a doubling delay capped
-// at the poll interval until setup succeeds or ctx ends.
 // logLegacyEdgeStorage is the audit line for flat storage left by an agent before
 // the lane format: what was retired as drained, or why bytes remain retained.
 func logLegacyEdgeStorage(sp *agent.RecordSpool, log logger.Logger) {
@@ -88,6 +74,20 @@ func logLegacyEdgeStorage(sp *agent.RecordSpool, log logger.Logger) {
 	event.Msg("Legacy edge storage retained untouched; it may hold undelivered records and only bounded lanes are delivered")
 }
 
+// runEdgeRecordSender drains the agent spool over a dedicated
+// EdgeRecordIngestService.Stream mTLS connection: one concurrent worker per
+// configured lane, for as long as ctx stays alive. It runs while the spool is
+// open; a spool that did not open leaves nothing to send.
+//
+// The sender persists validated terminal dispositions before advancing its
+// local resolved prefix, then reclaims a drained segment whose records are
+// accepted or permanently rejected. Permanently rejected records are
+// quarantined first, and each rejection code is logged once per run.
+//
+// A missing gateway address is a configuration error and stops the sender. Any
+// other setup failure (security provider before its certificate files
+// exist, client or sender construction) is retried with a doubling delay capped
+// at the poll interval until setup succeeds or ctx ends.
 func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *agent.RecordSpool, log logger.Logger) {
 	if sp == nil {
 		return
