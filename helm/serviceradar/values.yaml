@@ -410,6 +410,11 @@ observability:
 # archive. Infrastructure custody creates the named Secrets before enabling it.
 mediaStorage:
   enabled: false
+  # Localhost profiles must be installed on every eligible node before enabling.
+  # See docs/media-storage-seccomp.md for the io_uring profile and node setup.
+  seccompProfile:
+    type: RuntimeDefault
+    localhostProfile: ""
   # Bump with every desired configuration/credential change to force a new boot.
   revision: ""
   port: 4443

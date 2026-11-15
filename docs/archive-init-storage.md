@@ -92,6 +92,12 @@ add permissions; the workload certificate, token and credential mounts remain
 the application boundaries. A cluster must actually enforce NetworkPolicy for
 the network restrictions to take effect.
 
+Media storage uses `RuntimeDefault` seccomp unless explicitly configured with a
+node-installed `Localhost` profile. For io_uring-based clients, follow the
+[media-storage seccomp runbook](media-storage-seccomp.md) before changing
+`mediaStorage.seccompProfile`. The profile selection does not enable recording
+or change the workload's non-root identity and dropped capabilities.
+
 Bump both relevant `revision` values after changing mounted configuration,
 tokens or certificates. Files are loaded at boot; updating a Secret alone does
 not install a new running identity. The revision annotation triggers rollout,
