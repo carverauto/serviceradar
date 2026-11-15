@@ -412,8 +412,10 @@ observability:
 mediaStorage:
   enabled: false
   # Localhost profiles must be installed on every eligible node before enabling.
-  # See docs/media-storage-seccomp.md for the io_uring profile, the locked-memory
-  # limit and node setup.
+  # Localhost also schedules only onto nodes labelled
+  # serviceradar.io/media-storage-node-prepared=true. See
+  # docs/media-storage-node-prerequisites.md for the io_uring profile, the
+  # locked-memory limit and the label.
   seccompProfile:
     type: RuntimeDefault
     localhostProfile: ""

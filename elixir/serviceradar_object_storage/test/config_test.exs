@@ -37,6 +37,8 @@ defmodule ServiceRadarObjectStorage.ConfigTest do
           Map.put(@config, :concurrency, 0),
           Map.put(@config, :concurrency, 17),
           Map.merge(@config, %{concurrency: 16, buffer_size: 16_777_216}),
+          # 64 MiB lent, but TLS adds two record buffers per connection: 192 MiB locked.
+          Map.merge(@config, %{tls: true, concurrency: 16, buffer_size: 4_194_304}),
           Map.put(@config, :buffer_size, 8191),
           Map.put(@config, :buffer_size, -1),
           Map.put(@config, :port, 0),

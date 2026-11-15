@@ -94,10 +94,12 @@ the network restrictions to take effect.
 
 Media storage uses `RuntimeDefault` seccomp unless explicitly configured with a
 node-installed `Localhost` profile. For io_uring-based clients, follow the
-[media-storage seccomp runbook](media-storage-seccomp.md) before changing
+[media-storage node prerequisites](media-storage-node-prerequisites.md) before changing
 `mediaStorage.seccompProfile`; it covers both node prerequisites, the profile and
-the locked-memory limit. The profile selection does not enable recording
-or change the workload's non-root identity and dropped capabilities.
+the locked-memory limit. Selecting `Localhost` also restricts the pod to nodes
+labelled `serviceradar.io/media-storage-node-prepared=true`. The profile selection
+does not enable recording or change the workload's non-root identity and dropped
+capabilities.
 
 Bump both relevant `revision` values after changing mounted configuration,
 tokens or certificates. Files are loaded at boot; updating a Secret alone does

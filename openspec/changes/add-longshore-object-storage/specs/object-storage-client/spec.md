@@ -12,6 +12,16 @@ ServiceRadar SHALL expose Longshore through Rustler with bounded retained bytes 
 - **WHEN** required io_uring, memory or TLS capabilities are unavailable
 - **THEN** initialization reports an unsupported state without weakening deployment security
 
+#### Scenario: A configuration would lock more native memory than the bound
+- **WHEN** a client's registered native buffers, counting the TLS record buffers Longshore adds per connection at their effective size, would exceed 64 MiB
+- **THEN** opening the client returns a bad-configuration error before any native buffer is allocated
+- **AND** the bound applies even when the lent payload buffers alone fit within it
+
+#### Scenario: Media storage uses an io_uring profile
+- **WHEN** the media-storage chart selects a `Localhost` seccomp profile
+- **THEN** the pod is scheduled only onto nodes labelled `serviceradar.io/media-storage-node-prepared=true`, which the node administrator applies once both the profile and the raised locked-memory limit are installed
+- **AND** the `RuntimeDefault` profile requires no such label
+
 ### Requirement: Archive authority and integrity preservation
 ServiceRadar SHALL activate Longshore archive operations only after proving the existing dispatch, deadline, immutable identity, encryption, integrity and preservation contracts through its public API.
 

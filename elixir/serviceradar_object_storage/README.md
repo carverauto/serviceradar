@@ -22,7 +22,7 @@ does not expose credential-file rotation, proxy/custom-CA configuration or
 multipart. Those remain qualification work, not silently ignored options.
 Longshore requires registered buffers; `pin_buffers` is unsupported and rejected.
 Prepare node memlock limits using the
-[media-storage runbook](../../docs/media-storage-seccomp.md).
+[media-storage node prerequisites](../../docs/media-storage-node-prerequisites.md).
 Native initialization errors return `{:error, {:io_setup_failed, detail}}`,
 preserving Longshore's local OS/setup diagnostic even when it wraps the errno.
 
@@ -68,12 +68,16 @@ client uses one Longshore I/O thread and 1..16 fixed worker threads. There are n
 unbounded admission waiters. Submitted plus executing operations cannot exceed
 the selected concurrency. A busy client returns an error immediately.
 
-Each requested buffer is 8 KiB..16 MiB; concurrency multiplied by requested size
-cannot exceed 64 MiB. The pinned Longshore implementation raises native buffer
-size to at least 256 KiB for TLS and allocates two additional native buffers per
-connection. With this wrapper's equal connection and buffer counts, budget
-roughly `3 * concurrency * max(buffer_size, 256 KiB)` for TLS native buffers,
-plus small per-connection buffers. The requested size still bounds API payloads.
+Each requested buffer is 8 KiB..16 MiB. The client's registered native buffers
+cannot exceed 64 MiB, and the kernel locks all of them, so this is also the
+client's locked memory. The pinned Longshore implementation registers the lent
+buffers and, over TLS, two record buffers per connection, raising their size to
+at least 256 KiB. With this wrapper's equal connection and buffer counts, the
+bounded amount is `concurrency * buffer_size` in plaintext and
+`3 * concurrency * max(buffer_size, 256 KiB)` over TLS. A TLS configuration
+over the bound returns `{:error, :bad_config}` even when its lent buffers fit.
+Each connection's 8 KiB head buffer is additional. The requested size still
+bounds API payloads.
 Submitted PUT slices are copied into owned memory, avoiding
 retention of an arbitrarily large BEAM parent binary; workers copy into native
 buffers. GET delivery also copies. This is bounded, not a zero-copy claim.
