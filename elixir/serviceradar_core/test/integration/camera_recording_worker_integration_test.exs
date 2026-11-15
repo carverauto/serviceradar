@@ -1261,6 +1261,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       end)
 
     worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
 
     Enum.each(Enum.take(ctx.media.units, 8), fn unit ->
       send(ctx.pipeline, {:media_chunk, unit})
@@ -1276,16 +1277,19 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                actor: ctx.actor
              )
 
-    # The worker observes the stop on its next lease renewal. Keep the NVR ingest
-    # read alive meanwhile, staying inside the first GOP (sequences 9..33 at most
-    # span 7.5s, past the 5s renewal, with gaps well under the 1s NVR read timeout).
+    # The worker observes the stop on its next lease renewal, drains, seals and
+    # exits. Keep the NVR ingest read alive until it exits, staying inside the
+    # first GOP (sequences 9..33 at most span 7.5s, past the 5s renewal, with gaps
+    # well under the 1s NVR read timeout). The drain detaches the recorder from the
+    # pipeline, so units sent after it reach only live delivery. Wait on the
+    # worker's exit rather than probing its state: it may exit at any moment.
     Enum.reduce_while(Enum.slice(ctx.media.units, 8, 25), :ok, fn unit, :ok ->
-      if Process.alive?(worker) and not :sys.get_state(worker).detached? do
-        send(ctx.pipeline, {:media_chunk, unit})
-        Process.sleep(300)
-        {:cont, :ok}
-      else
-        {:halt, :ok}
+      send(ctx.pipeline, {:media_chunk, unit})
+
+      receive do
+        {:DOWN, ^worker_ref, :process, ^worker, _reason} -> {:halt, :ok}
+      after
+        300 -> {:cont, :ok}
       end
     end)
 
@@ -1334,7 +1338,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     owner = owner(ctx, 120_000)
     abs_tmp = Path.expand(ctx.tmp_dir)
     certs = write_nvr_mtls_certs(Path.join(abs_tmp, "holding-certs"))
-    port = start_holding_tls_peer(certs, self())
+    {port, holding_peer} = start_holding_tls_peer(certs, self())
     storage_id = Ecto.UUID.generate()
     token_file = Path.join(abs_tmp, "holding-token")
     config_file = Path.join(abs_tmp, "holding-client.json")
@@ -1354,13 +1358,18 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       })
     )
 
+    # The capture deadline stays far enough out that every renewal before the
+    # peer drops gets the worker's full 5s database budget. Ending the capture at
+    # its deadline instead would renew at halving intervals with sub-second
+    # budgets, and one that overruns disconnects the test's shared sandbox
+    # connection.
     task =
       Task.async(fn ->
         NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
           actor: ctx.actor,
           config_file: config_file,
           token_file: token_file,
-          timeout_ms: 8_500,
+          timeout_ms: 20_000,
           bounds: %{max_frames: 3, max_bytes: 8_388_608, max_duration_ms: 6_000}
         )
       end)
@@ -1388,6 +1397,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     )
 
     assert recorder_claim(ctx).state == :active
+    send(holding_peer, :drop_without_receipt)
     assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 30_000)
     assert details.storage_id == storage_id
 
@@ -1880,7 +1890,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       _ = :ssl.close(listen)
     end)
 
-    port
+    {port, pid}
   end
 
   defp holding_peer_accept(listen, notify_pid) do
@@ -1891,10 +1901,20 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     end
   end
 
+  # Reads the request and withholds the seal response until told to drop the
+  # connection.
   defp holding_peer_read(ssl_sock) do
-    case :ssl.recv(ssl_sock, 0, 30_000) do
-      {:ok, _chunk} -> holding_peer_read(ssl_sock)
-      _ -> :ok
+    case :ssl.setopts(ssl_sock, active: :once) do
+      :ok ->
+        receive do
+          {:ssl, ^ssl_sock, _chunk} -> holding_peer_read(ssl_sock)
+          :drop_without_receipt -> :ssl.close(ssl_sock)
+          {:ssl_closed, ^ssl_sock} -> :ok
+          {:ssl_error, ^ssl_sock, _reason} -> :ok
+        end
+
+      {:error, _reason} ->
+        :ok
     end
   end
 
