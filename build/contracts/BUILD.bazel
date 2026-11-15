@@ -274,3 +274,18 @@ py_test(
     data = ["//scripts:ci/publish-helm-bundle.py"],
     deps = ["@pyyaml//:yaml"],
 )
+
+py_test(
+    name = "legacy_signature_reconciliation_test",
+    size = "small",
+    srcs = ["legacy_signature_reconciliation_test.py"],
+    data = [
+        "//scripts:cosign_common.sh",
+        "//scripts:oci_registry.sh",
+        "//scripts:reconcile-legacy-signature.py",
+        "//scripts:sign-native-addon-publish.sh",
+        "//scripts:sign-oci-publish.sh",
+        "//scripts:sign-wasm-plugin-publish.sh",
+        "//scripts:wasm-plugin-publish-context.sh",
+    ],
+)

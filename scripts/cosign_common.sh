@@ -3,7 +3,7 @@
 # Shared Cosign helpers for key-based and keyless signing/verification.
 
 COSIGN_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COSIGN_COMMON_REPO_ROOT="$(cd "${COSIGN_COMMON_DIR}/.." && pwd)"
+COSIGN_COMMON_REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${COSIGN_COMMON_DIR}/.." && pwd)}"
 
 declare -ag COSIGN_TEMP_FILES=()
 
@@ -609,3 +609,48 @@ cosign_sign_ref_idempotent() {
 
   return "${status}"
 }
+
+# Return an explicit reused/absent result. Authentication or verification errors
+# must never become the caller's permission to generate a replacement signature.
+cosign_reconcile_legacy_signature() (
+  local ref="$1" key_ref public_key="" owned_key="" result
+  local helper
+  helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/reconcile-legacy-signature.py"
+  trap '[[ -z "${owned_key}" ]] || rm -f "${owned_key}"' EXIT
+  key_ref="$(cosign_resolve_key_ref)"
+  if [[ -z "${key_ref}" && -n "${COSIGN_KEY_FILE:-}" ]]; then
+    key_ref="${COSIGN_KEY_FILE}"
+  elif [[ -z "${key_ref}" && -n "${COSIGN_PRIVATE_KEY:-}" ]]; then
+    key_ref="env://COSIGN_PRIVATE_KEY"
+  fi
+  if [[ -n "${key_ref}" ]]; then
+    owned_key="$(mktemp)"
+    public_key="${owned_key}"
+    if ! cosign public-key --key "${key_ref}" >"${public_key}" || [[ ! -s "${public_key}" ]]; then
+      echo "error: cannot export the configured signing key for exact legacy signature verification" >&2
+      return 1
+    fi
+  else
+    if cosign_keyless_requested && [[ -z "${COSIGN_PUBLIC_KEY_FILE:-}${COSIGN_PUBLIC_KEY:-}" ]]; then
+      echo "error: legacy signature reconciliation requires an explicit trusted key; keyless legacy reconciliation is unsupported" >&2
+      return 1
+    fi
+    public_key="${COSIGN_PUBLIC_KEY_FILE:-}"
+    if [[ -z "${public_key}" && -n "${COSIGN_PUBLIC_KEY:-}" ]]; then
+      owned_key="$(mktemp)"
+      printf '%s\n' "${COSIGN_PUBLIC_KEY}" >"${owned_key}"
+      public_key="${owned_key}"
+    elif [[ -z "${public_key}" ]]; then
+      public_key="${COSIGN_COMMON_REPO_ROOT}/docs/cosign.pub"
+    fi
+    if [[ -z "${public_key}" || ! -s "${public_key}" ]]; then
+      echo "error: legacy signature reconciliation requires a trusted public key file" >&2
+      return 1
+    fi
+  fi
+  result="$(python3 "${helper}" "${ref}" "${public_key}")" || return $?
+  case "${result}" in
+    reused|absent) printf '%s\n' "${result}" ;;
+    *) echo "error: invalid legacy reconciliation result" >&2; return 1 ;;
+  esac
+)

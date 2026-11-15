@@ -237,28 +237,6 @@ put_manifest_tag() {
     "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null || return 1
 }
 
-# Returns 0 when a manifest already exists at repo_path:tag. Used to make the
-# legacy signature publish idempotent: the classic cosign signature tag is
-# content-addressed by the image digest, so it is identical across release
-# re-runs. Harbor tag-immutability rejects overwriting it (HTTP 403), so an
-# existing tag must be treated as already-published instead of re-pushed.
-legacy_signature_tag_exists() {
-  local repo_path="$1"
-  local tag="$2"
-  local token status
-  token="$(fetch_registry_token "${repo_path}" "pull")"
-  [[ -n "${token}" && "${token}" != "null" ]] || return 1
-  status="$(
-    curl -sS -o /dev/null \
-      -H "Authorization: Bearer ${token}" \
-      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-      -I "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" \
-      -w '%{http_code}' || true
-  )"
-  [[ "${status}" == "200" ]]
-}
-
 extract_detached_signature() {
   local signature_file="$1"
   local stdout_file="$2"
@@ -310,13 +288,12 @@ attach_legacy_signature() {
   signature_ref="$(cosign triangulate "${ref}")" || return 1
   signature_tag="${signature_ref##*:}"
 
-  # The modern OCI signature accessory (cosign_sign_ref_idempotent) above is
-  # pushed idempotently. The classic signature tag is content-addressed by the
-  # image digest, so an existing one is already valid for this digest. Skipping
-  # the re-push avoids overwriting an immutable Harbor tag (HTTP 403), which
-  # otherwise makes every release re-run fail here.
-  if legacy_signature_tag_exists "${repo_path}" "${signature_tag}"; then
-    echo "legacy cosign signature tag ${repo}:${signature_tag} already present; skipping re-push"
+  # Reconcile against the protected canonical attachment before accepting an
+  # existing disposable tag. Modern signature and transparency checks stay separate.
+  local legacy_state
+  legacy_state="$(cosign_reconcile_legacy_signature "${ref}")" || return 1
+  if [[ "${legacy_state}" == "reused" ]]; then
+    echo "verified canonical legacy signature for ${ref}; retaining exact bytes"
     return 0
   fi
 
