@@ -44,8 +44,10 @@ type Aggregator interface {
 	AddPoint(point *DataPoint)
 	// GetAggregatedData retrieves aggregated data for a given OID and interval
 	GetAggregatedData(oidName string, interval Interval) (*DataPoint, error)
-	// Drain returns all unread data points for all OIDs and marks them as read.
-	Drain() map[string][]DataPoint
+	// DrainInto moves the unread data points of every series into dst, keyed
+	// by the series' metric key ("<target>|<oid name>"), and marks them read.
+	// Series without unread points are left out.
+	DrainInto(dst map[string][]DataPoint)
 	// Reset clears all aggregated data
 	Reset()
 }
@@ -79,8 +81,8 @@ type CollectorFactory interface {
 
 // AggregatorFactory creates data aggregators.
 type AggregatorFactory interface {
-	// CreateAggregator creates a new aggregator
-	CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error)
+	// CreateAggregator creates a new aggregator for the series of one target
+	CreateAggregator(targetName string, interval time.Duration, maxPoints int) (Aggregator, error)
 }
 
 // SNMPClient defines the interface for SNMP communication.

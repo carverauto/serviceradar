@@ -167,7 +167,7 @@ func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *t
 			Return(mockCollector, nil)
 
 		mockAggregatorFactory.EXPECT().
-			CreateAggregator(gomock.Any(), defaultMaxPoints).
+			CreateAggregator(gomock.Any(), gomock.Any(), defaultMaxPoints).
 			Return(mockAggregator, nil)
 
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
@@ -236,7 +236,7 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 				CreateCollector(initialTarget, gomock.Any()).
 				Return(mockCollector, nil),
 			mockAggregatorFactory.EXPECT().
-				CreateAggregator(time.Duration(initialTarget.Interval), initialTarget.MaxPoints).
+				CreateAggregator(initialTarget.Name, time.Duration(initialTarget.Interval), initialTarget.MaxPoints).
 				Return(mockAggregator, nil),
 			mockCollector.EXPECT().
 				Start(gomock.Any()).
@@ -248,7 +248,7 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 				CreateCollector(newTarget, gomock.Any()).
 				Return(mockCollectorNew, nil),
 			mockAggregatorFactory.EXPECT().
-				CreateAggregator(time.Duration(newTarget.Interval), newTarget.MaxPoints).
+				CreateAggregator(newTarget.Name, time.Duration(newTarget.Interval), newTarget.MaxPoints).
 				Return(mockAggregatorNew, nil),
 			mockCollectorNew.EXPECT().
 				Start(gomock.Any()).

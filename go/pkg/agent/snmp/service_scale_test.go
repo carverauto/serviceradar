@@ -144,18 +144,18 @@ func TestServiceStartKeepsOtherTargetsWhenOneFailsToStart(t *testing.T) {
 	assert.Len(t, metrics["target-c|sysUpTime"], 1)
 }
 
-// blockingAggregator wraps a real aggregator; Drain parks until released.
+// blockingAggregator wraps a real aggregator; DrainInto parks until released.
 type blockingAggregator struct {
 	Aggregator
 	draining chan struct{}
 	release  chan struct{}
 }
 
-func (a *blockingAggregator) Drain() map[string][]DataPoint {
+func (a *blockingAggregator) DrainInto(dst map[string][]DataPoint) {
 	close(a.draining)
 	<-a.release
 
-	return a.Aggregator.Drain()
+	a.Aggregator.DrainInto(dst)
 }
 
 type stallingAggregatorFactory struct {
@@ -163,14 +163,16 @@ type stallingAggregatorFactory struct {
 	created    int
 }
 
-func (f *stallingAggregatorFactory) CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error) {
+func (f *stallingAggregatorFactory) CreateAggregator(
+	targetName string, interval time.Duration, maxPoints int,
+) (Aggregator, error) {
 	f.created++
 	if f.created == 1 {
-		f.stallFirst.Aggregator = NewAggregator(interval, maxPoints)
+		f.stallFirst.Aggregator = NewAggregator(targetName, interval, maxPoints)
 		return f.stallFirst, nil
 	}
 
-	return NewAggregator(interval, maxPoints), nil
+	return NewAggregator(targetName, interval, maxPoints), nil
 }
 
 // A drain in progress must not stall other targets' results or status reads:
@@ -283,6 +285,52 @@ func TestServiceMemoryPerTargetFollowsBufferedPoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, metrics, targets*seriesPerTarget)
 	runtime.KeepAlive(service)
+}
+
+// A drain hands over the points written since the previous drain and builds
+// nothing per series. Building each series' "<target>|<oid>" key on every drain
+// cost an allocation per series, and with the per-target maps it took about
+// 1.4 allocations per series: about 900,000 for one drain of 50,000 targets.
+func TestServiceDrainAllocatesNothingPerSeries(t *testing.T) {
+	const (
+		targets         = 40
+		seriesPerTarget = 50
+		series          = targets * seriesPerTarget
+	)
+
+	names := make([]string, targets)
+	for i := range names {
+		names[i] = fmt.Sprintf("target-%02d", i)
+	}
+
+	service := newFeedService(t, &feedCollectorFactory{}, names...)
+	ctx := context.Background()
+
+	writeEverySeries := func() {
+		for _, rt := range service.runningTargets() {
+			for s := 0; s < seriesPerTarget; s++ {
+				rt.aggregator.AddPoint(&DataPoint{OIDName: fmt.Sprintf("series-%02d", s), Value: 1.0, Timestamp: time.Now()})
+			}
+		}
+	}
+
+	// The first drain finds every series new; the one measured below does not.
+	writeEverySeries()
+	_, err := service.DrainMetrics(ctx)
+	require.NoError(t, err)
+
+	writeEverySeries()
+
+	var before, after runtime.MemStats
+
+	runtime.ReadMemStats(&before)
+	metrics, err := service.DrainMetrics(ctx)
+	runtime.ReadMemStats(&after)
+
+	require.NoError(t, err)
+	require.Len(t, metrics, series)
+	assert.Len(t, metrics["target-07|series-31"], 1)
+	assert.Less(t, after.Mallocs-before.Mallocs, uint64(series/10), "allocations for one drain of %d series", series)
 }
 
 // Starting targets opens no sockets: a target holds a socket only while it is
