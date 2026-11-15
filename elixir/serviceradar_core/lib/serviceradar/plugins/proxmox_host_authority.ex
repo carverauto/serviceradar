@@ -10,6 +10,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
   alias ServiceRadar.AgentConfig.WarningLedger
   alias ServiceRadar.Plugins.IdentityUtils
+  alias ServiceRadar.Plugins.SecretRefs
 
   require Logger
 
@@ -92,14 +93,13 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
       grant = broker_grant(params)
       auth_mode = auth_mode(plugin_id, params, grant)
-      public_params = public_params(plugin_id, params, auth_mode)
 
-      host_params =
+      {host_params, dropped_targets} =
         with %{} = grant <- grant,
              {:ok, policy_binding} <-
                assignment_policy_binding(plugin_id, entrypoint, params, assignment_id),
              {:ok, ssh_host_key_policy} <- ssh_host_key_policy(auth_mode, params) do
-          bindings =
+          {bindings, dropped_targets} =
             build_bindings(
               plugin_id,
               params,
@@ -117,9 +117,9 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                 "skipped as :proxmox_host_authority_unavailable"
             )
 
-            nil
+            {nil, []}
           else
-            %{"schema" => @schema, "bindings" => bindings}
+            {%{"schema" => @schema, "bindings" => bindings}, dropped_targets}
           end
         else
           # Returning a bare nil is what makes :proxmox_host_authority_unavailable
@@ -132,8 +132,13 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                 "#{inspect(assignment_id)} (plugin=#{plugin_id}): #{inspect(other)}"
             )
 
-            nil
+            {nil, []}
         end
+
+      public_params =
+        params
+        |> drop_targets(dropped_targets)
+        |> then(&public_params(plugin_id, &1, auth_mode))
 
       {public_params, host_params}
     else
@@ -279,6 +284,91 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   def assignment_policy_binding(_plugin_id, _entrypoint, _params, _assignment_id),
     do: {:error, :invalid_assignment_policy_binding}
 
+  @doc """
+  Verifies that at least one live target in `params` (after node-certificate SAN
+  reconciliation) still resolves to `binding`'s controller origin and, for
+  console bindings, its node or guest scope.
+  """
+  @spec live_target_scope_contains_binding?(
+          String.t(),
+          String.t(),
+          map(),
+          term(),
+          map(),
+          keyword()
+        ) :: boolean()
+  def live_target_scope_contains_binding?(
+        plugin_id,
+        entrypoint,
+        params,
+        assignment_id,
+        binding,
+        opts \\ []
+      )
+
+  def live_target_scope_contains_binding?(
+        plugin_id,
+        entrypoint,
+        params,
+        assignment_id,
+        binding,
+        opts
+      )
+      when is_binary(plugin_id) and is_binary(entrypoint) and is_map(params) and is_map(binding) do
+    if assignment?(plugin_id, entrypoint) do
+      params =
+        params
+        |> stringify_keys()
+        |> reconcile_targets_with_certificate(assignment_id, opts)
+
+      binding = stringify_keys(binding)
+      auth_mode = auth_mode(plugin_id, params, broker_grant(params))
+
+      params
+      |> binding_targets(plugin_id)
+      |> Enum.any?(fn target ->
+        with {:ok, origin} <- target_origin(plugin_id, target, params, auth_mode),
+             live_ids when map_size(live_ids) > 0 <-
+               target |> target_ids() |> binding_target_ids(plugin_id) do
+          origin == value(binding, "origin") and
+            live_target_matches_binding_scope?(
+              plugin_id,
+              live_ids,
+              map_value(binding, "target_ids")
+            )
+        else
+          _ -> false
+        end
+      end)
+    else
+      false
+    end
+  end
+
+  def live_target_scope_contains_binding?(
+        _plugin_id,
+        _entrypoint,
+        _params,
+        _assignment_id,
+        _binding,
+        _opts
+      ), do: false
+
+  defp live_target_matches_binding_scope?(@console_plugin_id, live_ids, binding_ids) do
+    case binding_ids["target_kind"] do
+      kind when kind in ["qemu_guest", "lxc_guest"] ->
+        live_ids["target_kind"] == kind and
+          live_ids["node"] == binding_ids["node"] and
+          live_ids["vmid"] == binding_ids["vmid"]
+
+      _ ->
+        live_ids["target_kind"] not in ["qemu_guest", "lxc_guest"] and
+          (not present?(binding_ids["node"]) or live_ids["node"] == binding_ids["node"])
+    end
+  end
+
+  defp live_target_matches_binding_scope?(_plugin_id, _live_ids, _binding_ids), do: true
+
   defp build_bindings(
          plugin_id,
          params,
@@ -295,37 +385,97 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
         value(grant, "credential_rule_id")
       ])
 
-    params
-    |> binding_targets(plugin_id)
-    |> Enum.map(fn target ->
-      with rule_id when is_binary(rule_id) <- credential_rule_id,
-           {:ok, origin} <- target_origin(plugin_id, target, params, auth_mode),
-           target_ids when map_size(target_ids) > 0 <-
-             target |> target_ids() |> binding_target_ids(plugin_id) do
-        binding_grant = scope_grant_to_origin(grant, origin, plugin_id, auth_mode, target)
+    credential_secret_id = credential_secret_id(grant)
+    verify_tls = verify_tls?(params)
 
-        %{
-          "binding_id" => binding_id(assignment_id, credential_rule_id, origin, target_ids),
-          "provider" => @provider,
-          "credential_rule_id" => rule_id,
-          "origin" => origin,
-          "assignment_policy_version" => policy_binding.policy_version,
-          "assignment_policy_fingerprint" => policy_binding.fingerprint,
-          "credential_broker" => binding_grant,
-          "target_ids" => target_ids
-        }
-        |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
-        |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
-        |> maybe_put("server_cert_fingerprint", server_cert_fingerprint(params))
-      else
-        _ -> nil
-      end
+    candidates =
+      params
+      |> binding_targets(plugin_id)
+      |> Enum.map(fn target ->
+        with rule_id when is_binary(rule_id) <- credential_rule_id,
+             secret_id when is_binary(secret_id) <- credential_secret_id,
+             {:ok, origin} <- target_origin(plugin_id, target, params, auth_mode),
+             target_ids when map_size(target_ids) > 0 <-
+               target |> target_ids() |> binding_target_ids(plugin_id) do
+          binding_grant = scope_grant_to_origin(grant, origin, plugin_id, auth_mode, target)
+
+          binding =
+            %{
+              "binding_id" => binding_id(assignment_id, secret_id, origin, auth_mode, verify_tls),
+              "provider" => @provider,
+              "credential_rule_id" => rule_id,
+              "origin" => origin,
+              "assignment_policy_version" => policy_binding.policy_version,
+              "assignment_policy_fingerprint" => policy_binding.fingerprint,
+              "credential_broker" => binding_grant,
+              "target_ids" => target_ids
+            }
+            |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
+            |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
+            |> maybe_put("server_cert_fingerprint", server_cert_fingerprint(params))
+
+          {target, binding}
+        else
+          _ -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(fn {_target, binding} ->
+        {binding["binding_id"], canonical_target_ids(binding["target_ids"])}
+      end)
+
+    winners = Enum.uniq_by(candidates, fn {_target, binding} -> binding["binding_id"] end)
+
+    bindings =
+      winners
+      |> Enum.map(&elem(&1, 1))
+      |> single_origin_fingerprint(server_cert_fingerprint(params), plugin_id, assignment_id)
+
+    {bindings, console_dropped_targets(plugin_id, candidates, winners)}
+  end
+
+  defp console_dropped_targets(@console_plugin_id, candidates, winners) do
+    winner_targets = Enum.map(winners, &elem(&1, 0))
+
+    candidates
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.reject(&(&1 in winner_targets))
+  end
+
+  defp console_dropped_targets(_plugin_id, _candidates, _winners), do: []
+
+  defp drop_targets(params, []), do: params
+
+  defp drop_targets(params, dropped) do
+    keep = &Enum.reject(&1, fn target -> target in dropped end)
+
+    params
+    |> update_list("targets", keep)
+    |> update_list("inputs", fn inputs ->
+      Enum.map(inputs, fn
+        %{} = input -> update_list(input, "items", keep)
+        input -> input
+      end)
     end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq_by(fn binding ->
-      {binding["origin"], binding["credential_rule_id"], binding["target_ids"]}
-    end)
-    |> single_origin_fingerprint(server_cert_fingerprint(params), plugin_id, assignment_id)
+  end
+
+  defp credential_secret_id(grant) do
+    with ref when is_binary(ref) and ref != "" <- value(grant, "credential_secret_ref"),
+         {:ok, secret_id} <- SecretRefs.network_credential_ref_id(ref) do
+      secret_id
+    else
+      _ -> nil
+    end
+  end
+
+  defp verify_tls?(params) do
+    not Enum.any?(
+      [
+        value(params, "insecure_skip_verify"),
+        value(map_value(params, "template"), "insecure_skip_verify")
+      ],
+      &(&1 in [true, "true"])
+    )
   end
 
   # A cluster CA signs every node leaf, so one ca_bundle_pem legitimately anchors
@@ -999,14 +1149,15 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
   defp parse_provider_ref(_value), do: %{}
 
-  defp binding_id(assignment_id, credential_rule_id, origin, target_ids) do
-    canonical_target_ids =
-      target_ids
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map_join("|", fn {key, value} -> "#{key}=#{value}" end)
-
+  defp binding_id(assignment_id, credential_secret_id, origin, auth_mode, verify_tls) do
     digest =
-      [to_string(assignment_id), credential_rule_id || "", origin, canonical_target_ids]
+      [
+        to_string(assignment_id),
+        credential_secret_id,
+        origin,
+        to_string(auth_mode),
+        to_string(verify_tls)
+      ]
       |> Enum.join("|")
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
@@ -1014,6 +1165,14 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
     "proxmox-#{digest}"
   end
+
+  defp canonical_target_ids(target_ids) when is_map(target_ids) do
+    target_ids
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map_join("|", fn {key, value} -> "#{key}=#{value}" end)
+  end
+
+  defp canonical_target_ids(_target_ids), do: ""
 
   defp explicit_controller?(target) do
     Enum.any?(

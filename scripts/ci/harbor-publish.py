@@ -170,7 +170,14 @@ def promote(directory, args):
         if tags:
             subprocess.run(["oras", "tag", reference, *tags], env=protected, check=True)
     receipt["published"] = published
-    (directory / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    serialized = json.dumps(receipt, indent=2) + "\n"
+    # Keep every promotion (including images followed by a chart) as secret-free
+    # upload evidence. receipt.json remains the latest receipt for chart assembly.
+    receipts = directory / "receipts"
+    receipts.mkdir(exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", prefix="promotion-", suffix=".json", dir=receipts, delete=False) as output:
+        output.write(serialized)
+    (directory / "receipt.json").write_text(serialized)
 
 
 def main():

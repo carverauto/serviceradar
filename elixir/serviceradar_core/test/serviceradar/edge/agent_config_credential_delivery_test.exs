@@ -359,6 +359,86 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert binding_denials(binding["binding_id"]) == 3
   end
 
+  test "binding resolution survives target-set churn and metadata updates, then denies once target leaves live scope",
+       %{admin: admin, system: system, agent_uid: agent_uid} do
+    {:ok, _agent} =
+      create_connected_agent(admin, agent_uid, ["credential_broker_resolve_by_binding"])
+
+    secret = create_proxmox_secret!(admin, System.unique_integer([:positive]))
+    rule = create_proxmox_inventory_rule!(system, secret, agent_uid)
+    assignment_id = insert_proxmox_inventory_assignment!(rule, secret, agent_uid)
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert [plugin] = config.plugins
+    assert [binding] = plugin.host_params["bindings"]
+
+    request = %{
+      agent_id: agent_uid,
+      assignment_id: assignment_id,
+      binding_id: binding["binding_id"],
+      consumer_kind: "plugin",
+      consumer_id: "proxmox-inventory",
+      purpose: "inventory_enrichment",
+      resolution_location: "agent"
+    }
+
+    # Mutate target metadata (uid + provider_ref) and add a sibling target:
+    # the agent's existing binding_id must remain valid and resolve cleanly.
+    %{rows: [[stored_params]]} =
+      Repo.query!("SELECT params FROM platform.plugin_assignments WHERE id = $1", [
+        Ecto.UUID.dump!(assignment_id)
+      ])
+
+    churned_params =
+      put_in(stored_params, ["inputs", Access.at(0), "items"], [
+        %{
+          "uid" => "sr:device:pve-a-merged",
+          "ip" => "192.0.2.10",
+          "hostname" => "pve-a-renamed",
+          "provider_ref" => "proxmox:node:pve-a-renamed",
+          "target_kind" => "pve_host"
+        },
+        %{
+          "uid" => "sr:device:pve-b",
+          "ip" => "192.0.2.11",
+          "hostname" => "pve-b",
+          "provider_ref" => "proxmox:node:pve-b",
+          "target_kind" => "pve_host"
+        }
+      ])
+
+    Repo.query!("UPDATE platform.plugin_assignments SET params = $2 WHERE id = $1", [
+      Ecto.UUID.dump!(assignment_id),
+      churned_params
+    ])
+
+    assert {:ok, %{value: @api_token_payload}} =
+             AgentGatewaySync.resolve_credential_broker_grant(request)
+
+    # Remove 192.0.2.10 from the live target scope (leaving only 192.0.2.11):
+    # resolution must now be denied and audited even with the previously valid binding_id.
+    removed_params =
+      put_in(stored_params, ["inputs", Access.at(0), "items"], [
+        %{
+          "uid" => "sr:device:pve-b",
+          "ip" => "192.0.2.11",
+          "hostname" => "pve-b",
+          "provider_ref" => "proxmox:node:pve-b",
+          "target_kind" => "pve_host"
+        }
+      ])
+
+    Repo.query!("UPDATE platform.plugin_assignments SET params = $2 WHERE id = $1", [
+      Ecto.UUID.dump!(assignment_id),
+      removed_params
+    ])
+
+    assert {:error, :credential_binding_not_found} =
+             AgentGatewaySync.resolve_credential_broker_grant(request)
+
+    assert binding_denials(binding["binding_id"]) == 1
+  end
+
   # An interactive console session completes a virtualization row that predates
   # the v3 identity contract from its credential rule's source scope. Config
   # delivery must complete it from the assignment's own rule the same way;

@@ -1384,9 +1384,18 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     with {:ok, %PluginAssignment{} = assignment} <-
            load_assignment_for_resolution(assignment_id, actor),
          :ok <- require_resolvable_assignment(assignment, agent_id),
-         %{host_params: %{"bindings" => bindings}} <-
-           build_plugin_assignment_config(assignment, :binding),
-         %{} = binding <- Enum.find(bindings, &(&1["binding_id"] == binding_id)) do
+         {:ok, resolved_params, %{"bindings" => bindings}} <-
+           resolve_proxmox_host_authority_for_resolution(assignment),
+         %{} = binding <- Enum.find(bindings, &(&1["binding_id"] == binding_id)),
+         true <-
+           ProxmoxHostAuthority.live_target_scope_contains_binding?(
+             assignment.plugin_package.plugin_id,
+             assignment.plugin_package.entrypoint,
+             resolved_params,
+             assignment.id,
+             binding,
+             device_addresses: &device_interface_addresses/1
+           ) do
       {:ok, binding}
     else
       {:error, reason} when is_atom(reason) -> {:error, reason}
@@ -1396,6 +1405,40 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   def plugin_host_binding_for_resolution(_assignment_id, _agent_id, _binding_id),
     do: {:error, :credential_binding_not_found}
+
+  defp resolve_proxmox_host_authority_for_resolution(%PluginAssignment{} = assignment) do
+    package = assignment.plugin_package
+    config_schema = normalize_map(package.config_schema)
+
+    with {:ok, source_scope} <- resolve_proxmox_assignment_scope(assignment, package),
+         resolved_params =
+           resolve_plugin_params(config_schema, assignment.params, assignment, :binding),
+         {:ok, resolved_params, _dropped_targets} <-
+           maybe_enrich_proxmox_host_authority_targets(
+             resolved_params,
+             package.plugin_id,
+             package.entrypoint,
+             assignment,
+             source_scope
+           ),
+         {_wasm_params, %{} = host_params} <-
+           partition_plugin_host_params(
+             package.plugin_id,
+             package.entrypoint,
+             resolved_params,
+             assignment.id
+           ),
+         :ok <-
+           ensure_proxmox_host_authority(
+             package.plugin_id,
+             package.entrypoint,
+             host_params
+           ) do
+      {:ok, resolved_params, host_params}
+    else
+      _ -> {:error, :credential_binding_not_found}
+    end
+  end
 
   defp load_assignment_for_resolution(assignment_id, actor) do
     case Ecto.UUID.cast(assignment_id) do

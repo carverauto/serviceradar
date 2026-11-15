@@ -8,6 +8,7 @@ py_test(
     size = "small",
     srcs = ["harbor_publish_test.py"],
     data = [
+        "//:github_workflows",
         "//:Makefile",
         "//build/native_addons:publish_addon.sh",
         "//build/wasm_plugins:publish_plugin.sh",
@@ -23,6 +24,9 @@ py_test(
         "//scripts:sign-wasm-plugin-publish.sh",
         "//scripts:oci_registry.sh",
         "//scripts:verify-oci-publish.sh",
+        "//scripts:verify-native-addon-publish.sh",
+        "//scripts:verify-wasm-plugin-publish.sh",
+        "//scripts:wasm-plugin-publish-context.sh",
         "@jq_linux_amd64//file",
         "@jq_linux_arm64//file",
     ],

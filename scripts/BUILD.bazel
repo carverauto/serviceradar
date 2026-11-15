@@ -33,6 +33,7 @@ exports_files([
     "validate-release-metadata.sh",
     "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
+    "verify-wasm-plugin-publish.sh",
 ])
 
 sh_test(

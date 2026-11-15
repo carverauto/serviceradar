@@ -7,11 +7,14 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest import mock
+
+import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts/ci/harbor-publish.py"
@@ -164,6 +167,59 @@ class HarborPublishTest(unittest.TestCase):
     def test_child_failure_status_is_preserved_for_registry_preflight(self):
         result = self.call("build", sys.executable, "-c", "raise SystemExit(42)")
         self.assertEqual(result.returncode, 42)
+
+    def test_each_promotion_preserves_its_receipt_before_the_next_promotion(self):
+        self.fake("oras", "command = sys.argv[1:]\n"
+                  f"if command[0] == 'resolve': print({SYNTHETIC_DIGEST!r})\n"
+                  "elif command[0] == 'discover': print('{\"referrers\":[]}')\n"
+                  "elif command[:2] == ['repo', 'tags']: print('{\"tags\":[]}')\n"
+                  "elif command[0] != 'tag': raise SystemExit(9)\n")
+        tool = self.root / "tool/k8s/harbor/promote-artifacts.py"
+        tool.write_text("import json,sys\n"
+                        "bundle = json.load(open(sys.argv[1]))\n"
+                        "print(json.dumps({'artifacts': [{'reference': "
+                        "'registry.carverauto.dev/serviceradar/' + a['repository'] + '@' + a['digest']} "
+                        "for a in bundle['artifacts']]}))\n")
+        expected = []
+        for repository, tag in (("example-worker", "v1.2.3"), ("charts/serviceradar", "1.2.3")):
+            result = self.call("promote", "--repositories", repository, "--tag", tag)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads((self.root / "receipt.json").read_text())
+            self.assertEqual(receipt["published"], [
+                {"repository": repository, "digest": SYNTHETIC_DIGEST, "tags": [tag]}])
+            expected.append(receipt)
+        retained = list((self.root / "receipts").glob("*.json"))
+        self.assertEqual(len(retained), 2)
+        self.assertCountEqual([json.loads(path.read_text()) for path in retained], expected)
+        for path in retained:
+            self.assertNotIn("synthetic-password", path.read_text())
+            self.assertNotIn("auths", path.read_text())
+
+    def test_all_publishers_upload_only_receipts_before_unconditional_cleanup(self):
+        for workflow in ("publish-oci", "release", "native-addons", "wasm-plugins", "external-wasm-plugin"):
+            with self.subTest(workflow=workflow):
+                model = yaml.safe_load((REPO / f".github/workflows/{workflow}.yml").read_text())
+                jobs = [job for job in model["jobs"].values() if any(
+                    step.get("name") == "Remove temporary Harbor publishing credentials"
+                    for step in job.get("steps", []))]
+                self.assertEqual(len(jobs), 1)
+                steps = jobs[0]["steps"]
+                uploads = [step for step in steps if step.get("name") == "Retain Harbor promotion receipts"]
+                self.assertEqual(len(uploads), 1)
+                upload = uploads[0]
+                cleanup = next(step for step in steps if step.get("name") ==
+                               "Remove temporary Harbor publishing credentials")
+                self.assertLess(steps.index(upload), steps.index(cleanup))
+                # Both steps run even if protected verification or the upload fails.
+                for step in (upload, cleanup):
+                    self.assertEqual(step["if"], "${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}")
+                    self.assertFalse(step.get("continue-on-error", False))
+                self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
+                self.assertEqual(upload["with"]["path"], "${{ env.HARBOR_LIFECYCLE_DIR }}/receipts/*.json")
+                self.assertEqual(upload["with"]["if-no-files-found"], "error")
+                self.assertEqual(upload["with"]["name"],
+                                 "harbor-promotion-${{ github.workflow }}-${{ github.job }}-"
+                                 "${{ github.run_id }}-${{ github.run_attempt }}")
 
     def test_bazel_upload_overrides_protected_inventory_with_build_repository(self):
         self.fake("bazel", 'print(json.dumps({"args":sys.argv[1:],"project":os.environ["OCI_PROJECT"]}))\n')
@@ -386,6 +442,110 @@ class ImagePromotionTagsTest(unittest.TestCase):
         self.assertEqual(registry, protected)
         self.assertFalse(self.tag_calls.exists())
         self.assertIsNone(published)
+
+
+class PublicationVerificationTest(unittest.TestCase):
+    """The real verifier CLIs must require crypto verification, not just signature layers."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        (self.bin / "jq").symlink_to(pinned_jq())
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        # Use the actual declared scripts, isolated from any checkout's fallback public key.
+        for name in ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh",
+                     "cosign_common.sh", "oci_registry.sh", "wasm-plugin-publish-context.sh"):
+            shutil.copy2(REPO / "scripts" / name, scripts / name)
+        inventory = self.root / "docker/images/image_inventory.bzl"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text('PUBLISHABLE_IMAGES = [{"repository":"registry.example/serviceradar/example"}]\n\n')
+        metadata = self.root / "metadata"
+        metadata.mkdir()
+        (metadata / "example.metadata.json").write_text(json.dumps({
+            "repository_name": "example", "artifact_type": "application/example",
+            "bundle_media_type": "application/zip", "upload_signature_media_type": "application/example-signature",
+            "artifacts": [{"tarball_file": "example.tar.gz"}]}))
+        self.calls = self.root / "calls"
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith(("COSIGN_", "SIGSTORE_", "SERVICERADAR_"))}
+        self.env.update(PATH=str(self.bin) + os.pathsep + self.env["PATH"], HOME=str(self.root),
+                        COSIGN_KEY_REF="hashivault://example", OCI_REGISTRY="registry.example",
+                        BAZEL_BIN_DIR=str(self.root), METADATA_DIR=str(metadata),
+                        WASM_PLUGIN_METADATA_DIR=str(metadata),
+                        WASM_PLUGIN_UPLOAD_SIGNATURE_TOOL=str(self.bin / "internal-signature"),
+                        CALL_LOG=str(self.calls))
+        self.fake("internal-signature", "assert sys.argv[1] == 'verify'\n")
+        self.fake("bazel", "if sys.argv[1] == 'cquery': print(pathlib.Path(__file__).parent / 'internal-signature')\n"
+                  "elif sys.argv[1] != 'build': raise SystemExit(9)\n")
+        self.fake("cosign", "with open(os.environ['CALL_LOG'], 'a') as log: log.write(sys.argv[1] + '\\n')\n"
+                  "mode = os.environ['VERIFY_MODE']\n"
+                  "if sys.argv[1] == 'triangulate': print('registry.example/serviceradar/example:sha256-' + 'a'*64 + '.sig')\n"
+                  "elif sys.argv[1] == 'public-key':\n"
+                  " if mode == 'key-unavailable': raise SystemExit(1)\n"
+                  " print('synthetic public key')\n"
+                  "elif sys.argv[1] == 'verify':\n"
+                  " if mode == 'rejected': raise SystemExit(77)\n"
+                  "else: raise SystemExit(9)\n")
+        self.fake("curl", "url = sys.argv[-1]\n"
+                  "if '/service/token?' in url: print('{\"token\":\"synthetic\"}')\n"
+                  "elif '/referrers/' in url: print(json.dumps({'manifests': [{'digest': 'sha256:'+'c'*64, "
+                  "'artifactType': 'application/vnd.dev.sigstore.bundle.v0.3+json'}]}))\n"
+                  "elif '/manifests/sha256-' not in url: raise SystemExit(9)\n")
+        self.fake("oras", "digest = 'sha256:' + 'a'*64\n"
+                  "if sys.argv[1:3] == ['manifest', 'fetch']:\n"
+                  " if '--descriptor' in sys.argv: print(json.dumps({'digest': digest}))\n"
+                  " else: print(json.dumps({'mediaType': 'application/vnd.oci.image.manifest.v1+json', "
+                  "'artifactType': 'application/example', 'config': {'digest': digest}, 'layers': ["
+                  "{'digest': digest, 'mediaType': media, 'annotations': {'org.opencontainers.image.title': title}} "
+                  "for media,title in [('application/zip','example.zip'), ('application/example-signature','upload.json'), "
+                  "('application/vnd.serviceradar.native-addon.artifact.v1+gzip','example.tar.gz'), "
+                  "('application/vnd.serviceradar.native-addon.artifact-signature.v1+hex','example.tar.gz.sig')]]}))\n"
+                  "elif sys.argv[1:3] == ['blob', 'fetch']:\n"
+                  " if '--output' in sys.argv: pathlib.Path(sys.argv[sys.argv.index('--output')+1]).write_text('synthetic')\n"
+                  " else: print('{\"config\":{}}')\n"
+                  "else: raise SystemExit(9)\n")
+
+    def fake(self, name, body):
+        path = self.bin / name
+        path.write_text(f"#!{sys.executable}\nimport json,os,pathlib,sys\n" + body)
+        path.chmod(0o755)
+
+    def test_all_verifiers_fail_when_identity_is_unavailable_or_signature_is_rejected(self):
+        for script in ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh"):
+            for mode in ("key-unavailable", "rejected", "valid"):
+                with self.subTest(script=script, mode=mode):
+                    self.calls.unlink(missing_ok=True)
+                    result = subprocess.run(["bash", str(self.root / "scripts" / script), "sha-example"],
+                                            env=self.env | {"VERIFY_MODE": mode}, text=True, capture_output=True)
+                    calls = self.calls.read_text().splitlines()
+                    self.assertIn("public-key", calls, result.stderr)
+                    if mode == "valid":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("verify", calls)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        if mode == "key-unavailable":
+                            self.assertNotIn("verify", calls)
+                            self.assertIn("Cosign verification identity", result.stderr)
+                        else:
+                            self.assertIn("verify", calls)
+
+    def test_list_mode_and_optional_existing_signature_probe_keep_their_contracts(self):
+        environment = self.env | {"VERIFY_MODE": "key-unavailable"}
+        result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "--list-image-specs"],
+                                env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "registry.example/serviceradar/example|single\n")
+        self.assertFalse(self.calls.exists())
+        result = subprocess.run(["bash", "-c", 'source "$1"; if cosign_verify_existing_signature "$2"; then exit 9; fi; echo retry',
+                                 "probe", str(self.root / "scripts/cosign_common.sh"), "registry.example/example@" + SYNTHETIC_DIGEST],
+                                env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "retry\n")
 
 
 if __name__ == "__main__":

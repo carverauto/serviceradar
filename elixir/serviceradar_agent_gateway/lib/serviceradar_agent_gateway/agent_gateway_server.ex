@@ -374,11 +374,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     AgentGatewaySync
     |> core_call(:resolve_credential_broker_grant, [request_map], 15_000)
-    |> credential_grant_response(agent_id, request.grant_id)
+    |> credential_grant_response(agent_id, request.grant_id,
+      assignment_id: request.assignment_id,
+      binding_id: request.binding_id
+    )
   end
 
   @doc false
-  def credential_grant_response(core_result, agent_id, grant_id) do
+  def credential_grant_response(core_result, agent_id, grant_id, opts \\ []) do
     case core_result do
       {:ok, {:ok, material}} ->
         %Monitoring.CredentialBrokerResolveResponse{
@@ -392,24 +395,36 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         }
 
       {:ok, {:error, reason}} ->
-        credential_grant_denied_response(agent_id, grant_id, reason)
+        credential_grant_denied_response(agent_id, grant_id, reason, opts)
 
       {:error, reason} ->
-        credential_grant_denied_response(agent_id, grant_id, reason)
+        credential_grant_denied_response(agent_id, grant_id, reason, opts)
     end
   end
 
-  defp credential_grant_denied_response(agent_id, grant_id, reason) do
-    Logger.warning(
-      "Credential broker grant resolution denied",
-      [agent_id: agent_id, grant_id: grant_id] ++ SafeFailureEvidence.log_metadata(reason)
-    )
+  defp credential_grant_denied_response(agent_id, grant_id, reason, opts) do
+    metadata =
+      [agent_id: agent_id, grant_id: grant_id]
+      |> maybe_put_log_metadata(:assignment_id, Keyword.get(opts, :assignment_id))
+      |> maybe_put_log_metadata(:binding_id, Keyword.get(opts, :binding_id))
+      |> Kernel.++(SafeFailureEvidence.log_metadata(reason))
+
+    Logger.warning("Credential broker grant resolution denied", metadata)
 
     %Monitoring.CredentialBrokerResolveResponse{
       success: false,
       message: "credential grant resolution denied"
     }
   end
+
+  defp maybe_put_log_metadata(metadata, key, value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> metadata
+      trimmed -> metadata ++ [{key, trimmed}]
+    end
+  end
+
+  defp maybe_put_log_metadata(metadata, _key, _value), do: metadata
 
   @doc """
   Resolve a single-use automation launch envelope for an authenticated agent.

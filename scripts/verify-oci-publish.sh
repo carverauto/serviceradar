@@ -334,7 +334,7 @@ check_cosign_verify() {
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
   if ! cosign_init_verify_args; then
-    return 0
+    fail "${ref}:${tag} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
   fi
 
   cosign verify \
