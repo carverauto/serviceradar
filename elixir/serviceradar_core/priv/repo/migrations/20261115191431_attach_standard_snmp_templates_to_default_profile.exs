@@ -28,6 +28,10 @@ defmodule ServiceRadar.Repo.Migrations.AttachStandardSnmpTemplatesToDefaultProfi
   `ServiceRadar.SNMPProfiles.BuiltinTemplateSeeder` on startup, after this runs.
   `oid_template_ids` has no foreign key, so referencing them first is valid;
   the seeder's inserts notify the SNMP compiler, which then recompiles.
+
+  serviceradar:allow-startup-maintenance - the UPDATE touches at most one row
+  (`snmp_profiles_unique_default_index` allows a single default profile) and the
+  INSERT at most one row, so neither is a backfill and both are O(1) on first boot.
   """
 
   use Ecto.Migration
