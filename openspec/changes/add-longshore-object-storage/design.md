@@ -150,6 +150,6 @@ objects. Do not replay a one-shot dispatch through the old transport as fallback
 ## Open evidence
 
 - Upstream single-object contract closed at `8759583fd1888f292f290a5adbe883c8c6eb6aee`; multipart archive qualification against a live S3-compatible provider remains open.
-- Real pod io_uring/memlock support across all eligible cluster nodes (node locked-memory runbook tracked separately) and live-cluster image rollout.
+- Real pod io_uring/memlock support across all eligible cluster nodes (node prerequisites: `docs/media-storage-node-prerequisites.md`) and live-cluster image rollout.
 - Live selected-camera bounded recording dogfood, restart persistence and 30-minute real-provider TLS soak after cluster rollout prerequisites land.
 - Synthetic same-host RBE native/NIF and `CameraStorage` pipeline baselines are recorded in [benchmarks.md](benchmarks.md); live S3-compatible HTTPS WAN ceiling and multi-camera capacity remain open.
