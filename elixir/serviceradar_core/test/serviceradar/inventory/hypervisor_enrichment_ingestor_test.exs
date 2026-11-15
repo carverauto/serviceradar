@@ -83,12 +83,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
     refute sensitive_value?(records)
   end
 
-  test "deduplicates shared records by provider and provider ref using newest observed_at" do
+  # Report order is the tie-break among a guest's equally preferred NICs, so the dedupe must
+  # not reorder records: a ref keeps the position it was first reported at, holding its newest
+  # observation. Here the refs sort opposite to report order.
+  test "deduplicates by provider and provider ref, newest observed_at, keeping report order" do
     stale = %{
       provider: "vsphere",
       provider_ref: "vsphere:vcenter-a:host:host-42",
       name: "old",
       observed_at: DateTime.shift(@observed_at, minute: -1)
+    }
+
+    other = %{
+      provider: "vsphere",
+      provider_ref: "vsphere:vcenter-a:host:host-17",
+      name: "other",
+      observed_at: @observed_at
     }
 
     fresh = %{
@@ -100,10 +110,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
 
     records =
       HypervisorEnrichmentIngestor.empty_records()
-      |> Map.put(:hosts, [stale, fresh])
+      |> Map.put(:hosts, [stale, other, fresh])
       |> HypervisorEnrichmentIngestor.dedupe_records()
 
-    assert [%{name: "new"}] = records.hosts
+    assert [%{name: "new"}, %{name: "other"}] = records.hosts
   end
 
   test "host management IP score keeps br0 and vmbr0 bonus while skipping docker br-<hex> bridges" do
