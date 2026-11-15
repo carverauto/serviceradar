@@ -5,7 +5,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Service do
   This supervisor is never a child of core-elx. It starts no repository,
   recorder, distributed node or provider provisioning client.
   """
-  use Supervisor
+  use Supervisor, shutdown: :infinity
 
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config

@@ -187,8 +187,6 @@ defmodule ServiceRadarObjectStorage.Session do
     end
   end
 
-  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
-
   def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
 
   def handle_info(_other, state) do
@@ -198,7 +196,7 @@ defmodule ServiceRadarObjectStorage.Session do
   @impl true
   def terminate(_reason, state) do
     Storage.close(state.client)
-    wait_drained(state.client, System.monotonic_time(:millisecond) + state.drain_timeout_ms)
+    drain_replies(state, System.monotonic_time(:millisecond) + state.drain_timeout_ms)
   end
 
   defp call_submit(server, op, opts) when is_list(opts) do
@@ -265,12 +263,20 @@ defmodule ServiceRadarObjectStorage.Session do
     end
   end
 
-  defp wait_drained(client, deadline_ms) do
-    if Storage.info(client).workers == 0 or System.monotonic_time(:millisecond) >= deadline_ms do
-      :ok
-    else
-      Process.sleep(5)
-      wait_drained(client, deadline_ms)
+  defp drain_replies(state, deadline_ms) do
+    timeout = if drained?(state.client, deadline_ms), do: 0, else: 5
+
+    receive do
+      {:longshore_reply, _ref, _result, _stats} = reply ->
+        {:noreply, state} = handle_info(reply, state)
+        drain_replies(state, deadline_ms)
+    after
+      timeout ->
+        if timeout == 0, do: :ok, else: drain_replies(state, deadline_ms)
     end
+  end
+
+  defp drained?(client, deadline_ms) do
+    Storage.info(client).workers == 0 or System.monotonic_time(:millisecond) >= deadline_ms
   end
 end

@@ -1,6 +1,6 @@
 defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   @moduledoc false
-  use GenServer
+  use GenServer, shutdown: 40_000
 
   alias ServiceRadarCoreElx.CameraStorage.ReadTasks
   alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
@@ -73,6 +73,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
 
   def handle_info({:token_drained, token}, %{draining_token: token} = state),
     do: {:noreply, %{state | draining_token: nil}}
+
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
 
   def handle_info(_, state), do: {:noreply, state}
 

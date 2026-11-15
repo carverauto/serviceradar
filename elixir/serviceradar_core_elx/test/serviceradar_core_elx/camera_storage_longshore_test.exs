@@ -314,6 +314,19 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
     assert eventually(fn -> :sys.get_state(Session).draining_token == nil end)
   end
 
+  @tag :skip_service
+  test "shutdown budgets outlast the 35 s ObjectStorage.Session drain", ctx do
+    object_storage_shutdown =
+      Supervisor.child_spec({ServiceRadarObjectStorage.Session, config: %{}}, []).shutdown
+
+    assert object_storage_shutdown > 30_000
+    assert %{type: :supervisor, shutdown: :infinity} = Supervisor.child_spec({Service, ctx.config}, [])
+    assert Supervisor.child_spec({Session, ctx.config}, []).shutdown > object_storage_shutdown
+
+    assert Supervisor.child_spec({ServiceRadarCoreElx.CameraStorage.ReadSession, ctx.config}, []).shutdown >
+             object_storage_shutdown
+  end
+
   @tag skip_service: true
   test "Service refuses Longshore startup when an egress proxy or custom non-system CA bundle is configured", ctx do
     proxied =

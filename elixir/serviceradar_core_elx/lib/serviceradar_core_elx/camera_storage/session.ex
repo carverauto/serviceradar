@@ -1,6 +1,6 @@
 defmodule ServiceRadarCoreElx.CameraStorage.Session do
   @moduledoc false
-  use GenServer
+  use GenServer, shutdown: 40_000
 
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
@@ -227,6 +227,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
 
   def handle_info({:token_drained, token}, %{draining_token: token} = state),
     do: {:noreply, %{state | draining_token: nil}}
+
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
 
   def handle_info(_, state), do: {:noreply, state}
 

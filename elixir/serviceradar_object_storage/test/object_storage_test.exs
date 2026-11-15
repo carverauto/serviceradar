@@ -311,7 +311,9 @@ defmodule ServiceRadarObjectStorageTest do
     assert_receive {:caller_mailbox, []}, 10_000
   end
 
-  test "supervisor shutdown outlasts the 5 s default and drains in-flight I/O before exiting", %{config: config} do
+  test "supervisor shutdown outlasts the 5 s default and replies with the drained classification", %{
+    config: config
+  } do
     assert %{shutdown: shutdown} = Supervisor.child_spec({Session, config: config}, [])
     assert shutdown > 30_000
 
@@ -320,13 +322,10 @@ defmodule ServiceRadarObjectStorageTest do
     session_monitor = Process.monitor(session)
     put_opts = %{no_clobber: true, encryption: nil, checksum: :none}
 
-    spawn(fn ->
-      try do
+    put_task =
+      Task.async(fn ->
         Session.put(session, "qualification/shutdown.m4s", "synthetic", put_opts)
-      catch
-        :exit, _ -> :ok
-      end
-    end)
+      end)
 
     assert_receive {:request, peer, :PUT, "/synthetic-recordings/qualification/shutdown.m4s", _headers, "synthetic"},
                    10_000
@@ -336,9 +335,34 @@ defmodule ServiceRadarObjectStorageTest do
 
     refute_receive {:DOWN, ^session_monitor, :process, ^session, _reason}, 6_000
 
-    reply(peer, 200, [], "")
+    reply(peer, 200, [{"etag", "\"shutdown-etag\""}], "")
+    assert {:ok, %{end: {:answered, %{status: 200}}}, _stats} = Task.await(put_task, 10_000)
     assert_receive {:DOWN, ^session_monitor, :process, ^session, :shutdown}, 10_000
     assert_receive {:supervisor_stopped, :ok}, 10_000
+
+    assert {:ok, first} = Storage.open(config)
+    assert {:ok, second} = Storage.open(config)
+    drain(first)
+    drain(second)
+  end
+
+  test "a linked non-parent process exiting normally stops Session and closes its client", %{config: config} do
+    session = start_supervised!(Supervisor.child_spec({Session, config: config}, restart: :temporary))
+    session_monitor = Process.monitor(session)
+
+    linker =
+      spawn(fn ->
+        Process.link(session)
+
+        receive do
+          :exit -> :ok
+        end
+      end)
+
+    linker_monitor = Process.monitor(linker)
+    send(linker, :exit)
+    assert_receive {:DOWN, ^linker_monitor, :process, ^linker, :normal}, 10_000
+    assert_receive {:DOWN, ^session_monitor, :process, ^session, :normal}, 10_000
 
     assert {:ok, first} = Storage.open(config)
     assert {:ok, second} = Storage.open(config)
