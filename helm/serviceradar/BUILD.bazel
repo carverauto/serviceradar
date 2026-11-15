@@ -79,6 +79,7 @@ py_test(
     name = "pod_dns_and_fqdn_test",
     srcs = ["pod_dns_and_fqdn_test.py"],
     data = [
+        "Chart.lock",
         ":chart_files",
         ":helm_unittest_binary",
     ],

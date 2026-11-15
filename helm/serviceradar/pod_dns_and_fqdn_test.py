@@ -292,6 +292,14 @@ class PodDnsAndFqdnTest(unittest.TestCase):
         dgraph_dir = CHART_DIR / "charts" / "dgraph"
         self.assertFalse(dgraph_tgz.exists(), "charts/dgraph-24.1.4.tgz must be replaced by unpacked charts/dgraph/")
         self.assertTrue((dgraph_dir / "Chart.yaml").is_file(), "charts/dgraph/Chart.yaml must exist")
+        for manifest in ("Chart.yaml", "Chart.lock"):
+            deps = yaml.safe_load((CHART_DIR / manifest).read_text(encoding="utf-8"))["dependencies"]
+            dgraph_dep = next(d for d in deps if d["name"] == "dgraph")
+            self.assertFalse(
+                dgraph_dep.get("repository"),
+                f"{manifest} dgraph dependency must declare no repository so `helm dependency build` "
+                f"resolves charts/dgraph instead of fetching the unpatched upstream archive: {dgraph_dep}",
+            )
 
         dgraph_templates = [
             "templates/alpha/statefulset.yaml",
@@ -322,11 +330,12 @@ class PodDnsAndFqdnTest(unittest.TestCase):
                 if dns_cfg != EXPECTED_DNS_OPTIONS:
                     missing.append(f"dgraph:{tpl}:{doc['kind']}/{doc['metadata']['name']} -> {dns_cfg}")
                 if doc["kind"] == "CronJob":
-                    cmd_blob = json.dumps(pod.get("containers") or [])
-                    self.assertNotIn(
-                        '.svc"',
-                        cmd_blob,
-                        f"dgraph {tpl} ALPHA_HOST still ends with 2-dot .svc",
+                    scripts = [arg for c in pod.get("containers") or [] for arg in c.get("command") or []]
+                    alpha_hosts = [h for script in scripts for h in re.findall(r'^\s*ALPHA_HOST="([^"]*)"', script, re.M)]
+                    self.assertEqual(len(alpha_hosts), 1, f"dgraph {tpl} must set ALPHA_HOST once, saw {alpha_hosts}")
+                    self.assertTrue(
+                        alpha_hosts[0].endswith("-headless.${POD_NAMESPACE}.svc.cluster.local"),
+                        f"dgraph {tpl} ALPHA_HOST is not a 4-dot headless FQDN: {alpha_hosts[0]}",
                     )
 
         self.assertGreaterEqual(count, 5, f"Expected all 5 dgraph pod templates to render, got {count}")
