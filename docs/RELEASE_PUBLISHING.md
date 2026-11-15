@@ -76,8 +76,11 @@ Protected legacy attachment tags must be immutable before these workflows are
 enabled. Existing signature verification remains mandatory before and after
 promotion. Fixed protected tags are never replaced with a different digest;
 `latest` is updated only after the entire bundle has passed availability checks.
+An inventory `static_tags` entry that already exists in the protected project
+keeps its existing image; it is created on the promoted digest only when absent.
 The successful receipt records verified root digests and tags in `published`,
-separate from accessory artifacts, for chart packaging.
+separate from accessory artifacts, for chart packaging. It lists only the tags
+that point at the promoted digest, so a retained static tag is omitted.
 Publication verification fails if no trusted Cosign verification identity can
 be resolved; finding signature attachment layers alone is insufficient.
 

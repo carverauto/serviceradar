@@ -281,6 +281,29 @@ esac
         )
         self.assertNotEqual(result.returncode, 0)
 
+    def test_selective_verification_reads_the_protected_commit_images(self):
+        job = yaml.safe_load(self.workflow)["jobs"]["publish"]
+        step = next(s for s in job["steps"] if s.get("name") == "Verify web stack commit images")
+        self.assertEqual(step["if"], SELECTIVE_CONDITION.removeprefix("if: "))
+        sha = "1" * 40
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lookups = Path(temp_dir) / "lookups"
+            result, summary = run_workflow_step(
+                self.workflow,
+                "Verify web stack commit images",
+                {"GITHUB_SHA": sha, "OCI_REGISTRY": job["env"]["OCI_REGISTRY"],
+                 "OCI_PROJECT": job["env"]["OCI_PROJECT"], "LOOKUPS": str(lookups)},
+                {"oras": 'printf "%s\\n" "$4" >> "${LOOKUPS}"\nprintf \'{"digest":"placeholder"}\\n\'\n',
+                 "jq": f"printf '{VALID_DIGEST}\\n'\n"},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            recorded = lookups.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(recorded, [
+            f"registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-{sha}",
+            f"registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-{sha}",
+        ])
+        self.assertEqual(summary.count(VALID_DIGEST), 2)
+
     def test_digest_verification_propagates_external_failures(self):
         fake_commands = {
             "oras": """

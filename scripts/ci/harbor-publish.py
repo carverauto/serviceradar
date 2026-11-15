@@ -16,8 +16,8 @@ import sys
 import tempfile
 
 REGISTRY = "registry.carverauto.dev"
-TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:d857b8c8a9e4b383fe6deebbe5ebdb21edff519eb76ff86d5fd55f13c7b4c18d"
-TOOL_SHA = "69652191ba7263cc01a5d228c5c4e4259f5f3ed9fa04811e0a37bd67aa886f23"
+TOOL = REGISTRY + "/serviceradar/harbor-lifecycle-tools@sha256:79b233b262f95c9b6562f6083f5cfe87bb194238b0adc8212f021f6b3882e409"
+TOOL_SHA = "619999e47449d5371607ad759c04c9db446241872756f172da4c8c4474bc4e35"
 ROOT = Path(os.environ.get("SERVICERADAR_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", Path(__file__).resolve().parents[2])))
 
 
@@ -111,10 +111,12 @@ def promote(directory, args):
     for repository, entry in repositories:
         source = f"{REGISTRY}/serviceradar-builds/{repository}"
         digest = run("oras", "resolve", source + ":" + args.tags[0], env=build)
-        tags = list(dict.fromkeys(args.tags + entry.get("static_tags", [])))
-        for tag in tags:
+        requested = list(dict.fromkeys(args.tags))
+        static = [tag for tag in dict.fromkeys(entry.get("static_tags", [])) if tag not in requested]
+        for tag in requested + static:
             if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag):
                 raise ValueError("invalid publication tag")
+        for tag in requested:
             if run("oras", "resolve", source + ":" + tag, env=build) != digest:
                 raise ValueError(f"build tags disagree: {repository}:{tag}")
         referrers = json.loads(run("oras", "discover", "--format", "json", "--depth", "1", source + "@" + digest, env=build))
@@ -127,7 +129,7 @@ def promote(directory, args):
                 artifacts.append({"repository": repository,
                                   "digest": run("oras", "resolve", source + ":" + tag, env=build),
                                   "required_referrers": [], "legacy_tag": tag})
-        publish_tags.append((repository, digest, tags))
+        publish_tags.append((repository, digest, requested, static))
     bundle = directory / "bundle.json"
     bundle.write_text(json.dumps({"version": 1, "artifacts": artifacts}))
     receipt = run(sys.executable, str(directory / "tool/k8s/harbor/promote-artifacts.py"), str(bundle),
@@ -135,21 +137,30 @@ def promote(directory, args):
                   "--promotion-registry-config", str(directory / "promotion/config.json"))
     receipt = json.loads(receipt)
     references = {artifact["reference"] for artifact in receipt["artifacts"]}
-    # Check every fixed release tag before moving any deployment-facing tag.
-    # Harbor's immutable rules enforce this again against concurrent writers.
-    tag_updates = []
-    for repository, digest, tags in publish_tags:
+    # Check every requested fixed tag before moving any deployment-facing tag.
+    # An existing inventory static tag keeps its protected image; it is only
+    # created when absent. Harbor's immutable rules enforce this again.
+    tag_updates, published = [], []
+    for repository, digest, requested, static in publish_tags:
         target = f"{REGISTRY}/serviceradar/{repository}"
         existing = json.loads(run("oras", "repo", "tags", "--format", "json", target, env=protected))["tags"]
-        pending = []
-        for tag in tags:
+        pending, current = [], []
+        for tag in requested:
+            current.append(tag)
             if tag in existing:
                 if run("oras", "resolve", target + ":" + tag, env=protected) == digest:
                     continue
                 if tag != "latest":
                     raise ValueError(f"refusing to replace fixed protected tag: {repository}:{tag}")
             pending.append(tag)
+        for tag in static:
+            if tag not in existing:
+                pending.append(tag)
+                current.append(tag)
+            elif run("oras", "resolve", target + ":" + tag, env=protected) == digest:
+                current.append(tag)
         tag_updates.append((repository, digest, pending))
+        published.append({"repository": repository, "digest": digest, "tags": current})
     for repository, digest, tags in tag_updates:
         reference = f"{REGISTRY}/serviceradar/{repository}@{digest}"
         if reference not in references:
@@ -158,8 +169,7 @@ def promote(directory, args):
         # after complete verified promotion; trust verification follows in CI.
         if tags:
             subprocess.run(["oras", "tag", reference, *tags], env=protected, check=True)
-    receipt["published"] = [{"repository": repository, "digest": digest, "tags": tags}
-                            for repository, digest, tags in publish_tags]
+    receipt["published"] = published
     serialized = json.dumps(receipt, indent=2) + "\n"
     # Keep every promotion (including images followed by a chart) as secret-free
     # upload evidence. receipt.json remains the latest receipt for chart assembly.
