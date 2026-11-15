@@ -897,3 +897,19 @@ Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.
   schema-generation digest, after which every run of that digest clones the ready generation. Do not reintroduce
   baselining there. `ServiceRadar.Cluster.StartupMigrations` still baselines a fresh deployment
   and has the same latent problem; that path is not yet fixed.
+
+- **A baseline install must end up where a replayed install ends up: schema, seed rows and
+  TimescaleDB policy state.** The covered migrations never run on a fresh install, so the
+  baseline carries what they did. Regenerate it only with
+  `DATABASE_URL=<replayed empty database> bazel run //build/schema_baseline:generate` (needs
+  PostgreSQL 18 `pg_dump`/`psql` on PATH, or `PG_DUMP`/`PSQL`). Besides the dump it writes
+  hypertable and continuous-aggregate registration, compression settings with compression and
+  retention policies, and the rows the migrations seeded, with non-immutable defaults (ids,
+  epochs, timestamps) left for each install to generate. It stops when the catalog holds state it
+  does not reproduce. `included_through` is the newest version in that database's ledger, so
+  `mix ecto.migrate --to <version>` on an empty scratch database (create its `platform` schema
+  first, so the ledger lands there) regenerates at a chosen version.
+  `//build/contracts:schema_baseline_freshness_test` fails when a covered migration's seed rows
+  or policies are missing from the baseline, and the bootstrap integration test compares a
+  baseline-created database's policy state with the lane's replayed one. Never seed rows in
+  `SchemaBootstrap`; a seed belongs in a migration, and the next regeneration carries it.
