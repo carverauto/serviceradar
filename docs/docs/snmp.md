@@ -128,12 +128,31 @@ Configure which OIDs to poll for each target. You can use the built-in OID templ
 
 ### OID Templates
 
-ServiceRadar includes built-in OID templates for common device types:
+A profile polls the devices its target query selects with the OIDs of the
+templates it lists. A profile with a target query and no OIDs polls only its
+explicit targets; see [Profiles With No OIDs](#profiles-with-no-oids).
 
-**Standard (MIB-II):**
-- Interface Statistics: ifInOctets, ifOutOctets, ifOperStatus, ifSpeed
-- System Info: sysDescr, sysUpTime, sysName, sysLocation
-- IP Statistics: ipInReceives, ipOutRequests, ipInDiscards
+ServiceRadar includes built-in OID templates for common device types.
+
+**Standard (MIB-II / IF-MIB):** built in to every install, under the same ids
+everywhere, and selectable in a profile's **OID Templates** list. Built-in
+templates are read-only; copy one to a custom template to change it. Interface
+OIDs are table columns, so they are walked: each interface becomes its own
+series.
+- System Uptime: sysUpTime (seconds). Polled by the default profile.
+- Interface Counters: ifHCInOctets, ifHCOutOctets, ifHCInUcastPkts,
+  ifHCOutUcastPkts, ifInErrors, ifOutErrors, ifInDiscards, ifOutDiscards,
+  ifOperStatus. Polled by the default profile. SNMPv1-only devices have no
+  64-bit counters; use Interface Statistics for them.
+- Interface Statistics (32-bit): ifInOctets, ifOutOctets, ifOperStatus,
+  ifSpeed, ifAdminStatus, ifInErrors, ifOutErrors
+- High-Capacity Interface Statistics: ifHCInOctets, ifHCOutOctets,
+  ifHCInUcastPkts, ifHCOutUcastPkts, ifHighSpeed
+- System Information: sysDescr, sysUpTime, sysName, sysLocation, sysContact
+- IP, TCP and SNMP Statistics: scalar MIB-II counters
+
+The vendor templates below are a catalog for the OID Template browser, which
+copies their OIDs into an explicit target or a custom template.
 
 **Cisco:**
 - CPU/Memory: cpmCPUTotal5sec, cpmCPUTotal1min, ciscoMemoryPoolUsed
@@ -263,6 +282,27 @@ The default is a conservative choice, not a measured agent limit. Each target
 is its own collector on the agent and nothing in the agent caps their number.
 10,000 matches the default already used for add-on profile targets, and keeps
 one profile's configuration near 3 MB.
+
+### Profiles With No OIDs
+
+A profile whose target query selects devices while its OID templates name no
+OID compiles no target for those devices. It is reported, not refused:
+
+- **When it is compiled for an agent.** Core emits the
+  `[:serviceradar, :snmp, :profile_without_oids]` telemetry event with the
+  profile and the agent on every such compile, and logs a warning when the
+  condition starts or the target query changes.
+- **In Settings.** The profile list marks the profile **No OIDs**.
+
+Saving such a profile is allowed, because a template can be deleted or emptied
+after the profile is saved. To fix it, attach an OID template, such as the
+built-in Interface Counters.
+
+The default profile references System Uptime and Interface Counters. An
+upgrade attaches them to a default profile that lists no template, and leaves
+a default profile that lists any template alone. Check the default profile's
+target query before upgrading: from then on it polls every device the query
+selects.
 
 ### Monitoring Agent SNMP Status
 

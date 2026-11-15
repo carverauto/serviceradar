@@ -607,3 +607,68 @@ func walkRootFor(variables []gosnmp.SnmpPDU) string {
 
 	return cppmServiceNameColumn
 }
+
+// Gauges built from TimeTicks and INTEGER PDUs reach the data channel: sysUpTime
+// ticks are hundredths of a second (RFC 2579 TimeTicks), so 10000 ticks with
+// scale 0.01 is 100 seconds, and an ifOperStatus INTEGER of 1 (up) is 1.
+func TestCollectorPollTarget_TimeTicksAndIntegerGauges(t *testing.T) {
+	const (
+		sysUpTime     = ".1.3.6.1.2.1.1.3.0"
+		ifOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
+		ifAdminStatus = ".1.3.6.1.2.1.2.2.1.7.3"
+	)
+
+	pduValue := func(t *testing.T, pdu gosnmp.SnmpPDU) interface{} {
+		t.Helper()
+
+		value, err := (&SNMPClientImpl{}).convertVariable(pdu)
+		require.NoError(t, err)
+
+		return value
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := NewMockSNMPClient(ctrl)
+	client.EXPECT().
+		Get([]string{sysUpTime, ifAdminStatus}).
+		Return(map[string]interface{}{
+			sysUpTime:     pduValue(t, gosnmp.SnmpPDU{Name: sysUpTime, Type: gosnmp.TimeTicks, Value: uint32(10000)}),
+			ifAdminStatus: pduValue(t, gosnmp.SnmpPDU{Name: ifAdminStatus, Type: gosnmp.Integer, Value: 2}),
+		}, nil)
+	client.EXPECT().
+		Walk(ifOperStatus, defaultWalkMaxRows, defaultWalkTimeout).
+		Return([]WalkResult{
+			{
+				OID:   ifOperStatus + ".1",
+				Index: "1",
+				Value: pduValue(t, gosnmp.SnmpPDU{Name: ifOperStatus + ".1", Type: gosnmp.Integer, Value: 1}),
+			},
+		}, nil)
+	client.EXPECT().Close().Return(nil).Times(1)
+
+	collector := newTestCollector(client, []OIDConfig{
+		{OID: sysUpTime, Name: "sysUpTime", DataType: TypeGauge, Scale: 0.01},
+		{OID: ifAdminStatus, Name: "ifAdminStatus", DataType: TypeGauge, Scale: 1},
+		{OID: ifOperStatus, Name: "ifOperStatus", DataType: TypeGauge, Scale: 1, Mode: ModeWalk},
+	})
+
+	require.NoError(t, collector.pollTarget(context.Background()))
+
+	values := make(map[string]float64)
+	for _, point := range drainDataPoints(collector) {
+		if point.OIDName == TargetAvailableMetric {
+			continue
+		}
+
+		value, ok := toFloat64(point.Value)
+		require.True(t, ok, "%s value %T is not numeric", point.OIDName, point.Value)
+		values[point.OIDName] = value
+	}
+
+	require.Len(t, values, 3)
+	require.InDelta(t, 100.0, values["sysUpTime"], 1e-9)
+	require.InDelta(t, 2.0, values["ifAdminStatus"], 0)
+	require.InDelta(t, 1.0, values["ifOperStatus::index:1"], 0)
+}
