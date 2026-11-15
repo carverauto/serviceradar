@@ -32,6 +32,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   @lease_ms 30_000
   @call_cap_ms 5_000
   @cleanup_timeout_ms 2_000
+  @max_capture_timeout_ms 300_000
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
   @default_bounds %{
     max_frames: 240,
@@ -208,23 +209,23 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     abort_stream(%{state | detached?: true}, :ingest_stopped)
   end
 
-  def handle_info(:renew_lease, %{detached?: true} = state), do: {:noreply, %{state | lease_timer: nil}}
-  def handle_info(:renew_lease, %{abort_reason: reason} = state) when not is_nil(reason), do: {:noreply, state}
+  def handle_info(:renew_lease, %{abort_reason: reason} = state) when not is_nil(reason),
+    do: {:noreply, %{state | lease_timer: nil}}
+
+  def handle_info(:renew_lease, %{input_complete?: true, sender_pid: nil} = state),
+    do: {:noreply, %{state | lease_timer: nil}}
 
   def handle_info(:renew_lease, state) do
     request_start = now()
+    state = %{state | lease_timer: nil}
 
     with {:ok, renew_opts} <- capture_call_opts(state),
          {:ok, _gate} <- check_recovery_gate(),
          {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, renew_opts),
-         :ok <- Inbox.renew(state.inbox, compute_deadline(request_start, claim, state.capture)) do
-      {:noreply, schedule_renewal(%{state | claim: claim, lease_timer: nil})}
+         :ok <- renew_inbox(state.inbox, compute_deadline(request_start, claim, state.capture)) do
+      {:noreply, schedule_renewal(%{state | claim: claim})}
     else
-      {:error, :recording_stopped} ->
-        handle_administrative_stop(state)
-
-      {:error, reason} ->
-        abort_stream(state, reason)
+      {:error, reason} -> renewal_failed(state, reason)
     end
   end
 
@@ -307,12 +308,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     :exit, _reason -> {:error, :ingest_stopped}
   end
 
-  defp ensure_sender_started(%{sender_pid: pid} = state) when is_pid(pid), do: state
+  defp renew_inbox(nil, _deadline_ms), do: :ok
+  defp renew_inbox(inbox, deadline_ms), do: Inbox.renew(inbox, deadline_ms)
+
+  defp renewal_failed(%{detached?: true} = state, :recording_stopped), do: {:noreply, state}
+  defp renewal_failed(state, :recording_stopped), do: handle_administrative_stop(state)
+  defp renewal_failed(state, reason), do: abort_stream(state, reason)
+
+  defp ensure_sender_started(%{sender_pid: pid} = state) when is_pid(pid), do: {:ok, state}
 
   defp ensure_sender_started(state) do
+    case state.capture.deadline - now() do
+      remaining_ms when remaining_ms <= 0 -> {:error, :capture_timeout}
+      remaining_ms when remaining_ms > @max_capture_timeout_ms -> {:error, :invalid_capture_timeout}
+      remaining_ms -> {:ok, spawn_sender(state, remaining_ms)}
+    end
+  end
+
+  defp spawn_sender(state, timeout_ms) do
     worker = self()
     sender_ref = make_ref()
-    timeout_ms = max(1_000, state.capture.deadline - now())
     client_config = state.client_config
     header = state.wire_header
 
@@ -394,9 +409,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
           bytes_accepted: next_bytes
       }
 
-      next = ensure_sender_started(next)
-      next = if reached_bound?, do: detach_recorder(%{next | bound_reached?: true}), else: next
-      {:noreply, maybe_reply_puller(next)}
+      send_queued_unit(next, reached_bound?)
+    end
+  end
+
+  defp send_queued_unit(state, reached_bound?) do
+    case ensure_sender_started(state) do
+      {:ok, next} ->
+        next = if reached_bound?, do: detach_recorder(%{next | bound_reached?: true}), else: next
+        {:noreply, maybe_reply_puller(next)}
+
+      {:error, reason} ->
+        abort_stream(state, reason)
     end
   end
 
@@ -443,9 +467,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp detach_recorder(%{detached?: true} = state), do: state
 
   defp detach_recorder(state) do
-    if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
-
-    state = %{state | detached?: true, lease_timer: nil}
+    state = %{state | detached?: true}
     if state.inbox, do: drain_or_cancel_inbox(state), else: %{state | input_complete?: true}
   end
 
@@ -476,6 +498,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp fail_drain(state, reason) do
     resolved = resolve_drain_abort_reason(state, reason)
     Inbox.cancel(state.inbox)
+    state = cancel_lease_timer(state)
     %{state | input_complete?: true, abort_reason: state.abort_reason || resolved}
   end
 
@@ -516,6 +539,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp abort_stream(state, reason) do
     if state.inbox, do: Inbox.cancel(state.inbox)
+    state = cancel_lease_timer(state)
 
     next =
       maybe_reply_puller(%{state | abort_reason: state.abort_reason || reason, detached?: true, input_complete?: true})
@@ -537,7 +561,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp finalize_send_result(state, send_result) do
     if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
-    state = %{state | sender_pid: nil, sender_monitor: nil}
+    state = cancel_lease_timer(%{state | sender_pid: nil, sender_monitor: nil})
     expected_key = state.block.block_key
     expected_storage = state.storage_id
 
@@ -570,6 +594,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp finalize_uncertain(state, reason) do
     if state.inbox, do: Inbox.cancel(state.inbox)
+    state = cancel_lease_timer(state)
 
     if is_pid(state.sender_pid) and Process.alive?(state.sender_pid) do
       if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
@@ -648,22 +673,24 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp build_capture(opts) do
     caller = Keyword.get(opts, :caller)
-    deadline = resolve_deadline(opts)
 
-    if is_pid(caller) and is_integer(deadline) do
+    with true <- is_pid(caller) || {:error, :invalid_capture},
+         {:ok, deadline} <- resolve_deadline(opts) do
       capture = %{caller: caller, deadline: deadline, monitor: Process.monitor(caller)}
       start_capture_timer(capture, check_capture(capture))
-    else
-      {:error, :invalid_capture}
     end
   end
 
   defp resolve_deadline(opts) do
     case {Keyword.get(opts, :deadline), Keyword.get(opts, :timeout_ms, 25_000)} do
-      {deadline, _} when is_integer(deadline) -> deadline
-      {nil, timeout_ms} when is_integer(timeout_ms) and timeout_ms > 0 -> now() + timeout_ms
-      _ -> nil
+      {deadline, _} when is_integer(deadline) -> bounded_deadline(deadline)
+      {nil, timeout_ms} when timeout_ms in 1..@max_capture_timeout_ms -> {:ok, now() + timeout_ms}
+      _ -> {:error, :invalid_capture_timeout}
     end
+  end
+
+  defp bounded_deadline(deadline) do
+    if deadline - now() > @max_capture_timeout_ms, do: {:error, :invalid_capture_timeout}, else: {:ok, deadline}
   end
 
   defp start_capture_timer(capture, :ok) do
@@ -721,8 +748,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   defp schedule_renewal(state) do
+    state = cancel_lease_timer(state)
     delay = min(5_000, max(1, div(Inbox.remaining_ms(state.inbox), 2)))
     %{state | lease_timer: Process.send_after(self(), :renew_lease, delay)}
+  end
+
+  defp cancel_lease_timer(%{lease_timer: nil} = state), do: state
+
+  defp cancel_lease_timer(state) do
+    Process.cancel_timer(state.lease_timer)
+    %{state | lease_timer: nil}
   end
 
   defp notify(%{notify: pid}, event) when is_pid(pid), do: send(pid, {:camera_nvr_capture, self(), event})

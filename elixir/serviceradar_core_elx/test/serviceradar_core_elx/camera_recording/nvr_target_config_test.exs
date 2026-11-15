@@ -120,6 +120,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
     assert {:error, :invalid_capture_timeout} =
              NVRCapture.once_relay(relay_id, "serviceradar-nvr-0", timeout_ms: 0)
 
+    assert {:error, :invalid_capture_timeout} =
+             NVRCapture.once_relay(relay_id, "serviceradar-nvr-0", timeout_ms: 300_001)
+
+    assert {:error, :invalid_capture_timeout} =
+             NVRCapture.capture_on_host(relay_id, "serviceradar-nvr-0", self(), 600_000, [])
+
     assert {:error, :invalid_camera_source_id} =
              NVRCapture.once_source("not-a-uuid", profile_id, "serviceradar-nvr-0")
 

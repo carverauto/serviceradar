@@ -24,6 +24,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
 
   @default_timeout_ms 30_000
+  @max_timeout_ms 300_000
   @poll_interval_ms 100
   @interrupt_drain_ms 8_500
 
@@ -58,8 +59,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
   @doc false
   def capture_on_host(relay_session_id, member, remote_caller, timeout_ms, worker_opts)
-      when is_binary(relay_session_id) and is_binary(member) and is_pid(remote_caller) and is_integer(timeout_ms) and
-             timeout_ms > 0 and is_list(worker_opts) do
+      when is_binary(relay_session_id) and is_binary(member) and is_pid(remote_caller) and
+             timeout_ms in 1..@max_timeout_ms and is_list(worker_opts) do
     deadline = now() + timeout_ms
     caller_monitor = Process.monitor(remote_caller)
 
@@ -90,6 +91,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
       Process.demonitor(caller_monitor, [:flush])
     end
   end
+
+  def capture_on_host(_relay_session_id, _member, _remote_caller, timeout_ms, _worker_opts)
+      when timeout_ms not in 1..@max_timeout_ms,
+      do: {:error, :invalid_capture_timeout}
 
   defp capture_requested_session(session, member, actor, {_caller, caller_monitor} = watch, deadline, opts) do
     case await_active_relay(session.id, actor, caller_monitor, deadline) do
@@ -319,7 +324,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   defp run_bounded(opts, fun) do
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
 
-    if is_integer(timeout_ms) and timeout_ms > 0 do
+    if timeout_ms in 1..@max_timeout_ms do
       do_run_bounded(timeout_ms, fun)
     else
       {:error, :invalid_capture_timeout}

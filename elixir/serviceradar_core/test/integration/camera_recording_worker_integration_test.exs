@@ -1267,6 +1267,90 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert block.state == :open_local
   end
 
+  test "NVRCapture rejects a capture timeout beyond the NVR client limit before taking the recorder fence",
+       ctx do
+    _owner = owner(ctx, 30_000)
+
+    assert {:error, :invalid_capture_timeout} =
+             NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+               actor: ctx.actor,
+               timeout_ms: 600_000
+             )
+
+    assert {:error, :invalid_capture_timeout} =
+             NVRCapture.capture_on_host(ctx.relay.id, "serviceradar-nvr-0", self(), 600_000, [])
+
+    assert recorder_claim(ctx) == nil
+    assert recording_blocks(ctx) == []
+  end
+
+  test "NVRCapture keeps renewing the recorder fence after a bound while the NVR seal response is outstanding",
+       ctx do
+    owner = owner(ctx, 30_000)
+    abs_tmp = Path.expand(ctx.tmp_dir)
+    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "holding-certs"))
+    port = start_holding_tls_peer(certs, self())
+    storage_id = Ecto.UUID.generate()
+    token_file = Path.join(abs_tmp, "holding-token")
+    config_file = Path.join(abs_tmp, "holding-client.json")
+    File.write!(token_file, "synthetic-nvr-holding-token-0123456789")
+
+    File.write!(
+      config_file,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => port,
+        "ca_file" => certs.client_ca,
+        "cert_file" => certs.client_cert,
+        "key_file" => certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
+      })
+    )
+
+    task =
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: config_file,
+          token_file: token_file,
+          timeout_ms: 14_000,
+          bounds: %{max_frames: 3, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+
+    worker = await_nvr_worker_attached(owner)
+    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive :nvr_holding_peer_accepted, 5_000
+
+    await_capture(
+      fn -> if :sys.get_state(worker).detached?, do: {:ready, :ok}, else: :waiting end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+
+    detached_lease = recorder_claim(ctx).lease_expires_at
+
+    await_capture(
+      fn ->
+        claim = recorder_claim(ctx)
+
+        if DateTime.compare(claim.lease_expires_at, detached_lease) == :gt,
+          do: {:ready, :ok},
+          else: :waiting
+      end,
+      System.monotonic_time(:millisecond) + 9_000
+    )
+
+    assert recorder_claim(ctx).state == :active
+    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 30_000)
+    assert details.storage_id == storage_id
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :active
+    assert claim.storage_id == storage_id
+  end
+
   defp await_nvr_worker_attached(owner) do
     await_capture(
       fn ->
@@ -1602,6 +1686,34 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         {:ok, chunk} -> read_until_body_started(ssl_sock, acc <> chunk)
         _ -> acc
       end
+    end
+  end
+
+  defp start_holding_tls_peer(certs, notify_pid) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> holding_peer_accept(listen, notify_pid) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    port
+  end
+
+  defp holding_peer_accept(listen, notify_pid) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         {:ok, ssl_sock} <- :ssl.handshake(transport, 5_000) do
+      send(notify_pid, :nvr_holding_peer_accepted)
+      holding_peer_read(ssl_sock)
+    end
+  end
+
+  defp holding_peer_read(ssl_sock) do
+    case :ssl.recv(ssl_sock, 0, 30_000) do
+      {:ok, _chunk} -> holding_peer_read(ssl_sock)
+      _ -> :ok
     end
   end
 
