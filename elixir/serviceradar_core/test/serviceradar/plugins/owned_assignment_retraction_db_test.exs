@@ -20,6 +20,7 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetractionDbTest do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PluginTargetPolicy
+  alias ServiceRadar.Plugins.PluginTargetPolicyOps
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler.AshStore
   alias ServiceRadar.Repo
@@ -194,6 +195,52 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetractionDbTest do
                assignment(dropped)
 
       assert by == ctx.plugin_operator.id
+    end
+  end
+
+  # SRQL answers a request that names no limit with 100 rows, and a target
+  # policy's operations once read that one page as the policy's whole
+  # selection.
+  describe "a target policy selecting more than one SRQL page" do
+    setup ctx do
+      agents = Enum.map(1..101, &"agent-wide-#{ctx.unique}-#{&1}")
+
+      agents
+      |> Enum.with_index(1)
+      |> Enum.each(fn {agent_uid, n} -> device!(agent_uid, "198.51.100.#{n}") end)
+
+      selection = "in:devices hostname:host-agent-wide-#{ctx.unique}-%"
+      policy = policy!(ctx, [%{"name" => "wide", "entity" => "devices", "query" => selection}])
+
+      {:ok, agents: agents, selection: selection, policy: policy}
+    end
+
+    # Every agent past the 100th looked uncovered, so an edit that kept them
+    # all in scope retracted their assignments.
+    test "changing the policy's inputs keeps every agent its query still selects", ctx do
+      ids =
+        Enum.map(
+          ctx.agents,
+          &assignment!(ctx, to_string(ctx.policy.id), "SITE02-#{ctx.unique}", agent_uid: &1)
+        )
+
+      renamed = [%{"name" => "renamed", "entity" => "devices", "query" => ctx.selection}]
+
+      ctx.policy
+      |> Ash.Changeset.for_update(:update, %{input_definitions: renamed},
+        actor: ctx.plugin_operator
+      )
+      |> Ash.update!()
+
+      assert Enum.reject(ids, &assignment(&1).enabled) == []
+    end
+
+    test "the policy preview counts every selected device and agent", ctx do
+      assert {:ok, preview} = PluginTargetPolicyOps.preview_by_id(ctx.policy.id, actor: @system)
+
+      assert preview.summary.matched_rows == 101
+      assert preview.summary.agents == 101
+      assert length(preview.per_agent_counts) == 101
     end
   end
 

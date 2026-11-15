@@ -2,6 +2,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
+  alias ServiceRadar.TestSupport.PagedSRQLRunner
 
   defmodule ResolverV1 do
     @moduledoc false
@@ -234,6 +235,45 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end)
 
     :ok
+  end
+
+  # SRQL answers a request with no limit with 100 rows. A credential rule's
+  # materialization reconciles its whole target query onto one agent, so a
+  # one-page read never created assignments for the targets past the 100th.
+  test "every target of a selection larger than one SRQL page is assigned" do
+    devices =
+      Enum.map(1..250, fn n ->
+        %{"uid" => "sr:device:#{n}", "ip" => "192.0.2.#{rem(n, 250) + 1}"}
+      end)
+
+    policy = %{
+      policy_id: "network-credential-rule:rule-1:device_inventory",
+      policy_version: 1,
+      plugin_package_id: Ecto.UUID.generate(),
+      enabled: true
+    }
+
+    input_defs = [%{name: "targets", entity: "devices", query: "in:devices vendor:Example"}]
+
+    assert {:ok, result} =
+             PolicyAssignmentReconciler.reconcile(policy, input_defs,
+               runner: PagedSRQLRunner.serving(devices),
+               store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "SITE01"} end,
+               target_agent_uid: "agent-a",
+               agent_scope: ["agent-a"],
+               chunk_size: 100
+             )
+
+    assert result.upserted == result.desired_assignments
+
+    delivered =
+      for row <- MemoryStore.rows(),
+          %{"items" => items} <- row.params["inputs"],
+          item <- items,
+          do: item["uid"]
+
+    assert Enum.sort(delivered) == devices |> Enum.map(& &1["uid"]) |> Enum.sort()
   end
 
   test "reconcile is idempotent and disables stale assignments" do

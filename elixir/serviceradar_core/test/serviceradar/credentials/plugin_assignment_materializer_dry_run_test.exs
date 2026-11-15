@@ -2,7 +2,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
+  alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
+  alias ServiceRadar.TestSupport.PagedSRQLRunner
 
   @secret_id "018f3f56-aaaa-7bbb-8ccc-123456789abc"
 
@@ -72,14 +74,22 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
     refute Jason.encode!(params) =~ "sentinel-literal"
   end
 
-  test "bounds and scope-filters resolved targets" do
+  # The total counts the rule's whole selection: SRQL answers a request with no
+  # limit with 100 rows, so a one-page read under-reported every larger rule.
+  test "reports the total of the whole in-scope selection beside a bounded sample" do
     rows =
-      for i <- 1..60 do
-        %{"uid" => "dev-#{i}", "agent_id" => if(i == 60, do: "agent-b", else: "agent-a")}
+      for i <- 1..160 do
+        %{"uid" => "dev-#{i}", "agent_id" => if(i == 160, do: "agent-b", else: "agent-a")}
       end
 
-    assert {:ok, result} = dry_run(rule(%{}), fake_rows: rows, target_limit: 50)
-    assert result.targets.total == 59
+    assert {:ok, result} =
+             dry_run(rule(%{}),
+               resolver: SRQLInputResolver,
+               runner: PagedSRQLRunner.serving(rows),
+               target_limit: 50
+             )
+
+    assert result.targets.total == 159
     assert length(result.targets.sample) == 50
     assert result.targets.truncated?
   end

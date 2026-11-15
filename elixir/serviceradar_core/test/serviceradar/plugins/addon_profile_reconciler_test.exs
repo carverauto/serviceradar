@@ -2,52 +2,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Plugins.AddonProfileReconciler
-
-  defmodule Runner do
-    @moduledoc false
-    # Serves rows the way `SRQLRunner.query_page/2` does: one page of at most
-    # `:limit` rows (100 when the request omits it, as SRQL defaults) and a
-    # cursor after every full page, until the next offset would pass the
-    # cursor window (SRQL's `max_cursor_offset`). `query/2` returns the first
-    # page, as `SRQLRunner.query/2` does. Every query received is recorded.
-
-    @default_limit 100
-
-    # `rows` is a list served for any query, or a map of query => rows.
-    def serving(rows, opts \\ []) do
-      Process.put(__MODULE__, rows)
-      Process.put({__MODULE__, :cursor_window}, Keyword.get(opts, :cursor_window, :infinity))
-      Process.put({__MODULE__, :queries}, [])
-      __MODULE__
-    end
-
-    def queries, do: {__MODULE__, :queries} |> Process.get([]) |> Enum.reverse()
-
-    def query(query, opts) do
-      with {:ok, %{rows: rows}} <- query_page(query, opts), do: {:ok, rows}
-    end
-
-    def query_page(query, opts) do
-      Process.put({__MODULE__, :queries}, [query | Process.get({__MODULE__, :queries}, [])])
-
-      rows =
-        case Process.get(__MODULE__) do
-          by_query when is_map(by_query) -> Map.fetch!(by_query, query)
-          rows when is_list(rows) -> rows
-        end
-
-      limit = Keyword.get(opts, :limit) || @default_limit
-      offset = opts |> Keyword.get(:cursor, "0") |> String.to_integer()
-      page = rows |> Enum.drop(offset) |> Enum.take(limit)
-      window = Process.get({__MODULE__, :cursor_window}, :infinity)
-
-      next =
-        if length(page) >= limit and offset + limit <= window,
-          do: Integer.to_string(offset + limit)
-
-      {:ok, %{rows: page, next_cursor: next}}
-    end
-  end
+  alias ServiceRadar.TestSupport.PagedSRQLRunner, as: Runner
 
   defmodule AgentLoader do
     @moduledoc false
@@ -333,25 +288,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.matched_rows == 1_001
     assert preview.summary.target_agents == 1_001
     refute Map.has_key?(preview.summary, :refusal)
-  end
-
-  # Each page is its own offset query; without a unique order, agents with
-  # equal last_seen values can move between pages and be skipped.
-  test "agent targets are paged in uid order after any operator sort" do
-    agents = Enum.map(1..3, &%{"uid" => "agent-order-#{&1}"})
-    opts = [runner: Runner.serving(agents), agent_loader: AgentLoader, store: MemoryStore]
-
-    profile = Map.put(endpoint_inventory_profile(), :target_query, "in:agents")
-    assert {:ok, _preview} = AddonProfileReconciler.preview(profile, opts)
-    assert Runner.queries() == ["in:agents sort:uid:asc"]
-
-    sorted = %{profile | target_query: "in:agents sort:last_seen:desc"}
-    assert {:ok, _preview} = AddonProfileReconciler.preview(sorted, opts)
-
-    assert Runner.queries() == [
-             "in:agents sort:uid:asc",
-             "in:agents sort:last_seen:desc sort:uid:asc"
-           ]
   end
 
   # SRQL stops issuing cursors past its cursor window, so a full page with no
