@@ -16,6 +16,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.ReusableCredential
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   @tag :integration
@@ -311,6 +312,33 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
              "site-a-community",
              "site-b-community"
            ]
+  end
+
+  @tag :integration
+  test "a job's community credential delivers its stored SNMP version, v2c when it has none" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "version-partition-#{suffix}"
+
+    {:ok, versionless} =
+      create_mapper_secret("snmp", "Versionless #{suffix}", "versionless-community", actor)
+
+    {:ok, v1} =
+      ReusableCredential.create(:v1, "SNMPv1 #{suffix}", %{community: "v1-community"},
+        actor: actor
+      )
+
+    jobs =
+      for {name, secret} <- [{"Versionless #{suffix}", versionless}, {"V1 #{suffix}", v1}] do
+        mapper_job_fixture(name, partition, :snmp, secret.id, ["192.0.2.80"], actor)
+      end
+
+    {:ok, config} = MapperCompiler.compile(partition, nil, actor: actor)
+
+    assert [
+             %{"version" => "v2c", "community" => "versionless-community"},
+             %{"version" => "v1", "community" => "v1-community"}
+           ] = Enum.map(jobs, &compiled_job(config, &1.name)["credentials"])
   end
 
   @tag :integration

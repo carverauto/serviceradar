@@ -6,7 +6,9 @@ defmodule ServiceRadar.SNMPProfiles.ReusableCredential do
   SNMP descriptor rather than being assembled by the caller, so a shared SNMP
   credential is validated, encoded, fingerprinted and redacted by exactly the
   same code as a package-owned one. Choosing the auth method from the SNMP
-  version is the only SNMP-specific decision.
+  version is the only SNMP-specific decision. A community credential stores
+  its version (`v1` or `v2c`) with the community, so a job or profile that
+  references it without a version of its own still delivers that version.
 
   Used by the SNMP profile form's "save as reusable" and by the mapper job
   credential backfill, which promotes inline profile material the same way.
@@ -28,7 +30,8 @@ defmodule ServiceRadar.SNMPProfiles.ReusableCredential do
   @spec create(atom() | String.t(), String.t(), map(), keyword()) ::
           {:ok, NetworkCredentialSecret.t()} | {:error, term()}
   def create(version, name, field_values, opts) do
-    auth_method = if to_string(version) in ["v1", "v2c"], do: "community", else: "v3"
+    version = to_string(version)
+    auth_method = if version in ["v1", "v2c"], do: "community", else: "v3"
     {description, ash_opts} = Keyword.pop(opts, :description)
 
     values =
@@ -37,6 +40,7 @@ defmodule ServiceRadar.SNMPProfiles.ReusableCredential do
       |> Map.take(@fields)
       |> Enum.reject(fn {_key, value} -> is_nil(value) or String.trim(to_string(value)) == "" end)
       |> Map.new(fn {key, value} -> {key, stored_name(key, to_string(value))} end)
+      |> put_community_version(auth_method, version)
 
     with {:ok, descriptor} <- fetch_descriptor(),
          {:ok, attrs} <-
@@ -49,6 +53,11 @@ defmodule ServiceRadar.SNMPProfiles.ReusableCredential do
       |> Ash.create(ash_opts)
     end
   end
+
+  defp put_community_version(values, "community", version),
+    do: Map.put(values, "version", version)
+
+  defp put_community_version(values, _auth_method, _version), do: values
 
   defp fetch_descriptor do
     case NativeDescriptors.fetch("snmp") do

@@ -237,7 +237,14 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         SNMPProfile,
         :snmp,
         SNMPCompiler,
-        action_names: [:create, :update, :destroy, :set_as_default, :unset_default],
+        action_names: [
+          :create,
+          :update,
+          :bind_reusable_credential,
+          :destroy,
+          :set_as_default,
+          :unset_default
+        ],
         secret_fields: [:community, :auth_password, :priv_password]
       ),
       config_server_entry(

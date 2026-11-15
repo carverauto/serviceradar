@@ -169,6 +169,24 @@ material, decryption. It visits only marked jobs:
      source that already has a reusable secret id, including one rebound earlier
      in the same run for another job sharing it, is bound to that id and never
      promoted again. There is still one copy, so rotation stays single-source.
+     The source is rebound by a system-only update action,
+     `:bind_reusable_credential` on `SNMPProfile` and `DeviceSNMPCredential`,
+     which sets only `credential_secret_id` (clearing the inline material as any
+     bind does) and does not re-run the profile's target-limit or SRQL checks:
+     the rebind does not change what the profile selects, and a default profile
+     past the target limit must not block it.
+   - the agreed credential cannot be reproduced by referencing its source's
+     secret from the job (the secret's payload lacks a field the source record
+     supplied, such as `v1` on a profile whose community secret has no version):
+     bind a reusable copy of the resolved credential.
+   - A promoted or copied credential's name is unique per provider; a taken
+     name gets the first free numeric suffix (` 2`, ` 3`, ...).
+   - A reusable community credential stores its SNMP version (`v1` or `v2c`)
+     beside the community; a payload without one resolves as `v2c`. A job
+     reference has no version of its own, so the payload's version is what a
+     job delivers, and a legacy SNMPv1 community round-trips through promotion
+     or copy instead of reading back as `v2c`. A credential that still cannot be
+     reproduced leaves the job unbound (`not_reproducible`) and clears its mark.
 3. If agents disagree, or the chain agrees on no credential, decide the job as
    deliberately unbound. It then shows the Decision 3 warning, the honest state,
    since no single credential reproduces the old behaviour.

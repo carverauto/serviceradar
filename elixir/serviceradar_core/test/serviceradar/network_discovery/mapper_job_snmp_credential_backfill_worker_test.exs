@@ -65,6 +65,98 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
     assert compiled_community(partition, nil, job, actor) == "inline-community"
   end
 
+  test "promotes an inline SNMPv1 community so the job still delivers v1", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-v1-inline-#{suffix}"
+    agent_fixture("agent-v1-inline-#{suffix}", partition, actor)
+    profile_fixture("V1 inline #{suffix}", %{version: :v1, community: "v1-community"}, actor)
+    job = marked_job("V1 inline #{suffix}", partition, nil, actor)
+
+    assert {:ok, [%{outcome: {:bound, _promoted_id, :promoted}}]} = Backfill.run()
+
+    assert %{"version" => "v1", "community" => "v1-community"} =
+             compiled_credentials(partition, nil, job, actor)
+  end
+
+  test "copies a v1 profile's versionless secret with its version, keeping v1 on the job", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-v1-secret-#{suffix}"
+    agent_fixture("agent-v1-secret-#{suffix}", partition, actor)
+    secret = credential_fixture("V1 secret #{suffix}", "v1-secret-community", actor)
+
+    profile_fixture(
+      "V1 secret #{suffix}",
+      %{version: :v1, credential_secret_id: secret.id},
+      actor
+    )
+
+    job = marked_job("V1 secret #{suffix}", partition, nil, actor)
+
+    assert {:ok, [%{outcome: {:bound, copied_id, :copied}}]} = Backfill.run()
+    refute copied_id == secret.id
+
+    assert %{"version" => "v1", "community" => "v1-secret-community"} =
+             compiled_credentials(partition, nil, job, actor)
+  end
+
+  test "a promoted credential whose name is taken gets the next free numeric suffix", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-name-#{suffix}"
+    agent_fixture("agent-name-#{suffix}", partition, actor)
+    job_name = "Name clash #{suffix}"
+    credential_fixture("#{job_name} SNMP credential", "unrelated-community", actor)
+    profile_fixture("Name clash #{suffix}", %{community: "clash-community"}, actor)
+    job = marked_job(job_name, partition, nil, actor)
+
+    assert {:ok, [%{outcome: {:bound, promoted_id, :promoted}}]} = Backfill.run()
+
+    assert NetworkCredentialSecret.get_by_id!(promoted_id, actor: actor).name ==
+             "#{job_name} SNMP credential 2"
+
+    assert compiled_community(partition, nil, job, actor) == "clash-community"
+  end
+
+  test "only the system actor can rebind a profile to a reusable credential", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    profile = profile_fixture("Rebind #{suffix}", %{community: "rebind-community"}, actor)
+    secret = credential_fixture("Rebind #{suffix}", "rebind-community", actor)
+
+    admin = %{
+      id: "backfill-admin-#{suffix}",
+      role: :admin,
+      permissions: MapSet.new(["settings.snmp_profiles.manage"])
+    }
+
+    assert {:error, %Ash.Error.Forbidden{}} =
+             profile
+             |> Ash.Changeset.for_update(
+               :bind_reusable_credential,
+               %{credential_secret_id: secret.id},
+               actor: admin
+             )
+             |> Ash.update(actor: admin)
+
+    rebound =
+      profile
+      |> Ash.Changeset.for_update(
+        :bind_reusable_credential,
+        %{credential_secret_id: secret.id},
+        actor: actor
+      )
+      |> Ash.update!(actor: actor)
+
+    assert rebound.credential_secret_id == secret.id
+    assert is_nil(rebound.community_encrypted)
+  end
+
   test "binds the secret of the agent-scoped monitoring rule the agent fell back on", %{
     actor: actor,
     suffix: suffix
@@ -261,12 +353,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
     |> Ash.read_one!(actor: SystemActor.system(:test))
   end
 
-  defp compiled_community(partition, agent_id, job, actor) do
+  defp compiled_community(partition, agent_id, job, actor),
+    do: compiled_credentials(partition, agent_id, job, actor)["community"]
+
+  defp compiled_credentials(partition, agent_id, job, actor) do
     {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
 
     config["scheduled_jobs"]
     |> Enum.find(&(&1["name"] == job.name))
-    |> get_in(["credentials", "community"])
+    |> Map.fetch!("credentials")
   end
 
   defp credential_fixture(name, community, actor) do

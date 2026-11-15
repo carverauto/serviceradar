@@ -278,6 +278,29 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
       refute inspect(attrs.metadata) =~ "public-ish"
     end
 
+    test "the community method stores an SNMPv1 version and refuses one it does not offer" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "legacy-ish", "version" => "v1"},
+                 %{name: "Legacy switches", description: nil}
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "legacy-ish",
+               "version" => "v1"
+             }
+
+      assert {:error, {:invalid_credential_field, "version"}} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "legacy-ish", "version" => "v3"},
+                 %{name: "Legacy switches", description: nil}
+               )
+    end
+
     test "the v3 method stores the username publicly and the rest encrypted" do
       assert {:ok, attrs} =
                CredentialSecretBuilder.build(

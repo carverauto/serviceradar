@@ -49,6 +49,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -398,13 +399,35 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
            "Copied from the SNMP credential mapper discovery used before jobs gained their own"}
       end
 
-    ReusableCredential.create(credential.version, name, credential_fields(credential),
-      description: description,
-      actor: actor
-    )
+    with {:ok, name} <- unused_credential_name(name, actor) do
+      ReusableCredential.create(credential.version, name, credential_fields(credential),
+        description: description,
+        actor: actor
+      )
+    end
   end
 
-  # A community credential has only its community string; an SNMPv3 credential
+  # Credential names are unique per provider; a name already taken gets the
+  # first free numeric suffix.
+  defp unused_credential_name(base, actor) do
+    case NetworkCredentialSecret.list_by_provider("snmp", actor: actor) do
+      {:ok, secrets} ->
+        taken = MapSet.new(secrets, & &1.name)
+
+        name =
+          [base]
+          |> Stream.concat(Stream.map(Stream.iterate(2, &(&1 + 1)), &"#{base} #{&1}"))
+          |> Enum.find(&(not MapSet.member?(taken, &1)))
+
+        {:ok, name}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A community credential has only its community string, and
+  # `ReusableCredential` stores its version beside it; an SNMPv3 credential
   # carries its level explicitly, so the copy keeps the level the old compile
   # delivered instead of re-inferring it.
   defp credential_fields(%{version: version} = credential) when version in [:v1, :v2c],
@@ -423,7 +446,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
 
   defp maybe_rebind_source(:promote, source, secret_id, actor) do
     source
-    |> Ash.Changeset.for_update(:update, %{credential_secret_id: secret_id}, actor: actor)
+    |> Ash.Changeset.for_update(:bind_reusable_credential, %{credential_secret_id: secret_id},
+      actor: actor
+    )
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _source} -> :ok

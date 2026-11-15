@@ -94,6 +94,22 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
               "required" => true,
               "secret" => true,
               "public" => false
+            },
+            # Optional: a payload without a version resolves as v2c. Stored
+            # with the community so a consumer that references the credential
+            # without a version of its own (a mapper job) still sends v1.
+            %{
+              "id" => "version",
+              "label" => "SNMP version",
+              "control" => "select",
+              "options" => [
+                %{"value" => "v2c", "label" => "v2c"},
+                %{"value" => "v1", "label" => "v1"}
+              ],
+              "default" => "v2c",
+              "required" => false,
+              "secret" => false,
+              "public" => false
             }
           ]
         },
