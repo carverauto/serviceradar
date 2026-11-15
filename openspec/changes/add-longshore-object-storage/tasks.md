@@ -1,6 +1,6 @@
 ## 1. Contract and build qualification
 
-- [ ] 1.1 Review the pinned public API against existing archive authority; hand off missing attempt/deadline, metadata, identity-bound reads, encryption and request-evidence APIs to the Longshore owner.
+- [x] 1.1 Review the pinned public API against existing archive authority; hand off missing attempt/deadline, metadata, identity-bound reads, encryption and request-evidence APIs to the Longshore owner. Upstream implementation remains separate from this completed contract review.
 - [ ] 1.2 Qualify actual Linux/container io_uring, memlock and TLS requirements with explicit unsupported results.
 - [ ] 1.3 Add immutable Cargo dependencies and hermetic Bazel AWS-LC support; verify supported Linux release architectures remotely.
 - [x] 1.4 Land the separate media-storage seccomp chart setting, node-installation runbook and rendering tests (PR #6607).
@@ -13,6 +13,7 @@
 - [ ] 2.2 Verify synthetic store/fetch/range, multipart, saturation, caller loss, deadline and shutdown behavior through the shipped NIF.
 - [x] 2.2.1 Run the compiled qualification release in a prepared pod and verify synthetic conditional PUT, exact full/range reads, client/operation admission, caller exit and drain behavior.
 - [ ] 2.2.2 Qualify the CI executor's native runtime policy and run the same runtime tests there; a pod pass does not substitute for a CI pass.
+- [x] 2.2.3 Run a bounded synthetic MP4 through the shipped NIF against the selected real provider over TLS; verify full SHA-256, ranged bytes and independently decoded frame equality. This does not qualify archive authority or live-camera playback.
 - [ ] 2.3 After upstream contract closure, connect the isolated archive provider adapter while preserving grant, no-clobber, exact-identity verification and unknown-outcome handling.
 - [ ] 2.4 Verify credential rotation, failed writes, lost replies and preservation/reconciliation without automatic transport fallback.
 

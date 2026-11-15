@@ -50,6 +50,19 @@ Document these for the Longshore owner. Library changes belong in its own
 repository and review workflow. Update this pin only after those changes merge.
 Do not implement a second low-level S3 event loop in ServiceRadar to bypass gaps.
 
+Select one object-checksum algorithm per upload. Preserve Longshore's existing
+CRC64 default, but caller-provided SHA-256 replaces CRC64 for archive writes;
+never send both algorithm-specific checksum headers. ServiceRadar supplies its
+already-computed object digest, so Longshore does not add another payload SHA-256
+pass. The SigV4 payload marker is a separate signing concern. Missing response
+checksum evidence remains missing: a compatible provider may accept a checksum
+header without validating it. Exact identity-bound readback and independent
+SHA-256 comparison remain mandatory before an archive receipt is recorded.
+
+If the upstream request evidence uses a canonical-request hash instead of the
+existing signed-header-pair representation, assign it a new evidence format tag.
+Do not change the meaning of the existing `*-put-wire-v1` tag in place.
+
 The initial NIF round-trip/benchmark target can exercise existing public APIs
 with synthetic objects in a dedicated test scope. It cannot publish an archive
 receipt, make footage reclaimable, or claim production compatibility. Production

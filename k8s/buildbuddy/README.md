@@ -2,6 +2,32 @@
 
 This directory contains the Helm configuration for the BuildBuddy executor deployment.
 
+## Longshore runtime qualification
+
+`values-longshore-qualification.yaml` overlays `values.yaml` for a separate,
+operator-approved executor release and pool. It pins an executor version with
+the configurable OCI syscall allowlist, adding only the three io_uring calls.
+It does not upgrade the default or workflow releases. Do not apply this overlay
+to an existing general-purpose release.
+
+Render with chart version `0.0.461` and both values files. Supply internal
+executor authentication separately; never commit it. Select a prepared node,
+then verify the new executor's inherited memlock limit and actual action runtime.
+The executor retains the chart's privileged OCI-host configuration; this is not
+permission to disable seccomp or add capabilities to the test action.
+
+After the pool is installed, run the existing NIF tests with
+`--define=longshore_qualification=true` and `--config=remote`. Only these tests
+select `test.Pool=longshore-qualification`; other targets keep their normal
+routing. A remote default execution-property flag is insufficient because the
+existing execution platform already supplies properties. Without the opt-in,
+native tests still exercise the default pool and fail if it cannot run io_uring.
+There is no unsupported-runtime skip or alternate transport.
+
+Rendering and analysis are preparation, not runtime qualification. Retaining
+this pool for normal CI and making its routing the default require successful
+native tests and acceptance of the deployment. Full CI remains a separate gate.
+
 ## Overview
 
 The BuildBuddy executors connect to the org's own BuildBuddy instance at
