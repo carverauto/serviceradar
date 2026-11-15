@@ -52,8 +52,9 @@ Add or change a built-in identity's subjects only here.
 {{- /* Web-NG owns browser/API-facing object-store workflows such as plugin
      WASM/dashboard package imports and FieldSurvey artifacts, and it publishes
      the internal logs, OCSF events, and analytics signals that core code in
-     this release emits. It does not publish the notifications.* firehose. Do
-     not reuse the core identity for this user. */}}
+     this release emits, plus every subject a durable publish retry it runs may
+     carry. It does not publish the notifications.* firehose. Do not reuse the
+     core identity for this user. */}}
 - user: "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow:
@@ -70,6 +71,20 @@ Add or change a built-in identity's subjects only here.
       - "logs.internal.>"
       - "events.internal.>"
       - "signals.analytics.>"
+      {{- /* Every other subject ServiceRadar.NATS.DurablePublish carries. A
+           failed publish, and every publish made inside a transaction, becomes
+           a DurablePublishWorker job on the :events Oban queue, which web-ng
+           works as well as core, so whichever release picks the job up
+           publishes it under its own identity. These stay on both identities:
+           a subject granted only to core is denied each time the job lands
+           here, and a job that exhausts its attempts that way is lost.
+           - availability.transitions.device: the merged device availability
+             history (Inventory.Availability.History), published by the
+             Inventory.Availability.Transitions worker, itself on :events.
+           - metrics.sweep.>: the per-host gauges core derives for leased
+             sweeps (Edge.SweepHostMetrics), whose retries reach this queue. */}}
+      - "availability.transitions.device"
+      - "metrics.sweep.>"
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
@@ -123,7 +138,8 @@ Add or change a built-in identity's subjects only here.
       {{- /* Merged device availability history
            (Inventory.Availability.History). Core publishes one record per state
            change; EventWriter stores them from the events stream. The publish
-           waits for a PubAck, so a missing entry retries the transition job. */}}
+           waits for a PubAck, so a missing entry retries the transition job.
+           web-ng carries the same grant, since it works the same queue. */}}
       - "availability.transitions.device"
       {{- /* Flow process attribution observations
            (FlowAttribution.Observations). Core publishes them on the flows
