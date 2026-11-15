@@ -289,17 +289,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   defp resolution_from(_none, _source), do: {:ok, %{encoded: %{}}}
 
   # The pre-change compile delivered `to_mapper_credentials/1` of the resolved
-  # credential; one it could not encode failed that compile, so it counts as
-  # no credential.
+  # credential; one it could not encode failed that compile, and one with
+  # neither community nor username was skipped for the bare v2c fallback, so
+  # both count as no credential.
   defp encode(%{credential: credential, source_record: source}) do
     case CredentialResolver.to_mapper_credentials(credential) do
-      {:ok, encoded} when map_size(encoded) > 0 ->
-        {:ok, %{encoded: encoded, credential: credential, source_record: source}}
+      {:ok, encoded} ->
+        if usable?(encoded),
+          do: {:ok, %{encoded: encoded, credential: credential, source_record: source}},
+          else: {:ok, %{encoded: %{}}}
 
       _ ->
         {:ok, %{encoded: %{}}}
     end
   end
+
+  defp usable?(encoded),
+    do: Enum.any?(["community", "username"], &present?(Map.get(encoded, &1)))
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp apply_decision(job, {:unbound, _reason} = outcome, actor, apply?),
     do: finish(job, nil, outcome, actor, apply?)

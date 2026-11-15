@@ -153,6 +153,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorkerTes
     assert reload(job).snmp_credential_secret_id == nil
   end
 
+  test "a default profile without community or secret leaves the job unbound", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    partition = "backfill-empty-profile-#{suffix}"
+    agent_fixture("agent-empty-profile-#{suffix}", partition, actor)
+    profile_fixture("Empty #{suffix}", %{}, actor)
+    job = marked_job("Empty profile #{suffix}", partition, nil, actor)
+
+    assert {:ok, [%{outcome: {:unbound, :no_legacy_credential}}]} = Backfill.run()
+
+    assert %{snmp_credential_secret_id: nil, snmp_credential_backfill_pending: false} =
+             reload(job)
+  end
+
   test "a job whose agents are not registered stays marked for a retry", %{
     actor: actor,
     suffix: suffix
