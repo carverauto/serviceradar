@@ -311,6 +311,41 @@ defmodule ServiceRadarObjectStorageTest do
     assert_receive {:caller_mailbox, []}, 10_000
   end
 
+  test "supervisor shutdown outlasts the 5 s default and drains in-flight I/O before exiting", %{config: config} do
+    assert %{shutdown: shutdown} = Supervisor.child_spec({Session, config: config}, [])
+    assert shutdown > 30_000
+
+    {:ok, sup} = Supervisor.start_link([{Session, config: config}], strategy: :one_for_one)
+    [{_id, session, :worker, _modules}] = Supervisor.which_children(sup)
+    session_monitor = Process.monitor(session)
+    put_opts = %{no_clobber: true, encryption: nil, checksum: :none}
+
+    spawn(fn ->
+      try do
+        Session.put(session, "qualification/shutdown.m4s", "synthetic", put_opts)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    assert_receive {:request, peer, :PUT, "/synthetic-recordings/qualification/shutdown.m4s", _headers, "synthetic"},
+                   10_000
+
+    owner = self()
+    spawn(fn -> send(owner, {:supervisor_stopped, Supervisor.stop(sup, :normal, :infinity)}) end)
+
+    refute_receive {:DOWN, ^session_monitor, :process, ^session, _reason}, 6_000
+
+    reply(peer, 200, [], "")
+    assert_receive {:DOWN, ^session_monitor, :process, ^session, :shutdown}, 10_000
+    assert_receive {:supervisor_stopped, :ok}, 10_000
+
+    assert {:ok, first} = Storage.open(config)
+    assert {:ok, second} = Storage.open(config)
+    drain(first)
+    drain(second)
+  end
+
   test "caller exit and close retain capacity until the real operation finishes", %{config: config} do
     assert {:ok, client} = Storage.open(config)
     on_exit(fn -> drain(client) end)

@@ -16,6 +16,17 @@ defmodule ServiceRadarObjectStorage.Session do
   alias ServiceRadarObjectStorage, as: Storage
 
   @default_drain_timeout_ms 30_000
+  @shutdown_margin_ms 5_000
+
+  def child_spec(opts) when is_list(opts) do
+    drain_timeout_ms = Keyword.get(opts, :drain_timeout_ms, @default_drain_timeout_ms)
+
+    %{
+      id: Keyword.get(opts, :name) || __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      shutdown: drain_timeout_ms + @shutdown_margin_ms
+    }
+  end
 
   def start_link(opts) when is_list(opts) do
     config = Keyword.fetch!(opts, :config)
@@ -175,6 +186,10 @@ defmodule ServiceRadarObjectStorage.Session do
       {:noreply, %{state | token_waiters: waiters}}
     end
   end
+
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
+
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
 
   def handle_info(_other, state) do
     {:noreply, state}
