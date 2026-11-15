@@ -374,4 +374,20 @@ reshuffles the partition and turns that leak into a failure (#5681).
 
 ## Tools
 
+### Browser automation
+
+- Use installed, security-patched Chrome with `chromiumSandbox: true` for local
+  Playwright automation. `.playwright/cli.config.json` sets these defaults for
+  `playwright-cli`; direct library calls must set them explicitly too. Verify the
+  actual launched browser version, not just the Playwright package version.
+- Keep local automation on trusted application pages with a separate, temporary
+  browser profile. Use hosted web tools for untrusted public-site research. If
+  an untrusted site requires browser interaction, use a disposable isolated
+  environment without host credentials, home-directory mounts, or a Docker socket.
+  An isolated Playwright profile alone is not host isolation.
+- Keep the Bazel browser tests in their pinned RBE containers. Do not reuse those
+  bundled browsers for general browsing or disable the local Chromium sandbox to
+  make a launch succeed. Browser package and container updates must be verified
+  together; updating Playwright alone does not prove Chromium is patched.
+
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.
