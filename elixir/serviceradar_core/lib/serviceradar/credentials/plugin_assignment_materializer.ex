@@ -249,8 +249,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   @doc """
   Dry-runs a credential rule: renders what the rule would materialize NOW.
 
-  Returns the resolved SRQL target list (bounded by `opts[:target_limit]`,
-  default 50) plus, per eligible purpose, the stored params template with
+  Returns the rule's in-scope SRQL targets as their true total, a sample of at
+  most `opts[:target_limit]` (default 50) and whether the sample is shorter
+  than the total, plus, per eligible purpose, the stored params template with
   secret material redacted. Secret refs are preserved (they are references, not
   material). The credential-broker grant is a placeholder that is never
   persisted, never dispatched to an agent, and has its id masked in the output;

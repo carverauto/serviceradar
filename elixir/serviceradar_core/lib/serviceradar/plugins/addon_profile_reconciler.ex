@@ -365,7 +365,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   defp read_targets(profile, opts) do
     entity = target_entity(profile)
     max_targets = max_targets(profile)
-    input = %{name: "targets", entity: entity, query: paged_target_query(profile, entity)}
+    input = %{name: "targets", entity: entity, query: target_query(profile)}
     initial = %{rows: 0, targets: [], skipped: [], seen: MapSet.new()}
 
     case SRQLInputResolver.reduce_pages(
@@ -994,14 +994,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       query -> query
     end
   end
-
-  # Each page is a separate offset query, so rows must come back in a unique
-  # order or agents with equal sort values can be skipped between pages. SRQL
-  # already ends device and interface orders on a unique key; agents default to
-  # `last_seen_time` alone, so `uid` is appended as the final sort key (repeated
-  # `sort:` tokens extend the order, after any operator-supplied sort).
-  defp paged_target_query(profile, "agents"), do: target_query(profile) <> " sort:uid:asc"
-  defp paged_target_query(profile, _entity), do: target_query(profile)
 
   defp target_entity(profile) do
     case Regex.run(~r/^\s*in:([a-zA-Z0-9_]+)/, target_query(profile)) do

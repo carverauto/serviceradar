@@ -166,8 +166,34 @@ fn latest_interfaces_query_defers_error_metric_joins_until_after_dedupe() {
         "expected no pre-page timeseries join, got: {sql}"
     );
     assert!(
-        lower.contains("order by latest.if_name asc limit"),
-        "latest interfaces should keep the existing outer order shape, got: {sql}"
+        lower.contains(
+            "order by latest.if_name asc, latest.timestamp desc, latest.device_id asc, latest.interface_uid asc limit"
+        ),
+        "latest interfaces should keep the requested order and end on a unique key, got: {sql}"
+    );
+}
+
+#[test]
+fn latest_interfaces_default_order_is_stable() {
+    let plan = base_plan_with_filter(Filter {
+        field: "latest".into(),
+        value: FilterValue::Scalar("true".into()),
+        op: FilterOp::Eq,
+    });
+
+    let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains(
+            ") as latest order by latest.timestamp desc, latest.created_at desc, latest.device_id asc, latest.interface_uid asc limit"
+        ),
+        "expected latest page ordering to end on device_id/interface_uid, got: {sql}"
+    );
+    assert!(
+        lower.ends_with(
+            "order by paged.timestamp desc, paged.created_at desc, paged.device_id asc, paged.interface_uid asc"
+        ),
+        "expected outer latest ordering to end on device_id/interface_uid, got: {sql}"
     );
 }
 

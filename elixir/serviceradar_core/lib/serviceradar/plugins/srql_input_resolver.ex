@@ -3,8 +3,12 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   Resolves policy input definitions by executing SRQL in the control plane.
 
   Inputs are normalized to `%{name, entity, query, rows}` and are intended to
-  feed `ServiceRadar.Plugins.PluginInputPayloadBuilder`. `resolve/2` reads one
-  page per input; `reduce_pages/4` reads a whole selection.
+  feed `ServiceRadar.Plugins.PluginInputPayloadBuilder`. Both `resolve/2` and
+  `reduce_pages/4` read an input's whole selection, a page at a time: SRQL
+  answers a request that names no limit with 100 rows, so a single read would
+  silently cut every larger selection. `resolve/2` collects every row;
+  `reduce_pages/4` folds them a page at a time, for a caller that needs only a
+  count or a bounded sample and should not hold the whole selection.
   """
 
   alias ServiceRadar.Observability.SRQLRunner
@@ -22,24 +26,21 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
           optional(binary()) => String.t()
         }
 
+  @doc """
+  Resolves each input definition to its descriptor and every row its query
+  selects, reading the selection a page at a time with `reduce_pages/4`. A
+  selection that cannot be read whole is an error, never a shorter row list.
+  """
   @spec resolve([input_definition()], keyword()) ::
           {:ok, [map()]} | {:error, [String.t()]}
   def resolve(input_defs, opts \\ [])
 
   def resolve(input_defs, opts) when is_list(input_defs) do
-    runner = Keyword.get(opts, :runner, SRQLRunner)
-    query_opts = Keyword.get(opts, :query_opts, [])
-
     input_defs
     |> Enum.reduce_while({:ok, []}, fn input_def, {:ok, acc} ->
-      with {:ok, descriptor} <- normalize_input_def(input_def),
-           :ok <- validate_entity(descriptor.entity),
-           {:ok, rows} <- runner.query(descriptor.query, query_opts) do
-        normalized_rows = normalize_rows(rows)
-        {:cont, {:ok, [Map.put(descriptor, :rows, normalized_rows) | acc]}}
-      else
-        {:error, errors} when is_list(errors) -> {:halt, {:error, errors}}
-        {:error, reason} -> {:halt, {:error, [format_error(reason)]}}
+      case resolve_input(input_def, opts) do
+        {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
+        {:error, errors} -> {:halt, {:error, errors}}
       end
     end)
     |> case do
@@ -49,6 +50,14 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   end
 
   def resolve(_input_defs, _opts), do: {:error, ["input definitions must be a list"]}
+
+  defp resolve_input(input_def, opts) do
+    with {:ok, descriptor} <- descriptor(input_def),
+         {:ok, pages} <-
+           reduce_descriptor_pages(descriptor, [], &{:cont, [&1 | &2]}, opts) do
+      {:ok, Map.put(descriptor, :rows, pages |> Enum.reverse() |> Enum.concat())}
+    end
+  end
 
   @page_limit 1_000
 
@@ -63,11 +72,31 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   rest of the selection. A page that fails to read is an error, never a short
   result, and so is a full page without a cursor: SRQL stops issuing cursors
   past its cursor window, so the selection may continue beyond it.
+
+  Each page is a separate offset query, so rows must come back in a unique
+  order or rows with equal sort values can move between pages and be skipped.
+  SRQL already ends device and interface orders (history and `latest:true`) on
+  a unique key; agents default to `last_seen_time` alone, so `sort:uid:asc` is
+  appended to an agents query as its final sort key (repeated `sort:` tokens
+  extend the order, after any operator-supplied sort).
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}
         when acc: term()
   def reduce_pages(input_def, acc, fun, opts \\ []) when is_function(fun, 2) do
+    with {:ok, descriptor} <- descriptor(input_def) do
+      reduce_descriptor_pages(descriptor, acc, fun, opts)
+    end
+  end
+
+  defp descriptor(input_def) do
+    with {:ok, descriptor} <- normalize_input_def(input_def),
+         :ok <- validate_entity(descriptor.entity) do
+      {:ok, descriptor}
+    end
+  end
+
+  defp reduce_descriptor_pages(descriptor, acc, fun, opts) do
     runner = Keyword.get(opts, :runner, SRQLRunner)
 
     query_opts =
@@ -75,11 +104,11 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
       |> Keyword.get(:query_opts, [])
       |> Keyword.put(:limit, @page_limit)
 
-    with {:ok, descriptor} <- normalize_input_def(input_def),
-         :ok <- validate_entity(descriptor.entity) do
-      reduce_page(runner, descriptor.query, query_opts, nil, acc, fun)
-    end
+    reduce_page(runner, paged_query(descriptor), query_opts, nil, acc, fun)
   end
+
+  defp paged_query(%{entity: "agents", query: query}), do: query <> " sort:uid:asc"
+  defp paged_query(%{query: query}), do: query
 
   defp reduce_page(runner, query, query_opts, cursor, acc, fun) do
     page_opts = if cursor, do: Keyword.put(query_opts, :cursor, cursor), else: query_opts

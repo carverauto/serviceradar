@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.ProducerScheduleDispatcher
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.TestSupport.PagedSRQLRunner
 
   require Ash.Query
 
@@ -637,12 +638,8 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     uid: uid
   } do
     Process.put(:producer_schedule_test_pid, self())
-    Process.put(:producer_schedule_uid, uid)
 
-    on_exit(fn ->
-      Process.delete(:producer_schedule_test_pid)
-      Process.delete(:producer_schedule_uid)
-    end)
+    on_exit(fn -> Process.delete(:producer_schedule_test_pid) end)
 
     plugin_id = "target-query-advisory-producer-#{uid}"
 
@@ -672,14 +669,26 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
              )
              |> Ash.update()
 
+    # agent-target-b is past the first 100 rows, the most SRQL returns when a
+    # request names no limit, so a one-page read never dispatched to it.
+    filler = Enum.map(1..150, &%{"agent_id" => "agent-unassigned-#{&1}-#{uid}"})
+
+    target_rows =
+      [%{"agent_id" => "agent-target-a-#{uid}"}] ++
+        filler ++
+        [
+          %{"agent_uid" => "agent-target-b-#{uid}"},
+          %{"agent_id" => "agent-target-missing-assignment-#{uid}"}
+        ]
+
     assert {:ok, command_id} =
              ProducerScheduleDispatcher.dispatch(schedule,
                actor: actor,
-               runner: __MODULE__,
+               runner: PagedSRQLRunner.serving(target_rows),
                command_bus: __MODULE__
              )
 
-    assert_receive {:producer_schedule_srql_query, "in:devices tags.security_feed:true"}
+    assert PagedSRQLRunner.queries() == ["in:devices tags.security_feed:true"]
 
     assert_receive {:producer_schedule_dispatch, agent_a, "plugin.run_action", payload_a, opts_a}
 
@@ -827,17 +836,6 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert opts[:context].addon_assignment_id == to_string(assignment.id)
   end
 
-  def query(query, _opts) do
-    send(test_pid(), {:producer_schedule_srql_query, query})
-
-    {:ok,
-     [
-       %{"agent_id" => matching_agent("agent-target-a")},
-       %{"agent_uid" => matching_agent("agent-target-b")},
-       %{"agent_id" => matching_agent("agent-target-missing-assignment")}
-     ]}
-  end
-
   def dispatch(agent_uid, command_type, payload, opts) do
     command_id = Ash.UUID.generate()
     payload = Map.put(payload, "test_command_id", command_id)
@@ -845,11 +843,6 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     send(test_pid(), {:producer_schedule_dispatch, agent_uid, command_type, payload, opts})
 
     {:ok, command_id}
-  end
-
-  defp matching_agent(prefix) do
-    uid = Process.get(:producer_schedule_uid)
-    "#{prefix}-#{uid}"
   end
 
   defp test_pid do

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
+  alias ServiceRadar.TestSupport.PagedSRQLRunner
 
   defmodule FakeResolver do
     @moduledoc false
@@ -20,6 +21,33 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
          }
        ]}
     end
+  end
+
+  # SRQL answers a request with no limit with 100 rows, so a one-page read
+  # reported at most 100 matches for any larger rule.
+  test "preview_rule counts the whole selection and samples it" do
+    rule = %{
+      id: "rule-wide",
+      provider: "proxmox",
+      priority: 100,
+      target_query: "in:devices metadata.proxmox_candidate:true",
+      scope_type: :agent,
+      scope_value: "agent-a"
+    }
+
+    rows = Enum.map(1..150, &%{"uid" => "device-#{&1}", "agent_id" => "agent-a"})
+
+    assert {:ok, preview} =
+             NetworkCredentialRulePreview.preview_rule(rule,
+               runner: PagedSRQLRunner.serving(rows),
+               sample_limit: 5,
+               other_rules: []
+             )
+
+    assert preview.matched_devices == 150
+    assert preview.scoped_devices == 150
+    assert [%{agent_id: "agent-a", device_count: 150}] = preview.agents
+    assert length(preview.sample_devices) == 5
   end
 
   test "preview_rule reports scoped agent distribution and sample devices" do
