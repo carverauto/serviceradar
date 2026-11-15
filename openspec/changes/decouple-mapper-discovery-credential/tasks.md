@@ -26,7 +26,7 @@
       fails the compile; `:api` job unaffected
 - [ ] 2.2 `MapperCompiler`: per-job base credential from the job reference
       (resolved once per distinct secret, audit consumer `mapper_job:<id>`,
-      purpose `snmp_discovery`); remove `resolve_credentials/3` host-device
+      purpose `mapper_discovery`); remove `resolve_credentials/3` host-device
       fallback and `resolve_default_credentials/2`; no per-compile warning for
       unbound jobs
 - [ ] 2.3 Delete `CredentialResolver.resolve_default/2` and update the module doc
@@ -38,13 +38,18 @@
 - [ ] 3.1 Fail-first tests for the backfill: reusable default-profile secret bound;
       inline profile material promoted and source rebound; agent-scoped rule secret
       bound; disabled job bound; disabled partition job evaluated against the
-      partition's registered agents; partition agents reaching the same secret id through different records
+      partition's persisted agents (by `partition_id`, with no agent connected);
+      missing agent row or empty partition agent set leaves no marker and retries;
+      inline promotion failure rolls back secret, rebind and bind together; two
+      jobs sharing an inline source get one promoted secret; partition agents reaching the same secret id through different records
       bound; divergent partition agents left unbound; a
       read or write failure leaves no completion marker and retries; completion
       marker prevents a second run
 - [ ] 3.2 `MapperJobSNMPCredentialBackfillWorker`: one-shot, unique, enqueued on
       core start, private copy of the legacy chain, all SNMP-mode jobs including
-      disabled ones, deployment-level completion marker recorded only on success
+      disabled ones, agent set from persisted `Agent` rows, promote/rebind/bind in
+      one transaction (audit purpose `mapper_discovery_backfill`),
+      deployment-level completion marker recorded only on success
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 

@@ -123,7 +123,8 @@ The compiler MUST NOT emit an SNMPv1/v2c credential with no community string as 
 
 ### Requirement: Mapper discovery credential migration
 Upgrading MUST bind each existing SNMP-mode mapper job, enabled or disabled, to the credential its pre-upgrade fallback chain resolved to, without operators re-entering secrets.
-Only a job whose legacy chain resolves to no credential, or to different credentials on different agents, MAY remain unbound. A read or write failure during the backfill MUST NOT be treated as an empty result.
+Only a job whose legacy chain, evaluated on a non-empty agent set, resolves to no credential, or to different credentials on different agents, MAY remain unbound. A read or write failure, a missing assigned agent, or an empty or unloadable partition agent set during the backfill MUST NOT be treated as an empty result.
+The agent set MUST come from persisted agent records: the assigned agent for an agent-assigned job, or every agent whose `partition_id` (default `default`) equals the job's partition for a partition-assigned job.
 
 #### Scenario: Disabled job is bound
 - **GIVEN** a disabled SNMP-mode job whose pre-upgrade fallback resolved to reusable credential C
@@ -133,10 +134,22 @@ Only a job whose legacy chain resolves to no credential, or to different credent
 #### Scenario: Disabled partition job uses the partition's agents
 - **GIVEN** a disabled partition-assigned SNMP-mode job
 - **WHEN** the one-time backfill runs
-- **THEN** the legacy chain SHALL be evaluated against every agent registered in that partition
+- **THEN** the legacy chain SHALL be evaluated against every persisted agent whose `partition_id` equals the job's partition, using each agent record's device for host resolution
+
+#### Scenario: Agents not yet connected after restart
+- **GIVEN** a partition-assigned SNMP-mode job whose persisted agents all resolved to reusable credential C before upgrade
+- **AND** no agent has reconnected to core since it restarted
+- **WHEN** the one-time backfill runs
+- **THEN** the job SHALL reference C
+
+#### Scenario: Missing agent set is retried
+- **GIVEN** an SNMP-mode job whose assigned agent has no persisted record, or whose partition has no persisted agents
+- **WHEN** the one-time backfill runs
+- **THEN** the job SHALL remain unbound and show the missing-credential warning
+- **AND** the completion marker SHALL NOT be recorded
 
 #### Scenario: Backfill failure is retried
-- **GIVEN** the backfill hits a credential read failure or a failed promote, rebind or bind write
+- **GIVEN** the backfill hits a credential read failure or a failed promote, rebind or bind transaction
 - **WHEN** the run ends
 - **THEN** the completion marker SHALL NOT be recorded
 - **AND** the backfill SHALL run again until it completes
@@ -153,6 +166,8 @@ Only a job whose legacy chain resolves to no credential, or to different credent
 - **THEN** the material SHALL be promoted to a new reusable SNMP credential
 - **AND** the source profile or override SHALL be rebound to that credential
 - **AND** the job SHALL reference the same credential
+- **AND** promotion, source rebind and job bind SHALL commit in one transaction, so a failure leaves no promoted credential behind
+- **AND** a second job whose fallback resolved to the same source SHALL be bound to that credential without a second promotion
 
 #### Scenario: Agent-scoped monitoring rule fallback
 - **GIVEN** before upgrade, an SNMP-mode job's fallback resolved to an enabled SNMP monitoring rule scoped to its agent

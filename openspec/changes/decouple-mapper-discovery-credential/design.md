@@ -86,7 +86,8 @@ select reuses the SNMP-credential options the profile form already uses. The
 credential.
 
 Brokered resolution is audited with consumer `mapper_job:<id>`, target kind
-`mapper_job` and purpose `snmp_discovery`. A compile that serves several jobs
+`mapper_job` and purpose `mapper_discovery`, the purpose the job's UniFi and
+MikroTik controller credentials already use. A compile that serves several jobs
 sharing one secret audits it once per job consumer through the existing
 `with_bulk_audit/2` grouping.
 
@@ -129,11 +130,17 @@ material, decryption:
 
 1. For each SNMP-mode job with a nil reference, enabled or disabled (the worker
    reads jobs directly, not through `for_agent_partition`, which returns only
-   enabled jobs), and for each agent the job compiles for (its assigned agent, or
-   every agent registered in its partition, including for a disabled partition
-   job), evaluate
-   the **pre-change** fallback chain: host device resolution, then
-   `resolve_default`. The worker carries a private copy of that legacy logic,
+   enabled jobs), and for each agent the job compiles for, evaluate the
+   **pre-change** fallback chain: host device resolution from that agent row's
+   `device_uid`, then `resolve_default`. The agent set comes from persisted
+   `Agent` rows, never from the in-memory `AgentRegistry`, which is empty until
+   gateways sync after boot: an agent-assigned job uses its assigned agent's row;
+   a partition-assigned job, enabled or disabled, uses every `Agent` row whose
+   metadata `partition_id` (default `"default"`) equals the job's partition, the
+   same rule `AgentAssignment` validates. A missing assigned agent row, an empty
+   partition agent set, or a failure to load either is a retryable failure under
+   step 4, not an agreed empty chain; the job stays unbound and keeps showing the
+   Decision 3 warning until a retry binds it. The worker carries a private copy of that legacy logic,
    deleted along with the worker in a later release.
 2. If every agent resolves to the same credential, bind the job to it. Agreement
    is judged by credential, not by the record it came from: a source with a
@@ -144,17 +151,23 @@ material, decryption:
    - the agreed credential is a reusable secret: bind that id.
    - the agreed credential is inline legacy material on a profile or device override: promote it
      to a reusable SNMP credential (same builder as the profile form's "Save as
-     reusable"), rebind the source record to the new secret, then bind the job.
-     There is still one copy, so rotation stays single-source.
+     reusable"), rebind the source record to the new secret, and bind the job,
+     all in one transaction. Decryption of the inline material is audited with
+     purpose `mapper_discovery_backfill`. A failure rolls back all three, so no
+     orphan secret is left for a retry to duplicate. A source that already has a
+     reusable secret id, including one rebound earlier in the same run for
+     another job sharing it, is bound to that id and never promoted again. There
+     is still one copy, so rotation stays single-source.
 3. If agents disagree, or the chain agrees on no credential, leave the job unbound. It then shows
    the Decision 3 warning, the honest state, since no single credential reproduces
    the old behaviour.
 4. Record completion in a deployment-level marker only after every job has been
-   bound or deliberately left unbound under step 3. A credential read failure or a
-   failed promote, rebind or bind write is not an empty result: the run aborts
-   without the marker and Oban retries it. Binding is idempotent (only nil
-   references are touched), so a retry does not double-promote a source already
-   rebound. Once the marker exists the worker never runs again, so it never
+   bound or deliberately left unbound under step 3. A credential read failure, a
+   missing or unloadable agent set (step 1), or a failed promote, rebind or bind
+   transaction is not an empty result: the run aborts without the marker and Oban
+   retries it. Binding touches only nil references and step 2 binds an already
+   rebound source by its secret id, so a retry neither rebinds a bound job nor
+   promotes the same material twice. Once the marker exists the worker never runs again, so it never
    rebinds a job an operator later cleared on purpose.
 
 Binding a job updates the record, and `DependencyNotifier` recompiles the
