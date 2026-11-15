@@ -6,8 +6,9 @@
 - [x] 1.4 Measure the publisher change with synthetic load and equivalent durability. Loopback results from a shared workstation are in `consolidate-log-collectors/performance.md`; repeat on a quiet host before quoting a multiplier.
 
 ## 2. Native Zen and control plane
-- [ ] 2.1 Extract shared normalization with conformance for merge, null, numeric, aliasing, errors and custom rules.
-- [ ] 2.2 Retain native values across rules and compile outside the hot path.
+- [x] 2.1 Extract shared normalization with conformance for merge, null, numeric, aliasing, errors and custom rules. `rust/zen-normalize` owns it and the core NIF calls it; its expected records were produced by the JSON-text implementation it replaced.
+- [x] 2.2 Retain native values across rules and compile outside the hot path. A `RuleSet` is compiled once; records stay Zen variables between rules. Each rule still gets its own copy of the record's containers, because no test establishes that every node type leaves its context alone.
+- [ ] 2.2a Call the shared rule set from Flowgger with records built directly as Zen variables. Blocked on rule delivery (2.3, 2.4).
 - [ ] 2.3 Publish self-versioned effective rules through datasvc; reconcile rule scope.
 - [ ] 2.4 Implement bounded fetch/watch/reconnect, atomic activation, cold start, empty snapshots and invalid/stale updates.
 

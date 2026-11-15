@@ -8,7 +8,5 @@ name = "zen_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
-futures = { workspace = true }
 rustler = { workspace = true, features = ["nif_version_2_15"] }
-serde_json = { workspace = true }
-zen-engine = { workspace = true }
+serviceradar-zen-normalize = { path = "../../../../rust/zen-normalize" }
