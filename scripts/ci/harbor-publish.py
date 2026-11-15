@@ -170,6 +170,10 @@ def promote(directory, args):
         if tags:
             subprocess.run(["oras", "tag", reference, *tags], env=protected, check=True)
     receipt["published"] = published
+    retain_receipt(directory, receipt)
+
+
+def retain_receipt(directory, receipt):
     serialized = json.dumps(receipt, indent=2) + "\n"
     # Keep every promotion (including images followed by a chart) as secret-free
     # upload evidence. receipt.json remains the latest receipt for chart assembly.
@@ -178,6 +182,72 @@ def promote(directory, args):
     with tempfile.NamedTemporaryFile(mode="w", prefix="promotion-", suffix=".json", dir=receipts, delete=False) as output:
         output.write(serialized)
     (directory / "receipt.json").write_text(serialized)
+
+
+TOOL_REPOSITORY = "harbor-lifecycle-tools"
+TOOL_PATH = "k8s/harbor/promote-artifacts.py"
+
+
+def publish_tool(directory, args):
+    """Publish the reviewed GitOps promoter as a reproducible OCI bundle, then promote it with itself."""
+    if not re.fullmatch(r"[0-9a-f]{40}", args.gitops_commit):
+        raise ValueError("gitops commit must be a full 40-character SHA")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", args.created):
+        raise ValueError("created must be an RFC 3339 UTC timestamp such as 2026-11-15T12:00:00Z")
+    if args.expected_digest and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.expected_digest):
+        raise ValueError("expected digest must be sha256:<64 hex>")
+    source = Path(args.source).read_bytes()
+    if hashlib.sha256(source).hexdigest() != args.sha256:
+        raise ValueError("promotion tool source does not match the reviewed SHA256")
+    tag = "sha-" + args.gitops_commit
+    build = role_environment(directory, "build")
+    protected = role_environment(directory, "promotion")
+    with tempfile.TemporaryDirectory(prefix="lifecycle-tool-") as work:
+        work = Path(work)
+        (work / TOOL_PATH).parent.mkdir(parents=True)
+        (work / TOOL_PATH).write_bytes(source)
+        layout = f"{work / 'layout'}:{tag}"
+        # Fixed annotations make the manifest, and so the digest, a pure function
+        # of the reviewed file, its GitOps commit and the declared creation time.
+        subprocess.run(["oras", "push", "--oci-layout", layout,
+                        "--artifact-type", "application/vnd.carverauto.harbor-lifecycle-tool",
+                        "--annotation", f"org.opencontainers.image.created={args.created}",
+                        "--annotation", f"org.opencontainers.image.revision={args.gitops_commit}",
+                        f"{TOOL_PATH}:text/x-python"], cwd=work, check=True, stdout=sys.stderr)
+        digest = run("oras", "resolve", "--oci-layout", layout)
+        print(f"harbor-lifecycle-tools digest: {digest}", file=sys.stderr)
+        if args.expected_digest and digest != args.expected_digest:
+            raise ValueError(f"produced digest {digest} differs from expected {args.expected_digest}")
+        target = f"{REGISTRY}/serviceradar/{TOOL_REPOSITORY}"
+        existing = json.loads(run("oras", "repo", "tags", "--format", "json", target, env=protected)).get("tags") or []
+        if tag in existing:
+            published = run("oras", "resolve", f"{target}:{tag}", env=protected)
+            if published != digest:
+                raise ValueError(f"refusing to replace fixed protected tag: {TOOL_REPOSITORY}:{tag}")
+            print(f"{target}@{digest} is already published", file=sys.stderr)
+            receipt = {"version": 1, "artifacts": [{"reference": f"{target}@{digest}"}]}
+        else:
+            build_ref = f"{REGISTRY}/serviceradar-builds/{TOOL_REPOSITORY}:{tag}"
+            subprocess.run(["oras", "cp", "--from-oci-layout", layout, build_ref],
+                           env=build, check=True, stdout=sys.stderr)
+            if run("oras", "resolve", build_ref, env=build) != digest:
+                raise ValueError("build storage holds different bytes for the promotion tool")
+            bundle = work / "bundle.json"
+            bundle.write_text(json.dumps({"version": 1, "artifacts": [
+                {"repository": TOOL_REPOSITORY, "digest": digest, "required_referrers": []}]}))
+            # The promoter being published verifies its own promotion.
+            receipt = json.loads(run(sys.executable, str(work / TOOL_PATH), str(bundle),
+                                     "--build-registry-config", str(directory / "build/config.json"),
+                                     "--promotion-registry-config", str(directory / "promotion/config.json")))
+            if f"{target}@{digest}" not in {artifact["reference"] for artifact in receipt["artifacts"]}:
+                raise ValueError("promotion receipt missing the promotion tool")
+            subprocess.run(["oras", "tag", f"{target}@{digest}", tag], env=protected, check=True,
+                           stdout=sys.stderr)
+        if run("oras", "resolve", f"{target}:{tag}", env=protected) != digest:
+            raise ValueError("protected promotion tool tag does not resolve to the produced digest")
+    receipt["published"] = [{"repository": TOOL_REPOSITORY, "digest": digest, "tags": [tag]}]
+    retain_receipt(directory, receipt)
+    print(f"{target}@{digest}")
 
 
 def main():
@@ -196,6 +266,12 @@ def main():
     selection.add_argument("--metadata-dir")
     selection.add_argument("--repositories", nargs="+")
     promote_parser.add_argument("--tag", dest="tags", action="append", required=True)
+    tool = commands.add_parser("publish-tool")
+    tool.add_argument("--gitops-commit", required=True)
+    tool.add_argument("--source", required=True, help="k8s/harbor/promote-artifacts.py at that commit")
+    tool.add_argument("--sha256", required=True, help="reviewed SHA256 of the source file")
+    tool.add_argument("--created", required=True, help="fixed org.opencontainers.image.created annotation")
+    tool.add_argument("--expected-digest", default="")
     args = parser.parse_args()
     try:
         if args.action == "setup":
@@ -206,6 +282,9 @@ def main():
             if not directory.name.startswith("harbor-lifecycle-") or directory.parent.resolve() != Path(os.environ["RUNNER_TEMP"]).resolve():
                 raise ValueError("invalid temporary publishing directory")
             shutil.rmtree(directory)
+            return 0
+        if args.action == "publish-tool":
+            publish_tool(directory, args)
             return 0
         if args.action in ("build", "push-images"):
             subprocess.run([sys.executable, str(directory / "tool/k8s/harbor/promote-artifacts.py"),

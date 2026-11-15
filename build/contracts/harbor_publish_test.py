@@ -196,7 +196,8 @@ class HarborPublishTest(unittest.TestCase):
             self.assertNotIn("auths", path.read_text())
 
     def test_all_publishers_upload_only_receipts_before_unconditional_cleanup(self):
-        for workflow in ("publish-oci", "release", "native-addons", "wasm-plugins", "external-wasm-plugin"):
+        for workflow in ("publish-oci", "release", "native-addons", "wasm-plugins", "external-wasm-plugin",
+                         "publish-harbor-lifecycle-tools"):
             with self.subTest(workflow=workflow):
                 model = yaml.safe_load((REPO / f".github/workflows/{workflow}.yml").read_text())
                 jobs = [job for job in model["jobs"].values() if any(
@@ -442,6 +443,151 @@ class ImagePromotionTagsTest(unittest.TestCase):
         self.assertEqual(registry, protected)
         self.assertFalse(self.tag_calls.exists())
         self.assertIsNone(published)
+
+
+class ToolPublicationTest(unittest.TestCase):
+    """Run the tool-publication workflow step against a fake two-project registry and OCI layout."""
+
+    COMMIT = "1" * 40
+    CREATED = "2026-01-01T00:00:00Z"
+    STEP = "Publish and promote the promotion tool"
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for role in ("build", "promotion"):
+            path = self.root / role / "config.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps({"auths": {"registry.carverauto.dev": {
+                "auth": base64.b64encode(f"{role}:synthetic-password".encode()).decode()}}}))
+        self.state = self.root / "registry.json"
+        self.state.write_text(json.dumps({"layout": {}, "serviceradar-builds/harbor-lifecycle-tools": {},
+                                          "serviceradar/harbor-lifecycle-tools": {}}))
+        self.calls = self.root / "calls"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        # A layout push yields a digest determined by the file and both annotations,
+        # as an OCI manifest does; registry calls record which identity made them.
+        oras = bin_dir / "oras"
+        oras.write_text(f"#!{sys.executable}\nimport hashlib,json,os,pathlib,sys\n"
+                        "state_path = os.environ['REGISTRY_STATE']\nstate = json.load(open(state_path))\n"
+                        "role = pathlib.Path(os.environ.get('DOCKER_CONFIG', '/none')).name\n"
+                        "command = sys.argv[1:]\n"
+                        "open(os.environ['CALLS'], 'a').write(json.dumps([role] + command) + '\\n')\n"
+                        "def save(): json.dump(state, open(state_path, 'w'))\n"
+                        "def split(ref):\n"
+                        "    repository, tag = ref.removeprefix('registry.carverauto.dev/').rsplit(':', 1)\n"
+                        "    return repository, tag\n"
+                        "if command[0] == 'push':\n"
+                        "    annotations = [command[i + 1] for i, a in enumerate(command) if a == '--annotation']\n"
+                        "    path = command[-1].split(':')[0]\n"
+                        "    content = pathlib.Path(path).read_bytes()\n"
+                        "    digest = 'sha256:' + hashlib.sha256(json.dumps([annotations, content.hex(), path]).encode()).hexdigest()\n"
+                        "    state['layout'][command[command.index('--oci-layout') + 1]] = digest; save()\n"
+                        "elif command[0] == 'resolve' and '--oci-layout' in command:\n"
+                        "    print(state['layout'][command[-1]])\n"
+                        "elif command[0] == 'resolve':\n"
+                        "    repository, tag = split(command[1])\n"
+                        "    if tag not in state[repository]: raise SystemExit(1)\n"
+                        "    print(state[repository][tag])\n"
+                        "elif command[:2] == ['repo', 'tags']:\n"
+                        "    print(json.dumps({'tags': sorted(state[command[-1].removeprefix('registry.carverauto.dev/')])}))\n"
+                        "elif command[0] == 'cp':\n"
+                        "    repository, tag = split(command[-1])\n"
+                        "    state[repository][tag] = state['layout'][command[command.index('--from-oci-layout') + 1]]; save()\n"
+                        "elif command[0] == 'tag':\n"
+                        "    repository, digest = command[1].removeprefix('registry.carverauto.dev/').split('@')\n"
+                        "    for tag in command[2:]: state[repository][tag] = digest\n"
+                        "    save()\n"
+                        "    print('Tagging [registry] ' + command[1]); print('Tagged ' + ' '.join(command[2:]))\n"
+                        "else: raise SystemExit('unmodelled oras command')\n")
+        oras.chmod(0o755)
+        # The published file is the promoter itself; this synthetic one records
+        # that it ran with both identities and returns a verified receipt.
+        self.source = ("import json,os,sys\n"
+                       "bundle = json.load(open(sys.argv[1]))\n"
+                       "assert sys.argv[2:] == ['--build-registry-config', os.environ['EXPECT_BUILD'],"
+                       " '--promotion-registry-config', os.environ['EXPECT_PROMOTION']], sys.argv\n"
+                       "open(os.environ['CALLS'], 'a').write(json.dumps(['promote', bundle]) + '\\n')\n"
+                       "print(json.dumps({'version': 1, 'artifacts': [{'reference': "
+                       "'registry.carverauto.dev/serviceradar/' + a['repository'] + '@' + a['digest']}"
+                       " for a in bundle['artifacts']]}))\n").encode()
+        self.workflow = (REPO / ".github/workflows/publish-harbor-lifecycle-tools.yml").read_text()
+        self.env = os.environ | {
+            "HARBOR_LIFECYCLE_DIR": str(self.root), "HARBOR_PUBLISH_TOOL": str(SCRIPT),
+            "REGISTRY_STATE": str(self.state), "CALLS": str(self.calls), "RUNNER_TEMP": str(self.root),
+            "GITHUB_STEP_SUMMARY": str(self.root / "summary.md"),
+            "EXPECT_BUILD": str(self.root / "build/config.json"),
+            "EXPECT_PROMOTION": str(self.root / "promotion/config.json"),
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
+
+    def run_step(self, **overrides):
+        """Execute the workflow's own step body with its dispatch inputs."""
+        step = next(step for job in yaml.safe_load(self.workflow)["jobs"].values()
+                    for step in job["steps"] if step.get("name") == self.STEP)
+        inputs = {"GITOPS_COMMIT": self.COMMIT, "TOOL_SHA256": hashlib.sha256(self.source).hexdigest(),
+                  "TOOL_BASE64": base64.b64encode(self.source).decode(), "CREATED": self.CREATED,
+                  "EXPECTED_DIGEST": ""} | overrides
+        self.assertEqual(set(step["env"]), set(inputs))
+        self.calls.unlink(missing_ok=True)
+        return subprocess.run(["bash", "-c", step["run"]], env=self.env | inputs, text=True, capture_output=True)
+
+    def registry(self):
+        return json.loads(self.state.read_text())
+
+    def recorded(self):
+        return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+
+    def writes(self):
+        return [call for call in self.recorded() if call[0] == "promote" or call[1] in ("cp", "tag")]
+
+    def test_first_publication_builds_promotes_with_itself_and_tags_the_commit(self):
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        digest = self.registry()["serviceradar/harbor-lifecycle-tools"]["sha-" + self.COMMIT]
+        reference = "registry.carverauto.dev/serviceradar/harbor-lifecycle-tools@" + digest
+        # Real oras prints progress for `tag`; the summary holds only the reference.
+        self.assertEqual([line for line in (self.root / "summary.md").read_text().splitlines()
+                          if line.startswith("- `")], [f"- `{reference}`"])
+        self.assertEqual(self.registry()["serviceradar-builds/harbor-lifecycle-tools"], {"sha-" + self.COMMIT: digest})
+        # Build storage is written by the build identity, the tag by the promotion
+        # identity, and promotion runs the published promoter on exactly this root.
+        self.assertEqual([(call[0], call[1]) for call in self.writes()],
+                         [("build", "cp"), ("promote", {"version": 1, "artifacts": [{
+                             "repository": "harbor-lifecycle-tools", "digest": digest, "required_referrers": []}]}),
+                          ("promotion", "tag")])
+        receipts = list((self.root / "receipts").glob("*.json"))
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(json.loads(receipts[0].read_text())["published"],
+                         [{"repository": "harbor-lifecycle-tools", "digest": digest, "tags": ["sha-" + self.COMMIT]}])
+        # The same inputs reproduce the digest, so a re-run verifies and writes nothing.
+        again = self.run_step(EXPECTED_DIGEST=digest)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.writes(), [])
+        # A different creation time is a different artifact.
+        other = self.run_step(CREATED="2026-01-02T00:00:00Z", EXPECTED_DIGEST=digest)
+        self.assertNotEqual(other.returncode, 0)
+        self.assertIn("differs from expected", other.stderr)
+
+    def test_mismatched_digest_source_or_existing_tag_writes_nothing(self):
+        self.state.write_text(json.dumps({"layout": {}, "serviceradar-builds/harbor-lifecycle-tools": {},
+                                          "serviceradar/harbor-lifecycle-tools": {
+                                              "sha-" + "2" * 40: "sha256:" + "3" * 64}}))
+        cases = [
+            ({"EXPECTED_DIGEST": "sha256:" + "4" * 64}, "differs from expected"),
+            ({"TOOL_SHA256": "0" * 64}, "reviewed SHA256"),
+            ({"GITOPS_COMMIT": "2" * 40}, "refusing to replace fixed protected tag"),
+            ({"GITOPS_COMMIT": "main"}, "40-character"),
+        ]
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                result = self.run_step(**overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(self.writes(), [])
+        self.assertEqual(self.registry()["serviceradar/harbor-lifecycle-tools"],
+                         {"sha-" + "2" * 40: "sha256:" + "3" * 64})
 
 
 class PublicationVerificationTest(unittest.TestCase):
