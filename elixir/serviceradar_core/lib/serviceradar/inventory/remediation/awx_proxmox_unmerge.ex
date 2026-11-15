@@ -157,7 +157,7 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
       repaired: repaired_records(related),
       devices: devices(uids),
       identifiers: identifiers,
-      awx_memberships: awx_memberships(identifiers),
+      awx_memberships: awx_memberships(identifiers, merges),
       guests: guests(refs),
       interface_macs: interface_macs(uids),
       truncated?: truncated?
@@ -294,16 +294,40 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmerge do
   # current rows that could be their replacements: same controller, inventory and
   # `ansible_host`. A re-created host keeps its `ansible_host`; the old row is
   # expired and not current, the new row is current.
-  defp awx_memberships(identifiers) do
-    pairs =
-      identifiers
-      |> Map.values()
-      |> List.flatten()
-      |> Enum.flat_map(fn row -> List.wrap(awx_v2_pair(row[:value])) end)
-      |> Enum.uniq()
+  #
+  # The ids come from the live identifier rows AND the merge audit snapshots the
+  # proof reads: source retirement archives the superseded v2 row once the
+  # replacement is current, so after that pass only the audit still names the
+  # old id (`source_identifiers`, `awx_integration_id`, the dropped AWX claim).
+  defp awx_memberships(identifiers, merges) do
+    pairs = Enum.uniq(identifier_pairs(identifiers) ++ audit_pairs(merges))
 
     rows = membership_rows(pairs)
     rows ++ current_replacements(rows)
+  end
+
+  defp identifier_pairs(identifiers) do
+    identifiers
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.flat_map(fn row -> List.wrap(awx_v2_pair(row[:value])) end)
+  end
+
+  defp audit_pairs(merges) do
+    Enum.flat_map(merges, fn merge ->
+      details = merge.details || %{}
+
+      values =
+        Enum.map(source_identifiers(details) || [], & &1.value) ++
+          [
+            details["awx_integration_id"],
+            IdentityProjections.claimed_awx_id(
+              get_in(details, ["dropped_source_metadata", "awx"])
+            )
+          ]
+
+      Enum.flat_map(values, fn value -> List.wrap(awx_v2_pair(value)) end)
+    end)
   end
 
   defp awx_v2_pair(value) when is_binary(value) do

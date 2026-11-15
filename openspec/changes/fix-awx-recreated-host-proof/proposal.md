@@ -3,9 +3,9 @@
 ## Problem
 
 `DireRemediation.run(steps: ["awx-proxmox-verify"])` fails A2/A3 on exactly one
-merge on demo: event `c6d40538-a4a1-4a3b-a893-fde0b30cecf6`, proof only
-`different_awx_hosts`. It is a CORRECT merge: one VM (same Proxmox v3 guest ref
-`qemu:136`, same hostname, same inventory) whose AWX host was re-created. In
+merge on demo, proof only `different_awx_hosts`. It is a CORRECT merge: one VM
+(same Proxmox guest ref, same hostname, same inventory) whose AWX host was
+re-created. In
 `platform.ansible_awx_host_memberships` the old host row is `current=false`,
 `expired_at` set, `link_disposition=quarantined`; the new row is `current=true`
 at the same `ansible_host`, same controller and inventory.
@@ -30,7 +30,10 @@ Concretely:
 
 1. `AwxProxmoxUnmerge.load_around/2` loads the membership rows for the AWX v2
    ids appearing in the candidate merges, plus the current rows sharing their
-   (controller, inventory, `ansible_host`), into `data.awx_memberships`.
+   (controller, inventory, `ansible_host`), into `data.awx_memberships`. The
+   ids come from the live identifier rows and the merge audit snapshots the
+   proof reads (`source_identifiers`, `awx_integration_id`, the dropped AWX
+   claim), since source retirement archives the superseded row.
 2. `merge_input/2` attaches the snapshot to each merge map, so the pure
    planner (`Decisions.plan_awx_proxmox_unmerge/3`) and both verify checks
    (which share it via `plan/2`) evaluate the same data.
@@ -50,5 +53,6 @@ described that change's scope, not this fix. That file is left alone.
   `decisions.ex` (proof evaluation). No schema change, no new queue, no
   execute-path change: Refused/planned units only shrink by the false
   positives.
-- Demo: read-only. After the fix, `awx-proxmox-verify` SHALL pass A2/A3 and
-  the unfiltered unmerge dry run SHALL plan 0 units for event `c6d40538`.
+- Demo: read-only. After the fix, `awx-proxmox-verify` SHALL pass A2/A3 on the
+  re-created-host merge and the unfiltered unmerge dry run SHALL plan 0 units
+  for it.

@@ -692,6 +692,17 @@ defmodule ServiceRadar.Inventory.Remediation.AwxProxmoxUnmergeTest do
         details: %{"corroboration" => "ip_host_name"}
       )
 
+    if old_disposition == "quarantined" do
+      # Source retirement archives the superseded row once the replacement is
+      # current, so only the merge audit still names the old id: the planner
+      # must find it there, not in the live identifier rows.
+      %{num_rows: 1} =
+        Repo.query!(
+          "DELETE FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+          ["awx:v2:#{controller_id}:host:#{old_host}"]
+        )
+    end
+
     %{merge: merge}
   end
 

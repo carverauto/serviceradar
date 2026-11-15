@@ -849,6 +849,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     * `awx_memberships` — the AWX host membership rows for the ids the merge names,
       each `%{controller_id, inventory_id, awx_host_id, ansible_host, current, expired_at}`,
       or `nil` when the caller loaded none (then every id counts as recorded).
+      The loader collects those ids from the live identifier rows and the merge
+      audit snapshots, since retirement can archive the superseded row.
 
   The merge joined different machines only on one of these proofs:
 
