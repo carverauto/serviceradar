@@ -304,8 +304,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
     end
   end
 
-  defp usable?(encoded),
-    do: Enum.any?(["community", "username"], &present?(Map.get(encoded, &1)))
+  defp usable?(encoded), do: Enum.any?(["community", "username"], &present?(Map.get(encoded, &1)))
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
