@@ -249,6 +249,54 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
       assert result.uptime_pct == Float.round((86_400 - 600) / 86_400 * 100.0, 1)
     end
 
+    test "a change decided within the current second shows in the timeline the badge reflects" do
+      # Available for weeks, then unavailable 0.7 seconds before the page reloads.
+      now = ~U[1999-06-16 12:15:00.800000Z]
+
+      respond_with([
+        rows([history("available", "1999-06-01T00:00:00Z", "1999-06-16T12:15:00.100000Z", "unavailable")])
+      ])
+
+      result =
+        load(
+          now: now,
+          converged?: true,
+          merged_availability: %{state: :unavailable, changed_at: ~U[1999-06-16 12:15:00.100000Z]}
+        )
+
+      assert_receive {:query, query, _}
+      assert query =~ "time:[1999-06-15T12:15:00Z,1999-06-16T12:15:00.800000Z]"
+
+      assert result.window_end == now
+      assert result.bucket_count == 49
+      last = List.last(result.segments)
+      assert last.timestamp == "1999-06-16T12:00:00Z"
+      assert last.status == :offline
+      assert last.minutes_down == 1
+      assert result.offline_checks == 1
+      assert result.online_checks == 48
+      assert_in_delta Enum.sum(Enum.map(result.segments, & &1.width)), 100.0, 0.00001
+    end
+
+    test "an outage shorter than a second marks its bucket offline with one minute down" do
+      # Unavailable from 03:10:00.100 to 03:10:00.400, within a single second.
+      result =
+        load_merged(
+          %{state: :available, changed_at: ~U[1999-06-16 03:10:00.400000Z]},
+          [
+            history("available", "1999-06-01T00:00:00Z", "1999-06-16T03:10:00.100000Z", "unavailable"),
+            history("unavailable", "1999-06-16T03:10:00.100000Z", "1999-06-16T03:10:00.400000Z", "available")
+          ]
+        )
+
+      bucket = Enum.find(result.segments, &(&1.timestamp == "1999-06-16T03:00:00Z"))
+      assert bucket.status == :offline
+      assert bucket.minutes_down == 1
+      assert bucket.title == "Offline (1 min down)"
+      assert result.offline_checks == 1
+      assert result.online_checks == 48
+    end
+
     test "an unknown current decision leaves the time since it unknown" do
       result = load_merged(%{state: :unknown, changed_at: ~U[1999-06-01 00:00:00Z]}, [])
       assert result.unknown_checks == 49

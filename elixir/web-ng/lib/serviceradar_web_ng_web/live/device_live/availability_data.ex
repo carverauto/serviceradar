@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   require Ash.Query
 
   @bucket_seconds 30 * 60
+  @microseconds 1_000_000
   @window_seconds 24 * 60 * 60
   # One row per bucket and probed address: a full window spans up to 49 buckets, and a sweep probes a
   # device at its own address plus up to eight aliases.
@@ -33,20 +34,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   0-arity loader for it) and `:converged?` (a boolean, or a 0-arity loader).
   """
   def load_availability(srql_module, device_uid, scope, opts \\ []) do
-    now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
-    start_at = DateTime.shift(now, second: -@window_seconds)
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    probe_end = DateTime.truncate(now, :second)
+    start_at = DateTime.shift(probe_end, second: -@window_seconds)
     agent_id = Keyword.get(opts, :agent_id)
 
     cond do
       is_binary(agent_id) ->
-        load_probe_history(srql_module, device_uid, scope, agent_id, :agent_probe, start_at, now)
+        load_probe_history(srql_module, device_uid, scope, agent_id, :agent_probe, start_at, probe_end)
 
       resolve(Keyword.get(opts, :converged?, &MergedAvailability.converged?/0)) ->
         merged = resolve(Keyword.get(opts, :merged_availability)) || %{}
         load_merged_history(srql_module, device_uid, scope, merged, start_at, now)
 
       true ->
-        load_probe_history(srql_module, device_uid, scope, nil, :probe, start_at, now)
+        load_probe_history(srql_module, device_uid, scope, nil, :probe, start_at, probe_end)
     end
   end
 
@@ -120,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     until = earliest(until, now)
 
     if DateTime.before?(from, until),
-      do: [{state, DateTime.to_unix(from), DateTime.to_unix(until)}],
+      do: [{state, DateTime.to_unix(from, :microsecond), DateTime.to_unix(until, :microsecond)}],
       else: []
   end
 
@@ -131,15 +133,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
   # A bucket is offline when the device was unavailable for any part of it, online when
   # every known part of it was available, and unknown when no part is known. Uptime is
-  # available time over known time.
+  # available time over known time, all measured in microseconds.
   defp build_merged_availability(intervals, start_at, end_at) do
-    first_second = DateTime.to_unix(start_at)
-    last_second = DateTime.to_unix(end_at)
+    first = DateTime.to_unix(start_at, :microsecond)
+    last = DateTime.to_unix(end_at, :microsecond)
+    last_bucket = (last - 1) |> Integer.floor_div(@microseconds) |> bucket_start()
 
     buckets =
-      Enum.map(bucket_start(first_second)..bucket_start(last_second - 1)//@bucket_seconds, fn second ->
-        from = max(second, first_second)
-        until = min(second + @bucket_seconds, last_second)
+      Enum.map(bucket_start(DateTime.to_unix(start_at))..last_bucket//@bucket_seconds, fn second ->
+        from = max(second * @microseconds, first)
+        until = min((second + @bucket_seconds) * @microseconds, last)
         up = overlap(intervals, :available, from, until)
         down = overlap(intervals, :unavailable, from, until)
         {second, until - from, up, down}
@@ -154,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
           status: state,
           available: state == :online,
           minutes_down: minutes(down),
-          width: span / @window_seconds * 100.0,
+          width: span / (last - first) * 100.0,
           title: merged_label(state, down)
         }
       end)
@@ -188,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   defp merged_status(up, _down) when up > 0, do: :online
   defp merged_status(_up, _down), do: :unknown
 
-  defp minutes(seconds), do: div(seconds + 59, 60)
+  defp minutes(microseconds), do: div(microseconds + 60 * @microseconds - 1, 60 * @microseconds)
 
   defp merged_label(:offline, down), do: "Offline (#{minutes(down)} min down)"
   defp merged_label(:online, _down), do: "Online"
