@@ -86,6 +86,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProfileLifecycleTest do
              "once demoted the profile must become deletable without a page reload"
     end
 
+    # Mapper discovery once took its fallback credential from the default
+    # profile, so a save that cleared the flag silently stripped discovery of
+    # its credential. Only "Clear default" and "Set as default" on another
+    # profile may change the flag; saving the edit form must not.
+    test "saving the edit form keeps the default flag", %{conn: conn} do
+      profile = profile_fixture(is_default: true)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/snmp/#{profile.id}/edit")
+
+      lv
+      |> form("form[phx-submit='save_profile']", %{
+        "form" => %{"target_query" => "in:devices hostname:host01.example.com"}
+      })
+      |> render_submit()
+
+      assert %{is_default: true, target_query: "in:devices hostname:host01.example.com"} =
+               reload(profile)
+    end
+
     test "deleting the demoted profile leaves the instance with no profile at all", %{conn: conn} do
       profile = profile_fixture(is_default: false)
 

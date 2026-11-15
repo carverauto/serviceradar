@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MapperForms do
       "discovery_type" => to_string(job.discovery_type),
       "concurrency" => job.concurrency,
       "timeout" => job.timeout,
-      "retries" => job.retries
+      "retries" => job.retries,
+      "snmp_credential_secret_id" => to_string(job.snmp_credential_secret_id || "")
     }
   end
 

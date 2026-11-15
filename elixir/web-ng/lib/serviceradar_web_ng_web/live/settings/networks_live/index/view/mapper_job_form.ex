@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
   attr :unifi_form, :any, required: true
   attr :unifi_present, :boolean, default: false
   attr :mikrotik, :map, default: %{}
+  attr :snmp_credential_options, :list, default: []
 
   def render(assigns) do
     # Get current values for conditional rendering
@@ -28,6 +29,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
       |> assign(:mikrotik, normalize_mikrotik_fields(assigns.mikrotik))
       |> assign(:discovery_mode, discovery_mode)
       |> assign(:show_api, discovery_mode in ["api", "snmp_api"])
+      |> assign(:show_snmp, discovery_mode in ["snmp", "snmp_api"])
+      |> assign(
+        :snmp_credential_missing,
+        (Form.input_value(assigns.form, :snmp_credential_secret_id) || "") in ["", nil]
+      )
       |> assign(:agent_options, agent_options)
 
     ~H"""
@@ -75,6 +81,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
         <.input field={@form[:concurrency]} type="number" label="Concurrency" />
         <.input field={@form[:timeout]} type="text" label="Timeout (e.g. 30s)" />
         <.input field={@form[:retries]} type="number" label="Retries" />
+      </div>
+
+      <div :if={@show_snmp} class="space-y-2">
+        <.input
+          field={@form[:snmp_credential_secret_id]}
+          type="select"
+          label="SNMP Credential"
+          options={@snmp_credential_options}
+          prompt="No SNMP credential"
+        />
+        <p class="text-xs text-sr-muted">
+          Used for every address without its own device credential, including
+          seeds and newly found neighbours.
+          <.link navigate={~p"/settings/networks/credentials"} class="link">
+            Manage credentials
+          </.link>
+        </p>
+        <div
+          :if={@snmp_credential_missing}
+          id="mapper-job-snmp-credential-warning"
+          class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs"
+        >
+          No SNMP credential: only devices with their own SNMP credential are
+          probed. Seeds and neighbours without one are skipped.
+        </div>
       </div>
 
       <div>

@@ -101,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:can_run_sweeps, can_run_sweeps?(scope))
         |> assign(:mapper_job, nil)
         |> assign(:mapper_form, nil)
+        |> assign(:mapper_snmp_credential_options, [])
         |> assign(:mapper_seeds_text, "")
         |> assign(:mapper_unifi_form, empty_unifi_form())
         |> assign(:mapper_unifi_present, false)

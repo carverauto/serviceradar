@@ -94,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:show_mapper_form, nil)
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, nil)
+    |> assign(:mapper_snmp_credential_options, [])
     |> assign(:mapper_seeds_text, "")
     |> assign(:mapper_unifi_form, empty_unifi_form())
     |> assign(:mapper_unifi_present, false)
@@ -117,7 +118,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
       "discovery_type" => "full",
       "concurrency" => 10,
       "timeout" => "45s",
-      "retries" => 2
+      "retries" => 2,
+      "snmp_credential_secret_id" => ""
     }
 
     socket
@@ -127,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:show_mapper_form, :new_mapper_job)
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, to_form(defaults, as: :mapper_job))
+    |> assign(:mapper_snmp_credential_options, mapper_snmp_credential_options(scope))
     |> assign(:mapper_seeds_text, "")
     |> assign(:mapper_unifi_form, empty_unifi_form())
     |> assign(:mapper_unifi_present, false)
@@ -157,6 +160,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:show_mapper_form, :edit_mapper_job)
         |> assign(:mapper_job, job)
         |> assign(:mapper_form, to_form(mapper_job_to_form(job), as: :mapper_job))
+        |> assign(
+          :mapper_snmp_credential_options,
+          mapper_snmp_credential_options(scope, job.snmp_credential_secret_id)
+        )
         |> assign(:mapper_seeds_text, seeds_to_text(job.seeds || []))
         |> assign(:mapper_unifi_form, unifi_form)
         |> assign(:mapper_unifi_present, unifi_present)

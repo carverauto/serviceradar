@@ -42,15 +42,24 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   @doc """
   Resolve credentials for a device UID.
+
+  The result names the record the credential came from as `source_record`: the
+  device override, the credential rule, or the profile. It is `nil` when no
+  credential resolved.
   """
   @spec resolve_for_device(String.t() | nil, map(), keyword()) ::
           {:ok,
-           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
+           %{
+             credential: credential_map() | nil,
+             profile: SNMPProfile.t() | nil,
+             source: atom(),
+             source_record: struct() | nil
+           }}
           | {:error, term()}
   def resolve_for_device(device_uid, actor, opts \\ [])
 
   def resolve_for_device(nil, _actor, _opts) do
-    {:ok, %{credential: nil, profile: nil, source: :none}}
+    {:ok, %{credential: nil, profile: nil, source: :none, source_record: nil}}
   end
 
   def resolve_for_device(device_uid, actor, opts) when is_binary(device_uid) do
@@ -87,7 +96,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
                %{
                  credential: credential_map() | nil,
                  profile: SNMPProfile.t() | nil,
-                 source: atom()
+                 source: atom(),
+                 source_record: struct() | nil
                }}
               | {:error, term()}
           }
@@ -272,8 +282,17 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       )
 
     case credential do
-      {:error, reason} -> {:error, reason}
-      credential -> {:ok, %{credential: credential, profile: nil, source: :device_override}}
+      {:error, reason} ->
+        {:error, reason}
+
+      credential ->
+        {:ok,
+         %{
+           credential: credential,
+           profile: nil,
+           source: :device_override,
+           source_record: override
+         }}
     end
   end
 
@@ -288,7 +307,10 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       Map.new(device_uids, fn device_uid ->
         case Map.fetch!(rule_matches, device_uid) do
           {:ok, rule} ->
-            {device_uid, build_rule_credential(rule, actor, for_device(build_opts, device_uid))}
+            {device_uid,
+             rule
+             |> build_rule_credential(actor, for_device(build_opts, device_uid))
+             |> with_rule(rule)}
 
           other ->
             {device_uid, other}
@@ -325,8 +347,10 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp rule_or_profile_result(_rule_credential, {:error, reason}, _uid, _actor, _build_opts),
     do: {:error, reason}
 
-  defp rule_or_profile_result({:ok, credential}, profile, _uid, _actor, _build_opts),
-    do: {:ok, %{credential: credential, profile: profile, source: :credential_rule}}
+  defp rule_or_profile_result({:ok, credential, rule}, profile, _uid, _actor, _build_opts),
+    do:
+      {:ok,
+       %{credential: credential, profile: profile, source: :credential_rule, source_record: rule}}
 
   defp rule_or_profile_result(:none, profile, device_uid, actor, build_opts) do
     credential =
@@ -346,12 +370,16 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
       credential ->
         if credential_present?(credential) do
-          {:ok, %{credential: credential, profile: profile, source: :profile}}
+          {:ok,
+           %{credential: credential, profile: profile, source: :profile, source_record: profile}}
         else
-          {:ok, %{credential: nil, profile: profile, source: :none}}
+          {:ok, %{credential: nil, profile: profile, source: :none, source_record: nil}}
         end
     end
   end
+
+  defp with_rule({:ok, credential}, rule), do: {:ok, credential, rule}
+  defp with_rule(other, _rule), do: other
 
   defp apply_fallback_profile(results, nil, _actor, _build_opts), do: results
 
@@ -370,7 +398,14 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
             {device_uid, {:error, reason}}
 
           credential when is_map(credential) ->
-            {device_uid, {:ok, %{resolution | credential: credential, source: :fallback_profile}}}
+            {device_uid,
+             {:ok,
+              %{
+                resolution
+                | credential: credential,
+                  source: :fallback_profile,
+                  source_record: fallback
+              }}}
 
           _no_credential ->
             {device_uid, {:ok, resolution}}
@@ -379,63 +414,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       resolved ->
         resolved
     end)
-  end
-
-  @doc """
-  Resolve credentials from the instance default SNMP profile.
-
-  Useful when no device UID is available but callers still need a concrete
-  SNMP credential instead of an empty v2c fallback.
-  """
-  @spec resolve_default(map(), keyword()) ::
-          {:ok,
-           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
-          | {:error, term()}
-  def resolve_default(actor, opts \\ []) do
-    case resolve_unscoped_rule_credential(opts, actor) do
-      {:ok, credential} ->
-        case get_default_profile(actor) do
-          {:error, reason} ->
-            {:error, reason}
-
-          profile ->
-            {:ok,
-             %{
-               credential: credential,
-               profile: profile,
-               source: :credential_rule
-             }}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-
-      :none ->
-        case get_default_profile(actor) do
-          {:error, reason} ->
-            {:error, reason}
-
-          profile ->
-            credential =
-              build_credential(profile, actor,
-                consumer_id: profile && "snmp_profile:#{profile.id}",
-                target_kind: "snmp_profile",
-                target_id: profile && profile.id
-              )
-
-            case credential do
-              {:error, reason} ->
-                {:error, reason}
-
-              credential ->
-                if credential_present?(credential) do
-                  {:ok, %{credential: credential, profile: profile, source: :default_profile}}
-                else
-                  {:ok, %{credential: nil, profile: profile, source: :none}}
-                end
-            end
-        end
-    end
   end
 
   @doc """

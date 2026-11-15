@@ -381,6 +381,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_graph_ingestion_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_job_run_now_test.exs": 1,
+    "test/serviceradar/network_discovery/mapper_job_snmp_credential_backfill_worker_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_job_validation_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_mikrotik_controller_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_unifi_controller_test.exs": 1,

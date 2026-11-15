@@ -3,6 +3,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NetworkDiscovery.MapperJob
 
@@ -92,5 +93,56 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
       |> Ash.update(actor: actor)
 
     assert Enum.any?(errors, &(&1.field == :agent_id))
+  end
+
+  @tag :integration
+  test "accepts SNMP credentials and rejects any other credential as the job's SNMP credential" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+
+    snmp = credential_fixture("SNMP #{suffix}", "snmp", :snmp, actor)
+    legacy_rule_secret = credential_fixture("Rule #{suffix}", "snmp", :opaque, actor)
+    api_token = credential_fixture("Token #{suffix}", "example-api", :api_token, actor)
+
+    for secret <- [snmp, legacy_rule_secret] do
+      assert {:ok, job} = create_job("job-#{secret.name}", secret.id, actor)
+      assert job.snmp_credential_secret_id == secret.id
+    end
+
+    assert {:error, %Invalid{errors: errors}} =
+             create_job("job-token-#{suffix}", api_token.id, actor)
+
+    assert Enum.any?(errors, &(&1.field == :snmp_credential_secret_id))
+
+    {:ok, job} = create_job("job-unbound-#{suffix}", nil, actor)
+
+    assert {:error, %Invalid{errors: errors}} =
+             job
+             |> Ash.Changeset.for_update(:update, %{snmp_credential_secret_id: api_token.id},
+               actor: actor
+             )
+             |> Ash.update(actor: actor)
+
+    assert Enum.any?(errors, &(&1.field == :snmp_credential_secret_id))
+  end
+
+  defp create_job(name, secret_id, actor) do
+    MapperJob
+    |> Ash.Changeset.for_create(
+      :create,
+      %{name: name, discovery_mode: :snmp, snmp_credential_secret_id: secret_id},
+      actor: actor
+    )
+    |> Ash.create(actor: actor)
+  end
+
+  defp credential_fixture(name, provider, kind, actor) do
+    NetworkCredentialSecret
+    |> Ash.Changeset.for_create(
+      :create,
+      %{name: name, provider: provider, credential_kind: kind, secret_payload: "example-payload"},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 end
