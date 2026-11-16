@@ -648,6 +648,23 @@ into) cannot be frozen by this path. The reconciler (section R) adopts them
 under the authority stated there, or quarantines them with a gap (R4). They
 are never left as unexplained local bytes.
 
+The catalog therefore holds two kinds of entry, and this section is the one
+owner of block state that every other section follows:
+
+- **Sealed entry**: created only by `freeze_and_catalog/6` or the reconciler's
+  historical freeze (R3), in the transaction that freezes the descriptor; it
+  carries the media and timeline ranges and is playable.
+- **Quarantined entry** (`local_state = quarantined`): created by the
+  reconciler for a block or journal whose seal cannot be verified or
+  recovered, that has no Core authority, or whose registered binding has no
+  retained history (R2, R4, R8), after the NVR confirms the move into its
+  quarantine partition. It carries the reason, the quarantine receipt, the
+  bytes and, when the block archives, the `archive_state` of its
+  quarantine-destination copy. Nothing is frozen or played; the receipt, not
+  a descriptor, is the evidence, and it is still one create-only row per
+  `(storage_id, block_key)`. Its lost interval is a gap with reason
+  `quarantined` (B3 `RecordingGap`).
+
 ### B3. Resources
 
 `ServiceRadar.Camera.RecordingCatalogEntry`, table
@@ -660,14 +677,14 @@ are never left as unexplained local bytes.
 | `camera_source_id`, `stream_profile_id`, `policy_id` | Denormalized for indexes |
 | `storage_id`, `block_key` | Unique pair; the NVR copy identity |
 | `clock_epoch`, `run_id` | Run grouping for continuity |
-| `media_start_ns`, `media_end_ns` | From the descriptor's first and last fragment |
+| `media_start_ns`, `media_end_ns` | From the descriptor's first and last fragment; NULL for a quarantined entry, as are the time, run and descriptor fields below |
 | `first_unit_pts`, `first_unit_received_at` | Raw observation for the time basis |
 | `timeline_start_us`, `timeline_end_us` | Derived wall-clock range (UTC microseconds) |
 | `time_basis`, `time_uncertainty_us`, `anchor_id` | `received` now; NULL uncertainty means unmeasured |
 | `contiguous_with_previous` | True when sequence-contiguous with the previous block of the run |
 | `fragment_count`, `media_bytes`, `init_sha256`, `descriptor_sha256` | From the frozen descriptor |
 | `local_state`, `local_state_at` | `present`, `quarantined`, `reclaiming`, `reclaimed`, `missing` |
-| `quarantine_reason`, `quarantine_receipt` | Set exactly when `local_state = quarantined` (R2): reason class (`unrecoverable_journal`, `unattributable`, `binding_without_history`) and the receipt (the NVR's confirmed partition path, per-file length and SHA-256, bytes, placed-at) |
+| `quarantine_reason`, `quarantine_receipt`, `quarantined_bytes` | Set exactly when `local_state = quarantined` (R2): reason class (`unrecoverable_journal`, `unattributable`, `binding_without_history`), the receipt (the NVR's confirmed partition path, per-file length and SHA-256, placed-at) and the bytes; its quarantine-destination copy uses the `archive_state` and receipt fields below |
 | `archive_state`, `archive_state_at` | `not_required`, `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
 | `archive_deleted_reason` | Set once when `archive_state` becomes `deleted`: `object_retention`, `object_capacity` or `operator`; with `local_state = present` the entry is local only after archive expiry or reaping (C3, C3a) |
 | `archive_binding_id` | FK restrict; for a block that archives (A6), the binding active when the entry is registered, never changed afterwards (R8) |
@@ -1902,8 +1919,9 @@ accept NVR receipts would change their meaning.
 ### D2. Playlist construction
 
 For an authorized window (at most 60 minutes, 2,048 segments and 256 KiB of
-playlist), the server reads catalog entries and their frozen descriptors and
-emits a version 7 VOD playlist:
+playlist), the server reads sealed catalog entries (B2; quarantined entries are
+never read for playback, and their intervals appear as gaps with reason
+`quarantined`) and their frozen descriptors and emits a version 7 VOD playlist:
 
 - one `EXT-X-MAP` per distinct `init_sha256` (consecutive blocks with the same
   init reuse one map URI);
@@ -1962,7 +1980,8 @@ seek cancels obsolete prefetch, no whole-recording restore.
   seek behavior to be measured, not guaranteed.
 - A shared fragment cache is a later item; when added it follows the plane's
   cache rules (fresh authorization on every hit, no recorder spool use).
-- Coverage queries aggregate catalog rows into at most 1,440 buckets per
+- Coverage queries aggregate sealed catalog rows (quarantined entries are
+  excluded and shown through their gaps) into at most 1,440 buckets per
   request in SQL; a window of more than 31 days is refused.
 
 ### D5. Local read path

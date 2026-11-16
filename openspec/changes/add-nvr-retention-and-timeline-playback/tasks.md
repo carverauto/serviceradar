@@ -35,7 +35,7 @@ gate.
 ## B. Core catalog of NVR blocks (design B)
 
 ### serviceradar_core
-- [ ] B.1 `RecordingCatalogEntry` resource, migration and indexes (design B3); create-only registration identity on `(storage_id, block_key)`; database trigger refusing transitions out of `reclaimed` and `deleted`.
+- [ ] B.1 `RecordingCatalogEntry` resource, migration and indexes (design B3), admitting sealed and quarantined entries (design B2); create-only registration identity on `(storage_id, block_key)`; database trigger refusing transitions out of `reclaimed` and `deleted`.
 - [ ] B.2 `RecordingGap` resource and migration (append-only except closing `end_us`).
 - [ ] B.3 `RecordingBlocks.freeze_and_catalog/6`: freeze plus catalog insert in one transaction under `RecorderOwnership.with_current`; exact retry returns the entry; conflicting descriptor refused.
 - [ ] B.4 `RecordingBlocks.acquire_upload/4` refuses blocks stored on an NVR `LocalStorageBinding`.
@@ -58,7 +58,7 @@ gate.
 ### serviceradar_core
 - [ ] R.1 `RecordingBlocks.freeze_historical/3` (system actor, reconciler only): every live-freeze check except claim liveness, replaced by writer retirement; same row lock as the live freeze; catalog insert in the same transaction (design R3).
 - [ ] R.2 Rotated-block adoption: create the missing `RecordingBlock` row from the reserved predecessor when the capture identity is unallocated, advance the claim's `next_block_sequence` when it is the same epoch, then R.1 (design R3).
-- [ ] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantine receipts carry the evidence for unattributable and unrecoverable blocks (design R2).
+- [ ] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantined catalog entries carry the evidence for unattributable and unrecoverable blocks (design B2, R2).
 
 ### serviceradar_nvr and serviceradar_nvr_client
 - [ ] R.4 Inventory page reports block state (`sealed`, `incomplete`, `tombstoned`) and descriptor digest for sealed blocks (extends the settings change's `GET /v1/blocks` page); client function.
@@ -164,7 +164,7 @@ gate.
 - [ ] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
 
 ### web-ng
-- [ ] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4).
+- [ ] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4); quarantined catalog entries never served, their intervals shown as `quarantined` gaps (design B2).
 - [ ] D.4 Authorization on every request and `RecordingAccessAudit` per playlist window (design D7); resource and migration in serviceradar_core.
 - [ ] D.5 Timeline mode on `/cameras/:camera_source_id/recordings`: coverage bar with copy states (including local only after archive expiry or reaping), gaps, not scheduled and deleted regions; time basis labels; automatic adjacent-window loading; served-copy indicator; holds. No database queries in disconnected mount.
 

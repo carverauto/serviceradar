@@ -97,7 +97,7 @@ With the `received` basis, a block's wall-clock position SHALL derive from Core'
 
 ### Requirement: Core catalog of sealed NVR blocks
 The system SHALL register each sealed NVR block as one catalog entry, created only in the same transaction that freezes the block's canonical descriptor, either under its original live recorder claim or by the reconciler's historical freeze under Core's retained reservation authority, and SHALL record the block's camera, profile, media and timeline ranges with their time basis and the state of its local and archive copies.
-Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged on the strength of on-disk evidence alone.
+Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged as sealed or playable on the strength of on-disk evidence alone. The catalog SHALL also admit a quarantined entry for a block or journal whose seal cannot be verified or recovered or that has no Core authority, created by the reconciler after the NVR confirms the move into its quarantine partition and carrying the reason, the quarantine receipt, the bytes and, when the block archives, the archive state of its quarantine-destination copy; a quarantined entry SHALL NOT be frozen or played, and its interval SHALL appear on the timeline as a gap with reason `quarantined`.
 
 #### Scenario: Registration after seal
 - **WHEN** a continuous run or bounded capture receives a sealed result for its reserved block
@@ -107,8 +107,8 @@ Catalog registration SHALL be create-only per storage identity and block key. A 
 #### Scenario: Block with no Core authority
 - **GIVEN** a block on an NVR volume that matches no Core reservation and no reserved predecessor
 - **WHEN** the reconciler examines it
-- **THEN** the system SHALL NOT freeze, catalog or play it
-- **AND** SHALL quarantine it with a recorded quarantine receipt, raise an alarm and list it for an operator decision
+- **THEN** the system SHALL NOT freeze, adopt or play it
+- **AND** SHALL quarantine it under a quarantined catalog entry with its quarantine receipt, raise an alarm and list it for an operator decision
 
 #### Scenario: Legacy upload path
 - **WHEN** the older archive upload path requests a lease on a block stored on an NVR member
@@ -145,7 +145,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 
 #### Scenario: Unrecoverable journal is quarantined
 - **WHEN** explicit recovery of a reserved block fails verification
-- **THEN** the system SHALL quarantine the block or journal and record its quarantine receipt
+- **THEN** the system SHALL quarantine the block or journal and record its quarantine receipt on a quarantined catalog entry
 - **AND** SHALL record a gap with reason `quarantined`, the verification class and the reserved interval
 - **AND** SHALL raise an alarm and show the quarantined bytes on the health tab
 - **AND** SHALL NOT play it or remove it until an operator records an audited disposition, at any usage
