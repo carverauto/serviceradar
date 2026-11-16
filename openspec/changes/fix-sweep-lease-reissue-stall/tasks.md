@@ -31,7 +31,7 @@ merges (rebase onto staging, add the registration, revalidate).
       signs, zero issuance writes, zero sends; digest mismatch, absent
       digest, and old-agent (no capability) each take the full path.
 - [x] 2.3 `LeaseDelivery.record_mappings`: build entries for all slots,
-      commit in 256-entry chunks (each commit fits the checkout timeout; CI
+      commit in 64-entry chunks (each commit fits the checkout timeout; CI
       proved a whole-window single transaction does not); preserve
       halt-before-send on conflict and
       all `verify_issuance` checks. Fail-first DB test (unboxed, serial lane):
