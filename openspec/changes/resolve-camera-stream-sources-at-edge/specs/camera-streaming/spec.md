@@ -35,7 +35,7 @@ Core SHALL deliver the host-owned assignment config key defined in design D8 to 
 #### Scenario: Old plugin and Core after cutover
 - **WHEN** a plugin without resolver support reports `rtsps://192.0.2.10:7441/AbCdEf` to Core from Stage 3
 - **THEN** Core reduces it to `rtsps://192.0.2.10:7441` at entry
-- **AND** no camera inventory row, device metadata or plugin status row holds the path
+- **AND** no camera inventory row, device metadata or plugin status row that Core writes from this report holds the path
 
 ### Requirement: Camera inventory holds no stream secret
 Camera inventory SHALL store only non-secret stream facts: the profile `source_origin`, the profile name, transport, codec and container hints, the vendor camera and profile ids, and the source `discovery_assignment_id`. A stream address, path alias or stream credential SHALL NOT be readable through Ash reads, SRQL, APIs, LiveView assigns, AshAdmin, logs or events.
@@ -68,7 +68,7 @@ When opening a camera relay, Core SHALL send the discovering plugin assignment i
 - **AND** the failure detail contains no address or credential
 
 ### Requirement: Existing stream secrets are removed
-The system SHALL remove every stored stream address, path alias and URL userinfo from camera inventory, device metadata and plugin status rows by an Oban job that a migration enqueues. Each job SHALL name the stage it must complete, and SHALL complete only on a pass run by code at or above that stage, with every connected Core node at or above that stage, that scrubbed every target of that stage and changed nothing, as defined in design D7. Until then the job SHALL be snoozed and continued as the same job, never by inserting a follow-up job, as defined in design D7.
+The system SHALL remove every stored stream address, path alias and URL userinfo from camera inventory, device metadata and plugin status rows by an Oban job that a migration enqueues. Each job SHALL name the stage it must complete, and SHALL complete only when the completion rule in design D7 holds. Until then the job SHALL be snoozed and continued as the same job, never by inserting a follow-up job, as defined in design D7.
 
 #### Scenario: Rolling upgrade
 - **WHEN** an old Core replica writes a copy after the job's first pass
@@ -78,9 +78,16 @@ The system SHALL remove every stored stream address, path alias and URL userinfo
 #### Scenario: Stage 3 job picked up by a Stage 1 node
 - **WHEN** a Core node running Stage 1 code picks up the scrub job enqueued with stage 3
 - **THEN** the node snoozes the job and does not complete it
-- **AND** the job completes later only on a pass by Stage 3 or later code under the D7 rule
+- **AND** the job completes later only on a pass by Stage 3 or later code under the D7 completion rule
+
+#### Scenario: Concurrent inventory upsert during a stage 3 pass
+- **GIVEN** every connected Core node at Stage 3, and a profile whose `source_url_override` holds `rtsps://192.0.2.10:7441/AbCdEf`
+- **WHEN** the stage 3 job reads that profile and a scheduled inventory upsert updates the same row's `last_seen_at`, `metadata` and `source_origin`, setting `source_origin` to `rtsps://192.0.2.11:7441`, before the job writes it
+- **THEN** the pass still nulls `source_url_override`, or, if that column itself changed, the job snoozes and a later pass nulls it
+- **AND** `source_origin` still holds `rtsps://192.0.2.11:7441`, because the scrub sets it only where it is null, as defined in design D7
+- **AND** the job does not complete while `pending/0` reports a non-zero count for any target of its stage, under the D7 completion rule
 
 #### Scenario: Operator verification
 - **WHEN** the job reports completion
-- **THEN** the scrub worker's `pending/0` check defined in design D7 returns zero for every target in scope for the running stage
+- **THEN** the scrub worker's `pending/0` check defined in design D7 returns zero for every target of the job's stage, as the D7 completion rule requires
 - **AND** while the Stage 3 targets are not yet in scope, `pending/0` separately reports the rows still holding an address in `source_url` and `source_url_override` by column name
