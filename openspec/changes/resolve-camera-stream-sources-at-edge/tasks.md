@@ -20,16 +20,17 @@
       columns; digest the reduced payload.
 - [ ] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
       the allowlist.
-- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list (Stage 1 targets in scope), plus the migration that
-      enqueues it; bump `core.migrations.expectedVersion`; run
+- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list and job-stage rule, plus the migration
+      that enqueues the stage 1 job; bump `core.migrations.expectedVersion`; run
       `scripts/db/check-migration-startup-safety.sh`.
 - [ ] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
       asserting that no stored status, state, device, source or profile row holds an invented
       `rtsps://` path or alias outside `source_url` and `source_url_override`, that those two
       columns hold it, and that a report arriving after a scrub pass that left in-scope
       `pending/0` at zero leaves it at zero (D2 Stage 1 ingest rule; fixtures use
-      `192.0.2.0/24` and `example.com`); a scrub worker test covering the repeat-until-zero
-      branch and the stage check holding a target while an older node is connected; and a
+      `192.0.2.0/24` and `example.com`); a scrub worker test covering the D7 job rules: the
+      repeat-until-zero branch, a target held while an older or unresponsive node is
+      connected, and a stage 3 job run by stage 1 code snoozed and not completed; and a
       web-ng test asserting that assigns hold no address.
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
       it and through the worker's scrub of the same in-scope target and asserts they agree: an
@@ -78,7 +79,7 @@
 - [ ] 3.3a `AgentConfigGenerator.build_plugin_assignment_config/2` delivers the D8 key to
       `camera_inventory` assignments; tests for the three cutover combinations in the
       camera-streaming spec delta.
-- [ ] 3.4 Enqueue the scrub worker again with the D7 Stage 3 targets in scope; bump
+- [ ] 3.4 A migration enqueues the D7 stage 3 scrub job (a new job, not the stage 1 job); bump
       `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
       URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
       and assert `at_rest_until_stage_3` is absent.

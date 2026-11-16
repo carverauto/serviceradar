@@ -35,9 +35,9 @@ the address from the controller or camera when a stream opens.
 - **BREAKING (version skew):** Core does not dispatch a relay to an agent that
   lacks the `camera_source_resolution` capability. The session fails with the
   classified reason `agent_upgrade_required`.
-- **Cleanup.** An Oban job, enqueued from a migration, removes every existing
-  copy. It repeats passes until a pass finds nothing, and that pass must start
-  after every Core node runs this change. Operators check the result with the
+- **Cleanup.** An Oban job per stage, enqueued from that stage's migration,
+  removes every existing copy. It completes only under the design D7 rule, so
+  code older than the job's stage cannot finish it. Operators check the result with the
   worker's `pending/0`, which must return zero for every target in scope for
   the running stage, and which reports separately the addresses still at rest
   until Stage 3.

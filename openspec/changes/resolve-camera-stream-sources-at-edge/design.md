@@ -327,19 +327,29 @@ the column is non-null. Stage 1 deliberately leaves targets 5 and 7 in place for
 the relay opener, and `source_origin` does not exist before Stage 3. Stage 4
 drops the two columns and removes targets 5 and 7 from the list.
 
-Termination: a pass scrubs a target only while every connected Core node
-reports, over `:erpc`, a scrub stage no lower than that target's stage (the
-stage of the code the node runs; a node without the worker counts as stage 0).
-Otherwise the pass skips that target. After each pass that changed in-scope rows
-or skipped a target, the worker schedules another pass
-`camera_stream_scrub_repass_seconds` later (runtime setting, code default 600).
-It finishes only after a pass that scrubbed every in-scope target and changed
-nothing. Without the stage check, an older replica still running during the
-rollout can write a copy after the last zero pass: a node from before Stage 1
-writes every copy, and a Stage 1 node writes the two columns that Stage 3
-brings into scope. Every rolling deploy goes through that window, so it is not a
-theoretical race. Holding targets 5 and 7 until no Stage 1 node remains also
-keeps a Stage 1 node from opening a relay from a column already nulled. The
+Jobs and termination. Each scrub job names the stage it must complete in its
+args, with string keys (`{"stage": 1}`, `{"stage": 3}`), and is unique per
+stage. The Stage 1 migration enqueues the stage 1 job; the Stage 3 migration
+enqueues a new stage 3 job, not a re-enqueue of the stage 1 job. A job's targets
+are those tagged with a stage at or below its own. A worker whose code stage is
+lower than the job's stage returns Oban's snooze result
+(`camera_stream_scrub_repass_seconds`) and never completes the job, so a newer
+node picks it up; the Stage 1 worker already carries this rule. Otherwise a pass
+scrubs a job target only while every connected Core node reports, over `:erpc`,
+a scrub stage no lower than that target's stage (the stage of the code the node
+runs; a node without the worker, or one that does not answer, counts as stage
+0), and skips it otherwise. After each pass that changed rows or skipped a
+target, the worker schedules another pass `camera_stream_scrub_repass_seconds`
+later (runtime setting, code default 600). A job completes only on a pass run by
+code at or above the job's stage, with every connected node at or above that
+stage, that scrubbed every target of the job and changed nothing. Without these
+rules an older replica still running during the rollout can write a copy after
+the last zero pass, or finish a later-stage job while its targets still hold
+addresses: a node from before Stage 1 writes every copy, and a Stage 1 node
+writes the two columns that Stage 3 brings into scope and cannot scrub them.
+Every rolling deploy goes through that window, so it is not a theoretical race.
+Holding targets 5 and 7 until no Stage 1 node remains also keeps a Stage 1 node
+from opening a relay from a column already nulled. The
 worker logs counts per pass and emits one completion event.
 
 Following "close the path before deleting", the reduction ships in the same
@@ -417,8 +427,8 @@ stream.
    entry under its Stage 1 ingest rule: everything persisted or passed on comes
    from the reduced result, and only `put_relay_addresses/2` writes the two
    columns, from the relay address extract. Device metadata
-   `camera_source_url` and the profile alias keys are no longer written. D7
-   runs its Stage 1 targets. **This leaves the address at rest in
+   `camera_source_url` and the profile alias keys are no longer written. The D7
+   stage 1 scrub job runs. **This leaves the address at rest in
    `source_url` and `source_url_override`. It is not the fix.**
 2. **Edge resolution** (SDK, Protect and Axis plugins, agent; 2 to 3 PRs plus an
    SDK release, medium). The resolver contract, plugin resolvers, the D8 key in
@@ -430,8 +440,7 @@ stream.
    later). The `source_resolver` payload, removal of the two attributes,
    deletion of the D2 Stage 1 ingest rule (`RelayAddressExtract` and
    `put_relay_addresses/2`), the D8 key in plugin assignment config,
-   `source_origin` and `discovery_assignment_id`, and D7 runs again with its
-   Stage 3 targets in scope.
+   `source_origin` and `discovery_assignment_id`, and the D7 stage 3 scrub job.
 4. **Contract** (next release; small). Drop the columns and their D7 targets,
    remove the agent's legacy `source_url` branch, refresh the baseline schema.
 
