@@ -63,6 +63,14 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         actor: actor
       )
 
+    # An unboxed test commits its rows: delete them by the source they all hang
+    # off, and restore the deployment recording-control row that admission
+    # initializes.
+    if ctx[:sandbox] == :unboxed do
+      Fixtures.preserve_recording_control()
+      on_exit(fn -> Fixtures.cleanup(source.id) end)
+    end
+
     {:ok, profile} =
       StreamProfile.create_profile(%{camera_source_id: source.id, profile_name: "main"},
         actor: actor
@@ -1390,6 +1398,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert recording_blocks(ctx) == []
   end
 
+  # The worker renews at half the remaining capture time, so before the deadline
+  # it runs renewals with sub-second database budgets, and one may overrun. An
+  # overrun is a legal production outcome that drops only the worker's own
+  # connection; in the shared sandbox it would drop the connection every process
+  # in the test shares. Unboxed, each process holds its own connection.
+  @tag sandbox: :unboxed
   test "NVRCapture keeps renewing the recorder fence after a bound while the NVR seal response is outstanding",
        ctx do
     # The recorder lease is capped by the relay and owner leases; give both room
@@ -1404,7 +1418,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     owner = owner(ctx, 120_000)
     abs_tmp = Path.expand(ctx.tmp_dir)
     certs = write_nvr_mtls_certs(Path.join(abs_tmp, "holding-certs"))
-    {port, holding_peer} = start_holding_tls_peer(certs, self())
+    port = start_holding_tls_peer(certs, self())
     storage_id = Ecto.UUID.generate()
     token_file = Path.join(abs_tmp, "holding-token")
     config_file = Path.join(abs_tmp, "holding-client.json")
@@ -1424,18 +1438,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       })
     )
 
-    # The capture deadline stays far enough out that every renewal before the
-    # peer drops gets the worker's full 5s database budget. Ending the capture at
-    # its deadline instead would renew at halving intervals with sub-second
-    # budgets, and one that overruns disconnects the test's shared sandbox
-    # connection.
     task =
       Task.async(fn ->
         NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
           actor: ctx.actor,
           config_file: config_file,
           token_file: token_file,
-          timeout_ms: 20_000,
+          timeout_ms: 8_500,
           bounds: %{max_frames: 3, max_bytes: 8_388_608, max_duration_ms: 6_000}
         )
       end)
@@ -1463,7 +1472,6 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     )
 
     assert recorder_claim(ctx).state == :active
-    send(holding_peer, :drop_without_receipt)
     assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 30_000)
     assert details.storage_id == storage_id
 
@@ -1703,14 +1711,6 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_receive {:recorder_claim_released_by, ^worker}, 5_000
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
     assert recorder_claim(ctx).state == :released
-  end
-
-  # The worker can stop between any two calls, so liveness cannot be checked
-  # first and state read second. A stopped worker is no longer attached.
-  defp nvr_worker_attached?(worker) do
-    not :sys.get_state(worker).detached?
-  catch
-    :exit, _ -> false
   end
 
   defp await_nvr_worker_attached(owner) do
@@ -2134,7 +2134,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       _ = :ssl.close(listen)
     end)
 
-    {port, pid}
+    port
   end
 
   defp holding_peer_accept(listen, notify_pid) do
@@ -2145,20 +2145,10 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     end
   end
 
-  # Reads the request and withholds the seal response until told to drop the
-  # connection.
   defp holding_peer_read(ssl_sock) do
-    case :ssl.setopts(ssl_sock, active: :once) do
-      :ok ->
-        receive do
-          {:ssl, ^ssl_sock, _chunk} -> holding_peer_read(ssl_sock)
-          :drop_without_receipt -> :ssl.close(ssl_sock)
-          {:ssl_closed, ^ssl_sock} -> :ok
-          {:ssl_error, ^ssl_sock, _reason} -> :ok
-        end
-
-      {:error, _reason} ->
-        :ok
+    case :ssl.recv(ssl_sock, 0, 30_000) do
+      {:ok, _chunk} -> holding_peer_read(ssl_sock)
+      _ -> :ok
     end
   end
 
