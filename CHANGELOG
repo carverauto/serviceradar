@@ -422,6 +422,10 @@ format.
   identity to KV key prefixes (#6690); the log collector reads only
   Zen rule bundles (#6696). The chart's datasvc rules match on
   certificate common name (#6705).
+- A Dgraph leader change during edge-record projection is retried as a
+  transient failure instead of logging an error per batch, and
+  EventWriter consumer setup logs a warning while NATS restarts,
+  escalating to one error after eight failed attempts (#6706).
 
 **Remote access**
 
