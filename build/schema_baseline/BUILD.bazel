@@ -1,0 +1,16 @@
+load("@rules_python//python:py_binary.bzl", "py_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+# Regenerates elixir/serviceradar_core/priv/repo/baseline/ from a migration-replayed database:
+#
+#   DATABASE_URL=postgres://... bazel run //build/schema_baseline:generate
+#
+# It reads the database through the workstation's PostgreSQL 18 pg_dump and psql (or PG_DUMP /
+# PSQL), which is why it is a `bazel run` tool and not a build action: its input is a live
+# database the caller names, not a file in the graph.
+py_binary(
+    name = "generate",
+    srcs = ["generate_baseline.py"],
+    main = "generate_baseline.py",
+)

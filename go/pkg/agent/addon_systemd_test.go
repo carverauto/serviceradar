@@ -126,6 +126,46 @@ func stageTestAddonUnit(t *testing.T, addonsRoot, unitName, content string) {
 	}
 }
 
+// An updater only reaches a host through a package upgrade, so one installed
+// before it reported the writable-tree refusal as permanent exits 1 for it, which
+// reads as a transient failure: retried every poll with the agent's config held
+// unacknowledged. The agent refuses such a staged unit itself, permanently,
+// whatever updater the host has; a unit executing from the privileged tree
+// proceeds to the updater.
+func TestInstallViaUpdaterRefusesWritableTreeUnitPermanently(t *testing.T) {
+	for _, tc := range []struct {
+		name, execStart string
+		wantRefused     bool
+	}{
+		{"legacy writable tree", defaultReleaseRuntimeRoot + "/addons/np/current/serviceradar-np", true},
+		{"privileged tree", defaultPrivilegedAddonRoot + "/np/current/serviceradar-np", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			stageTestAddonUnit(t, filepath.Join(tmp, addonsDirName), "serviceradar-np.service",
+				"[Service]\nExecStart="+tc.execStart+" -config /etc/np.json\n")
+
+			err := installStagedAddonSystemdUnitsViaUpdater(context.Background(), AddonSystemdInstallRequest{
+				RuntimeRoot:    tmp,
+				AddonID:        "np",
+				Version:        "1.0.0",
+				BinaryName:     "serviceradar-np",
+				ArtifactSHA256: strings.Repeat("a", 64),
+				Signature:      "c2ln",
+				Units:          []string{"serviceradar-np.service"},
+				Enable:         "serviceradar-np.service",
+			})
+			refused := errors.Is(err, ErrAddonUnitExecPathUnsafe)
+			if refused != tc.wantRefused {
+				t.Fatalf("writable-tree refusal = %v, want %v (err %v)", refused, tc.wantRefused, err)
+			}
+			if tc.wantRefused && !IsPermanentAddonInstallError(err) {
+				t.Fatalf("writable-tree refusal must be permanent: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolveStagedAddonUnit(t *testing.T) {
 	tmp := t.TempDir()
 	addonsRoot := filepath.Join(tmp, addonsDirName)
@@ -1208,12 +1248,33 @@ func TestTimerCandidateActivationRejectsUnbundledServiceBeforeInstallation(t *te
 	}
 }
 
+// A timer add-on installed for the first time has a backing service systemd has
+// not loaded, so it has no failure to clear. Its activation must still enable the
+// timer and queue the candidate's first run instead of failing the install.
+func TestTimerCandidateFirstInstallQueuesUnloadedService(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, "service-state")
+	run := filepath.Join(root, "candidate-run")
+	host := systemHost{systemctlPath: installTimerSystemctlFixture(t, root, state, run, "serviceradar-np.service")}
+
+	if err := host.activateAddonSystemdUnits(context.Background(), "serviceradar-np.timer",
+		"serviceradar-np.service"); err != nil {
+		t.Fatalf("first install of a timer add-on failed: %v", err)
+	}
+	if got, err := os.ReadFile(run); err != nil || string(got) != "serviceradar-np.service" {
+		t.Fatalf("the first candidate run was not queued: %q, %v", got, err)
+	}
+}
+
 func TestTimerCandidateActivationPropagatesResetAndQueueFailures(t *testing.T) {
 	for _, fail := range []string{"reset-failed", "queue"} {
 		t.Run(fail, func(t *testing.T) {
 			root := t.TempDir()
 			state := filepath.Join(root, "service-state")
 			run := filepath.Join(root, "candidate-run")
+			if err := os.WriteFile(state, []byte("failed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			host := systemHost{systemctlPath: installTimerSystemctlFixture(t, root, state, run, "serviceradar-np.service")}
 			t.Setenv("TIMER_FIXTURE_FAIL", fail)
 			if err := host.activateAddonSystemdUnits(context.Background(), "serviceradar-np.timer",
@@ -1233,12 +1294,23 @@ func installTimerSystemctlFixture(t *testing.T, dir, state, run, service string)
 	t.Helper()
 	// This executable supplies only the external systemctl protocol. Production
 	// command execution and health parsing run unchanged, without host systemd.
+	// A missing state file is a unit systemd has not loaded: a freshly installed
+	// service no unit references yet. Like systemd, the fixture refuses to reset
+	// the failed state of such a unit and reports it as not failed.
 	script := `#!/bin/sh
 set -eu
+state() { cat "$TIMER_FIXTURE_STATE" 2>/dev/null || printf unloaded; }
 command=$1
 shift
 case "$command" in
+  is-failed)
+    [ "$(state)" = failed ]
+    ;;
   reset-failed)
+    if [ "$(state)" = unloaded ]; then
+      echo "Failed to reset failed state of unit $1: Unit $1 not loaded." >&2
+      exit 1
+    fi
     [ "${TIMER_FIXTURE_FAIL:-}" != reset-failed ] || exit 1
     printf inactive > "$TIMER_FIXTURE_STATE"
     ;;
@@ -1248,7 +1320,7 @@ case "$command" in
     if [ "$1" = --no-block ]; then
       [ "${TIMER_FIXTURE_FAIL:-}" != queue ] || exit 1
       [ "$2" = "$TIMER_FIXTURE_SERVICE" ] || exit 2
-      [ "$(cat "$TIMER_FIXTURE_STATE")" = inactive ] || exit 3
+      case "$(state)" in inactive|unloaded) ;; *) exit 3 ;; esac
       printf active > "$TIMER_FIXTURE_STATE"
       printf '%s' "$2" > "$TIMER_FIXTURE_RUN"
     fi
@@ -1258,7 +1330,7 @@ case "$command" in
     case "$unit" in
       *.timer) printf 'ActiveState=active\nSubState=waiting\nNextElapseUSecMonotonic=123456\n' ;;
       *.service)
-        if [ "$(cat "$TIMER_FIXTURE_STATE")" = failed ]; then
+        if [ "$(state)" = failed ]; then
           printf 'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\n'
         else
           printf 'ActiveState=active\nMainPID=456\nResult=success\nExecMainStatus=0\n'

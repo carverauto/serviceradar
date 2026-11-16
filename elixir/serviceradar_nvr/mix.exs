@@ -24,6 +24,7 @@ defmodule ServiceRadarNVR.MixProject do
       {:serviceradar_recording_control, path: "../serviceradar_recording_control"},
       {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       {:serviceradar_recording, path: "../serviceradar_recording"},
+      {:serviceradar_object_storage, path: "../serviceradar_object_storage"},
       {:ecto, "~> 3.14"},
       {:bandit, "~> 1.8"},
       {:mint, "~> 1.11"},

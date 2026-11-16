@@ -1542,6 +1542,14 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert recorder_claim(ctx).state == :released
   end
 
+  # The worker can stop between any two calls, so liveness cannot be checked
+  # first and state read second. A stopped worker is no longer attached.
+  defp nvr_worker_attached?(worker) do
+    not :sys.get_state(worker).detached?
+  catch
+    :exit, _ -> false
+  end
+
   defp await_nvr_worker_attached(owner) do
     await_capture(
       fn ->

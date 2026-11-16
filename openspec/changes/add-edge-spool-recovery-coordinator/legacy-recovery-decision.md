@@ -27,3 +27,34 @@ not establish that historical identity.
 These are reasons to leave the old format unsupported, not requirements to build
 another protocol. The approved Decisions 1-5 and their deletion gates remain
 unchanged for new bounded generations.
+
+## Amendment: drained flat storage is retired (2026-11-15)
+
+The product owner reversed part of this decision on 2026-11-15. The governing
+rule is that no undelivered record may be lost, and keeping storage that
+provably holds no record served no part of it: it only marked every upgraded
+agent's edge pipeline not ready for good.
+
+Upgraded agents showed two cases. Most retained exactly the old sender's
+metadata after a full drain: the segment pointer, the resolved watermark, the
+spool id, a reclaim checkpoint and an empty reclaimed segment, with no commit
+evidence. A few retained a short tail of committed records: the update stopped
+the old agent seconds after it appended them and before its next drain pass.
+
+The agent now inspects flat storage read-only at open. It removes the storage,
+with an audit log line, only when every segment and both evidence copies are
+empty and every root entry belongs to the flat layout. Anything else is kept
+untouched, charged and reported as before. The removal takes the segment
+pointer before the data it names, so an interrupted removal is still recognized
+as drained and finished on the next start.
+
+Re-delivering a retained tail is not part of this amendment. Admission into a
+bounded lane validates a record's production authority and fence at the time of
+admission. A tail written days earlier fails that check, because its production
+capability has expired and its fence is stale. Delivering it needs a rule for
+judging authority at production time. That rule is a separate decision; until
+it is made, such a tail stays retained and reported. Draining before the
+update stops the old agent cannot be added either. The stopping is done by the
+old agent and the package-installed updater already on the host, and new code
+reaches neither. Lane storage persists across restarts, so the stranding is
+specific to the move from flat storage to lanes.

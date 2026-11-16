@@ -1040,17 +1040,31 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp parse_time(_value), do: nil
 
+  # One record per `{provider, provider_ref}`, the newest observation winning, at
+  # the position its ref was first reported. Downstream choices that fall back
+  # to report order (a guest's primary address and MAC among equally preferred
+  # NICs) depend on that order surviving the dedupe.
   defp dedupe_provider_refs(records) do
-    records
-    |> Enum.reduce(%{}, fn record, acc ->
-      key = {record.provider, record.provider_ref}
+    {keys, by_key} =
+      Enum.reduce(records, {[], %{}}, fn record, {keys, by_key} ->
+        key = {record.provider, record.provider_ref}
 
-      Map.update(acc, key, record, fn current ->
-        if newer_record?(record, current), do: record, else: current
+        case by_key do
+          %{^key => current} ->
+            {keys, Map.put(by_key, key, newer_of(record, current))}
+
+          _ ->
+            {[key | keys], Map.put(by_key, key, record)}
+        end
       end)
-    end)
-    |> Map.values()
+
+    keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(by_key, &1))
   end
+
+  defp newer_of(candidate, current),
+    do: if(newer_record?(candidate, current), do: candidate, else: current)
 
   defp newer_record?(candidate, current) do
     case {candidate[:observed_at], current[:observed_at]} do
@@ -1154,6 +1168,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
       host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
       guest_macs = guest_macs_by_ref(records.network_interfaces)
+      guest_device_macs = guest_device_macs_by_ref(records.network_interfaces)
       host_macs = host_macs_by_ref(records.network_interfaces)
 
       host_updates =
@@ -1164,7 +1179,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
             record,
             :hypervisor,
             Map.get(host_ip_by_ref, Map.get(record, :provider_ref)),
-            host_macs
+            host_macs,
+            %{}
           )
         end)
 
@@ -1176,7 +1192,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
             record,
             :virtual_guest,
             Map.get(guest_ip_by_ref, Map.get(record, :provider_ref)),
-            guest_macs
+            guest_macs,
+            guest_device_macs
           )
         end)
         |> reject_guests_without_network_identity()
@@ -1184,8 +1201,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       updates =
         host_updates ++
           guest_updates ++
-          existing_device_updates(records.hosts, :hypervisor, host_ip_by_ref, host_macs) ++
-          existing_device_updates(records.guests, :virtual_guest, guest_ip_by_ref, guest_macs)
+          existing_device_updates(records.hosts, :hypervisor, host_ip_by_ref, host_macs, %{}) ++
+          existing_device_updates(
+            records.guests,
+            :virtual_guest,
+            guest_ip_by_ref,
+            guest_macs,
+            guest_device_macs
+          )
 
       ingest_result =
         case updates do
@@ -1205,7 +1228,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       case ingest_result do
         :ok ->
           :ok =
-            sync_existing_device_mac_identities(records, guest_macs, host_macs, actor)
+            sync_existing_device_mac_identities(
+              records,
+              {guest_macs, guest_device_macs},
+              host_macs,
+              actor
+            )
 
           {:ok, records}
 
@@ -1227,7 +1255,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   # update's identity evidence (integration_id metadata, IP), and the
   # follow-up resolution pass links the virtualization record to whatever
   # device the reconciler chose.
-  defp placeholder_device_update(record, role, ip_override, macs_by_ref) do
+  defp placeholder_device_update(record, role, ip_override, macs_by_ref, device_macs) do
     provider_ref = Map.fetch!(record, :provider_ref)
     partition = metadata_partition(record)
     ip = first_non_empty(ip_override, metadata_ip(record))
@@ -1243,7 +1271,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       "metadata" => metadata
     }
     |> maybe_put("ip", ip)
-    |> maybe_put("mac", List.first(macs))
+    |> maybe_put("mac", device_mac(device_macs, provider_ref, macs))
   end
 
   # A virtual guest only earns a device when we discovered an IP the reconciler
@@ -1264,7 +1292,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     kept
   end
 
-  defp existing_device_updates(records, role, ip_by_ref, macs_by_ref) do
+  defp existing_device_updates(records, role, ip_by_ref, macs_by_ref, device_macs) do
     records
     |> Enum.reject(&missing_device_uid?/1)
     |> Enum.flat_map(fn record ->
@@ -1288,7 +1316,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
               "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
             }
             |> maybe_put("ip", ip)
-            |> maybe_put("mac", List.first(macs))
+            |> maybe_put("mac", device_mac(device_macs, provider_ref, macs))
           ]
 
         _ ->
@@ -1729,20 +1757,50 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     }
   end
 
+  # A guest's MACs for `metadata.mac_addresses` and identity lookups: the MAC of
+  # `GuestAddress.primary_interface/1` (the NIC `primary_ip_by_guest/1` takes the address
+  # from) first, then the guest's other MACs in `GuestAddress.preference_order/1`. The
+  # device MAC comes from `guest_device_macs_by_ref/1`, not from this list.
   defp guest_macs_by_ref(network_interfaces) do
     network_interfaces
-    |> Enum.filter(fn iface ->
-      present?(Map.get(iface, :guest_provider_ref)) and
-        not host_internal_guest_interface?(iface)
-    end)
-    |> Enum.sort_by(fn iface ->
-      {
-        guest_interface_identity_rank(iface),
-        to_string(Map.get(iface, :name) || ""),
-        to_string(Map.get(iface, :provider_ref) || "")
-      }
+    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.group_by(&Map.get(&1, :guest_provider_ref))
+    |> Enum.flat_map(fn {_guest_ref, interfaces} ->
+      Enum.reject(
+        [GuestAddress.primary_interface(interfaces) | GuestAddress.preference_order(interfaces)],
+        &(is_nil(&1) or host_internal_guest_interface?(&1))
+      )
     end)
     |> mac_list_by_ref(:guest_provider_ref)
+  end
+
+  # A guest's device MAC: the MAC of `GuestAddress.primary_interface/1`, or `nil` when
+  # that NIC has no usable MAC, so another NIC's MAC never stands in for it. A guest
+  # with no primary interface is absent and falls back to its first MAC (`device_mac/3`).
+  defp guest_device_macs_by_ref(network_interfaces) do
+    network_interfaces
+    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.group_by(&Map.get(&1, :guest_provider_ref))
+    |> Enum.flat_map(fn {guest_ref, interfaces} ->
+      case GuestAddress.primary_interface(interfaces) do
+        nil -> []
+        iface -> [{guest_ref, interface_device_mac(iface)}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp interface_device_mac(iface) do
+    if host_internal_guest_interface?(iface),
+      do: nil,
+      else: normalize_mac_identifier(Map.get(iface, :mac_address))
+  end
+
+  defp device_mac(device_macs, ref, macs) do
+    case Map.fetch(device_macs, ref) do
+      {:ok, mac} -> mac
+      :error -> List.first(macs)
+    end
   end
 
   defp host_macs_by_ref(network_interfaces) do
@@ -1765,18 +1823,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp guest_interface_identity_rank(iface) do
-    if hypervisor_attached_interface?(iface), do: 0, else: 1
-  end
-
-  defp hypervisor_attached_interface?(iface) do
-    iface
-    |> Map.get(:source)
-    |> to_string()
-    |> String.split(",", trim: true)
-    |> Enum.any?(&(String.trim(&1) == "config"))
-  end
-
   defp host_internal_guest_interface?(iface) when is_map(iface) do
     name =
       iface
@@ -1786,7 +1832,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> String.downcase()
 
     name == "lo" or
-      (not hypervisor_attached_interface?(iface) and GuestAddress.host_internal_name?(name))
+      (not GuestAddress.hypervisor_attached?(iface) and GuestAddress.host_internal_name?(name))
   end
 
   defp host_internal_guest_interface?(_iface), do: false
@@ -2893,7 +2939,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     :ok
   end
 
-  defp sync_existing_device_mac_identities(records, guest_macs, host_macs, _actor) do
+  defp sync_existing_device_mac_identities(
+         records,
+         {guest_macs, guest_device_macs},
+         host_macs,
+         _actor
+       ) do
     host_entries =
       Enum.flat_map(records.hosts, fn record ->
         uid = existing_sr_uid(Map.get(record, :device_uid))
@@ -2901,7 +2952,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         macs = Map.get(host_macs, ref, [])
 
         if is_binary(uid) and macs != [] do
-          [{record, :hypervisor, uid, macs, host_macs}]
+          [{record, :hypervisor, uid, List.first(macs), macs, host_macs}]
         else
           []
         end
@@ -2914,7 +2965,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         macs = Map.get(guest_macs, ref, [])
 
         if is_binary(uid) and macs != [] do
-          [{record, :virtual_guest, uid, macs, guest_macs}]
+          [
+            {record, :virtual_guest, uid, device_mac(guest_device_macs, ref, macs), macs,
+             guest_macs}
+          ]
         else
           []
         end
@@ -2926,14 +2980,18 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       _ = Repo.query(@device_macs_sql, device_mac_params(entries))
 
       resolved_updates =
-        Enum.map(entries, fn {record, role, uid, macs, macs_by_ref} ->
-          raw_update = %{
-            "device_id" => uid,
-            "mac" => List.first(macs),
-            "partition" => metadata_partition(record),
-            "source" => "hypervisor_enrichment",
-            "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
-          }
+        Enum.map(entries, fn {record, role, uid, mac, _macs, macs_by_ref} ->
+          raw_update =
+            maybe_put(
+              %{
+                "device_id" => uid,
+                "partition" => metadata_partition(record),
+                "source" => "hypervisor_enrichment",
+                "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
+              },
+              "mac",
+              mac
+            )
 
           {Normalize.normalize_update(raw_update), uid}
         end)
@@ -2946,12 +3004,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   # One statement per result. A device keeps a MAC it already has, takes its first entry's
-  # first MAC otherwise, and its last entry's MACs as `metadata.mac_addresses`; a device both
+  # device MAC otherwise, and its last entry's MACs as `metadata.mac_addresses`; a device both
   # already hold is not rewritten.
   defp device_mac_params(entries) do
     by_uid =
-      Enum.reduce(entries, %{}, fn {_record, _role, uid, macs, _macs_by_ref}, acc ->
-        Map.update(acc, uid, {List.first(macs), macs}, fn {mac, _macs} -> {mac, macs} end)
+      Enum.reduce(entries, %{}, fn {_record, _role, uid, mac, macs, _macs_by_ref}, acc ->
+        Map.update(acc, uid, {mac, macs}, fn {first_mac, _macs} -> {first_mac, macs} end)
       end)
 
     {uids, rows} = by_uid |> Enum.sort() |> Enum.unzip()

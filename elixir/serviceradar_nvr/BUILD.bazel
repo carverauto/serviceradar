@@ -36,6 +36,7 @@ filegroup(
 )
 
 NVR_DEPS = [
+    "//elixir/serviceradar_object_storage:erlang_app",
     "//elixir/serviceradar_recording_control:erlang_app",
     "//elixir/serviceradar_recording_metadata:erlang_app",
     "@hexpm//:bandit",
@@ -46,10 +47,16 @@ NVR_DEPS = [
     "@rules_elixir//elixir",
 ]
 
+# Bazel builds the Longshore NIF; Mix must not shell out to cargo.
+NVR_EXTRA_CONFIG = [
+    "config :serviceradar_object_storage, ServiceRadarObjectStorage, skip_compilation?: true",
+]
+
 mix_app(
     name = "erlang_app_prod",
     srcs = [":srcs"],
     app_name = "serviceradar_nvr",
+    extra_config = NVR_EXTRA_CONFIG,
     mix_env = "prod",
     deps = ["//elixir/serviceradar_recording:erlang_app_prod"] + NVR_DEPS,
 )
@@ -58,6 +65,8 @@ elixir_release(
     name = "release_tar",
     srcs = [
         ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version.
+        "//elixir/serviceradar_object_storage:mix.exs",
         "//elixir/serviceradar_recording:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
@@ -66,6 +75,8 @@ elixir_release(
     app = ":erlang_app_prod",
     erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
     erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    # Must match what :erlang_app_prod compiled with.
+    extra_config = NVR_EXTRA_CONFIG,
     release_name = "serviceradar_nvr",
 )
 
@@ -89,6 +100,37 @@ py_test(
         "NVR_CLIENT_PROBE": "$(rootpath //elixir/serviceradar_nvr_client:test/client_probe.exs)",
     },
     exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
+
+# The archive contract opens a real Longshore client (io_uring, locked buffers)
+# against a loopback object store, so it runs on the executor pool qualified for
+# that client. Same release, probe and harness; NVR_RELEASE_SUITE selects the
+# archive cases only.
+py_test(
+    name = "archive_release_test",
+    size = "medium",
+    timeout = "long",
+    srcs = ["test/release_test.py"],
+    data = [
+        "test/release_probe.exs",
+        ":release_tar",
+        "//elixir/serviceradar_nvr_client:release_fixture",
+        "//elixir/serviceradar_nvr_client:test/client_probe.exs",
+        "//third_party/membrane:media_test_tools",
+    ],
+    env = {
+        "NVR_RELEASE": "$(rootpath :release_tar)",
+        "NVR_PROBE": "$(rootpath test/release_probe.exs)",
+        "NVR_CLIENT_RELEASE": "$(rootpath //elixir/serviceradar_nvr_client:release_fixture)",
+        "NVR_CLIENT_PROBE": "$(rootpath //elixir/serviceradar_nvr_client:test/client_probe.exs)",
+        "NVR_RELEASE_SUITE": "archive",
+    },
+    exec_properties = {"test.Pool": "longshore-qualification"},
+    main = "test/release_test.py",
     target_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",

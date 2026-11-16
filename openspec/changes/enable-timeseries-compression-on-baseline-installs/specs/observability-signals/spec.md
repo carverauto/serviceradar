@@ -7,7 +7,7 @@ The ingest path for both tables is append-only (`ON CONFLICT DO NOTHING`). Compr
 
 Policy:
 
-- Schema migration first installs compression. The schema baseline is a schema-only dump that carries no TimescaleDB compression settings or policy jobs, so a database bootstrapped from it records the compression migration as applied without having compression. `DataRetentionWorker` SHALL therefore enable `timeseries_metrics` compression with the documented `segmentby` and `orderby` whenever it is off, and SHALL leave a table that already has compression enabled unchanged. It SHALL wait at most 10 seconds for the table lock and retry on its next run rather than hold ingestion behind the lock.
+- Schema migration first installs compression. Schema baselines generated before change `fix-baseline-replay-parity` were schema-only dumps that carried no TimescaleDB compression settings or policy jobs, so a database bootstrapped from one records the compression migration as applied without having compression. The current baseline carries compression and retention state. `DataRetentionWorker` SHALL therefore enable `timeseries_metrics` compression with the documented `segmentby` and `orderby` whenever it is off, and SHALL leave a table that already has compression enabled unchanged. It SHALL wait at most 10 seconds for the table lock and retry on its next run rather than hold ingestion behind the lock.
 - `compress_after` for `timeseries_metrics` SHALL be operator-configurable through `core.observabilityRetention.timeseriesMetricsCompressAfterHours` (default 2 hours) and SHALL be reconciled by `DataRetentionWorker` on every run. The migration installs 6 days; the first worker run replaces it with the configured lag. The policy SHALL be re-registered only when the lag changed, and its job SHALL run hourly.
 - The `timeseries_metrics` chunk interval SHALL be configurable through `core.observabilityRetention.timeseriesMetricsChunkIntervalHours` (default 4 hours), separately from the sysmon raw tables. Compressing a chunk sorts all of it through temp files on the data volume, so a day-long chunk at sweep volume needs tens of GB free and fails on a nearly full disk.
 - `compress_after` for `ocsf_network_activity` is 32 days (behind the 31-day continuous aggregate refresh window and within 90-day retention).
@@ -25,7 +25,7 @@ The first compression of already-resident chunks SHALL run via the TimescaleDB b
 - **AND** compression policies of 6 days (`timeseries_metrics`) and 32 days (`ocsf_network_activity`) exist
 
 #### Scenario: Baseline-bootstrapped database receives timeseries_metrics compression
-- **GIVEN** a database bootstrapped from the schema baseline, whose `timeseries_metrics` hypertable has compression disabled and no compression policy
+- **GIVEN** a database bootstrapped from a schema baseline generated before change `fix-baseline-replay-parity`, whose `timeseries_metrics` hypertable has compression disabled and no compression policy
 - **WHEN** `DataRetentionWorker` runs
 - **THEN** `timeseries_metrics` reports `compression_enabled = true` with `segmentby` `device_id, metric_type, metric_name` and `orderby` `"timestamp" DESC, gateway_id, series_key`
 - **AND** its compression policy uses the configured lag
