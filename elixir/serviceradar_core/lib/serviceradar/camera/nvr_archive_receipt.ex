@@ -3,8 +3,9 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
   Append-only Core record of a readback-verified NVR archive copy.
 
   Each record binds `(storage_id, block_key, archive_binding_id)` to the exact
-  canonical receipt bytes (`<= 8 KiB`), SHA-256 digest, parsed object list
-  (`name`, `key`, `length`, `sha256`, `etag`) and `verified_at` timestamp.
+  canonical receipt bytes (`<= 8 KiB`, receipt version 1 or 2), SHA-256 digest,
+  parsed object list (`name`, `key`, `length`, `sha256`, `etag`, and optional
+  nullable `version_id` for receipt v2) and `verified_at` timestamp.
   Identical receipt bytes return the retained row idempotently; differing bytes
   are refused and logged. There are no update or destroy actions.
 
@@ -27,7 +28,9 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
   require Logger
 
   @max_receipt_bytes 8192
+  @max_version_id_bytes 1024
   @hex64 ~r/\A[0-9a-f]{64}\z/
+  @printable_ascii ~r/\A[\x21-\x7e]+\z/
   @system_actor SystemActor.system(:camera_nvr_archive_receipt)
 
   @view_check {ActorHasPermission, permission: "settings.recording.view"}
@@ -194,6 +197,7 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
   def parse_receipt_bytes(receipt_bytes)
       when is_binary(receipt_bytes) and byte_size(receipt_bytes) in 1..@max_receipt_bytes do
     with {:ok, payload} <- decode_json_receipt(receipt_bytes),
+         {:ok, version} <- parse_version(payload),
          {:ok, storage_id} <- parse_storage_id(payload),
          {:ok, block_key} <- parse_block_key(payload),
          {:ok, verified_at} <- parse_verified_at(payload),
@@ -201,6 +205,7 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
          {:ok, destination_meta} <- parse_optional_destination(payload) do
       {:ok,
        %{
+         version: version,
          storage_id: storage_id,
          block_key: block_key,
          verified_at: verified_at,
@@ -318,6 +323,14 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
 
   defp plain_json_value(value), do: {:ok, value}
 
+  defp parse_version(payload) do
+    case Map.fetch(payload, "version") do
+      :error -> {:ok, 1}
+      {:ok, version} when version in [1, 2] -> {:ok, version}
+      {:ok, _} -> {:error, {:receipt_bytes, "receipt version must be 1 or 2"}}
+    end
+  end
+
   defp parse_storage_id(payload) do
     case Ecto.UUID.cast(to_string(payload["storage_id"] || "")) do
       {:ok, uuid} -> {:ok, uuid}
@@ -381,25 +394,61 @@ defmodule ServiceRadar.Camera.NVRArchiveReceipt do
         is_binary(sha256) and Regex.match?(@hex64, sha256) and
         non_empty_string?(etag, 256)
 
-    if valid? do
-      {:ok,
-       %{
-         "name" => name,
-         "key" => key,
-         "length" => length,
-         "sha256" => sha256,
-         "etag" => etag
-       }}
+    with true <- valid?,
+         {:ok, version_id_opt} <- parse_object_version_id(entry) do
+      base = %{
+        "name" => name,
+        "key" => key,
+        "length" => length,
+        "sha256" => sha256,
+        "etag" => etag
+      }
+
+      {:ok, put_optional_version_id(base, version_id_opt)}
     else
-      {:error,
-       {:receipt_bytes,
-        "each receipt object must provide name, key, non-negative length, 64-hex sha256, and etag"}}
+      false ->
+        {:error,
+         {:receipt_bytes,
+          "each receipt object must provide name, key, non-negative length, 64-hex sha256, and etag"}}
+
+      {:error, _} = err ->
+        err
     end
   end
 
   defp normalize_object_entry(_) do
     {:error, {:receipt_bytes, "receipt object entry must be a JSON object"}}
   end
+
+  defp parse_object_version_id(entry) do
+    case Map.fetch(entry, "version_id") do
+      :error ->
+        {:ok, :absent}
+
+      {:ok, nil} ->
+        {:ok, {:present, nil}}
+
+      {:ok, version_id}
+      when is_binary(version_id) and byte_size(version_id) in 1..@max_version_id_bytes ->
+        if Regex.match?(@printable_ascii, version_id) do
+          {:ok, {:present, version_id}}
+        else
+          {:error,
+           {:receipt_bytes,
+            "receipt object version_id must be nil or a 1..1024 byte printable ASCII string"}}
+        end
+
+      {:ok, _} ->
+        {:error,
+         {:receipt_bytes,
+          "receipt object version_id must be nil or a 1..1024 byte printable ASCII string"}}
+    end
+  end
+
+  defp put_optional_version_id(base, :absent), do: base
+
+  defp put_optional_version_id(base, {:present, version_id}),
+    do: Map.put(base, "version_id", version_id)
 
   defp parse_optional_destination(payload) do
     dest_sha = payload["destination_sha256"]

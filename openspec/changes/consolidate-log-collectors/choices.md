@@ -71,4 +71,9 @@ benchmark candidates rather than claims of an optimum.
 - **Each rule evaluates a copy of the record's containers.** Strings are
   shared. Passing the record itself would be cheaper, but nothing establishes
   that every Zen node type leaves its context unchanged.
-
+- **A fatal output error waits one publish timeout for admitted records.**
+  Exiting at once abandoned up to a full window of records already taken off
+  the queue. Waiting for every one of them could never return while reconnects
+  are unlimited. One `output.nats_timeout` lets acknowledgments already in
+  flight arrive and keeps the exit bounded; the error reports what was
+  abandoned.

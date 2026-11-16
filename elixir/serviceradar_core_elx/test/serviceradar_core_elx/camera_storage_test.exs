@@ -552,6 +552,12 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     assert {:ok, %{status: 400}} =
              raw_upload(ctx, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
 
+    # The headers alone provoke each refusal. The client writes the whole 16 MiB
+    # body before it reads, as a recorder does, and no socket buffer holds that
+    # much: it reads the 400 only if the server takes the body before closing.
+    assert {:ok, "HTTP/1.1 400 " <> _} = write_then_read(ctx, [duplicate])
+    assert {:ok, "HTTP/1.1 400 " <> _} = write_then_read(ctx, [Jason.encode!(@lease), Jason.encode!(@lease)])
+
     assert Agent.get(ctx.store, & &1.provider) == []
     refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
   end
@@ -654,6 +660,29 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
 
     assert Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end) ==
              challenges
+  end
+
+  test "a refused init body is drained only up to the route's limit before the refusal", ctx do
+    # Declares more than the 1,400,000-byte init limit and sends one byte past
+    # it. A drain that kept reading would wait for the rest until the 5s init
+    # deadline instead of answering.
+    socket = upload_socket(ctx, 2_000_000, :binary.copy("x", 1_400_001), content_type: "text/plain")
+    assert {:ok, response} = :ssl.recv(socket, 0, 2_000)
+    assert response =~ "400"
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert [{"/v1/init-authorities/challenge", _}] = Agent.get(ctx.store, & &1.core)
+  end
+
+  @tag kind: :media
+  test "an unauthenticated upload is refused without reading its declared body", ctx do
+    # Declares a full media body and sends none of it. Reading even one body
+    # byte would hold the 401 until the client sent the rest or the deadline.
+    socket = upload_socket(ctx, 16_777_216, "", token: String.duplicate("x", 40))
+
+    assert {:ok, "HTTP/1.1 401 " <> _} = :ssl.recv(socket, 0, 1_000)
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/prepare" end)
   end
 
   @tag kind: :media
@@ -977,18 +1006,19 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     )
   end
 
-  defp upload_socket(ctx, length, bytes \\ "") do
+  defp upload_socket(ctx, length, bytes \\ "", opts \\ []) do
     options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
     assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
     on_exit(fn -> :ssl.close(socket) end)
 
-    content_type = if ctx.kind == :init, do: "application/json", else: "application/octet-stream"
+    default_type = if ctx.kind == :init, do: "application/json", else: "application/octet-stream"
+    content_type = Keyword.get(opts, :content_type, default_type)
     lease_header = if ctx.kind == :init, do: [], else: ["\r\nX-ServiceRadar-Upload-Lease: ", Jason.encode!(@lease)]
 
     assert :ok =
              :ssl.send(socket, [
                "POST /v1/#{ctx.kind}-uploads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ",
-               @recorder_token,
+               Keyword.get(opts, :token, @recorder_token),
                "\r\nContent-Type: ",
                content_type,
                "\r\nContent-Length: ",
@@ -999,6 +1029,45 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
              ])
 
     socket
+  end
+
+  # Sends the request headers, then the body in 1 MiB writes, and only then
+  # reads the response to the close. A transport failure at either step is
+  # returned with the step it hit.
+  defp write_then_read(ctx, leases) do
+    options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
+    assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
+    on_exit(fn -> :ssl.close(socket) end)
+    chunk = :binary.copy("r", 1_048_576)
+
+    head = [
+      "POST /v1/media-uploads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ",
+      @recorder_token,
+      "\r\nContent-Type: application/octet-stream\r\nContent-Length: 16777216",
+      Enum.map(leases, &["\r\nX-ServiceRadar-Upload-Lease: ", &1]),
+      "\r\n\r\n"
+    ]
+
+    with :ok <- send_all(socket, [head | List.duplicate(chunk, 16)]) do
+      read_to_close(socket, [])
+    end
+  end
+
+  defp send_all(_socket, []), do: :ok
+
+  defp send_all(socket, [data | rest]) do
+    case :ssl.send(socket, data) do
+      :ok -> send_all(socket, rest)
+      {:error, reason} -> {:error, {:send, reason}}
+    end
+  end
+
+  defp read_to_close(socket, acc) do
+    case :ssl.recv(socket, 0, 10_000) do
+      {:ok, data} -> read_to_close(socket, [acc, data])
+      {:error, :closed} when acc != [] -> {:ok, IO.iodata_to_binary(acc)}
+      {:error, reason} -> {:error, {:recv, reason}}
+    end
   end
 
   defp as_role(ctx, kind) do

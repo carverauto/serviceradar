@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias Phoenix.LiveView.Socket
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveDestination
+  alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraRecordingSettings
@@ -50,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         list_archive_bindings: fn _ -> flunk("disconnected mount must not read bindings") end,
         list_enabled_s3_credentials: fn _ -> flunk("disconnected mount must not read secrets") end,
         load_archive_settings_view: fn _ -> flunk("disconnected mount must not read settings") end,
+        load_retention_usage_summary: fn _ -> flunk("disconnected mount must not read retention usage") end,
         list_camera_sources: fn _ -> flunk("disconnected mount must not read cameras") end
       }
 
@@ -95,8 +97,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       refute html =~ "open_recovery_gate"
       refute html =~ "close_recovery_gate"
 
-      # Admin/manager visiting ?tab=archive and ?tab=cameras still sees not-installed notice
-      # and never sees empty destination or block lists as if none existed
       manager_scope =
         scope_with_permissions(["settings.recording.manage", "devices.view"])
 
@@ -116,7 +116,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         })
 
       {:noreply, archive_socket} =
-        RecordingLive.handle_params(%{"tab" => "archive"}, "/settings/recording?tab=archive", manager_socket)
+        RecordingLive.handle_params(
+          %{"tab" => "archive"},
+          "/settings/recording?tab=archive",
+          manager_socket
+        )
 
       archive_doc = archive_socket |> render_mounted() |> LazyHTML.from_fragment()
       assert archive_doc |> LazyHTML.query("#archive-not-installed-notice") |> Enum.count() == 1
@@ -124,7 +128,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert archive_doc |> LazyHTML.query("#archive-bindings-card") |> Enum.count() == 0
 
       {:noreply, cameras_socket} =
-        RecordingLive.handle_params(%{"tab" => "cameras"}, "/settings/recording?tab=cameras", manager_socket)
+        RecordingLive.handle_params(
+          %{"tab" => "cameras"},
+          "/settings/recording?tab=cameras",
+          manager_socket
+        )
 
       cameras_doc = cameras_socket |> render_mounted() |> LazyHTML.from_fragment()
       assert cameras_doc |> LazyHTML.query("#cameras-not-installed-notice") |> Enum.count() == 1
@@ -132,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert cameras_doc |> LazyHTML.query("#camera-recording-blocks-empty") |> Enum.count() == 0
     end
 
-    test "distinguishes closed recovery gate from not_configured and states hot retention is not enforced" do
+    test "distinguishes closed recovery gate from not_configured and states local retention is not enforced" do
       runtime = %{
         recovery_gate: %{state: :closed, generation: "00000000-0000-4000-8000-000000000011"},
         core_elx: %{
@@ -149,9 +157,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert html =~ "Closed"
       assert html =~ "00000000"
       assert html =~ "Core deployment recovery gate is closed."
-      assert html =~ "local blocks are not reclaimed by age"
+      assert html =~ "local blocks are not reclaimed by byte budget or maximum local age"
       assert html =~ "refused when recorder"
+      assert html =~ "recording-member-budgets-section"
+      assert html =~ "Local only: no object storage configured"
       refute html =~ "NVR is not installed"
+    end
+
+    test "default local-only archive state renders 'Local only: no object storage configured' as a normal state without alerts or warning styles" do
+      socket =
+        ["settings.recording.view"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime())
+        |> assign(:active_tab, "archive")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      banner = LazyHTML.query(doc, "#archive-local-only-banner")
+      assert Enum.count(banner) == 1
+      assert LazyHTML.text(banner) =~ "Local only: no object storage configured"
+      assert LazyHTML.attribute(banner, "role") == []
+
+      [banner_classes] = LazyHTML.attribute(banner, "class")
+      refute banner_classes =~ "amber"
+      refute banner_classes =~ "rose"
+
+      assert doc |> LazyHTML.query("#archive-credential-unavailable-banner") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#recording-tab-panel-archive [role='alert']") |> Enum.count() == 0
     end
 
     test "unreachable core-elx renders unknown state rather than absent or not_installed" do
@@ -173,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       refute html =~ "NVR is not installed"
     end
 
-    test "archive tab renders unqualified bindings, split-permission disabled credential selector, disabled-credential warning, and zero secret inputs" do
+    test "archive tab renders unqualified bindings, split-permission disabled credential selectors across all 3 slots, unenforced retention notice, and zero secret inputs" do
       runtime = installed_open_runtime()
       user_id = "00000000-0000-4000-8000-000000000022"
       Cache.put(user_id, MapSet.new(["settings.recording.manage"]))
@@ -199,13 +231,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
           loaders: %{
             settings_loader: fn ->
               {:ok,
-               %{
-                 id: "deployment",
+               struct(RecordingArchiveSettings.default_settings(),
                  active_archive_binding_id: binding.id,
                  writer_credential_secret_id: writer_secret_id,
                  reader_credential_secret_id: nil,
+                 retention_credential_secret_id: nil,
                  archive_enabled: true
-               }}
+               )}
             end,
             binding_loader: fn _id -> {:ok, binding} end,
             secret_loader: fn ^writer_secret_id ->
@@ -226,11 +258,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         scope
         |> mounted_with_runtime(runtime)
         |> assign(:active_tab, "archive")
+        |> assign(:storage_mode, settings_view.storage_mode)
         |> assign(:bindings, [binding])
         |> assign(:settings_form, settings_view.form)
         |> assign(:active_binding_id, settings_view.active_binding_id)
         |> assign(:selected_writer_label, settings_view.selected_writer_label)
         |> assign(:selected_reader_label, settings_view.selected_reader_label)
+        |> assign(:selected_retention_label, settings_view.selected_retention_label)
+        |> assign(:object_retention_enforced?, settings_view.object_retention_enforced?)
         |> assign(:credential_issue, settings_view.credential_issue)
 
       doc = socket |> render_mounted() |> LazyHTML.from_fragment()
@@ -243,9 +278,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
 
       assert doc |> LazyHTML.query("input[type='password']") |> Enum.count() == 0
       assert doc |> LazyHTML.query("#writer-credential-disabled-select[disabled]") |> Enum.count() == 1
+      assert doc |> LazyHTML.query("#reader-credential-disabled-select[disabled]") |> Enum.count() == 1
+      assert doc |> LazyHTML.query("#retention-credential-disabled-select[disabled]") |> Enum.count() == 1
 
       assert doc |> LazyHTML.query("#writer-credential-disabled-select") |> LazyHTML.text() =~
                "Synthetic archive writer (disabled)"
+
+      assert doc |> LazyHTML.query("#retention-credential-disabled-select") |> LazyHTML.text() =~
+               "None selected (object retention not enforced)"
+
+      assert doc |> LazyHTML.query("#archive-retention-unenforced-notice") |> LazyHTML.text() =~
+               "Object retention not enforced: no delete credential"
 
       assert doc |> LazyHTML.query("#archive-missing-credentials-permission-note") |> LazyHTML.text() =~
                "settings.credentials.manage"
@@ -256,14 +299,37 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert doc
              |> LazyHTML.query("#archive-credentials-inventory-link")
              |> LazyHTML.attribute("href") == ["/settings/networks/credentials"]
+
+      # Clearing active_archive_binding_id while archive_enabled == true warns about awaiting_binding
+      {:noreply, cleared_binding_socket} =
+        RecordingLive.handle_event(
+          "validate_archive_settings",
+          %{
+            "settings" => %{
+              "active_archive_binding_id" => "",
+              "archive_enabled" => "true"
+            }
+          },
+          socket
+        )
+
+      cleared_doc = cleared_binding_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert cleared_doc |> LazyHTML.query("#archive-awaiting-binding-warning") |> LazyHTML.text() =~
+               "awaiting_binding"
     end
 
-    test "policy and health tabs render explicit Stage B blocked panels naming prerequisites" do
+    test "policy and health tabs remain Stage B blocked while retention tab is live without a Blocked badge" do
       socket =
         mounted_with_runtime(
           scope_with_permissions(["settings.recording.view"]),
           installed_open_runtime()
         )
+
+      tabs_doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+      refute tabs_doc |> LazyHTML.query("#recording-tab-retention") |> LazyHTML.text() =~ "Blocked"
+      assert tabs_doc |> LazyHTML.query("#recording-tab-policy") |> LazyHTML.text() =~ "Blocked"
+      assert tabs_doc |> LazyHTML.query("#recording-tab-health") |> LazyHTML.text() =~ "Blocked"
 
       {:noreply, policy_socket} =
         RecordingLive.handle_params(%{"tab" => "policy"}, "/settings/recording?tab=policy", socket)
@@ -271,7 +337,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       policy_html = render_mounted(policy_socket)
       assert policy_html =~ "recording-policy-blocked-panel"
       assert policy_html =~ "CameraRecordingPolicy"
-      assert policy_html =~ "86,400 s"
 
       {:noreply, health_socket} =
         RecordingLive.handle_params(%{"tab" => "health"}, "/settings/recording?tab=health", socket)
@@ -280,6 +345,320 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert health_html =~ "recording-health-blocked-panel"
       assert health_html =~ "metrics.timeseries.recording.*"
       assert health_html =~ "EventWriter"
+      assert health_html =~ "NVRReconcileJob"
+    end
+  end
+
+  describe "live Retention tab (?tab=retention): local-only usability, what-if simulator, validation, and confirmation gates" do
+    test "viewer sees live retention panel in local-only mode with read-only inputs and cannot invoke retention mutations" do
+      viewer_scope = scope_with_permissions(["settings.recording.view"])
+      socket = mounted_with_runtime(viewer_scope, installed_open_runtime())
+
+      {:noreply, retention_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "retention"},
+          "/settings/recording?tab=retention",
+          socket
+        )
+
+      doc = retention_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert doc |> LazyHTML.query("#recording-tab-panel-retention") |> Enum.count() == 1
+      assert doc |> LazyHTML.query("#recording-retention-blocked-panel") |> Enum.count() == 0
+
+      assert doc |> LazyHTML.query("#recording-retention-stage-notice") |> LazyHTML.text() =~
+               "LocalRetentionJob"
+
+      assert doc |> LazyHTML.query("#recording-retention-stage-notice") |> LazyHTML.text() =~
+               "ArchiveRetentionJob"
+
+      assert doc |> LazyHTML.query("#retention-reaper-flag-notice") |> LazyHTML.text() =~
+               "reaper flag remains disabled"
+
+      assert doc |> LazyHTML.query("#retention-storage-mode-badge") |> LazyHTML.text() =~
+               "Local only: no object storage configured"
+
+      assert doc |> LazyHTML.query("#retention-archive-local-only-indicator") |> LazyHTML.text() =~
+               "Not used: local only"
+
+      assert doc |> LazyHTML.query("#retention-local-only-effective-state") |> LazyHTML.text() =~
+               "Unset (behaves as stop_when_full)"
+
+      assert doc |> LazyHTML.query("#retention-calculated-local-summary") |> LazyHTML.text() =~
+               "Not recording"
+
+      assert doc |> LazyHTML.query("#save-retention-settings-btn") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#retention-local-high-water-input[disabled]") |> Enum.count() == 1
+
+      # RBAC re-authorization denies preview and save events for view-only users
+      {:noreply, denied_preview} =
+        RecordingLive.handle_event(
+          "preview_retention_settings",
+          %{"retention" => %{"archive_retention_days" => "14"}},
+          retention_socket
+        )
+
+      assert Phoenix.Flash.get(denied_preview.assigns.flash, :error) =~ "Not authorized"
+
+      {:noreply, denied_save} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{"retention" => %{"archive_retention_days" => "14"}},
+          retention_socket
+        )
+
+      assert Phoenix.Flash.get(denied_save.assigns.flash, :error) =~ "Not authorized"
+    end
+
+    test "preview_retention_settings recalculates effective object retention, local window, and shorter-archive warning live before saving" do
+      manager_scope = scope_with_permissions(["settings.recording.manage"])
+
+      socket =
+        manager_scope
+        |> mounted_with_runtime(installed_open_runtime())
+        |> assign(:active_tab, "retention")
+
+      # Simulate 4 cameras at 2,000 kbit/s each (~88.128 GB/day archived with 1.02 overhead, 1 MB/s local)
+      # with 500 GB object budget (80% low water = 400 GB available -> T = 400 / 88.128 = ~4.5 days, capacity binds)
+      # and 20 GiB local spool budget (80%..90% = 16 GiB..18 GiB -> ~4.8 to 5.4 hours, budget binds)
+      {:noreply, preview_socket} =
+        RecordingLive.handle_event(
+          "preview_retention_settings",
+          %{
+            "simulator" => %{
+              "camera_count" => "4",
+              "nominal_bitrate_kbps" => "2000",
+              "local_budget_gib" => "20"
+            },
+            "retention" => %{
+              "archive_retention_mode" => "limited",
+              "archive_retention_days" => "30",
+              "object_budget_mode" => "limited",
+              "object_budget_bytes" => "500000000000",
+              "object_high_water_percent" => "90",
+              "object_low_water_percent" => "80",
+              "object_capacity_policy" => "reap_oldest"
+            }
+          },
+          socket
+        )
+
+      doc = preview_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      object_text = doc |> LazyHTML.query("#retention-calculated-object-summary") |> LazyHTML.text()
+      assert object_text =~ "configured 30 days, effective about 4.5 days (capacity binds)"
+
+      local_text = doc |> LazyHTML.query("#retention-calculated-local-summary") |> LazyHTML.text()
+      assert local_text =~ "Local storage holds about 4.8 to 5.4 hours at the current rate"
+      assert local_text =~ "estimated"
+
+      # Setting limited archive retention (1 day) shorter than limited max local age (2 days = 172,800 s)
+      # surfaces an advisory warning without blocking save
+      {:noreply, shorter_socket} =
+        RecordingLive.handle_event(
+          "preview_retention_settings",
+          %{
+            "retention" => %{
+              "archive_retention_mode" => "limited",
+              "archive_retention_days" => "1",
+              "max_local_age_mode" => "limited",
+              "max_local_age_seconds" => "172800"
+            }
+          },
+          preview_socket
+        )
+
+      assert shorter_socket.assigns.retention_errors == %{}
+      shorter_doc = shorter_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert shorter_doc
+             |> LazyHTML.query("#retention-shorter-archive-warning")
+             |> LazyHTML.text()
+             |> normalize_ws() =~
+               "Archive copies will expire while their local copies remain, leaving that footage with a single local copy"
+    end
+
+    test "enforces mode+value bounds and explicit confirmation gates for overwrite_oldest and reap_oldest" do
+      user_id = "00000000-0000-4000-8000-000000000029"
+      manager_scope = scope_with_permissions(["settings.recording.manage"], user_id)
+
+      persisted_agent =
+        start_supervised!(
+          {Agent, fn -> RecordingArchiveSettings.default_settings() end},
+          id: :retention_settings_store
+        )
+
+      loaders = %{
+        settings_loader: fn -> {:ok, Agent.get(persisted_agent, & &1)} end
+      }
+
+      deps = %{
+        runtime_status: fn -> installed_open_runtime() end,
+        authorize_current: &scope_authorize_current/2,
+        authorize_current_any: &scope_authorize_current_any/2,
+        list_archive_bindings: fn _ -> [] end,
+        list_enabled_s3_credentials: fn _ -> [] end,
+        load_archive_settings_view: fn s ->
+          CameraRecordingSettings.load_archive_settings_view(s, loaders: loaders)
+        end,
+        load_retention_usage_summary: fn _ ->
+          CameraRecordingSettings.default_usage_summary(Agent.get(persisted_agent, & &1))
+        end,
+        list_camera_sources: fn _ -> {:ok, []} end,
+        save_retention_settings: fn s, params ->
+          CameraRecordingSettings.save_retention_settings(s, params,
+            loaders: loaders,
+            save_fn: fn attrs ->
+              changeset =
+                RecordingArchiveSettings.preview_changeset(attrs,
+                  existing: Agent.get(persisted_agent, & &1),
+                  scope: s,
+                  loaders: %{
+                    binding_loader: fn id -> {:ok, %{id: id}} end,
+                    secret_loader: fn id -> {:ok, %{id: id}} end
+                  }
+                )
+
+              if changeset.valid? do
+                {:ok, updated} = Ash.Changeset.apply_attributes(changeset)
+                Agent.update(persisted_agent, fn _ -> updated end)
+                {:ok, updated}
+              else
+                {:error, %{errors: changeset.errors}}
+              end
+            end
+          )
+        end
+      }
+
+      socket =
+        manager_scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "retention")
+
+      # Draft preselects overwrite_oldest while unset; saving without confirm_local_only_overwrite fails
+      assert socket.assigns.retention_form["local_only_full_policy"] == "overwrite_oldest"
+      assert socket.assigns.retention_form["confirm_local_only_overwrite"] == "false"
+
+      {:noreply, unconfirmed_local_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "local_only_full_policy" => "overwrite_oldest",
+              "confirm_local_only_overwrite" => "false"
+            }
+          },
+          socket
+        )
+
+      assert Map.has_key?(unconfirmed_local_socket.assigns.retention_errors, :local_only_full_policy)
+      assert Agent.get(persisted_agent, & &1.local_only_full_policy) == nil
+
+      # Saving stop_when_full succeeds without overwrite confirmation and stamps confirming actor
+      {:noreply, stop_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "local_only_full_policy" => "stop_when_full",
+              "confirm_local_only_overwrite" => "false"
+            }
+          },
+          socket
+        )
+
+      assert Phoenix.Flash.get(stop_socket.assigns.flash, :info) =~ "Retention settings saved"
+      assert Agent.get(persisted_agent, & &1.local_only_full_policy) == :stop_when_full
+      assert Agent.get(persisted_agent, & &1.local_only_full_policy_confirmed_by_id) == user_id
+      assert %DateTime{} = Agent.get(persisted_agent, & &1.local_only_full_policy_confirmed_at)
+
+      # Mode + value and watermark validation errors surface per field
+      {:noreply, invalid_bounds_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "local_high_water_percent" => "90",
+              "local_low_water_percent" => "88",
+              "max_local_age_mode" => "limited",
+              "max_local_age_seconds" => "120",
+              "local_only_max_age_mode" => "unlimited",
+              "local_only_max_age_seconds" => "7200",
+              "object_budget_mode" => "limited",
+              "object_budget_bytes" => "1024",
+              "object_capacity_policy" => "stop_archiving",
+              "local_only_full_policy" => "stop_when_full"
+            }
+          },
+          stop_socket
+        )
+
+      errs = invalid_bounds_socket.assigns.retention_errors
+      assert Map.has_key?(errs, :local_low_water_percent)
+      assert Map.has_key?(errs, :max_local_age_seconds)
+      assert Map.has_key?(errs, :local_only_max_age_seconds)
+      assert Map.has_key?(errs, :object_budget_bytes)
+
+      # reap_oldest statement is rendered and requires explicit confirm_reap_oldest before saving
+      reap_doc = stop_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      reap_statement =
+        reap_doc |> LazyHTML.query("#retention-reap-oldest-statement") |> LazyHTML.text() |> normalize_ws()
+
+      assert reap_statement =~ "can delete the last copy of footage once the local copy has been evicted"
+
+      assert reap_statement =~
+               "can delete the last copy, including by later local eviction of blocks whose archive copy was reaped"
+
+      {:noreply, unconfirmed_reap_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "local_only_full_policy" => "overwrite_oldest",
+              "confirm_local_only_overwrite" => "true",
+              "object_budget_mode" => "limited",
+              "object_budget_bytes" => "10737418240",
+              "object_capacity_policy" => "reap_oldest",
+              "confirm_reap_oldest" => "false"
+            }
+          },
+          stop_socket
+        )
+
+      assert Map.has_key?(unconfirmed_reap_socket.assigns.retention_errors, :object_capacity_policy)
+      assert Agent.get(persisted_agent, & &1.object_capacity_policy) == nil
+
+      # Confirming both overwrite_oldest and reap_oldest saves cleanly and records confirming actor & timestamps
+      {:noreply, confirmed_both_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "local_only_full_policy" => "overwrite_oldest",
+              "confirm_local_only_overwrite" => "true",
+              "object_budget_mode" => "limited",
+              "object_budget_bytes" => "10737418240",
+              "object_capacity_policy" => "reap_oldest",
+              "confirm_reap_oldest" => "true",
+              "archive_retention_mode" => "limited",
+              "archive_retention_days" => "1",
+              "max_local_age_mode" => "limited",
+              "max_local_age_seconds" => "172800"
+            }
+          },
+          stop_socket
+        )
+
+      assert Phoenix.Flash.get(confirmed_both_socket.assigns.flash, :info) =~ "Retention settings saved"
+      saved = Agent.get(persisted_agent, & &1)
+      assert saved.local_only_full_policy == :overwrite_oldest
+      assert saved.object_capacity_policy == :reap_oldest
+      assert saved.object_capacity_policy_confirmed_by_id == user_id
+      assert %DateTime{} = saved.object_capacity_policy_confirmed_at
+      assert saved.archive_retention_days == 1
+      assert saved.max_local_age_seconds == 172_800
     end
   end
 
@@ -300,6 +679,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         list_archive_bindings: fn _scope -> Agent.get(store, & &1) end,
         list_enabled_s3_credentials: fn _scope -> [] end,
         load_archive_settings_view: fn _scope -> default_overview() end,
+        load_retention_usage_summary: fn _scope -> CameraRecordingSettings.default_usage_summary() end,
         list_camera_sources: fn _scope -> {:ok, []} end,
         register_operator_destination: fn s, params ->
           CameraRecordingSettings.register_operator_destination(s, params,
@@ -349,7 +729,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         |> assign(:active_tab, "archive")
         |> assign(:recording_deps, deps)
 
-      # Invalid endpoints must fail on :endpoint specifically
       for bad_endpoint <- [
             "https://192.0.2.10",
             "https://objects.example.com:8443",
@@ -378,7 +757,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         assert err_doc |> LazyHTML.query("#destination-error-endpoint") |> Enum.count() == 1
       end
 
-      # Valid generation 1 registration
       {:noreply, gen1_socket} =
         RecordingLive.handle_event(
           "register_destination",
@@ -399,7 +777,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert gen1.generation == 1
       assert gen1.namespace == "recordings/site-a"
 
-      # Changing bucket registers generation 2 with a distinct destination_sha256 while preserving gen 1
       {:noreply, gen2_socket} =
         RecordingLive.handle_event(
           "register_destination",
@@ -419,8 +796,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert gen2.generation == 2
       assert gen2.destination_sha256 != gen1.destination_sha256
 
-      # Mid-session permission revocation blocks further mutations
-      revoked_socket = assign(gen2_socket, :current_scope, scope_with_permissions(["settings.recording.view"]))
+      revoked_socket =
+        assign(gen2_socket, :current_scope, scope_with_permissions(["settings.recording.view"]))
 
       {:noreply, denied_socket} =
         RecordingLive.handle_event(
@@ -440,9 +817,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert Phoenix.Flash.get(denied_socket.assigns.flash, :error) =~ "Not authorized"
     end
 
-    test "save_archive_settings enforces split-permission credential rules, disabled secret rejection, and active binding/toggle" do
+    test "save_archive_settings enforces split-permission credential rules across writer, reader, and retention slots" do
       binding_id = "00000000-0000-4000-8000-000000000031"
       writer_id = "00000000-0000-4000-8000-000000000041"
+      retention_id = "00000000-0000-4000-8000-000000000043"
       disabled_writer_id = "00000000-0000-4000-8000-000000000042"
       existing_writer_id = "00000000-0000-4000-8000-000000000040"
 
@@ -450,13 +828,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         start_supervised!(
           {Agent,
            fn ->
-             %{
-               id: "deployment",
+             struct(RecordingArchiveSettings.default_settings(),
                active_archive_binding_id: nil,
                writer_credential_secret_id: existing_writer_id,
                reader_credential_secret_id: nil,
+               retention_credential_secret_id: nil,
                archive_enabled: false
-             }
+             )
            end},
           id: :archive_settings_store
         )
@@ -491,11 +869,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
                metadata: %{}
              }}
 
+          ^retention_id ->
+            {:ok,
+             %{
+               id: retention_id,
+               name: "Active retention deleter",
+               provider: "s3_compatible",
+               credential_kind: :opaque,
+               rotation_state: :active,
+               metadata: %{}
+             }}
+
           ^disabled_writer_id ->
             {:ok,
              %{
                id: disabled_writer_id,
-               name: "Disabled writer",
+               name: "Disabled credential",
                provider: "s3_compatible",
                credential_kind: :opaque,
                rotation_state: :disabled,
@@ -513,13 +902,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         load_archive_settings_view: fn s ->
           CameraRecordingSettings.load_archive_settings_view(s, loaders: loaders)
         end,
+        load_retention_usage_summary: fn _ ->
+          CameraRecordingSettings.default_usage_summary(Agent.get(persisted_state, & &1))
+        end,
         list_camera_sources: fn _ -> {:ok, []} end,
         save_archive_settings: fn s, params, can_manage_creds? ->
           CameraRecordingSettings.save_archive_settings(s, params, can_manage_creds?,
             loaders: loaders,
             save_fn: fn attrs ->
               Agent.update(saved_attrs_agent, fn _ -> attrs end)
-              updated = Map.merge(Agent.get(persisted_state, & &1), attrs)
+              updated = struct(Agent.get(persisted_state, & &1), attrs)
               Agent.update(persisted_state, fn _ -> updated end)
               {:ok, updated}
             end
@@ -551,26 +943,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       saved_split_attrs = Agent.get(saved_attrs_agent, & &1)
       assert saved_split_attrs == %{active_archive_binding_id: binding_id, archive_enabled: true}
       refute Map.has_key?(saved_split_attrs, :writer_credential_secret_id)
+      refute Map.has_key?(saved_split_attrs, :retention_credential_secret_id)
       assert Agent.get(persisted_state, & &1.writer_credential_secret_id) == existing_writer_id
 
-      # Split-duty operator tampering with credential param is rejected by real CameraRecordingSettings
-      {:noreply, rejected_split} =
-        RecordingLive.handle_event(
-          "save_archive_settings",
-          %{
-            "settings" => %{
-              "active_archive_binding_id" => binding_id,
-              "archive_enabled" => "true",
-              "writer_credential_secret_id" => writer_id
-            }
-          },
-          split_socket
-        )
+      # Split-duty operator tampering with writer or retention credential param is rejected
+      for tampered_field <- ["writer_credential_secret_id", "retention_credential_secret_id"] do
+        {:noreply, rejected_split} =
+          RecordingLive.handle_event(
+            "save_archive_settings",
+            %{
+              "settings" => %{
+                "active_archive_binding_id" => binding_id,
+                "archive_enabled" => "true",
+                tampered_field => retention_id
+              }
+            },
+            split_socket
+          )
 
-      assert Phoenix.Flash.get(rejected_split.assigns.flash, :error) =~
-               "settings.credentials.manage"
+        assert Phoenix.Flash.get(rejected_split.assigns.flash, :error) =~
+                 "settings.credentials.manage"
+      end
 
-      # 2. Full operator WITH settings.credentials.manage cannot select a disabled credential
+      # 2. Full operator WITH settings.credentials.manage cannot select a disabled retention credential
       full_scope =
         scope_with_permissions(["settings.recording.manage", "settings.credentials.manage"])
 
@@ -583,8 +978,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
             "settings" => %{
               "active_archive_binding_id" => binding_id,
               "archive_enabled" => "true",
-              "writer_credential_secret_id" => disabled_writer_id,
-              "reader_credential_secret_id" => ""
+              "writer_credential_secret_id" => writer_id,
+              "reader_credential_secret_id" => "",
+              "retention_credential_secret_id" => disabled_writer_id
             }
           },
           full_socket
@@ -592,7 +988,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
 
       assert Phoenix.Flash.get(rejected_disabled.assigns.flash, :error) =~ "disabled"
 
-      # 3. Full operator WITH settings.credentials.manage can bind active writer credential
+      # 3. Full operator WITH settings.credentials.manage can bind active writer + retention credentials
       {:noreply, ok_full} =
         RecordingLive.handle_event(
           "save_archive_settings",
@@ -601,19 +997,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
               "active_archive_binding_id" => binding_id,
               "archive_enabled" => "true",
               "writer_credential_secret_id" => writer_id,
-              "reader_credential_secret_id" => ""
+              "reader_credential_secret_id" => "",
+              "retention_credential_secret_id" => retention_id
             }
           },
           full_socket
         )
 
       assert Phoenix.Flash.get(ok_full.assigns.flash, :info) =~ "Archive settings saved"
+      assert ok_full.assigns.object_retention_enforced? == true
+      assert ok_full.assigns.selected_retention_label == "Active retention deleter"
 
       assert Agent.get(saved_attrs_agent, & &1) == %{
                active_archive_binding_id: binding_id,
                archive_enabled: true,
                writer_credential_secret_id: writer_id,
-               reader_credential_secret_id: nil
+               reader_credential_secret_id: nil,
+               retention_credential_secret_id: retention_id
              }
     end
   end
@@ -635,7 +1035,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
             "key" => "recordings/v1/#{storage_id}/#{block_key_1}/media.m4s",
             "length" => 4096,
             "sha256" => String.duplicate("d", 64),
-            "etag" => "\"etag-1\""
+            "etag" => "\"etag-1\"",
+            "version_id" => "synth-ver-0001"
           }
         ]
       }
@@ -696,7 +1097,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         |> mounted_with_runtime(installed_open_runtime(), deps)
         |> assign(:active_tab, "cameras")
         |> assign(:sources, [
-          %{id: camera_id, display_name: "Synthetic Gate Camera", device_uid: "sr:cam-01", vendor_camera_id: "cam-01"}
+          %{
+            id: camera_id,
+            display_name: "Synthetic Gate Camera",
+            device_uid: "sr:cam-01",
+            vendor_camera_id: "cam-01"
+          }
         ])
 
       {:noreply, selected_socket} =
@@ -712,6 +1118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert html =~ "Unknown (NVR lookup unavailable)"
       assert html =~ "Verified receipt"
       assert html =~ "media.m4s"
+      assert html =~ "version synth-ver-0001"
       assert html =~ "next-camera-blocks-page"
 
       {:noreply, page2_socket} =
@@ -722,8 +1129,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert page2_html =~ block_key_2
       assert page2_html =~ "No receipt in Core"
 
-      # Filtering by a profile with 0 rows on page 1 while next_cursor != nil must NOT
-      # show the camera-wide empty message above "Load older blocks"
       {:noreply, filtered_page1} =
         RecordingLive.handle_event(
           "select_camera_context",
@@ -751,15 +1156,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       source_id = "00000000-0000-4000-8000-000000000051"
 
       unpermitted = scope_with_permissions(["devices.view", "devices.cameras.view"])
-      {:ok, unpermitted_socket} = CameraShowLive.mount(%{"camera_source_id" => source_id}, %{}, base_socket(unpermitted))
+
+      {:ok, unpermitted_socket} =
+        CameraShowLive.mount(%{"camera_source_id" => source_id}, %{}, base_socket(unpermitted))
 
       unpermitted_html =
-        unpermitted_socket.assigns |> CameraShowLive.render() |> Safe.to_iodata() |> IO.iodata_to_binary()
+        unpermitted_socket.assigns
+        |> CameraShowLive.render()
+        |> Safe.to_iodata()
+        |> IO.iodata_to_binary()
 
       refute unpermitted_html =~ "camera-recording-settings-link"
 
-      permitted = scope_with_permissions(["devices.view", "devices.cameras.view", "settings.recording.view"])
-      {:ok, permitted_socket} = CameraShowLive.mount(%{"camera_source_id" => source_id}, %{}, base_socket(permitted))
+      permitted =
+        scope_with_permissions(["devices.view", "devices.cameras.view", "settings.recording.view"])
+
+      {:ok, permitted_socket} =
+        CameraShowLive.mount(%{"camera_source_id" => source_id}, %{}, base_socket(permitted))
 
       permitted_doc =
         permitted_socket.assigns
@@ -840,11 +1253,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       list_archive_bindings: fn _ -> [] end,
       list_enabled_s3_credentials: fn _ -> [] end,
       load_archive_settings_view: fn _ -> default_overview() end,
+      load_retention_usage_summary: fn _ -> CameraRecordingSettings.default_usage_summary() end,
       list_camera_sources: fn _ -> {:ok, []} end
     }
 
     socket =
-      assign(%{base_socket(scope) | transport_pid: self()}, :recording_deps, Map.merge(default_test_deps, extra_deps))
+      assign(
+        %{base_socket(scope) | transport_pid: self()},
+        :recording_deps,
+        Map.merge(default_test_deps, extra_deps)
+      )
 
     {:ok, mounted} = RecordingLive.mount(%{}, %{}, socket)
     mounted
@@ -881,14 +1299,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   end
 
   defp default_overview do
-    %{
-      record: nil,
-      form: CameraRecordingSettings.default_settings_form(),
-      active_binding_id: nil,
-      selected_writer_label: "None selected",
-      selected_reader_label: "Use writer credential (reader role)",
-      credential_issue: nil
-    }
+    CameraRecordingSettings.default_archive_settings_view()
+  end
+
+  defp normalize_ws(text) when is_binary(text) do
+    text |> String.replace(~r/\s+/, " ") |> String.trim()
   end
 
   defp installed_open_runtime do

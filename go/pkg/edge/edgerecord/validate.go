@@ -200,6 +200,10 @@ type AuthorizationPolicy struct {
 	// cannot mix snapshots inside one frame. Zero is INVALID -- the signed boundary fails closed
 	// (ErrTrustEpochUnset) rather than resolve keys against an unpinned policy.
 	TrustPolicyEpoch uint64
+	// TerminalAuthority marks a record whose (scope, assignment, shard, epoch) names an
+	// authority interval that ended certificate_revoked or revoked_cause_unknown. A LATE
+	// frame with it is security-quarantined before any grant is considered.
+	TerminalAuthority bool
 }
 
 // validateClockTolerance rejects a policy whose clock tolerance is outside [0,
@@ -482,6 +486,11 @@ func verifyDeliveryGrant(dc *edgev1.EdgeSignedCapabilityV1, policy Authorization
 	if err := validateDeliveryClaims(claims); err != nil {
 		return FrameGrantNone, fmt.Errorf("delivery_capability: %w", err)
 	}
+	// A late-admission decision belongs only to a LATE session (ValidateLateFrameSigned).
+	// On a live session it would let a production-time decision pass as live authority.
+	if claims.GetLateAdmission() != nil {
+		return FrameGrantNone, fmt.Errorf("delivery_capability: %w: live session", ErrLateAdmissionGrantMismatch)
+	}
 	if !policy.currentAt(dc.GetNotBeforeUnixNano(), dc.GetExpiresAtUnixNano()) {
 		return FrameGrantNone, fmt.Errorf("delivery_capability: %w", ErrAuthorityExpired)
 	}
@@ -538,8 +547,10 @@ func validateDeliveryClaims(claims *edgev1.EdgeDeliveryClaimsV1) error {
 		if ro.GetPriorSequence() == 0 {
 			return fmt.Errorf("%w: prior_sequence", ErrDeliveryClaims)
 		}
+	case *edgev1.EdgeDeliveryClaimsV1_LateAdmission:
+		return validateLateAdmissionClaims(tr.LateAdmission)
 	default:
-		return fmt.Errorf("%w: transition (renewal|rollover) required", ErrDeliveryClaims)
+		return fmt.Errorf("%w: transition (renewal|rollover|late_admission) required", ErrDeliveryClaims)
 	}
 	return nil
 }
@@ -587,6 +598,11 @@ const (
 	FrameDeliveryModeRollover
 	// FrameDeliveryModeLateFenced -- a stale-fence late-fenced delivery (audit).
 	FrameDeliveryModeLateFenced
+	// FrameDeliveryModeLateAdmission -- a record admitted LATE under the production-time
+	// rule and published per core's late-admission decision (ValidateLateFrameSigned).
+	// Its provenance delivery_mode code lands with the gateway's late publication path
+	// (add-edge-production-time-admission task 2.6); until then no gateway emits it.
+	FrameDeliveryModeLateAdmission
 )
 
 // FrameGrantTransition records which delivery-capability transition (if any) authorized the
@@ -600,6 +616,8 @@ const (
 	FrameGrantRenewal
 	// FrameGrantRollover -- a recovery rollover grant.
 	FrameGrantRollover
+	// FrameGrantLateAdmission -- core's production-time late-admission decision.
+	FrameGrantLateAdmission
 )
 
 // FrameDecision is the typed ValidateFrameSigned outcome across the frozen dimensions. The zero

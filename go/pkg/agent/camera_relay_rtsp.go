@@ -17,12 +17,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
@@ -31,6 +34,7 @@ import (
 	codech264 "github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/pion/rtp"
 
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
@@ -58,20 +62,7 @@ type rtspCameraRelayStream struct {
 	closed     bool
 }
 
-// cameraRelayTimestampDecoder is the fallback for packets gortsplib cannot
-// timestamp yet (PacketPTS returns !ok until the track's PTS is established). It
-// emits PTS in the track's RTP clock units, like PacketPTS, so a relay's chunks
-// share one timebase from the first packet on; core-elx reads them as 90 kHz H264
-// ticks.
-type cameraRelayTimestampDecoder struct {
-	mu        sync.Mutex
-	clockRate int64
-	init      bool
-	prev      uint32
-	pts       int64
-}
-
-func defaultCameraRelaySource(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+func defaultCameraRelaySource(spec cameraRelaySessionSpec, log logger.Logger) (cameraRelayChunkStream, error) {
 	sourceURL := strings.TrimSpace(spec.SourceURL)
 	if sourceURL == "" {
 		return nil, errCameraRelaySourceURLRequired
@@ -80,14 +71,14 @@ func defaultCameraRelaySource(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	switch {
 	case strings.HasPrefix(strings.ToLower(sourceURL), "rtsp://"),
 		strings.HasPrefix(strings.ToLower(sourceURL), "rtsps://"):
-		return newRTSPCameraRelayStream(spec)
+		return newRTSPCameraRelayStream(spec, log)
 
 	default:
 		return nil, fmt.Errorf("%w %q", errUnsupportedCameraRelaySource, sourceURL)
 	}
 }
 
-func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (cameraRelayChunkStream, error) {
 	sourceURL := strings.TrimSpace(spec.SourceURL)
 	u, err := base.ParseURL(sourceURL)
 	if err != nil {
@@ -136,12 +127,23 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	}
 
 	var sequence uint64
-	timestampDecoder := newCameraRelayTimestampDecoder(int64(h264Format.ClockRate()))
+	gate := newCameraRelayKeyframeGate(h264Format.SPS, h264Format.PPS)
 
+	// A relay has one clock: every chunk's PTS is client.PacketPTS, the track's
+	// gortsplib timeline. That timeline starts at the first packet carrying an
+	// IDR, SPS or PPS; packets before it have no PTS and are dropped rather than
+	// stamped from a second, earlier zero, which is what made a fresh relay's
+	// PTS run backwards at its first keyframe. Decoded access units are then
+	// held back until the first IDR whose parameter sets are known. So a relay's
+	// first chunk is a keyframe that decodes on its own, and PTS never decreases
+	// across its chunks. PTS is that of the packet completing the access unit;
+	// for a camera that never sets the RTP marker that packet belongs to the
+	// next unit, a constant one-frame offset on the same timeline.
 	client.OnPacketRTP(media, h264Format, func(pkt *rtp.Packet) {
 		pts, ok := client.PacketPTS(media, pkt)
 		if !ok {
-			pts = timestampDecoder.Decode(pkt.Timestamp)
+			gate.droppedPackets.Add(1)
+			return
 		}
 
 		accessUnit, decodeErr := decoder.Decode(pkt)
@@ -153,6 +155,19 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 
 			stream.fail(fmt.Errorf("decode h264 access unit: %w", decodeErr))
 			return
+		}
+
+		acquiring := !gate.acquired.Load()
+		accessUnit, ok = gate.admit(accessUnit)
+		if !ok {
+			return
+		}
+		if acquiring {
+			log.Debug().
+				Str("relay_session_id", spec.RelaySessionID).
+				Uint64("discarded_packets", gate.droppedPackets.Load()).
+				Uint64("discarded_access_units", gate.droppedUnits.Load()).
+				Msg("Camera relay RTSP receiver started at the first keyframe")
 		}
 
 		payload, marshalErr := codech264.AnnexB(accessUnit).Marshal()
@@ -184,8 +199,21 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 		return nil, fmt.Errorf("play rtsp stream: %w", err)
 	}
 
+	// The client read timeout only covers a silent source. A source that keeps
+	// sending without ever producing a usable keyframe would otherwise leave the
+	// relay emitting nothing, so acquisition has its own deadline.
+	keyframeDeadline := time.AfterFunc(cameraRelayFirstKeyframeTimeout, func() {
+		if gate.acquired.Load() {
+			return
+		}
+		stream.fail(fmt.Errorf("%w within %s (%d packets before the stream clock started, %d access units before a usable IDR)",
+			errCameraRelayNoKeyframe, cameraRelayFirstKeyframeTimeout,
+			gate.droppedPackets.Load(), gate.droppedUnits.Load()))
+	})
+
 	go func() {
 		waitErr := client.Wait()
+		keyframeDeadline.Stop()
 		if waitErr == nil {
 			waitErr = io.EOF
 		}
@@ -258,8 +286,10 @@ func (s *rtspCameraRelayStream) fail(err error) {
 		return
 	}
 
-	_ = s.Close()
+	// Record the cause before closing: Close ends client.Wait, whose generic
+	// termination error would otherwise race this one into the terminal slot.
 	s.finish(err)
+	_ = s.Close()
 }
 
 func (s *rtspCameraRelayStream) finish(err error) {
@@ -292,31 +322,74 @@ func parseCameraRelayRTSPTransport(value string) (gortsplib.Protocol, error) {
 	}
 }
 
-func newCameraRelayTimestampDecoder(clockRate int64) *cameraRelayTimestampDecoder {
-	return &cameraRelayTimestampDecoder{clockRate: clockRate}
+// cameraRelayFirstKeyframeTimeout bounds how long a fresh relay waits for its
+// first decodable IDR. It is several typical camera GOPs; the recorder applies
+// its own, stricter keyframe limits downstream.
+const cameraRelayFirstKeyframeTimeout = 30 * time.Second
+
+var errCameraRelayNoKeyframe = errors.New("rtsp stream produced no decodable h264 keyframe")
+
+// cameraRelayKeyframeGate holds a relay's output back until its first IDR whose
+// SPS and PPS are known, from the SDP or in-band. admit runs only on the RTP
+// callback goroutine; the counters and flag are atomic because the acquisition
+// deadline reads them from a timer goroutine.
+type cameraRelayKeyframeGate struct {
+	sps, pps       []byte
+	acquired       atomic.Bool
+	droppedPackets atomic.Uint64
+	droppedUnits   atomic.Uint64
 }
 
-func (d *cameraRelayTimestampDecoder) Decode(timestamp uint32) int64 {
-	if d == nil || d.clockRate <= 0 {
-		return 0
+func newCameraRelayKeyframeGate(sps, pps []byte) *cameraRelayKeyframeGate {
+	return &cameraRelayKeyframeGate{sps: bytes.Clone(sps), pps: bytes.Clone(pps)}
+}
+
+// admit returns the access unit to emit, or false while the relay is still
+// waiting. The first admitted unit carries SPS and PPS ahead of its slices.
+func (g *cameraRelayKeyframeGate) admit(au [][]byte) ([][]byte, bool) {
+	if g.acquired.Load() {
+		return au, true
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if !d.init {
-		d.init = true
-		d.prev = timestamp
-		d.pts = 0
-		return 0
+	var idr, inBandSPS, inBandPPS bool
+	for _, nalu := range au {
+		// Switch on the raw type byte: only three of the 32 NAL types matter here.
+		switch nalu[0] & 0x1F {
+		case byte(codech264.NALUTypeSPS):
+			g.sps, inBandSPS = bytes.Clone(nalu), true
+		case byte(codech264.NALUTypePPS):
+			g.pps, inBandPPS = bytes.Clone(nalu), true
+		case byte(codech264.NALUTypeIDR):
+			idr = true
+		}
+	}
+	if !idr || len(g.sps) == 0 || len(g.pps) == 0 {
+		g.droppedUnits.Add(1)
+		return nil, false
 	}
 
-	delta := int64(int32(timestamp - d.prev))
-	d.prev = timestamp
-	d.pts += delta
-	if d.pts < 0 {
-		d.pts = 0
+	g.acquired.Store(true)
+	if inBandSPS && inBandPPS {
+		return au, true
 	}
+	return withCameraRelayParameterSets(au, g.sps, g.pps), true
+}
 
-	return d.pts
+// withCameraRelayParameterSets places sps and pps after any leading access
+// unit delimiter. A lone in-band set is dropped from its old position (admit
+// already recorded it), so neither set appears twice.
+func withCameraRelayParameterSets(au [][]byte, sps, pps []byte) [][]byte {
+	out := make([][]byte, 0, len(au)+2)
+	rest := au
+	if len(rest) > 0 && codech264.NALUType(rest[0][0]&0x1F) == codech264.NALUTypeAccessUnitDelimiter {
+		out = append(out, rest[0])
+		rest = rest[1:]
+	}
+	out = append(out, sps, pps)
+	for _, nalu := range rest {
+		if typ := codech264.NALUType(nalu[0] & 0x1F); typ != codech264.NALUTypeSPS && typ != codech264.NALUTypePPS {
+			out = append(out, nalu)
+		}
+	}
+	return out
 }

@@ -56,6 +56,14 @@ EventWriter SHALL skip repeated Zen only for authorized versioned collector outp
 - **WHEN** log content supplies a normalized flag
 - **THEN** that flag cannot bypass normalization or redaction
 
+#### Scenario: A sender switches format on a rule-bearing subject
+- **WHEN** a protobuf log batch arrives on a `logs.` subject other than `logs.otel` or `logs.normalized.`
+- **THEN** it is refused and counted as rejected
+
+#### Scenario: Another identity publishes the normalized subject
+- **WHEN** any NATS identity other than the log collector publishes to `logs.normalized.`
+- **THEN** the broker refuses the publish
+
 #### Scenario: Persistence partially fails
 - **WHEN** persistence has not succeeded for the complete batch
 - **THEN** the batch is not acknowledged as persisted

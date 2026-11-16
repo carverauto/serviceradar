@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   use ServiceRadarWebNGWeb, :live_component
 
   alias Ash.Error.Invalid
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.EventRule
 
   @severity_options [
@@ -60,11 +61,11 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           # Creating from a log entry
           Map.has_key?(assigns, :log) and not is_nil(assigns.log) ->
             log = assigns.log
-            parsed_attributes = parse_log_attributes(log)
+            parsed_attributes = log |> parse_log_attributes() |> SecretRedaction.redact_value()
 
             initial_values = %{
               "name" => generate_rule_name(log),
-              "body_contains" => Map.get(log, "body") || Map.get(log, "message") || "",
+              "body_contains" => SecretRedaction.redact_text(Map.get(log, "body") || Map.get(log, "message") || ""),
               "body_contains_enabled" => true,
               "severity_text" => Map.get(log, "severity_text") || "",
               "severity_enabled" => Map.get(log, "severity_text") != nil,
@@ -120,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       case match["attribute_equals"] do
         %{} = attrs when map_size(attrs) > 0 ->
           [{k, v} | _] = Map.to_list(attrs)
-          {k, stringify(v)}
+          {k, v |> stringify() |> SecretRedaction.redact_text()}
 
         _ ->
           {"", ""}
@@ -128,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     %{
       "name" => rule.name,
-      "body_contains" => match["body_contains"] || "",
+      "body_contains" => SecretRedaction.redact_text(match["body_contains"] || ""),
       "body_contains_enabled" => match["body_contains"] != nil,
       "severity_text" => match["severity_text"] || "",
       "severity_enabled" => match["severity_text"] != nil,
@@ -403,7 +404,10 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                         />
                       </span>
                       <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
-                      <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
+                      <span class="truncate">{truncate(
+                        SecretRedaction.redact_text(log["body"] || log["message"]),
+                        60
+                      )}</span>
                     </div>
                   <% end %>
                 </div>

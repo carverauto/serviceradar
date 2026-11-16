@@ -97,7 +97,12 @@ Two render-time checks, both raised from `templates/nats.yaml`:
    margin is room for streams a later release adds. `flows` and
    `ARANCINI_CAUSAL` are always counted at the collector size, even when the
    collector is disabled, because a collector that claimed its stream keeps
-   that size. `nats.jetstream.allowOvercommit: true` skips this check.
+   that size. `nats.jetstream.allowOvercommit: true` skips this check and
+   also emits `allow_overcommit: true` in the rendered NATS server JetStream
+   config block, so the NATS server itself will not enforce reservation
+   accounting. Without `allow_overcommit` in the server config, NATS can
+   reject stream and object-store placement (err 10005, "insufficient
+   storage") even after the Helm budget check passes or is bypassed.
 
 2. **Disk ceiling.** The chart fails when `max_file_store` is above 94% of
    `nats.persistence.size`. A reservation ceiling larger than the volume lets

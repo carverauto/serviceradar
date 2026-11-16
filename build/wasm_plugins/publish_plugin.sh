@@ -180,25 +180,16 @@ if [[ -n "${extra_tag}" ]]; then
   tags+=("${extra_tag}")
 fi
 
-for tag in "${tags[@]}"; do
-  echo "publishing ${repo}:${tag}"
-  if ! push_out="$(
-    "${oras_bin}" push \
-      --artifact-type "${artifact_type}" \
-      "${repo}:${tag}" \
-      "${bundle}:${bundle_media_type}" \
-      "${upload_signature_path}:${upload_signature_media_type}" \
-      --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
-      --annotation "io.serviceradar.plugin.id=${plugin_id}" 2>&1
-  )"; then
-    if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]] && \
-       grep -Eiq 'immutable|already exists|precondition' <<<"${push_out}"; then
-      echo "${push_out}"
-      echo "Harbor tag ${repo}:${tag} is already immutable; leaving the existing artifact."
-      continue
-    fi
-    echo "${push_out}" >&2
-    exit 1
-  fi
-  echo "${push_out}"
-done
+# One push names one manifest with every tag. oras stamps each push with an
+# org.opencontainers.image.created timestamp, so a push per tag would give the
+# commit and release tags different digests whenever the pushes straddle a
+# second, and promotion (harbor-publish.py) refuses tags that disagree.
+reference="${repo}:$(IFS=,; echo "${tags[*]}")"
+echo "publishing ${reference}"
+"${oras_bin}" push \
+  --artifact-type "${artifact_type}" \
+  "${reference}" \
+  "${bundle}:${bundle_media_type}" \
+  "${upload_signature_path}:${upload_signature_media_type}" \
+  --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
+  --annotation "io.serviceradar.plugin.id=${plugin_id}"

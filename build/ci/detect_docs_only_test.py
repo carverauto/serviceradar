@@ -6,9 +6,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
+from build.ci import detect_docs_only as detect_docs_only_module
 from build.ci.detect_docs_only import (
     classify_paths,
     detect_docs_only,
@@ -37,6 +39,11 @@ class DetectDocsOnlyPathTest(unittest.TestCase):
             "CLAUDE.md",
             "CONTRIBUTING.md",
             "RELEASE.md",
+            "CHANGELOG",
+            "elixir/web-ng/AGENTS.md",
+            "helm/serviceradar/README.md",
+            ".agents/skills/daisyui/SKILL.md",
+            "go/cmd/wasm-plugins/opentext-nom/docs/configuration.md",
         ]
         for path in allowlisted:
             with self.subTest(path=path):
@@ -44,15 +51,9 @@ class DetectDocsOnlyPathTest(unittest.TestCase):
 
     def test_allowlist_non_matches(self):
         not_allowlisted = [
-            "go/cmd/wasm-plugins/opentext-nom/docs/configuration.md",
-            "go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md",
-            "demo/README.md",
-            "k8s/starrocks/README.md",
-            "helm/serviceradar/README.md",
-            "helm/serviceradar/TENANT_RUNTIME.md",
-            "helm/serviceradar/tests/README.md",
-            "third_party/netprobe_corpora/README.md",
-            ".agents/skills/daisyui/SKILL.md",
+            "CHANGELOG.txt",
+            "elixir/CHANGELOG",
+            "README.markdown",
             "buildbuddy.yaml",
             ".github/workflows/release.yml",
             "go.mod",
@@ -85,6 +86,12 @@ class DetectDocsOnlyPathTest(unittest.TestCase):
             "docs/sigstore/root.json",
             "docs/sigstore/targets/release.pub",
             "openspec/changes/parallelize-core-integration-tests/benchmark.md",
+            "third_party/netprobe_corpora/README.md",
+            "third_party/netprobe_ebpf_vendor/hashbrown/README.md",
+            "go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md",
+            "go/cmd/wasm-plugins/opentext-nom/docs/configuration.md",
+            "demo/README.md",
+            "k8s/starrocks/README.md",
         ]
         for path in excluded:
             with self.subTest(path=path):
@@ -104,6 +111,12 @@ class DetectDocsOnlyPathTest(unittest.TestCase):
             "openspec/changes/foo/design.md",
             "README.md",
             "CLAUDE.md",
+            "CHANGELOG",
+            "BUILD.md",
+            "elixir/web-ng/AGENTS.md",
+            "rust/netprobe/ebpf/README.md",
+            "helm/serviceradar/TENANT_RUNTIME.md",
+            ".agents/skills/daisyui/SKILL.md",
         ]
         for path in not_excluded:
             with self.subTest(path=path):
@@ -179,6 +192,48 @@ class DetectDocsOnlyGitIntegrationTest(unittest.TestCase):
         self.assertTrue(self.marker.exists())
         content = self.marker.read_text(encoding="utf-8")
         self.assertIn("docs-only change at HEAD", content)
+
+    def test_changelog_and_nested_markdown_change_writes_marker(self):
+        self.git("checkout", "-b", "docs/changelog")
+        (self.repo / "CHANGELOG").write_text("v1\n", encoding="utf-8")
+        nested = self.repo / "elixir" / "web-ng"
+        nested.mkdir(parents=True)
+        (nested / "AGENTS.md").write_text("Guide\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Changelog and agent guide")
+
+        self.assertTrue(detect_docs_only(base_branch="staging", marker_path=self.marker, cwd=self.repo))
+        self.assertTrue(self.marker.exists())
+
+    def test_check_mode_reports_by_exit_code_and_writes_no_marker(self):
+        script = Path(detect_docs_only_module.__file__).resolve()
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("BUILDBUDDY_EVENT", "CI_EVENT", "GITHUB_EVENT_NAME", "GIT_BASE_BRANCH")
+        }
+        env["DOCS_ONLY_MARKER"] = str(self.marker)
+
+        def check():
+            return subprocess.run(
+                [sys.executable, str(script), "--check", "--base-branch", "staging"],
+                cwd=self.repo,
+                capture_output=True,
+                text=True,
+                env=env,
+            ).returncode
+
+        self.git("checkout", "-b", "docs/check-mode")
+        (self.repo / "openspec").mkdir()
+        (self.repo / "openspec" / "proposal.md").write_text("Proposal\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Proposal")
+        self.assertEqual(0, check())
+
+        (self.repo / "code.go").write_text("package main\n// changed\n", encoding="utf-8")
+        self.git("commit", "--quiet", "-am", "Code")
+        self.assertEqual(1, check())
+        self.assertFalse(self.marker.exists())
 
     def test_mixed_change_does_not_write_marker(self):
         self.git("checkout", "-b", "feat/mixed-pr")

@@ -94,9 +94,22 @@ func run(configPath string) error {
 		return fmt.Errorf("failed to create data service server: %w", err)
 	}
 
-	natsAccountServer := newNATSAccountServer(&cfg)
+	if err := lifecycle.RunServer(ctx, serverOptions(&cfg, server, newNATSAccountServer(&cfg))); err != nil {
+		return fmt.Errorf("server failed: %w", err)
+	}
 
-	opts := &lifecycle.ServerOptions{
+	return nil
+}
+
+// serverOptions describes the datasvc gRPC server: the KV and object-store
+// services behind their RBAC interceptors, and the NATS account service when
+// it is configured.
+func serverOptions(
+	cfg *datasvc.Config,
+	server *datasvc.Server,
+	natsAccountServer *datasvc.NATSAccountServer,
+) *lifecycle.ServerOptions {
+	return &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
 		ServiceName:       "datasvc",
 		Service:           server,
@@ -114,8 +127,10 @@ func run(configPath string) error {
 		// infra filter). The TelemetryFilter below additionally drops
 		// high-frequency KV write spans (proto.KVService/Put) that are pure
 		// noise.
-		DisableTelemetry: false,
-		TelemetryFilter:  datasvcTelemetryFilter,
+		DisableTelemetry:   false,
+		TelemetryFilter:    datasvcTelemetryFilter,
+		UnaryInterceptors:  []ggrpc.UnaryServerInterceptor{server.RBACUnaryInterceptor},
+		StreamInterceptors: []ggrpc.StreamServerInterceptor{server.RBACStreamInterceptor},
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)
@@ -128,12 +143,6 @@ func run(configPath string) error {
 			},
 		},
 	}
-
-	if err := lifecycle.RunServer(ctx, opts); err != nil {
-		return fmt.Errorf("server failed: %w", err)
-	}
-
-	return nil
 }
 
 // newNATSAccountServer builds the NATS account service when the config names

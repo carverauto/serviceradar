@@ -33,6 +33,8 @@ defmodule PatchEdgeEnumNegatives do
   # renamed enum MUST be a deliberate edit here, so a silently unpatched enum can never ship.
   @expected_modules ~w(
     Serviceradar.Edge.V1.EdgeCapabilityPurpose
+    Serviceradar.Edge.V1.EdgeLateDecisionReason
+    Serviceradar.Edge.V1.EdgeLatePublication
     Serviceradar.Edge.V1.EdgeOriginKind
     Serviceradar.Edge.V1.EdgeRecordCompression
     Serviceradar.Edge.V1.EdgeRecordEncoding

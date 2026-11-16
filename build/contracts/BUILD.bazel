@@ -128,6 +128,21 @@ py_test(
     ],
 )
 
+py_test(
+    name = "docs_only_ci_contract_test",
+    size = "small",
+    srcs = ["docs_only_ci_contract_test.py"],
+    data = [
+        "//:.no-mistakes.yaml",
+        "//:buildbuddy.yaml",
+        "//:github_workflows",
+    ],
+    deps = [
+        "//build/ci:detect_docs_only_lib",
+        "@pyyaml//:yaml",
+    ],
+)
+
 genquery(
     name = "web_ng_db_target_query",
     # Every web-ng database target BazelCI runs in one invocation, and the target that

@@ -9,7 +9,9 @@ concurrently. Installs built from the schema baseline now match
 migrated installs, including seed rows and TimescaleDB compression, and
 databases already created from the older baseline are repaired once.
 The cold telemetry tier is removed. Built-in SNMP OID templates ship as
-product data. UDP and TCP syslog run in one log collector. The
+product data. Mapper discovery jobs and SNMP targets with no device
+no longer borrow an unrelated SNMP credential, and datasvc enforces
+its role list. UDP and TCP syslog run in one log collector. The
 NVR can archive sealed blocks to S3-compatible storage (disabled by
 default), and published images carry one classic Cosign signature
 format.
@@ -41,7 +43,24 @@ format.
   flat spool storage and reported `unsupported_legacy_storage`. The
   agent now deletes that storage when it proves no record is left, and
   logs `Retired drained legacy edge storage`. Storage that may still
-  hold a record is kept untouched and still flagged (#6652).
+  hold records is no longer kept and flagged: its records are handed
+  off to late-admission storage and the flat spool is then retired.
+  Entries no known layout accounts for stay retained and are still
+  reported as `unsupported_legacy_storage`; see the next note (#6652,
+  #6692).
+- **Agents hand undelivered legacy spool records to late-admission
+  storage (phase 1).** On start, an agent drains the committed tail of a
+  pre-lane flat spool, in order, into a local late generation under
+  `<spool root>/late/own`; permanently invalid records go to durable
+  rejection evidence. It then retires the flat spool. A live record that
+  a capable gateway marks `LATE_ADMISSION_REQUIRED` moves there too,
+  instead of into the evicting quarantine. In this release the gateway
+  advertises no late-admission support and refuses late sessions, so
+  late records stay on the agent's disk, counted against its spool
+  budget, and are not delivered yet. Pipeline readiness reports them as
+  the non-alerting `late_pending_gateway_support` condition, and the
+  web-ng edge pipeline view shows the legacy-handoff and late-pending
+  counts (#6692).
 - **The cold telemetry tier is removed.** The Helm `coldTier` values,
   the analytics-head workloads and network policy, the
   `serviceradar-cnpg-analytics` image, the compose `coldtier` profile
@@ -156,6 +175,47 @@ format.
   with no security level or an unknown one is rejected at compile, and
   mapper SNMP is suppressed for that target. Check the security level on
   v3 credentials before upgrading (#6580).
+- **Each mapper discovery job has its own SNMP credential.** A discovery
+  job's fallback SNMP credential, used for seeds and newly found
+  neighbours that have no per-device credential, now comes only from a
+  reusable credential the job references. The agent host's credential,
+  the first agent-scoped monitoring rule and the default SNMP profile
+  are no longer consulted, so changing the default profile no longer
+  affects discovery. Migration `20261116014509` adds the reference and
+  enqueues a one-time backfill: an existing job is bound when every
+  agent it compiled for arrived at the same credential (reusing it, or
+  saving inline material as a reusable credential), so no secret has to
+  be re-entered. Jobs whose agents disagreed, or that had no credential,
+  stay unbound and the Discovery list shows "No SNMP credential". An
+  unbound job still saves and runs but probes only devices that have
+  their own credential; seeds and newly found neighbours get no SNMP
+  until a credential is picked on the job form.
+  A credential a job references cannot be deleted (`credential_in_use`).
+  Reusable SNMP community credentials gain an optional `v1`/`v2c`
+  version (absent means `v2c`), and a rotation that leaves the version
+  blank keeps the stored one (#6646).
+- **Manual SNMP targets resolve credentials in a fixed order, and no
+  longer borrow an unrelated rule's credential.** A manual target is
+  polled with the first usable credential of: the SNMP override of the
+  device its host belongs to; a monitoring rule scoped to the polling
+  agent or partition whose target query selects that device; the
+  target's own credential; the credential of its profile. Before, a
+  target whose host belongs to no device polled with the first enabled
+  agent- or partition-scoped SNMP rule's credential whatever that
+  rule's target query, and a target on a device ignored the device's
+  override and its profile's credential. So a target may now poll with
+  a different credential than before. If the broker refuses the
+  override, rule or target credential, the target is skipped rather
+  than polled with a later one. Migration `20261116060000` enqueues a
+  one-time backfill that binds a target with no credential of its own,
+  on a host with no device, to the rule credential it borrowed, when
+  every agent compiling its profile used the same one. The write is
+  compare-and-set, so a credential configured since is never
+  overwritten. A target with no usable credential is not polled and is
+  reported: `[:serviceradar, :snmp, :target_without_credential]`
+  telemetry, a warning once per target and agent, and a "No credential"
+  badge on the profile form when neither the target nor its profile has
+  a credential (#6691, #6697).
 - **web-ng's NATS user may publish `availability.transitions.device`
   and `metrics.sweep.>`.** Retries of durable publishes run in both core
   and web-ng; without the grant a retry landing on web-ng was denied and
@@ -186,6 +246,21 @@ format.
   so check those values before upgrading. The bundled
   `strip_full_message` Zen rule now removes the field it names; seeded
   copies are refreshed and user-authored copies are left alone (#6680).
+- **datasvc enforces its RBAC role list.** KV and data-service calls
+  from an identity that is not listed, or whose role does not allow the
+  method, are now refused with `PermissionDenied`; health, reflection
+  and NATS account methods are not affected. The chart now grants
+  `writer` to web-ng and agent-gateway, and the Compose configs change
+  `web.serviceradar` from `reader` to `writer`. The chart's rules name
+  each component by certificate common name (for example
+  `CN=serviceradar-core`), so they match whatever organization, unit,
+  locality or state the certificate carries. If you maintain your own
+  datasvc configuration, or issue certificates with other common names,
+  list every identity that calls datasvc with the role it needs before
+  upgrading. A rule may now set `key_prefixes` to limit an identity to
+  KV keys under those prefixes. The chart limits the log collector's
+  `reader` rules to `zen/rulesets/`, so it can read only the Zen rule
+  bundles core publishes (#6690, #6696, #6705).
 - **NVR and media storage (opt-in).** NVR is still disabled by default.
   New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
   mounts and a core-only NetworkPolicy; the config, token and TLS
@@ -206,6 +281,16 @@ format.
   limit of at least 64 MiB (`LimitMEMLOCK=64M` or `infinity` on the
   container runtime service). See
   `docs/media-storage-node-prerequisites.md` (#6607, #6610, #6628).
+- **Recording settings page and permissions.** Settings > System >
+  Camera Recording > Recording & Storage (`/settings/recording`) shows
+  NVR runtime status, the archive destination and its credential,
+  retained recording blocks and recording history, and reports
+  local-only storage as a normal state. It uses three new permissions,
+  `settings.recording.view`, `settings.recording.manage` and
+  `settings.recording.operate`; by default only the admin role holds
+  them, so other roles must be granted them to open the page.
+  Migration `20261115210000` adds the recording archive settings,
+  archive receipt and recording operation tables (#6662, #6694).
 - **One image signature format.** Images, native add-ons and Wasm
   plugins carry only the classic Cosign `.sig` signature that admission
   verifies; Sigstore bundle/OCI-referrer signatures are no longer
@@ -219,8 +304,9 @@ format.
   and the other direct-push targets now fail with a pointer to the
   GitHub workflows (#6599, #6603, #6608, #6612, #6614, #6622).
 - **New migrations:** `20261114063254`, `20261114210000`,
-  `20261115000000`, `20261115191431`, `20261115233000`. Helm
-  `core.migrations.expectedVersion` is `20261115233000`.
+  `20261115000000`, `20261115191431`, `20261115210000`,
+  `20261115233000`, `20261116014509`, `20261116060000`. Helm
+  `core.migrations.expectedVersion` is `20261116060000`.
 
 ## Whats New
 
@@ -237,7 +323,11 @@ format.
 - Agent release updates commit the command id before dispatch, and
   reconcile recovers targets whose result can no longer arrive (#6648).
 - Drained pre-lane flat spool storage is retired at agent start
-  (#6652).
+  (#6652), and undelivered legacy records are handed off to local
+  late-admission storage first (#6692).
+- Agents accept the `LEDGER_PRUNED` late-decision reason, so a later
+  AUDIT grant carrying it is not treated as malformed and the record
+  is not held forever (#6702).
 - A gateway's graceful GOAWAY drain is no longer recorded as an error
   span (#6640).
 
@@ -256,6 +346,12 @@ format.
 - The settings preview counts targets through the compiler (#6589).
 - SNMPv3 fails closed on unrecognised security levels (#6580).
 - Stored inline SNMP credentials can be removed (#6620).
+- Each mapper discovery job references its own SNMP credential, with a
+  one-time backfill (#6646).
+- SNMP targets whose host has no device stop borrowing an agent-scoped
+  rule's credential, and targets left without one are reported (#6691).
+- Manual SNMP targets apply the device's SNMP override and fall back to
+  their profile's credential (#6697).
 - `snmp2` 0.5.3 (#6442).
 
 **Credentials and target queries**
@@ -311,11 +407,25 @@ format.
   (#6593).
 - Standalone coordinator lock connections no longer inherit Repo pool
   options (#6597).
-- Sweep lease issuance evidence commits in 64-entry chunks, so a slow
-  database no longer times out the whole lease push (#6679).
+- Logs ingested as OTLP protobuf now fill the observed timestamp, trace
+  flags, event name, source IP and scope attributes, matching logs
+  ingested as JSON (#6699).
+- Sweep lease issuance evidence is committed set-based, with a fixed
+  number of statements per chunk of up to 512 entries, so a slow
+  database no longer times out the whole lease push (#6679, #6689).
 - Flowgger runs UDP and TCP syslog in one collector with several
   JetStream acknowledgments in flight per worker, and Zen rules run
-  through a shared `zen-normalize` crate (#6680).
+  through a shared `zen-normalize` crate (#6680). On a fatal NATS
+  output error the collector waits up to one publish timeout for
+  records it already admitted before it exits (#6687).
+- datasvc enforces its RBAC role list, and a rule can limit an
+  identity to KV key prefixes (#6690); the log collector reads only
+  Zen rule bundles (#6696). The chart's datasvc rules match on
+  certificate common name (#6705).
+- A Dgraph leader change during edge-record projection is retried as a
+  transient failure instead of logging an error per batch, and
+  EventWriter consumer setup logs a warning while NATS restarts,
+  escalating to one error after eight failed attempts (#6706).
 
 **Remote access**
 
@@ -338,7 +448,15 @@ format.
 - A capture whose relay stream opens with a dropped leading frame at
   the first keyframe's timestamp starts at that keyframe instead of
   being refused (#6661).
+- The recorder claim is released at once when the NVR refuses a
+  capture mid-stream, so the next capture of that camera can start
+  (#6663).
+- A Recording & Storage settings page for NVR status, archive
+  settings, retained blocks and recording history (#6662, #6694).
 - Media storage can use a node-installed seccomp profile (#6607, #6610).
+- The camera storage service drains a refused upload body, up to the
+  route's size limit, before it answers, so an uploader reads the 400
+  instead of a connection reset (#6701).
 - The demo values enable the NVR recorder and ingest (#6629).
 
 **Helm**
@@ -354,8 +472,10 @@ format.
 - The release finalizes when the optional macOS installer fails
   (#6576).
 - `klauspost/compress` 1.20.4 (#6667), `golang.org/x/sys` 0.50.0
-  (#6670), `setup-bazel` 0.19.2 (#6673), `async-nats` 0.52.0 (#6675)
-  and `nats-io/jwt/v2` 2.8.3 (#6671).
+  (#6670), `setup-bazel` 0.19.2 (#6673), `async-nats` 0.52.0 (#6675),
+  `nats-io/jwt/v2` 2.8.3 (#6671), `serde_json` 1.0.154 (#6678),
+  `tokio-rustls` 0.26.6 (#6672) and the `nats-server` Go module 2.15.3
+  (#6669).
 - The NVR recording-worker integration tests no longer flake (#6654).
 - The CI fixture CNPG cluster runs on the dedicated postgres nodes, and
   the PR workflow executor Helm values are checked in (#6686).
@@ -373,9 +493,10 @@ format.
 - OpenSpec proposals: edge handler outcome classification (#6579), pod
   DNS hardening (#6596), distributing SNMP targets across agents
   (#6602), decoupling the mapper discovery credential from the default
-  SNMP profile (#6641), production-time admission for late edge
-  records (#6681), and log collector consolidation and ingestion
-  (#6680); six completed changes archived (#6630).
+  SNMP profile (#6641, implemented by #6646), production-time
+  admission for late edge records (#6681, with phase-1 status notes in
+  #6693), and log collector consolidation and ingestion (#6680); six
+  completed changes archived (#6630).
 
 # ServiceRadar v1.5.3
 

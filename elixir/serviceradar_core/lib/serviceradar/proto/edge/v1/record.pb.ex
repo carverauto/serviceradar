@@ -174,6 +174,59 @@ defmodule Serviceradar.Edge.V1.EdgeSourceAuthorizationKind do
   field :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL, 7
 end
 
+defmodule Serviceradar.Edge.V1.EdgeLatePublication do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.EdgeLatePublication",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :EDGE_LATE_PUBLICATION_UNSPECIFIED, 0
+  field :EDGE_LATE_PUBLICATION_PRIMARY, 1
+  field :EDGE_LATE_PUBLICATION_AUDIT, 2
+end
+
+defmodule Serviceradar.Edge.V1.EdgeLateDecisionReason do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.EdgeLateDecisionReason",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :EDGE_LATE_DECISION_REASON_UNSPECIFIED, 0
+  field :EDGE_LATE_DECISION_REASON_ADMITTED, 1
+  field :EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION, 2
+  field :EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN, 3
+  field :EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED, 4
+  field :EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW, 5
+  field :EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED, 6
+  field :EDGE_LATE_DECISION_REASON_LEDGER_PRUNED, 7
+end
+
 defmodule Serviceradar.Edge.V1.EdgeCapabilityPurpose do
   @moduledoc false
 
@@ -412,6 +465,11 @@ defmodule Serviceradar.Edge.V1.EdgeDeliveryClaimsV1 do
   field :sequence, 4, type: :uint64
   field :renewal, 5, type: Serviceradar.Edge.V1.EdgeDeliveryRenewalV1, oneof: 0
   field :rollover, 6, type: Serviceradar.Edge.V1.EdgeDeliveryRolloverV1, oneof: 0
+
+  field :late_admission, 7,
+    type: Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1,
+    json_name: "lateAdmission",
+    oneof: 0
 end
 
 defmodule Serviceradar.Edge.V1.EdgeDeliveryRenewalV1 do
@@ -424,6 +482,20 @@ defmodule Serviceradar.Edge.V1.EdgeDeliveryRenewalV1 do
 
   field :renewed_not_before_unix_nano, 1, type: :int64, json_name: "renewedNotBeforeUnixNano"
   field :renewed_expires_unix_nano, 2, type: :int64, json_name: "renewedExpiresUnixNano"
+end
+
+defmodule Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeDeliveryLateAdmissionV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :produced_at_unix_nano, 1, type: :int64, json_name: "producedAtUnixNano"
+  field :authority_epoch, 2, type: :uint64, json_name: "authorityEpoch"
+  field :publication, 3, type: Serviceradar.Edge.V1.EdgeLatePublication, enum: true
+  field :reason, 4, type: Serviceradar.Edge.V1.EdgeLateDecisionReason, enum: true
 end
 
 defmodule Serviceradar.Edge.V1.EdgeDeliveryRolloverV1 do
@@ -722,6 +794,11 @@ defmodule Serviceradar.Edge.V1.EdgeRecordLaneOpen do
   field :session_nonce, 6, type: :bytes, json_name: "sessionNonce"
   field :requested_byte_credits, 7, type: :uint64, json_name: "requestedByteCredits"
   field :requested_frame_credits, 8, type: :uint32, json_name: "requestedFrameCredits"
+  field :late_admission, 9, type: :bool, json_name: "lateAdmission"
+
+  field :late_admission_protocol_version, 10,
+    type: :uint32,
+    json_name: "lateAdmissionProtocolVersion"
 end
 
 defmodule Serviceradar.Edge.V1.EdgeRecordLaneOpenAck do

@@ -82,6 +82,54 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.attributes["safe"] == "kept"
     end
 
+    test "redacts a crash report's TURN and ICE credentials in every rendering" do
+      # Invented values in the shape of a crashed TURN client: its password,
+      # the HMAC key derived from it, and an ICE agent's passwords.
+      key = :crypto.hash(:md5, "1700000000:synthetic-user:realm.example.com:synthetic-pass")
+      [k1, k2, k3 | _] = :binary.bin_to_list(key)
+
+      client = %{
+        username: "1700000000:synthetic-user",
+        password: "synthetic-turn-password",
+        key: key,
+        transactions: %{1 => %{integrity: {true, key}}},
+        ice: %{local_pwd: "synthetic-local-pwd", remote_pwd: "synthetic-remote-pwd"}
+      }
+
+      erlang = IO.chardata_to_string(:io_lib.format(~c"~0tp", [{:badmatch, {:ok, client}}]))
+      elixir = inspect({:ok, client}, pretty: true, limit: :infinity)
+
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "severity_text" => "ERROR",
+          "body" => "GenServer terminating\n" <> elixir,
+          "attributes" => %{
+            "crash_reason" => erlang,
+            "reason" => erlang,
+            "elixir_translation" => elixir
+          }
+        })
+
+      result = Logs.parse_message(%{data: json_data, metadata: %{subject: "logs.otel"}})
+      stored = Jason.encode!([result.body, result.attributes])
+
+      for secret <- [
+            "synthetic-turn-password",
+            "synthetic-local-pwd",
+            "synthetic-remote-pwd",
+            "#{k1}, #{k2}, #{k3}",
+            "#{k1},#{k2},#{k3}"
+          ] do
+        refute stored =~ secret
+      end
+
+      refute stored =~ "[REDACTED]]"
+      assert result.attributes["crash_reason"] =~ ~s(password => <<"[REDACTED]">>)
+      assert result.body =~ ~s(password: "[REDACTED]")
+      assert result.attributes["crash_reason"] =~ "1700000000:synthetic-user"
+    end
+
     test "parses camelCase fields" do
       json_data =
         Jason.encode!(%{
@@ -579,17 +627,28 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       log_record = %LogRecord{
         time_unix_nano: 1_705_315_800_000_000_000,
+        observed_time_unix_nano: 1_705_315_801_000_000_000,
         severity_number: :SEVERITY_NUMBER_INFO,
         severity_text: "INFO",
         body: %AnyValue{value: {:string_value, "protobuf log"}},
         trace_id: trace_id,
         span_id: span_id,
+        # Only the low byte is the W3C trace flags.
+        flags: 0x101,
+        event_name: "session.start",
         attributes: [
-          %KeyValue{key: "custom", value: %AnyValue{value: {:string_value, "value"}}}
+          %KeyValue{key: "custom", value: %AnyValue{value: {:string_value, "value"}}},
+          %KeyValue{key: "source_ip", value: %AnyValue{value: {:string_value, "192.0.2.10"}}}
         ]
       }
 
-      scope = %InstrumentationScope{name: "scope", version: "1.2.3"}
+      scope = %InstrumentationScope{
+        name: "scope",
+        version: "1.2.3",
+        attributes: [
+          %KeyValue{key: "scope.kind", value: %AnyValue{value: {:string_value, "library"}}}
+        ]
+      }
 
       scope_logs = %ScopeLogs{
         scope: scope,
@@ -630,6 +689,207 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.span_id == Base.encode16(span_id, case: :lower)
       assert row.attributes["custom"] == "value"
       assert row.id
+
+      # The columns a JSON log row carries are filled from their OTLP fields.
+      assert DateTime.compare(row.observed_timestamp, ~U[2024-01-15 10:50:01Z]) == :eq
+      assert row.trace_flags == 1
+      assert row.event_name == "session.start"
+      assert row.source_ip == "192.0.2.10"
+      assert row.scope_attributes == %{"scope.kind" => "library"}
+    end
+
+    test "protobuf record without a trace, event name or observed time" do
+      request = %ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{
+            scope_logs: [
+              %ScopeLogs{
+                log_records: [
+                  %LogRecord{
+                    time_unix_nano: 1_705_315_800_000_000_000,
+                    flags: 1,
+                    body: %AnyValue{value: {:string_value, "bare"}}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      received_at = ~U[2024-01-15 10:50:05Z]
+
+      [row] =
+        Logs.parse_message(%{
+          data: ExportLogsServiceRequest.encode(request),
+          metadata: %{received_at: received_at}
+        })
+
+      # Like a JSON row, a record with no observed time takes the receive time.
+      assert row.observed_timestamp == received_at
+      # Flags describe a trace; without one they say nothing.
+      assert row.trace_flags == nil
+      assert row.event_name == nil
+      assert row.source_ip == nil
+      assert row.scope_attributes == %{}
+    end
+
+    test "protobuf source_ip accepts only attribute values that parse as an IP" do
+      row_for = fn attributes ->
+        request = %ExportLogsServiceRequest{
+          resource_logs: [
+            %ResourceLogs{
+              scope_logs: [
+                %ScopeLogs{
+                  log_records: [
+                    %LogRecord{
+                      time_unix_nano: 1_705_315_800_000_000_000,
+                      body: %AnyValue{value: {:string_value, "sender"}},
+                      attributes:
+                        Enum.map(attributes, fn {key, value} ->
+                          %KeyValue{key: key, value: %AnyValue{value: {:string_value, value}}}
+                        end)
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+
+        [row] =
+          Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+        row
+      end
+
+      # A sender-supplied value that is not an address is not stored.
+      assert row_for.([{"source_ip", "not-an-ip"}]).source_ip == nil
+      # The receiver-style `_remote_addr` key carries "ip:port"; only the address is kept.
+      assert row_for.([{"_remote_addr", "198.51.100.7:5140"}]).source_ip == "198.51.100.7"
+      # The camelCase key the JSON path accepts is honoured here too.
+      assert row_for.([{"sourceIp", "2001:db8::5"}]).source_ip == "2001:db8::5"
+    end
+  end
+
+  describe "parse_message/1 normalized log subject" do
+    @ruleset "sha256:578cb4621ff7758cbcec93bfcb0208ddce0a52cb01011eb5b28f15332d4d70b4"
+    @normalized_headers [{"Sr-Log-Schema", "otlp-normalized-v1"}, {"Sr-Ruleset-Id", @ruleset}]
+
+    defp normalized_batch do
+      ExportLogsServiceRequest.encode(%ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{
+            scope_logs: [
+              %ScopeLogs{
+                log_records: [
+                  %LogRecord{
+                    time_unix_nano: 1_705_315_800_000_000_000,
+                    severity_text: "WARN",
+                    body: %AnyValue{value: {:string_value, "link down"}}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+    end
+
+    test "stores a collector-normalized batch as its source kind, with its ruleset" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{subject: "logs.normalized.syslog", headers: @normalized_headers}
+        })
+
+      assert row.body == "link down"
+      assert row.source == "syslog"
+
+      assert row.attributes["serviceradar.ingest"] == %{
+               "subject" => "logs.normalized.syslog",
+               "source_kind" => "syslog",
+               "ruleset_id" => @ruleset
+             }
+    end
+
+    test "refuses a batch whose schema it does not know" do
+      for headers <- [[], [{"Sr-Log-Schema", "otlp-normalized-v2"}]] do
+        assert Logs.parse_message(%{
+                 data: normalized_batch(),
+                 metadata: %{subject: "logs.normalized.syslog", headers: headers}
+               }) == nil
+      end
+    end
+
+    test "never reads a JSON log from the normalized subject" do
+      json = Jason.encode!(%{"short_message" => "claims to be normalized", "host" => "host01"})
+
+      result =
+        Logs.parse_message(%{
+          data: json,
+          metadata: %{subject: "logs.normalized.syslog", headers: @normalized_headers}
+        })
+
+      assert result in [nil, []]
+    end
+
+    test "a protobuf batch is read only where protobuf is the subject's format" do
+      # Rules for these subjects run on JSON logs; protobuf would skip them.
+      for subject <- ["logs.syslog", "logs.snmp", "logs.internal.audit", "logs.otelx"] do
+        assert Logs.parse_message(%{
+                 data: normalized_batch(),
+                 metadata: %{subject: subject, headers: @normalized_headers}
+               }) == nil,
+               "stored a protobuf log from #{subject}"
+      end
+
+      for subject <- ["logs.otel", "logs.otel.gateway"] do
+        assert [%{body: "link down"}] =
+                 Logs.parse_message(%{data: normalized_batch(), metadata: %{subject: subject}})
+      end
+    end
+
+    test "a subject header cannot move a batch onto the normalized path" do
+      assert Logs.parse_message(%{
+               data: normalized_batch(),
+               metadata: %{
+                 broker_subject: "logs.syslog",
+                 subject: "logs.normalized.syslog",
+                 headers: [{"Nats-Subject", "logs.normalized.syslog"} | @normalized_headers]
+               }
+             }) == nil
+    end
+
+    test "a subject header cannot move a batch off the normalized path" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{
+            broker_subject: "logs.normalized.syslog",
+            subject: "logs.syslog",
+            headers: [{"Nats-Subject", "logs.syslog"} | @normalized_headers]
+          }
+        })
+
+      assert row.source == "syslog"
+
+      assert row.attributes["serviceradar.ingest"] == %{
+               "subject" => "logs.normalized.syslog",
+               "source_kind" => "syslog",
+               "ruleset_id" => @ruleset
+             }
+    end
+
+    test "the headers mean nothing on any other subject" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{subject: "logs.otel", headers: @normalized_headers}
+        })
+
+      assert row.source == "otel"
+      refute Map.has_key?(row.attributes["serviceradar.ingest"], "ruleset_id")
     end
   end
 

@@ -37,6 +37,19 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
     assert reader.allowed_methods == ["HEAD", "GET"]
     assert reader.metadata["destination_sha256"] == binding.destination_sha256
 
+    assert {:ok, retention} =
+             ArchiveCredentialResolver.grant_attrs(binding, :retention, secret_ref, now: now)
+
+    assert retention.purpose == "camera_archive_retention"
+    assert retention.allowed_schemes == ["https"]
+    assert retention.allowed_hosts == ["objects.example.com"]
+    assert retention.allowed_ports == [443]
+    assert retention.allowed_paths == ["/example-recordings/recordings/v1/*"]
+    assert retention.allowed_methods == ["DELETE", "HEAD"]
+    assert retention.consumer_id == "camera-archive:retention:#{@binding_id}"
+    assert retention.metadata["role"] == "retention"
+    assert retention.metadata["destination_sha256"] == binding.destination_sha256
+
     tampered = Map.put(binding, :destination_sha256, String.duplicate("0", 64))
 
     assert {:error, :archive_binding_destination_mismatch} =
@@ -109,6 +122,26 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
              "access_key_id" => "SYNTHETICWRITER01",
              "secret_access_key" => "invented-writer-secret-material"
            }
+
+    assert {:ok, retention_doc} =
+             ArchiveCredentialResolver.resolve_for_binding(binding, :retention, @secret_id,
+               secret_loader: loader,
+               grant_issuer: issuer,
+               broker: broker
+             )
+
+    assert retention_doc == runtime_doc
+
+    {:ok, retention_grant} =
+      ArchiveCredentialResolver.grant_attrs(binding, :retention, @secret_id)
+
+    assert {:error, :grant_egress_scope_mismatch} =
+             ArchiveCredentialResolver.resolve_runtime_credential(
+               binding,
+               :retention,
+               Map.put(retention_grant, :allowed_methods, ["PUT", "DELETE", "HEAD"]),
+               broker: broker
+             )
 
     for {bad_secret, expected} <- [
           {Map.put(secret, :enabled, false), :credential_secret_inactive},

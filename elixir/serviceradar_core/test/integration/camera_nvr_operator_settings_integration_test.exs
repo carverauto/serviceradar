@@ -13,6 +13,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingOperation
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.CredentialUsage
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
@@ -21,6 +22,8 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+
+  require Ash.Query
 
   @moduletag :integration
 
@@ -110,11 +113,16 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
       permissions: MapSet.new(["settings.recording.view", "settings.recording.manage"])
     }
 
-    # Code defaults apply before any singleton row exists.
+    # Code defaults apply before any singleton row exists (normal local-only state).
     assert {:ok, initial} = RecordingArchiveSettings.get_settings(actor: recording_only)
     assert initial.id == "deployment"
     assert initial.archive_enabled == false
     assert is_nil(initial.active_archive_binding_id)
+
+    assert {:ok, initial_overview} = RecordingArchiveSettings.get_overview(actor: recording_only)
+    assert initial_overview.storage_mode == :local_only
+    assert initial_overview.archive_ready? == false
+    assert is_nil(initial_overview.unavailable_reason)
 
     slug = "settings-#{System.unique_integer([:positive])}"
 
@@ -180,6 +188,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert toggled.archive_enabled == true
 
     assert {:ok, overview} = RecordingArchiveSettings.get_overview(actor: recording_only)
+    assert overview.storage_mode == :local_and_archive
     assert overview.archive_ready? == true
     assert overview.writer_credential.name == writer.name
     assert overview.reader_credential.name == reader.name
@@ -294,6 +303,49 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert {:ok, [retained]} = Ash.read(NVRArchiveReceipt, actor: viewer)
     assert retained.id == first.id
     assert retained.receipt_bytes == receipt_bytes
+
+    # Receipt version 2 persists per-object version_id (both string and nil) cleanly under
+    # camera_nvr_archive_receipts_bounds without stripping version_id.
+    v2_block_key = String.duplicate("f", 64)
+
+    v2_receipt_bytes =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => @storage_id_primary,
+        "block_key" => v2_block_key,
+        "destination_sha256" => binding.destination_sha256,
+        "verified_at_ms" => 1_763_200_020_000,
+        "objects" => [
+          %{
+            "name" => "init.mp4",
+            "key" => "recordings/v1/#{@storage_id_primary}/#{v2_block_key}/init.mp4",
+            "length" => 2048,
+            "sha256" => String.duplicate("3", 64),
+            "etag" => "\"etag-v2-init\"",
+            "version_id" => "synth-ver-0001"
+          },
+          %{
+            "name" => "media.m4s",
+            "key" => "recordings/v1/#{@storage_id_primary}/#{v2_block_key}/media.m4s",
+            "length" => 8192,
+            "sha256" => String.duplicate("4", 64),
+            "etag" => "\"etag-v2-media\"",
+            "version_id" => nil
+          }
+        ]
+      })
+
+    assert {:ok, v2_recorded} =
+             NVRArchiveReceipt.record(binding.id, v2_receipt_bytes, actor: system)
+
+    assert {:ok, [v2_reloaded]} =
+             NVRArchiveReceipt
+             |> Ash.Query.filter(id == ^v2_recorded.id)
+             |> Ash.read(actor: viewer)
+
+    assert [v2_init, v2_media] = v2_reloaded.objects
+    assert v2_init["version_id"] == "synth-ver-0001"
+    assert Map.fetch(v2_media, "version_id") == {:ok, nil}
 
     # Resource exposes no update or destroy actions.
     action_types =
@@ -425,6 +477,240 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
 
     assert length(filtered.results) == 3
     assert Enum.all?(filtered.results, &(&1.storage_id == @storage_id_secondary))
+  end
+
+  test "E1 retention settings persist confirmations, enforce SQL check & FK constraints, and compute live usage_summary/1" do
+    system = SystemActor.system(:nvr_retention_integration_test)
+
+    admin = %{
+      id: "admin-retention-db",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.credentials.manage"
+        ])
+    }
+
+    recording_only = %{
+      id: "operator-retention-db",
+      role: :operator,
+      permissions: MapSet.new(["settings.recording.view", "settings.recording.manage"])
+    }
+
+    slug = "ret-db-#{System.unique_integer([:positive])}"
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: slug,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "example-archive",
+          namespace: "recordings/v1"
+        },
+        actor: admin
+      )
+
+    writer = create_s3_secret("Retention Writer S3")
+    retention = create_s3_secret("Retention Delete S3")
+
+    # Split-permission operator cannot set retention_credential_secret_id.
+    assert {:error, split_err} =
+             RecordingArchiveSettings.save_settings(
+               %{retention_credential_secret_id: retention.id},
+               actor: recording_only
+             )
+
+    assert Exception.message(split_err) =~ "settings.credentials.manage"
+
+    t_confirm = ~U[2026-11-16 14:00:00.123456Z]
+
+    # Save full E1 settings including shorter archive retention than max_local_age (advisory warning, accepted)
+    assert {:ok, saved} =
+             RecordingArchiveSettings.save_settings(
+               %{
+                 active_archive_binding_id: binding.id,
+                 writer_credential_secret_id: writer.id,
+                 retention_credential_secret_id: retention.id,
+                 archive_enabled: true,
+                 local_high_water_percent: 88,
+                 local_low_water_percent: 75,
+                 max_local_age_mode: :limited,
+                 max_local_age_seconds: 172_800,
+                 local_window_alert_mode: :disabled,
+                 local_window_alert_seconds: nil,
+                 local_only_full_policy: :overwrite_oldest,
+                 local_only_target_mode: :none,
+                 local_only_retention_target_seconds: nil,
+                 local_only_max_age_mode: :limited,
+                 local_only_max_age_seconds: 604_800,
+                 archive_retention_mode: :limited,
+                 archive_retention_days: 1,
+                 object_budget_mode: :limited,
+                 object_budget_bytes: 10_737_418_240,
+                 object_high_water_percent: 92,
+                 object_low_water_percent: 82,
+                 object_capacity_policy: :reap_oldest
+               },
+               actor: admin,
+               now: t_confirm
+             )
+
+    assert saved.retention_credential_secret_id == retention.id
+    assert saved.local_only_full_policy == :overwrite_oldest
+    assert saved.local_only_full_policy_confirmed_by_id == "admin-retention-db"
+    assert saved.local_only_full_policy_confirmed_at == t_confirm
+    assert saved.object_capacity_policy == :reap_oldest
+    assert saved.object_capacity_policy_confirmed_by_id == "admin-retention-db"
+    assert saved.object_capacity_policy_confirmed_at == t_confirm
+    assert RecordingArchiveSettings.shorter_archive_than_local?(saved) == true
+
+    # Updating unrelated fields preserves existing confirmation actor & timestamp.
+    assert {:ok, preserved} =
+             RecordingArchiveSettings.save_settings(
+               %{local_high_water_percent: 90},
+               actor: recording_only,
+               now: DateTime.shift(t_confirm, minute: 5)
+             )
+
+    assert preserved.local_only_full_policy_confirmed_by_id == "admin-retention-db"
+    assert preserved.local_only_full_policy_confirmed_at == t_confirm
+    assert preserved.object_capacity_policy_confirmed_by_id == "admin-retention-db"
+    assert preserved.object_capacity_policy_confirmed_at == t_confirm
+
+    # CredentialUsage + GuardCredentialDestroy + Postgres restrictive FK protect retention secret.
+    assert {:ok, ret_usage} = CredentialUsage.for_secret(retention.id, actor: admin)
+
+    assert ret_usage.consumers == [
+             %Consumer{
+               kind: :recording_archive_settings,
+               id: "deployment",
+               label: "Camera archive (retention)",
+               slot: :retention
+             }
+           ]
+
+    assert {:error, guard_err} =
+             retention
+             |> Ash.Changeset.for_destroy(:destroy_permanently, %{confirm_secret_id: retention.id})
+             |> Ash.destroy(actor: admin)
+
+    assert Exception.message(guard_err) =~ "credential_in_use"
+
+    assert_constraint_violation(
+      "camera_archive_settings_retention_secret_fkey",
+      "DELETE FROM platform.network_credential_secrets WHERE id = $1",
+      [Ecto.UUID.dump!(retention.id)]
+    )
+
+    # Verify every SQL CHECK constraint rejects invalid mode+value, watermark, and confirmation states.
+    for {constraint_name, set_sql} <- [
+          {"camera_archive_settings_local_watermarks",
+           "local_high_water_percent = 85, local_low_water_percent = 81"},
+          {"camera_archive_settings_max_local_age",
+           "max_local_age_mode = 'unlimited', max_local_age_seconds = 86400"},
+          {"camera_archive_settings_max_local_age",
+           "max_local_age_mode = 'limited', max_local_age_seconds = NULL"},
+          {"camera_archive_settings_local_window_alert",
+           "local_window_alert_mode = 'enabled', local_window_alert_seconds = NULL"},
+          {"camera_archive_settings_local_only_full_policy",
+           "local_only_full_policy = 'overwrite_oldest', local_only_full_policy_confirmed_by_id = NULL"},
+          {"camera_archive_settings_local_only_full_policy",
+           "local_only_full_policy = NULL, local_only_full_policy_confirmed_by_id = 'dangling-actor'"},
+          {"camera_archive_settings_local_only_target",
+           "local_only_target_mode = 'target', local_only_retention_target_seconds = NULL"},
+          {"camera_archive_settings_local_only_max_age",
+           "local_only_max_age_mode = 'unlimited', local_only_max_age_seconds = 3600"},
+          {"camera_archive_settings_local_only_max_age",
+           "local_only_max_age_mode = 'limited', local_only_max_age_seconds = NULL"},
+          {"camera_archive_settings_archive_retention",
+           "archive_retention_mode = 'unlimited', archive_retention_days = 30"},
+          {"camera_archive_settings_archive_retention",
+           "archive_retention_mode = 'limited', archive_retention_days = NULL"},
+          {"camera_archive_settings_object_budget",
+           "object_budget_mode = 'limited', object_budget_bytes = 1024"},
+          {"camera_archive_settings_object_watermarks",
+           "object_high_water_percent = 96, object_low_water_percent = 80"},
+          {"camera_archive_settings_object_capacity_policy",
+           "object_budget_mode = 'limited', object_capacity_policy = NULL, object_capacity_policy_confirmed_by_id = NULL, object_capacity_policy_confirmed_at = NULL"}
+        ] do
+      assert_constraint_violation(
+        constraint_name,
+        "UPDATE platform.camera_recording_archive_settings SET #{set_sql} WHERE id = 'deployment'",
+        []
+      )
+    end
+
+    # Insert real NVRArchiveReceipt and RecordingBlock rows and verify usage_summary/1 end-to-end.
+    _ctx = create_camera_with_blocks(6)
+    now_ms = DateTime.to_unix(DateTime.utc_now(), :millisecond)
+
+    for {idx, len_a, len_b, age_ms} <- [
+          {1, 1_048_576, 4_194_304, 3_600_000},
+          {2, 524_288, 2_097_152, 172_800_000}
+        ] do
+      bkey =
+        :sha256
+        |> :crypto.hash("ret-summary-#{slug}-#{idx}")
+        |> Base.encode16(case: :lower)
+
+      bytes =
+        Jason.encode!(%{
+          "version" => 2,
+          "storage_id" => @storage_id_primary,
+          "block_key" => bkey,
+          "destination_sha256" => binding.destination_sha256,
+          "verified_at_ms" => now_ms - age_ms,
+          "objects" => [
+            %{
+              "name" => "init.mp4",
+              "key" => "recordings/v1/#{@storage_id_primary}/#{bkey}/init.mp4",
+              "length" => len_a,
+              "sha256" => String.duplicate("a", 64),
+              "etag" => "\"etag-a-#{idx}\""
+            },
+            %{
+              "name" => "media.m4s",
+              "key" => "recordings/v1/#{@storage_id_primary}/#{bkey}/media.m4s",
+              "length" => len_b,
+              "sha256" => String.duplicate("b", 64),
+              "etag" => "\"etag-b-#{idx}\""
+            }
+          ]
+        })
+
+      assert {:ok, _} = NVRArchiveReceipt.record(binding.id, bytes, actor: system)
+    end
+
+    assert {:ok, summary} = RetentionCalculator.usage_summary(actor: recording_only)
+    assert summary.archive.archive_used_bytes == 7_864_320
+    assert summary.archive.archived_block_count == 2
+    assert summary.archive.archived_object_count == 4
+    assert summary.archive.trailing_24h_bytes == 5_242_880
+    assert summary.archive.trailing_7d_bytes == 7_864_320
+    assert summary.archive.rate_basis == :measured
+    assert summary.local_blocks.total_reserved_blocks >= 6
+    assert summary.object_retention_enforced? == true
+    assert summary.shorter_archive_than_local? == true
+    assert summary.object_projection.object_budget_mode == :limited
+
+    # Clearing local_only_full_policy clears confirmation actor and timestamp cleanly.
+    assert {:ok, cleared} =
+             RecordingArchiveSettings.save_settings(
+               %{local_only_full_policy: nil},
+               actor: admin
+             )
+
+    assert is_nil(cleared.local_only_full_policy)
+    assert is_nil(cleared.local_only_full_policy_confirmed_by_id)
+    assert is_nil(cleared.local_only_full_policy_confirmed_at)
+  end
+
+  defp assert_constraint_violation(expected_constraint, sql, params) do
+    assert {:error, %Postgrex.Error{postgres: %{constraint: ^expected_constraint}}} =
+             Repo.query(sql, params, mode: :savepoint)
   end
 
   defp create_camera_with_blocks(total) do

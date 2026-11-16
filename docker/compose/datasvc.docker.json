@@ -36,7 +36,7 @@
       {"identity": "CN=trapd.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
+      {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "writer"}
     ]
   },
   "bucket": "serviceradar-datasvc"

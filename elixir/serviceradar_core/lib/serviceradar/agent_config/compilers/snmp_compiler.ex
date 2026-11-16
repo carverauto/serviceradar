@@ -210,7 +210,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp fetch_profile(device_uid, agent_id, actor) do
+  @doc """
+  The profile `compile/3` compiles for an agent, given the device hosting it,
+  as `{:ok, profile | nil}`; a failed read is `{:error, reason}` rather than
+  `nil`, unlike `resolve_profile/3`.
+  """
+  @spec fetch_profile(String.t() | nil, String.t() | nil, map()) ::
+          {:ok, SNMPProfile.t() | nil} | {:error, term()}
+  def fetch_profile(device_uid, agent_id, actor) do
     TargetedProfileResolver.resolve(device_uid, actor,
       resolver: fn device_uid, actor ->
         SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
@@ -1189,7 +1196,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if oids == [] do
       {:ok, nil}
     else
-      case profile_target_credential(target, actor, opts) do
+      case profile_target_credential(target, profile, actor, opts) do
         {:error, reason} ->
           if CredentialResolver.credential_read_failure?(reason) do
             Logger.error(
@@ -1220,10 +1227,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
             "oids" => compile_oids(oids)
           }
 
+          agent_id = Keyword.get(opts, :agent_id)
+
           if is_map(credential) and valid_credentials?(credential) do
+            WarningLedger.forget({:snmp_target_without_credential, target.id, agent_id})
             {:ok, apply_snmp_auth(base_target, version, credential)}
           else
-            Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
+            report_target_without_credential(target, profile, agent_id)
             {:ok, nil}
           end
       end
@@ -1232,29 +1242,42 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   defp compile_profile_target(_, _, _, _), do: {:ok, nil}
 
-  defp profile_target_credential(target, actor, opts) do
-    case CredentialResolver.resolve_for_host(target.host, actor, opts) do
-      {:ok, %{credential: rule_cred, source: :credential_rule}} when is_map(rule_cred) ->
-        rule_cred
+  # An explicit target without a usable credential is not polled. As with a
+  # profile whose templates name no OID, the counter fires on every such
+  # compile and the log line when the condition starts.
+  defp report_target_without_credential(target, profile, agent_id) do
+    :telemetry.execute(
+      [:serviceradar, :snmp, :target_without_credential],
+      %{count: 1},
+      %{
+        target_id: target.id,
+        target_name: target.name,
+        profile_id: profile.id,
+        profile_name: profile.name,
+        agent_id: agent_id
+      }
+    )
 
-      {:error, reason} = error ->
-        if CredentialResolver.credential_read_failure?(reason) do
-          error
-        else
-          target_record_credential(target, actor)
-        end
-
-      _ ->
-        target_record_credential(target, actor)
+    if WarningLedger.changed?({:snmp_target_without_credential, target.id, agent_id}, true) do
+      Logger.warning(
+        "SNMPCompiler: SNMP target \"#{target.name}\" in profile \"#{profile.name}\" " <>
+          "has no usable credential, so it is not polled. It is polled with the SNMP " <>
+          "override of the device at its host, else a credential rule whose target " <>
+          "query selects that device, else its own credential, else its profile's."
+      )
     end
   end
 
-  defp target_record_credential(target, actor) do
-    CredentialResolver.build_credential(target, actor,
-      consumer_id: "snmp_target:#{target.id}",
-      target_kind: "snmp_target",
-      target_id: target.id
-    )
+  # The device override, a rule whose target query selects the device at the
+  # target's host, the target's own credential, then the profile's
+  # (`CredentialResolver.resolve_for_target/4`).
+  defp profile_target_credential(target, profile, actor, opts) do
+    rule_scopes = Keyword.take(opts, [:agent_id, :partition])
+
+    case CredentialResolver.resolve_for_target(target, profile, actor, rule_scopes) do
+      {:ok, %{credential: credential}} -> credential
+      {:error, _reason} = error -> error
+    end
   end
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do

@@ -79,15 +79,21 @@ Late records go into a dedicated **late generation** per lane key, stored
 under `<root>/late/`, and are sent on their own **late session**. The record's
 route profile and traffic class are immutable signed fields, so "the recovery
 lane" means a separate generation and session for the same lane key, not a
-different route. The late session opens with `EdgeRecordLaneOpen.admission =
-LATE`. The gateway applies the late rule only on late sessions and never
+different route. The late session opens with `EdgeRecordLaneOpen.late_admission =
+true`, a bool rather than an enum: the frozen enum-policy guards refuse an enum's
+zero member, which every older agent's lane open would carry. When the gateway's
+Hello advertised late admission, every lane open, live and late, carries
+`late_admission_protocol_version = 1`, and `late_admission = true` is set only on
+the late session. When Hello did not advertise it, neither field is set, because
+an older gateway rejects unknown lane-open fields. The gateway applies the late rule only on late sessions and never
 accepts a late grant on a live session, so a late record can never pass as
 live. The late session has its own credits and runs concurrently below live
 priority, so a late tail waiting for grants never blocks live delivery.
 
 A record whose origin principal is not the authenticated agent goes into a
 **per-principal hold**: a separate late generation keyed by `(lane key, origin
-principal)`, under `<root>/late/<lane>/principal/<origin principal>/`. Hold
+principal)`, under `<root>/late/hold/<origin principal hex>/<lane>/<generation>`;
+the agent's own late generations live under `<root>/late/own/<lane>/<generation>`. Hold
 generations share their lane key's single late session, so the route profile
 and traffic class still match. Hold frames, and frames whose key is
 `HISTORICALLY_REVOKED`, are sent without waiting for a grant; the gateway
@@ -357,10 +363,14 @@ enum EdgeLateDecisionReason {
   EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN = 3;
   EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED = 4;
   EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW = 5;
-  EDGE_LATE_DECISION_REASON_LEDGER_PRUNED = 6;
-  EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 7;
+  EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 6;
+  EDGE_LATE_DECISION_REASON_LEDGER_PRUNED = 7;
 }
 ```
+
+Phase 1 shipped `CONTRACT_RETIRED = 6`, so `LEDGER_PRUNED` takes 7: the
+numbering follows the proto wire-compatibility gate, which forbids renaming a
+released enum value.
 
 The claims still bind `event_id`, `record_sha256`, `spool_id` and `sequence`.
 The grant is short-lived and signed by the issuer key for the `delivery`
@@ -431,7 +441,14 @@ single spool. For each layout present:
    drained layout is retired as #6652 already does. Unrecognized root entries
    are left untouched and flagged as `unsupported_legacy_storage`, as now. That
    is the only remaining retained state.
-2. **Read** committed records above the resolved watermark with the existing
+2. **Check capacity.** Before appending anything, the pass compares free
+   ordinary capacity with a conservative bound: one append charge plus one
+   generation charge for every record still to be appended. If free capacity
+   does not cover it, the pass copies nothing, reports `insufficient_capacity`
+   with `capacity_needed_bytes`, and resumes on its own once the spool budget
+   covers the need. Releasing a resolved prefix while unresolved records remain
+   (partial-prefix reclaim) is deferred to its own change.
+3. **Read** committed records above the resolved watermark with the existing
    spool reader, in sequence order. Each committed record is handled in one of
    these ways:
    - **Admissible** under the agent-side late checks: append it to the late
@@ -451,7 +468,7 @@ single spool. For each layout present:
      next pass. Never skip a record and never reorder. A fence ahead of the
      known fence, or a `produced_at` ahead of the local clock, is not
      retryable: the record is admissible and core judges it.
-3. **Retire** the layout with `RetireDrainedLegacyFlat` once every committed
+4. **Retire** the layout with `RetireDrainedLegacyFlat` once every committed
    record is resolved locally. Retirement already requires structural
    emptiness.
 
@@ -461,8 +478,11 @@ recognizes an event id it already holds with the same digest and skips it.
 Core's ledger idempotency is the backstop.
 
 **Readiness.** `legacy_storage_handoff_pending`, with a reason and oldest age,
-replaces `unsupported_legacy_storage` while records remain. It is not a
-not-ready condition for live production.
+replaces `unsupported_legacy_storage` while records remain. The status fields
+`legacy_handoff_pending_records` and `legacy_handoff_reason` carry that
+condition; they do not replace its name. `unsupported_legacy_storage` stays only
+for entries the handoff cannot account for. It is not a not-ready condition for
+live production.
 
 Draining before the old updater stops the old agent stays out of scope. New
 code cannot change installed software. The handoff makes that unnecessary,
@@ -526,18 +546,23 @@ undelivered entry.
 ## Rollout
 
 1. **Phase 1, edge (Go).** `EdgeRecordLaneOpen` gains `uint32
-   late_admission_protocol_version`; an agent that implements the late
-   generation sends 1 on every lane open, so the gateway that authorizes the
-   session sees it. `AgentHelloResponse` gains `uint32
+   late_admission_protocol_version`; when the gateway's Hello advertised late
+   admission, an agent that implements the late generation sends 1 on every
+   lane open, live and late, so the gateway that authorizes the session sees
+   it, and sets `late_admission = true` only on the late session. When Hello did
+   not advertise it, the agent sets neither field. `AgentHelloResponse` gains `uint32
    edge_late_admission_protocol_version`, through which the gateway advertises
    `late_admission_v1` (value >= 1, set in phase 2). Agents hand off legacy layouts into late
    generations and per-principal holds, and resolve `LATE_ADMISSION_REQUIRED`
    live slots into late generations. They open late sessions only when the
    gateway advertises `late_admission_v1`; until then late records stay on
    disk, accounted and reported as `late_pending_gateway_support`. Because the
-   regenerated Elixir bindings decode `EdgeRecordLaneOpen.admission`, phase 1
-   also makes the gateway refuse a lane open with `admission = LATE` until
-   phase 2 implements the late path.
+   regenerated Elixir bindings decode `EdgeRecordLaneOpen.late_admission`, phase 1
+   also makes the gateway refuse a lane open with `late_admission = true` until
+   phase 2 implements the late path. A legacy handoff copies nothing while free
+   ordinary capacity does not cover the tail and reports `insufficient_capacity`;
+   releasing a resolved prefix while records remain unresolved (partial-prefix
+   reclaim) is deferred to its own change.
 2. **Phase 2, core and gateway (Elixir):** authority history, ledger coverage,
    late grants, late sessions, EventWriter and projectors. The gateway then
    advertises `late_admission_v1`. Phase 2 must be deployed before late

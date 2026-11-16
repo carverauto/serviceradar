@@ -591,6 +591,14 @@ defmodule Monitoring.EdgeRecordSpoolStatus do
     json_name: "generationGaps"
 
   field :retained_legacy_bytes, 16, type: :uint64, json_name: "retainedLegacyBytes"
+
+  field :legacy_handoff_pending_records, 17,
+    type: :uint64,
+    json_name: "legacyHandoffPendingRecords"
+
+  field :legacy_handoff_reason, 18, type: :string, json_name: "legacyHandoffReason"
+  field :late_pending_records, 19, type: :uint64, json_name: "latePendingRecords"
+  field :late_pending_reason, 20, type: :string, json_name: "latePendingReason"
 end
 
 defmodule Monitoring.EdgeRecordSpoolGap do
@@ -665,6 +673,10 @@ defmodule Monitoring.AgentHelloResponse do
   field :edge_recovery_protocol_version, 10,
     type: :uint32,
     json_name: "edgeRecoveryProtocolVersion"
+
+  field :edge_late_admission_protocol_version, 11,
+    type: :uint32,
+    json_name: "edgeLateAdmissionProtocolVersion"
 end
 
 defmodule Monitoring.EdgeRecoveryRegistration do
@@ -2303,6 +2315,12 @@ defmodule Monitoring.AgentGatewayService.Service do
 
   rpc(
     :RenewEdgeDeliveryGrants,
+    Monitoring.EdgeDeliveryGrantRequest,
+    Monitoring.EdgeDeliveryGrantResponse
+  )
+
+  rpc(
+    :IssueEdgeLateAdmissionGrants,
     Monitoring.EdgeDeliveryGrantRequest,
     Monitoring.EdgeDeliveryGrantResponse
   )

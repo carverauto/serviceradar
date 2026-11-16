@@ -61,6 +61,10 @@ service AgentGatewayService {
   // for each spooled edge record whose production authority has lapsed, so a
   // reconnecting agent can drain its backlog.
   rpc RenewEdgeDeliveryGrants(EdgeDeliveryGrantRequest) returns (EdgeDeliveryGrantResponse) {}
+  // IssueEdgeLateAdmissionGrants asks core for a production-time late-admission
+  // grant (EdgeDeliveryLateAdmissionV1) for each record of a LATE lane generation.
+  // Core decides PRIMARY or AUDIT from retained authority history.
+  rpc IssueEdgeLateAdmissionGrants(EdgeDeliveryGrantRequest) returns (EdgeDeliveryGrantResponse) {}
   // Recovery control is authenticated independently of the blocked delivery lane.
   // Registration is not publication or permission to reclaim source bytes.
   rpc RegisterEdgeRecovery(EdgeRecoveryRegistration) returns (EdgeRecoveryStatus) {}
@@ -366,6 +370,14 @@ message EdgeRecordSpoolStatus {
   repeated EdgeRecordSpoolGap generation_gaps = 15;
   // Unsupported flat-storage bytes retained untouched and charged to the shared budget.
   uint64 retained_legacy_bytes = 16;
+  // Committed records an older storage layout still holds that the agent has not
+  // yet handed off to late admission, and why the last pass stopped (empty when none).
+  uint64 legacy_handoff_pending_records = 17;
+  string legacy_handoff_reason = 18;
+  // Unresolved records in late generations and holds, and why they are not
+  // draining (for example late_pending_gateway_support; empty when draining).
+  uint64 late_pending_records = 19;
+  string late_pending_reason = 20;
 }
 
 message EdgeRecordSpoolGap {
@@ -431,6 +443,9 @@ message AgentHelloResponse {
   reserved 8, 9;                    // Removed: deployment identifiers (single-deployment)
   // Zero means recovery is unavailable; agents retain all source evidence.
   uint32 edge_recovery_protocol_version = 10;
+  // Zero means late admission is unavailable; agents keep late generations on
+  // disk, accounted and reported, and open no LATE session.
+  uint32 edge_late_admission_protocol_version = 11;
 }
 
 // A bounded operation within a frozen generation. Bounds describe ALLOCATION,

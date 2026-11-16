@@ -1,12 +1,14 @@
 defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   @moduledoc """
-  Deployment singleton (`id = "deployment"`) for camera archive destination and
-  credential selection.
+  Deployment singleton (`id = "deployment"`) for camera archive destination,
+  credential selection, and deployment-wide local/object retention settings.
 
   Credential choice stays outside `ArchiveBinding` so rotating to a new
   `s3_compatible` credential never changes `destination_sha256`. When no row
   exists in `platform.camera_recording_archive_settings`, code defaults apply
-  (`archive_enabled: false` and nil references).
+  (`archive_enabled: false`, nil credential/policy references, and E1 retention
+  defaults), representing normal local-only recording with no object storage
+  configured.
   """
 
   use Ash.Resource,
@@ -19,6 +21,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -28,6 +31,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   @singleton_id "deployment"
   @provider "s3_compatible"
   @system_actor SystemActor.system(:camera_recording_archive_settings)
+  @seconds_per_day 86_400
 
   @view_check {ActorHasPermission, permission: "settings.recording.view"}
   @manage_check {ActorHasPermission, permission: "settings.recording.manage"}
@@ -37,7 +41,26 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
     :active_archive_binding_id,
     :writer_credential_secret_id,
     :reader_credential_secret_id,
-    :archive_enabled
+    :retention_credential_secret_id,
+    :archive_enabled,
+    :local_high_water_percent,
+    :local_low_water_percent,
+    :max_local_age_mode,
+    :max_local_age_seconds,
+    :local_window_alert_mode,
+    :local_window_alert_seconds,
+    :local_only_full_policy,
+    :local_only_target_mode,
+    :local_only_retention_target_seconds,
+    :local_only_max_age_mode,
+    :local_only_max_age_seconds,
+    :archive_retention_mode,
+    :archive_retention_days,
+    :object_budget_mode,
+    :object_budget_bytes,
+    :object_high_water_percent,
+    :object_low_water_percent,
+    :object_capacity_policy
   ]
 
   defmodule ValidateArchiveSettings do
@@ -49,79 +72,192 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
 
     @system_actor SystemActor.system(:camera_recording_archive_settings)
 
+    @credential_slots [
+      :writer_credential_secret_id,
+      :reader_credential_secret_id,
+      :retention_credential_secret_id
+    ]
+
+    @mode_defaulted_value_fields [
+      :max_local_age_seconds,
+      :local_window_alert_seconds,
+      :local_only_retention_target_seconds,
+      :archive_retention_days
+    ]
+
+    @min_object_budget_bytes 1_073_741_824
+    @min_age_seconds 3_600
+    @max_age_seconds 315_360_000
+    @min_alert_seconds 60
+    @max_alert_seconds 31_536_000
+    @min_archive_days 1
+    @max_archive_days 3_650
+
     @impl true
     def change(changeset, _opts, context) do
-      validate_all(changeset, context)
+      changeset = preserve_explicit_nil_params_on_create(changeset)
+      {errors, stamped} = evaluate(changeset, context)
+
+      changeset =
+        if map_size(stamped) == 0 do
+          changeset
+        else
+          Ash.Changeset.force_change_attributes(changeset, stamped)
+        end
+
+      Enum.reduce(errors, changeset, &Ash.Changeset.add_error(&2, &1))
     end
 
     @impl true
-    def atomic(changeset, opts, context) do
-      {:ok, change(changeset, opts, context)}
+    def atomic(changeset, _opts, context) do
+      if match?(%OriginalDataNotAvailable{}, changeset.data) do
+        {:not_atomic, "validating singleton retention settings requires current state"}
+      else
+        {errors, stamped} = evaluate(changeset, context)
+
+        cond do
+          errors != [] -> {:error, errors}
+          map_size(stamped) > 0 -> {:atomic, stamped}
+          true -> :ok
+        end
+      end
     end
 
-    defp validate_all(changeset, context) do
+    defp preserve_explicit_nil_params_on_create(%{action_type: :create} = changeset) do
+      Enum.reduce(@mode_defaulted_value_fields, changeset, fn field, acc ->
+        if param_explicitly_nil?(acc, field) do
+          Ash.Changeset.force_change_attribute(acc, field, nil)
+        else
+          acc
+        end
+      end)
+    end
+
+    defp preserve_explicit_nil_params_on_create(changeset), do: changeset
+
+    defp evaluate(changeset, context) do
       actor = context.actor || get_in(changeset.context, [:private, :actor])
       loaders = Map.get(changeset.context, :archive_settings_loaders, %{})
+      now = Map.get(changeset.context, :confirmed_at_now) || DateTime.utc_now()
       archive_enabled = proposed_value(changeset, :archive_enabled) == true
 
-      changeset
-      |> enforce_credential_permission(actor)
-      |> validate_binding(archive_enabled, loaders)
-      |> validate_credential_slot(:writer_credential_secret_id, archive_enabled, loaders)
-      |> validate_credential_slot(:reader_credential_secret_id, archive_enabled, loaders)
+      errors =
+        []
+        |> check_credential_permissions(changeset, actor)
+        |> check_binding(changeset, archive_enabled, loaders)
+        |> check_credential_slots(changeset, archive_enabled, loaders)
+        |> check_watermarks(
+          changeset,
+          :local_high_water_percent,
+          :local_low_water_percent,
+          "local"
+        )
+        |> check_watermarks(
+          changeset,
+          :object_high_water_percent,
+          :object_low_water_percent,
+          "object"
+        )
+        |> check_bounded_mode_pair(
+          changeset,
+          :max_local_age_mode,
+          :max_local_age_seconds,
+          :limited,
+          @min_age_seconds..@max_age_seconds
+        )
+        |> check_bounded_mode_pair(
+          changeset,
+          :local_window_alert_mode,
+          :local_window_alert_seconds,
+          :enabled,
+          @min_alert_seconds..@max_alert_seconds
+        )
+        |> check_bounded_mode_pair(
+          changeset,
+          :local_only_target_mode,
+          :local_only_retention_target_seconds,
+          :target,
+          @min_age_seconds..@max_age_seconds
+        )
+        |> check_bounded_mode_pair(
+          changeset,
+          :local_only_max_age_mode,
+          :local_only_max_age_seconds,
+          :limited,
+          @min_age_seconds..@max_age_seconds
+        )
+        |> check_bounded_mode_pair(
+          changeset,
+          :archive_retention_mode,
+          :archive_retention_days,
+          :limited,
+          @min_archive_days..@max_archive_days
+        )
+        |> check_object_budget(changeset)
+
+      {errors, stamped} =
+        {errors, %{}}
+        |> stamp_confirmation(
+          changeset,
+          actor,
+          now,
+          :local_only_full_policy,
+          :local_only_full_policy_confirmed_by_id,
+          :local_only_full_policy_confirmed_at
+        )
+        |> stamp_confirmation(
+          changeset,
+          actor,
+          now,
+          :object_capacity_policy,
+          :object_capacity_policy_confirmed_by_id,
+          :object_capacity_policy_confirmed_at
+        )
+
+      {Enum.reverse(errors), stamped}
     end
 
-    defp enforce_credential_permission(changeset, %{role: :system}), do: changeset
+    defp check_credential_permissions(errors, _changeset, %{role: :system}), do: errors
 
-    defp enforce_credential_permission(changeset, actor) do
-      changed_slots =
-        Enum.filter(
-          [:writer_credential_secret_id, :reader_credential_secret_id],
-          &changing_credential?(changeset, &1)
-        )
+    defp check_credential_permissions(errors, changeset, actor) do
+      changed_slots = Enum.filter(@credential_slots, &changing_field?(changeset, &1))
 
       if changed_slots == [] or
            ActorHasPermission.match?(actor, [permission: "settings.credentials.manage"], %{}) do
-        changeset
+        errors
       else
-        Enum.reduce(changed_slots, changeset, fn field, acc ->
-          Ash.Changeset.add_error(
-            acc,
+        Enum.reduce(changed_slots, errors, fn field, acc ->
+          [
             InvalidAttribute.exception(
               field: field,
               message: "selecting an archive credential requires settings.credentials.manage"
             )
-          )
+            | acc
+          ]
         end)
       end
     end
 
-    defp changing_credential?(%{action_type: :create} = changeset, field) do
-      not is_nil(proposed_value(changeset, field))
-    end
-
-    defp changing_credential?(changeset, field) do
-      case Ash.Changeset.fetch_change(changeset, field) do
-        {:ok, new_value} ->
-          if is_map(changeset.data) and
-               not match?(%OriginalDataNotAvailable{}, changeset.data) do
-            new_value != Map.get(changeset.data, field)
-          else
-            true
-          end
-
-        :error ->
-          Keyword.has_key?(changeset.atomics, field)
-      end
-    end
-
-    defp validate_binding(changeset, archive_enabled, loaders) do
+    defp check_binding(errors, changeset, archive_enabled, loaders) do
       binding_id = proposed_value(changeset, :active_archive_binding_id)
+
+      errors =
+        if enabling_archive?(changeset, archive_enabled) and is_nil(binding_id) do
+          [
+            InvalidAttribute.exception(
+              field: :archive_enabled,
+              message: "enabling archive requires an active archive destination binding"
+            )
+            | errors
+          ]
+        else
+          errors
+        end
 
       should_check? =
         not is_nil(binding_id) and
           (changeset.action_type == :create or
-             changing_credential?(changeset, :active_archive_binding_id) or
+             changing_field?(changeset, :active_archive_binding_id) or
              archive_enabled)
 
       if should_check? do
@@ -129,60 +265,315 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
 
         case binding_loader.(binding_id) do
           {:ok, %ArchiveBinding{}} ->
-            changeset
+            errors
 
           {:ok, %{id: _}} ->
-            changeset
+            errors
 
           _ ->
-            Ash.Changeset.add_error(
-              changeset,
+            [
               InvalidAttribute.exception(
                 field: :active_archive_binding_id,
                 message: "archive destination binding does not exist"
               )
-            )
+              | errors
+            ]
         end
       else
-        changeset
+        errors
       end
     end
 
-    defp validate_credential_slot(changeset, field, archive_enabled, loaders) do
+    defp enabling_archive?(%{action_type: :create}, archive_enabled), do: archive_enabled
+
+    defp enabling_archive?(changeset, true) do
+      changing_field?(changeset, :archive_enabled)
+    end
+
+    defp enabling_archive?(_changeset, _archive_enabled), do: false
+
+    defp check_credential_slots(errors, changeset, archive_enabled, loaders) do
+      Enum.reduce(@credential_slots, errors, fn field, acc ->
+        check_credential_slot(acc, changeset, field, archive_enabled, loaders)
+      end)
+    end
+
+    defp check_credential_slot(errors, changeset, field, archive_enabled, loaders) do
       secret_id = proposed_value(changeset, field)
 
       should_check? =
         not is_nil(secret_id) and
           (changeset.action_type == :create or
-             changing_credential?(changeset, field) or
+             changing_field?(changeset, field) or
              archive_enabled)
 
       if should_check? do
         case RecordingArchiveSettings.inspect_credential_secret(secret_id, loaders) do
           {:ok, %{status: :available}} ->
-            changeset
+            errors
 
           {:ok, %{reason: reason}} ->
-            Ash.Changeset.add_error(
-              changeset,
+            [
               InvalidAttribute.exception(
                 field: field,
                 message: credential_error_message(reason)
               )
-            )
+              | errors
+            ]
         end
       else
-        changeset
+        errors
+      end
+    end
+
+    defp check_watermarks(errors, changeset, high_field, low_field, label) do
+      high = proposed_value(changeset, high_field)
+      low = proposed_value(changeset, low_field)
+
+      errors =
+        if is_integer(high) and high in 50..95 do
+          errors
+        else
+          [
+            InvalidAttribute.exception(
+              field: high_field,
+              message: "#{label} high-water mark must be between 50 and 95 percent"
+            )
+            | errors
+          ]
+        end
+
+      max_low = if is_integer(high), do: high - 5, else: 90
+
+      if is_integer(low) and low >= 40 and low <= max_low do
+        errors
+      else
+        [
+          InvalidAttribute.exception(
+            field: low_field,
+            message:
+              "#{label} low-water mark must be between 40 percent and 5 points below high water"
+          )
+          | errors
+        ]
+      end
+    end
+
+    defp check_bounded_mode_pair(errors, changeset, mode_field, value_field, active_mode, range) do
+      mode = proposed_value(changeset, mode_field)
+      value = effective_value_for_validation(changeset, value_field)
+      min_val..max_val//1 = range
+
+      if mode == active_mode do
+        cond do
+          is_nil(value) ->
+            [
+              InvalidAttribute.exception(
+                field: value_field,
+                message: "is required when #{mode_field} is #{active_mode}"
+              )
+              | errors
+            ]
+
+          not is_integer(value) or value < min_val or value > max_val ->
+            [
+              InvalidAttribute.exception(
+                field: value_field,
+                message: "must be between #{min_val} and #{max_val}"
+              )
+              | errors
+            ]
+
+          true ->
+            errors
+        end
+      else
+        if is_nil(value) do
+          errors
+        else
+          [
+            InvalidAttribute.exception(
+              field: value_field,
+              message: "must be nil when #{mode_field} is #{mode}"
+            )
+            | errors
+          ]
+        end
+      end
+    end
+
+    defp check_object_budget(errors, changeset) do
+      mode = proposed_value(changeset, :object_budget_mode)
+      bytes = effective_value_for_validation(changeset, :object_budget_bytes)
+      policy = proposed_value(changeset, :object_capacity_policy)
+
+      errors =
+        case mode do
+          :limited ->
+            cond do
+              is_nil(bytes) ->
+                [
+                  InvalidAttribute.exception(
+                    field: :object_budget_bytes,
+                    message: "is required when object_budget_mode is limited"
+                  )
+                  | errors
+                ]
+
+              not is_integer(bytes) or bytes < @min_object_budget_bytes ->
+                [
+                  InvalidAttribute.exception(
+                    field: :object_budget_bytes,
+                    message: "must be at least #{@min_object_budget_bytes} bytes (1 GiB)"
+                  )
+                  | errors
+                ]
+
+              true ->
+                errors
+            end
+
+          _unlimited ->
+            if is_nil(bytes) do
+              errors
+            else
+              [
+                InvalidAttribute.exception(
+                  field: :object_budget_bytes,
+                  message: "must be nil when object_budget_mode is unlimited"
+                )
+                | errors
+              ]
+            end
+        end
+
+      if mode == :limited and is_nil(policy) do
+        [
+          InvalidAttribute.exception(
+            field: :object_capacity_policy,
+            message: "is required when object_budget_mode is limited"
+          )
+          | errors
+        ]
+      else
+        errors
+      end
+    end
+
+    defp stamp_confirmation(
+           {errors, stamped},
+           changeset,
+           actor,
+           now,
+           policy_field,
+           by_field,
+           at_field
+         ) do
+      proposed_policy = proposed_value(changeset, policy_field)
+      existing_policy = existing_value(changeset, policy_field)
+      existing_by = existing_value(changeset, by_field)
+      existing_at = existing_value(changeset, at_field)
+
+      cond do
+        is_nil(proposed_policy) ->
+          if not is_nil(existing_by) or not is_nil(existing_at) do
+            {errors, Map.merge(stamped, %{by_field => nil, at_field => nil})}
+          else
+            {errors, stamped}
+          end
+
+        changeset.action_type == :update and proposed_policy == existing_policy and
+          is_binary(existing_by) and String.trim(existing_by) != "" and
+            not is_nil(existing_at) ->
+          {errors, stamped}
+
+        true ->
+          case actor_identifier(actor) do
+            nil ->
+              {[
+                 InvalidAttribute.exception(
+                   field: policy_field,
+                   message: "confirming #{policy_field} requires an identified actor"
+                 )
+                 | errors
+               ], stamped}
+
+            actor_id ->
+              {errors, Map.merge(stamped, %{by_field => actor_id, at_field => now})}
+          end
+      end
+    end
+
+    defp actor_identifier(%{id: id}) when not is_nil(id) do
+      trimmed = String.trim(to_string(id))
+      if trimmed == "", do: nil, else: trimmed
+    end
+
+    defp actor_identifier(%{user: %{id: id}}) when not is_nil(id) do
+      trimmed = String.trim(to_string(id))
+      if trimmed == "", do: nil, else: trimmed
+    end
+
+    defp actor_identifier(%{email: email}) when not is_nil(email) do
+      trimmed = String.trim(to_string(email))
+      if trimmed == "", do: nil, else: trimmed
+    end
+
+    defp actor_identifier(%{role: :system}), do: "system"
+    defp actor_identifier(_), do: nil
+
+    defp effective_value_for_validation(changeset, field) do
+      if param_explicitly_nil?(changeset, field) do
+        nil
+      else
+        proposed_value(changeset, field)
+      end
+    end
+
+    defp param_explicitly_nil?(changeset, field) do
+      params = changeset.params || %{}
+      str_key = Atom.to_string(field)
+
+      cond do
+        Map.has_key?(params, field) -> is_nil(Map.get(params, field))
+        Map.has_key?(params, str_key) -> is_nil(Map.get(params, str_key))
+        true -> false
+      end
+    end
+
+    defp changing_field?(%{action_type: :create} = changeset, field) do
+      not is_nil(proposed_value(changeset, field))
+    end
+
+    defp changing_field?(changeset, field) do
+      case Keyword.fetch(changeset.atomics, field) do
+        {:ok, atomic_val} ->
+          atomic_val != existing_value(changeset, field)
+
+        :error ->
+          case Ash.Changeset.fetch_change(changeset, field) do
+            {:ok, new_value} -> new_value != existing_value(changeset, field)
+            :error -> false
+          end
+      end
+    end
+
+    defp existing_value(changeset, field) do
+      if is_map(changeset.data) and not match?(%OriginalDataNotAvailable{}, changeset.data) do
+        Map.get(changeset.data, field)
       end
     end
 
     defp proposed_value(changeset, field) do
-      case Ash.Changeset.fetch_change(changeset, field) do
+      case Keyword.fetch(changeset.atomics, field) do
         {:ok, value} ->
           value
 
         :error ->
-          resolve_fallback_value(changeset, field)
+          case Ash.Changeset.fetch_change(changeset, field) do
+            {:ok, value} -> value
+            :error -> resolve_fallback_value(changeset, field)
+          end
       end
     end
 
@@ -190,9 +581,6 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       cond do
         Map.has_key?(changeset.attributes, field) ->
           Map.get(changeset.attributes, field)
-
-        Keyword.has_key?(changeset.atomics, field) ->
-          Keyword.get(changeset.atomics, field)
 
         match?(%OriginalDataNotAvailable{}, changeset.data) ->
           nil
@@ -239,11 +627,97 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       reference :reader_credential_secret,
         on_delete: :restrict,
         name: "camera_archive_settings_reader_secret_fkey"
+
+      reference :retention_credential_secret,
+        on_delete: :restrict,
+        name: "camera_archive_settings_retention_secret_fkey"
     end
 
     check_constraints do
       check_constraint :id, "camera_recording_archive_settings_singleton",
         check: "id = 'deployment'"
+
+      check_constraint :local_high_water_percent, "camera_archive_settings_local_watermarks",
+        check: """
+        local_high_water_percent BETWEEN 50 AND 95 AND
+        local_low_water_percent >= 40 AND
+        local_low_water_percent <= local_high_water_percent - 5
+        """
+
+      check_constraint :max_local_age_seconds, "camera_archive_settings_max_local_age",
+        check: """
+        (max_local_age_mode = 'limited' AND max_local_age_seconds IS NOT NULL AND max_local_age_seconds BETWEEN 3600 AND 315360000) OR
+        (max_local_age_mode = 'unlimited' AND max_local_age_seconds IS NULL)
+        """
+
+      check_constraint :local_window_alert_seconds,
+                       "camera_archive_settings_local_window_alert",
+                       check: """
+                       (local_window_alert_mode = 'enabled' AND local_window_alert_seconds IS NOT NULL AND local_window_alert_seconds BETWEEN 60 AND 31536000) OR
+                       (local_window_alert_mode = 'disabled' AND local_window_alert_seconds IS NULL)
+                       """
+
+      check_constraint :local_only_full_policy,
+                       "camera_archive_settings_local_only_full_policy",
+                       check: """
+                       (local_only_full_policy IS NULL AND
+                        local_only_full_policy_confirmed_by_id IS NULL AND
+                        local_only_full_policy_confirmed_at IS NULL) OR
+                       (local_only_full_policy IS NOT NULL AND
+                        local_only_full_policy IN ('overwrite_oldest', 'stop_when_full') AND
+                        local_only_full_policy_confirmed_by_id IS NOT NULL AND
+                        btrim(local_only_full_policy_confirmed_by_id) <> '' AND
+                        local_only_full_policy_confirmed_at IS NOT NULL)
+                       """
+
+      check_constraint :local_only_retention_target_seconds,
+                       "camera_archive_settings_local_only_target",
+                       check: """
+                       (local_only_target_mode = 'target' AND local_only_retention_target_seconds IS NOT NULL AND local_only_retention_target_seconds BETWEEN 3600 AND 315360000) OR
+                       (local_only_target_mode = 'none' AND local_only_retention_target_seconds IS NULL)
+                       """
+
+      check_constraint :local_only_max_age_seconds,
+                       "camera_archive_settings_local_only_max_age",
+                       check: """
+                       (local_only_max_age_mode = 'limited' AND local_only_max_age_seconds IS NOT NULL AND local_only_max_age_seconds BETWEEN 3600 AND 315360000) OR
+                       (local_only_max_age_mode = 'unlimited' AND local_only_max_age_seconds IS NULL)
+                       """
+
+      check_constraint :archive_retention_days,
+                       "camera_archive_settings_archive_retention",
+                       check: """
+                       (archive_retention_mode = 'limited' AND archive_retention_days IS NOT NULL AND archive_retention_days BETWEEN 1 AND 3650) OR
+                       (archive_retention_mode = 'unlimited' AND archive_retention_days IS NULL)
+                       """
+
+      check_constraint :object_budget_bytes,
+                       "camera_archive_settings_object_budget",
+                       check: """
+                       (object_budget_mode = 'limited' AND object_budget_bytes IS NOT NULL AND object_budget_bytes >= 1073741824) OR
+                       (object_budget_mode = 'unlimited' AND object_budget_bytes IS NULL)
+                       """
+
+      check_constraint :object_high_water_percent, "camera_archive_settings_object_watermarks",
+        check: """
+        object_high_water_percent BETWEEN 50 AND 95 AND
+        object_low_water_percent >= 40 AND
+        object_low_water_percent <= object_high_water_percent - 5
+        """
+
+      check_constraint :object_capacity_policy,
+                       "camera_archive_settings_object_capacity_policy",
+                       check: """
+                       ((object_capacity_policy IS NULL AND
+                         object_capacity_policy_confirmed_by_id IS NULL AND
+                         object_capacity_policy_confirmed_at IS NULL) OR
+                        (object_capacity_policy IS NOT NULL AND
+                         object_capacity_policy IN ('reap_oldest', 'stop_archiving') AND
+                         object_capacity_policy_confirmed_by_id IS NOT NULL AND
+                         btrim(object_capacity_policy_confirmed_by_id) <> '' AND
+                         object_capacity_policy_confirmed_at IS NOT NULL)) AND
+                       (object_budget_mode = 'unlimited' OR object_capacity_policy IS NOT NULL)
+                       """
     end
   end
 
@@ -327,9 +801,158 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       public? true
     end
 
+    attribute :retention_credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+    end
+
     attribute :archive_enabled, :boolean do
       allow_nil? false
       default false
+      public? true
+    end
+
+    attribute :local_high_water_percent, :integer do
+      allow_nil? false
+      default 90
+      public? true
+    end
+
+    attribute :local_low_water_percent, :integer do
+      allow_nil? false
+      default 80
+      public? true
+    end
+
+    attribute :max_local_age_mode, :atom do
+      allow_nil? false
+      default :limited
+      public? true
+      constraints one_of: [:limited, :unlimited]
+    end
+
+    attribute :max_local_age_seconds, :integer do
+      allow_nil? true
+      default 86_400
+      public? true
+    end
+
+    attribute :local_window_alert_mode, :atom do
+      allow_nil? false
+      default :enabled
+      public? true
+      constraints one_of: [:enabled, :disabled]
+    end
+
+    attribute :local_window_alert_seconds, :integer do
+      allow_nil? true
+      default 3_600
+      public? true
+    end
+
+    attribute :local_only_full_policy, :atom do
+      allow_nil? true
+      default nil
+      public? true
+      constraints one_of: [:overwrite_oldest, :stop_when_full]
+    end
+
+    attribute :local_only_full_policy_confirmed_by_id, :string do
+      allow_nil? true
+      default nil
+      writable? false
+      public? true
+    end
+
+    attribute :local_only_full_policy_confirmed_at, :utc_datetime_usec do
+      allow_nil? true
+      default nil
+      writable? false
+      public? true
+    end
+
+    attribute :local_only_target_mode, :atom do
+      allow_nil? false
+      default :target
+      public? true
+      constraints one_of: [:target, :none]
+    end
+
+    attribute :local_only_retention_target_seconds, :integer do
+      allow_nil? true
+      default 604_800
+      public? true
+    end
+
+    attribute :local_only_max_age_mode, :atom do
+      allow_nil? false
+      default :unlimited
+      public? true
+      constraints one_of: [:limited, :unlimited]
+    end
+
+    attribute :local_only_max_age_seconds, :integer do
+      allow_nil? true
+      default nil
+      public? true
+    end
+
+    attribute :archive_retention_mode, :atom do
+      allow_nil? false
+      default :limited
+      public? true
+      constraints one_of: [:limited, :unlimited]
+    end
+
+    attribute :archive_retention_days, :integer do
+      allow_nil? true
+      default 30
+      public? true
+    end
+
+    attribute :object_budget_mode, :atom do
+      allow_nil? false
+      default :unlimited
+      public? true
+      constraints one_of: [:limited, :unlimited]
+    end
+
+    attribute :object_budget_bytes, :integer do
+      allow_nil? true
+      default nil
+      public? true
+    end
+
+    attribute :object_high_water_percent, :integer do
+      allow_nil? false
+      default 90
+      public? true
+    end
+
+    attribute :object_low_water_percent, :integer do
+      allow_nil? false
+      default 80
+      public? true
+    end
+
+    attribute :object_capacity_policy, :atom do
+      allow_nil? true
+      default nil
+      public? true
+      constraints one_of: [:reap_oldest, :stop_archiving]
+    end
+
+    attribute :object_capacity_policy_confirmed_by_id, :string do
+      allow_nil? true
+      default nil
+      writable? false
+      public? true
+    end
+
+    attribute :object_capacity_policy_confirmed_at, :utc_datetime_usec do
+      allow_nil? true
+      default nil
+      writable? false
       public? true
     end
 
@@ -358,6 +981,13 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       define_attribute? false
       source_attribute :reader_credential_secret_id
     end
+
+    belongs_to :retention_credential_secret, NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :retention_credential_secret_id
+    end
   end
 
   @doc """
@@ -370,8 +1000,88 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       active_archive_binding_id: nil,
       writer_credential_secret_id: nil,
       reader_credential_secret_id: nil,
-      archive_enabled: false
+      retention_credential_secret_id: nil,
+      archive_enabled: false,
+      local_high_water_percent: 90,
+      local_low_water_percent: 80,
+      max_local_age_mode: :limited,
+      max_local_age_seconds: 86_400,
+      local_window_alert_mode: :enabled,
+      local_window_alert_seconds: 3_600,
+      local_only_full_policy: nil,
+      local_only_full_policy_confirmed_by_id: nil,
+      local_only_full_policy_confirmed_at: nil,
+      local_only_target_mode: :target,
+      local_only_retention_target_seconds: 604_800,
+      local_only_max_age_mode: :unlimited,
+      local_only_max_age_seconds: nil,
+      archive_retention_mode: :limited,
+      archive_retention_days: 30,
+      object_budget_mode: :unlimited,
+      object_budget_bytes: nil,
+      object_high_water_percent: 90,
+      object_low_water_percent: 80,
+      object_capacity_policy: nil,
+      object_capacity_policy_confirmed_by_id: nil,
+      object_capacity_policy_confirmed_at: nil
     )
+  end
+
+  @doc """
+  Returns the effective local-only full policy (`:stop_when_full` when none has been confirmed).
+  """
+  @spec effective_local_only_full_policy(map() | t()) :: :overwrite_oldest | :stop_when_full
+  def effective_local_only_full_policy(settings) when is_map(settings) do
+    case field(settings, :local_only_full_policy) do
+      :overwrite_oldest -> :overwrite_oldest
+      "overwrite_oldest" -> :overwrite_oldest
+      _ -> :stop_when_full
+    end
+  end
+
+  @doc """
+  Returns the effective object capacity policy (`:stop_archiving` when none has been confirmed).
+  """
+  @spec effective_object_capacity_policy(map() | t()) :: :reap_oldest | :stop_archiving
+  def effective_object_capacity_policy(settings) when is_map(settings) do
+    case field(settings, :object_capacity_policy) do
+      :reap_oldest -> :reap_oldest
+      "reap_oldest" -> :reap_oldest
+      _ -> :stop_archiving
+    end
+  end
+
+  @doc """
+  Returns `true` when both archive retention and maximum local age are `:limited`
+  and `archive_retention_days` is shorter than `max_local_age_seconds` rounded up
+  to whole days (`archive_retention_days * 86_400 < max_local_age_seconds`).
+
+  Per design C3/E1, this state is accepted (not refused) and surfaces an operator
+  warning that archive copies will expire while their local copies remain.
+  """
+  @spec shorter_archive_than_local?(map() | t()) :: boolean()
+  def shorter_archive_than_local?(settings) when is_map(settings) do
+    archive_mode = normalize_mode_atom(field(settings, :archive_retention_mode))
+    local_mode = normalize_mode_atom(field(settings, :max_local_age_mode))
+    archive_days = field(settings, :archive_retention_days)
+    local_seconds = field(settings, :max_local_age_seconds)
+
+    archive_mode == :limited and local_mode == :limited and
+      is_integer(archive_days) and is_integer(local_seconds) and
+      archive_days * @seconds_per_day < local_seconds
+  end
+
+  @doc """
+  Validates a candidate settings map against `RecordingArchiveSettings` without persisting.
+  Useful for LiveView `phx-change` validation and pre-save previews.
+  """
+  @spec preview_changeset(map(), keyword()) :: Ash.Changeset.t()
+  def preview_changeset(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
+    base = Keyword.get(opts, :existing) || default_settings()
+    ash_opts = ash_actor_opts(opts)
+    context = build_changeset_context(opts)
+
+    Ash.Changeset.for_update(base, :update, attrs, Keyword.put(ash_opts, :context, context))
   end
 
   @doc """
@@ -394,7 +1104,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   @spec save_settings(map(), keyword()) :: {:ok, t()} | {:error, term()}
   def save_settings(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
     ash_opts = ash_actor_opts(opts)
-    context = build_loader_context(opts)
+    context = build_changeset_context(opts)
 
     case Ash.read_one(
            Ash.Query.for_read(__MODULE__, :get_singleton, %{}, actor: @system_actor),
@@ -416,9 +1126,17 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   end
 
   @doc """
+  Delegates to `ServiceRadar.Camera.RetentionCalculator.usage_summary/1`.
+  """
+  @spec usage_summary(keyword()) :: {:ok, map()} | {:error, term()}
+  def usage_summary(opts \\ []) when is_list(opts) do
+    RetentionCalculator.usage_summary(opts)
+  end
+
+  @doc """
   Returns the settings together with redacted credential summaries (`id`, `name`,
-  `status`) and archive readiness state so users without `settings.credentials.manage`
-  can view the selected credential's redacted name and availability state.
+  `status`) and archive/retention readiness state so users without
+  `settings.credentials.manage` can view selected credential names and status.
   """
   @spec get_overview(keyword()) :: {:ok, map()} | {:error, term()}
   def get_overview(opts \\ []) when is_list(opts) do
@@ -429,22 +1147,34 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       settings = persisted || default_settings()
       active_binding = load_active_binding(settings.active_archive_binding_id, loaders)
 
-      writer_summary =
-        summarize_slot(settings.writer_credential_secret_id, loaders)
+      writer_summary = summarize_slot(settings.writer_credential_secret_id, loaders)
+      reader_summary = summarize_slot(settings.reader_credential_secret_id, loaders)
+      retention_summary = summarize_slot(settings.retention_credential_secret_id, loaders)
 
-      reader_summary =
-        summarize_slot(settings.reader_credential_secret_id, loaders)
+      storage_mode =
+        if settings.archive_enabled and not is_nil(active_binding),
+          do: :local_and_archive,
+          else: :local_only
 
       {ready?, unavailable_reason} =
         derive_readiness(settings, active_binding, writer_summary, reader_summary)
+
+      object_retention_enforced? =
+        not is_nil(retention_summary) and retention_summary.status == :available
 
       {:ok,
        %{
          settings: settings,
          persisted?: not is_nil(persisted),
+         storage_mode: storage_mode,
          active_binding: active_binding,
          writer_credential: writer_summary,
          reader_credential: reader_summary,
+         retention_credential: retention_summary,
+         object_retention_enforced?: object_retention_enforced?,
+         shorter_archive_than_local?: shorter_archive_than_local?(settings),
+         effective_local_only_full_policy: effective_local_only_full_policy(settings),
+         effective_object_capacity_policy: effective_object_capacity_policy(settings),
          archive_ready?: ready?,
          unavailable_reason: unavailable_reason
        }}
@@ -471,6 +1201,10 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
          }}
     end
   end
+
+  @doc false
+  @spec authorize_recording_read(keyword()) :: :ok | {:error, Exception.t()}
+  def authorize_recording_read(opts), do: authorize_overview(opts)
 
   defp classify_secret(secret_id, secret, provider_loader) do
     name = field(secret, :name)
@@ -555,20 +1289,20 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
 
   defp derive_readiness(settings, active_binding, writer_summary, reader_summary) do
     cond do
-      is_nil(settings.active_archive_binding_id) or is_nil(active_binding) ->
-        {false, :missing_active_destination}
-
-      is_nil(writer_summary) ->
-        {false, :missing_writer_credential}
-
-      writer_summary.status != :available ->
+      not is_nil(writer_summary) and writer_summary.status != :available ->
         {false, {:writer_credential_unavailable, writer_summary.reason}}
 
       not is_nil(reader_summary) and reader_summary.status != :available ->
         {false, {:reader_credential_unavailable, reader_summary.reason}}
 
       not settings.archive_enabled ->
-        {false, :archive_disabled}
+        {false, nil}
+
+      is_nil(settings.active_archive_binding_id) or is_nil(active_binding) ->
+        {false, :missing_active_destination}
+
+      is_nil(writer_summary) ->
+        {false, :missing_writer_credential}
 
       true ->
         {true, nil}
@@ -610,10 +1344,16 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
     CredentialSecretProvider.get_by_id(provider_id, actor: @system_actor)
   end
 
-  defp build_loader_context(opts) do
-    case Keyword.get(opts, :loaders) do
-      loaders when is_map(loaders) -> %{archive_settings_loaders: loaders}
-      _ -> %{}
+  defp build_changeset_context(opts) do
+    context =
+      case Keyword.get(opts, :loaders) do
+        loaders when is_map(loaders) -> %{archive_settings_loaders: loaders}
+        _ -> %{}
+      end
+
+    case Keyword.get(opts, :now) do
+      %DateTime{} = now -> Map.put(context, :confirmed_at_now, now)
+      _ -> context
     end
   end
 
@@ -672,6 +1412,15 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   defp actor_from_scope(%{user: user}) when not is_nil(user), do: user
   defp actor_from_scope(%{actor: actor}) when not is_nil(actor), do: actor
   defp actor_from_scope(_), do: nil
+
+  defp normalize_mode_atom(val) when is_atom(val), do: val
+  defp normalize_mode_atom("limited"), do: :limited
+  defp normalize_mode_atom("unlimited"), do: :unlimited
+  defp normalize_mode_atom("enabled"), do: :enabled
+  defp normalize_mode_atom("disabled"), do: :disabled
+  defp normalize_mode_atom("target"), do: :target
+  defp normalize_mode_atom("none"), do: :none
+  defp normalize_mode_atom(_), do: nil
 
   defp field(map, key) do
     case Map.fetch(map, key) do

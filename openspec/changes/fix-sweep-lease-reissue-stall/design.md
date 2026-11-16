@@ -88,6 +88,13 @@ re-assert core's own records.
 
 ### 3. Batching: build all entries, commit in 64-entry chunks
 
+Superseded in part by `set-based-sweep-lease-issuance`: `commit_issuance` now
+runs a fixed number of statements per batch whatever its size, and lease
+delivery commits in 512-entry chunks sized by rows. The 64-entry chunking
+below was the mitigation that change replaces; the rest of this section
+(entries built per slot, halt-before-send on conflict, replay of partial
+commits) still holds.
+
 `record_mappings` keeps its per-slot evidence construction (including every
 `verify_issuance` check) but returns entries instead of committing per slot;
 a new step commits the concatenated entries in 64-entry chunks through the

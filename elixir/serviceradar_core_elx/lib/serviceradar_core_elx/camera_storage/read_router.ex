@@ -5,6 +5,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
   alias ServiceRadar.JSONDocument
   alias ServiceRadarCoreElx.CameraStorage.Read
   alias ServiceRadarCoreElx.CameraStorage.ReadSession
+  alias ServiceRadarCoreElx.CameraStorage.RefusedBody
 
   @body_limit 8192
 
@@ -21,7 +22,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
       receive_range(conn, config, deadline)
     else
       {:error, _} -> respond(conn, 503, "archive_read_unavailable")
-      _ -> respond(conn, 400, "invalid_archive_range")
+      _ -> conn |> RefusedBody.discard(@body_limit, deadline) |> respond(400, "invalid_archive_range")
     end
   end
 

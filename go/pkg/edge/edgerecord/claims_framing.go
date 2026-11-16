@@ -146,7 +146,7 @@ func (d *digestWriter) sourceClaims(c *edgev1.EdgeSourceClaimsV1) {
 
 // deliveryClaims frames EdgeDeliveryClaimsV1 (fields 1-4 + the transition oneof).
 // The transition oneof is field-framed (u64 discriminant 5=renewal / 6=rollover /
-// 0=none, then the framed member) instead of proto.Marshal -- EdgeDeliveryClaimsV1
+// 7=late_admission / 0=none, then the framed member) instead of proto.Marshal -- EdgeDeliveryClaimsV1
 // DOES carry a oneof, so a whole-message marshal is NOT cross-language stable.
 func (d *digestWriter) deliveryClaims(c *edgev1.EdgeDeliveryClaimsV1) {
 	d.bytes(c.GetEventId())
@@ -163,6 +163,14 @@ func (d *digestWriter) deliveryClaims(c *edgev1.EdgeDeliveryClaimsV1) {
 		d.bytes(t.Rollover.GetRecoveryId())
 		d.bytes(t.Rollover.GetPriorSpoolId())
 		d.u64(t.Rollover.GetPriorSequence())
+	case *edgev1.EdgeDeliveryClaimsV1_LateAdmission:
+		// The whole production-time decision is signed: core's PRIMARY/AUDIT choice and
+		// its reason must never ride unsigned beside a valid signature.
+		d.u64(7)
+		d.i64(t.LateAdmission.GetProducedAtUnixNano())
+		d.u64(t.LateAdmission.GetAuthorityEpoch())
+		d.u64(uint64(t.LateAdmission.GetPublication()))
+		d.u64(uint64(t.LateAdmission.GetReason()))
 	default:
 		d.u64(0)
 	}

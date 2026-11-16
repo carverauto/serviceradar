@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -410,7 +411,10 @@ func (s *Spool) terminalProof() ([32]byte, []permanentSlot, bool, error) {
 			} else if !bytes.Equal(rec.EventID, id) {
 				return proof, nil, false, nil
 			}
-			if rejected {
+			// A record resolved LATE_ADMISSION_REQUIRED was relocated to a late
+			// generation before this resolution was persisted; it is not a rejection to
+			// keep, so it does not take a slot in the evicting quarantine.
+			if rejected && d.GetRejectionCode() != edgerecord.RejectionLateAdmissionRequired {
 				disposition, err := proto.MarshalOptions{Deterministic: true}.Marshal(d)
 				if err != nil {
 					return proof, nil, false, err

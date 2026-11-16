@@ -150,15 +150,17 @@ ci:
     headers. As evidence, cite the BuildBuddy invocation URL and quote selected
     fields (target, status, duration) as short artifact content.
 gates:
+  # Both gates exit 0 at once for a docs-only change (build/ci/detect_docs_only.py, the
+  # definition CI uses). Any doubt about the diff, or a branch without --check, runs the gate.
   # Test-routing contracts that otherwise fail only in BazelCI: every new
   # serviceradar_core test file needs a row in INTEGRATION_SOURCE_DISPOSITIONS.tsv,
   # and DB-backed ones must also appear in build/integration_test_dispositions.bzl.
   - name: test-registration
     after: lint
-    command: bazel test --config=remote //build/contracts:ci_heavy_gate_contract_test
+    command: python3 build/ci/detect_docs_only.py --check --base-branch staging || bazel test --config=remote //build/contracts:ci_heavy_gate_contract_test
   # Same checks as CI's "Elixir Quality (<project>)" jobs: mix format
   # --check-formatted and mix credo --strict for every linted Elixir project,
   # hermetic on RBE. A failure parks the run for a decision before push.
   - name: elixir-quality
     after: lint
-    command: bazel test --config=remote //build/elixir_quality:quality_check
+    command: python3 build/ci/detect_docs_only.py --check --base-branch staging || bazel test --config=remote //build/elixir_quality:quality_check

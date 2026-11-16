@@ -59,7 +59,15 @@ retried as above. Neither is a transient decode
 deployed yet, or `:systemic`, a decoder fault) of the record frame, its body or
 a persisted plan a projector reads: it fails as
 `ServiceRadar.EventWriter.EdgeRecordTransientError` and is retried, because the
-same bytes can decode once the schema is deployed or the fault is fixed.
+same bytes can decode once the schema is deployed or the fault is fixed. A
+projection whose Dgraph write timed out or failed transiently
+(`ServiceRadar.Dgraph.TransientError`: an unreachable cluster, an aborted
+transaction, or a Zero or Alpha leader election such as `Only leader can decide
+to commit or abort`) fails the same way. Until the stream's threshold such a
+record is logged as a warning, at most once per batcher per minute ("Batch
+holds edge records that failed transiently"), not as `Batch processing failed`;
+a record still failing at the threshold is dead-lettered and logged as an
+error.
 
 | Header | Meaning |
 | --- | --- |

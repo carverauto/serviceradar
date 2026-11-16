@@ -14,7 +14,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.k8s\.public_endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.k8s_inventory", "\\\$JS\.API\.STREAM\.CREATE\.k8s_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.k8s_inventory"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.k8s\.public_endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.k8s_inventory", "\\\$JS\.API\.STREAM\.CREATE\.k8s_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.k8s_inventory"\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
 
   - it: scopes custom inventory subjects and streams without wildcard management access
     template: templates/nats.yaml
@@ -28,7 +28,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.synthetic\.endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.synthetic_inventory", "\\\$JS\.API\.STREAM\.CREATE\.synthetic_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.synthetic_inventory"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.synthetic\.endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.synthetic_inventory", "\\\$JS\.API\.STREAM\.CREATE\.synthetic_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.synthetic_inventory"\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
 
   - it: omits the node subject when node inventory is disabled
     template: templates/nats.yaml
@@ -55,7 +55,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
 
   - it: grants no permissions in stdout mode and ignores dormant NATS values
     template: templates/nats.yaml
@@ -70,7 +70,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
 
   - it: rejects wildcard subjects in NATS mode
     template: templates/nats.yaml

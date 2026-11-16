@@ -71,6 +71,13 @@ children, missing signatures or quota errors fail publication. The build
 and promotion credentials live in separate temporary Docker configs and are
 removed by the final cleanup step.
 
+Every tag a publish asks for (`sha-<commit>` and the release tag) must name one
+build manifest; promotion refuses tags that disagree. The native add-on and Wasm
+publishers therefore push each bundle once, with all of its tags in a single
+`oras push`. Each `oras push` stamps its own `org.opencontainers.image.created`
+time, so one push per tag yields different digests. Build-project tags are
+mutable, so a retry overwrites them rather than keeping a stale artifact.
+
 Promotion copies each root with its platform manifests and blobs, plus the
 root's classic Cosign `.sig` tag. When the protected project already holds a
 `.sig` tag for that digest, promotion reuses it and does not copy the build

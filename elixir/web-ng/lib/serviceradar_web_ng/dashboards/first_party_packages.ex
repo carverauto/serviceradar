@@ -272,6 +272,9 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
       {:ok, nil} ->
         create_route_instance(package, actor, definition)
 
+      {:ok, %DashboardInstance{dashboard_package: nil} = instance} ->
+        update_route_instance(instance, package, actor)
+
       {:ok,
        %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: dashboard_id}} =
            instance} ->

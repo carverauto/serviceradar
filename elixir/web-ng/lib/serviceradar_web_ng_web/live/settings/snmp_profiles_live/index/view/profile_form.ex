@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
 
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -754,7 +755,26 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             <tbody>
               <%= for target <- @targets do %>
                 <tr class="hover:bg-sr-subtle/40">
-                  <td class="font-medium">{target.name}</td>
+                  <td class="font-medium">
+                    {target.name}
+                    <!--
+                    A manual target falls back to its profile's credential. Without
+                    either, only its device's SNMP override or a credential rule
+                    whose target query selects that device can poll it.
+                    -->
+                    <.ui_badge
+                      :if={
+                        not CredentialResolver.record_has_credential?(target) and
+                          not CredentialResolver.record_has_credential?(@selected_profile)
+                      }
+                      id={"snmp-target-#{target.id}-no-credential"}
+                      variant="warning"
+                      size="xs"
+                      title="Neither this target nor its profile has a credential. It is polled only with its device's SNMP override or a credential rule whose target query selects its device; a host that belongs to no device is not polled."
+                    >
+                      No credential
+                    </.ui_badge>
+                  </td>
                   <td class="font-mono text-xs">{target.host}</td>
                   <td class="font-mono text-xs">{target.port}</td>
                   <td>

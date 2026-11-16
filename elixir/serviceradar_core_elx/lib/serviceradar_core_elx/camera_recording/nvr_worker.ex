@@ -43,6 +43,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadarCoreElx.CameraRecording.RecorderRenewal
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarNVRClient.Config, as: ClientConfig
   alias ServiceRadarRecording.Inbox
@@ -104,6 +105,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         actor: SystemActor.system(:camera_recording),
         claim_token: Ecto.UUID.generate(),
         claim: nil,
+        lease_deadline: nil,
         block: nil,
         recovery_gate: nil,
         wire_header: nil,
@@ -153,8 +155,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
              @lease_ms,
              acquire_opts
            ) do
-      state = %{state | owner: owner, claim: claim, recovery_gate: gate}
-      open_and_attach(state, compute_deadline(request_start, claim, state.capture))
+      lease_deadline = claim_lease_deadline(request_start, claim)
+      state = %{state | owner: owner, claim: claim, lease_deadline: lease_deadline, recovery_gate: gate}
+      open_and_attach(state, min(lease_deadline, state.capture.deadline))
     else
       {:error, reason} -> stop_failed(state, reason)
     end
@@ -246,14 +249,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     request_start = now()
     state = %{state | lease_timer: nil}
 
-    with {:ok, renew_opts} <- capture_call_opts(state),
-         {:ok, _gate} <- check_recovery_gate(),
-         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, renew_opts),
-         :ok <- renew_inbox(state.inbox, compute_deadline(request_start, claim, state.capture)) do
-      {:noreply, schedule_renewal(%{state | claim: claim})}
-    else
-      {:error, reason} -> renewal_failed(state, reason)
-    end
+    # The held lease covers the rest of the capture, and this renewal's budget
+    # could not outlast a normal checkout queue (see `RecorderRenewal`).
+    if RecorderRenewal.skip?(request_start, state.capture.deadline, state.lease_deadline),
+      do: {:noreply, state},
+      else: renew_lease(state, request_start)
   end
 
   def handle_info({:EXIT, _from, reason}, state) when reason != :normal, do: handle_interrupt(state, reason)
@@ -333,6 +333,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox}, timeout)
   catch
     :exit, _reason -> {:error, :ingest_stopped}
+  end
+
+  defp renew_lease(state, request_start) do
+    with {:ok, renew_opts} <- capture_call_opts(state),
+         {:ok, _gate} <- check_recovery_gate(),
+         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, renew_opts),
+         lease_deadline = claim_lease_deadline(request_start, claim),
+         :ok <- renew_inbox(state.inbox, min(lease_deadline, state.capture.deadline)) do
+      {:noreply, schedule_renewal(%{state | claim: claim, lease_deadline: lease_deadline})}
+    else
+      {:error, reason} -> renewal_failed(state, reason)
+    end
   end
 
   defp renew_inbox(nil, _deadline_ms), do: :ok
@@ -794,10 +806,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp compute_deadline(request_start, claim, capture) do
-    lease_deadline = request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
-    min(lease_deadline, capture.deadline)
-  end
+  defp claim_lease_deadline(request_start, claim),
+    do: request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
 
   defp schedule_renewal(state) do
     state = cancel_lease_timer(state)

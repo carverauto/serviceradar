@@ -263,8 +263,10 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
        %{config: config} do
     state = connected(start_supervised!({PlacementFailingConnection, {self(), 1}}), config)
 
-    state = capture_log_result(fn -> ConsumerReconciler.ensure_all(state) end)
+    {state, log} = with_log(fn -> ConsumerReconciler.ensure_all(state) end)
 
+    # A placement refusal is not transient: it is an error on its first attempt.
+    assert log =~ ~s([error] Failed to initialize EventWriter durable consumer name="MTR_RESULTS")
     assert Map.keys(state.failed) == ["MTR_RESULTS"]
     assert_received {:setup_failed, "MTR_RESULTS", %{"err_code" => 10_005}, 1}
 
@@ -272,6 +274,66 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
     assert "$JS.API.CONSUMER.DURABLE.CREATE.metrics.serviceradar-event-writer-metrics" in topics
     # The failing stream may be a retired durable's replacement.
     refute Enum.any?(topics, &String.contains?(&1, ".CONSUMER.DELETE."))
+  end
+
+  # During a NATS rolling restart the connection is gone (`:noproc`) until the reconnect.
+  test "a NATS restart is a warning while a stream retries within its bound, then an error once",
+       %{config: config} do
+    conn = spawn(fn -> :ok end)
+    ref = Process.monitor(conn)
+    assert_receive {:DOWN, ^ref, :process, ^conn, _reason}
+
+    test_pid = self()
+    handler = "reconciler-transient-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:serviceradar, :event_writer, :consumer_setup, :transient_bound_exceeded],
+      fn _event, %{attempt: attempt}, %{stream: stream}, _ ->
+        send(test_pid, {:transient_bound_exceeded, stream, attempt})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    retry = fn state ->
+      {{:noreply, state}, log} =
+        with_log(fn ->
+          ConsumerReconciler.handle_info({:retry_stream, conn, "MTR_RESULTS"}, state)
+        end)
+
+      {state, log}
+    end
+
+    {state, log} = with_log(fn -> ConsumerReconciler.ensure_all(connected(conn, config)) end)
+    assert %{"MTR_RESULTS" => _} = state.failed
+    assert log =~ "[warning]"
+    assert log =~ "noproc"
+    refute log =~ "[error]"
+
+    state =
+      Enum.reduce(2..8, state, fn _attempt, state ->
+        {state, log} = retry.(state)
+        refute log =~ "[error]"
+        state
+      end)
+
+    refute_received {:transient_bound_exceeded, _, _}
+
+    {state, log} = retry.(state)
+    assert log =~ "[error]"
+    assert log =~ ~s(Failed to initialize EventWriter durable consumer name="MTR_RESULTS")
+    assert_received {:transient_bound_exceeded, "MTR_RESULTS", 9}
+
+    {state, log} = retry.(state)
+    refute log =~ "[error]"
+
+    {state, log} = with_log(fn -> ConsumerReconciler.ensure_all(%{state | failed: %{}}) end)
+    assert %{"MTR_RESULTS" => %{attempt: 11}} = state.failed
+    assert log =~ "still failing"
+    refute log =~ "[error]"
+    refute_received {:transient_bound_exceeded, _, _}
   end
 
   test "the failed stream is retried alone and the retired durables go once all are up",

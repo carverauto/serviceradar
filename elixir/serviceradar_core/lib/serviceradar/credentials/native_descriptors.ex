@@ -265,7 +265,11 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
       "plugin_id" => "s3_compatible",
       "plugin_version" => "native",
       "supports_rules" => false,
-      "purposes" => ["camera_archive_write", "camera_archive_read"],
+      "purposes" => [
+        "camera_archive_write",
+        "camera_archive_read",
+        "camera_archive_retention"
+      ],
       "scope_types" => [],
       "auth_methods" => [
         %{

@@ -76,7 +76,11 @@ Recorder ingress is authenticated private HTTPS `POST /v1/media-uploads`, with
 lease. Duplicate fields and headers fail before media is read. Media is never
 base64 encoded or accumulated into a whole-object binary.
 The listener serves one request per HTTP/1 connection and disables HTTP/2.
-Rejected requests close without Bandit's keepalive unread-body drain.
+Rejected requests close without Bandit's keepalive unread-body drain. Before an
+authenticated 400 refusal, the listener reads and discards the remaining body in
+64 KiB reads, never kept, up to the route's body limit and the request deadline,
+so the recorder receives the status instead of a connection reset. Failed
+authentication, 413 and 503 answers close without reading the body.
 
 The isolated service reserves its single admission slot before reading the body.
 It stages at most 16 MiB in private scratch storage, using 64 KiB chunks and an

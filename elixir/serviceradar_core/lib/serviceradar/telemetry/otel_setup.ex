@@ -198,7 +198,11 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
           filter_default: :log,
           filters: [
             drop_otel_self: {&ServiceRadar.Otel.LogSelfFilter.filter/2, :no_arg},
-            otel_ids_to_bytes: {&ServiceRadar.Otel.LogIdFilter.filter/2, :no_arg}
+            otel_ids_to_bytes: {&ServiceRadar.Otel.LogIdFilter.filter/2, :no_arg},
+            # Crash reports carry the crashing process's terms (a TURN
+            # client's password and HMAC key, ICE passwords). Redact them
+            # before the exporter renders the terms into attributes.
+            redact_secrets: {&ServiceRadar.Logging.SecretRedaction.filter/2, :no_arg}
           ]
         }
 

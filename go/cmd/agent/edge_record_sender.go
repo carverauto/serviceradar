@@ -25,6 +25,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
 	"github.com/carverauto/serviceradar/go/pkg/edge/admission"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgesender "github.com/carverauto/serviceradar/go/pkg/edge/sender"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
@@ -71,7 +72,7 @@ func logLegacyEdgeStorage(sp *agent.RecordSpool, log logger.Logger) {
 	if err != nil {
 		event = event.Err(err)
 	}
-	event.Msg("Legacy edge storage retained untouched; it may hold undelivered records and only bounded lanes are delivered")
+	event.Msg("Legacy edge storage holds undelivered records; handing them off to late admission")
 }
 
 // runEdgeRecordSender drains the agent spool over a dedicated
@@ -123,11 +124,13 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *agent
 
 	delay := min(edgeRecordSenderSetupInitialBackoff, interval)
 	for {
-		senders, closeSender, err := newEdgeRecordSenders(ctx, addr, security, sp, log)
+		senders, late, closeSender, err := newEdgeRecordSenders(ctx, addr, security, sp, log)
 		if err == nil {
 			defer closeSender()
 			log.Info().Str("addr", addr).Str("spool_dir", spoolDir).Dur("interval", interval).
 				Msg("Edge record sender starting")
+			go pollLegacyHandoff(ctx, sp, interval, log)
+			go pollEdgeRecordSender(ctx, late, interval, log)
 			pollEdgeRecordSenders(ctx, senders, interval, log)
 			return
 		}
@@ -149,10 +152,10 @@ func newEdgeRecordSenders(
 	security *models.SecurityConfig,
 	sp *agent.RecordSpool,
 	log logger.Logger,
-) ([]*edgeLaneSender, func(), error) {
+) ([]*edgeLaneSender, *edgeLateSender, func(), error) {
 	securityProvider, err := srgrpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build edge record sender security provider: %w", err)
+		return nil, nil, nil, fmt.Errorf("build edge record sender security provider: %w", err)
 	}
 
 	client, err := srgrpc.NewClient(ctx, srgrpc.ClientConfig{
@@ -162,13 +165,14 @@ func newEdgeRecordSenders(
 	})
 	if err != nil {
 		_ = securityProvider.Close()
-		return nil, nil, fmt.Errorf("dial edge record gateway: %w", err)
+		return nil, nil, nil, fmt.Errorf("dial edge record gateway: %w", err)
 	}
 	closeAll := func() {
 		_ = client.Close()
 		_ = securityProvider.Close()
 	}
 
+	gatewayClient := proto.NewAgentGatewayServiceClient(client.GetConnection())
 	sessions := &edgeSourceSessions{}
 	coordinator := agent.NewRecoveryCoordinator(sp, proto.NewAgentGatewayServiceClient(client.GetConnection()), sessions.suspend)
 	var senders []*edgeLaneSender
@@ -177,7 +181,9 @@ func newEdgeRecordSenders(
 			client: edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()),
 			grants: gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())}})
 	}
-	return senders, closeAll, nil
+	late := &edgeLateSender{store: sp, client: edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()),
+		grants: gatewayLateGrantIssuer{client: gatewayClient}}
+	return senders, late, closeAll, nil
 }
 
 // edgeLaneSender visits at most 64 generations of its lane per tick, resuming
@@ -269,11 +275,125 @@ func (s *edgeLaneSender) runSource(ctx context.Context, source agent.RecordSpool
 			}
 		}
 	}
+	if s.store.LatePeerVersion() >= edgerecord.LateAdmissionProtocolVersion {
+		// This gateway may resolve a stale- or missing-fence record
+		// LATE_ADMISSION_REQUIRED; the bytes go to late storage first.
+		config.LateAdmissionProtocolVersion = edgerecord.LateAdmissionProtocolVersion
+		config.Relocate = s.store.RelocateLate
+	}
 	sender, err := edgesender.New(source.Source, s.client, config)
 	if err != nil {
 		return edgesender.Result{}, err
 	}
 	return sender.RunOnce(ctx)
+}
+
+// edgeLateSender delivers late generations and foreign-origin holds, one LATE
+// session per generation, only while the gateway advertises late admission. Until
+// then they stay on disk, accounted and reported as late_pending_gateway_support.
+type edgeLateSender struct {
+	store  *agent.RecordSpool
+	client edgesender.StreamClient
+	grants gatewayLateGrantIssuer
+}
+
+func (s *edgeLateSender) RunOnce(ctx context.Context) (edgesender.Result, error) {
+	if s.store.LatePeerVersion() < edgerecord.LateAdmissionProtocolVersion {
+		return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
+	}
+	var (
+		last edgesender.Result
+		errs []error
+	)
+	for _, source := range s.store.LateSources() {
+		config := edgesender.Config{
+			SpoolID: source.Identity.SpoolID, RouteProfile: source.Identity.Lane.RouteProfile,
+			TrafficClass:                 source.Identity.Lane.TrafficClass,
+			RequestedByteCredits:         edgeRecordSenderRequestedByteCredits,
+			RequestedFrameCredits:        edgeRecordSenderRequestedFrameCreds,
+			PersistAcknowledgements:      true,
+			LateAdmission:                true,
+			LateAdmissionProtocolVersion: edgerecord.LateAdmissionProtocolVersion,
+		}
+		// A hold is security quarantine only: core issues it no grant, so none is asked for.
+		if !source.Hold {
+			config.Grants = s.grants
+		}
+		sender, err := edgesender.New(source.Source, s.client, config)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		result, err := sender.RunOnce(ctx)
+		if err != nil && !errors.Is(err, edgesender.ErrNoUnresolvedRecords) {
+			errs = append(errs, fmt.Errorf("late generation %x: %w", source.Identity.SpoolID, err))
+		}
+		last = result
+	}
+	if len(errs) == 0 && len(last.Sent) == 0 {
+		return last, edgesender.ErrNoUnresolvedRecords
+	}
+	return last, errors.Join(errs...)
+}
+
+// gatewayLateGrantIssuer asks the gateway for core's production-time decision
+// (IssueEdgeLateAdmissionGrants) for records of one late generation.
+type gatewayLateGrantIssuer struct {
+	client proto.AgentGatewayServiceClient
+}
+
+func (g gatewayLateGrantIssuer) RenewDeliveryGrants(
+	ctx context.Context, spoolID []byte, records []spool.Record,
+) (map[uint64]*edgev1.EdgeSignedCapabilityV1, error) {
+	req := &proto.EdgeDeliveryGrantRequest{SpoolId: spoolID}
+	for _, rec := range records {
+		req.Records = append(req.Records, &proto.EdgeDeliveryGrantRecord{Sequence: rec.Sequence, RecordBytes: rec.Body})
+	}
+	resp, err := g.client.IssueEdgeLateAdmissionGrants(ctx, req, srgrpc.WithoutRetry())
+	if err != nil {
+		return nil, err
+	}
+	granted := make(map[uint64]*edgev1.EdgeSignedCapabilityV1, len(resp.GetResults()))
+	for _, result := range resp.GetResults() {
+		if capability := result.GetDeliveryCapability(); capability != nil {
+			granted[result.GetSequence()] = capability
+		}
+	}
+	return granted, nil
+}
+
+// pollLegacyHandoff hands records an older storage layout left behind to late
+// admission until that layout is gone (design Decision 8).
+func pollLegacyHandoff(ctx context.Context, sp *agent.RecordSpool, interval time.Duration, log logger.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		report, err := sp.HandOffLegacy()
+		switch {
+		case err == nil && len(report.Retired.Entries) > 0:
+			log.Info().Int("handed_off", report.HandedOff).Int("rejected", report.Rejected).
+				Strs("entries", report.Retired.Entries).Uint64("bytes", report.Retired.Bytes).
+				Msg("Handed off legacy edge storage to late admission and retired it")
+			return
+		case err == nil:
+			return
+		case errors.Is(err, agent.ErrLegacyHandoffInsufficientCapacity):
+			log.Warn().Uint64("pending", report.Pending).Uint64("capacity_needed_bytes", report.CapacityNeeded).
+				Str("reason", report.Reason).Msg("Legacy edge storage handoff waits for spool capacity; will retry")
+		case report.Reason == "unsupported_legacy_storage":
+			log.Warn().Uint64("retained_legacy_bytes", sp.RetainedLegacyBytes()).
+				Msg("Unsupported legacy edge storage retained; it holds entries no known layout accounts for")
+			return
+		default:
+			log.Warn().Err(err).Int("handed_off", report.HandedOff).Uint64("pending", report.Pending).
+				Str("reason", report.Reason).Msg("Legacy edge storage handoff pending; will retry")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 type edgeRecordRunner interface {
@@ -541,6 +661,7 @@ func edgeSpoolStatusSampler(sp *agent.RecordSpool, budget *edgeSpoolBudget) func
 		status := &proto.EdgeRecordSpoolStatus{Available: available, Error: detail,
 			BytesUsed: usage.OrdinaryUsed + usage.RecoveryUsed, BudgetBytes: usage.Capacity,
 			AdmissionPaused: budget.gate.BulkPaused(), RetainedLegacyBytes: sp.RetainedLegacyBytes()}
+		applyLateSpoolStatus(status, sp)
 		health, _, gaps, err := sampleRecordSpool(sp, time.Now())
 		if err != nil {
 			status.HealthError = err.Error()
@@ -592,4 +713,19 @@ func sampleRecordSpool(store *agent.RecordSpool, now time.Time) (spool.Health, s
 		quarantine.Evicted += q.Evicted
 	}
 	return health, quarantine, gaps, nil
+}
+
+// applyLateSpoolStatus reports what late admission still holds: the legacy handoff
+// backlog and the late generations not yet delivered, each with its reason.
+func applyLateSpoolStatus(status *proto.EdgeRecordSpoolStatus, sp *agent.RecordSpool) {
+	if handoff, ok := sp.LegacyHandoffStatus(); ok && handoff.Pending > 0 {
+		status.LegacyHandoffPendingRecords = handoff.Pending
+		status.LegacyHandoffReason = handoff.Reason
+	}
+	if pending := sp.LatePending(); pending > 0 {
+		status.LatePendingRecords = pending
+		if sp.LatePeerVersion() < edgerecord.LateAdmissionProtocolVersion {
+			status.LatePendingReason = "late_pending_gateway_support"
+		}
+	}
 }

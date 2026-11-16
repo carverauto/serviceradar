@@ -11,7 +11,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   Supports:
   - JSON log records (OTEL-style fields)
-  - OTLP protobuf `ExportLogsServiceRequest`
+  - OTLP protobuf `ExportLogsServiceRequest`, read only on `logs.otel`,
+    `logs.otel.*` and `logs.normalized.*`; on any other `logs.` subject a
+    protobuf body is refused
+  - Collector-normalized OTLP batches on `logs.normalized.<kind>`, which
+    require the `Sr-Log-Schema: otlp-normalized-v1` header and are stored
+    without running Zen rules again
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -35,17 +40,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.EventWriter.StableId
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
   require Logger
 
-  @redacted "[REDACTED]"
-  @sensitive_log_keys ~w(
-    authorization api_key apikey bearer cookie credential credentials jwt password
-    private_key secret secret_key seed signing_key token nkey_seed nkey
-  )
   @common_insert_placeholders %{
     trace_id: :logs_trace_id,
     span_id: :logs_span_id,
@@ -96,9 +97,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attribution = IngestAttribution.from_metadata(metadata)
 
     case_result =
-      case Jason.decode(data) do
-        {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
-        {:error, _} = error -> parse_log_payload(error, data, metadata)
+      if normalized_subject?(delivered_subject(metadata)) do
+        parse_normalized_log(data, metadata)
+      else
+        case Jason.decode(data) do
+          {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
+          {:error, _} = error -> parse_log_payload(error, data, metadata)
+        end
       end
 
     case_result
@@ -163,6 +168,41 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {:ok, count}
   end
 
+  # Subjects under `logs.normalized.` carry OTLP log batches a log collector
+  # has already run through its Zen rules. The broker lets only the log
+  # collector publish there, so these batches are stored without running the
+  # rules again. A JSON body is never read from these subjects, and a batch in
+  # a schema this release does not know is refused instead of being guessed at.
+  @normalized_subject_prefix "logs.normalized."
+  @normalized_schema "otlp-normalized-v1"
+
+  defp delivered_subject(metadata) do
+    case Map.fetch(metadata, :broker_subject) do
+      {:ok, subject} -> subject
+      :error -> metadata[:subject]
+    end
+  end
+
+  defp normalized_subject?(subject) when is_binary(subject),
+    do: String.starts_with?(subject, @normalized_subject_prefix)
+
+  defp normalized_subject?(_subject), do: false
+
+  defp parse_normalized_log(data, metadata) do
+    case IngestAttribution.header(metadata, "sr-log-schema") do
+      @normalized_schema ->
+        parse_protobuf_log(data, metadata)
+
+      schema ->
+        Logger.warning("Refusing normalized log batch with unsupported schema",
+          subject: delivered_subject(metadata),
+          schema: schema
+        )
+
+        nil
+    end
+  end
+
   defp parse_log_payload({:ok, json}, _data, metadata) do
     json
     |> normalize_json_log(metadata)
@@ -170,8 +210,28 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_log_payload({:error, _}, data, metadata) do
-    parse_protobuf_log(data, metadata)
+    if protobuf_subject?(delivered_subject(metadata)) do
+      parse_protobuf_log(data, metadata)
+    else
+      Logger.debug("Refusing non-JSON log on a JSON log subject",
+        subject: delivered_subject(metadata)
+      )
+
+      nil
+    end
   end
+
+  # Zen rules run on JSON logs only, so a protobuf body is read only where
+  # protobuf is the subject's format: OTLP logs, and collector-normalized
+  # batches handled above. Anywhere else under `logs.` it would reach storage
+  # without that subject's rules, so it is refused. A message with no subject
+  # keeps the older behavior.
+  defp protobuf_subject?(subject) when is_binary(subject) do
+    subject == "logs.otel" or String.starts_with?(subject, "logs.otel.") or
+      not String.starts_with?(subject, "logs.")
+  end
+
+  defp protobuf_subject?(_subject), do: true
 
   defp normalize_json_log(json, metadata) when is_map(json) do
     case ZenNormalizer.normalize_json(metadata[:subject], json) do
@@ -194,7 +254,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
-    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
+
+    source =
+      FieldParser.get_field(json, "source", "source") || source_kind(delivered_subject(metadata))
+
     scope_attributes = parse_scope_attributes(json)
     {severity_text, severity_number} = log_severity(json)
     source_ip = normalize_source_ip(json)
@@ -505,29 +568,36 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          metadata
        ) do
     {scope_name, scope_version} = parse_scope(scope)
+    scope_attributes = protobuf_scope_attributes(scope)
 
     Enum.flat_map(log_records, fn log_record ->
-      log_attributes = key_values_to_map(log_record.attributes)
-      log_attributes = attach_ingest_metadata(log_attributes, metadata)
+      record_attributes = key_values_to_map(log_record.attributes)
+      log_attributes = attach_ingest_metadata(record_attributes, metadata)
       log_id = generated_uuid()
-      source = source_kind(metadata[:subject])
+      source = source_kind(delivered_subject(metadata))
       {severity_text, severity_number} = protobuf_log_severity(log_record)
+      trace_id = OtelId.normalize_trace_id(log_record.trace_id)
 
       [
         %{
           id: log_id,
           timestamp: parse_otel_timestamp(log_record),
-          trace_id: OtelId.normalize_trace_id(log_record.trace_id),
+          observed_timestamp: protobuf_observed_timestamp(log_record) || metadata[:received_at],
+          trace_id: trace_id,
           span_id: OtelId.normalize_span_id(log_record.span_id),
+          trace_flags: protobuf_trace_flags(log_record, trace_id),
           severity_text: severity_text,
           severity_number: severity_number,
           body: any_value_to_body(log_record.body),
+          event_name: protobuf_event_name(log_record),
           source: source,
+          source_ip: normalize_source_ip(record_attributes),
           service_name: service_name,
           service_version: service_version,
           service_instance: service_instance,
           scope_name: scope_name,
           scope_version: scope_version,
+          scope_attributes: scope_attributes,
           attributes: log_attributes,
           resource_attributes: resource_attributes,
           created_at: DateTime.utc_now()
@@ -564,6 +634,30 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
+
+  defp protobuf_scope_attributes(%InstrumentationScope{attributes: attributes}),
+    do: key_values_to_map(attributes)
+
+  defp protobuf_scope_attributes(_), do: %{}
+
+  defp protobuf_observed_timestamp(%LogRecord{observed_time_unix_nano: observed})
+       when is_integer(observed) and observed > 0, do: FieldParser.parse_timestamp(observed)
+
+  defp protobuf_observed_timestamp(_), do: nil
+
+  # OTLP carries the W3C trace flags in the low byte of `flags`. proto3 cannot
+  # tell an unset field from zero, so flags are recorded only with a trace.
+  defp protobuf_trace_flags(_log_record, nil), do: nil
+
+  defp protobuf_trace_flags(%LogRecord{flags: flags}, _trace_id) when is_integer(flags),
+    do: Bitwise.band(flags, 0xFF)
+
+  defp protobuf_trace_flags(_log_record, _trace_id), do: nil
+
+  defp protobuf_event_name(%LogRecord{event_name: name}) when is_binary(name) and name != "",
+    do: name
+
+  defp protobuf_event_name(_), do: nil
 
   defp parse_otel_timestamp(%LogRecord{time_unix_nano: time, observed_time_unix_nano: observed}) do
     cond do
@@ -632,10 +726,21 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp build_ingest_metadata(metadata) do
     %{}
-    |> maybe_put_ingest(:subject, metadata[:subject])
+    |> maybe_put_ingest(:subject, delivered_subject(metadata))
     |> maybe_put_ingest(:reply_to, metadata[:reply_to])
     |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
-    |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
+    |> maybe_put_ingest(:source_kind, source_kind(delivered_subject(metadata)))
+    |> maybe_put_ingest(:ruleset_id, normalized_ruleset_id(metadata))
+  end
+
+  # The digest of the rule bundle the collector normalized the batch with.
+  defp normalized_ruleset_id(metadata) do
+    with true <- normalized_subject?(delivered_subject(metadata)),
+         ruleset_id when ruleset_id != "" <- IngestAttribution.header(metadata, "sr-ruleset-id") do
+      ruleset_id
+    else
+      _ -> nil
+    end
   end
 
   defp merge_ingest_metadata(attributes, ingest) do
@@ -654,8 +759,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp source_kind(subject) when is_binary(subject) do
     subject
     |> String.trim()
-    |> String.split(".", parts: 3)
+    |> String.split(".", parts: 4)
     |> case do
+      # `logs.normalized.syslog` is syslog, normalized by the collector.
+      ["logs", "normalized", source | _] when source != "" -> source
       ["logs", source | _] when source != "" -> source
       _ -> nil
     end
@@ -677,71 +784,19 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp redact_text_field(row, key) do
     case Map.get(row, key) do
-      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
+      value when is_binary(value) -> Map.put(row, key, SecretRedaction.redact_text(value))
       _ -> row
     end
   end
 
   defp redact_metadata_field(row, key) do
     case Map.get(row, key) do
-      value when is_map(value) or is_list(value) -> Map.put(row, key, redact_secret_value(value))
-      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
-      _ -> row
+      value when is_map(value) or is_list(value) or is_binary(value) ->
+        Map.put(row, key, SecretRedaction.redact_value(value))
+
+      _ ->
+        row
     end
-  end
-
-  defp redact_secret_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested} ->
-      if sensitive_log_key?(key) do
-        {key, @redacted}
-      else
-        {key, redact_secret_value(nested)}
-      end
-    end)
-  end
-
-  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
-  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
-  defp redact_secret_value(value), do: value
-
-  defp redact_secret_text(value) when is_binary(value) do
-    value
-    |> redact_erlang_secret("nkey_seed")
-    |> redact_erlang_secret("jwt")
-    |> redact_json_secret("nkey_seed")
-    |> redact_json_secret("jwt")
-    |> redact_json_secret("token")
-    |> redact_json_secret("password")
-    |> redact_json_secret("secret")
-    |> redact_json_secret("api_key")
-    |> redact_assignment_secret("authorization")
-    |> redact_assignment_secret("token")
-    |> redact_assignment_secret("password")
-    |> redact_assignment_secret("secret")
-    |> redact_assignment_secret("api_key")
-  end
-
-  defp redact_erlang_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*=>\s*<<")[^"]*(">>)/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_json_secret(value, key) do
-    Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_assignment_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
-  end
-
-  defp sensitive_log_key?(key) do
-    key
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]+/, "_")
-    |> then(fn normalized ->
-      normalized in @sensitive_log_keys or
-        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
-    end)
   end
 
   # A message that came from JetStream gets row ids derived from its identity

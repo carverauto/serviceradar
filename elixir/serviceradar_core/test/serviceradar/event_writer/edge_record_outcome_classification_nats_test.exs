@@ -7,7 +7,10 @@ defmodule ServiceRadar.EventWriter.EdgeRecordOutcomeClassificationNatsTest do
   """
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Broadway.Message
+  alias ServiceRadar.Dgraph
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrant
@@ -38,6 +41,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordOutcomeClassificationNatsTest do
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+  alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Producer
@@ -233,6 +237,90 @@ defmodule ServiceRadar.EventWriter.EdgeRecordOutcomeClassificationNatsTest do
       {:refused, :plugin_assignment_agent_mismatch,
        %{assignment_id: "00000000-0000-4000-8000-000000000502", agent_id: "edge-agent-01"}}
     end
+  end
+
+  defmodule DgraphWriteHandler do
+    @moduledoc false
+    # Writes through `ServiceRadar.Dgraph.Call`, as the hypervisor enrichment does, against a
+    # native client stub whose single reply is `Process.get(:dgraph_reply)`: `{message, kind}`.
+    @behaviour PluginResultHandler
+
+    @impl true
+    def supports?(_payload, _status), do: true
+
+    @impl true
+    def settled_reasons, do: []
+
+    @impl true
+    def refused_reasons, do: []
+
+    @impl true
+    def ingest(_payload, _status, _opts) do
+      {message, kind} = Process.get(:dgraph_reply)
+
+      submit = fn _deadline_ms ->
+        ref = make_ref()
+        send(self(), {:dgraph_nif_reply, ref, {:error, message}, {kind, 0, 0}})
+        {:ok, ref, ref}
+      end
+
+      Dgraph.Call.run(:upsert_device, submit, deadline_ms: 1_000, cancel: fn _ -> :cancelled end)
+    end
+  end
+
+  test "a Dgraph leader change is a transient failure that is redelivered, and a Dgraph refusal is not" do
+    {:ok, repo_pid} = FakeLedgerRepo.start_link()
+    FakeLedgerRepo.bind_process(repo_pid)
+    frame = build_plugin_frame([plugin_item("synthetic-proxmox-check")])
+
+    msg = %Message{
+      data: frame.record_bytes,
+      metadata: %{
+        headers: frame.headers,
+        subject: @source_subject,
+        dead_letter_after: 20,
+        max_deliver: -1,
+        jetstream_ack: %{
+          stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+          delivery_count: 1,
+          stream_sequence: 1
+        }
+      },
+      acknowledger: {Broadway.NoopAcknowledger, nil, nil}
+    }
+
+    project = fn reply ->
+      Process.put(:dgraph_reply, reply)
+
+      with_log(fn ->
+        EdgeRecord.process_batch([msg],
+          repo: FakeLedgerRepo,
+          projector_opts: plugin_projector_opts([DgraphWriteHandler])
+        )
+      end)
+    end
+
+    # Zero lost its leader mid-commit: the native client reports it as transient.
+    {result, log} =
+      project.(
+        {"dgraph (transient): RPC Error: Unknown: Only leader can decide to commit or abort",
+         :transient}
+      )
+
+    assert {:incomplete, 0, [{failed, %EdgeRecordTransientError{} = transient}]} = result
+    refute EdgeRecordDeadLetter.due?(Message.failed(failed, transient))
+    refute log =~ "[error]"
+    assert FakeLedgerRepo.ledger_count(repo_pid) == 0
+
+    # A schema refusal fails the same way on every delivery: it is not transient.
+    {result, log} =
+      project.(
+        {"dgraph: RPC Error: Unknown: Schema not defined for predicate: device.example", :error}
+      )
+
+    assert {:incomplete, 0, [{_failed, %RuntimeError{} = refusal}]} = result
+    assert Exception.message(refusal) =~ "Schema not defined"
+    assert log =~ "[error]"
   end
 
   test "settled outcome commits slot and ledger, increments PipelineStats :settled (not :projected), and ACKs without DLQ",
@@ -603,8 +691,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordOutcomeClassificationNatsTest do
     assert {:refused, :no_hosts} ==
              UnleasedSweepResults.classify_ingest_outcome({:declined, :no_hosts})
 
-    assert {:error,
-            %ServiceRadar.EventWriter.EdgeRecordTransientError{reason: :unresolved_sweep_group}} =
+    assert {:error, %EdgeRecordTransientError{reason: :unresolved_sweep_group}} =
              UnleasedSweepResults.classify_ingest_outcome({:declined, :unresolved_sweep_group})
 
     # 7. WorkloadIdentity, EndpointInventory, BumblebeeScan, TelemetryBatch deterministic refusals vs transient errors

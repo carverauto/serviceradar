@@ -1153,24 +1153,37 @@ func ValidateSweepRecord(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputCont
 	if err := ValidateRecordSigned(r, policy); err != nil {
 		return err
 	}
+	_, err := validateSweepBody(r, expected)
+	return err
+}
+
+// validateSweepBody is the authority-independent half of ValidateSweepRecord:
+// contract dispatch, framing, the decoded and deep-validated sweep body, and its
+// join to the record's signed source claims. Live admission pairs it with the
+// current-time rule (ValidateRecordSigned); late admission pairs it with the
+// production-time rule (ValidateRecordProduced). It returns the decoded body.
+func validateSweepBody(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputContractRef) (*edgev1.SweepObservationBatchV1, error) {
 	if err := dispatchContract(r, expected); err != nil {
-		return err
+		return nil, err
 	}
 	if err := requireFramingFamily(r); err != nil {
-		return err
+		return nil, err
 	}
 	inner, err := innerPayload(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var batch edgev1.SweepObservationBatchV1
 	if err := unmarshalPayload(inner, &batch); err != nil {
-		return err
+		return nil, err
 	}
 	if err := ValidateSweepObservationBatch(&batch); err != nil {
-		return err
+		return nil, err
 	}
-	return joinSweepAuthority(r, &batch)
+	if err := joinSweepAuthority(r, &batch); err != nil {
+		return nil, err
+	}
+	return &batch, nil
 }
 
 // ValidateMtrRecord is the composed MTR validator: signed whole-record validation,

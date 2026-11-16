@@ -237,6 +237,22 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert message.metadata.max_deliver == 9
     end
 
+    test "metadata keeps the subject the broker delivered on, whatever the headers claim" do
+      state = init_state(build_config(max_ack_pending: 8))
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+
+      msg = %{
+        body: "live",
+        topic: "logs.syslog",
+        reply_to: @reply_to,
+        headers: [{"Nats-Subject", "logs.normalized.syslog"}]
+      }
+
+      {:noreply, [message], _state} = Producer.handle_info({:msg, msg}, state)
+
+      assert message.metadata.broker_subject == "logs.syslog"
+    end
+
     test "exposure failures remain retryable beyond the ordinary delivery limit" do
       config = build_config(streams: [Config.exposure_transitions_stream()])
       state = init_state(config)

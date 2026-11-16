@@ -14,6 +14,8 @@ defmodule ServiceRadar.Edge.ClaimsFraming do
   """
 
   alias Serviceradar.Edge.V1.EdgeCapabilityPurpose
+  alias Serviceradar.Edge.V1.EdgeLateDecisionReason
+  alias Serviceradar.Edge.V1.EdgeLatePublication
   alias Serviceradar.Edge.V1.EdgeOriginKind
   alias Serviceradar.Edge.V1.EdgeRecordRouteProfile
   alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
@@ -191,6 +193,16 @@ defmodule ServiceRadar.Edge.ClaimsFraming do
 
   defp transition({:rollover, r}) do
     [u64(6), bytes(r.recovery_id), bytes(r.prior_spool_id), u64(r.prior_sequence || 0)]
+  end
+
+  defp transition({:late_admission, l}) do
+    [
+      u64(7),
+      i64(l.produced_at_unix_nano || 0),
+      u64(l.authority_epoch || 0),
+      u64(enum(EdgeLatePublication, l.publication)),
+      u64(enum(EdgeLateDecisionReason, l.reason))
+    ]
   end
 
   defp transition(_), do: u64(0)

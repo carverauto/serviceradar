@@ -282,6 +282,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       raise GRPC.RPCError, status: :invalid_argument, message: "route_profile and traffic_class are required"
     end
 
+    # A LATE session carries records admitted under the production-time rule, which
+    # only core's authority history can judge (add-edge-production-time-admission
+    # phase 2). Until this gateway implements that path it advertises no late
+    # admission and refuses the session, so a late record is never judged as live.
+    if lane_open.late_admission do
+      raise GRPC.RPCError,
+        status: :unimplemented,
+        message: "late admission sessions are not available on this gateway"
+    end
+
     class =
       case PublisherLane.for_lane(route_profile, traffic_class) do
         {:ok, class} -> class

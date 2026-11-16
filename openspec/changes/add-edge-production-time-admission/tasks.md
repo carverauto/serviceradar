@@ -6,109 +6,99 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 
 ## 1. Edge (Go), phase 1
 
-- [ ] 1.1 Add `EdgeDeliveryLateAdmissionV1`, `EdgeLatePublication`,
-      `EdgeLateDecisionReason` (including `LEDGER_PRUNED`),
-      `EdgeRecordLaneOpen.admission` and the `LATE_ADMISSION_REQUIRED`
-      rejection code (carried on a `REJECTED_PERMANENT` disposition) to
-      `proto/edge/v1/record.proto`, and `uint32
-      late_admission_protocol_version` to `EdgeRecordLaneOpen` (absent or 0
-      means today's live dispositions); an agent that implements the late
-      generation sends 1 on every lane open. Add `uint32
-      edge_late_admission_protocol_version` to `AgentHelloResponse`, through
-      which the gateway advertises `late_admission_v1` (value >= 1, set only
-      in phase 2). Regenerate the Go and
-      Elixir bindings together (`make verify-proto-edge-elixir` stays green).
-      Older peers fail closed on the unknown oneof member. The provenance
-      `LATE_ADMISSION` delivery mode (`DeliveryModeLateAdmission = 5`, the
-      MODIFIED four-decisions requirement) is not added here: it is implemented
-      in phase 2 with its Elixir peer (task 2.6), so phase 1 does not change
-      the shared Go/Elixir provenance vectors.
-- [ ] 1.2 Add `edgerecord.ValidateRecordProduced` (Decision 3, agent checks 1
-      to 5) and `RecordLateAttribution`. Classify the outcome as admissible,
-      admissible-security, foreign-principal, retryable or permanent. With a
-      loaded trust snapshot, an absent fence entry or scope binding, an epoch
-      ahead of the known fence and a `produced_at` ahead of the local clock are
-      admissible; only an unloaded snapshot or an `UNAVAILABLE` key is
-      retryable. The live
+Status: implemented in PR #6692 except where a task says otherwise.
+
+- [x] 1.1 Add `EdgeDeliveryLateAdmissionV1`, `EdgeLatePublication` and
+      `EdgeLateDecisionReason` (including `LEDGER_PRUNED`), the late-session
+      flag and `uint32 late_admission_protocol_version` on
+      `EdgeRecordLaneOpen` (absent or 0 means today's live dispositions), and
+      `uint32 edge_late_admission_protocol_version` on `AgentHelloResponse`.
+      Also add the `IssueEdgeLateAdmissionGrants` RPC and regenerate the Go
+      and Elixir bindings together. The late-session flag is
+      `bool late_admission` rather than an enum: the frozen enum-policy guards
+      require every enum's zero member to be UNSPECIFIED and refused, which an
+      older agent's lane open would hit, and an `optional` enum would need the
+      generated presence corpus. When the gateway's Hello advertised late
+      admission, every lane open (live and late) carries
+      `late_admission_protocol_version = 1` and `late_admission = true` is set
+      only on the late session; when Hello did not advertise it, neither field
+      is set, because an older gateway rejects unknown lane-open fields. The provenance
+      `LATE_ADMISSION` delivery mode (value 5) stays in phase 2 (task 2.6).
+- [x] 1.2 Add `edgerecord.ValidateRecordProduced` and
+      `RecordLateAttribution`. With a loaded trust snapshot, an absent fence
+      entry or scope binding, an epoch ahead of the known fence and a
+      `produced_at` ahead of the local clock are admissible; only an unloaded
+      snapshot or an `UNAVAILABLE` key is retryable. The live
       `ValidateRecordSigned` is unchanged.
-- [ ] 1.3 Extend `ValidateFrameSigned`, the Go oracle of the gateway decision,
-      with the late transition: late-session acceptance only, the binding of
-      `produced_at` and epoch, grant-decided publication, security quarantine
-      for a foreign origin principal (before the identity rejection, replacing
-      `identity_conflict`), a `HISTORICALLY_REVOKED` key, or an
-      `(assignment, epoch)` in the trust snapshot's terminal-interval list
-      (regardless of any grant), decided before the missing-grant withhold, a
-      retryable withhold for any other frame without a grant (including one
-      in core's future, unless a quarantine class applies first), and
-      `LATE_ADMISSION_REQUIRED` (`REJECTED_PERMANENT`) for any live-lane record
-      with a stale or missing fence, whatever its production window, or a
-      foreign origin principal, only when the session's `EdgeRecordLaneOpen.late_admission_protocol_version >= 1`;
-      otherwise today's live dispositions.
-- [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
-      and per-principal holds keyed by `(lane key, origin principal)`
-      (`<root>/late/<lane>/principal/<origin principal>/`).
-      They use the shared allocator, frozen identity, event-id deduplication on
-      append, and the existing reclaim path.
-- [ ] 1.5 Add `RecordSpool.AdmitLate`, which validates with
-      `ValidateRecordProduced` and appends to the late generation, or to the
-      hold for `(lane key, origin principal)` for a foreign origin principal. It never falls back to
-      live admission.
-- [ ] 1.6 Hand off legacy layouts in `OpenRecordSpool`: a `flat_v1` reader,
-      in-order handoff, durable append before the legacy resolve, foreign
-      principals to their hold, rejection evidence for permanent failures with
-      a paused or refused evidence write treated as retryable, retirement through
-      `RetireDrainedLegacyFlat`, and the readiness condition
-      `legacy_storage_handoff_pending`.
-- [ ] 1.7 Sender: open at most one late session per lane key, which drains the
-      lane key's late generation and its per-principal holds, with late
-      admission and separate credits, gated on the gateway advertising
-      `late_admission_v1`. Request late grants in place of renewals for the
-      agent's own late records only; send hold frames, `HISTORICALLY_REVOKED`
-      frames and frames core refused as `certificate_revoked_interval` without
-      waiting for a grant. On
-      `LATE_ADMISSION_REQUIRED`, append the exact record bytes durably to the
-      lane key's late generation, or to the `(lane key, origin principal)` hold
-      for a foreign origin, before persisting the live resolution, and never
-      copy it into the evicting local quarantine. Report
-      `late_pending_gateway_support`.
-- [ ] 1.8 Write fail-first tests:
+- [ ] 1.3 Extend the Go oracle of the gateway decision. Done:
+      `ValidateLateFrameSigned` accepts a late grant only on a late session,
+      binds `produced_at` and epoch, takes the publication from the grant,
+      and security-quarantines a foreign origin, a `HISTORICALLY_REVOKED` key
+      or a terminal interval before any grant. Remaining: the live-session
+      `LATE_ADMISSION_REQUIRED` oracle (gated on the lane-open version), which
+      lands with the gateway's emission of that code in task 2.6.
+- [x] 1.4 Add late generations and per-principal holds, as built:
+      `<root>/late/own/<lane>/<generation>` for the agent's own records, and
+      `<root>/late/hold/<origin principal hex>/<lane>/<generation>`, keyed by
+      `(lane key, origin principal)`, for foreign origins. They are charged to
+      the shared allocator but not to the producer admission gate, and use
+      frozen identity, event-id deduplication across every late set, and the
+      existing reclaim path.
+- [x] 1.5 Add `RecordSpool.AdmitLate`, which never falls back to live
+      admission. Session switching and the append are serialized per admit.
+- [x] 1.6 Hand off the pre-lane flat spool in order: durable late append
+      before the legacy resolve, foreign principals to their hold, rejection
+      evidence for permanent failures (a full evidence store is retryable and
+      never evicts), retirement through `RetireDrainedLegacyFlat`, and the
+      `legacy_handoff_pending_records` / `legacy_handoff_reason` status fields.
+- [x] 1.6a Capacity: a handoff pass copies nothing when free ordinary capacity
+      does not cover a conservative bound (one append charge plus one
+      generation charge for every record still to be appended). It reports
+      `insufficient_capacity` with `capacity_needed_bytes` and resumes on its
+      own once the spool budget (`edge_spool_max_bytes`) covers that need. On
+      live relocation, the extra charge is bounded by one session credit
+      window. Releasing a resolved prefix while unresolved records remain
+      (partial-prefix reclaim) is new spool durability and is deferred to its
+      own change.
+- [ ] 1.6b Raise the `legacy_storage_handoff_pending` readiness condition from
+      the carried `legacy_handoff_pending_records` / `legacy_handoff_reason`
+      fields; keep `unsupported_legacy_storage` only for unaccountable entries.
+      Today a pending handoff is reported under `unsupported_legacy_storage`.
+- [x] 1.7 Sender: one late session at a time, drained in order, with its own
+      credits and gated on the gateway advertising late admission. Late
+      grants are requested only for the agent's own late records; holds are
+      sent without grants. `LATE_ADMISSION_REQUIRED` resolutions are
+      relocated durably before the live resolution is persisted, and never
+      copied into the evicting quarantine. `late_pending_gateway_support`,
+      the handoff status and the readiness copy are reported.
+- [ ] 1.8 Write fail-first tests. Done:
   - a days-old flat-spool record, refused by live admission, handed off and
-    delivered on the late session to a Go gateway oracle that applies the late
-    grant;
-  - a compromise-revoked key record that never publishes PRIMARY and is
-    security-quarantined;
+    delivered PRIMARY on a late session to the Go gateway oracle;
+  - a compromise-revoked key record that is security-quarantined and never
+    PRIMARY;
+  - a crash between the late append and the flat resolve, and a
+    re-enrollment, each leaving one copy;
+  - a missing trust snapshot pausing the handoff in order;
+  - insufficient capacity with no partial copy and automatic resume;
+  - concurrent admits of two scopes;
+  - the relocation credit-window bound;
+  - a LATE lane open refused by the phase 1 gateway;
+  - the oracle's absent-fence, ahead-of-fence and terminal-interval cases.
+
+  Remaining:
   - an `INVALID` key record written to rejection evidence;
-  - a crash between the late append and the flat resolve that leaves one copy;
-  - a retryable refusal that pauses the handoff in order;
-  - a refused rejection-evidence write that leaves the legacy record unresolved;
-  - a foreign-principal record routed to its hold while the agent's own records
-    hand off past it, and never published PRIMARY even with a grant;
-  - a `LATE_ADMISSION_REQUIRED` live record appended durably to the late
-    generation before the live resolution is persisted;
-  - a LATE lane open refused by a phase 1 gateway;
-  - a flat record whose assignment was deleted (no fence entry or scope
-    binding in a loaded snapshot) that is admissible late, not retried;
-  - a hold frame without a grant that is quarantined and does not stall the
-    agent's own late records behind it;
-  - a live record with a stale fence and a still-open production window
-    resolved as `LATE_ADMISSION_REQUIRED` on a lane open with
-    `late_admission_protocol_version = 1`, and today's disposition for the
-    same record on a lane open with version 0;
-  - a `produced_at` ahead of the local clock, and an epoch ahead of the known
-    fence, appended to the late generation without stopping the handoff.
-- [ ] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta and
-      `legacy-recovery-decision.md` so the "SHALL NOT migrate, drain" sentence
-      for flat storage points to this handoff, which is not a recovery
-      operation, and update `docs/docs/durable-edge-records.md`.
-- [ ] 1.10 Gateway: refuse an `EdgeRecordLaneOpen` with `admission = LATE`, and
-      do not advertise `late_admission_v1`, until phase 2 implements the late
-      path. The regenerated Elixir bindings decode the field, so the refusal
-      must be explicit.
-- [ ] 1.11 Parse the trust document's terminal-interval list
-      (`certificate_revoked` and `revoked_cause_unknown` intervals by
-      `(producer_assignment_id, network_scope_id, run_shard,
-      authority_epoch)`) into the Go `TrustSnapshot`, separately from the
-      current fences, for the oracle in task 1.3.
+  - a refused evidence write that leaves the legacy record unresolved;
+  - a foreign-principal record routed to its hold;
+  - a hold frame without a grant that does not stall the agent's own late
+    records;
+  - the live-session `LATE_ADMISSION_REQUIRED` version gating, together with
+    task 1.3's remainder.
+- [x] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta,
+      `legacy-recovery-decision.md` and `docs/docs/durable-edge-records.md`.
+- [x] 1.10 Gateway: refuse a lane open with `late_admission = true`
+      (`UNIMPLEMENTED`) and do not advertise late admission until phase 2.
+- [x] 1.11 Parse the trust document's `terminal_intervals` into the Go
+      `TrustSnapshot`, separately from the current fences.
 
 ## 2. Core and gateway (Elixir), phase 2. Deploy before late sessions do anything; until then late records stay on disk, accounted and reported.
 
@@ -143,7 +133,7 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       presents it, returning `certificate_revoked_interval`, a "not yet"
       answer for a record whose `produced_at` is in core's future,
       plus a gateway RPC for late grants within the existing batch bounds.
-- [ ] 2.6 Gateway: add late sessions (`admission = LATE`), replacing the
+- [ ] 2.6 Gateway: add late sessions (`late_admission = true`), replacing the
       phase 1 refusal, and late-grant verification in
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
       resolve any live record with a stale or missing fence, whatever its

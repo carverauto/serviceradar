@@ -50,6 +50,7 @@ var (
 	errObjectTooLarge           = errors.New("object exceeds configured maximum size")
 	errObjectStoreFull          = errors.New("object store bucket is full")
 	errInvalidPageToken         = errors.New("invalid page token")
+	errRBACKeyPrefixEmpty       = errors.New("rbac key_prefixes entries cannot be empty")
 )
 
 // ErrCASMismatch indicates a compare-and-swap failure due to a stale revision.

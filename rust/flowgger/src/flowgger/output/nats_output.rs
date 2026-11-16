@@ -735,6 +735,9 @@ impl NATSWorker {
         let mut pending_bytes = 0usize;
         let mut staged: Option<Vec<u8>> = None;
         let mut closed = false;
+        // The first fatal error, and when to stop waiting for the records
+        // already admitted. Nothing more is admitted once it is set.
+        let mut fatal: Option<(String, tokio::time::Instant)> = None;
 
         loop {
             if let Some(bytes) = staged.as_ref()
@@ -758,11 +761,16 @@ impl NATSWorker {
                 });
                 continue;
             }
-            if closed && staged.is_none() && pending.is_empty() {
+            if staged.is_none() && pending.is_empty() && (closed || fatal.is_some()) {
                 let current = connection.lock().await.clone();
                 publisher.flush_on_close(&current).await;
-                return Ok(());
+                return match fatal {
+                    Some((error, _)) => Err(error),
+                    None => Ok(()),
+                };
             }
+            let drain_deadline = fatal.as_ref().map(|(_, deadline)| *deadline);
+            let mut failure = None;
             tokio::select! {
                 // Surface failures before accepting more records when both are
                 // ready. Completed tasks still occupy their admission slots.
@@ -771,24 +779,45 @@ impl NATSWorker {
                     let (size, result) = completion.unwrap()
                         .map_err(|err| format!("Flowgger NATS publish task failed: {err}"))?;
                     pending_bytes -= size;
-                    result?;
+                    failure = result.err();
                 }
-                record = records.recv(), if !closed && staged.is_none() && pending.len() < self.cfg.max_inflight => {
+                // select! evaluates this expression even when the branch is disabled.
+                _ = tokio::time::sleep_until(drain_deadline.unwrap_or_else(tokio::time::Instant::now)), if drain_deadline.is_some() => {
+                    let (error, _) = fatal.take().unwrap();
+                    return Err(format!(
+                        "{error}; abandoned {} pending and {} staged NATS records after waiting {:?} for their acknowledgments",
+                        pending.len(), usize::from(staged.is_some()), self.cfg.timeout,
+                    ));
+                }
+                record = records.recv(), if fatal.is_none() && !closed && staged.is_none() && pending.len() < self.cfg.max_inflight => {
                     match record {
                         Some(Ok(bytes)) => {
                             let bytes = self.prepare_record(bytes);
                             if bytes.len() > self.cfg.max_inflight_bytes {
-                                return Err(format!(
+                                failure = Some(format!(
                                     "NATS encoded record has {} bytes, exceeding output.nats_max_inflight_bytes={}; refusing to drop it or exceed the publish budget",
                                     bytes.len(), self.cfg.max_inflight_bytes,
                                 ));
+                            } else {
+                                staged = Some(bytes);
                             }
-                            staged = Some(bytes);
                         }
-                        Some(Err(err)) => return Err(err),
+                        Some(Err(err)) => failure = Some(err),
                         None => closed = true,
                     }
                 }
+            }
+            match (failure, &fatal) {
+                // The output still fails. Records already admitted get one
+                // publish timeout to be acknowledged first, so the exit is
+                // bounded even when reconnects are unlimited.
+                (Some(error), None) => {
+                    fatal = Some((error, tokio::time::Instant::now() + self.cfg.timeout));
+                }
+                (Some(error), Some(_)) => {
+                    eprintln!("NATS publish failed while the output was already failing: {error}");
+                }
+                (None, _) => {}
             }
         }
     }

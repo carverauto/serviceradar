@@ -158,6 +158,18 @@ type Config struct {
 	// RequireDeliveryGrant keeps relocated records behind their registered
 	// copy authority even while the original production grant remains current.
 	RequireDeliveryGrant bool
+	// LateAdmission marks a LATE session: its generation holds late-admitted records.
+	// It asks Grants for a late-admission decision for every record it sends, but
+	// never waits for one: a record without one is withheld by the gateway, and a
+	// foreign-origin or compromise-key record is quarantined without one.
+	LateAdmission bool
+	// LateAdmissionProtocolVersion is advertised on lane_open. Set it only when the
+	// gateway's hello advertised late admission: an older gateway rejects the field.
+	LateAdmissionProtocolVersion uint32
+	// Relocate takes the exact bytes of a record the gateway resolved
+	// LATE_ADMISSION_REQUIRED into late storage BEFORE that resolution is persisted.
+	// An error leaves the acknowledgement replayable.
+	Relocate func(spool.Record) error
 }
 
 func (c Config) validate() error {
@@ -266,14 +278,16 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 	firstUnresolved := s.spool.Resolved() + 1
 
 	open := &edgev1.EdgeRecordLaneOpen{
-		RouteProfile:            s.cfg.RouteProfile,
-		TrafficClass:            s.cfg.TrafficClass,
-		SpoolId:                 s.cfg.SpoolID,
-		SequenceBase:            1,
-		FirstUnresolvedSequence: firstUnresolved,
-		SessionNonce:            nonce,
-		RequestedByteCredits:    s.cfg.RequestedByteCredits,
-		RequestedFrameCredits:   s.cfg.RequestedFrameCredits,
+		RouteProfile:                 s.cfg.RouteProfile,
+		TrafficClass:                 s.cfg.TrafficClass,
+		SpoolId:                      s.cfg.SpoolID,
+		SequenceBase:                 1,
+		FirstUnresolvedSequence:      firstUnresolved,
+		SessionNonce:                 nonce,
+		RequestedByteCredits:         s.cfg.RequestedByteCredits,
+		RequestedFrameCredits:        s.cfg.RequestedFrameCredits,
+		LateAdmission:                s.cfg.LateAdmission,
+		LateAdmissionProtocolVersion: s.cfg.LateAdmissionProtocolVersion,
 	}
 	if err := edgerecord.ValidateLaneOpen(open); err != nil {
 		return Result{}, fmt.Errorf("sender: built lane_open failed local validation: %w", err)
@@ -537,6 +551,9 @@ func (s *Sender) persistAcknowledgement(validated *edgerecord.ValidatedAck) erro
 			return fmt.Errorf("sender: persist recovery receipt: %w", err)
 		}
 	}
+	if err := s.relocateLate(ack, session.ResolvedThrough); err != nil {
+		return err
+	}
 	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= session.ResolvedThrough {
 		return nil
 	}
@@ -546,6 +563,48 @@ func (s *Sender) persistAcknowledgement(validated *edgerecord.ValidatedAck) erro
 	}
 	if err := s.spool.ResolveWithEvidence(ack.GetResolvedThroughSequence(), evidence); err != nil {
 		return fmt.Errorf("sender: persist terminal acknowledgement: %w", err)
+	}
+	return nil
+}
+
+// relocateLate hands every record of the resolving prefix that the gateway
+// resolved LATE_ADMISSION_REQUIRED to late storage before the prefix is persisted.
+// Without a Relocate hook such a disposition is refused: this agent did not
+// advertise late admission, so a gateway sending it would strand the record.
+func (s *Sender) relocateLate(ack *edgev1.EdgeDeliveryAckV1, resolvedThrough uint64) error {
+	var wanted map[uint64]bool
+	for _, d := range resolvingPrefix(ack).GetDispositions() {
+		if d.GetSequence() <= resolvedThrough || d.GetRejectionCode() != edgerecord.RejectionLateAdmissionRequired ||
+			d.GetKind() != edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT {
+			continue
+		}
+		if wanted == nil {
+			wanted = make(map[uint64]bool)
+		}
+		wanted[d.GetSequence()] = true
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	if s.cfg.Relocate == nil {
+		return fmt.Errorf("%w: LATE_ADMISSION_REQUIRED without late admission", ErrUnexpectedPayload)
+	}
+	var relocateErr error
+	scanErr := s.spool.ScanFrom(resolvedThrough, func(rec spool.Record) bool {
+		if !wanted[rec.Sequence] {
+			return rec.Sequence < ack.GetResolvedThroughSequence()
+		}
+		delete(wanted, rec.Sequence)
+		if relocateErr = s.cfg.Relocate(rec); relocateErr != nil {
+			return false
+		}
+		return len(wanted) > 0
+	})
+	if err := errors.Join(scanErr, relocateErr); err != nil {
+		return fmt.Errorf("sender: relocate late record: %w", err)
+	}
+	if len(wanted) > 0 {
+		return fmt.Errorf("%w: LATE_ADMISSION_REQUIRED for a record this lane does not hold", ErrUnexpectedPayload)
 	}
 	return nil
 }

@@ -87,6 +87,19 @@ A stream whose replicas are greater than or equal to `nats.replicas` SHALL count
 - **WHEN** `helm upgrade` renders the chart
 - **THEN** rendering SHALL succeed
 
+### Requirement: Propagate allowOvercommit to NATS server config
+When `nats.jetstream.allowOvercommit` is true, the chart SHALL emit `allow_overcommit: true` in the rendered NATS server JetStream configuration block so the NATS server itself does not enforce reservation accounting. Without this flag in the server config, NATS rejects stream and object-store placement (err 10005, "insufficient storage") when available `max_file_store` is exhausted, even after the Helm render-time budget check passes or is bypassed.
+
+#### Scenario: allow_overcommit reaches the server config
+- **GIVEN** `nats.jetstream.allowOvercommit: true`
+- **WHEN** `helm template` renders the NATS server configuration
+- **THEN** the JetStream block SHALL contain `allow_overcommit: true`
+
+#### Scenario: allow_overcommit absent when not set
+- **GIVEN** `nats.jetstream.allowOvercommit` is false or unset
+- **WHEN** `helm template` renders the NATS server configuration
+- **THEN** the JetStream block SHALL NOT contain `allow_overcommit`
+
 ### Requirement: NATS file store fits the disk
 The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byte size of `nats.persistence.size`, and the message SHALL point at the volume-expansion runbook. `nats.jetstream.allowOvercommit` SHALL NOT skip this check.
 
