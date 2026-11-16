@@ -22,22 +22,41 @@ spec:
   imagePullSecrets:
     - name: registry-carverauto-dev-cred
 
-  # k8s-cp3-worker3 cannot pull the digest-pinned Harbor CNPG image (ImagePullBackOff).
-  # The BuildBuddy fleets already exclude it. Leave the replica off that node so TLS
-  # reload is not performed on a 1/2 cluster.
+  # Postgres-role nodes only (k8s-cp2-cnpg1 / k8s-cp3-cnpg1), the same placement the other
+  # dedicated CNPG clusters use: nodeSelector + toleration for the `cnpg.io/dedicated` taint,
+  # storage on `local-path-cnpg` (/mnt/cnpg; the root disk there is small). Core Integration
+  # lanes used to stall for seconds while the primary shared an oversubscribed worker VM with
+  # an RBE executor and a workflow runner; the postgres-role VMs see almost no CPU steal.
+  # With two instances and preferred anti-affinity, one instance lands on each node.
+  #
+  # Moving an existing cluster here does not happen by itself: local-path volumes are pinned
+  # to their node, so a re-created pod stays Pending. Replace one instance at a time (destroy
+  # the replica, let CNPG rebuild it here, switch over to it, then destroy the old primary),
+  # and only while no CI run holds fixture connections.
   affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                  - k8s-cp3-worker3
+    nodeSelector:
+      cnpg.io/dedicated: "true"
+    tolerations:
+      - key: cnpg.io/dedicated
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+
+  # Sized from 7 days of use (2026-11-15) on the primary: CPU p95 2.7 cores, 5-minute peak
+  # 6.5, 1-minute peak 13; memory RSS peak 7.3 GiB, working set peak 10.2 GiB. The request
+  # reserves a share under contention; no CPU limit, because CFS throttling would bring back
+  # the stalls this placement removes. The memory limit protects the other databases on these
+  # nodes (30 GiB each).
+  resources:
+    requests:
+      cpu: "4"
+      memory: 8Gi
+    limits:
+      memory: 16Gi
 
   storage:
     size: 20Gi
-    storageClass: local-path
+    storageClass: local-path-cnpg
 
   bootstrap:
     initdb:

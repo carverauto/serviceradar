@@ -4,5 +4,6 @@ exports_files([
     "values.yaml",
     "values-longshore-qualification.yaml",
     "values-workflows-lig.yaml",
+    "values-workflows-pr.yaml",
     "values-workflows.yaml",
 ])
