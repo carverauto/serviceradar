@@ -547,10 +547,13 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
   test "wrong staged bytes and duplicate lease fields cannot consume a provider grant", ctx do
     assert {:ok, %{status: 503}} = raw_upload(ctx, bytes: :binary.copy("x", byte_size(ctx.bytes)))
     duplicate = @lease |> Jason.encode!() |> String.replace("{", ~s({"id":"duplicate",), global: false)
-    assert {:ok, %{status: 400}} = raw_upload(ctx, lease: duplicate)
+    # A body at the route's 16 MiB limit cannot sit in the socket buffers. The
+    # client reads each refusal only because the server drains the body first.
+    refused = :binary.copy("r", 16_777_216)
+    assert {:ok, %{status: 400}} = raw_upload(ctx, lease: duplicate, bytes: refused)
 
     assert {:ok, %{status: 400}} =
-             raw_upload(ctx, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
+             raw_upload(ctx, bytes: refused, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
 
     assert Agent.get(ctx.store, & &1.provider) == []
     refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
@@ -654,6 +657,17 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
 
     assert Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end) ==
              challenges
+  end
+
+  test "a refused init body is drained only up to the route's limit before the refusal", ctx do
+    # Declares more than the 1,400,000-byte init limit and sends one byte past
+    # it. A drain that kept reading would wait for the rest until the 5s init
+    # deadline instead of answering.
+    socket = upload_socket(ctx, 2_000_000, :binary.copy("x", 1_400_001), content_type: "text/plain")
+    assert {:ok, response} = :ssl.recv(socket, 0, 2_000)
+    assert response =~ "400"
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert [{"/v1/init-authorities/challenge", _}] = Agent.get(ctx.store, & &1.core)
   end
 
   @tag kind: :media
@@ -977,12 +991,13 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     )
   end
 
-  defp upload_socket(ctx, length, bytes \\ "") do
+  defp upload_socket(ctx, length, bytes \\ "", opts \\ []) do
     options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
     assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
     on_exit(fn -> :ssl.close(socket) end)
 
-    content_type = if ctx.kind == :init, do: "application/json", else: "application/octet-stream"
+    default_type = if ctx.kind == :init, do: "application/json", else: "application/octet-stream"
+    content_type = Keyword.get(opts, :content_type, default_type)
     lease_header = if ctx.kind == :init, do: [], else: ["\r\nX-ServiceRadar-Upload-Lease: ", Jason.encode!(@lease)]
 
     assert :ok =
