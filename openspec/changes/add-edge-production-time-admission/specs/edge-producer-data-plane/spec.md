@@ -118,9 +118,11 @@ SHALL receive a grant with AUDIT publication and one reason:
 `fenced_at_production`, `history_unknown`, `compromise_ended`,
 `beyond_late_window`, `ledger_pruned` or `contract_retired`. Core SHALL issue
 no grant only for an item that does not bind to the requesting agent,
-including a record whose origin principal is not the requesting agent; such a
-frame SHALL NOT be rejected, and the gateway SHALL publish it to security
-quarantine without a grant.
+including a record whose origin principal is not the requesting agent
+(`not_assignment_owner`), and for a record naming an interval that ended with
+`certificate_revoked` (`certificate_revoked_interval`); such a frame SHALL NOT
+be rejected, and the gateway SHALL publish it to security quarantine without a
+grant.
 
 #### Scenario: A record produced while its epoch was live is applied after the epoch moved
 - **GIVEN** an output grant whose epoch 4 was live from day 1 to day 5 and whose epoch 5 is live now
@@ -138,10 +140,15 @@ quarantine without a grant.
 - **AND** SHALL NOT infer an interval from the current row
 
 #### Scenario: A deleted assignment still has history
-- **GIVEN** a sweep producer assignment that lifecycle cleanup deleted after its epoch ended
-- **WHEN** a late record produced during that epoch arrives within the late age
-- **THEN** core SHALL decide it from the retained history interval
+- **GIVEN** a sweep producer assignment that lifecycle cleanup deleted, so its history interval was closed with `ended_reason = deleted`
+- **WHEN** a late record produced during that interval arrives within the late age
+- **THEN** core SHALL decide it from the closed history interval
 - **AND** SHALL NOT withhold it for a missing fence
+
+#### Scenario: A record produced after the delete is audit only
+- **GIVEN** the same deleted assignment
+- **WHEN** a late record naming its epoch was produced after the delete
+- **THEN** core SHALL issue a late grant with AUDIT publication and reason `fenced_at_production`
 
 #### Scenario: Another agent cannot claim the record
 - **WHEN** a late grant request names an assignment whose history interval binds a different agent
@@ -150,8 +157,11 @@ quarantine without a grant.
 ### Requirement: Authority history is append-only and written by every writer
 Core SHALL record every producer-assignment and output-grant authority interval in an append-only `platform.edge_authority_history` table, written by a database trigger on insert, on any change of epoch, state, agent, network scope or run shard, and on delete.
 
-The trigger SHALL close the open interval and open the next in the same
+An insert SHALL open an interval. An update of epoch, state, agent, network
+scope or run shard SHALL close the open interval and open the next in the same
 transaction, so a raw upsert that bypasses Ash changesets is recorded too. A
+delete SHALL only close the open interval with `ended_reason = deleted` and
+SHALL NOT open a successor. A
 history row SHALL be updated only once, to set `active_until` and
 `ended_reason`, and SHALL NOT reference the assignment by foreign key, so
 deleting an assignment keeps its history. Revoking an agent's grants SHALL record
@@ -167,6 +177,11 @@ least `late_admission_max_age_seconds` after their last signed window ends.
 - **WHEN** an assignment's epoch changes through a raw `on_conflict` update
 - **THEN** the previous interval SHALL be closed and a new interval opened in the same transaction
 
+#### Scenario: A delete closes the interval without opening another
+- **WHEN** an assignment row is deleted, including through `ON DELETE CASCADE`
+- **THEN** its open interval SHALL be closed with `ended_reason = deleted`
+- **AND** no interval for that assignment SHALL remain open
+
 #### Scenario: History rows cannot be rewritten
 - **WHEN** any statement tries to change `authority_epoch`, `active_from` or the binding columns of an existing history row
 - **THEN** the statement SHALL fail
@@ -178,9 +193,11 @@ The gateway SHALL accept a late grant only when it is signed by a key valid for
 the `delivery` purpose, is current, and its `produced_at` and epoch equal the
 record's. A late grant SHALL NOT be accepted where a renewal or rollover is
 expected, nor the reverse. On a late session, a frame whose production or
-source key is compromise-revoked, or whose origin principal is not the
-authenticated agent, SHALL be published to security quarantine without a
-grant, decided before the missing-grant check; any other frame with no valid
+source key is compromise-revoked, whose origin principal is not the
+authenticated agent, or for which core refused a grant as
+`certificate_revoked_interval` (learned from the late-grant RPC response),
+SHALL be published to security quarantine without a grant, decided before the
+missing-grant check; any other frame with no valid
 late grant SHALL be withheld as retryable. The agent SHALL send those
 quarantine-bound frames without waiting for a grant, so they never stall the
 host's own late records.
@@ -202,13 +219,17 @@ transport provenance on both the primary and audit routes.
 - **AND** the host's own late records behind it SHALL proceed
 
 ### Requirement: Compromise and certificate revocation never backfill
-A late record SHALL NOT be published PRIMARY when its production or source signing key is compromise-revoked, when its origin principal's certificate was revoked, or when the authority interval it names ended for an explicit `compromised` reason.
+A late record SHALL NOT be published PRIMARY when its production or source signing key is compromise-revoked, when the authority interval it names ended with `certificate_revoked`, or when that interval ended for an explicit `compromised` reason.
 
-A compromise-revoked key SHALL route the record to security quarantine.
-Records of a principal whose certificate was revoked, including records
-produced before the revocation, SHALL reach security quarantine only, through
-the per-principal hold; core SHALL issue no grant for them and they SHALL NOT
-receive PRIMARY or AUDIT publication. An interval ended for an explicit
+A compromise-revoked key SHALL route the record to security quarantine. A
+late record naming an interval that ended with `certificate_revoked`,
+including one produced before the revocation, SHALL reach security quarantine
+only, whoever presents it: a successor through the per-principal hold, or the
+same principal on a new certificate or after re-enrollment from its own late
+generation. Core SHALL issue no grant for it and SHALL return
+`certificate_revoked_interval`; the gateway SHALL publish it to security
+quarantine before the missing-grant withhold, and it SHALL NOT receive PRIMARY
+or AUDIT publication. An interval ended for an explicit
 `compromised` reason, presented by its own still-authenticated principal,
 SHALL yield AUDIT (`compromise_ended`) for every late record that names it.
 Normal key rotation, reassignment and epoch changes SHALL NOT block PRIMARY
@@ -220,6 +241,13 @@ was live.
 - **WHEN** the successor presents a late record the revoked principal produced before the revocation
 - **THEN** the gateway SHALL publish it only to security quarantine
 - **AND** core SHALL issue no grant for it
+
+#### Scenario: The same principal re-authenticating after revocation gets quarantine only
+- **GIVEN** an agent whose certificate was revoked by operator request, closing its output grant interval with `certificate_revoked`, and which later authenticates again under the same principal
+- **WHEN** it presents a late record produced during the revoked interval
+- **THEN** core SHALL issue no grant and SHALL return `certificate_revoked_interval`
+- **AND** the gateway SHALL publish the record only to security quarantine, before the missing-grant withhold
+- **AND** the record SHALL NOT be projected or AUDIT-applied
 
 #### Scenario: An explicitly compromised interval is audit only
 - **GIVEN** an output grant interval that ended with reason `compromised`

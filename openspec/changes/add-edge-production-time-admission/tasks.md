@@ -46,8 +46,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       lane key's late generation and its per-principal holds, with late
       admission and separate credits, gated on the gateway advertising
       `late_admission_v1`. Request late grants in place of renewals for the
-      agent's own late records only; send hold frames and
-      `HISTORICALLY_REVOKED` frames without waiting for a grant. On
+      agent's own late records only; send hold frames, `HISTORICALLY_REVOKED`
+      frames and frames core refused as `certificate_revoked_interval` without
+      waiting for a grant. On
       `late_admission_required`, append the exact record bytes durably to the
       lane key's late generation, or to the `(lane key, origin principal)` hold
       for a foreign origin, before persisting the live resolution. Report
@@ -86,10 +87,14 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 ## 2. Core and gateway (Elixir), phase 2. Deploy before late sessions do anything; until then late records stay on disk, accounted and reported.
 
 - [ ] 2.1 Migration: `platform.edge_authority_history`, its triggers on
-      `sweep_producer_assignments` and `edge_output_grants` (insert, update and
-      delete), an immutability guard, and seeding from current rows.
+      `sweep_producer_assignments` and `edge_output_grants` (insert opens;
+      update closes and opens; delete only closes with `deleted`), an
+      immutability guard, and seeding from current rows.
 - [ ] 2.2 Make `OutputGrants.revoke_agent` record its cause:
-      `identity_superseded` or `certificate_revoked`.
+      `identity_superseded` or `certificate_revoked`, on every revocation path
+      including an operator-request certificate revocation that leaves the
+      principal able to authenticate. A `certificate_revoked` interval routes
+      its late records to security quarantine whoever presents them.
 - [ ] 2.3 Add `late_admission_max_age_seconds` to `PipelineSettings` with a
       code default of 14 days. Raise `EdgeLedgerRetentionWorker`'s horizon to
       at least that age. Persist a monotonic `ledger_complete_since`, seeded
@@ -103,15 +108,18 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/…` with the history
       decision (Decision 3, checks 6 to 9, including `ledger_pruned`), reasons
       no grant for non-owners or a foreign origin principal (the gateway
-      quarantines those), no grant path for a `certificate_revoked` interval,
+      quarantines those), and no grant for a record naming a
+      `certificate_revoked` interval whoever presents it, returning
+      `certificate_revoked_interval`,
       plus a gateway RPC for late grants within the existing batch bounds.
 - [ ] 2.6 Gateway: add late sessions (`admission = LATE`), replacing the
       phase 1 refusal, and late-grant verification in
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
       resolve any live record with a stale or missing fence, whatever its
       production window, as `late_admission_required`. Publish
-      foreign-principal and `HISTORICALLY_REVOKED` frames to security
-      quarantine before the missing-grant withhold, recording the origin and
+      foreign-principal, `HISTORICALLY_REVOKED` and
+      `certificate_revoked_interval` frames to security quarantine before the
+      missing-grant withhold, recording the origin and
       presenting principals. Assign
       the provenance `LATE_ADMISSION` delivery mode (grammar-8 transport
       provenance, value 5) in Go and Elixir together, and advertise
@@ -121,7 +129,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       grant decision, and make current-state projectors apply by
       `produced_at` without regressing state.
 - [ ] 2.8 Write database tests on srql-fixtures: a raw upsert records history,
-      history rows are immutable, primary versus `fenced_at_production` versus
+      a delete closes the interval without opening a successor, history rows
+      are immutable, a same-principal record naming a `certificate_revoked`
+      interval gets no grant (`certificate_revoked_interval`), primary versus `fenced_at_production` versus
       `history_unknown` versus `compromise_ended` versus `beyond_late_window`
       versus `ledger_pruned`, an unpruned ledger leaves the upgrade tail
       PRIMARY-eligible, a `produced_at` within the clock tolerance after the

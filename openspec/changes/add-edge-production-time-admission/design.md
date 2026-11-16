@@ -152,10 +152,12 @@ The agent does not apply the maximum late age. Core owns that bound
    tolerance`. In other words, the epoch the record names was the live epoch
    of that assignment when the record was produced.
 7. **Not compromise-ended.** The interval did not end for an explicit
-   `compromised` reason. An interval ended by `certificate_revoked` is never
-   presented by its own principal, because revocation denylists it; its
-   records reach security quarantine through the per-principal hold
-   (Decision 6) and never receive a grant.
+   `compromised` reason. A record naming an interval that ended with
+   `certificate_revoked` is not judged by checks 6 to 9 at all: whoever
+   presents it, including the same principal on a new certificate or after
+   re-enrollment, core issues no grant and returns the refusal
+   `certificate_revoked_interval`, and the gateway publishes the frame to
+   security quarantine (Decision 6).
 8. **Age and ledger coverage.** `now - produced_at <=
    late_admission_max_age`, and `produced_at >= ledger_complete_since + clock
    tolerance` (Decision 5).
@@ -168,8 +170,11 @@ If the record verified but any of checks 6 to 9 fails, core issues a grant with
 `history_unknown`, `compromise_ended`, `beyond_late_window`, `ledger_pruned`
 or `contract_retired`. Core never refuses a verified record outright. Core
 issues no grant only for an item that does not bind to the requesting agent,
-such as a foreign origin principal. That frame is not rejected: the gateway
-publishes it to security quarantine without a grant.
+such as a foreign origin principal (`not_assignment_owner`), and for a record
+naming a `certificate_revoked` interval (`certificate_revoked_interval`).
+Neither frame is rejected: the gateway learns the refusal from the late-grant
+RPC response it relays and publishes the frame to security quarantine without
+a grant, before the missing-grant withhold, so it never waits.
 
 The agent cannot fake checks 6 to 8. They read core-owned history and core's
 clock, and the record's `produced_at` is already bound inside a window that
@@ -196,8 +201,12 @@ Add `platform.edge_authority_history`, an append-only table:
 `edge_output_grants` writes the history: on insert, on any change of epoch,
 state, agent, scope or shard, and on delete. A trigger catches every writer,
 including raw Ecto `on_conflict` upserts that never build an Ash changeset,
-which is the lesson recorded in AGENTS.md. The trigger closes the open interval
-and opens the next one in the same transaction. `OutputGrants.revoke_agent`
+which is the lesson recorded in AGENTS.md. An insert opens an interval. An
+update of epoch, state, agent, scope or shard closes the open interval and
+opens the next one in the same transaction. A delete only closes the open
+interval with `ended_reason = deleted` and never opens a successor, so a
+record produced after the delete falls outside every window and gets AUDIT
+(`fenced_at_production`). `OutputGrants.revoke_agent`
 takes the cause (`identity_superseded` or `certificate_revoked`) and records
 it, because the two must be told apart. Rows are never updated except to set
 `active_until` and `ended_reason` once.
@@ -262,16 +271,21 @@ Compromised keys stay as `historically_revoked` for good.
   `ValidateFrameSigned` and `authorize_frame`, and it matches the frozen rule
   that this status is "reachable as audit/quarantine evidence; NEVER a
   permanent reject".
-- **Compromised agent identity.** A revoked certificate cannot open a session,
-  and revocation denylists its principal. The records it left on the host are
-  presented by the host's currently authenticated agent from the per-principal
-  hold (Decision 2). The gateway publishes such a record, after signature
-  verification, to security quarantine only, with or without a grant. It is
-  never projected and never PRIMARY or AUDIT-applied, and the quarantine row
-  records both the origin principal and the presenting principal. This holds
-  for every record of the revoked principal, even one produced before the
-  revocation: the compromise time is unknown, so the conservative answer is
-  never to backfill. Core issues no grant for these records.
+- **Revoked certificate.** Every late record naming an authority interval
+  that ended with `certificate_revoked` goes to security quarantine only,
+  whoever presents it. When revocation denylisted the principal, the host's
+  currently authenticated agent presents the records from the per-principal
+  hold (Decision 2). When the revocation left the principal able to
+  authenticate (for example an operator-request revocation followed by a new
+  certificate or re-enrollment), the same principal presents them from its own
+  late generation. Either way core issues no grant and returns
+  `certificate_revoked_interval`, and the gateway publishes the frame to
+  security quarantine, after signature verification, before the missing-grant
+  withhold. It is never projected and never PRIMARY or AUDIT-applied, and the
+  quarantine row records both the origin principal and the presenting
+  principal. This holds even for a record produced before the revocation: the
+  compromise time is unknown, so the conservative answer is never to
+  backfill.
 - **Explicitly compromised interval.** An interval ended for an explicit
   `compromised` reason, whose principal still authenticates and presents its
   own records, resolves to AUDIT (`compromise_ended`) for every late record
@@ -321,8 +335,9 @@ follows:
   `LATE_ADMISSION`.
 - **AUDIT** goes to the audit route, with the same mode and the reason.
 - **Security quarantine** is the outcome for a compromise-revoked key, as
-  today, and for every frame whose origin principal is not the authenticated
-  agent, whatever grant it carries. The gateway decides it before the
+  today, for every frame whose origin principal is not the authenticated
+  agent, whatever grant it carries, and for every frame core refused as
+  `certificate_revoked_interval`. The gateway decides it before the
   missing-grant check, so these frames never wait for a grant.
 - **A frame without a valid late grant** on a late session, other than those
   above, is withheld (retry). It is never rejected for that reason alone.
@@ -431,7 +446,7 @@ undelivered entry.
 | --- | --- | --- |
 | Lapsed producer does new work | Refused | Still refused. Live admission is unchanged, and a late record must have `produced_at` inside a signed window. |
 | Backdating: a host forges records "produced" in the past | Not possible | The record still needs a production capability that core actually signed for that principal, assignment and epoch, with `produced_at` inside its window. Core checks that the epoch was live at that time. The exposure is bounded by real grant windows, the late age, and AUDIT for anything outside the history. |
-| Stolen agent SVID used to backfill | Can inject live data under current grants | It can also inject late data under grants it held, within the late age. Certificate revocation denylists the principal, so its records are presented only by another principal and reach security quarantine only; they never project. Live injection was already possible, so the new exposure is time, not authority. |
+| Stolen agent SVID used to backfill | Can inject live data under current grants | It can also inject late data under grants it held, within the late age. After certificate revocation, every record naming an interval that ended `certificate_revoked` reaches security quarantine only, whoever presents it, including the same principal on a new certificate; core issues no grant and they never project or AUDIT-apply. Live injection was already possible, so the new exposure is time, not authority. |
 | An agent presents another principal's records | Rejected (origin binding) | Security quarantine only, with both principals recorded. The records must still verify, never project, and are bounded by late-session credits. The exposure is quarantine volume, not authority. |
 | Compromised issuer key | Security quarantine | Security quarantine. It never backfills. |
 | Replay or duplicate of a delivered record | Ledger idempotency | Ledger idempotency, with retention extended to cover the late window. A record produced before `ledger_complete_since` plus the clock tolerance is AUDIT (`ledger_pruned`), so raising the late age never projects a duplicate. |
@@ -474,9 +489,13 @@ An old agent never asks for late grants, and its records follow today's paths.
   and moved to the late generation; there is no late grant on a live session.
 - Records of a different, revoked or superseded origin principal are presented
   by the host's current agent for security quarantine only, through a hold
-  keyed by `(lane key, origin principal)`. A `certificate_revoked` interval
-  yields no AUDIT path; AUDIT `compromise_ended` remains only for an explicit
+  keyed by `(lane key, origin principal)`. A record naming a
+  `certificate_revoked` interval goes to security quarantine whoever presents
+  it, the same principal included: no grant (`certificate_revoked_interval`)
+  and no AUDIT. AUDIT `compromise_ended` remains only for an explicit
   `compromised` interval its own principal still presents.
+- The history trigger only closes the open interval on delete; it never opens
+  a successor.
 - With a loaded trust snapshot, an absent fence entry or scope binding is
   admissible late; only an unloaded snapshot, or an epoch ahead of a present
   fence, is retryable.
