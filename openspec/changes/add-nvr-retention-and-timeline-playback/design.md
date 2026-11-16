@@ -101,7 +101,7 @@ therefore always fits in one block.
 | NVR block bounds | 16 MiB (unchanged), fragments per block configurable `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` default 150 (8 to 256), 2 s minimum fragment (unchanged) |
 | Blocks above 16 MiB | Later item, blocked on multipart upload (Longshore task 2.2) |
 | Volume block cap | Replace the per-admission scan with an incremental ledger; install bound default 131,072, ceiling 262,144 |
-| Local tier | A bounded cache with a byte budget: install default 85% of the PVC minus a reserve of max(64 MiB, 1%), editable per member at runtime and delivered to the NVR (C9); NVR budget ceiling raised from 1 TiB to 1 PiB; evict reconciled local copies that are archive-verified or whose archive copy was deleted by object retention or the reaper, and are not a hold's pinned copy, oldest first at 90% down to 80%, or past a maximum local age (default 24 h, up to 10 years, or unlimited); the effective window is computed and shown |
+| Local tier | A bounded cache with a byte budget: install default 85% of the PVC minus a reserve of max(64 MiB, 1%), editable per member at runtime and delivered to the NVR (C9); NVR budget ceiling raised from 1 TiB to 1 PiB; one eviction table by archive state (C1): archive-verified or archive-deleted copies by budget (90% down to 80%) and maximum local age (default 24 h, up to 10 years, or unlimited), local-only copies by budget only under `overwrite_oldest` and by the local-only maximum age, unarchived copies never; the effective window is computed per kind and shown |
 | Local-only | A complete mode: everything works with no destination, and pages say so plainly |
 | Local-only full policy | Explicit `overwrite_oldest` (UI preselects, operator confirms) or `stop_when_full` (code behaviour when nothing was selected); 7 d becomes a target with an alert |
 | Object retention | Default 30 d, bounds 1 d to 3,650 d, or unlimited; expiry deletes only the archive copy and leaves any local copy as local only, evictable by the local rules; the settings UI warns, without refusing, when a limited retention is shorter than a limited maximum local age |
@@ -179,8 +179,8 @@ SaaS the budget and policy come from the deployment's storage entitlement
 (stage F). The reaper (`reap_oldest`) deletes only archive copies, oldest unheld
 blocks first, from high water down to low water. A block whose local copy still
 exists keeps it; the catalog records the block as local only after archive
-reaping, and from then on the local copy is governed exactly like local-only
-footage: it stays until the local budget or the maximum local age requires
+reaping, and from then on the local copy is kind (a) of the C1 eviction table:
+it stays until the local budget or the maximum local age requires
 eviction, oldest first, and it is evictable, not pinned as unarchived. It is
 never re-archived automatically, because that would refill the bucket and loop.
 Selecting `reap_oldest` also authorizes that later local eviction, which
@@ -954,45 +954,43 @@ check constraint enforces exactly that pairing, so NULL never means "use the
 default" and no magic large number stands in for "forever". The same pattern
 is used for every other optional limit in E1.
 
-With `unlimited` and archiving on, only the byte budget evicts local copies:
-footage stays locally until usage reaches high water, and the effective window
-(C1a) is the budget-bound figure. Archive copies expire independently, by
-object retention (C3) or the object reaper (C3a); a local copy outlives its
-archive copy as local-only footage until the budget evicts it.
+**Eviction rules.** A Core retention job per NVR member reads the member's
+`GET /v1/status` every 60 s and applies the table below. This table is the one
+statement of which local copies may be evicted; every other section, the spec
+and the tasks refer to it. Terms used throughout: "local-only footage" means a
+block with `archive_state = not_required` (kind b); a kind (a) block whose
+archive copy was deleted is "local only after archive expiry or reaping".
 
-**Eviction with archiving on.** A Core retention job per NVR member reads the
-member's `GET /v1/status` every 60 s. A block's local copy is evictable when all
-hold: it is cataloged and reconciled (section R); its archive copy is either
-`verified` or was deleted by object retention or the object reaper
-(`archive_state = deleted`, C3, C3a), or the block is local-only
-(`archive_state = not_required`) and the recorded local-only full policy is
-`overwrite_oldest` (C2); it is not the copy a hold pins (C4); and the member's
-recovery gate and current-history state permit destructive operations. A member
-may hold both kinds: a camera policy may be `local_only` while archiving is
-enabled for others (E1). "Unarchived" means `archive_state` is `pending`,
-`failed_retryable` or `failed_terminal`; a block whose archive copy was deleted
-is not unarchived but local only after archive expiry or reaping, and its local
-copy is evicted under the same budget and age rules as any other. The job
-evicts evictable blocks in one oldest-first order across all evictable local
-bytes of the member, whatever their kind, ordered by `timeline_start_us`, with
-ties broken by `sealed_at` and then `block_key`:
+| Kind | Local copy's `archive_state` | Space eviction (high water down to low water) | Age ceiling (applies whatever the usage) | Disposition reasons |
+| --- | --- | --- | --- | --- |
+| (a) | `verified`, or `deleted` (archive copy removed by object retention or the reaper, C3, C3a) | yes | `max_local_age` when limited | `budget`, `max_local_age` |
+| (b) local-only footage | `not_required` | only when `local_only_full_policy = overwrite_oldest` is recorded; otherwise pinned | `local_only_max_age` when limited, whatever the full policy | `local_only_overwrite`, `local_only_max_age` |
+| (c) unarchived | `pending`, `failed_retryable`, `failed_terminal` | never; always pinned | never | none |
 
-- when usage reaches high water, until projected usage is at or below low water;
-- whenever a block's local age exceeds its age ceiling, when that is `limited`:
-  the maximum local age for blocks that archive or did archive, and
-  `local_only_max_age` for `not_required` blocks (C2).
+Every row also requires that the block is cataloged and reconciled (section R;
+unreconciled blocks are always pinned), that the local copy is not the copy a
+hold pins (C4), and that the member's recovery gate and current-history state
+permit destructive operations. A member may hold all three kinds: a camera
+policy may be `local_only` while archiving is enabled for others (E1).
 
-Whichever comes first. Each eviction is an audited disposition (C6, C7) with
-reason `budget` or `max_local_age`, or `local_only_overwrite` or
-`local_only_max_age` for a `not_required` block. Blocks whose archive state is
-`pending`, `failed_retryable` or `failed_terminal` are never selected by
-either rule. Unarchived and unreconciled footage is never
-evicted; a held block keeps its pinned copy (C4). Evicting a local copy whose
-archive copy was already deleted removes the last copy; the recorded object
-retention or `reap_oldest` selection is the authority for that (C3, C3a). This
-is policy-authorized retention after hold checks, which
-the plane allows (`add-scalable-camera-recording-plane/design.md:187-193`); the
-watermark only decides when.
+- **Space eviction**: when usage reaches high water, the job evicts the
+  space-evictable rows only (kind a, and kind b under `overwrite_oldest`) in one
+  oldest-first order across both kinds, ordered by `timeline_start_us`, ties
+  broken by `sealed_at` and then `block_key`, until projected usage is at or
+  below low water.
+- **Age eviction**: a kind (a) copy older than `max_local_age` and a kind (b)
+  copy older than `local_only_max_age` are evicted when their ceiling is
+  `limited`. An `unlimited` `max_local_age` leaves space eviction as the only
+  eviction of kind (a); it does not affect kind (b), which still follows
+  `local_only_max_age`. Kind (c) is never selected.
+
+A kind (a) block whose archive copy was deleted is not unarchived and is never
+re-archived (C6). Evicting it, or evicting kind (b), removes the last copy; the
+recorded object retention or `reap_oldest` selection (C3, C3a), or the recorded
+full policy and local-only maximum age (C2), is the authority. This is
+policy-authorized retention after hold checks, which the plane allows
+(`add-scalable-camera-recording-plane/design.md:187-193`); the watermark only
+decides when.
 
 The span between high water and the budget is the job's reaction margin: at
 100 GiB it is 8.4 GiB, about 30 minutes at 40 Mbit/s of capture, against a 60 s
@@ -1000,39 +998,43 @@ poll. Each pass evicts at most 500 blocks per member.
 
 ### C1a. Effective local window
 
-The effective local window is a computed, displayed figure, per member:
+The effective local window is a computed, displayed figure, per member and
+per kind of the C1 table. It uses the common age cutoff already defined for
+object retention (C3a), applied to the space-evictable kinds:
 
 ```
-rate     = max(r15m, r6h)      bytes/s of sealed media on the member
-pinned   = unarchived + unreconciled bytes
+rate_k   = max(r15m_k, r6h_k)    bytes/s sealed by the policies of kind k
+age_k    = the kind's age ceiling from C1 (infinite when unlimited)
+pinned   = kind (c) bytes + unreconciled bytes
            + held local copies that are the hold's pinned copy
-           + local-only (not_required) bytes unless overwrite_oldest is recorded
-window   = (low_water_bytes - pinned) / rate
-           capped by the age ceiling when it is limited: max_local_age_seconds
-           for archived footage, local_only_max_age_seconds for local-only
-           footage
+           + kind (b) bytes unless overwrite_oldest is recorded
+solve      sum_k rate_k * min(age_k, T) = low_water_bytes - pinned
+           for T, over the space-evictable kinds k
+window_k = min(age_k, T)          shown per kind with its binding bound
 ```
 
-- `r15m` is the sum of `media_bytes` of catalog entries sealed on that storage
-  in the last 15 minutes divided by 900 s, and `r6h` the same sum over the last
-  6 hours divided by 21,600 s, so both are bytes per second. Taking the larger keeps
-  the figure conservative for bursty variable-bitrate streams (a busy scene
-  raises the bitrate) without letting one quiet quarter-hour inflate it. The
-  catalog lags capture by at most one block (270 s), which is acceptable for a
-  figure shown in hours or minutes.
-- A held local copy is the pinned copy in local-only mode, before its archive
-  copy is verified (it is then also unarchived and counted once), and when its
-  archive copy had already been deleted by object retention or the reaper
-  before the hold was placed. Local copies of
-  blocks that are local only after archive expiry or reaping and are not held
-  are evictable bytes, not pinned bytes, so they do not shorten the window.
-- Local-only (`not_required`) blocks, on a local-only member or on a member
-  that also archives, are evictable bytes under `overwrite_oldest` and pinned
-  bytes under `stop_when_full` or when no full policy has been recorded. In the
-  pinned case the page says that local-only cameras are consuming space that
-  cannot be freed, and the window is the time until recording stops at the
-  limit. On a member that holds both kinds the page shows the window for each
-  kind with its own age ceiling.
+- `r15m_k` is the sum of `media_bytes` of catalog entries of kind k sealed on
+  that storage in the last 15 minutes divided by 900 s, and `r6h_k` the same
+  sum over the last 6 hours divided by 21,600 s, so both are bytes per second.
+  Kind (a) rates are those of the policies that archive; their copies stay in
+  kind (a) after archive expiry or reaping. Taking the larger keeps the figure
+  conservative for bursty variable-bitrate streams (a busy scene raises the
+  bitrate) without letting one quiet quarter-hour inflate it. The catalog lags
+  capture by at most one block (270 s), which is acceptable for a figure shown
+  in hours or minutes.
+- The left side is continuous and non-decreasing in T, so sort the `age_k` and
+  solve piecewise, as in C3a. T is infinite when every `age_k` is finite and
+  `sum_k rate_k * age_k` fits; T = 0 when `low_water_bytes - pinned <= 0`. With
+  one kind this reduces to `min(age, (low_water_bytes - pinned) / rate)`.
+- A held local copy is the pinned copy for kind (b), before its archive copy is
+  verified (it is then kind (c) and counted once), and when its archive copy
+  had already been deleted by object retention or the reaper before the hold
+  was placed. Unheld kind (a) copies, including those local only after archive
+  expiry or reaping, are evictable bytes, not pinned bytes.
+- Kind (b) is pinned under `stop_when_full` or when no full policy has been
+  recorded. Its window is then its `local_only_max_age` when limited, and
+  otherwise the time-to-full of C5, and the page says that local-only cameras
+  are consuming space that cannot be freed.
 - With less than 15 minutes of history, `rate` is the sum of the assigned
   profiles' relay-observed bitrates and the figure is labelled "estimated".
 - With no enabled policy on the member the page says "not recording" rather
@@ -1040,12 +1042,11 @@ window   = (low_water_bytes - pinned) / rate
   says "no recent ingest" and uses `r6h` if there is one.
 - The page shows the window as "local storage holds about N hours (or minutes)
   at the current rate", with the high-water figure as the upper end of the
-  range, and says which bound applies: budget, maximum age, or block cap. With
-  the maximum local age `unlimited` (or `local_only_max_age` unlimited for
-  local-only footage) the figure is the budget-bound one, labelled "until the
-  local budget is full"; with `local_only_max_age` limited, the local-only
-  figure is capped by it (for example 7 days, not the 56 to 63 days the budget
-  alone would allow for one 120 kbit/s camera below).
+  range, and says which bound applies per kind: budget, maximum age, or block
+  cap. A kind whose age ceiling is `unlimited` shows the budget-bound figure,
+  labelled "until the local budget is full"; a limited ceiling caps it (for
+  example 7 days of local-only footage, not the 56 to 63 days the budget alone
+  would allow for one 120 kbit/s camera below).
 
 **What-if before saving.** Editing a recording policy (adding or removing a
 camera, changing profile, member or storage mode) or the watermarks shows the
@@ -1066,6 +1067,21 @@ high water 75.6 GiB). Bitrates are assumed, not measured:
 | 1 camera, 120 kbit/s | 15 kB/s | 24 h (age ceiling binds; about 1.3 GB used) | about 56 to 63 days | binds first: 4,096 blocks of about 4.05 MB hold about 12.8 days | bytes bind |
 | 1 camera, 4 Mbit/s | 500 kB/s | 24 h (age ceiling binds; about 43 GB used) | about 40 to 45 hours | binds first: 4,096 blocks of 12 MiB hold about 28.6 hours | bytes bind |
 | 20 cameras, 2 Mbit/s each | 5 MB/s | about 4.0 to 4.5 hours (budget binds) | about 4.0 to 4.5 hours | binds first: about 2.9 hours | bytes bind |
+
+A mixed member on the same volume (archiving on, `max_local_age` 24 h,
+`local_only_max_age` unlimited) with one 4 Mbit/s camera that archives
+(500 kB/s) and one 120 kbit/s `local_only` camera (15 kB/s), nothing else
+pinned, under each full policy:
+
+| Full policy | Archived camera | Local-only camera | Time-to-full (C5) |
+| --- | --- | --- | --- |
+| `overwrite_oldest` | 24 h (age binds; 43.2 GB) | T: (72.2 GB - 43.2 GB) / 15 kB/s, about 22 days (budget binds; about 29 days at high water) | not filling |
+| `stop_when_full`, 7.4 GB of the budget left for pinned growth | 24 h (age binds) | pinned: no eviction for space | 7.4 GB / 15 kB/s, about 5.7 days |
+
+A single combined figure would be wrong here: low water over the combined
+rate gives about 39 h for both cameras, and a time-to-full over the combined
+ingest gives under 4 hours, although the archived camera's copies keep being
+evicted at 24 h.
 
 The same twenty cameras on a 20 GiB volume (16.8 GiB budget) hold about 48 to
 54 minutes. On today's defaults (1 GiB budget), they would hold about 3.6
@@ -1118,15 +1134,16 @@ With no object storage there is no second copy, so capacity-driven eviction
 deletes the only copy. It happens only under an explicitly selected policy,
 `local_only_full_policy`, deployment-wide:
 
-- `overwrite_oldest`: a ring buffer, the conventional NVR behaviour. At high
-  water, Core evicts the oldest cataloged, reconciled, unheld blocks down to
-  low water, with disposition reason `local_only_overwrite`. On a member that
-  also archives other cameras, `not_required` blocks join the single
-  oldest-first eviction order of C1.
+- `overwrite_oldest`: a ring buffer, the conventional NVR behaviour. It makes
+  kind (b) of the C1 table space-evictable: at high water those blocks are
+  evicted in C1's single oldest-first order with any kind (a) copies on the
+  member, down to low water, with disposition reason `local_only_overwrite`.
+  It never selects kind (c). In a deployment with no object storage every
+  block is kind (b), so this is the plain ring buffer.
 - `stop_when_full`: nothing is evicted for space. When the budget is reached
   the NVR's admission refuses (`capacity.ex:348-353`), recording stops with a
-  `nvr_refused` gap, and a critical alert is raised. Footage is deleted only by
-  the optional age ceiling below or by an operator. Local-only footage then
+  `nvr_refused` gap, and a critical alert is raised. Kind (b) is deleted only
+  by its age ceiling below (C1) or by an operator. Local-only footage then
   counts as pinned bytes (C1a, C9), including on a member that also archives,
   where it can stop recording for every camera on the member.
 
@@ -1159,9 +1176,9 @@ Also for local-only:
 - The local-only maximum age (mode `limited` or `unlimited`; default
   `unlimited`, meaning keep until the volume is full; bounds 3,600 s to 10 years
   when limited) is an optional ceiling for sites that must not keep footage
-  longer than a period. When limited, older unheld footage is deleted by age
-  with reason `local_only_max_age`.
-- Holds pin local copies in this mode (C4), so they block eviction. Held
+  longer than a period. When limited, older kind (b) copies are deleted by
+  age with reason `local_only_max_age`, under either full policy (C1).
+- Holds pin kind (b) local copies (C4), so they block eviction. Held
   local copies filling the budget can therefore happen only in local-only mode
   or, with archiving on, for blocks not yet archive-verified (which are pinned
   as unarchived anyway) or whose archive copy had already been deleted when the
@@ -1252,8 +1269,8 @@ local copy is still present expires, the job deletes the archive objects as
 above and keeps the local copy; the catalog entry then has
 `archive_state = deleted` with `archive_deleted_reason = object_retention` and
 `local_state = present`, which the API and the page show as "local only after
-archive expiry". From then on the local copy is governed exactly like
-local-only footage: it stays until the local budget or the maximum local age
+archive expiry". From then on the local copy is kind (a) of the C1
+eviction table: it stays until the local budget or the maximum local age
 requires eviction (C1), oldest first, and it is evictable, not pinned as
 unarchived. It is never re-archived automatically: `deleted` is terminal for
 the archive job (C6), and re-archiving would undo the retention the operator
@@ -1306,8 +1323,8 @@ When a reaped block's local copy still exists, it is kept. The catalog entry
 records `archive_state = deleted` with `archive_deleted_reason =
 object_capacity` and `local_state = present`, shown as "local only after
 archive reaping", and the `object_capacity` disposition records that the local
-copy remained. From then on that local copy is governed exactly like local-only
-footage: it stays until the local budget or the maximum local age requires
+copy remained. From then on that local copy is kind (a) of the C1 eviction
+table: it stays until the local budget or the maximum local age requires
 eviction (C1), oldest first, and it is evictable, not pinned as unarchived. It
 is never re-archived automatically: `deleted` is terminal for the archive job
 (C6), and re-archiving would refill the bucket, which the reaper would empty
@@ -1464,11 +1481,15 @@ archive outage means new footage stays unarchived, so the volume fills with
 footage that cannot be evicted.
 
 - **Time-to-full** per member:
-  `ttf = (effective_budget - used + evictable_bytes) / rate`, where `rate` is the
-  C1a rate and `evictable_bytes` are bytes eviction could still free, including
-  unheld local copies of blocks that are local only after archive expiry or
-  reaping. With the
-  archive down, nothing new becomes evictable, so `ttf` falls steadily. It is
+  `ttf = (effective_budget - pinned) / pinned_growth`, where `pinned` is the
+  C1a pinned set and `pinned_growth` is the rate at which bytes join it and
+  stay until admission stops: kind (c) growth (the archiving policies' capture
+  rate minus measured archive goodput, when positive), plus the kind (b) rate
+  when kind (b) is pinned and its age ceiling has not yet been reached.
+  Ingest that eviction frees (kind a, and kind b under `overwrite_oldest`) is
+  not in `pinned_growth`. With `pinned_growth` at or below zero the page says
+  "not filling". With the archive down, archived ingest becomes kind (c)
+  growth, so `ttf` falls steadily. It is
   shown on the page and drives alerts at 4 hours (warning) and 1 hour
   (critical) (C8).
 - **Admission stop.** When the budget or the reserve floor is reached, the
