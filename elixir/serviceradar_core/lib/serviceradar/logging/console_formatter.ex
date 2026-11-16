@@ -199,6 +199,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
   end
 
   defp bound(text) do
+    text = SecretRedaction.redact_text(text)
     size = byte_size(text)
 
     text =

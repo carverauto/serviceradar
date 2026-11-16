@@ -34,12 +34,10 @@ defmodule ServiceRadar.Logging.SecretRedaction do
 
   A key is sensitive when, after lowercasing and folding non-alphanumerics to
   `_`, it is one of `sensitive_keys/0` or ends in `_` followed by one of them
-  (`local_pwd`, `client_secret`, `turn_password`). Two keys are also sensitive
-  by the shape of their value:
-
-    * `key` holding raw bytes, such as the TURN long-term-credential HMAC key.
-      A printable `key` (an object key, a cache key) is kept.
-    * `integrity`, which ExSTUN uses to carry that same HMAC key.
+  (`local_pwd`, `client_secret`, `message_integrity`). `integrity` is listed
+  because ExSTUN carries the TURN HMAC key in it. `key` is sensitive only by the
+  shape of its value: raw bytes, such as that HMAC key, are redacted, and a
+  printable `key` (an object key, a cache key) is kept.
   """
 
   @redacted "[REDACTED]"
@@ -159,13 +157,12 @@ defmodule ServiceRadar.Logging.SecretRedaction do
   """
   @spec redact_text(String.t()) :: String.t()
   def redact_text(text) when is_binary(text) do
-    %{assignment: assignment, pair: pair, raw_key: raw_key, integrity: integrity} = patterns()
+    %{assignment: assignment, pair: pair, raw_key: raw_key} = patterns()
 
     text
     |> replace_values(assignment)
     |> replace_values(pair)
     |> replace_values(raw_key)
-    |> replace_values(integrity)
   end
 
   def redact_text(text), do: text
@@ -323,6 +320,8 @@ defmodule ServiceRadar.Logging.SecretRedaction do
     double_quoted = ~S/"(?:[^"\\]|\\.)*"(?:\.\.\.)?/
     single_quoted = ~S/'(?:[^'\\]|\\.)*'/
     charlist_sigil = ~S/~c"(?:[^"\\]|\\.)*"/
+    # A flat tuple or map, possibly across lines: {true, <<1, 2>>}, %{a: 1}
+    braced = ~S/%?\{[^{}]*\}/
     # An existing marker, plus the binary that a pre-fix redaction left behind it.
     already_redacted = ~S/\[REDACTED\]\]*(?:\s+(?:/ <> binary_string <> "|" <> byte_list <> "))?"
     bare = ~S/(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&"'}\])>]+/
@@ -333,6 +332,7 @@ defmodule ServiceRadar.Logging.SecretRedaction do
           already_redacted,
           binary_string,
           byte_list,
+          braced,
           charlist_sigil,
           double_quoted,
           single_quoted,
@@ -342,8 +342,10 @@ defmodule ServiceRadar.Logging.SecretRedaction do
       )
 
     names =
-      ~S/(?:[a-z0-9]+_)*?(?:password|passwd|passphrase|pwd|secret|secret_key|token|api_key|apikey|/ <>
-        ~S/private_key|signing_key|nkey_seed|jwt|authorization|cookie)/
+      @sensitive_keys
+      |> Enum.sort_by(&byte_size/1, :desc)
+      |> Enum.map_join("|", &Regex.escape/1)
+      |> then(&(~S/(?:[a-z0-9]+_)*?(?:/ <> &1 <> ")"))
 
     quoted_name = ~S/["']?/ <> names <> ~S/["']?/
     separator = ~S/\s*(?:=>|:|=)\s*/
@@ -359,17 +361,6 @@ defmodule ServiceRadar.Logging.SecretRedaction do
       raw_key:
         Regex.compile!(
           "(" <> word_start <> ~S/["']?key["']?/ <> separator <> ")(" <> byte_list <> ")",
-          "i"
-        ),
-      # integrity: {true, <<...>>} / integrity => {true,<<...>>}
-      integrity:
-        Regex.compile!(
-          "(" <>
-            word_start <>
-            ~S/["']?integrity["']?/ <>
-            separator <>
-            ~S/)(\{[^{}]*\}|/ <>
-            byte_list <> "|" <> binary_string <> ")",
           "i"
         )
     }

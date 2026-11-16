@@ -15,6 +15,17 @@ defmodule ServiceRadar.Logging.SecretRedactionTest do
   @local_pwd "synthetic-ice-local-pwd-0002"
   @remote_pwd "synthetic-ice-remote-pwd-0003"
   @hmac_key :crypto.hash(:md5, "1700000000:synthetic-user:realm.example.com:" <> @password)
+  # Other credential-shaped fields a crashing process can hold.
+  @other_credentials %{
+    seed: "synthetic-seed-value-0004",
+    user_seed: "synthetic-user-seed-0005",
+    nkey: "synthetic-nkey-value-0006",
+    bearer: "synthetic-bearer-value-0007",
+    credentials: "synthetic-credentials-0008",
+    credential: "synthetic-credential-0009",
+    integrity: "synthetic-mac-value-0010",
+    message_integrity: <<251, 7, 133, 64, 18, 222>>
+  }
 
   defmodule TurnClient do
     @moduledoc false
@@ -54,7 +65,8 @@ defmodule ServiceRadar.Logging.SecretRedactionTest do
       state: :error,
       transactions: %{
         1 => %{method: :channel_bind, integrity: {true, @hmac_key}},
-        2 => %{ice: %{local_pwd: @local_pwd, remote_pwd: @remote_pwd}}
+        2 => %{ice: %{local_pwd: @local_pwd, remote_pwd: @remote_pwd}},
+        3 => @other_credentials
       }
     }
   end
@@ -68,7 +80,21 @@ defmodule ServiceRadar.Logging.SecretRedactionTest do
 
   # Prefixes, so a value that a depth-limited renderer cut short still counts.
   defp assert_no_credentials(text) do
-    for secret <- ["synthetic-turn-pa", "synthetic-ice-lo", "synthetic-ice-re" | key_renderings()] do
+    secrets = [
+      "synthetic-turn-pa",
+      "synthetic-ice-lo",
+      "synthetic-ice-re",
+      "synthetic-seed",
+      "synthetic-user-seed",
+      "synthetic-nkey",
+      "synthetic-bearer",
+      "synthetic-credential",
+      "synthetic-mac",
+      "251, 7, 133",
+      "251,7,133" | key_renderings()
+    ]
+
+    for secret <- secrets do
       refute text =~ secret, "#{inspect(secret)} survived redaction in:\n#{text}"
     end
   end
@@ -161,7 +187,7 @@ defmodule ServiceRadar.Logging.SecretRedactionTest do
     test "keeps values that only look like credentials" do
       text =
         ~s(key: "objects/camera-01.mp4" cache_key=abc password_hash: kept token_count: 5 ) <>
-          ~s(nonce: "synthetic-nonce" realm: "realm.example.com")
+          ~s(nonce: "synthetic-nonce" realm: "realm.example.com" credential_secret_id: 7 seed_count: 3)
 
       assert SecretRedaction.redact_text(text) == text
     end

@@ -3,7 +3,9 @@ ExUnit.start()
 elixir_root = Path.expand("../elixir", __DIR__)
 
 for source <- ~w(secret_redaction.ex console_formatter.ex) do
-  Code.require_file(Path.join(elixir_root, "serviceradar_core/lib/serviceradar/logging/#{source}"))
+  Code.require_file(
+    Path.join(elixir_root, "serviceradar_core/lib/serviceradar/logging/#{source}")
+  )
 end
 
 defmodule ServiceRadar.LoggerMetadataContractTest.RawEventHandler do
@@ -142,6 +144,13 @@ defmodule ServiceRadar.LoggerMetadataContractTest do
       assert line =~ ~s(password: "[REDACTED]")
       assert line =~ "key: [REDACTED]"
       assert line =~ ~s(username: "1700000000:synthetic-user")
+
+      # A reason long enough that the 512-byte cut lands inside the password.
+      long_password = "synthetic-console-password-" <> String.duplicate("x", 600)
+      reason_line = format_reason(%{password: long_password})
+
+      refute reason_line =~ "synthetic-console-pa"
+      assert reason_line =~ ~s(password: "[REDACTED]")
     end
 
     defp format_reason(value) do
