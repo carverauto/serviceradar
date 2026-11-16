@@ -218,14 +218,14 @@ When usage reaches the high-water mark the system SHALL evict the space-evictabl
 - **AND** recording SHALL resume once archived blocks become evictable
 
 ### Requirement: Effective local window projection
-The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water budget less pinned bytes, and show the smaller of each kind's age ceiling and T, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be the bytes of the union of every local copy eviction cannot free, each block counted once, as partitioned in the design's effective-window definition (C1a); every other use of pinned bytes in this specification refers to that definition. Time-to-full SHALL be reported as not filling when pinned bytes do not grow, or when every growing part has a limited age ceiling and its projected peak fits under the budget; otherwise it SHALL divide the budget less pinned bytes by the current growth rate of pinned bytes, never by ingest that eviction frees.
-Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the archive throughput needed against measured archive goodput, projected blocks per day against the block cap, and projected sessions against the member's session limit.
+The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water bytes less pinned bytes for the lower end, and equal to the high-water bytes less pinned bytes for the upper end, and show each kind's window as the range between the smaller of its age ceiling and each T, a single 0 only when pinned bytes are at or above high water, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be the bytes of the union of every local copy eviction cannot free, each block counted once, as partitioned in the design's effective-window definition (C1a); every other use of pinned bytes in this specification refers to that definition. Time-to-full SHALL be reported as not filling when pinned bytes do not grow, or when every growing part has a limited age ceiling and its projected peak fits under the budget; otherwise it SHALL divide the budget less pinned bytes by the current growth rate of pinned bytes, never by ingest that eviction frees.
+Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the provider throughput needed against measured provider throughput (archive upload plus readback, about twice the media bytes verified), projected blocks per day against the block cap, and projected sessions against the member's session limit.
 
 #### Scenario: Twenty cameras shrink the window and the operator is told before saving
 - **GIVEN** a member holds about a day of footage for one camera
 - **WHEN** an operator prepares to add nineteen more cameras to that member
 - **THEN** before saving, the view SHALL show the projected local window in hours or minutes and warn when it is below the alert threshold
-- **AND** SHALL report when the projected sessions exceed the member's session limit or the archive throughput needed exceeds measured goodput
+- **AND** SHALL report when the projected sessions exceed the member's session limit or the provider throughput needed exceeds measured provider throughput
 
 #### Scenario: No ingest
 - **WHEN** a member has no enabled recording policy
@@ -239,13 +239,18 @@ Before an operator saves a change to recording policies, profiles, member assign
 #### Scenario: Mixed member window per kind
 - **GIVEN** a member with a low-water budget of 67.2 GiB, `overwrite_oldest` recorded, nothing pinned, a maximum local age of 24 hours and an unlimited local-only maximum age, recording 500 kB/s that archives and 15 kB/s of local-only footage
 - **WHEN** the window is shown
-- **THEN** the archived footage SHALL show 24 hours bound by the maximum local age and the local-only footage about 22 days bound by the budget
+- **THEN** the archived footage SHALL show 24 hours bound by the maximum local age and the local-only footage about 22 to 29 days bound by the budget
 
 #### Scenario: Time-to-full counts only pinned growth
-- **GIVEN** a mixed member with a 90.2 GB budget and 72.2 GB low water under `stop_when_full`, with 82.8 GB pinned (7.4 GB of budget left), local-only footage at 15 kB/s and archived footage at 500 kB/s with archiving keeping up
+- **GIVEN** a mixed member with a 90.2 GB budget, 72.2 GB low water and 81.2 GB high water under `stop_when_full`, with 82.8 GB pinned (7.4 GB of budget left), local-only footage at 15 kB/s and archived footage at 500 kB/s with archiving keeping up
 - **WHEN** the window and time-to-full are computed
 - **THEN** time-to-full SHALL be about 5.7 days and SHALL NOT raise the time-to-full alert
-- **AND** the archived footage's window SHALL be 0, because pinned bytes exceed low water
+- **AND** the archived footage's window SHALL be 0, because pinned bytes exceed high water
+
+#### Scenario: Pinned bytes between the water marks
+- **GIVEN** the same member with 75 GB pinned
+- **WHEN** the window is computed
+- **THEN** the archived footage's window SHALL be 0 to about 3.4 hours, not a single 0
 
 #### Scenario: Archived window kept while pinned bytes are small
 - **GIVEN** the same member with 20 GB pinned

@@ -175,7 +175,7 @@ gate.
 
 ## E. Settings and UI surface (design E)
 
-- [ ] E.1 `policy` tab: per-camera policy table with bytes-per-day estimates per profile and the what-if panel before saving (projected window, archive throughput against goodput, blocks per day against the cap, sessions against the limit).
+- [ ] E.1 `policy` tab: per-camera policy table with bytes-per-day estimates per profile and the what-if panel before saving (projected window, provider throughput needed against measured provider throughput, blocks per day against the cap, sessions against the limit).
 - [ ] E.2 New `retention` tab (added to the view's `supported_tabs/0`): watermarks, maximum local age with "no limit", alert threshold, local-only full policy with explicit confirmation, local-only target and maximum age with "keep until the volume is full", archive retention with "no limit"; preview of what a change would evict before saving; fully usable with archiving off. `archive` tab: retention credential slot, and "Local only: no object storage configured" as a normal state.
 - [ ] E.3 `health` tab: per member "local storage holds about N hours/minutes at the current rate" with its binding bound, used and pinned bytes against watermarks, time-to-full, current storage alerts, retention status, gaps by reason, ledger state.
 - [ ] E.4 Update `add-nvr-operator-settings` in whichever change lands second: its hot-window requirement becomes a maximum local age (ceiling) with capacity eviction, and its D13 local-only wording becomes the explicit full policy (design E2).

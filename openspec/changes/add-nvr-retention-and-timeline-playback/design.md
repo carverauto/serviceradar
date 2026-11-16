@@ -475,6 +475,14 @@ capture, needing well over 128 Mbit/s of effective archive throughput) must be
 measured; the backlog reporting below shows a non-draining backlog when it does
 not.
 
+Two throughput figures are kept apart. **Archive goodput** is the media bytes
+of blocks that reach `verified` per second (receipt media lengths); it is the
+figure compared with the capture rate and subtracted in C5. **Provider
+throughput** is the bytes the archive actually sends and reads back per second,
+about twice goodput (upload plus full readback); it is the figure the what-if
+(C1a) compares with the provider throughput a change needs. These are the only
+definitions; other sections refer to them.
+
 Backlog reporting is the settings change's "Archive backlog and health
 reporting" requirement: pending count, oldest pending age, archive goodput
 against capture rate, and a non-draining condition, published as JetStream
@@ -1015,9 +1023,11 @@ object retention (C3a), applied to the space-evictable kinds:
 rate_k   = max(r15m_k, r6h_k)    bytes/s sealed by the policies of kind k
 age_k    = the kind's age ceiling from C1 (infinite when unlimited)
 pinned   = P1 + P2 + P3 + P4       (defined below; the one definition)
-solve      sum_k rate_k * min(age_k, T) = low_water_bytes - pinned
-           for T, over the space-evictable kinds k
-window_k = min(age_k, T)          shown per kind with its binding bound
+solve      sum_k rate_k * min(age_k, T_w) = water_bytes - pinned
+           over the space-evictable kinds k, once with low water (T_low)
+           and once with high water (T_high)
+window_k = min(age_k, T_low) to min(age_k, T_high)
+                                  shown per kind with its binding bound
 ```
 
 - `r15m_k` is the sum of `media_bytes` of catalog entries of kind k sealed on
@@ -1030,9 +1040,14 @@ window_k = min(age_k, T)          shown per kind with its binding bound
   capture by at most one block (270 s), which is acceptable for a figure shown
   in hours or minutes.
 - The left side is continuous and non-decreasing in T, so sort the `age_k` and
-  solve piecewise, as in C3a. T is infinite when every `age_k` is finite and
-  `sum_k rate_k * age_k` fits; T = 0 when `low_water_bytes - pinned <= 0`. With
-  one kind this reduces to `min(age, (low_water_bytes - pinned) / rate)`.
+  solve piecewise, as in C3a. For each water mark, T is infinite when every
+  `age_k` is finite and `sum_k rate_k * age_k` fits, and T = 0 when
+  `water_bytes - pinned <= 0`. With one kind this reduces to
+  `min(age, (water_bytes - pinned) / rate)`. Eviction starts at high water and
+  stops at low water, so evictable copies stay between the two ends. When
+  pinned bytes lie between low and high water the range is 0 to
+  `min(age_k, T_high)`; the window is a single 0 only when pinned bytes are at
+  or above high water.
 - **Pinned bytes** are the bytes eviction cannot free: the size of the union
   of every non-evictable local copy, computed as a disjoint partition so each
   block is counted once. This is the one definition; the window, the
@@ -1050,16 +1065,17 @@ window_k = min(age_k, T)          shown per kind with its binding bound
   are evictable bytes.
 - Kind (b) is pinned under `stop_when_full` or when no full policy has been
   recorded. Its window is then its `local_only_max_age` when limited, and
-  otherwise the time-to-full of C5, and the page says that local-only cameras
-  are consuming space that cannot be freed.
+  "kept until the full policy or the local-only maximum age changes" when
+  unlimited, because nothing deletes it when the volume fills; the time-to-full
+  of C5 is a separate figure, the time until recording stops. The page says
+  that local-only cameras are consuming space that cannot be freed.
 - With less than 15 minutes of history, `rate` is the sum of the assigned
   profiles' relay-observed bitrates and the figure is labelled "estimated".
 - With no enabled policy on the member the page says "not recording" rather
   than an infinite window. With policies enabled but no ingest in 15 minutes it
   says "no recent ingest" and uses `r6h` if there is one.
 - The page shows the window as "local storage holds about N hours (or minutes)
-  at the current rate", with the high-water figure as the upper end of the
-  range, and says which bound applies per kind: budget, maximum age, or block
+  at the current rate", as the range from the low-water to the high-water end, and says which bound applies per kind: budget, maximum age, or block
   cap. A kind whose age ceiling is `unlimited` shows the budget-bound figure,
   labelled "until the local budget is full"; a limited ceiling caps it (for
   example 7 days of local-only footage, not the 56 to 63 days the budget alone
@@ -1070,8 +1086,8 @@ camera, changing profile, member or storage mode) or the watermarks shows the
 projected window before saving: current rate minus the rates of the affected
 policies plus the new profiles' relay-observed bitrates (labelled "estimated";
 a profile never streamed shows "unknown until recorded"). The same panel shows
-the projected archive throughput needed (about twice the capture rate, upload
-plus readback, A6) against measured archive goodput, projected blocks per day
+the projected provider throughput needed (about twice the archived capture
+rate, A6) against measured provider throughput (A6), projected blocks per day
 against the block cap, and projected sessions against `SERVICERADAR_NVR_MAX_SESSIONS`.
 It warns, but does not block, when the projected window is below the alert
 threshold (C8).
@@ -1093,8 +1109,9 @@ pinned, under each full policy:
 | Full policy | Archived camera | Local-only camera | Time-to-full (C5) |
 | --- | --- | --- | --- |
 | `overwrite_oldest` | 24 h (age binds; 43.2 GB) | T: (72.2 GB - 43.2 GB) / 15 kB/s, about 22 days (budget binds; about 29 days at high water) | not filling |
-| `stop_when_full`, 20 GB of local-only footage pinned | 24 h (age binds: T = (72.2 GB - 20 GB) / 500 kB/s, about 29 h) | pinned: no eviction for space | (90.2 GB - 20 GB) / 15 kB/s, about 54 days |
-| `stop_when_full`, 82.8 GB pinned (7.4 GB of the 90.2 GB budget left) | 0 (T = 0: pinned exceeds the 72.2 GB low water; each copy is evicted as soon as it is verified) | pinned: no eviction for space | 7.4 GB / 15 kB/s, about 5.7 days |
+| `stop_when_full`, 20 GB of local-only footage pinned | 24 h at both ends (age binds: T_low = (72.2 GB - 20 GB) / 500 kB/s, about 29 h; T_high = (81.2 GB - 20 GB) / 500 kB/s, about 34 h) | pinned: kept until the policy or age changes | (90.2 GB - 20 GB) / 15 kB/s, about 54 days |
+| `stop_when_full`, 75 GB pinned (between the 72.2 GB low water and the 81.2 GB high water) | 0 to about 3.4 h (T_low = 0; T_high = (81.2 GB - 75 GB) / 500 kB/s) | pinned: kept until the policy or age changes | (90.2 GB - 75 GB) / 15 kB/s, about 11.7 days |
+| `stop_when_full`, 82.8 GB pinned (7.4 GB of the 90.2 GB budget left) | 0 (pinned exceeds the 81.2 GB high water; each copy is evicted as soon as it is verified) | pinned: kept until the policy or age changes | 7.4 GB / 15 kB/s, about 5.7 days |
 
 Holds counted once (same member and volume):
 
@@ -1104,9 +1121,11 @@ Holds counted once (same member and volume):
 | `stop_when_full`, 20 GB of local-only footage of which 5 GB is held | 0 | 20 GB | 0 (the held 5 GB is already in P3) | 20 GB, so time-to-full stays about 54 days, not 25 GB and about 50 days |
 | `overwrite_oldest`, 5 GB of held local-only footage | 0 | 0 | 5 GB | 5 GB |
 
-The archived camera keeps its 24 h only while pinned bytes stay at or under
-about 29 GB (72.2 GB low water less 43.2 GB of archived footage); above that
-the archived window shrinks toward 0 while recording continues.
+The archived camera shows 24 h at both ends only while pinned bytes stay at or
+under about 29 GB (72.2 GB low water less 43.2 GB of archived footage). Up to
+about 38 GB (81.2 GB high water less 43.2 GB) the upper end stays 24 h while
+the lower end shrinks; above that both ends shrink, reaching a single 0 at high
+water, while recording continues.
 
 A single combined figure would be wrong here: low water over the combined
 rate gives about 39 h for both cameras, and a time-to-full over the combined
@@ -1516,8 +1535,8 @@ footage that cannot be evicted.
 
 - **Time-to-full** per member:
   `pinned` is the C1a pinned bytes and `pinned_growth` the rate at which bytes
-  join them: P1 growth (the archiving policies' capture rate minus measured
-  archive goodput, when positive) plus the kind (b) rate when P3 applies.
+  join them: P1 growth (the archiving policies' capture rate minus archive
+  goodput as defined in A6, when positive) plus the kind (b) rate when P3 applies.
   Ingest that eviction frees (kind a, and kind b under `overwrite_oldest`) is
   not in `pinned_growth`. The page says "not filling" when `pinned_growth` is
   at or below zero, or when every growing part has a limited age ceiling and
@@ -1624,7 +1643,7 @@ job each pass:
 | `time_to_full` | `ttf` below 4 h | warning; critical below 1 h and when admission has stopped |
 | `archive_backlog_age` | oldest unarchived block older than 1 h (R5) | warning; critical when `ttf` is also below 4 h |
 | `local_only_target` | local-only effective window below `local_only_retention_target_seconds` | warning |
-| `held_bytes_fill` | P2 + P3 + P4 of the C1a pinned bytes above local high water | warning; critical at the budget |
+| `held_bytes_fill` | P3 + P4 of the C1a pinned bytes above local high water (unreconciled bytes have their own R5 alarm and admission-stop cause) | warning; critical at the budget |
 | `held_archive_missing` | a held archive copy failed its re-check (C4) | critical |
 | object-tier checks | see C3a (`storage.recordings.*`) | |
 
@@ -2029,8 +2048,8 @@ only with a product need.
 On `/settings/recording`:
 
 - `policy` tab (that change's Stage B): the per-camera policy table above, with
-  the what-if panel (C1a) before saving: projected local window, archive
-  throughput needed against measured goodput, blocks per day against the cap,
+  the what-if panel (C1a) before saving: projected local window, provider
+  throughput needed against measured provider throughput (A6), blocks per day against the cap,
   and sessions against the member's limit.
 - `recorders` tab (that change's Stage A): per member, the budget and reserve
   with desired versus applied (C9), the install ceiling and floor, volume
