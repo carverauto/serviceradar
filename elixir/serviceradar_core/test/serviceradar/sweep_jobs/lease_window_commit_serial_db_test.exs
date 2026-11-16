@@ -1,15 +1,16 @@
 defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
   @moduledoc """
   Runs serially (see the `serial` disposition): it counts this process's Repo
-  `commit` queries, so any concurrent test issuing commits through the same
-  process filter would pollute the count. A full 7-day horizon on a 5-minute
-  schedule holds ~2,016 slots; the measured push is a refresh that re-pushes
-  the whole carried window at once. Evidence entries are built for every slot
-  but committed in `commit_issuance/1`'s 64-entry chunks — a bounded number
-  of transactions for the whole window — instead of one transaction per slot
-  (~2,020 commits on the old path). Chunks stay small enough that every commit
-  fits the checkout timeout on a slow database: 256-entry chunks (1,792
-  statements each) overran it.
+  queries, so any concurrent test issuing queries through the same process
+  filter would pollute the count. A full 7-day horizon on a 5-minute schedule
+  holds ~2,016 slots; the measured push is a refresh that re-pushes the whole
+  carried window at once. Evidence entries are built for every slot and
+  committed through the set-based `commit_issuance/1` in 512-entry chunks:
+  eight transactions of a fixed handful of statements for the whole window,
+  where the per-entry commit ran seven or eight statements per entry (about
+  28,000 for this window) and failed the 15s checkout timeout on a slow
+  database. Minting is bounded the same way: a pass inserts its new slots a
+  few hundred rows per statement instead of one statement per slot.
 
   The test is unboxed (`sandbox: :unboxed`) so every `Repo.transaction` is a
   real commit, and it deletes every row it creates in `on_exit`. Counting is
@@ -62,7 +63,7 @@ defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
 
   @tag timeout: 1_200_000
   @tag sandbox: :unboxed
-  test "a 2,016-slot re-push commits a bounded handful of transactions" do
+  test "a 2,016-slot window mints and re-pushes in a bounded handful of statements" do
     suffix = System.unique_integer([:positive])
     admin = %{id: Ash.UUID.generate(), email: "admin-#{suffix}@example.test", role: :admin}
 
@@ -166,49 +167,73 @@ defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
     # A pass mints at most 1,000 slots per assignment, so the horizon takes three pushes.
     # Each push is acknowledged, so later passes take the tail path over the newly minted
     # slots instead of re-pushing the carried window.
-    assert mint_window(group, now, delivery, agent, 5) >= 2
+    # The first pass mints 1,000 slots and pushes them (2,000 evidence entries).
+    {first_pass, _} =
+      count_queries(fn -> assert mint_window(group, now, delivery, agent, 1) == 1 end)
+
+    assert mint_window(group, now, delivery, agent, 4) >= 1
 
     assert {:ok, %{} = assignment} = ProducerAssignments.get(group.id, agent)
     assert {:ok, slots} = ExecutionSlots.list_unrun(assignment.id, now)
     assert length(slots) > 2_000
 
-    counter = :counters.new(1, [])
-    handler_id = {__MODULE__, :commit_counter, make_ref()}
-    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
-
-    :telemetry.attach(
-      handler_id,
-      telemetry_event,
-      fn _event, _measurements, metadata, %{test_pid: test_pid, counter: counter} ->
-        if self() == test_pid and metadata.query == "commit" do
-          :counters.add(counter, 1, 1)
-        end
-      end,
-      %{test_pid: test_pid, counter: counter}
-    )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-
     later = DateTime.shift(now, second: 1)
 
-    assert {:ok, %{pushed: 1, errors: 0}} =
-             LeasePass.refresh_agent(agent, delivery, later, %{
-               group.id => String.duplicate("0", 64)
-             })
+    {refresh, result} =
+      count_queries(fn ->
+        LeasePass.refresh_agent(agent, delivery, later, %{
+          group.id => String.duplicate("0", 64)
+        })
+      end)
+
+    assert {:ok, %{pushed: 1, errors: 0}} = result
 
     assert_receive {:pushed, _, _, lease, _}, 600_000
     # The re-push carries the whole window: a bare push (a rotated lease, a dropped
     # window) would fail here loudly instead of silently proving nothing.
     assert length(lease.slots) > 2_000
 
-    # Detach before reading: the cleanup deletes below must not be counted.
-    :telemetry.detach(handler_id)
-    commits = :counters.get(counter, 1)
+    # Eight commits for the issuance entries (4,032 entries in 512-entry chunks),
+    # plus up to eight of the pass's own bookkeeping transactions (record_push,
+    # mark_delivered). The per-slot path committed ~2,020 times here and the
+    # 64-entry per-entry chunks 63 times.
+    assert refresh.commits <= 16
+    # Every statement of the refresh, planning and bookkeeping included: eight
+    # chunks of at most ten statements plus a fixed set (measured 81). The
+    # per-entry commit alone ran about 28,000 for this window.
+    assert refresh.statements <= 120
+    # Minting 1,000 slots and pushing their 2,000 entries: four 250-row inserts
+    # and four issuance chunks plus a fixed set (measured 75), where per-slot
+    # inserts and per-entry commits ran about 17,000.
+    assert first_pass.statements <= 120
+  end
 
-    # Sixty-three commits for the issuance entries (4,032 entries in 64-entry
-    # chunks), plus up to eight of the pass's own bookkeeping transactions
-    # (record_push, mark_delivered). The old per-slot path commits ~2,020 here.
-    assert commits <= 71
+  # Counts the queries (and, among them, the commits) this process sends while
+  # `fun` runs. Detached before returning, so the cleanup deletes are not counted.
+  defp count_queries(fun) do
+    test_pid = self()
+    counters = :counters.new(2, [])
+    handler_id = {__MODULE__, :query_counter, make_ref()}
+    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_event,
+      fn _event, _measurements, metadata, _config ->
+        if self() == test_pid do
+          :counters.add(counters, 1, 1)
+          if metadata.query == "commit", do: :counters.add(counters, 2, 1)
+        end
+      end,
+      nil
+    )
+
+    try do
+      result = fun.()
+      {%{statements: :counters.get(counters, 1), commits: :counters.get(counters, 2)}, result}
+    after
+      :telemetry.detach(handler_id)
+    end
   end
 
   defp mint_window(group, now, delivery, agent, attempts) do

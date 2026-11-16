@@ -4,7 +4,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
 
   `schedule/4` mints an execution id whose UUIDv7 time is the slot start, builds the plan
   that execution binds (`ServiceRadar.Edge.SweepPlan`) and stores both, so the source
-  authorization core signs later names an execution and a plan that already exist.
+  authorization core signs later names an execution and a plan that already exist;
+  `schedule_many/3` mints a lease pass's slots the same way with a few bulk inserts.
   `drop_unrun/2` withdraws the slots that have not started when their agent is revoked,
   `mark_delivered/2` records that a lease push carried slots to the agent, and `refuse/2`
   records that the agent refused to run one. Only the system actor writes.
@@ -18,6 +19,11 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ash.Query
+
+  # Rows per minting insert. Every slot of one pass carries the same plan pages (up to
+  # 256 ranges each), so this bounds the statement size for a group with a large plan
+  # while keeping the 1,000-slot pass cap at four statements.
+  @insert_batch_rows 250
 
   @doc """
   A UUIDv7 whose timestamp is `time`: 48 bits of Unix milliseconds, then random bits.
@@ -41,14 +47,63 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
   @spec schedule(SweepProducerAssignment.t(), DateTime.t(), DateTime.t(), keyword()) ::
           {:ok, SweepExecutionSlot.t()} | {:error, term()}
   def schedule(%SweepProducerAssignment{} = assignment, slot_start, collection_expires, opts) do
+    with {:ok, attrs} <- slot_attrs(assignment, slot_start, collection_expires, opts) do
+      SweepExecutionSlot
+      |> Ash.Changeset.for_create(:schedule, attrs, actor: actor())
+      |> Ash.create()
+    end
+  end
+
+  @doc """
+  Records many executions of the assignment's lease, one per `%{start: _, expires: _}`
+  slot, with the options of `schedule/4`. Every plan is built first; a slot whose plan
+  or window is invalid is counted as failed and skipped, as `schedule/4` refuses it. The
+  rest are inserted `#{@insert_batch_rows}` rows per statement, so minting a whole horizon
+  takes a few statements rather than one per slot. Returns how many were scheduled and
+  how many failed, or the first insert error (which leaves an enclosing transaction
+  aborted, as a failed single insert does).
+  """
+  @spec schedule_many(SweepProducerAssignment.t(), [map()], keyword()) ::
+          {:ok, non_neg_integer(), non_neg_integer()} | {:error, term()}
+  def schedule_many(%SweepProducerAssignment{} = assignment, slots, opts) when is_list(slots) do
+    {rows, failed} =
+      Enum.reduce(slots, {[], 0}, fn %{start: start, expires: expires}, {rows, failed} ->
+        case slot_attrs(assignment, start, expires, opts) do
+          {:ok, attrs} -> {[attrs | rows], failed}
+          {:error, _reason} -> {rows, failed + 1}
+        end
+      end)
+
+    with :ok <- insert_slots(Enum.reverse(rows)) do
+      {:ok, length(rows), failed}
+    end
+  end
+
+  defp insert_slots([]), do: :ok
+
+  defp insert_slots(rows) do
+    case Ash.bulk_create(rows, SweepExecutionSlot, :schedule,
+           actor: actor(),
+           batch_size: @insert_batch_rows,
+           return_records?: false,
+           return_errors?: true,
+           stop_on_error?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: [error | _]} -> {:error, error}
+      %Ash.BulkResult{} -> {:error, :bulk_create_failed}
+    end
+  end
+
+  defp slot_attrs(assignment, slot_start, collection_expires, opts) do
     if DateTime.after?(collection_expires, slot_start) do
-      build_and_create(assignment, slot_start, collection_expires, opts)
+      build_attrs(assignment, slot_start, collection_expires, opts)
     else
       {:error, :invalid_window}
     end
   end
 
-  defp build_and_create(assignment, slot_start, collection_expires, opts) do
+  defp build_attrs(assignment, slot_start, collection_expires, opts) do
     targets = Keyword.fetch!(opts, :targets)
     check_set = Keyword.fetch!(opts, :check_set_sha256)
     plan_id = mint_binary(slot_start)
@@ -59,26 +114,23 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
              network_scope_id: Ecto.UUID.dump!(assignment.network_scope_id),
              check_set_sha256: check_set
            ) do
-      attrs = %{
-        id: mint_id(slot_start),
-        sweep_group_id: assignment.sweep_group_id,
-        agent_id: assignment.agent_id,
-        producer_assignment_id: assignment.id,
-        network_scope_id: assignment.network_scope_id,
-        authority_epoch: assignment.authority_epoch,
-        lease_id: Keyword.fetch!(opts, :lease_id),
-        slot_start: slot_start,
-        collection_expires: collection_expires,
-        plan_id: Ecto.UUID.cast!(plan_id),
-        plan_sha256: header.execution_plan_sha256,
-        check_set_sha256: check_set,
-        plan_header: ScheduledPlanHeaderV1.encode(header),
-        plan_pages: Enum.map(pages, &ScheduledPlanPageV1.encode/1)
-      }
-
-      SweepExecutionSlot
-      |> Ash.Changeset.for_create(:schedule, attrs, actor: actor())
-      |> Ash.create()
+      {:ok,
+       %{
+         id: mint_id(slot_start),
+         sweep_group_id: assignment.sweep_group_id,
+         agent_id: assignment.agent_id,
+         producer_assignment_id: assignment.id,
+         network_scope_id: assignment.network_scope_id,
+         authority_epoch: assignment.authority_epoch,
+         lease_id: Keyword.fetch!(opts, :lease_id),
+         slot_start: slot_start,
+         collection_expires: collection_expires,
+         plan_id: Ecto.UUID.cast!(plan_id),
+         plan_sha256: header.execution_plan_sha256,
+         check_set_sha256: check_set,
+         plan_header: ScheduledPlanHeaderV1.encode(header),
+         plan_pages: Enum.map(pages, &ScheduledPlanPageV1.encode/1)
+       }}
     end
   end
 

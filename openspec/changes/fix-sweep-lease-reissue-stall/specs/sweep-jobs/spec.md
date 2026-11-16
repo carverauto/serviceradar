@@ -57,8 +57,9 @@ equality, never trust.
 
 - **GIVEN** a full-window rebuild over more slots than fit one issuance batch
 - **WHEN** core commits the mapping evidence
-- **THEN** it SHALL commit in 64-entry batches rather than one transaction
-  per slot
+- **THEN** it SHALL commit in batches rather than one transaction per slot,
+  with the batch size and per-batch statements set by the set-based issuance
+  commit (change `set-based-sweep-lease-issuance`)
 - **AND** every entry SHALL still pass verification
 - **AND** a conflicting entry SHALL still halt the push before anything is sent.
 
