@@ -160,7 +160,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     assert {:eligible, nil} =
              Eligibility.classify_target(
                package(supervision: :systemd_service),
-               agent(now, deployment_type: "docker", capabilities: ["addon.native.host"]),
+               agent(now,
+                 deployment_type: "docker",
+                 capabilities: ["addon.native.host", "addon.systemd.updater"]
+               ),
                now
              )
   end
@@ -193,6 +196,21 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
                agent(now, capabilities: ["addon.systemd.updater.unavailable"]),
                now
              )
+  end
+
+  test "a systemd add-on needs an agent that reports its updater" do
+    now = ~U[2026-07-18 17:00:00Z]
+    unreported = agent(now, capabilities: [])
+
+    for supervision <- [:systemd_service, :systemd_timer] do
+      assert {:incompatible, "agent_updater_unreported"} =
+               Eligibility.classify_target(package(supervision: supervision), unreported, now)
+    end
+
+    for supervision <- [:agent_sidecar, :ephemeral_helper, :config_toggle] do
+      assert {:eligible, nil} =
+               Eligibility.classify_target(package(supervision: supervision), unreported, now)
+    end
   end
 
   test "systemd add-on packages need agent 1.2.47 or newer" do
@@ -419,7 +437,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     %{
       uid: "agent-1",
       version: Keyword.get(overrides, :version, "1.4.23"),
-      capabilities: Keyword.get(overrides, :capabilities, []),
+      capabilities: Keyword.get(overrides, :capabilities, ["addon.systemd.updater"]),
       status: Keyword.get(overrides, :status, :connected),
       is_healthy: true,
       last_seen_time: now,

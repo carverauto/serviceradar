@@ -4,8 +4,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.PipelineSetting
+  alias ServiceRadar.SNMPProfiles.BuiltinTemplates
+  alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -187,6 +190,73 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
     render_patch(lv, ~p"/settings/snmp")
     refute has_element?(lv, badge)
+  end
+
+  test "the profile list marks a profile whose target query has no OID to poll", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    query = ~s(in:devices vendor_name:"No OID Vendor #{unique}")
+
+    {:ok, bare} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Bare #{unique}",
+        community: "secret",
+        target_query: query
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, template} =
+      SNMPOIDTemplate
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Uptime #{unique}",
+        vendor: "custom",
+        oids: [%{oid: ".1.3.6.1.2.1.1.3.0", name: "sysUpTime", data_type: "gauge"}]
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, polled} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Polled #{unique}",
+        community: "secret",
+        target_query: query,
+        oid_template_ids: [template.id]
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert lv
+           |> element("#snmp-profile-#{bare.id}-no-oids")
+           |> render() =~ "none of those devices is polled"
+
+    refute has_element?(lv, "#snmp-profile-#{polled.id}-no-oids")
+  end
+
+  test "the profile form attaches a built-in template by its id", %{conn: conn, scope: scope} do
+    assert {:ok, _created} = BuiltinTemplates.seed(SystemActor.system(:test))
+    [_uptime_id, counters_id] = BuiltinTemplates.default_profile_template_ids()
+    unique = System.unique_integer([:positive])
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+    lv
+    |> element("button[phx-click='toggle_template'][phx-value-id='#{counters_id}']")
+    |> render_click()
+
+    lv
+    |> form("form[phx-submit='save_profile']", %{"form" => %{"name" => "Built-in #{unique}"}})
+    |> render_submit()
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Query.for_read(:by_name, %{name: "Built-in #{unique}"})
+      |> Ash.read_one(scope: scope)
+
+    assert profile.oid_template_ids == [counters_id]
   end
 
   test "new profile form renders the agent targeting selector", %{conn: conn} do

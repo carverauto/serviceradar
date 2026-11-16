@@ -31,9 +31,10 @@ handle.
 The current camera wire format carries no declared timebase, UTC mapping,
 uncertainty, or clock epoch. The H.264 RTP timebase is established by the current
 producer implementation. Equal PTS/DTS is not evidence that an arbitrary camera
-profile has no B-frames. Initial packaging admits baseline/constrained-baseline
-only, retains unknown UTC explicitly, and requires a new packaging instance after
-a clock or codec transition. Wider support needs an actual timestamp contract.
+profile has no B-frames. Packaging admits baseline/constrained-baseline, and
+Main or High only when the stream's own parameter sets rule out reordering. It
+retains unknown UTC explicitly and requires a new packaging instance after a
+clock or codec transition. Streams that reorder need an actual timestamp contract.
 
 ## Durable ownership contract
 

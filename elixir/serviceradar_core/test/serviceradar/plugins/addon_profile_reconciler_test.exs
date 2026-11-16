@@ -26,6 +26,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
         "agent-arm" => agent("agent-arm", metadata: %{"os" => "linux", "arch" => "arm64"}),
         "agent-old" => agent("agent-old", version: "1.1.9"),
         "agent-missing-cap" => agent("agent-missing-cap", capabilities: []),
+        "agent-updater-unreported" =>
+          agent("agent-updater-unreported", capabilities: ["endpoint-inventory"]),
         "agent-offline" => agent("agent-offline", status: :disconnected),
         "agent-container" =>
           agent("agent-container",
@@ -42,7 +44,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
       %{
         uid: uid,
         version: Keyword.get(overrides, :version, "1.2.47"),
-        capabilities: Keyword.get(overrides, :capabilities, ["endpoint-inventory"]),
+        capabilities:
+          Keyword.get(overrides, :capabilities, ["endpoint-inventory", "addon.systemd.updater"]),
         status: Keyword.get(overrides, :status, :connected),
         metadata: Keyword.get(overrides, :metadata, %{"os" => "linux", "arch" => "amd64"})
       }
@@ -597,6 +600,23 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.skip_counts == %{}
   end
 
+  test "a systemd add-on profile skips an agent that does not report its updater" do
+    profile =
+      endpoint_inventory_profile()
+      |> Map.put(:target_query, "in:agents")
+      |> put_in([:addon_package, :supervision], "systemd_timer")
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               runner: Runner.serving([agent_row("agent-updater-unreported")]),
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skip_counts == %{"agent_updater_unreported" => 1}
+  end
+
   test "package platform requirements apply even without artifact metadata" do
     profile =
       endpoint_inventory_profile()
@@ -626,7 +646,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
            %{
              uid: uid,
              version: Map.fetch!(versions, uid),
-             capabilities: ["addon.native.host"],
+             capabilities: ["addon.native.host", "addon.systemd.updater"],
              status: :connected,
              metadata: %{"os" => "linux", "arch" => "amd64"}
            }

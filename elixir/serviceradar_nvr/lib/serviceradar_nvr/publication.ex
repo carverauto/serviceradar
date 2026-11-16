@@ -1,12 +1,18 @@
 defmodule ServiceRadarNVR.Publication do
   @moduledoc """
-  Immutable local intent and acknowledgement records for Core reconciliation.
+  Immutable local intent and acknowledgement records for Core reconciliation,
+  plus the per-block archive receipt.
 
   Trusted same-VM callers supply authority correlation and Core responses; these
   files do not prove origin, qualified storage, availability or deletion rights.
   A bounded task verifies and persists records outside the capacity owner. Incomplete or
   conflicting files remain untouched. Acknowledgement persistence syncs the exact
   matching intent before the response, retaining both records for recovery.
+
+  `ServiceRadarNVR.Archive` supplies the receipt only after it read back and
+  verified every remote object. A complete receipt is never replaced. The
+  receipt is written to a temporary file, synced and renamed, so an interrupted
+  write leaves only the temporary file, which the next write replaces.
   """
 
   alias ServiceRadarNVR.Blocks
@@ -14,16 +20,32 @@ defmodule ServiceRadarNVR.Publication do
   alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent
 
+  @records [:intent, :acknowledgement, :archive_receipt]
+
   # Existing records are immutable, including partial writes. Their retained
   # bytes are charged by inventory; only absent records need future headroom.
   def pending_bytes(files) do
-    Enum.reduce([:intent, :acknowledgement], 0, fn kind, bytes ->
+    Enum.reduce(@records, 0, fn kind, bytes ->
       if filename(kind) in files, do: bytes, else: bytes + max_bytes(kind)
     end)
   end
 
   def max_bytes(:intent), do: 65_536
   def max_bytes(:acknowledgement), do: 512
+  def max_bytes(:archive_receipt), do: 4096
+
+  # The archive verified the receipt against the provider. Persistence refuses a
+  # different retained receipt and requires a still-verified sealed block.
+  def prepare(storage, block_id, :archive_receipt, bytes, limits) do
+    with :ok <- valid_block_id(block_id),
+         true <-
+           (is_binary(bytes) and byte_size(bytes) in 1..max_bytes(:archive_receipt)) ||
+             {:error, :invalid_archive_receipt},
+         {:ok, _snapshot} <- Blocks.inspect(storage, block_id, limits),
+         {:ok, additional} <- existing(storage, block_id, :archive_receipt, bytes) do
+      {:ok, bytes, additional}
+    end
+  end
 
   def prepare(storage, block_id, kind, payload, limits) do
     with {:ok, bytes} <- encode(storage, block_id, kind, payload, limits),
@@ -44,6 +66,11 @@ defmodule ServiceRadarNVR.Publication do
          {:ok, bytes} <- read(storage, block_id, :acknowledgement) do
       encode(storage, block_id, :acknowledgement, bytes, limits)
     end
+  end
+
+  # Raw retained bytes; the archive compares them with the block it verified.
+  def inspect(storage, block_id, :archive_receipt, _limits) do
+    with :ok <- valid_block_id(block_id), do: read(storage, block_id, :archive_receipt)
   end
 
   # The recovery reader distinguishes an absent intent from missing media behind
@@ -111,6 +138,37 @@ defmodule ServiceRadarNVR.Publication do
 
   def persist(storage, block_id, :intent, bytes), do: persist_record(storage, block_id, :intent, bytes)
 
+  # A retry after a lost reply syncs the identical complete receipt.
+  def persist(storage, block_id, :archive_receipt, bytes) do
+    path = path(storage, block_id, :archive_receipt)
+
+    with :ok <- Storage.verify(storage) do
+      case File.lstat(path) do
+        {:ok, _} -> sync_existing(storage, block_id, :archive_receipt, bytes)
+        {:error, :enoent} -> replace_receipt(storage, block_id, path, bytes)
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  defp replace_receipt(storage, block_id, path, bytes) do
+    temporary = path <> ".tmp"
+
+    with :ok <- remove_interrupted(temporary),
+         :ok <- create_file(temporary, bytes),
+         :ok <- File.rename(temporary, path),
+         do: sync_directory(storage, block_id)
+  end
+
+  defp remove_interrupted(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> File.rm(path)
+      {:ok, _} -> {:error, :invalid_archive_receipt}
+      {:error, :enoent} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
   # Exclusive creation preserves a partial write as unresolved evidence. A lost
   # reply after a complete write can be retried by syncing the exact same bytes.
   defp persist_record(storage, block_id, kind, bytes) do
@@ -165,6 +223,7 @@ defmodule ServiceRadarNVR.Publication do
   defp matches(bytes, bytes, _kind), do: :ok
   defp matches(_, _, :intent), do: {:error, :publication_intent_conflict}
   defp matches(_, _, :acknowledgement), do: {:error, :publication_acknowledgement_conflict}
+  defp matches(_, _, :archive_receipt), do: {:error, :archive_receipt_conflict}
 
   defp read(storage, block_id, kind) do
     limit = max_bytes(kind)
@@ -200,8 +259,10 @@ defmodule ServiceRadarNVR.Publication do
   defp path(storage, block_id, kind), do: Path.join([storage.root, block_id, filename(kind)])
   defp filename(:intent), do: "publication.json"
   defp filename(:acknowledgement), do: "publication-ack.json"
+  defp filename(:archive_receipt), do: "archive-receipt.json"
   defp invalid_record(:intent), do: :invalid_publication_intent
   defp invalid_record(:acknowledgement), do: :invalid_publication_acknowledgement
+  defp invalid_record(:archive_receipt), do: :invalid_archive_receipt
 
   defp with_file(path, modes, fun) do
     case :file.open(String.to_charlist(path), [:raw, :binary | modes]) do

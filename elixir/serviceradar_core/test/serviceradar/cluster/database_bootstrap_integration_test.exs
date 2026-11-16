@@ -43,6 +43,32 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   @result_prefix "BOOTSTRAP_RESULT:"
 
+  # TimescaleDB state a migration creates and a schema-only dump does not carry: compression
+  # settings on hypertables and the policy jobs. Intervals are left out because
+  # DataRetentionWorker reconciles them to runtime settings on any database; what must agree is
+  # that each setting and job exists. Compression on continuous aggregates is also left out: the
+  # worker enables it at runtime, on replayed and baselined databases alike.
+  @timescaledb_policy_state_sql """
+  SELECT coalesce(array_agg(entry ORDER BY entry), ARRAY[]::text[])
+  FROM (
+    SELECT format('compression %s segmentby=%s orderby=%s',
+                  h.hypertable_name, coalesce(s.segmentby, ''), coalesce(s.orderby, '')) AS entry
+    FROM timescaledb_information.hypertables h
+    JOIN timescaledb_information.hypertable_compression_settings s
+      ON format('%I.%I', h.hypertable_schema, h.hypertable_name)::regclass = s.hypertable
+    WHERE h.hypertable_schema = 'platform' AND h.compression_enabled
+    UNION ALL
+    SELECT j.proc_name || ' ' || j.hypertable_name
+    FROM timescaledb_information.jobs j
+    WHERE j.hypertable_schema = 'platform'
+      AND (j.proc_name IN ('policy_retention', 'policy_refresh_continuous_aggregate')
+           OR (j.proc_name = 'policy_compression'
+               AND EXISTS (SELECT 1 FROM timescaledb_information.hypertables h
+                           WHERE h.hypertable_schema = j.hypertable_schema
+                             AND h.hypertable_name = j.hypertable_name)))
+  ) AS state
+  """
+
   setup_all do
     {:ok, _} = Application.ensure_all_started(:postgrex)
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
@@ -124,6 +150,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   test "startup applies baseline once and reruns through migration history", %{
     admin_url: admin_url,
+    admin_opts: admin_opts,
     scratch_db: scratch_db,
     subprocess_ca_file: subprocess_ca_file
   } do
@@ -154,6 +181,24 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
              "sso_auto_provision" => false
            }
 
+    # The rows other covered migrations seed arrive the same way auth_settings does: from the
+    # baseline's seed-data section, not from a migration that never runs on this path.
+    assert first["seed_rows"] == %{
+             "availability_settings" => 1,
+             "fleet_dictionary_epochs" => 1,
+             "interface_classification_rules" => 3,
+             "plugin_repositories" => 1,
+             "snmp_profiles" => 1
+           }
+
+    # This lane's own database is a clone of a full migration replay of the same tree, so a
+    # database built from the baseline must carry the same TimescaleDB policy state.
+    assert first["timescaledb_policy_state"] ==
+             timescaledb_policy_state!(admin_opts, lane_database!()),
+           "a database created from the baseline differs from a migration replay in " <>
+             "TimescaleDB compression or policy jobs; regenerate the baseline with " <>
+             "`bazel run //build/schema_baseline:generate`"
+
     second = run_startup_migrations!(admin_url, scratch_db, subprocess_ca_file)
 
     assert second["baseline_count"] == 1
@@ -163,6 +208,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert second["logs_severity_rollup_present"] == true
     assert second["logs_severity_rollup_columns"] == first["logs_severity_rollup_columns"]
     assert second["auth_settings"] == first["auth_settings"]
+    assert second["seed_rows"] == first["seed_rows"]
+    assert second["timescaledb_policy_state"] == first["timescaledb_policy_state"]
   end
 
   test "the migrator path baselines instead of replaying the whole history", %{
@@ -390,7 +437,9 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     subprocess_preamble() <>
       ~S'''
       :ok = ServiceRadar.Cluster.StartupMigrations.run!()
-      ''' <> startup_tail()
+      ''' <>
+      "timescaledb_policy_state_sql = #{inspect(@timescaledb_policy_state_sql)}\n" <>
+      startup_tail()
   end
 
   # Everything up to and including `ServiceRadar.Repo.start_link()`. Shared by the startup path
@@ -844,7 +893,20 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
         rows ->
           %{count: length(rows)}
-      end
+        end
+
+    %{rows: [[timescaledb_policy_state]]} =
+      ServiceRadar.Repo.query!(timescaledb_policy_state_sql)
+
+    seed_rows =
+      Map.new(
+        ~w(availability_settings fleet_dictionary_epochs interface_classification_rules
+           plugin_repositories snmp_profiles),
+        fn table ->
+          %{rows: [[count]]} = ServiceRadar.Repo.query!("SELECT count(*) FROM platform.#{table}")
+          {table, count}
+        end
+      )
 
     IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
       migration_count: migration_count,
@@ -853,9 +915,33 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       logs_hypertable_present: logs_hypertable_present,
       logs_severity_rollup_present: logs_severity_rollup_present,
       logs_severity_rollup_columns: logs_severity_rollup_columns,
-      auth_settings: auth_settings
+      auth_settings: auth_settings,
+      seed_rows: seed_rows,
+      timescaledb_policy_state: timescaledb_policy_state
     }))
     '''
+  end
+
+  defp timescaledb_policy_state!(admin_opts, database) do
+    admin_opts
+    |> Keyword.put(:database, database)
+    |> with_admin_connection!(fn conn ->
+      %{rows: [[state]]} =
+        Postgrex.query!(conn, @timescaledb_policy_state_sql, [], timeout: @admin_query_timeout)
+
+      state
+    end)
+  end
+
+  # The database this lane's tests run against: a clone of the schema generation the fixture
+  # lifecycle built by replaying every migration in this tree.
+  defp lane_database! do
+    repo = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
+
+    case repo[:url] do
+      url when is_binary(url) and url != "" -> database_name(URI.parse(url))
+      _ -> Keyword.fetch!(repo, :database)
+    end
   end
 
   defp subprocess_env(admin_url, database, subprocess_ca_file, extra_env \\ []) do

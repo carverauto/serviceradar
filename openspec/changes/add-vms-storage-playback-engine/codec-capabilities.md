@@ -1,7 +1,7 @@
 # Native codec capability experiment
 
 This test-only experiment measures the pinned media libraries and Linux Chromium.
-It does not extend the production recorder, its baseline-only descriptor, or its
+It does not extend the production recorder, its descriptor, or its
 unknown UTC mapping. Task 0.4 remains incomplete.
 
 ## Measured scope

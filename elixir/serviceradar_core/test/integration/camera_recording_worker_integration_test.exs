@@ -1280,7 +1280,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     # read alive meanwhile, staying inside the first GOP (sequences 9..33 at most
     # span 7.5s, past the 5s renewal, with gaps well under the 1s NVR read timeout).
     Enum.reduce_while(Enum.slice(ctx.media.units, 8, 25), :ok, fn unit, :ok ->
-      if Process.alive?(worker) and not :sys.get_state(worker).detached? do
+      if nvr_worker_attached?(worker) do
         send(ctx.pipeline, {:media_chunk, unit})
         Process.sleep(300)
         {:cont, :ok}
@@ -1530,6 +1530,14 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_receive {:recorder_claim_released_by, ^worker}, 5_000
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
     assert recorder_claim(ctx).state == :released
+  end
+
+  # The worker can stop between any two calls, so liveness cannot be checked
+  # first and state read second. A stopped worker is no longer attached.
+  defp nvr_worker_attached?(worker) do
+    not :sys.get_state(worker).detached?
+  catch
+    :exit, _ -> false
   end
 
   defp await_nvr_worker_attached(owner) do

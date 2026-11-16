@@ -5,7 +5,8 @@ defmodule ServiceRadarNVR.Disk do
   alias ServiceRadarRecording.Storage
 
   @max_blocks 4096
-  @block_files ~w(init.mp4 media.m4s journal publication.json publication-ack.json)
+  # An interrupted receipt write may leave its temporary file; both are charged.
+  @block_files ~w(init.mp4 media.m4s journal publication.json publication-ack.json archive-receipt.json archive-receipt.json.tmp)
 
   # Inspect metadata only. Incomplete and sealed blocks are equally charged;
   # this is neither journal recovery nor permission to remove anything.

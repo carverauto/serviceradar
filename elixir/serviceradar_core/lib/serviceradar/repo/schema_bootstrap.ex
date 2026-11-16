@@ -323,48 +323,16 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
       "[SchemaBootstrap] Applying schema baseline from #{schema_file} (#{length(statements)} statements)"
     )
 
+    # The baseline carries the rows the covered migrations seed (its seed-data section), so
+    # loading it is the whole bootstrap: no application-side seed list to keep in step with it.
     repo.transaction(
       fn ->
         Enum.each(statements, fn statement ->
           repo.query!(statement, [], timeout: :infinity)
         end)
-
-        seed_required_baseline_data!(repo)
       end,
       timeout: :infinity
     )
-  end
-
-  # The supported baseline generator deliberately uses pg_dump --schema-only.
-  # Keep required singleton data in the application-owned bootstrap transaction
-  # so regenerating the baseline cannot silently discard it.
-  defp seed_required_baseline_data!(repo) do
-    repo.query!("""
-    INSERT INTO platform.auth_settings (
-      id,
-      mode,
-      is_enabled,
-      allow_password_fallback,
-      sso_auto_provision
-    )
-    VALUES (gen_random_uuid(), 'password_only', false, true, false)
-    ON CONFLICT DO NOTHING
-    """)
-
-    # Agents that report no partition of their own report `default`; core resolves their
-    # network scope from this row (migration 20261102231152_seed_default_partition).
-    repo.query!("""
-    INSERT INTO platform.partitions (id, name, slug, enabled, created_at, updated_at)
-    VALUES (
-      gen_random_uuid(),
-      'Default',
-      'default',
-      true,
-      (now() AT TIME ZONE 'utc'),
-      (now() AT TIME ZONE 'utc')
-    )
-    ON CONFLICT (slug) DO NOTHING
-    """)
   end
 
   defp mark_baseline_migrations_applied!(repo, migrations_path, %{

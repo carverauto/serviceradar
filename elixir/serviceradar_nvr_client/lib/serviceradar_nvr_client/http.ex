@@ -5,14 +5,23 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   @max_body 67_108_864
   @max_response 32_768
+  @empty_response %{status: nil, body: "", done: false}
 
   def send_recording(config, header, bytes, units, deadline, owner) do
+    connect(config, deadline, owner, &transmit(&1, config.token, header, bytes, units, deadline, owner))
+  end
+
+  def archive_block(config, block_id, request, body, deadline, owner) do
+    connect(config, deadline, owner, &request_archive(&1, config.token, block_id, request, body, deadline, owner))
+  end
+
+  defp connect(config, deadline, owner, exchange) do
     with {:ok, pem} <- Config.read(config.ca, 65_536),
          [_ | _] = ca <- for({:Certificate, der, :not_encrypted} <- :public_key.pem_decode(pem), do: der),
          :ok <- current(deadline, owner),
          {:ok, connection} <- Mint.HTTP1.connect(:https, config.host, config.port, options(config, ca, deadline)) do
       try do
-        transmit(connection, config.token, header, bytes, units, deadline, owner)
+        exchange.(connection)
       after
         Mint.HTTP1.close(connection)
       end
@@ -50,11 +59,37 @@ defmodule ServiceRadarNVRClient.HTTP do
          :ok <- current(deadline, owner),
          {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, <<0::32>>),
          {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, :eof) do
-      response(connection, ref, header, deadline, owner, %{status: nil, body: "", done: false})
+      response(connection, ref, deadline, owner, &ingest_result(&1, &2, header), @empty_response)
     else
       _ -> {:error, :outcome_unknown}
     end
   end
+
+  defp ingest_result(200, body, header), do: Wire.receipt(body, header)
+  defp ingest_result(status, _body, _header), do: {:error, {:ingest_status, status}}
+
+  defp request_archive(connection, token, block_id, request, body, deadline, owner) do
+    headers = [
+      {"authorization", "Bearer " <> token},
+      {"content-type", "application/vnd.serviceradar.nvr-archive.v1+json"},
+      {"content-length", Integer.to_string(byte_size(body))}
+    ]
+
+    with :ok <- current(deadline, owner),
+         {:ok, connection, ref} <-
+           Mint.HTTP1.request(connection, "POST", "/v1/blocks/" <> block_id <> "/archive", headers, body) do
+      response(connection, ref, deadline, owner, &archive_result(&1, &2, block_id, request), @empty_response)
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp archive_result(200, body, block_id, request), do: Wire.archive_receipt(body, block_id, request)
+
+  defp archive_result(status, body, _block_id, _request) when is_integer(status),
+    do: {:error, {:archive_status, status, Wire.archive_error(body)}}
+
+  defp archive_result(_status, _body, _block_id, _request), do: {:error, :outcome_unknown}
 
   defp stream(units, connection, ref, size, deadline, owner) do
     Enum.reduce_while(units, {:ok, connection, size}, fn unit, {:ok, connection, size} ->
@@ -69,14 +104,13 @@ defmodule ServiceRadarNVRClient.HTTP do
     end)
   end
 
-  defp response(connection, ref, header, deadline, owner, response) do
+  defp response(connection, ref, deadline, owner, finish, response) do
     with :ok <- current(deadline, owner),
          {:ok, connection, events} <- Mint.HTTP1.recv(connection, 0, remaining(deadline)),
          {:ok, response} <- accumulate(events, ref, response) do
       case response do
-        %{done: true, status: 200, body: body} -> Wire.receipt(body, header)
-        %{done: true, status: status} -> {:error, {:ingest_status, status}}
-        response -> response(connection, ref, header, deadline, owner, response)
+        %{done: true, status: status, body: body} -> finish.(status, body)
+        response -> response(connection, ref, deadline, owner, finish, response)
       end
     else
       _ -> {:error, :outcome_unknown}

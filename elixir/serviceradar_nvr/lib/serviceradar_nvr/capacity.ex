@@ -27,6 +27,11 @@ defmodule ServiceRadarNVR.Capacity do
   def acknowledge_publication(block_id, bytes),
     do: GenServer.call(__MODULE__, {:publication, block_id, :acknowledgement, bytes}, @publication_timeout + 5_000)
 
+  # Shares the one publication slot, so the receipt spends its block's receipt
+  # allowance under the same write guard as the publication records.
+  def record_archive_receipt(block_id, bytes),
+    do: GenServer.call(__MODULE__, {:publication, block_id, :archive_receipt, bytes}, @publication_timeout + 5_000)
+
   def recover_block(block_id, expected_identity),
     do: GenServer.call(__MODULE__, {:recover_block, block_id, expected_identity}, 30_000)
 

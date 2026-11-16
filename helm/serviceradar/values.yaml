@@ -974,7 +974,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261115000000"
+    expectedVersion: "20261115191431"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -3261,7 +3261,8 @@ analytics:
 
 # NVR runtime packaging checkpoint. Pool enrollment and local archive
 # publication are not enabled by this workload; private workload-authenticated
-# ingest remains opt-in under nvr.ingest.
+# ingest remains opt-in under nvr.ingest, and verified block upload to a bucket
+# under nvr.archive.
 nvr:
   enabled: false
   replicas: 2
@@ -3279,6 +3280,27 @@ nvr:
       configSecretName: ""
       tokenSecretName: ""
       tlsSecretName: ""
+  archive:
+    # Lets Core ask an NVR replica to copy a sealed block to an S3-compatible
+    # bucket through Longshore (io_uring) and verify it by readback. Requires
+    # nvr.ingest.enabled: the request uses the ingest listener and token. The
+    # bucket credential arrives inside each request from Core's CNPG credential
+    # store; no Secret, value or env var here carries it. See docs/nvr-runtime.md.
+    enabled: false
+    # Applies only when archive is enabled. Longshore needs io_uring, which
+    # current containerd and Docker defaults deny, so a working archive needs a Localhost
+    # profile installed on every eligible node. Localhost also schedules only
+    # onto nodes labelled serviceradar.io/media-storage-node-prepared=true, the
+    # label for nodes with that profile and a raised locked-memory limit. See
+    # docs/media-storage-node-prerequisites.md.
+    seccompProfile:
+      type: RuntimeDefault
+      localhostProfile: ""
+    # Explicit provider endpoint IPs; NetworkPolicy cannot match a hostname.
+    # Longshore has no CONNECT proxy support, so these must be the provider's.
+    providerEgress:
+      cidrs: []
+      port: 443
   recovery:
     # Operator-owned state, outside the CNPG/PVC restore set. Keys: generation
     # (canonical UUID) and state.json (canonical generation/state JSON).

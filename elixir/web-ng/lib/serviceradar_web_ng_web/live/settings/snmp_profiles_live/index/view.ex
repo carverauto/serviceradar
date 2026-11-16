@@ -49,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
               profiles={@profiles}
               profile_target_counts={@profile_target_counts}
               profile_target_refusals={@profile_target_refusals}
+              profiles_missing_oids={@profiles_missing_oids}
               profile_package_names={@profile_package_names}
             />
           <% end %>
