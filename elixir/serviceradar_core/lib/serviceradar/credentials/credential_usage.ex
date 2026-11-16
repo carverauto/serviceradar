@@ -12,6 +12,7 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller, as: AnsibleController
   alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsiblePlaybookRepository
+  alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
   alias ServiceRadar.Credentials.CredentialUsage.LiveGrant
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.Notifications.NotificationChannel
@@ -130,8 +132,10 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
       {:device_snmp_credentials, &load_device_snmp_credentials/1},
       {:mapper_unifi_controllers, &load_mapper_unifi_controllers/1},
       {:mapper_mikrotik_controllers, &load_mapper_mikrotik_controllers/1},
+      {:mapper_jobs, &load_mapper_jobs/1},
       {:integration_sources, &load_integration_sources/1},
       {:outbound_mail_settings, &load_outbound_mail_settings/1},
+      {:recording_archive_settings, &load_recording_archive_settings/1},
       {:plugin_repositories, &load_plugin_repositories/1},
       {:ansible_controllers, &load_ansible_controllers/1},
       {:ansible_playbook_repositories, &load_ansible_playbook_repositories/1}
@@ -231,6 +235,15 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
     |> map_direct(:mapper_mikrotik_controller, :credential_secret_id, &mapper_label/1)
   end
 
+  defp load_mapper_jobs(ids) do
+    MapperJob
+    |> read_selected(
+      Ash.Query.filter(MapperJob, snmp_credential_secret_id in ^ids),
+      [:id, :snmp_credential_secret_id, :name]
+    )
+    |> map_direct(:mapper_job, :snmp_credential_secret_id, :name)
+  end
+
   defp load_integration_sources(ids) do
     IntegrationSource
     |> read_selected(
@@ -272,6 +285,37 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
            ],
            &is_nil/1
          )
+       end)}
+    end
+  end
+
+  defp load_recording_archive_settings(ids) do
+    id_set = MapSet.new(ids)
+
+    query =
+      Ash.Query.filter(
+        RecordingArchiveSettings,
+        writer_credential_secret_id in ^ids or reader_credential_secret_id in ^ids
+      )
+
+    with {:ok, rows} <-
+           read_selected(
+             RecordingArchiveSettings,
+             query,
+             [:id, :writer_credential_secret_id, :reader_credential_secret_id]
+           ) do
+      {:ok,
+       Enum.flat_map(rows, fn row ->
+         [
+           {row.writer_credential_secret_id, "Camera archive (writer)", :writer},
+           {row.reader_credential_secret_id, "Camera archive (reader)", :reader}
+         ]
+         |> Enum.filter(fn {secret_id, _label, _slot} ->
+           not is_nil(secret_id) and MapSet.member?(id_set, to_string(secret_id))
+         end)
+         |> Enum.map(fn {secret_id, label, slot} ->
+           direct_entry(secret_id, :recording_archive_settings, row.id, label, slot)
+         end)
        end)}
     end
   end

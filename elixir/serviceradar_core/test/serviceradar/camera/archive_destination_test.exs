@@ -30,7 +30,7 @@ defmodule ServiceRadar.Camera.ArchiveDestinationTest do
     for {field, value} <- [
           {"capability_state", "ready"},
           {"credential_reference", "invented-reference"},
-          {"schema_version", 2},
+          {"schema_version", 3},
           {"generation", 0},
           {"generation", 9_223_372_036_854_775_808},
           {"purpose", "evidence"},
@@ -55,5 +55,63 @@ defmodule ServiceRadar.Camera.ArchiveDestinationTest do
 
     assert {:error, :invalid_archive_destination} =
              ArchiveDestination.attributes(Map.delete(input, "region"))
+  end
+
+  test "schema version 2 accepts bounded operator key prefixes in namespace and hashes them" do
+    base_v2 =
+      "operator:primary"
+      |> Fixtures.archive_destination()
+      |> Map.put("schema_version", 2)
+
+    assert {:ok, default_prefix} =
+             ArchiveDestination.attributes(Map.put(base_v2, "namespace", "recordings/v1"))
+
+    assert {:ok, custom_prefix} =
+             ArchiveDestination.attributes(Map.put(base_v2, "namespace", "nvr/archive_v2-site"))
+
+    assert custom_prefix.schema_version == 2
+    assert custom_prefix.namespace == "nvr/archive_v2-site"
+    refute custom_prefix.destination_sha256 == default_prefix.destination_sha256
+
+    max_prefix = String.duplicate("a", 128)
+
+    assert {:ok, %{namespace: ^max_prefix}} =
+             ArchiveDestination.attributes(Map.put(base_v2, "namespace", max_prefix))
+
+    for bad_namespace <- [
+          "",
+          "/recordings/v1",
+          "recordings/v1/",
+          "recordings//v1",
+          "Recordings/v1",
+          "recordings/v1.0",
+          String.duplicate("a", 129)
+        ] do
+      assert {:error, [{:namespace, _}]} =
+               ArchiveDestination.validate(Map.put(base_v2, "namespace", bad_namespace))
+
+      assert {:error, :invalid_archive_destination} =
+               ArchiveDestination.attributes(Map.put(base_v2, "namespace", bad_namespace))
+    end
+  end
+
+  test "validate/1 reports offending field names instead of a generic failure" do
+    invalid =
+      "operator:primary"
+      |> Fixtures.archive_destination()
+      |> Map.merge(%{
+        "schema_version" => 2,
+        "endpoint" => "https://192.0.2.10",
+        "region" => "EXAMPLE_BAD",
+        "bucket" => "x",
+        "namespace" => "/bad-leading-slash"
+      })
+
+    assert {:error, errors} = ArchiveDestination.validate(invalid)
+    fields = Enum.map(errors, &elem(&1, 0))
+    assert :endpoint in fields
+    assert :region in fields
+    assert :bucket in fields
+    assert :namespace in fields
   end
 end

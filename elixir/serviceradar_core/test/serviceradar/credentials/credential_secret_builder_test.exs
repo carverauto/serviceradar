@@ -278,6 +278,29 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
       refute inspect(attrs.metadata) =~ "public-ish"
     end
 
+    test "the community method stores an SNMPv1 version and refuses one it does not offer" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "legacy-ish", "version" => "v1"},
+                 %{name: "Legacy switches", description: nil}
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "legacy-ish",
+               "version" => "v1"
+             }
+
+      assert {:error, {:invalid_credential_field, "version"}} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "legacy-ish", "version" => "v3"},
+                 %{name: "Legacy switches", description: nil}
+               )
+    end
+
     test "the v3 method stores the username publicly and the rest encrypted" do
       assert {:ok, attrs} =
                CredentialSecretBuilder.build(
@@ -541,6 +564,8 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
   end
 
   describe "build_rotation/4" do
+    alias ServiceRadar.Credentials.NativeDescriptors
+
     test "defaults AWX token next_rotation_due_at to 90 days on build and rotation when omitted" do
       now = ~U[2026-10-25 12:00:00.000000Z]
       expected_due = DateTime.shift(now, day: 90)
@@ -768,6 +793,58 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  )
       end
     end
+
+    test "an SNMP community rotation left on a blank version keeps the stored version" do
+      secret = snmp_community_secret()
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 secret,
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community", "version" => ""},
+                 current_payload: fn ->
+                   {:ok, Jason.encode!(%{"community" => "old-community", "version" => "v1"})}
+                 end
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "rotated-community",
+               "version" => "v1"
+             }
+    end
+
+    test "an explicit version wins, and the stored payload is not read for it" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 snmp_community_secret(),
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community", "version" => "v2c"},
+                 current_payload: fn -> flunk("an explicit version must not read the payload") end
+               )
+
+      assert Jason.decode!(attrs.secret_payload) == %{
+               "community" => "rotated-community",
+               "version" => "v2c"
+             }
+    end
+
+    test "a blank version whose stored payload cannot be read refuses the rotation" do
+      assert {:error, :invalid_credential_rotation} =
+               CredentialSecretBuilder.build_rotation(
+                 snmp_community_secret(),
+                 NativeDescriptors.snmp(),
+                 %{"community" => "rotated-community"},
+                 current_payload: fn -> {:error, :unavailable} end
+               )
+    end
+  end
+
+  defp snmp_community_secret do
+    rotatable_secret(%{
+      provider: "snmp",
+      credential_kind: :snmp,
+      metadata: %{"credential_descriptor" => "package_manifest.v1", "auth_method" => "community"}
+    })
   end
 
   # Everything the form can submit for a v3 credential. Each case using it

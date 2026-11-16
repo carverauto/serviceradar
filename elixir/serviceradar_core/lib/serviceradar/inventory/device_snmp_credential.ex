@@ -67,6 +67,14 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
       change InvalidateSnmpConfigs
     end
 
+    update :bind_reusable_credential do
+      description "System only: bind a reusable credential in place of the inline material"
+      accept [:credential_secret_id]
+      require_atomic? false
+      change EncryptCredentials
+      change InvalidateSnmpConfigs
+    end
+
     create :upsert do
       description "Create or update device SNMP credentials"
       upsert? true
@@ -97,6 +105,10 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     operator_action_type([:create, :update])
     admin_action_type(:destroy)
     read_all()
+
+    policy action(:bind_reusable_credential) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
   end
 
   attributes do

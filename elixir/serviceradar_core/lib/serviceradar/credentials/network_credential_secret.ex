@@ -96,6 +96,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       {:id, "device_snmp_credentials_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "mapper_unifi_controllers_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "mapper_mikrotik_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "mapper_jobs_snmp_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "integration_sources_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "plugin_repositories_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "ansible_controllers_credential_secret_id_fkey", @credential_in_use_message},
@@ -107,6 +108,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
        @credential_in_use_message},
       {:id, "outbound_mail_settings_password_secret_id_fkey", @credential_in_use_message},
       {:id, "outbound_mail_settings_api_key_secret_id_fkey", @credential_in_use_message},
+      {:id, "camera_archive_settings_writer_secret_fkey", @credential_in_use_message},
+      {:id, "camera_archive_settings_reader_secret_fkey", @credential_in_use_message},
       {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
       {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message}
     ]

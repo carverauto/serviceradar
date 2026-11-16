@@ -138,6 +138,13 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       change CheckTargetLimit
     end
 
+    update :bind_reusable_credential do
+      description "System only: bind a reusable credential in place of the inline material"
+      accept [:credential_secret_id]
+      require_atomic? false
+      change EncryptCredentials
+    end
+
     update :set_as_default do
       description "Set this profile as the default for the instance"
       accept []
@@ -211,6 +218,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     admin_action_type(:create)
     admin_action_type(:update)
     read_all()
+
+    policy action(:bind_reusable_credential) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
 
     # Cannot delete default profiles
     policy action_type(:destroy) do

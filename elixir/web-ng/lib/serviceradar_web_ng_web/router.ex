@@ -1406,6 +1406,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/flows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
       live("/settings/mail", Settings.MailLive, :index)
       live("/settings/data-retention", Settings.DataRetentionLive, :index)
+      live("/settings/recording", Settings.RecordingLive, :index)
 
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)

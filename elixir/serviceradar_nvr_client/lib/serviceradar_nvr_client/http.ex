@@ -54,19 +54,57 @@ defmodule ServiceRadarNVRClient.HTTP do
     headers = [{"authorization", "Bearer " <> token}, {"content-type", "application/vnd.serviceradar.nvr-ingest.v1"}]
 
     with {:ok, connection, ref} <- Mint.HTTP1.request(connection, "POST", "/v1/recordings/ingest", headers, :stream),
-         {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, bytes),
+         {:ok, connection} <- send_unsealed(connection, ref, bytes, deadline, owner),
          {:ok, connection, _} <- stream(units, connection, ref, byte_size(bytes), deadline, owner),
          :ok <- current(deadline, owner),
-         {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, <<0::32>>),
+         {:ok, connection} <- send_unsealed(connection, ref, <<0::32>>, deadline, owner),
          {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, :eof) do
       response(connection, ref, deadline, owner, &ingest_result(&1, &2, header), @empty_response)
     else
+      {:halted, result} -> result
       _ -> {:error, :outcome_unknown}
     end
   end
 
   defp ingest_result(200, body, header), do: Wire.receipt(body, header)
   defp ingest_result(status, _body, _header), do: {:error, {:ingest_status, status}}
+
+  # Sends one chunk before HTTP body completion. The NVR seals the final block
+  # only after it reads the end marker and that completion, so a response here
+  # refuses an unfinished stream: the NVR answers and stops reading. Poll
+  # without blocking before each send so the answer is read from this
+  # connection, not lost when a later send fails on the closed socket.
+  defp send_unsealed(connection, ref, chunk, deadline, owner) do
+    case Mint.HTTP1.recv(connection, 0, 0) do
+      {:error, connection, %Mint.TransportError{reason: :timeout}, []} ->
+        case Mint.HTTP1.stream_request_body(connection, ref, chunk) do
+          {:ok, connection} -> {:ok, connection}
+          {:error, connection, _reason} -> {:halted, buffered_refusal(connection, ref, deadline, owner)}
+        end
+
+      {:ok, connection, events} ->
+        {:halted, refusal(connection, ref, events, deadline, owner)}
+
+      _ ->
+        {:halted, {:error, :outcome_unknown}}
+    end
+  end
+
+  # One non-blocking read after a failed send. Mint closes the socket when a
+  # send fails with :closed, so that case stays an unknown outcome.
+  defp buffered_refusal(connection, ref, deadline, owner) do
+    case Mint.HTTP1.recv(connection, 0, 0) do
+      {:ok, connection, events} -> refusal(connection, ref, events, deadline, owner)
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp refusal(connection, ref, events, deadline, owner),
+    do: received(connection, ref, events, deadline, owner, &refusal_result/2, @empty_response)
+
+  # A 200 before the end marker cannot be a seal, so it proves nothing.
+  defp refusal_result(status, _body) when is_integer(status) and status != 200, do: {:error, {:ingest_refused, status}}
+  defp refusal_result(_status, _body), do: {:error, :outcome_unknown}
 
   defp request_archive(connection, token, block_id, request, body, deadline, owner) do
     headers = [
@@ -96,9 +134,10 @@ defmodule ServiceRadarNVRClient.HTTP do
       with :ok <- current(deadline, owner),
            {:ok, bytes} <- Wire.unit(unit),
            true <- size + byte_size(bytes) + 4 <= @max_body,
-           {:ok, connection} <- Mint.HTTP1.stream_request_body(connection, ref, bytes) do
+           {:ok, connection} <- send_unsealed(connection, ref, bytes, deadline, owner) do
         {:cont, {:ok, connection, size + byte_size(bytes)}}
       else
+        {:halted, _result} = halted -> {:halt, halted}
         _ -> {:halt, {:error, :outcome_unknown}}
       end
     end)
@@ -106,13 +145,17 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   defp response(connection, ref, deadline, owner, finish, response) do
     with :ok <- current(deadline, owner),
-         {:ok, connection, events} <- Mint.HTTP1.recv(connection, 0, remaining(deadline)),
-         {:ok, response} <- accumulate(events, ref, response) do
-      case response do
-        %{done: true, status: status, body: body} -> finish.(status, body)
-        response -> response(connection, ref, deadline, owner, finish, response)
-      end
+         {:ok, connection, events} <- Mint.HTTP1.recv(connection, 0, remaining(deadline)) do
+      received(connection, ref, events, deadline, owner, finish, response)
     else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp received(connection, ref, events, deadline, owner, finish, response) do
+    case accumulate(events, ref, response) do
+      {:ok, %{done: true, status: status, body: body}} -> finish.(status, body)
+      {:ok, response} -> response(connection, ref, deadline, owner, finish, response)
       _ -> {:error, :outcome_unknown}
     end
   end

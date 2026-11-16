@@ -63,9 +63,10 @@ sending media over NATS/JetStream or ERTS distribution:
    `RelaySessionManager.request_open/3`, then routes execution to the `core-elx`
    node hosting `CameraRelay.Pipeline` (`ServiceRadar.Camera.RelayHosts`).
    It refuses with `:recording_disabled` before opening anything when the
-   recording supervisor is off. If capture fails before streaming starts, it
-   closes the relay only when this call opened it; a reused relay, including
-   one a live viewer is still opening, is left untouched.
+   recording supervisor is off. If capture fails before streaming starts, or
+   the NVR refuses the stream, it closes the relay only when this call opened
+   it; a reused relay, including one a live viewer is still opening, is left
+   untouched.
 2. `NVRTargetConfig` resolves installed workload mTLS/token credentials and the
    target replica's provisioned `storage_id` from
    `SERVICERADAR_NVR_CLIENT_CONFIG_FILE` and
@@ -81,12 +82,24 @@ sending media over NATS/JetStream or ERTS distribution:
    failed relay drain or caller loss aborts without sending the stream-end
    marker, never retries or fails over to another replica, and leaves the
    reserved block and epoch intact for inspection or recovery. The recorder
-   lease keeps renewing until the NVR answers. A capture `timeout_ms` outside
-   1 through 300000 is refused before any recorder claim is taken. A capture
-   with less than 250 ms left before its NVR stream opens stops with
-   `:capture_timeout` (not uncertain) and releases its recorder claim. A
-   verified receipt is returned even if worker cleanup outlasts the drain
-   window.
+   lease keeps renewing until the NVR answers. These uncertain outcomes return
+   `{:error, {:nvr_ingest_uncertain, details}}` and keep the recorder fence
+   until its lease lapses.
+5. An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
+   refused the unfinished stream and sealed nothing it had open. That is a
+   definite failure, not an unknown outcome: the capture returns
+   `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the same
+   correlation fields and releases its recorder claim, so the next capture of
+   the source can start at once instead of failing with
+   `:recorder_already_owned` until the 30-second lease lapses. Its reserved
+   `RecordingBlock` stays `:open_local`, as after any other failure. A non-200
+   answer read after the end marker stays uncertain, because the NVR can
+   answer 422 or 503 after it has sealed.
+6. A capture `timeout_ms` outside 1 through 300000 is refused before any
+   recorder claim is taken. A capture with less than 250 ms left before its NVR
+   stream opens stops with `:capture_timeout` (not uncertain) and releases its
+   recorder claim. A verified receipt is returned even if worker cleanup
+   outlasts the drain window.
 
 A capture ends at the first of its frame, byte and media-duration bounds
 (defaults 240 frames, 8 MiB and 6 seconds; ceilings 8,100 frames, 12 MiB and
@@ -165,7 +178,18 @@ It never retries, follows redirects or selects another replica.
 
 A success receipt must match the requested storage lifetime and consecutive
 block keys. Transport or malformed-response failures return an unknown outcome
-requiring discovery at the original NVR. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
+requiring discovery at the original NVR.
+
+The NVR answers a refused stream at once and stops reading the body, while the
+client may still be sending. So before sending each chunk up to and including
+the end marker, the client polls the connection without blocking. If an answer
+has started, it sends nothing more, reads the rest of that answer within the
+same deadline and size limits, and returns `{:error, {:ingest_refused, status}}`
+for a complete non-200 answer. After a failed send it makes one non-blocking
+read for an answer already received. A non-200 answer read after the end marker
+returns `{:error, {:ingest_status, status}}` instead, because it does not rule
+out a seal. A 200 before the end marker, or an answer that is lost, cut short or
+malformed, is `:outcome_unknown`. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
 This is a library for the media bridge; installing it enables no consumer. The
 [bounded relay coordinator](#bounded-relay-coordinator) is its only caller and
 performs source ownership and recorder admission before sending.
@@ -184,12 +208,25 @@ transport or process failure can close the connection without a JSON response.
 Any lost response is an unknown outcome. Do not automatically resend media,
 change the recorder epoch or move to another replica to hide that uncertainty.
 
-Incomplete work retains its journal and completed blocks. The request never
-repairs, deletes or adopts retained storage. It cannot bypass current recovery
-state, the bootstrap/history barrier, source/profile exclusion, capacity checks
-or write-time disk guards. Closing recovery during work withholds success even
-if some bytes have already been written. Inspection and explicit recovery remain
-separate operations under their existing authority requirements.
+An answered refusal is not an unknown outcome. The NVR seals the final block
+only after it reads the end marker and HTTP body completion, so any of these
+statuses received before the end marker was sent means the block it had open
+was not sealed; its journal is kept unsealed. The coordinator treats that as a
+definite failure and releases its recorder claim. The same statuses can arrive
+after the end marker following a seal: a 503 when recovery closes after
+sealing, or a 422 when sealing outlasts the deadline. Those stay unknown.
+
+Incomplete work retains its journal and completed blocks. A stream longer than
+one block seals each full block as it goes. A capture at the default
+`nvr.maxBlockFragments` of 150 fits one block and cannot rotate, but on a
+deployment configured with a small fragment limit a capture can still rotate,
+and a later refusal then leaves the earlier block sealed while Core releases
+the recorder claim. The request never repairs, deletes or adopts retained
+storage. It cannot bypass current recovery state, the bootstrap/history
+barrier, source/profile exclusion, capacity checks or write-time disk guards.
+Closing recovery during work withholds success even if some bytes have already
+been written. Inspection and explicit recovery remain separate operations under
+their existing authority requirements.
 
 ## Archive upload
 

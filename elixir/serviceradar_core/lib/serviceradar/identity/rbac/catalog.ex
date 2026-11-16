@@ -917,6 +917,36 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
             "Clear an AuthLockout, rotate a WebhookSecret, and perform other " <>
               "mutating actions on Settings → Audit.",
           default_roles: @admin_roles
+        },
+        %{
+          key: "settings.recording.view",
+          section: "settings",
+          resource: "settings.recording",
+          action: "view",
+          label: "View camera recording settings",
+          description:
+            "View NVR recorder status, archive destinations, block locations, receipts, and operation history",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "settings.recording.manage",
+          section: "settings",
+          resource: "settings.recording",
+          action: "manage",
+          label: "Manage camera recording settings",
+          description:
+            "Register archive destinations, choose the active destination, and select archive credentials",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "settings.recording.operate",
+          section: "settings",
+          resource: "settings.recording",
+          action: "operate",
+          label: "Run camera recording operations",
+          description:
+            "Start bounded camera captures, archive uploads, destination connectivity tests, and retrieval checks",
+          default_roles: @admin_roles
         }
       ]
     },

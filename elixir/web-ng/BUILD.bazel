@@ -672,6 +672,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/settings/networks_live_test.exs",
         "test/phoenix/live/settings/notifications_editors_test.exs",
         "test/phoenix/live/settings/notifications_provider_upload_test.exs",
+        "test/phoenix/live/settings/recording_live_db_test.exs",
         "test/phoenix/live/settings/remote_access_desktop_targets_live_test.exs",
         "test/phoenix/live/settings/rules_live_test.exs",
         "test/phoenix/live/settings/user_groups_live_test.exs",

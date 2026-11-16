@@ -487,6 +487,29 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
 
       refute Enum.any?(ctrl_palette, &(&1.route == "/settings/ansible?tab=repositories"))
     end
+
+    test "Recording & Storage is discoverable by camera/nvr/s3 keywords and gated by recording permissions" do
+      unpermitted_scope = %Scope{permissions: MapSet.new(["devices.cameras.recordings.view"])}
+      refute :camera_recording in Enum.map(Catalog.visible_views(unpermitted_scope, :system), & &1.id)
+      refute Enum.any?(Catalog.palette_index(unpermitted_scope), &(&1.route == "/settings/recording"))
+
+      for perm <- [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ] do
+        scope = %Scope{permissions: MapSet.new([perm])}
+        assert :camera_recording in Enum.map(Catalog.visible_views(scope, :system), & &1.id)
+
+        palette = Catalog.palette_index(scope)
+        recording_entry = Enum.find(palette, &(&1.route == "/settings/recording"))
+        assert recording_entry
+        assert recording_entry.view_title == "Recording & Storage"
+        assert "camera" in recording_entry.keywords
+        assert "nvr" in recording_entry.keywords
+        assert "s3" in recording_entry.keywords
+      end
+    end
   end
 
   describe "2-level tree model" do
@@ -529,9 +552,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       end
     end
 
-    test "Cluster Status is the only view flagged has_own_stats (renders its own metrics)" do
-      own_stats = Catalog.views() |> Enum.filter(& &1.has_own_stats) |> Enum.map(& &1.id)
-      assert own_stats == [:cluster_status]
+    test "only views that render their own metrics are flagged has_own_stats" do
+      own_stats = Catalog.views() |> Enum.filter(& &1.has_own_stats) |> Enum.map(& &1.id) |> Enum.sort()
+      assert own_stats == [:camera_recording, :cluster_status]
     end
 
     test "the dropped System Event Logs view is gone and no view routes to /logs" do

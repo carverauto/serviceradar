@@ -67,7 +67,7 @@ credential creation surface accepts internal encrypted material only. See
 for the proposed runtime integration and the separate runner credential handoff.
 
 Not every provider takes a rule. A provider's descriptor declares
-`supports_rules`, and two of the providers on this page are credential-only:
+`supports_rules`, and several providers on this page are credential-only:
 
 | Provider | Rule? | Where the credential is bound instead |
 | --- | --- | --- |
@@ -75,6 +75,7 @@ Not every provider takes a rule. A provider's descriptor declares
 | NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.49 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
+| S3-Compatible Object Storage (`s3_compatible`) | No | **Settings -> System -> Camera Recording -> Recording & Storage** (`/settings/recording?tab=archive`), writer and optional reader slots; see [Camera archive storage](#camera-archive-storage) |
 | SNMP | Yes | The rule itself. A profile can bind the same credential; see [SNMP](#snmp) |
 
 ## Broker grant logs and history
@@ -120,9 +121,9 @@ device. The row's `metadata` says what it stands for:
 | `run_id` | One value shared by every row the same compile wrote |
 | `partition` | The partition the compile was for, when it has one |
 
-The consumer columns name the profile, credential rule or device override
-whose credential was resolved, and `agent_id` names the agent the configuration
-was compiled for. A row whose resolutions each targeted a device has
+The consumer columns name the profile, credential rule, device override or
+discovery job whose credential was resolved, and `agent_id` names the agent
+the configuration was compiled for. A row whose resolutions each targeted a device has
 `target_kind` `device_set` and the digest as its `target_id`. A row with no
 `resolution_count` stands for exactly one resolution.
 
@@ -134,8 +135,9 @@ digest from the devices the profile or rule selected at the time.
 
 The provider list, the auth methods, the credential fields, the purposes, and the
 form's defaults are all read from approved, signed plugin package manifests
-(`integrations.credential_profiles`), merged with two descriptors the platform
-owns because they have no package: SNMP and VulnCheck.
+(`integrations.credential_profiles`), merged with native descriptors the platform
+owns because they have no package, including SNMP, VulnCheck, and S3-Compatible
+Object Storage (`s3_compatible`).
 
 Nothing is hardcoded in the web UI. If a provider is missing from the **New Rule**
 dropdown, either its package is not imported and approved yet -- see
@@ -205,6 +207,7 @@ declared per provider by the package, not chosen from a global list:
 | `netbox` | `inventory_sync` (from `<first-release>`; see [NetBox](#netbox)) |
 | `awx` | `automation_execution` |
 | `vulncheck` | `vulnerability_feed_download` |
+| `s3_compatible` | `camera_archive_write`, `camera_archive_read` |
 | `snmp` | `snmp_monitoring` |
 
 A rule can carry more than one purpose, and each purpose materialises its own
@@ -802,13 +805,73 @@ Attach the credential *before* upgrading a deployment that still relied on the
 old environment variables: after the upgrade those variables are read by nothing,
 and the feed fails until a credential is selected.
 
+### Camera archive storage
+
+S3-Compatible Object Storage (`s3_compatible`) is a platform-owned,
+credential-only native descriptor (`supports_rules: false`, `scope_types: []`,
+`credential_kind: opaque`). Credential rules are not used because an immutable
+`ArchiveBinding` destination (for example `https://objects.example.com`, region
+`example-1`, bucket `example-archive`, and key prefix) together with the
+`RecordingArchiveSettings` singleton defines the scope rather than a device SRQL
+query.
+
+1. **Create the credential.** **New Credential** ->
+   `S3-Compatible Object Storage - Access key`. Enter the access key ID (up to
+   256 bytes, stored as the public identity so operators can identify it in
+   selectors without decrypting) and the secret access key (up to 512 bytes,
+   encrypted at rest and never re-rendered). Create a second credential if you
+   separate write and read IAM keys.
+2. **Bind it on the recording archive settings.** **Settings -> System -> Camera
+   Recording -> Recording & Storage** (`/settings/recording?tab=archive`) ->
+   select the **Writer credential** (`writer_credential_secret_id`) and,
+   optionally, the **Reader credential** (`reader_credential_secret_id`). When
+   the reader slot is left unset, read operations reuse the writer credential
+   under a read-only `:reader` broker grant.
+
+No Helm value, Kubernetes Secret, mounted file, or environment variable supplies
+camera archive bucket keys. At use time, `ArchiveCredentialResolver` resolves the
+referenced secret into a short-lived broker grant locked to `https` on port
+`443`, the active binding's host, and `/<bucket>/<prefix>/*` (`PUT`, `HEAD`, and
+`GET` for `:writer`; `HEAD` and `GET` for `:reader`). Rotating a credential or
+switching `RecordingArchiveSettings` to another credential record does not alter
+the immutable `ArchiveBinding` `destination_sha256`.
+
+Three guardrails apply to bound archive credentials:
+
+- **Split-duty authorization.** Editing archive settings requires
+  `settings.recording.manage`, and selecting or changing the writer or reader
+  credential additionally requires `settings.credentials.manage` (see
+  [Roles & Permissions](./rbac-and-roles.md#camera-recording-and-storage-settings)).
+  An administrator with `settings.recording.manage` alone sees only the bound
+  credential's redacted name and a disabled selector explaining the missing
+  permission.
+- **Validation and disabled state.** `RecordingArchiveSettings` enforces
+  restrictive foreign keys (`on_delete: :restrict`) and requires referenced
+  secrets to be enabled, undeleted `s3_compatible` records of kind `opaque`. If a
+  bound credential is later disabled, `/settings/recording?tab=archive` reports
+  archive operations unavailable and refuses to dispatch work to an NVR.
+- **Usage inventory and guarded deletion.** Bound credentials appear in the
+  **Usage** column on `/settings/networks/credentials` as
+  `Camera archive (writer)` and `Camera archive (reader)`, each linking to
+  `/settings/recording?tab=archive`. `GuardCredentialDestroy` refuses deletion
+  with `credential_in_use` while either slot references the credential or a
+  broker grant remains active; clear or replace the reference on
+  `/settings/recording?tab=archive` and wait for active grants to expire first.
+
+For NVR workload identity, local spool durability, and the deployment recovery
+gate, see
+[NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md).
+
 ### SNMP
 
 SNMP is a protocol ServiceRadar speaks itself, so its descriptor is
 platform-owned rather than package-published. It supports rules, scoped to
 agents, with one purpose (`snmp_monitoring`) and two auth methods:
 
-- `community` -- a community string, for v1/v2c.
+- `community` -- a community string, and an optional **SNMP version** (`v1`
+  or `v2c`, default `v2c`). A credential stored without a version is used as
+  v2c. The version travels with the credential, so a discovery job that
+  references it sends v1 when the credential says v1.
 - `v3` -- username, security level, and the authentication and privacy
   protocol and password that level uses.
 
@@ -830,7 +893,9 @@ protocol outside the list is refused with the field named.
 
 Rotating a credential replaces it completely. The stored level and protocols are
 not loaded into the rotation form, so choose them again along with the new
-passwords. Credentials saved before the lists existed keep working in whatever
+passwords. The one exception is the community SNMP version: left on
+**Keep current version**, the rotation keeps the stored version; choosing `v1`
+or `v2c` replaces it. Credentials saved before the lists existed keep working in whatever
 spelling they were typed (`SHA-256`, `auth_priv`); a rotation rewrites them in
 the listed spelling.
 
@@ -871,16 +936,32 @@ credentials from the file. Do not add new deployments to this path.
 Mapper uses the shared SNMP resolver for known inventory devices named by job
 seeds (IP, hostname, or device UID) and known devices matching enabled SNMP rules
 in the compiling agent's agent or partition scope. This includes known neighbors
-that discovery may encounter later; unknown addresses retain the collector's
-fallback credentials. A collector can therefore keep a v2c fallback while
-matching switches use scoped v3 credentials.
+that discovery may encounter later. Every other address, including seeds and
+newly found neighbours without a device credential, uses the job's own **SNMP
+Credential**, a reusable SNMP credential selected on the discovery job form. A
+job can therefore keep a v2c credential while matching switches use scoped v3
+credentials. The job credential never comes from the default SNMP profile, the
+mapper host's credential, or a monitoring rule.
+
+An SNMP discovery job without a credential still saves and runs, but probes
+only devices that have their own credential; the Discovery list marks it
+**No SNMP credential**. A credential referenced by a discovery job cannot be
+deleted while that reference exists.
+
+On upgrade, a one-off background job gives each existing discovery job the
+credential it was already using: the agent host's credential, the first SNMP
+rule scoped to its agent or partition, or the default profile's credential.
+Inline profile or device-override values are first saved as a reusable
+credential. A job whose agents resolved different credentials, or none, is left
+without one and shows **No SNMP credential**; select one on the job form. The
+job never revisits a discovery job, so a later choice is not overwritten.
 
 Resolved credentials are delivered by target IP. A credential-store read
 failure fails mapper config generation, and the agent keeps its running
 config. A broker refusal for one target, or two device records that resolve
 to the same IP with conflicting credentials, suppresses SNMP for that
 address before connecting or authenticating. That address is not retried
-with the collector fallback. Other targets and API discovery stay in the
+with the job credential. Other targets and API discovery stay in the
 compiled config. The mapper compiler logs the read failure, the refusal,
 or the conflict.
 

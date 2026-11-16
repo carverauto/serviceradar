@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
   @moduledoc false
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.LeaseDelivery
@@ -220,6 +221,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.load([
         :seeds,
+        :snmp_credential_missing,
         unifi_controllers: [:api_key_present],
         mikrotik_controllers: [:password_present]
       ])
@@ -230,6 +232,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
+  @doc """
+  Select options for a mapper job's SNMP credential: every reusable SNMP
+  credential the viewer can read, plus the job's current credential.
+
+  A credential is SNMP when it was created as one or belongs to the SNMP
+  provider, the same test the job's validation applies. The current credential
+  is always offered, labelled by id when the viewer cannot read it, so saving
+  the form never clears a credential the viewer was not shown.
+  """
+  def mapper_snmp_credential_options(scope, current_id \\ nil) do
+    secrets =
+      NetworkCredentialSecret
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(credential_kind == :snmp or provider == "snmp")
+      |> Ash.Query.sort(name: :asc)
+      |> Ash.read(scope: scope)
+      |> case do
+        {:ok, secrets} -> secrets
+        {:error, _} -> []
+      end
+
+    options = Enum.map(secrets, &{&1.name, to_string(&1.id)})
+    current_id = current_id && to_string(current_id)
+
+    if is_nil(current_id) or Enum.any?(options, fn {_label, id} -> id == current_id end) do
+      options
+    else
+      options ++ [{"Current credential (#{current_id})", current_id}]
+    end
+  end
+
   def load_mapper_job(scope, id) do
     case Ash.get(MapperJob, id, scope: scope) do
       {:ok, job} ->
@@ -237,6 +270,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
                job,
                [
                  :seeds,
+                 :snmp_credential_missing,
                  unifi_controllers: [:api_key_present],
                  mikrotik_controllers: [:password_present]
                ],

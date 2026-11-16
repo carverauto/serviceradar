@@ -296,6 +296,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
             form_name="credential_rotation"
             values={@values}
             errors={@field_errors}
+            rotation
             data-credential-rotation-field
           />
         </div>
@@ -435,6 +436,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_kind_label(:credential_rule, count), do: count_label(count, "credential rule", "credential rules")
 
+  defp consumer_kind_label(:mapper_job, count), do: count_label(count, "discovery job", "discovery jobs")
+
   defp consumer_kind_label(kind, count) do
     label = kind |> humanize() |> String.downcase()
     count_label(count, label, "#{label}s")
@@ -449,11 +452,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_path(%Consumer{kind: :otx_settings}), do: ~p"/settings/networks/threat-intel"
 
+  defp consumer_path(%Consumer{kind: :mapper_job, id: id}), do: ~p"/settings/networks/discovery/#{id}/edit"
+
+  defp consumer_path(%Consumer{kind: :recording_archive_settings}), do: ~p"/settings/recording?tab=archive"
+
   defp consumer_path(_consumer), do: nil
 
   defp consumer_accessible_label(%Consumer{kind: :snmp_profile, label: label}), do: "Edit SNMP profile #{label}"
 
   defp consumer_accessible_label(%Consumer{kind: :credential_rule, label: label}), do: "Edit credential rule #{label}"
+
+  defp consumer_accessible_label(%Consumer{kind: :mapper_job, label: label}), do: "Edit discovery job #{label}"
 
   defp consumer_accessible_label(%Consumer{label: label}), do: label
 

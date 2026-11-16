@@ -139,6 +139,7 @@ exports_files([
     "camera_media_authority_schema.exs",
     "camera_archive_publication_schema.exs",
     "camera_archive_inventory_schema.exs",
+    "camera_nvr_operator_settings_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",

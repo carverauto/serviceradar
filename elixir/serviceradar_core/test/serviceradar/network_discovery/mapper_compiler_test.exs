@@ -16,7 +16,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.Repo
-  alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.ReusableCredential
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   @tag :integration
@@ -26,7 +26,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
-  test "compiles scoped switch credentials alongside the agent v2c fallback" do
+  test "compiles scoped switch credentials alongside the job's own SNMP credential" do
     actor = SystemActor.system(:test)
     suffix = System.unique_integer([:positive])
     partition = "example-partition-#{suffix}"
@@ -106,6 +106,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     )
     |> Ash.create!(actor: actor)
 
+    {:ok, job_secret} =
+      create_mapper_secret("snmp", "Example job credential #{suffix}", "example-job", actor)
+
     job =
       MapperJob
       |> Ash.Changeset.for_create(
@@ -114,7 +117,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
           name: "Example mixed discovery #{suffix}",
           partition: partition,
           discovery_mode: :snmp_api,
-          discovery_type: :full
+          discovery_type: :full,
+          snmp_credential_secret_id: job_secret.id
         },
         actor: actor
       )
@@ -131,8 +135,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     compiled = compiled_job(config, job.name)
     assert compiled["discovery_mode"] == "snmp_api"
+    # The collector's own polling credential ("example-fallback") is not the
+    # fallback: addresses without a device credential use the job's.
     assert compiled["credentials"]["version"] == "v2c"
-    assert compiled["credentials"]["community"] == "example-fallback"
+    assert compiled["credentials"]["community"] == "example-job"
 
     # Both the seed and a known neighbour discovered later need the scoped rule.
     for ip <- ["192.0.2.40", "192.0.2.41"] do
@@ -257,123 +263,130 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
-  test "uses profile credentials for mapper discovery jobs" do
+  test "the default profile and unmatched monitoring rules never select a job's SNMP credential" do
     actor = SystemActor.system(:test)
-    unique_id = System.unique_integer([:positive])
-    device_uid = "sr:" <> Ash.UUID.generate()
-    hostname = "mapper-target-#{unique_id}"
-    job_name = "Mapper Job #{unique_id}"
+    suffix = System.unique_integer([:positive])
+    partition = "fallback-partition-#{suffix}"
+    agent_id = "fallback-agent-#{suffix}"
 
-    {:ok, _device} =
-      Device
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          uid: device_uid,
-          hostname: hostname,
-          type_id: 10,
-          created_time: DateTime.utc_now(),
-          modified_time: DateTime.utc_now()
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    {:ok, site_a} = create_mapper_secret("snmp", "Site A #{suffix}", "site-a-community", actor)
+    {:ok, site_b} = create_mapper_secret("snmp", "Site B #{suffix}", "site-b-community", actor)
+    {:ok, rule_secret} = create_mapper_secret("snmp", "Rule #{suffix}", "rule-community", actor)
 
-    {:ok, _profile} =
-      SNMPProfile
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "Default SNMP #{unique_id}",
-          enabled: true,
-          target_query: ~s(in:devices hostname:"#{hostname}"),
-          priority: 1_000_000 + unique_id,
-          community: "public"
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    # Before jobs had their own credential, this agent-scoped rule was the
+    # fallback for every unknown address on the agent, its target query ignored.
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "One host #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices hostname:"host01-#{suffix}.example.com"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: rule_secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
 
-    {:ok, job} =
-      MapperJob
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: job_name,
-          discovery_mode: :snmp,
-          discovery_type: :full
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    default_profile = default_profile_fixture("Default #{suffix}", "default-community", actor)
 
-    {:ok, _seed} =
-      MapperSeed
-      |> Ash.Changeset.for_create(
-        :create,
-        %{mapper_job_id: job.id, seed: "192.168.1.0/24"},
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    jobs =
+      for {name, secret} <- [{"Site A #{suffix}", site_a}, {"Site B #{suffix}", site_b}] do
+        mapper_job_fixture(name, partition, :snmp, secret.id, ["192.0.2.60"], actor)
+      end
 
-    {:ok, config} = MapperCompiler.compile("default", nil, actor: actor, device_uid: device_uid)
+    assert base_communities(partition, agent_id, jobs, actor) == [
+             "site-a-community",
+             "site-b-community"
+           ]
 
-    compiled_job =
-      Enum.find(config["scheduled_jobs"], fn scheduled_job ->
-        scheduled_job["name"] == job_name
-      end)
+    default_profile
+    |> Ash.Changeset.for_update(:unset_default, %{}, actor: actor)
+    |> Ash.update!(actor: actor)
 
-    assert compiled_job
-    assert compiled_job["credentials"]["version"] == "v2c"
-    assert compiled_job["credentials"]["community"] == "public"
+    assert base_communities(partition, agent_id, jobs, actor) == [
+             "site-a-community",
+             "site-b-community"
+           ]
   end
 
   @tag :integration
-  test "falls back to default SNMP profile credentials when device uid is missing" do
+  test "a job's community credential delivers its stored SNMP version, v2c when it has none" do
     actor = SystemActor.system(:test)
-    unique_id = System.unique_integer([:positive])
-    job_name = "Mapper Job Default #{unique_id}"
+    suffix = System.unique_integer([:positive])
+    partition = "version-partition-#{suffix}"
 
-    {:ok, job} =
-      MapperJob
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: job_name,
-          discovery_mode: :snmp,
-          discovery_type: :full
-        },
+    {:ok, versionless} =
+      create_mapper_secret("snmp", "Versionless #{suffix}", "versionless-community", actor)
+
+    {:ok, v1} =
+      ReusableCredential.create(:v1, "SNMPv1 #{suffix}", %{community: "v1-community"},
         actor: actor
       )
-      |> Ash.create(actor: actor)
 
-    {:ok, _seed} =
-      MapperSeed
-      |> Ash.Changeset.for_create(
-        :create,
-        %{mapper_job_id: job.id, seed: "192.168.10.1"},
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    jobs =
+      for {name, secret} <- [{"Versionless #{suffix}", versionless}, {"V1 #{suffix}", v1}] do
+        mapper_job_fixture(name, partition, :snmp, secret.id, ["192.0.2.80"], actor)
+      end
 
-    {:ok, config} = MapperCompiler.compile("default", nil, actor: actor)
+    {:ok, config} = MapperCompiler.compile(partition, nil, actor: actor)
 
-    compiled_job =
-      Enum.find(config["scheduled_jobs"], fn scheduled_job ->
-        scheduled_job["name"] == job_name
-      end)
+    assert [
+             %{"version" => "v2c", "community" => "versionless-community"},
+             %{"version" => "v1", "community" => "v1-community"}
+           ] = Enum.map(jobs, &compiled_job(config, &1.name)["credentials"])
+  end
 
-    assert compiled_job
-    assert compiled_job["credentials"]["version"] == "v2c"
+  @tag :integration
+  test "a job without its own SNMP credential compiles an empty base credential, never v2c" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "unbound-partition-#{suffix}"
+    agent_id = "unbound-agent-#{suffix}"
 
-    case CredentialResolver.resolve_default(actor) do
-      {:ok, %{credential: %{community: community}}}
-      when is_binary(community) and community != "" ->
-        assert compiled_job["credentials"]["community"] == community
+    {:ok, rule_secret} =
+      create_mapper_secret("snmp", "Agent rule #{suffix}", "rule-community", actor)
 
-      _ ->
-        refute Map.has_key?(compiled_job["credentials"], "community")
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Every device #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: "in:devices",
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: rule_secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    default_profile_fixture("Default #{suffix}", "default-community", actor)
+
+    snmp_job = mapper_job_fixture("SNMP #{suffix}", partition, :snmp, nil, ["192.0.2.70"], actor)
+    api_job = mapper_job_fixture("API #{suffix}", partition, :api, nil, [], actor)
+
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+
+    for job <- [snmp_job, api_job] do
+      credentials = compiled_job(config, job.name)["credentials"]
+      assert Map.delete(credentials, "target_specific") == %{}
+      refute Map.has_key?(credentials["target_specific"], "192.0.2.70")
     end
+
+    assert [true, false] =
+             Enum.map([snmp_job, api_job], fn job ->
+               job
+               |> Ash.load!(:snmp_credential_missing, actor: actor)
+               |> Map.fetch!(:snmp_credential_missing)
+             end)
   end
 
   @tag :integration
@@ -1088,93 +1101,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
-  test "a failed device credential read fails the compile instead of falling back to default credentials" do
-    actor = SystemActor.system(:test)
-    unique_id = System.unique_integer([:positive])
-    partition = "credential-read-failure-#{unique_id}"
-    agent_id = "agent-credential-read-failure-#{unique_id}"
-
-    Repo.query!(
-      "ALTER TABLE platform.device_snmp_credentials RENAME TO _device_snmp_credentials_hidden"
-    )
-
-    try do
-      assert {:error, {:credential_resolution_failed, _}} =
-               MapperCompiler.compile(partition, agent_id,
-                 actor: actor,
-                 device_uid: "sr:" <> Ash.UUID.generate()
-               )
-    after
-      Repo.query!(
-        "ALTER TABLE platform._device_snmp_credentials_hidden RENAME TO device_snmp_credentials"
-      )
-    end
-
-    # The same compile with a readable credential table still succeeds: a
-    # device with no configured credential is a zero-row read, not a failure.
-    assert {:ok, config} =
-             MapperCompiler.compile(partition, agent_id,
-               actor: actor,
-               device_uid: "sr:" <> Ash.UUID.generate()
-             )
-
-    assert config["scheduled_jobs"] == []
-  end
-
-  @tag :integration
-  test "a failed broker credential read does not fall back to the default profile" do
+  test "a failed job credential read fails the compile instead of compiling an empty credential" do
     actor = SystemActor.system(:test)
     unique = System.unique_integer([:positive])
-    partition = "broker-fallback-#{unique}"
-    agent_id = "agent-broker-fallback-#{unique}"
-    device_uid = "sr:" <> Ash.UUID.generate()
+    partition = "job-credential-read-#{unique}"
+    agent_id = "agent-job-credential-read-#{unique}"
 
-    {:ok, _device} =
-      Device
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          uid: device_uid,
-          hostname: "broker-fallback-#{unique}.example.com",
-          ip: "192.0.2.40",
-          type_id: 10,
-          created_time: DateTime.utc_now(),
-          modified_time: DateTime.utc_now()
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
-
-    {:ok, secret} =
-      create_mapper_secret("snmp", "Broker fallback #{unique}", "broker-community", actor)
-
-    {:ok, _override} =
-      DeviceSNMPCredential
-      |> Ash.Changeset.for_create(
-        :create,
-        %{device_id: device_uid, version: :v2c, credential_secret_id: secret.id},
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
-
-    {:ok, profile} =
-      SNMPProfile
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "Mapper fallback #{unique}",
-          enabled: true,
-          version: :v2c,
-          community: "fallback-community"
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
-
-    {:ok, _profile} =
-      profile
-      |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
-      |> Ash.update(actor: actor)
+    {:ok, secret} = create_mapper_secret("snmp", "Job read #{unique}", "job-community", actor)
+    job = mapper_job_fixture("Job read #{unique}", partition, :snmp, secret.id, [], actor)
 
     Repo.query!(
       "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
@@ -1182,18 +1116,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     try do
       assert {:error, {:credential_resolution_failed, _}} =
-               MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: device_uid)
+               MapperCompiler.compile(partition, agent_id, actor: actor)
     after
       Repo.query!(
         "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
       )
     end
 
-    assert {:ok, %{credential: %{community: "broker-community"}}} =
-             CredentialResolver.resolve_for_device(device_uid, actor)
-
-    assert {:ok, _config} =
-             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: device_uid)
+    assert {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    assert compiled_job(config, job.name)["credentials"]["community"] == "job-community"
   end
 
   @tag :integration
@@ -1486,6 +1417,48 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
       actor: actor
     )
     |> Ash.create(actor: actor)
+  end
+
+  defp mapper_job_fixture(name, partition, mode, secret_id, seeds, actor) do
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: name,
+          partition: partition,
+          discovery_mode: mode,
+          discovery_type: :full,
+          snmp_credential_secret_id: secret_id
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    for seed <- seeds do
+      MapperSeed
+      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: seed}, actor: actor)
+      |> Ash.create!(actor: actor)
+    end
+
+    job
+  end
+
+  defp default_profile_fixture(name, community, actor) do
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{name: name, enabled: true, version: :v2c, community: community},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+    |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+    |> Ash.update!(actor: actor)
+  end
+
+  defp base_communities(partition, agent_id, jobs, actor) do
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    Enum.map(jobs, &compiled_job(config, &1.name)["credentials"]["community"])
   end
 
   defp compiled_job(config, job_name) do

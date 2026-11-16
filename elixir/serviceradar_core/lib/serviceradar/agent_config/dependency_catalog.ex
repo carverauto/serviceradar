@@ -184,7 +184,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         ServiceRadar.NetworkDiscovery.MapperJob,
         :mapper,
         MapperCompiler,
-        action_names: [:create, :update, :destroy]
+        action_names: [:create, :update, :destroy, :complete_snmp_credential_backfill]
       ),
       config_server_entry(
         :mapper_seed_config,
@@ -237,7 +237,14 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         SNMPProfile,
         :snmp,
         SNMPCompiler,
-        action_names: [:create, :update, :destroy, :set_as_default, :unset_default],
+        action_names: [
+          :create,
+          :update,
+          :bind_reusable_credential,
+          :destroy,
+          :set_as_default,
+          :unset_default
+        ],
         secret_fields: [:community, :auth_password, :priv_password]
       ),
       config_server_entry(

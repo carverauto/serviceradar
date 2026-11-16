@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   alias Ash.Error.Invalid
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -1108,6 +1109,54 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       assert length(assigns.mapper_agents) <= 51
       assert Enum.any?(assigns.mapper_agents, &(&1.uid == mapper.uid))
     end
+  end
+
+  test "an SNMP discovery job without its own credential is flagged until one is chosen", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Site 01 SNMP #{unique}",
+        provider: "snmp",
+        credential_kind: :snmp,
+        secret_payload: ~s({"community":"example-community"})
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, snmp_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "SNMP #{unique}", discovery_mode: :snmp})
+      |> Ash.create(scope: scope)
+
+    {:ok, api_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "API #{unique}", discovery_mode: :api})
+      |> Ash.create(scope: scope)
+
+    {:ok, list, _html} = live(conn, ~p"/settings/networks/discovery")
+    assert has_element?(list, "#mapper-job-#{snmp_job.id}-snmp-credential-missing")
+    refute has_element?(list, "#mapper-job-#{api_job.id}-snmp-credential-missing")
+
+    {:ok, edit, _html} = live(conn, ~p"/settings/networks/discovery/#{snmp_job.id}/edit")
+    assert has_element?(edit, "#mapper-job-snmp-credential-warning")
+
+    assert has_element?(
+             edit,
+             "select[name='mapper_job[snmp_credential_secret_id]'] option[value='#{secret.id}']"
+           )
+
+    edit
+    |> form("#mapper-job-form", %{"mapper_job" => %{"snmp_credential_secret_id" => secret.id}})
+    |> render_submit()
+
+    assert Ash.get!(MapperJob, snmp_job.id, scope: scope).snmp_credential_secret_id == secret.id
+
+    {:ok, list, _html} = live(conn, ~p"/settings/networks/discovery")
+    refute has_element?(list, "#mapper-job-#{snmp_job.id}-snmp-credential-missing")
   end
 
   test "discovery job form renders mikrotik api fields", %{conn: conn} do
