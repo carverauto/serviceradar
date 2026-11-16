@@ -1,59 +1,8 @@
 helm:
   parameters:
   - name: global.imageTag
-    value: sha-5c0800464c33082b8495512b2f32d5680b4145ac
+    value: sha-7c89ec2da5c10c0df215834792795581eecfbf4e
     forcestring: true
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
-    forcestring: true
-  - name: core.migrations.expectedVersion
-    value: "20261115210000"
-    forcestring: true
-  - name: image.digests.agent
-    value: sha256:a028ae76f68c89f291b846490c9919a1ff2308eaa6556e53410c23739df3d9d9
-    forcestring: true
-  - name: image.digests.agentGateway
-    value: sha256:5a4f43d0cae81026c5c572e4019fa80c732a31832cd54f2435baf1d9567dcc40
-    forcestring: true
-  - name: image.digests.bmpCollector
-    value: sha256:b3aafd2e9d828012fd2d5330c0cb94bec6acb7ea8858f68e0396d0afa30189a1
-    forcestring: true
-  - name: image.digests.core
-    value: sha256:3300f97c5f197d3f71b64c630e349c8606ccd500c9dee067bcabd3c6e56fb061
-    forcestring: true
-  - name: image.digests.datasvc
-    value: sha256:c9c3a2883203fbe8e92556e2c293229415142dd01ad992e787972b2d9839eb40
-    forcestring: true
-  - name: image.digests.dgraphMigrate
-    value: sha256:39d094cb42d00955196ebaf23057469cf429293f7a4f25921847848ebb71ee7c
-    forcestring: true
-  - name: image.digests.faker
-    value: sha256:74b85cb0ad845b3b349b232274bab6d7240f5e29b83a7f93b70aa31b466d243b
-    forcestring: true
-  - name: image.digests.flowCollector
-    value: sha256:3a59807a81a7f49e0475ba94a01aa289fa7ef938ddfe993493136edcafac8016
-    forcestring: true
-  - name: image.digests.k8sInventory
-    value: sha256:3a855463359fc19431b1d530a193a4e814b6e58061528aec235ad638f85c35bd
-    forcestring: true
-  - name: image.digests.logCollector
-    value: sha256:dbfc52ad3fb49072df539fdbae7ded56325de04af25e1f37fc3407424dd022a9
-    forcestring: true
-  - name: image.digests.nvr
-    value: sha256:72bc021b663a64497ea433e7a15d11ec89907b452f485ad83e438c2bd405a44e
-    forcestring: true
-  - name: image.digests.rperfClient
-    value: sha256:a0bed1918d5aa6ac1d7f8861c077a6bcb25c21694c4c797f9881e4fb088194e8
-    forcestring: true
-  - name: image.digests.tools
-    value: sha256:0e4ab559398dae78abb8b30e01cce14d399b32e0c51d67b35a6f68b5fed9ee05
-    forcestring: true
-  - name: image.digests.trapd
-    value: sha256:a9fbdee7c5570357128da7b978e553ac37047c02f800508f4443bf0cc3b14283
-    forcestring: true
-  - name: image.digests.trivySidecar
-    value: sha256:e6ca2ca7bc7f07c560705a23f186f561c126a78a20ef648c77a85adff7fdc134
-    forcestring: true
-  - name: image.digests.webNg
-    value: sha256:679dfedd80fcf62e51ced3b6cfd1d177fad9b63c028e531b42ae8493e94733fe
     forcestring: true

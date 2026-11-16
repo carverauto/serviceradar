@@ -11,7 +11,6 @@ templates:
   - templates/datasvc.yaml
   - templates/serviceradar-config.yaml
   - templates/log-collector.yaml
-  - templates/log-collector-tcp.yaml
   - templates/flow-collector.yaml
   - templates/flow-collector-bootstrap-job.yaml
   - templates/bmp-collector.yaml
@@ -73,19 +72,6 @@ tests:
           pattern: "nats_stream_replicas = 1\n"
         documentSelector: {path: kind, value: ConfigMap}
 
-  - it: caps the TCP log collector events replicas on one server
-    set:
-      nats.replicas: 1
-    template: templates/log-collector-tcp.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "1"}
-        documentSelector: {path: kind, value: Deployment}
-      - matchRegex:
-          path: data["flowgger.toml"]
-          pattern: "nats_stream_replicas = 1\n"
-        documentSelector: {path: kind, value: ConfigMap}
 
   - it: caps the flows replicas in flow-collector and its bootstrap Job on one server
     set:
@@ -206,11 +192,6 @@ tests:
           path: data["flowgger.toml"]
           pattern: "nats_stream_replicas = 3\n"
         template: templates/log-collector.yaml
-        documentSelector: {path: kind, value: ConfigMap}
-      - matchRegex:
-          path: data["flowgger.toml"]
-          pattern: "nats_stream_replicas = 3\n"
-        template: templates/log-collector-tcp.yaml
         documentSelector: {path: kind, value: ConfigMap}
 
   - it: keeps R3 on three servers for flows, ARANCINI_CAUSAL, plugins and the fallbacks

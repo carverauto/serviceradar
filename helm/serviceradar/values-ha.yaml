@@ -149,6 +149,7 @@ logCollector:
   streamReplicas: 3
   data:
     enabled: false
+  # TCP shares the log-collector workload; replica/stream overrides below are legacy.
   tcpCollector:
     enabled: true
     replicaCount: 3

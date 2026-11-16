@@ -202,6 +202,8 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `nvr.enabled` | Render the `serviceradar-nvr` StatefulSet (runtime and health probes only; recording pools are not enrolled). Requires `nvr.storage.storageClassName` and one distinct `nvr.storage.storageIds` UUID per ordinal. See [NVR runtime and replicated storage](../../docs/nvr-runtime.md) | `false` |
 | `nvr.ingest.enabled` | With `nvr.enabled`, mount the private mTLS ingest listener on each NVR replica (`nvr.ingest.port`, default `8443`) and the matching client credentials on `serviceradar-core`, and add a network-policy rule letting `serviceradar-core` reach that port. Requires distinct pre-provisioned Secrets: `nvr.ingest.configSecretName` (`config.json`), `tokenSecretName` (`ingest-token`), `tlsSecretName` (`tls.crt`, `tls.key`, `ca.crt`) and the same three under `nvr.ingest.client`; server and client TLS Secrets must differ. `nvr.ingest.client.cameraRecordingEnabled` additionally permits explicit one-shot capture. See [Private NVR recording input](../../docs/nvr-ingest.md) | `false` |
 | `nvr.archive.enabled` | With `nvr.ingest.enabled`, let Core ask an NVR replica to upload a sealed block to an S3-compatible bucket through Longshore and verify it by readback. Applies `nvr.archive.seccompProfile` (`RuntimeDefault` or `Localhost` with a relative `localhostProfile`; `Localhost` adds the node selector `serviceradar.io/media-storage-node-prepared: "true"`) and lets the NVR pods reach `nvr.archive.providerEgress.cidrs` (required, explicit CIDRs) on `providerEgress.port` (default `443`). No bucket credential is mounted: Core sends it with each request. See [Archive upload](../../docs/nvr-runtime.md#archive-upload) | `false` |
+| `nvr.maxDurationMs` | Longest NVR recording session and ingest request, including its seal (`SERVICERADAR_NVR_MAX_DURATION_MS`, at most 300000). The default is the ceiling so a 270-second Core capture fits; the service's own default without the chart is 30000. See [Private NVR recording input](../../docs/nvr-ingest.md#bounded-relay-coordinator) | `300000` |
+| `nvr.maxBlockFragments` | Fragments (about 2 s each) per local NVR block before rotation (`SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, 8 through 256; the chart refuses other values). Blocks also rotate at 16 MiB. 150 keeps one 270-second Core capture in one block, about 320 blocks per camera per day for a low-bitrate stream; the 4096-block volume cap is unchanged and blocks are not reclaimed yet. Lowering it affects new blocks only. See [NVR runtime and replicated storage](../../docs/nvr-runtime.md) | `150` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (`host:port`). Set this explicitly when the agent gateway is exposed on a different host than the web endpoint. Otherwise the chart derives port `50052` from `webNg.host`, `ingress.host`, or `gatewayApi.host` (in that order), then falls back to the in-cluster service name. | `""` |
 
 ### Storage Encryption
@@ -358,7 +360,7 @@ Installs that keep telemetry in CNPG set retention under `core.observabilityRete
 
 `defaultDays` is optional. Leave it unset and each dataset keeps its own window. Set it to cap raw CNPG telemetry at that many days. A per-dataset value may be shorter. The ceiling takes effect on the next `DataRetentionWorker` run. Migrations install the per-dataset values until that run. Capacity forecasts stay on `capacityForecastsDays`. Hourly rollups never go below 7 days, because their refresh window is 5 days. Chunk intervals must stay smaller than the applied retention. Continuous-aggregate refresh windows stay strictly inside the source retention.
 
-Raw `timeseries_metrics` is the largest CNPG telemetry table, and it is only small once compressed. `timeseriesMetricsChunkIntervalHours` sets the size of new chunks and `timeseriesMetricsCompressAfterHours` sets how long a closed chunk waits before the hourly compression job takes it. The worker also turns compression on when the table has none. A database bootstrapped from the schema baseline starts that way, because the baseline is a schema-only dump without TimescaleDB compression settings or policy jobs. The job then compresses the existing backlog one chunk at a time. Each chunk needs free space for its compressed copy and the sort's temporary files, so on a nearly full volume grow the PVC before that run.
+Raw `timeseries_metrics` is the largest CNPG telemetry table, and it is only small once compressed. `timeseriesMetricsChunkIntervalHours` sets the size of new chunks and `timeseriesMetricsCompressAfterHours` sets how long a closed chunk waits before the hourly compression job takes it. The worker also turns compression on when the table has none. A database bootstrapped from a schema baseline older than the one that carries TimescaleDB compression settings and policy jobs starts that way; a new install already has compression and the worker leaves it unchanged. The job then compresses the existing backlog one chunk at a time. Each chunk needs free space for its compressed copy and the sort's temporary files, so on a nearly full volume grow the PVC before that run.
 
 Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in StarRocks. Migration `20261019160000` dropped `platform.ocsf_network_activity`, so `ocsfNetworkActivityDays` and `ocsfNetworkActivityChunkIntervalHours` no longer govern a live CNPG hypertable and `defaultDays` does not apply to them. They remain for the older migration that still reads them.
 
@@ -573,3 +575,34 @@ The parsed timestamp is retained as `_syslog_original_timestamp` in log
 attributes, with `_syslog_timestamp_fallback=true`. RFC5424 timestamps and
 RFC3164 timestamps within one hour are unchanged. Existing stored rows are not
 rewritten.
+
+### Unified syslog collector
+
+`logCollector` runs UDP syslog, optional TCP syslog, and OTLP in one Deployment.
+`logCollector.tcpCollector.enabled` controls the TCP listener; `listen`, `format`
+and `framing` configure its `[[inputs]]` entry in the shared Flowgger config.
+
+For a custom TCP listen port, set the same numeric port in
+`logCollector.tcpCollector.service.ports.syslog.targetPort`. Both internal
+Service names then route to that listener. Set any enabled external TCP
+Service's `targetPort` to the same port as well.
+
+Both syslog transports publish through the same output to `logs.syslog` on
+`events`. A different `tcpCollector.subject` fails rendering.
+
+Use `logCollector.replicaCount` and `logCollector.resources` for the unified
+workload. The legacy TCP-specific replica count, resources and stream replicas
+are ignored. The `serviceradar-log-collector-tcp` Service remains an alias that
+selects only pods labeled as TCP listeners, preserving the previous DNS name.
+Its separate Deployment and ConfigMap are removed. Keep existing clients on
+that alias during the image rollout; the primary Service can temporarily have
+endpoints from the previous UDP-only image.
+
+Enable the shared external Service with `logCollector.externalService.enabled`
+and choose protocols with `ports.syslog.enabled` and `ports.syslogTcp.enabled`.
+Legacy `tcpCollector.externalService.enabled` enables TCP on that shared Service
+and retains its port settings. When only the legacy external Service is enabled,
+its Service type, annotations and traffic policy are retained; when both are
+enabled, the primary external Service settings take precedence. A pinned address
+from either block is used, but conflicting addresses fail rendering. The chart
+renders one external NetworkPolicy against the unified collector pods.
