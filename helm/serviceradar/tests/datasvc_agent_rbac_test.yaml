@@ -9,16 +9,16 @@ tests:
           pattern: '"identity": "spiffe://[^"]+/ns/[^"]+/sa/serviceradar-agent", "role": "reader"'
       - matchRegex:
           path: data["datasvc.json"]
-          pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "reader"'
+          pattern: '"identity": "CN=serviceradar-agent", "role": "reader"'
       - matchRegex:
           path: data["datasvc.json"]
-          pattern: '"identity": "CN=serviceradar-core,[^"]+", "role": "writer"'
+          pattern: '"identity": "CN=serviceradar-core", "role": "writer"'
       - notMatchRegex:
           path: data["datasvc.json"]
           pattern: '"identity": "spiffe://[^"]+/ns/[^"]+/sa/serviceradar-agent", "role": "writer"'
       - notMatchRegex:
           path: data["datasvc.json"]
-          pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "writer"'
+          pattern: '"identity": "CN=serviceradar-agent", "role": "writer"'
   - it: authorizes the neutral agent account under the neutral trust domain
     set:
       trustDomain: synthetic.example.test
