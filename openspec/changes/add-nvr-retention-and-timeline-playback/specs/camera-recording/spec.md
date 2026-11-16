@@ -159,7 +159,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** SHALL raise an alarm while the pause lasts longer than its threshold
 
 ### Requirement: Capacity-driven local tier with archiving
-The system SHALL treat local NVR storage as a bounded cache with a byte budget and SHALL select local copies for eviction only by this table, keyed by the local copy's archive state: (a) `verified`, or `deleted` by object retention or the object reaper (local only after archive expiry or reaping): evictable for space, age ceiling the maximum local age; (b) `not_required` (local-only footage): evictable for space only when the local-only full policy `overwrite_oldest` is recorded and otherwise pinned, age ceiling the local-only maximum age whatever the full policy; (c) `pending`, `failed_retryable` or `failed_terminal` (unarchived): never selected for space or by age, always pinned. Every row SHALL also require that the block is cataloged and reconciled, that the local copy is not a hold's pinned copy, and that the member's recovery gate and current-history state permit destructive operations.
+The system SHALL treat local NVR storage as a bounded cache with a byte budget and SHALL select local copies for eviction only by this table, keyed by the local copy's archive state: (a) `verified`, or `deleted` for any reason (object retention, object reaper or operator; local only after archive expiry or reaping): evictable for space, age ceiling the maximum local age; (b) `not_required` (local-only footage): evictable for space only when the local-only full policy `overwrite_oldest` is recorded and otherwise pinned, age ceiling the local-only maximum age whatever the full policy; (c) `pending`, `failed_retryable` or `failed_terminal` (unarchived), `deleting` until the retention job confirms absence and moves the entry to `deleted`, and `missing`: never selected for space or by age, always pinned. These rows SHALL cover every archive state, and a new archive state SHALL NOT be written until it is assigned to one of them. An entry left in `deleting` by a crash SHALL be resumed by the next retention pass, which repeats the idempotent delete and absence check and then marks it `deleted`. Every row SHALL also require that the block is cataloged and reconciled, that the local copy is not a hold's pinned copy, and that the member's recovery gate and current-history state permit destructive operations.
 When usage reaches the high-water mark the system SHALL evict the space-evictable rows only, in one oldest-first order by block time across kinds (a) and (b), until usage is at or below the low-water mark; a copy older than its kind's age ceiling SHALL be evicted when that ceiling is limited. An unlimited maximum local age SHALL leave space eviction as the only eviction of kind (a) and SHALL NOT affect kind (b). A kind (a) block whose archive copy was deleted SHALL NOT count as unarchived and SHALL NOT be re-archived automatically. When the installation does not set a budget, the budget SHALL be derived from the volume size minus a reserve rather than a fixed default.
 
 #### Scenario: Budget-driven eviction with archiving on
@@ -218,7 +218,7 @@ When usage reaches the high-water mark the system SHALL evict the space-evictabl
 - **AND** recording SHALL resume once archived blocks become evictable
 
 ### Requirement: Effective local window projection
-The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water budget less pinned bytes, and show the smaller of each kind's age ceiling and T, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be unarchived and unreconciled bytes, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded. Time-to-full SHALL divide the budget less pinned bytes by the growth rate of pinned bytes, not by ingest that eviction frees.
+The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water budget less pinned bytes, and show the smaller of each kind's age ceiling and T, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be kind (c) bytes, unreconciled bytes, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded. Time-to-full SHALL divide the budget less pinned bytes by the growth rate of pinned bytes, not by ingest that eviction frees.
 Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the archive throughput needed against measured archive goodput, projected blocks per day against the block cap, and projected sessions against the member's session limit.
 
 #### Scenario: Twenty cameras shrink the window and the operator is told before saving
@@ -242,9 +242,20 @@ Before an operator saves a change to recording policies, profiles, member assign
 - **THEN** the archived footage SHALL show 24 hours bound by the maximum local age and the local-only footage about 22 days bound by the budget
 
 #### Scenario: Time-to-full counts only pinned growth
-- **GIVEN** a mixed member under `stop_when_full` with 7.4 GB of budget left above its pinned bytes, local-only footage at 15 kB/s and archived footage at 500 kB/s with archiving keeping up
-- **WHEN** time-to-full is computed
-- **THEN** it SHALL be about 5.7 days and SHALL NOT raise the time-to-full alert
+- **GIVEN** a mixed member with a 90.2 GB budget and 72.2 GB low water under `stop_when_full`, with 82.8 GB pinned (7.4 GB of budget left), local-only footage at 15 kB/s and archived footage at 500 kB/s with archiving keeping up
+- **WHEN** the window and time-to-full are computed
+- **THEN** time-to-full SHALL be about 5.7 days and SHALL NOT raise the time-to-full alert
+- **AND** the archived footage's window SHALL be 0, because pinned bytes exceed low water
+
+#### Scenario: Archived window kept while pinned bytes are small
+- **GIVEN** the same member with 20 GB pinned
+- **WHEN** the window and time-to-full are computed
+- **THEN** the archived footage SHALL show 24 hours bound by the maximum local age and time-to-full SHALL be about 54 days
+
+#### Scenario: Archive copy found changed keeps its local copy
+- **GIVEN** object retention found an archive copy changed and marked it `missing`
+- **WHEN** usage reaches the high-water mark or the local copy exceeds the maximum local age
+- **THEN** the local copy SHALL NOT be evicted and SHALL count as pinned bytes
 
 #### Scenario: Short history
 - **WHEN** a member has less than 15 minutes of recorded history
@@ -293,7 +304,7 @@ The system SHALL support recording with no object storage as a complete mode: re
 
 ### Requirement: Operator-set local budget applied at runtime
 The system SHALL let an operator set each NVR member's local byte budget and reserve from the settings UI, stored in CNPG per storage lifetime, and SHALL deliver them to the member over the existing pinned Core-to-NVR channel as a bounded, authenticated, versioned setting that the member persists beside its storage marker and applies to admission without a restart.
-The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (unarchived, unreconciled, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
+The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (kind (c) of the local eviction table, unreconciled, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
 
 #### Scenario: Operator lowers the budget below current usage
 - **GIVEN** a member's usage is above a newly saved budget that is still above its pinned bytes
@@ -427,10 +438,10 @@ When the archive copy is verified, the hold SHALL pin it and the local copy SHAL
 - **THEN** existing holds SHALL remain in force
 
 ### Requirement: Disk pressure never deletes unarchived footage
-The system SHALL NOT delete unarchived or unreconciled footage or a held copy that is the hold's pinned copy, shorten archive retention, grow storage or change destinations to relieve NVR storage pressure; when nothing is evictable it SHALL let the NVR refuse admission and record a gap.
+The system SHALL NOT delete unarchived or unreconciled footage, a local copy whose archive state is `deleting` or `missing`, or a held copy that is the hold's pinned copy, shorten archive retention, grow storage or change destinations to relieve NVR storage pressure; when nothing is evictable it SHALL let the NVR refuse admission and record a gap.
 
 #### Scenario: Pressure with only unarchived footage
-- **WHEN** headroom cannot be restored without deleting unarchived or unreconciled footage or pinned held copies
+- **WHEN** headroom cannot be restored without deleting unarchived or unreconciled footage, local copies whose archive state is `deleting` or `missing`, or pinned held copies
 - **THEN** the NVR SHALL refuse admission
 - **AND** recording SHALL stop with a gap and an alert naming the unarchived backlog
 

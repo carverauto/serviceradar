@@ -101,13 +101,13 @@ therefore always fits in one block.
 | NVR block bounds | 16 MiB (unchanged), fragments per block configurable `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` default 150 (8 to 256), 2 s minimum fragment (unchanged) |
 | Blocks above 16 MiB | Later item, blocked on multipart upload (Longshore task 2.2) |
 | Volume block cap | Replace the per-admission scan with an incremental ledger; install bound default 131,072, ceiling 262,144 |
-| Local tier | A bounded cache with a byte budget: install default 85% of the PVC minus a reserve of max(64 MiB, 1%), editable per member at runtime and delivered to the NVR (C9); NVR budget ceiling raised from 1 TiB to 1 PiB; one eviction table by archive state (C1): archive-verified or archive-deleted copies by budget (90% down to 80%) and maximum local age (default 24 h, up to 10 years, or unlimited), local-only copies by budget only under `overwrite_oldest` and by the local-only maximum age, unarchived copies never; the effective window is computed per kind and shown |
+| Local tier | A bounded cache with a byte budget: install default 85% of the PVC minus a reserve of max(64 MiB, 1%), editable per member at runtime and delivered to the NVR (C9); NVR budget ceiling raised from 1 TiB to 1 PiB; one eviction table by archive state (C1): archive-verified or archive-deleted copies by budget (90% down to 80%) and maximum local age (default 24 h, up to 10 years, or unlimited), local-only copies by budget only under `overwrite_oldest` and by the local-only maximum age, copies whose archive is pending, failed, deleting or missing never; the effective window is computed per kind and shown |
 | Local-only | A complete mode: everything works with no destination, and pages say so plainly |
 | Local-only full policy | Explicit `overwrite_oldest` (UI preselects, operator confirms) or `stop_when_full` (code behaviour when nothing was selected); 7 d becomes a target with an alert |
-| Object retention | Default 30 d, bounds 1 d to 3,650 d, or unlimited; expiry deletes only the archive copy and leaves any local copy as local only, evictable by the local rules; the settings UI warns, without refusing, when a limited retention is shorter than a limited maximum local age |
+| Object retention | Default 30 d, bounds 1 d to 3,650 d, or unlimited; expiry deletes only the archive copy and leaves any local copy local only after archive expiry, kind (a) of the C1 table; the settings UI warns, without refusing, when a limited retention is shorter than a limited maximum local age |
 | Storage alerts | Through `TripwireHealth.record/4` (deduplicated, auto-clearing); surfaced by operator notices (#6359) when that lands |
 | Holds | Keep at least one verified copy: pin the archive copy when verified, else the local copy (PD5) |
-| Object capacity | Optional object budget with watermarks and a recorded policy, `reap_oldest` (deletes only the archive copies of the oldest unheld blocks; local copies stay as local only, evictable by the local rules) or `stop_archiving`; effective object retention computed and shown (C3a) |
+| Object capacity | Optional object budget with watermarks and a recorded policy, `reap_oldest` (deletes only the archive copies of the oldest unheld blocks; local copies stay, local only after archive reaping, kind (a) of the C1 table) or `stop_archiving`; effective object retention computed and shown (C3a) |
 | SaaS | One storage entitlement per deployment pushed at runtime on the private listener (no Helm value), bounding the object budget, policy, retention and cameras; shared retention formula with test vectors; usage report pulled by control; Cloud credentials into the CNPG inventory (F) |
 | Delete vs lifecycle | ServiceRadar deletes expired objects itself with a separate delete-capable retention role; provider lifecycle only for incomplete uploads and probe residue |
 | Catalog shape | Freeze the existing `RecordingBlock` under the original recorder fence, plus a separate `RecordingCatalogEntry` projection for copy location and retention |
@@ -695,7 +695,7 @@ Verified in source:
    never run.
 4. **Unarchived sealed blocks.** `NVRArchive.archive_block/5` has no caller in
    `lib/` (it is run by hand); a block whose archive failed or was never
-   requested stays local-only indefinitely.
+   requested stays unarchived indefinitely.
 
 These are observed on a test deployment as well as in the code: captures that
 opened a new relay ended uncertain in a noticeable fraction of runs before a fix
@@ -963,9 +963,13 @@ archive copy was deleted is "local only after archive expiry or reaping".
 
 | Kind | Local copy's `archive_state` | Space eviction (high water down to low water) | Age ceiling (applies whatever the usage) | Disposition reasons |
 | --- | --- | --- | --- | --- |
-| (a) | `verified`, or `deleted` (archive copy removed by object retention or the reaper, C3, C3a) | yes | `max_local_age` when limited | `budget`, `max_local_age` |
+| (a) | `verified`, or `deleted` for any `archive_deleted_reason` (`object_retention`, `object_capacity`, `operator`; C3, C3a) | yes | `max_local_age` when limited | `budget`, `max_local_age` |
 | (b) local-only footage | `not_required` | only when `local_only_full_policy = overwrite_oldest` is recorded; otherwise pinned | `local_only_max_age` when limited, whatever the full policy | `local_only_overwrite`, `local_only_max_age` |
-| (c) unarchived | `pending`, `failed_retryable`, `failed_terminal` | never; always pinned | never | none |
+| (c) pinned by archive state | `pending`, `failed_retryable`, `failed_terminal` (unarchived); `deleting` (until the retention job confirms absence and moves the entry to `deleted`); `missing` (archive copy found changed or absent, an operator decides) | never; always pinned | never | none |
+
+These rows cover every `archive_state` of B3 exactly once. Any future
+`archive_state` must be added to this table before it can be written; a state
+outside the table is a defect, not an implicit kind.
 
 Every row also requires that the block is cataloged and reconciled (section R;
 unreconciled blocks are always pinned), that the local copy is not the copy a
@@ -985,7 +989,12 @@ policy may be `local_only` while archiving is enabled for others (E1).
   `local_only_max_age`. Kind (c) is never selected.
 
 A kind (a) block whose archive copy was deleted is not unarchived and is never
-re-archived (C6). Evicting it, or evicting kind (b), removes the last copy; the
+re-archived (C6). A kind (c) block in `deleting` resumes after a crash: each
+retention pass re-enqueues `ArchiveRetentionJob` for every entry in `deleting`
+without a job, which repeats the idempotent versioned DELETE and the HEAD 404
+check (C3) and then moves the entry to `deleted`. A `missing` archive copy's
+local copy is never evicted, because retention refused that delete; it raises
+an alert until an operator resolves the entry. Evicting it, or evicting kind (b), removes the last copy; the
 recorded object retention or `reap_oldest` selection (C3, C3a), or the recorded
 full policy and local-only maximum age (C2), is the authority. This is
 policy-authorized retention after hold checks, which the plane allows
@@ -1076,7 +1085,12 @@ pinned, under each full policy:
 | Full policy | Archived camera | Local-only camera | Time-to-full (C5) |
 | --- | --- | --- | --- |
 | `overwrite_oldest` | 24 h (age binds; 43.2 GB) | T: (72.2 GB - 43.2 GB) / 15 kB/s, about 22 days (budget binds; about 29 days at high water) | not filling |
-| `stop_when_full`, 7.4 GB of the budget left for pinned growth | 24 h (age binds) | pinned: no eviction for space | 7.4 GB / 15 kB/s, about 5.7 days |
+| `stop_when_full`, 20 GB of local-only footage pinned | 24 h (age binds: T = (72.2 GB - 20 GB) / 500 kB/s, about 29 h) | pinned: no eviction for space | (90.2 GB - 20 GB) / 15 kB/s, about 54 days |
+| `stop_when_full`, 82.8 GB pinned (7.4 GB of the 90.2 GB budget left) | 0 (T = 0: pinned exceeds the 72.2 GB low water; each copy is evicted as soon as it is verified) | pinned: no eviction for space | 7.4 GB / 15 kB/s, about 5.7 days |
+
+The archived camera keeps its 24 h only while pinned bytes stay at or under
+about 29 GB (72.2 GB low water less 43.2 GB of archived footage); above that
+the archived window shrinks toward 0 while recording continues.
 
 A single combined figure would be wrong here: low water over the combined
 rate gives about 39 h for both cameras, and a time-to-full over the combined
@@ -1254,7 +1268,8 @@ Versioned and locked buckets:
 
 Verified absence: after DELETE, HEAD must answer 404 for the deleted key (or
 for the deleted version on versioned buckets). Only then does the entry move to
-`deleted`.
+`deleted`. An entry left in `deleting` by a crash is picked up by the next
+retention pass and finished the same way (C1).
 
 Archive retention is also an explicit mode: `limited` (default 30 days, bounds 1
 to 3,650 days) or `unlimited` (never delete archive copies). Any limited value
@@ -1342,11 +1357,12 @@ the product owner). Three options:
 
 | Option | Effect | Problem |
 | --- | --- | --- |
-| Delete the archive copy alone, keep the local copy as local only | The local copy stays until the local budget or maximum local age evicts it | Footage older than the bucket holds has a single local copy; the page must say so |
+| Delete the archive copy alone, keep the local copy (local only after archive reaping) | The local copy stays until the local budget or maximum local age evicts it | Footage older than the bucket holds has a single local copy; the page must say so |
 | Exclude it from reaping | Only archive copies whose local copy is gone are candidates | With an unlimited local age and a large disk, few or no candidates exist; the object tier overruns its budget, archiving stops, and new footage is single-copy for as long as the local tier takes to fill |
 | Reap the whole block, local copy first | The local copy is evicted, then the archive copy is deleted | A small bucket caps all history, even on a large local volume, which contradicts "keep footage locally for as long as it fits" |
 
-Decision: delete the archive copy alone and keep the local copy as local only.
+Decision: delete the archive copy alone and keep the local copy, local only
+after archive reaping (kind (a) of the C1 table).
 Nothing is stranded, because the local copy stays evictable under the local
 rules; nothing is lost silently, because every deletion is an audited
 disposition under a recorded policy; and archiving never stops while reapable
@@ -1357,8 +1373,8 @@ bytes.
 
 What the page shows: the effective object retention (below) and the effective
 local window (C1a) side by side, and, when the reaper has run, "footage older
-than about N days exists only on local storage" with the oldest local-only
-footage time, so the operator sees which history has a single copy. The total
+than about N days exists only on local storage" with the time of the oldest
+footage that is local only after archive expiry or reaping, so the operator sees which history has a single copy. The total
 history kept is the longer of the two figures.
 
 **`stop_archiving`.** When archiving the next block would exceed the hard
@@ -1428,7 +1444,9 @@ Each reaper pass that deletes anything also publishes one OCSF event through
 `ServiceRadar.Events.OcsfEventPublisher.publish/2`
 (`elixir/serviceradar_core/lib/serviceradar/events/ocsf_event_publisher.ex:105`,
 family `:camera`) with the bytes and blocks deleted, the oldest remaining
-footage time, the resulting effective retention and the binding bound. The
+archived footage time, the time of the oldest footage that exists only on local
+storage after archive expiry or reaping, the resulting effective retention and
+the binding bound. The
 disposition records remain the audit.
 
 ### C4. Holds and exports
@@ -1500,7 +1518,7 @@ footage that cannot be evicted.
   N unarchived blocks waiting". When the archive recovers, verified blocks
   become evictable, eviction frees space at the next pass, and recording
   resumes; the gap closes.
-- **Never**: evict unarchived or unreconciled footage or a held local copy
+- **Never**: evict kind (c) or unreconciled footage (C1) or a held local copy
   that is the pinned copy (C4), shorten the
   archive retention, grow the volume, or change destination to hide pressure.
 
@@ -1618,8 +1636,8 @@ carry across members, so they stay deployment-wide (E1).
 
 - budget at most the install ceiling (`SERVICERADAR_NVR_MAX_SPOOL_BYTES`) and at
   most the measured volume capacity minus the applied reserve;
-- budget at least the bytes currently pinned on the member (unarchived,
-  unreconciled, held local copies that are the hold's pinned copy, and
+- budget at least the bytes currently pinned on the member (kind (c) of the C1
+  table, unreconciled, held local copies that are the hold's pinned copy, and
   local-only footage unless `overwrite_oldest` is recorded, as in C1a; held
   blocks whose archive copy is verified pin that copy, not local bytes), from
   the catalog, checked by Core at save time, so an
@@ -1824,7 +1842,7 @@ their window. Denied requests are logged with class only.
 ### D8. What investigators see
 
 - A day or multi-day coverage bar per camera: footage local and archived,
-  archive only, local only (not yet archived), local only after archive expiry
+  archive only, pending archive (not yet archived), local-only footage, local only after archive expiry
   or reaping (shown as existing only on local storage; evictable local bytes,
   never counted as unarchived), gap with reason, not scheduled, and deleted by
   retention.
@@ -2150,8 +2168,8 @@ entitlement route. Self-hosted operators set their object budget on
   not counted in `non_reapable_bytes` (F5), which is what the control plane's
   allocation floor is computed from. The findings document proposed skipping
   such copies instead; this change keeps its own decision (C3a) for the reasons
-  recorded there. The local volume is not part of the allocation, so local-only
-  footage after reaping costs the pool nothing.
+  recorded there. The local volume is not part of the allocation, so footage
+  that is local only after archive reaping costs the pool nothing.
 - Local budget, reserve, local ages and the local-only policy are not part of
   the entitlement: the local volume is install topology, which control already
   renders and bills as hot storage.

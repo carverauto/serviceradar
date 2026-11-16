@@ -73,8 +73,8 @@ product owner's decisions of 2026-11-15 are recorded in
   when full). Object retention is enforced by ServiceRadar with a delete-only
   credential role. Holds keep at least one verified copy, preferring the
   archive. An optional object-tier budget with a recorded policy (reap the
-  archive copies of the oldest footage, keeping any local copy as local only
-  until the local rules evict it, which can delete the last copy; or stop
+  archive copies of the oldest footage, keeping any local copy, local only
+  after archive reaping, until the local eviction rules evict it, which can delete the last copy; or stop
   archiving) keeps fixed-size buckets working, with calculated effective
   retention. Object retention and the reaper delete only archive copies, so a
   large local volume keeps its history whatever the bucket's size. Unarchived and unreconciled footage is never evicted;
