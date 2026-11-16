@@ -114,7 +114,7 @@ Status: implemented in PR #6692 except where a task says otherwise.
       including an operator-request certificate revocation that leaves the
       principal able to authenticate. A `certificate_revoked` interval routes
       its late records to security quarantine whoever presents them.
-- [ ] 2.3 Add `late_admission_max_age_seconds` to `PipelineSettings` with a
+- [x] 2.3 Add `late_admission_max_age_seconds` to `PipelineSettings` with a
       code default of 14 days. Raise `EdgeLedgerRetentionWorker`'s horizon to
       at least that age. Persist a monotonic `ledger_complete_since`, seeded
       at migration with the retention cutoff already in force (migration time

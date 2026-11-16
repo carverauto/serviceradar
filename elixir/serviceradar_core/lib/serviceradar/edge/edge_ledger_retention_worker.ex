@@ -10,8 +10,8 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
 
   ## Retention Horizon
 
-  The retention horizon (`retention_horizon_seconds/1`) is derived from the
-  maximum of three protocol and broker limits rather than a guessed constant
+  The retention horizon (`retention_horizon_seconds/2`) is derived from the
+  maximum of four protocol and broker limits rather than a guessed constant
   (the edge-record source streams have no `MaxAge`, so they add no component):
 
     1. The dead-letter stream's retention (`EventWriter.Config.edge_record_dead_letter_stream/0`).
@@ -20,6 +20,24 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
        or the sweep lease horizon ceiling (`PipelineSettings.default_max_horizon_seconds/0`
        or any higher ceiling configured in `platform.edge_pipeline_settings`)
        plus `ContractRegistry`'s 3600s lease margin and `DeliveryGrants.ttl_seconds/0`.
+    4. The late-admission window (`PipelineSettings.late_admission_max_age_seconds/0`)
+       plus the clock tolerance: a late record may be PRIMARY only while the ledger still
+       proves it was never applied, so the ledger outlives that window.
+
+  ## Ledger Coverage
+
+  The statement that deletes `event_ledger` rows also advances
+  `platform.edge_ledger_coverage.complete_since` to the prune's cutoff, never backward
+  (`ServiceRadar.Edge.LedgerCoverage`). Being one statement, coverage can never claim a row
+  that is already gone.
+
+  ## Authority History
+
+  Ended intervals of `platform.edge_authority_history` older than the late window plus the
+  clock tolerance are pruned in the same bounded batches; a record naming one then gets
+  `history_unknown`, which is AUDIT. Open intervals and those that ended with
+  `certificate_revoked` or `revoked_cause_unknown` are never pruned, so their records stay
+  quarantine-only for good.
 
   ## Draining Registry Epoch Guard (#6356)
 
@@ -40,6 +58,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   alias ServiceRadar.Edge.DeliveryGrants
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.PipelineSettings
+  alias ServiceRadar.Edge.RecordTrust
   alias ServiceRadar.EventWriter
   alias ServiceRadar.Repo
 
@@ -124,6 +143,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   """
 
   @delete_event_ledger_sql """
+  WITH deleted AS (
   DELETE FROM platform.event_ledger AS target
   WHERE target.ctid IN (
     SELECT candidate.ctid
@@ -151,6 +171,29 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
       )
     LIMIT $3
   )
+  RETURNING 1
+  ),
+  advanced AS (
+    INSERT INTO platform.edge_ledger_coverage (id, complete_since, updated_at)
+    SELECT 1, $1::timestamp AT TIME ZONE 'UTC', now()
+    WHERE EXISTS (SELECT 1 FROM deleted)
+    ON CONFLICT (id) DO UPDATE
+      SET complete_since =
+            GREATEST(platform.edge_ledger_coverage.complete_since, EXCLUDED.complete_since),
+          updated_at = EXCLUDED.updated_at
+  )
+  SELECT count(*) AS deleted FROM deleted
+  """
+
+  @delete_authority_history_sql """
+  DELETE FROM platform.edge_authority_history AS target
+  WHERE target.ctid IN (
+    SELECT candidate.ctid
+    FROM platform.edge_authority_history AS candidate
+    WHERE candidate.active_until < $1
+      AND candidate.ended_reason NOT IN ('certificate_revoked', 'revoked_cause_unknown')
+    LIMIT $2
+  )
   """
 
   @spec default_batch_size() :: pos_integer()
@@ -162,15 +205,18 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   @spec draining_epoch_lease_margin_seconds() :: pos_integer()
   def draining_epoch_lease_margin_seconds, do: @draining_epoch_lease_margin_seconds
 
-  @spec retention_components(pos_integer()) :: %{
+  @spec retention_components(pos_integer(), pos_integer()) :: %{
           dead_letter_retention_seconds: pos_integer(),
           output_grant_max_lifetime_seconds: pos_integer(),
-          spool_retry_horizon_seconds: pos_integer()
+          spool_retry_horizon_seconds: pos_integer(),
+          late_admission_window_seconds: pos_integer()
         }
   def retention_components(
-        max_sweep_horizon_seconds \\ PipelineSettings.default_max_horizon_seconds()
+        max_sweep_horizon_seconds \\ PipelineSettings.default_max_horizon_seconds(),
+        late_admission_max_age_seconds \\ PipelineSettings.default_late_admission_max_age_seconds()
       )
-      when is_integer(max_sweep_horizon_seconds) and max_sweep_horizon_seconds > 0 do
+      when is_integer(max_sweep_horizon_seconds) and max_sweep_horizon_seconds > 0 and
+             is_integer(late_admission_max_age_seconds) and late_admission_max_age_seconds > 0 do
     # The source streams have no MaxAge: records leave on acknowledgement, so
     # there is no stream-expiry component. A ledger row must outlive every path
     # that can still need it: the dead-letter redelivery window, the
@@ -194,18 +240,26 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
     %{
       dead_letter_retention_seconds: dead_letter_retention_seconds,
       output_grant_max_lifetime_seconds: output_grant_max_lifetime_seconds,
-      spool_retry_horizon_seconds: spool_retry_horizon_seconds
+      spool_retry_horizon_seconds: spool_retry_horizon_seconds,
+      late_admission_window_seconds: late_admission_window_seconds(late_admission_max_age_seconds)
     }
   end
 
-  @spec retention_horizon_seconds(pos_integer()) :: pos_integer()
+  @spec retention_horizon_seconds(pos_integer(), pos_integer()) :: pos_integer()
   def retention_horizon_seconds(
-        max_sweep_horizon_seconds \\ PipelineSettings.default_max_horizon_seconds()
+        max_sweep_horizon_seconds \\ PipelineSettings.default_max_horizon_seconds(),
+        late_admission_max_age_seconds \\ PipelineSettings.default_late_admission_max_age_seconds()
       ) do
     max_sweep_horizon_seconds
-    |> retention_components()
+    |> retention_components(late_admission_max_age_seconds)
     |> Map.values()
     |> Enum.max()
+  end
+
+  # How long after its production a late record can still matter: the window plus the clock
+  # tolerance a producer clock may run ahead of core's.
+  defp late_admission_window_seconds(late_admission_max_age_seconds) do
+    late_admission_max_age_seconds + div(RecordTrust.clock_tolerance_nano(), @ns_per_second)
   end
 
   @impl Oban.Worker
@@ -221,8 +275,10 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
     now = DateTime.utc_now()
     margin = @draining_epoch_lease_margin_seconds
 
-    with {:ok, horizon_seconds} <- effective_horizon_seconds(),
+    with {:ok, horizon_seconds, late_age_seconds} <- effective_horizon_seconds(),
          cutoff = DateTime.shift(now, second: -horizon_seconds),
+         history_cutoff =
+           DateTime.shift(now, second: -late_admission_window_seconds(late_age_seconds)),
          {:ok, deleted_batch_slots} <-
            delete_in_batches(
              @delete_sweep_batch_slots_sql,
@@ -250,6 +306,13 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
              fn limit -> [cutoff, margin, limit] end,
              batch_size,
              max_batches
+           ),
+         {:ok, deleted_history_intervals} <-
+           delete_in_batches(
+             @delete_authority_history_sql,
+             fn limit -> [history_cutoff, limit] end,
+             batch_size,
+             max_batches
            ) do
       Logger.info(
         "Edge ledger retention completed",
@@ -259,7 +322,8 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
         deleted_sweep_batch_slots: deleted_batch_slots,
         deleted_sweep_projected_rows: deleted_projected_rows,
         deleted_delivery_slots: deleted_delivery_slots,
-        deleted_event_ledger: deleted_ledger_rows
+        deleted_event_ledger: deleted_ledger_rows,
+        deleted_authority_history_intervals: deleted_history_intervals
       )
 
       :ok
@@ -273,18 +337,22 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   defp effective_horizon_seconds do
     default_ceiling = PipelineSettings.default_max_horizon_seconds()
 
+    default_late_age = PipelineSettings.default_late_admission_max_age_seconds()
+
     case Repo.query(
            """
-           SELECT max(GREATEST(COALESCE(max_horizon_seconds, 0), COALESCE(horizon_seconds, 0)))
+           SELECT
+             max(GREATEST(COALESCE(max_horizon_seconds, 0), COALESCE(horizon_seconds, 0))),
+             max(late_admission_max_age_seconds) FILTER (WHERE scope = 'global')
            FROM platform.edge_pipeline_settings
            """,
            []
          ) do
-      {:ok, %{rows: [[value]]}} when is_integer(value) ->
-        {:ok, retention_horizon_seconds(max(default_ceiling, value))}
+      {:ok, %{rows: [[ceiling, late_age]]}} ->
+        ceiling = max(default_ceiling, ceiling || 0)
+        late_age = late_age || default_late_age
 
-      {:ok, %{rows: [[nil]]}} ->
-        {:ok, retention_horizon_seconds(default_ceiling)}
+        {:ok, retention_horizon_seconds(ceiling, late_age), late_age}
 
       {:error, reason} ->
         {:error, reason}
@@ -315,21 +383,29 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
 
   defp delete_batches_loop(sql, params_fun, batch_size, max_batches, batches, deleted_acc) do
     case Repo.query(sql, params_fun.(batch_size)) do
-      {:ok, %{num_rows: deleted}} when deleted < batch_size ->
-        {:ok, deleted_acc + deleted}
+      {:ok, result} ->
+        deleted = deleted_rows(result)
 
-      {:ok, %{num_rows: deleted}} ->
-        delete_batches_loop(
-          sql,
-          params_fun,
-          batch_size,
-          max_batches,
-          batches + 1,
-          deleted_acc + deleted
-        )
+        if deleted < batch_size do
+          {:ok, deleted_acc + deleted}
+        else
+          delete_batches_loop(
+            sql,
+            params_fun,
+            batch_size,
+            max_batches,
+            batches + 1,
+            deleted_acc + deleted
+          )
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # The ledger statement reports its count as a column (its last step is a SELECT); the
+  # others are plain DELETEs.
+  defp deleted_rows(%{columns: ["deleted"], rows: [[deleted]]}), do: deleted
+  defp deleted_rows(%{num_rows: deleted}), do: deleted
 end

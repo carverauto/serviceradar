@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.PipelineSettings do
   @default_horizon_seconds 7 * 86_400
   @default_max_horizon_seconds 30 * 86_400
   @default_spool_max_bytes 1024 * 1024 * 1024
+  @default_late_admission_max_age_seconds 14 * 86_400
 
   # No hard limit could be derived from the agent: each SNMP target is its own collector
   # (a few goroutines and one UDP socket), the agent unit allows 65,535 open files, and
@@ -37,6 +38,26 @@ defmodule ServiceRadar.Edge.PipelineSettings do
   @doc "The spool budget used when no scope sets one: 1 GiB."
   @spec default_spool_max_bytes() :: pos_integer()
   def default_spool_max_bytes, do: @default_spool_max_bytes
+
+  @doc "The late-admission window used when the global row sets none: fourteen days."
+  @spec default_late_admission_max_age_seconds() :: pos_integer()
+  def default_late_admission_max_age_seconds, do: @default_late_admission_max_age_seconds
+
+  @doc """
+  The oldest a record may be and still be published as late PRIMARY: the global row's value,
+  else the default. Older late records are delivered as AUDIT (`beyond_late_window`), so the
+  bound limits backfill without stranding anything.
+  """
+  @spec late_admission_max_age_seconds() :: {:ok, pos_integer()} | {:error, term()}
+  def late_admission_max_age_seconds do
+    query = Ash.Query.filter(PipelineSetting, scope == :global)
+
+    with {:ok, rows} <- Ash.read(query, actor: SystemActor.system(:edge_pipeline_settings)) do
+      {:ok,
+       first_value(rows, :late_admission_max_age_seconds) ||
+         @default_late_admission_max_age_seconds}
+    end
+  end
 
   @doc "The SNMP target limit used when no scope sets one: 10,000 targets per profile per agent."
   @spec default_snmp_max_targets() :: pos_integer()

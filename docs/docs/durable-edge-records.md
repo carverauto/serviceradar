@@ -630,7 +630,7 @@ spool conditions). A node that did not answer is named in
 
 ### Settings
 
-The spool budget and the sweep horizon are set only by rows in
+The spool budget, the sweep horizon and the late-admission window are set only by rows in
 `platform.edge_pipeline_settings` (`ServiceRadar.Edge.PipelineSetting`), at
 global, partition or agent scope. A
 field left empty inherits from the wider scope, and a deployment with no rows
@@ -641,6 +641,16 @@ runs on the code defaults:
 | `spool_max_bytes` | 1 GiB (minimum 64 MiB) | the agent spool byte budget, delivered in the agent config |
 | `horizon_seconds` | 7 days | how far ahead core leases sweeps |
 | `max_horizon_seconds` | 30 days (global row only) | ceiling on any horizon |
+| `late_admission_max_age_seconds` | 14 days (global row only) | the oldest record core still publishes as late PRIMARY; an older late record is delivered as AUDIT |
+
+The edge-record ledger (`platform.event_ledger`) is kept for at least the late
+window plus the five-minute clock tolerance, so a late record that may already
+have been applied is still recognised as a duplicate. Raising
+`late_admission_max_age_seconds` lengthens that retention, and with it the
+ledger's disk use. Rows pruned before the raise stay pruned:
+`platform.edge_ledger_coverage.complete_since` records how far back the ledger
+is complete, and a late record produced earlier than that (plus the tolerance)
+is delivered as AUDIT rather than PRIMARY.
 
 There are no Helm values for these settings. The only pipeline sizes Helm
 controls are the JetStream stream byte limits described under
