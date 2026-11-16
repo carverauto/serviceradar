@@ -418,8 +418,14 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   @doc """
   Resolve credentials for a target host (IP/hostname/device UID).
+
+  A host that belongs to a device resolves as that device does
+  (`resolve_for_device/3`). A host that belongs to no device resolves to no
+  credential: credential rules select devices with their target queries, so
+  none of them selects an address no device holds, whatever its scope or
+  priority.
   """
-  @spec resolve_for_host(String.t() | nil, map()) ::
+  @spec resolve_for_host(String.t() | nil, map(), keyword()) ::
           {:ok,
            %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
@@ -429,29 +435,29 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     do: {:ok, %{credential: nil, profile: nil, source: :none}}
 
   def resolve_for_host(host, actor, opts) when is_binary(host) do
-    case lookup_device_uid(host, actor) do
-      {:ok, device_uid} ->
-        resolve_for_device(device_uid, actor, opts)
-
-      {:error, reason} ->
-        if credential_read_failure?(reason) do
-          {:error, reason}
-        else
-          resolve_unbound_host(actor, opts)
-        end
+    case device_uid_for_host(host, actor) do
+      {:ok, device_uid} -> resolve_for_device(device_uid, actor, opts)
+      {:error, :device_not_found} -> {:ok, %{credential: nil, profile: nil, source: :none}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp resolve_unbound_host(actor, opts) do
-    case resolve_unscoped_rule_credential(opts, actor) do
-      {:ok, credential} ->
-        {:ok, %{credential: credential, profile: nil, source: :credential_rule}}
+  @doc """
+  The uid of the device a polling host belongs to: the device whose uid it is,
+  the device holding it as a confirmed IP alias, or the device whose IP,
+  hostname or name it is. `{:error, :device_not_found}` when none does; any
+  other error is a failed read.
+  """
+  @spec device_uid_for_host(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def device_uid_for_host(host, actor) when is_binary(host) do
+    case lookup_device_uid(host, actor) do
+      {:ok, device_uid} ->
+        {:ok, device_uid}
 
       {:error, reason} ->
-        {:error, reason}
-
-      :none ->
-        {:ok, %{credential: nil, profile: nil, source: :none}}
+        if credential_read_failure?(reason),
+          do: {:error, reason},
+          else: {:error, :device_not_found}
     end
   end
 
@@ -1062,15 +1068,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   defp compact_map(map) do
     Map.reject(map, fn {_key, value} -> value in [nil, ""] end)
-  end
-
-  # The first enabled SNMP monitoring rule in scope, for a caller with no device.
-  defp resolve_unscoped_rule_credential(opts, actor) do
-    case load_snmp_rules(opts, actor) do
-      {:ok, [rule | _]} -> build_rule_credential(rule, actor, [])
-      {:ok, []} -> :none
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp load_snmp_rules(opts, actor) do
