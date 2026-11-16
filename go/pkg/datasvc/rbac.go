@@ -28,65 +28,195 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
-// rbacInterceptor enforces RBAC for unary RPCs.
-func (s *Server) rbacInterceptor(
+// rbacEnforced reports whether a method belongs to a service whose RBAC this
+// server enforces. Other services on the same gRPC server, such as health,
+// reflection and NATS account management, are not governed by these roles.
+func rbacEnforced(method string) bool {
+	return strings.HasPrefix(method, "/proto.KVService/") || strings.HasPrefix(method, "/proto.DataService/")
+}
+
+// RBACUnaryInterceptor enforces RBAC for unary KV and object-store RPCs.
+func (s *Server) RBACUnaryInterceptor(
 	ctx context.Context,
 	req interface{},
 	info *ggrpc.UnaryServerInfo,
 	handler ggrpc.UnaryHandler) (interface{}, error) {
-	if err := s.checkRBAC(ctx, info.FullMethod); err != nil {
+	if !rbacEnforced(info.FullMethod) {
+		return handler(ctx, req)
+	}
+
+	rule, err := s.authorize(ctx, info.FullMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := rule.authorizeKeys(info.FullMethod, req); err != nil {
 		return nil, err
 	}
 
 	return handler(ctx, req)
 }
 
-// rbacStreamInterceptor enforces RBAC for streaming RPCs.
-func (s *Server) rbacStreamInterceptor(
+// RBACStreamInterceptor enforces RBAC for streaming KV and object-store RPCs.
+func (s *Server) RBACStreamInterceptor(
 	srv interface{},
 	ss ggrpc.ServerStream,
 	info *ggrpc.StreamServerInfo,
 	handler ggrpc.StreamHandler) error {
-	if err := s.checkRBAC(ss.Context(), info.FullMethod); err != nil {
+	if !rbacEnforced(info.FullMethod) {
+		return handler(srv, ss)
+	}
+
+	rule, err := s.authorize(ss.Context(), info.FullMethod)
+	if err != nil {
 		return err
+	}
+
+	if len(rule.KeyPrefixes) > 0 {
+		if info.FullMethod != "/proto.KVService/Watch" {
+			return status.Errorf(codes.PermissionDenied,
+				"identity %s is limited to key prefixes and cannot access %s", rule.Identity, info.FullMethod)
+		}
+
+		// A stream's request arrives after the handler starts, so the key
+		// check runs on each message the handler receives.
+		ss = &keyLimitedStream{ServerStream: ss, rule: rule, method: info.FullMethod}
 	}
 
 	return handler(srv, ss)
 }
 
+// keyLimitedStream applies an identity's key prefixes to stream requests.
+type keyLimitedStream struct {
+	ggrpc.ServerStream
+	rule   RBACRule
+	method string
+}
+
+func (s *keyLimitedStream) RecvMsg(m interface{}) error {
+	if err := s.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+
+	return s.rule.authorizeKeys(s.method, m)
+}
+
 // getRoleForIdentity looks up the role for a given identity.
 func (s *Server) getRoleForIdentity(identity string) Role {
+	rule, _ := s.ruleForIdentity(identity)
+
+	return rule.Role
+}
+
+func (s *Server) ruleForIdentity(identity string) (RBACRule, bool) {
 	for _, rule := range s.config.RBAC.Roles {
 		if rule.Identity == identity {
-			return rule.Role
+			return rule, true
 		}
 	}
 
-	return ""
+	return RBACRule{}, false
 }
 
 // checkRBAC verifies the caller’s role against the method.
 func (s *Server) checkRBAC(ctx context.Context, method string) error {
+	_, err := s.authorize(ctx, method)
+
+	return err
+}
+
+// authorize verifies the caller's role against the method and returns the
+// rule that granted it, so the caller can apply the rule's key prefixes to the
+// request.
+func (s *Server) authorize(ctx context.Context, method string) (RBACRule, error) {
 	identities, err := extractIdentities(ctx)
 	if err != nil {
-		return err
+		return RBACRule{}, err
 	}
 
-	role, identity := s.getRoleForIdentities(identities)
-	if role == "" {
-		identity = firstIdentity(identities)
-		return status.Errorf(codes.PermissionDenied, "identity %s not authorized", identity)
+	rule, ok := s.ruleForIdentities(identities)
+	if !ok || rule.Role == "" {
+		return RBACRule{}, status.Errorf(codes.PermissionDenied, "identity %s not authorized", firstIdentity(identities))
 	}
 
-	if err := s.authorizeMethod(method, role); err != nil {
-		return err
+	if err := s.authorizeMethod(method, rule.Role); err != nil {
+		return RBACRule{}, err
 	}
 
-	log.Printf("Authorized %s with role %s for %s", identity, role, method)
+	log.Printf("Authorized %s with role %s for %s", rule.Identity, rule.Role, method)
+
+	return rule, nil
+}
+
+// authorizeKeys applies the rule's key prefixes to one request. A limited
+// identity may only send requests whose keys can be read from the message, so
+// a method this function does not know is denied, not allowed.
+func (rule RBACRule) authorizeKeys(method string, req interface{}) error {
+	if len(rule.KeyPrefixes) == 0 {
+		return nil
+	}
+
+	keys, ok := requestKeys(req)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied,
+			"identity %s is limited to key prefixes and cannot access %s", rule.Identity, method)
+	}
+
+	for _, key := range keys {
+		if !rule.allowsKey(key) {
+			return status.Errorf(codes.PermissionDenied,
+				"identity %s cannot access key %q with %s", rule.Identity, key, method)
+		}
+	}
 
 	return nil
+}
+
+func (rule RBACRule) allowsKey(key string) bool {
+	for _, prefix := range rule.KeyPrefixes {
+		// An empty prefix is rejected by Config.Validate; never let one match.
+		if prefix != "" && strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// requestKeys returns every KV key a request addresses; for ListKeys that is
+// the requested prefix, so a limited identity may list only inside its own
+// prefixes. The second result is false for a message that is not addressed by
+// KV key.
+func requestKeys(req interface{}) ([]string, bool) {
+	switch r := req.(type) {
+	case *proto.GetRequest:
+		return []string{r.GetKey()}, true
+	case *proto.BatchGetRequest:
+		return r.GetKeys(), true
+	case *proto.WatchRequest:
+		return []string{r.GetKey()}, true
+	case *proto.PutRequest:
+		return []string{r.GetKey()}, true
+	case *proto.PutManyRequest:
+		keys := make([]string, 0, len(r.GetEntries()))
+		for _, entry := range r.GetEntries() {
+			keys = append(keys, entry.GetKey())
+		}
+
+		return keys, true
+	case *proto.UpdateRequest:
+		return []string{r.GetKey()}, true
+	case *proto.DeleteRequest:
+		return []string{r.GetKey()}, true
+	case *proto.ListKeysRequest:
+		return []string{r.GetPrefix()}, true
+	default:
+		return nil, false
+	}
 }
 
 // extractIdentity retrieves and validates the caller's preferred identity from the context.
@@ -99,14 +229,14 @@ func (*Server) extractIdentity(ctx context.Context) (string, error) {
 	return firstIdentity(identities), nil
 }
 
-func (s *Server) getRoleForIdentities(identities []string) (Role, string) {
+func (s *Server) ruleForIdentities(identities []string) (RBACRule, bool) {
 	for _, identity := range identities {
-		if role := s.getRoleForIdentity(identity); role != "" {
-			return role, identity
+		if rule, ok := s.ruleForIdentity(identity); ok && rule.Role != "" {
+			return rule, true
 		}
 	}
 
-	return "", ""
+	return RBACRule{}, false
 }
 
 func extractIdentities(ctx context.Context) ([]string, error) {
@@ -130,6 +260,7 @@ func (*Server) authorizeMethod(method string, role Role) error {
 		"/proto.KVService/BatchGet":         {RoleReader, RoleWriter},
 		"/proto.KVService/Watch":            {RoleReader, RoleWriter},
 		"/proto.KVService/Info":             {RoleReader, RoleWriter},
+		"/proto.KVService/ListKeys":         {RoleReader, RoleWriter},
 		"/proto.KVService/Put":              {RoleWriter},
 		"/proto.KVService/PutIfAbsent":      {RoleWriter},
 		"/proto.KVService/PutMany":          {RoleWriter},
@@ -144,7 +275,7 @@ func (*Server) authorizeMethod(method string, role Role) error {
 
 	allowedRoles, ok := permissions[method]
 	if !ok {
-		return status.Errorf(codes.Unimplemented, "method %s not recognized", method)
+		return status.Errorf(codes.PermissionDenied, "method %s is not permitted for any role", method)
 	}
 
 	for _, r := range allowedRoles {

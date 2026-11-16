@@ -45,6 +45,15 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	// An empty prefix matches every key, which would turn a limit into none.
+	for _, rule := range c.RBAC.Roles {
+		for _, prefix := range rule.KeyPrefixes {
+			if prefix == "" {
+				return fmt.Errorf("%w: identity %s", errRBACKeyPrefixEmpty, rule.Identity)
+			}
+		}
+	}
+
 	c.normalizeSecurityCertPaths(c.Security)
 	c.normalizeSecurityCertPaths(c.NATSSecurity)
 	c.setDefaultBucket()

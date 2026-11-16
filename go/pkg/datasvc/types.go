@@ -34,6 +34,12 @@ const (
 type RBACRule struct {
 	Identity string `json:"identity"`
 	Role     Role   `json:"role"`
+	// KeyPrefixes limits the identity to KV keys that start with one of these
+	// prefixes; ListKeys is allowed only when its requested prefix starts with
+	// one of them. A limited identity is also denied every method that is not
+	// addressed by KV key, including Info and the object store. Empty means the
+	// role applies to the whole store.
+	KeyPrefixes []string `json:"key_prefixes,omitempty"`
 }
 
 // CoreRegistration contains settings for registering this datasvc with Core.
