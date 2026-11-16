@@ -18,9 +18,11 @@ Status: implemented in PR #6692 except where a task says otherwise.
       `bool late_admission` rather than an enum: the frozen enum-policy guards
       require every enum's zero member to be UNSPECIFIED and refused, which an
       older agent's lane open would hit, and an `optional` enum would need the
-      generated presence corpus. The agent sets both lane-open fields only
-      when the gateway's Hello advertised late admission, because an older
-      gateway rejects unknown lane-open fields. The provenance
+      generated presence corpus. When the gateway's Hello advertised late
+      admission, every lane open (live and late) carries
+      `late_admission_protocol_version = 1` and `late_admission = true` is set
+      only on the late session; when Hello did not advertise it, neither field
+      is set, because an older gateway rejects unknown lane-open fields. The provenance
       `LATE_ADMISSION` delivery mode (value 5) stays in phase 2 (task 2.6).
 - [x] 1.2 Add `edgerecord.ValidateRecordProduced` and
       `RecordLateAttribution`. With a loaded trust snapshot, an absent fence
@@ -48,7 +50,7 @@ Status: implemented in PR #6692 except where a task says otherwise.
       before the legacy resolve, foreign principals to their hold, rejection
       evidence for permanent failures (a full evidence store is retryable and
       never evicts), retirement through `RetireDrainedLegacyFlat`, and the
-      `legacy_handoff_pending_records` / `legacy_handoff_reason` status.
+      `legacy_handoff_pending_records` / `legacy_handoff_reason` status fields.
 - [x] 1.6a Capacity: a handoff pass copies nothing when free ordinary capacity
       does not cover a conservative bound (one append charge plus one
       generation charge for every record still to be appended). It reports
@@ -58,6 +60,10 @@ Status: implemented in PR #6692 except where a task says otherwise.
       window. Releasing a resolved prefix while unresolved records remain
       (partial-prefix reclaim) is new spool durability and is deferred to its
       own change.
+- [ ] 1.6b Raise the `legacy_storage_handoff_pending` readiness condition from
+      the carried `legacy_handoff_pending_records` / `legacy_handoff_reason`
+      fields; keep `unsupported_legacy_storage` only for unaccountable entries.
+      Today a pending handoff is reported under `unsupported_legacy_storage`.
 - [x] 1.7 Sender: one late session at a time, drained in order, with its own
       credits and gated on the gateway advertising late admission. Late
       grants are requested only for the agent's own late records; holds are

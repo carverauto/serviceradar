@@ -431,10 +431,12 @@ On a live session whose `EdgeRecordLaneOpen.late_admission_protocol_version` is 
 The disposition kind alone resolves the slot; the rejection code is the
 annotation that tells the capable agent to move the bytes. The gateway SHALL
 NOT withhold the frame and SHALL NOT reject it as `fence_stale`, and the agent
-SHALL NOT copy the record into the evicting local quarantine. Agents implementing the
-late generation SHALL send `late_admission_protocol_version = 1` in every
-`EdgeRecordLaneOpen`, the session input the gateway's authorization already
-holds. For a session whose lane open carried no version or 0, the gateway SHALL
+SHALL NOT copy the record into the evicting local quarantine. When the gateway's
+Hello advertised late admission, agents implementing the late generation SHALL
+send `late_admission_protocol_version = 1` in every `EdgeRecordLaneOpen`, live
+and late, the session input the gateway's authorization already holds, and
+SHALL set `late_admission = true` only on the late session. When Hello did not
+advertise late admission, the agent SHALL set neither field. For a session whose lane open carried no version or 0, the gateway SHALL
 keep today's live dispositions unchanged, so an older agent's
 records follow today's paths. The live lane SHALL NOT wait on a late grant, and a late grant
 SHALL be accepted only on a late session. If the late append is not durable,
