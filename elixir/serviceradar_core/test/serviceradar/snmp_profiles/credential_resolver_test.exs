@@ -300,7 +300,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     end
 
     @tag :integration
-    test "resolve_for_host follows confirmed IP aliases back to the canonical device" do
+    test "device_uid_for_host follows confirmed IP aliases back to the canonical device" do
       actor = SystemActor.system(:test)
       device_uid = "sr:" <> Ecto.UUID.generate()
       hostname = "alias-credential-test-#{System.unique_integer([:positive])}"
@@ -340,21 +340,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, _profile} =
-        SNMPProfile
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "Alias Credential Profile #{System.unique_integer([:positive])}",
-            target_query: ~s(in:devices hostname:"#{hostname}"),
-            priority: 100,
-            version: :v2c,
-            community: "public"
-          },
-          actor: actor
-        )
-        |> Ash.create(actor: actor)
-
       {:ok, alias_state} =
         DeviceAliasState.create_detected(
           %{
@@ -374,10 +359,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           actor: actor
         )
 
-      assert {:ok, %{credential: credential, source: :profile}} =
-               CredentialResolver.resolve_for_host(alias_ip, actor)
-
-      assert credential.community == "public"
+      assert {:ok, ^device_uid} = CredentialResolver.device_uid_for_host(alias_ip, actor)
     end
 
     @tag :integration

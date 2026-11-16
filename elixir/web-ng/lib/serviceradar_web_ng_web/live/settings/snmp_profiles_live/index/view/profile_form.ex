@@ -758,16 +758,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   <td class="font-medium">
                     {target.name}
                     <!--
-                    A credential rule applies to a manual target only when its
-                    target query selects the device at the target's host, so a
-                    target without its own credential is polled only in that case.
+                    A manual target falls back to its profile's credential. Without
+                    either, only its device's SNMP override or a credential rule
+                    whose target query selects that device can poll it.
                     -->
                     <.ui_badge
-                      :if={not CredentialResolver.record_has_credential?(target)}
+                      :if={
+                        not CredentialResolver.record_has_credential?(target) and
+                          not CredentialResolver.record_has_credential?(@selected_profile)
+                      }
                       id={"snmp-target-#{target.id}-no-credential"}
                       variant="warning"
                       size="xs"
-                      title="This target has no credential of its own. It is polled only while a credential rule's target query selects the device at its host; a host that belongs to no device is not polled."
+                      title="Neither this target nor its profile has a credential. It is polled only with its device's SNMP override or a credential rule whose target query selects its device; a host that belongs to no device is not polled."
                     >
                       No credential
                     </.ui_badge>

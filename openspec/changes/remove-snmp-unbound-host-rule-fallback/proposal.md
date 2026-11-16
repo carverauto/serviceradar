@@ -1,4 +1,4 @@
-# Change: Stop SNMP credential rules leaking onto explicit targets with no device
+# Change: Resolve explicit SNMP target credentials in the documented order
 
 ## Why
 
@@ -23,6 +23,17 @@ applies here too: rules choose credentials per target through an SRQL target
 query over devices, and an address no device holds gives that query nothing to
 select.
 
+The first PR of this change left a second defect, on hosts that DO belong to a
+device. `SNMPCompiler.profile_target_credential/3` kept a credential from
+`resolve_for_host/3` only when its source was `:credential_rule`, and
+otherwise used the target's own credential. A device's SNMP override, which
+the resolver ranks above every rule, was therefore ignored on an explicit
+target, and so was the profile's credential: a target with no credential of
+its own and no matching rule was not polled although its profile carried one.
+The documented order, and the one query-selected device targets and Mapper
+follow, is device override, then a rule whose target query selects the device,
+then profile credentials.
+
 ## What Changes
 
 - **A rule applies to an explicit target only through its target query.** A
@@ -46,6 +57,28 @@ select.
   to that credential resolves to exactly what the rule delivered, the target is
   bound to it. A target with a credential of its own is not changed: it is
   now polled with what was configured for it, not with the borrowed rule.
+- **One precedence for every explicit target.** An explicit target is
+  resolved by `CredentialResolver.resolve_for_target/4`, which runs the
+  same pipeline as query-selected and Mapper devices (`resolve_for_devices/3`):
+  the device override, then a rule whose scope covers the agent and whose
+  target query selects the device, then the target's own credential, then the
+  credential of the profile the target belongs to. A host no device holds
+  skips the first two. `resolve_for_host/3` is deleted, and the compiler no
+  longer picks a source out of the resolver's answer.
+- **A matching rule still outranks the target's own credential**, as it did
+  before this change, so no target that resolved to a rule moves to its own
+  credential. A credential meant for one device ahead of every rule is that
+  device's SNMP override, which now applies to explicit targets too.
+- **A refused override, rule or target credential skips the target**, as it
+  does for a query-selected device, instead of falling through to a
+  lower-precedence credential.
+- **A manual target that resolves a credential replaces a query-selected
+  target for the same host**, including when the credential is inherited from
+  its profile, so that host is polled only with the manual target's OIDs.
+- **No backfill for the follow-up.** Only targets whose device has an override
+  change credential, to the one the operator configured for that device;
+  targets that had no credential and no rule start polling with their
+  profile's. No working target loses its credential.
 
 ## Impact
 
@@ -53,12 +86,15 @@ select.
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/snmp_profiles/credential_resolver.ex`
   - `elixir/serviceradar_core/lib/serviceradar/agent_config/compilers/snmp_compiler.ex`
+  - `docs/docs/credentials.md`
   - New `elixir/serviceradar_core/lib/serviceradar/snmp_profiles/snmp_target_credential_backfill_worker.ex`
     and the migration that enqueues it
   - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/snmp_profiles_live/index/view/profile_form.ex`
 - Behaviour change on upgrade: an explicit target on a host with no device
   record that has its own credential switches from the borrowed rule's
   credential to its own.
-- Out of scope: explicit targets on hosts that belong to a device still take a
-  matching rule before their own credential and still ignore the device's
-  override; query-selected device targets are unchanged.
+- Behaviour change in the follow-up: an explicit target whose device has an
+  SNMP override is polled with the override; an explicit target with no
+  credential of its own and no override or rule is polled with its profile's
+  credential instead of not at all. Query-selected device targets and Mapper
+  are unchanged.

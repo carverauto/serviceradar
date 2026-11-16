@@ -933,16 +933,37 @@ credentials from the file. Do not add new deployments to this path.
 
 #### Manual SNMP target credentials
 
-A manual (legacy) SNMP target on a profile is polled with a monitoring rule
-only when the rule is scoped to the polling agent and its target query selects
-the device the target's host belongs to: the device whose uid, confirmed IP
-alias, IP, hostname or name it is. A host that belongs to no device is selected
-by no rule, whatever the rule's scope or priority, and is polled with the
-target's own credential. A target with no usable credential is not polled; the
-compiler logs a warning and emits
-`[:serviceradar, :snmp, :target_without_credential]`, and the profile's list of
-manual targets marks a target that has no credential of its own
-**No credential**.
+A manual (legacy) SNMP target on a profile is polled with the first of these
+that gives a usable credential:
+
+1. the SNMP override of the device the target's host belongs to (the device
+   whose uid, confirmed IP alias, IP, hostname or name it is);
+2. a monitoring rule scoped to the polling agent or its partition whose target
+   query selects that device;
+3. the target's own credential;
+4. the credential of the profile the target belongs to.
+
+This is the order query-selected devices and Mapper follow, with the target's
+own credential added before its profile's. A rule outranks the target's own
+credential; to give one device a credential ahead of every rule, set that
+device's SNMP override. A host that belongs to no device has no override and is
+selected by no rule, whatever the rule's scope or priority, so it starts at the
+target's own credential. If the secret broker refuses the override's, the
+rule's or the target's own credential, the target is skipped rather than polled
+with a later one.
+A target with no usable credential is not polled; the compiler logs a warning
+and emits `[:serviceradar, :snmp, :target_without_credential]`, and the
+profile's list of manual targets marks a target **No credential** when neither
+it nor its profile has one.
+
+A manual target that resolves a credential, its own or one inherited from its
+profile, is the operator's explicit choice for its host: it replaces a
+query-selected target for the same host, and the device is polled only with
+the manual target's OIDs, not the profile template's.
+
+Before this, an explicit target on a host that belongs to a device ignored the
+device's override and its profile's credential: it was polled with a matching
+rule, else its own credential, else not at all.
 
 Before this, a target whose host had no device record was polled with the first
 SNMP rule scoped to the agent or its partition, whatever its target query, even

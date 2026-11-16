@@ -1758,7 +1758,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "a failed host credential read does not keep the target's own community", %{actor: actor} do
+    test "a failed device override read does not fall through to the target's own community",
+         %{actor: actor} do
       unique = System.unique_integer([:positive])
       host = "198.51.100.#{rem(unique, 200) + 1}"
       device_uid = "sr:" <> Ecto.UUID.generate()
@@ -1857,7 +1858,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      assert {:ok, %{"targets" => [%{"community" => "target-local"}]}} =
+      assert {:ok, %{"targets" => [%{"community" => "override-secret"}]}} =
                SNMPCompiler.compile("default", nil, actor: actor)
 
       Repo.query!(
@@ -1873,7 +1874,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
       end
 
-      assert {:ok, %{"targets" => [%{"community" => "target-local"}]}} =
+      assert {:ok, %{"targets" => [%{"community" => "override-secret"}]}} =
                SNMPCompiler.compile("default", nil, actor: actor)
     end
 
@@ -2496,24 +2497,93 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       refute_received {:target_without_credential, _measurements, _metadata}
     end
 
+    # explicit-snmp-target-credential-precedence: a rule whose target query
+    # selects the device comes before the target's own credential.
     @tag :integration
-    test "a host whose device a rule selects is polled with that rule's credential",
+    test "a host whose device a rule selects is polled with that rule's credential, not its own",
          %{actor: actor, agent_id: agent_id, profile: profile, unique: unique} do
       host = ServiceRadar.TestSupport.unique_device_ip()
-
-      Device
-      |> Ash.Changeset.for_create(:create, %{
-        uid: "sr:" <> Ecto.UUID.generate(),
-        hostname: "host02-#{unique}.example.com",
-        ip: host
-      })
-      |> Ash.create!(actor: actor)
-
-      explicit_target(profile, "Bound", host, %{}, actor)
+      explicit_device(host, "host02-#{unique}.example.com", actor)
+      own = create_snmp_secret("Own #{unique}", "own-community", actor)
+      explicit_target(profile, "Bound", host, %{credential_secret_id: own.id}, actor)
 
       assert {:ok, %{"targets" => [%{"host" => ^host, "community" => "host02-community"}]}} =
                SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
     end
+
+    # The device override comes before any rule and the target's own credential.
+    @tag :integration
+    test "a host whose device has an SNMP override is polled with the override",
+         %{actor: actor, agent_id: agent_id, profile: profile, unique: unique} do
+      host = ServiceRadar.TestSupport.unique_device_ip()
+      device = explicit_device(host, "host02-#{unique}.example.com", actor)
+
+      DeviceSNMPCredential
+      |> Ash.Changeset.for_create(
+        :create,
+        %{device_id: device.uid, version: :v2c, community: "override-community"},
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+      own = create_snmp_secret("Own #{unique}", "own-community", actor)
+      explicit_target(profile, "Overridden", host, %{credential_secret_id: own.id}, actor)
+
+      assert {:ok, %{"targets" => [%{"host" => ^host, "community" => "override-community"}]}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+    end
+
+    # With no override or rule, the target's own credential comes first and
+    # its profile's after it, whether or not a device holds the host.
+    @tag :integration
+    test "a target no rule selects is polled with its own credential, else its profile's",
+         %{actor: actor, agent_id: agent_id, unique: unique} do
+      profile_secret = create_snmp_secret("Profile #{unique}", "profile-community", actor)
+
+      profile =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Synthetic explicit with credential #{unique}",
+            enabled: true,
+            agent_ids: [agent_id],
+            credential_secret_id: profile_secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      own = create_snmp_secret("Own #{unique}", "own-community", actor)
+
+      [own_host, device_host, unbound_host] =
+        for _ <- 1..3, do: ServiceRadar.TestSupport.unique_device_ip()
+
+      explicit_device(own_host, "host03-#{unique}.example.com", actor)
+      explicit_device(device_host, "host04-#{unique}.example.com", actor)
+      explicit_target(profile, "Own", own_host, %{credential_secret_id: own.id}, actor)
+      explicit_target(profile, "DeviceNoCredential", device_host, %{}, actor)
+      explicit_target(profile, "UnboundNoCredential", unbound_host, %{}, actor)
+
+      assert {:ok, %{"targets" => targets}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      assert Map.new(targets, &{&1["host"], &1["community"]}) == %{
+               own_host => "own-community",
+               device_host => "profile-community",
+               unbound_host => "profile-community"
+             }
+    end
+  end
+
+  defp explicit_device(host, hostname, actor) do
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: "sr:" <> Ecto.UUID.generate(),
+      hostname: hostname,
+      ip: host
+    })
+    |> Ash.create!(actor: actor)
   end
 
   defp explicit_target(profile, name, host, attrs, actor) do
