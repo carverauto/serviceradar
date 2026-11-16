@@ -62,6 +62,25 @@ without renewing the session deadline. See the
 [runtime boundary](../elixir/serviceradar_nvr/README.md#runtime-boundary) for local
 block notifications and their publication/recovery limits.
 
+A block rotates at 16 MiB of media or at `nvr.maxBlockFragments` fragments
+(`SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, default 150, 8 through 256), whichever
+comes first. The byte limit is fixed: the archive uploads each block object in
+one PUT of at most 16 MiB. Fragments are about two seconds when the camera sends
+a keyframe every one or two seconds, so a block holds about 300 seconds of a
+low-bitrate stream, and one Core capture (at most 270 seconds and 12 MiB) is
+one block. Back-to-back captures make about 320 blocks per camera per day below
+about 370 kbit/s; a higher-bitrate stream reaches the byte bound sooner and
+makes more blocks (about 860 a day at 1 Mbit/s). Each active session reserves
+one maximum block: 18,453,856 bytes at 150 fragments, 586,744 bytes more than
+at the earlier fixed 8. The 4096-block volume cap is unchanged and nothing
+reclaims blocks yet, so a volume fills; size `nvr.maxSpoolBytes` for the
+retention you need until reclamation exists. Lowering `nvr.maxBlockFragments`
+affects new blocks only: reads accept up to 256 fragments, so retained blocks
+stay readable. The ceiling is 256 because a block's publication intent embeds
+one descriptor entry per fragment and is capped at 64 KiB.
+`nvr.maxDurationMs` (chart default 300000, the service ceiling) bounds each
+ingest request including its seal, so it must exceed the longest Core capture.
+
 Read-only [restart discovery](../elixir/serviceradar_nvr/README.md#read-only-restart-discovery)
 can enumerate retained block IDs and verify sealed snapshots without saved
 notifications. It preserves incomplete or corrupt evidence and grants no

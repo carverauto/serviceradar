@@ -17,6 +17,8 @@
 {{- fail "nvr.recovery.existingConfigMap must name operator-owned recovery state" -}}
 {{- end -}}
 {{- include "serviceradar.validateNvrIngest" . -}}
+{{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
+{{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
 {{- $ingestEnabled := default false $ingest.enabled -}}
 {{- $ingestPort := int (default 8443 $ingest.port) -}}
@@ -196,6 +198,8 @@ spec:
               value: {{ $nvr.maxSessions | quote }}
             - name: SERVICERADAR_NVR_MAX_DURATION_MS
               value: {{ $nvr.maxDurationMs | quote }}
+            - name: SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS
+              value: {{ printf "%d" $maxBlockFragments | quote }}
             - name: SERVICERADAR_NVR_MAX_SPOOL_BYTES
               value: {{ printf "%d" (int64 $nvr.maxSpoolBytes) | quote }}
             - name: SERVICERADAR_NVR_RESERVE_BYTES

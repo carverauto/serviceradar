@@ -12,6 +12,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   distribution or NATS/JetStream. Uncertain transport or RPC outcomes after
   streaming begins are returned as `{:error, {:nvr_ingest_uncertain, details}}`
   and are never retried or failed over to another NVR replica.
+
+  `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
+  `:bounds` sets the worker's frame, byte and media-duration bounds (see
+  `ServiceRadarCoreElx.CameraRecording.NVRWorker`). The timeout must cover the
+  capture plus relay start-up and the NVR seal: a 270 s capture, the duration
+  ceiling, needs about 295,000 ms.
   """
 
   alias ServiceRadar.Actors.SystemActor

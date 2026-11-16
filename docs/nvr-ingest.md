@@ -88,6 +88,27 @@ sending media over NATS/JetStream or ERTS distribution:
    verified receipt is returned even if worker cleanup outlasts the drain
    window.
 
+A capture ends at the first of its frame, byte and media-duration bounds
+(defaults 240 frames, 8 MiB and 6 seconds; ceilings 8,100 frames, 12 MiB and
+270 seconds, about 4.5 minutes at 30 fps). The call's `timeout_ms` must cover
+the capture, relay start-up and the NVR seal: about 295,000 ms for a 270-second
+capture. The NVR side must allow the same: `nvr.maxDurationMs` defaults to
+300000 in the Helm chart for this reason.
+
+One capture is one NVR block, `block_sequence: 0`, and the worker accepts only
+a receipt naming exactly that block. The 12 MiB byte ceiling stays below the
+16 MiB block. A fragment ends at the first keyframe after two seconds, so a
+270-second capture is about 136 fragments, within the NVR's default
+`nvr.maxBlockFragments` of 150. A fragment can be shorter than two seconds by
+up to one frame interval when a keyframe falls just before the two-second mark
+and its duration crosses it; streams with frequent keyframes and gaps after them
+(dropped frames, variable frame rate) can make many such fragments. If a
+capture ever needs more fragments than the NVR's limit, the NVR rotates into a
+second block, the receipt names two blocks, and the worker reports the outcome
+as uncertain: both blocks stay sealed on the NVR, but Core records neither as a
+completed capture. Keep `nvr.maxBlockFragments` at 150 or more while Core
+captures run at the 270-second ceiling.
+
 ## Finite stream contract
 
 Send `POST /v1/recordings/ingest` with exactly one
@@ -125,7 +146,8 @@ issue leases, resolve an uncertain earlier writer or authorize takeover.
 One request admits at most 64 MiB of application body and reports at most 256
 sealed blocks. Reads have a one-second timeout. The existing configured session
 duration also bounds the entire request handler, including body reads and
-sealing; its default is 30 seconds and its ceiling is five minutes. The timer
+sealing; the service default is 30 seconds, the Helm chart sets five minutes
+(`nvr.maxDurationMs: 300000`) and the ceiling is five minutes. The timer
 survives a stalled or disconnected caller. There is no renewal or implicit retry.
 The producer waits for each frame to pass through the writer before admitting
 the next; this wait must stay outside shared live-view and control processes.

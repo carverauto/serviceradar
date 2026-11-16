@@ -1,11 +1,18 @@
 defmodule ServiceRadarNVR.Config do
   @moduledoc "Boot-time resource envelope. Storage is opened read-only on each admission."
 
+  # A block's publication intent embeds one descriptor entry (at most 232 bytes)
+  # per fragment and is capped at 64 KiB, so 256 fragments always fit. Reads use
+  # this ceiling too, so a block written under any accepted value stays readable
+  # after the setting is lowered.
+  @block_fragments_ceiling 256
+
   defstruct [
     :root,
     :storage_id,
     :max_sessions,
     :max_duration_ms,
+    :max_block_fragments,
     :health_port,
     :max_spool_bytes,
     :reserve_bytes,
@@ -19,6 +26,7 @@ defmodule ServiceRadarNVR.Config do
     with {:ok, port} <- integer(env, "SERVICERADAR_NVR_HEALTH_PORT", 8095, 65_535),
          {:ok, sessions} <- integer(env, "SERVICERADAR_NVR_MAX_SESSIONS", 1, 16),
          {:ok, duration} <- integer(env, "SERVICERADAR_NVR_MAX_DURATION_MS", 30_000, 300_000),
+         {:ok, fragments} <- integer(env, "SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS", 150, 8, @block_fragments_ceiling),
          {:ok, spool} <- integer(env, "SERVICERADAR_NVR_MAX_SPOOL_BYTES", 1_073_741_824, 1_099_511_627_776),
          {:ok, reserve} <- integer(env, "SERVICERADAR_NVR_RESERVE_BYTES", 67_108_864, 1_125_899_906_842_624),
          {:ok, root, id} <- storage(env),
@@ -31,6 +39,7 @@ defmodule ServiceRadarNVR.Config do
         storage_id: id,
         max_sessions: sessions,
         max_duration_ms: duration,
+        max_block_fragments: fragments,
         health_port: port,
         max_spool_bytes: spool,
         reserve_bytes: reserve,
@@ -44,6 +53,9 @@ defmodule ServiceRadarNVR.Config do
     end
   end
 
+  @doc "Largest accepted `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, so also the fragment bound for reading a retained block."
+  def block_fragments_ceiling, do: @block_fragments_ceiling
+
   defp auto_delivery(env, root, delivery) do
     case Map.get(env, "SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY", "false") do
       "false" -> {:ok, false}
@@ -52,9 +64,11 @@ defmodule ServiceRadarNVR.Config do
     end
   end
 
-  defp integer(env, key, default, ceiling) do
+  defp integer(env, key, default, ceiling), do: integer(env, key, default, 1, ceiling)
+
+  defp integer(env, key, default, minimum, ceiling) do
     case Integer.parse(Map.get(env, key, Integer.to_string(default))) do
-      {n, ""} when n >= 1 and n <= ceiling -> {:ok, n}
+      {n, ""} when n >= minimum and n <= ceiling -> {:ok, n}
       _ -> {:error, {:invalid_nvr_limit, key}}
     end
   end
