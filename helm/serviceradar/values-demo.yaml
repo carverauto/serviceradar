@@ -233,12 +233,16 @@ logCollector:
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
   # transport peer to the proxy pod address.
   externalService:
+    ports:
+      syslogTcp:
+        enabled: false
     enabled: true
     type: LoadBalancer
     annotations:
       metallb.universe.tf/address-pool: k3s-lan-pool
     loadBalancerIP: "192.168.6.88"
     externalTrafficPolicy: Local
+  # TCP shares the log-collector workload; replica/stream overrides below are legacy.
   tcpCollector:
     enabled: true
     replicaCount: 3

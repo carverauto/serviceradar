@@ -1,0 +1,24 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "zen_normalize",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_zen_normalize",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_test(
+    name = "zen_normalize_test",
+    crate = ":zen_normalize",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)

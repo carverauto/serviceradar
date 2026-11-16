@@ -1,0 +1,17 @@
+[package]
+name = "serviceradar-zen-normalize"
+version = "0.1.0"
+edition = "2024"
+description = "Ordered Zen rule normalization shared by ServiceRadar collectors and core"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+futures = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+zen-engine = { workspace = true }
+zen-expression = { workspace = true }

@@ -107,6 +107,39 @@ impl Config {
         }
         Some(current_value)
     }
+
+    /// Give each listener its own input settings while retaining shared output settings.
+    pub(crate) fn input_configs(&self) -> Result<Vec<Config>, Error> {
+        let mut configs = vec![self.clone()];
+        let Some(inputs) = self.lookup("inputs") else {
+            return Ok(configs);
+        };
+        let inputs = inputs.as_array().ok_or_else(|| {
+            Error::new(ErrorKind::InvalidData, "inputs must be an array of tables")
+        })?;
+        for (index, input) in inputs.iter().enumerate() {
+            let mut input = input.as_table().cloned().ok_or_else(|| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("inputs[{index}] must be a table"),
+                )
+            })?;
+            // Timestamp interpretation is one pipeline-wide policy, not a transport setting.
+            if let Some(timezone) = self.lookup("input.rfc3164_timezone") {
+                input.insert("rfc3164_timezone".into(), timezone.clone());
+            } else {
+                input.remove("rfc3164_timezone");
+            }
+            let mut config = self.clone();
+            config
+                .config
+                .as_table_mut()
+                .expect("Configuration must be a table")
+                .insert("input".into(), Value::Table(input));
+            configs.push(config);
+        }
+        Ok(configs)
+    }
 }
 
 #[cfg(test)]

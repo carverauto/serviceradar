@@ -151,8 +151,11 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   # deploy when the bundled template changes. cef_severity/syslog_severity are
   # included so the severity de-clobber + GELF-level mapping fixes flow through to
   # already-seeded instances (DB rules win over bundled priv JSON at runtime).
+  # strip_full_message is included because its earlier JDM nulled the field,
+  # which removed nothing.
   @reconcilable_seeded_rules MapSet.new([
                                {"snmp_severity", "logs.snmp"},
+                               {"strip_full_message", "logs.syslog"},
                                {"cef_severity", "logs.syslog"},
                                {"syslog_severity", "logs.syslog"}
                              ])

@@ -16,7 +16,7 @@ This change is content-only — no application code changes.
 | Edge | MTR checks, agent check types | — | **MISSING** |
 | Edge | agent-updater, release rollout | agent-release-management | accurate |
 | Ingest | log-collector (syslog+OTLP, unified) | syslog, otel | partial / stale |
-| Ingest | log-collector-tcp (TCP syslog) | — | **MISSING** |
+| Ingest | Unified log-collector (UDP/TCP syslog) | syslog.md | TCP listener and compatibility Service |
 | Ingest | trapd (SNMP traps) | snmp | partial |
 | Ingest | flow-collector (NetFlow/IPFIX/sFlow) | netflow | config keys wrong |
 | Ingest | bmp-collector / arancini (BMP) | bgp-routing | **STALE** ("not available") |

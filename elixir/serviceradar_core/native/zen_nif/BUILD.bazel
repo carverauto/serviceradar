@@ -53,5 +53,6 @@ rust_shared_library(
         cargo_only = True,
         normal = True,
     ) + [
+        "//rust/zen-normalize:zen_normalize",
     ],
 )

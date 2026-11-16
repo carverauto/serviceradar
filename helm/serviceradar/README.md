@@ -575,3 +575,34 @@ The parsed timestamp is retained as `_syslog_original_timestamp` in log
 attributes, with `_syslog_timestamp_fallback=true`. RFC5424 timestamps and
 RFC3164 timestamps within one hour are unchanged. Existing stored rows are not
 rewritten.
+
+### Unified syslog collector
+
+`logCollector` runs UDP syslog, optional TCP syslog, and OTLP in one Deployment.
+`logCollector.tcpCollector.enabled` controls the TCP listener; `listen`, `format`
+and `framing` configure its `[[inputs]]` entry in the shared Flowgger config.
+
+For a custom TCP listen port, set the same numeric port in
+`logCollector.tcpCollector.service.ports.syslog.targetPort`. Both internal
+Service names then route to that listener. Set any enabled external TCP
+Service's `targetPort` to the same port as well.
+
+Both syslog transports publish through the same output to `logs.syslog` on
+`events`. A different `tcpCollector.subject` fails rendering.
+
+Use `logCollector.replicaCount` and `logCollector.resources` for the unified
+workload. The legacy TCP-specific replica count, resources and stream replicas
+are ignored. The `serviceradar-log-collector-tcp` Service remains an alias that
+selects only pods labeled as TCP listeners, preserving the previous DNS name.
+Its separate Deployment and ConfigMap are removed. Keep existing clients on
+that alias during the image rollout; the primary Service can temporarily have
+endpoints from the previous UDP-only image.
+
+Enable the shared external Service with `logCollector.externalService.enabled`
+and choose protocols with `ports.syslog.enabled` and `ports.syslogTcp.enabled`.
+Legacy `tcpCollector.externalService.enabled` enables TCP on that shared Service
+and retains its port settings. When only the legacy external Service is enabled,
+its Service type, annotations and traffic policy are retained; when both are
+enabled, the primary external Service settings take precedence. A pinned address
+from either block is used, but conflicting addresses fail rendering. The chart
+renders one external NetworkPolicy against the unified collector pods.

@@ -6836,6 +6836,7 @@ dependencies = [
  "notify",
  "quickcheck",
  "rand 0.10.2",
+ "rcgen",
  "redis",
  "rustls",
  "rustls-pemfile",
@@ -7060,6 +7061,20 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tower",
+]
+
+[[package]]
+name = "serviceradar-zen-normalize"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "zen-engine",
+ "zen-expression",
 ]
 
 [[package]]
@@ -9433,10 +9448,8 @@ dependencies = [
 name = "zen_nif"
 version = "0.1.0"
 dependencies = [
- "futures",
  "rustler",
- "serde_json",
- "zen-engine",
+ "serviceradar-zen-normalize",
 ]
 
 [[package]]
