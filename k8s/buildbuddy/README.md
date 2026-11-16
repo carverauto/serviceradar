@@ -371,20 +371,25 @@ Pool `workflows` has members on two clusters: `buildbuddy-workflows` (and
 | cluster | release | values | pool | replicas | volumes | runs |
 |---|---|---|---|---|---|---|
 | carverauto | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/cache`: `emptyDir` (`120Gi`); `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
-| carverauto | `buildbuddy-workflows-pr` | not yet checked in (installed by hand with chart `buildbuddy-executor` 0.0.461) | `workflows-pr` | 4 (one per node, pod anti-affinity) | own `hostPath` caches | BazelCI, BazelCI Core Integration, BazelCI Web-NG DB |
+| carverauto | `buildbuddy-workflows-pr` | `values-workflows-pr.yaml` | `workflows-pr` | 4 (one per node, not on `k8s-cp3-worker3`, preferably away from RBE and StarRocks) | own `hostPath` caches | BazelCI, BazelCI Core Integration, BazelCI Web-NG DB |
 
 Each `buildbuddy-workflows-pr` executor requests 32Gi/8 CPU with limits 40Gi/12 CPU and
 `max_runner_count: 1`, and otherwise uses the same oci, DNS, private-IP and Bazel-cache setup
-as `workflows`, with its own `hostPath` caches. Its values file belongs in this directory,
-with the API key redacted.
+as `workflows`, with its own `hostPath` caches. `values-workflows-pr.yaml` holds its values
+without the API key, and explains its placement rules: a workflow runner runs outside the
+executor pod's cgroup, so pod requests do not reflect the CPU a Core Integration run uses, and
+the scheduler cannot keep these executors off busy nodes on its own. Upgrade it the same way
+as the LargeIngestionGate release below, with `buildbuddy-workflows-pr` and
+`-f k8s/buildbuddy/values-workflows-pr.yaml`. Any change to its placement rolls all four
+executors; each drains its running task first.
 
 Why a pool of its own: LargeIngestionGate (each staging push plus nightly, ~16 runs/day) and
 BazelCI (PRs, ~49 runs/day, ~22 min) shared pool `workflows` and kept evicting each other's
 warm runner, so ~45% of runs started cold (cold `bazel build //...` up to 36 min against 1-5
 min warm; one PR run hit BuildBuddy's 1h remote-run cap). `buildbuddy.yaml` sends
 LargeIngestionGate to `pool: "workflows-lig"` and the three pull-request BazelCI actions to
-`pool: "workflows-pr"` (Helm release `buildbuddy-workflows-pr`, whose values are not in this
-directory); every other action stays on `workflows`. Deploy
+`pool: "workflows-pr"` (Helm release `buildbuddy-workflows-pr`, `values-workflows-pr.yaml`);
+every other action stays on `workflows`. Deploy
 the executor BEFORE merging a pool change, or the next staging push fails with
 `no registered executors in pool "workflows-lig"`.
 
