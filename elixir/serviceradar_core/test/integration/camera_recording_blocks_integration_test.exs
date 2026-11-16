@@ -1,12 +1,16 @@
 defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.LocalPublicationIntents
+  alias ServiceRadar.Camera.LocalStorageBinding
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -583,6 +587,469 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, persisted} = Ash.get(RecordingBlock, lease.id, ctx.opts)
     assert persisted.archive_binding_id == winner.archive_binding_id
     assert persisted.descriptor_sha256 == lease.descriptor_sha256
+  end
+
+  test "freeze_and_catalog seals and catalogs in one transaction, retries idempotently, refuses conflicts and missing Core authority, and quarantines unattributable blocks",
+       ctx do
+    descriptor = Fixtures.recording_descriptor(ctx.block)
+    received_at = ~U[2026-11-16 14:00:00.123456Z]
+
+    catalog_attrs = %{
+      first_unit_pts: 90_000,
+      first_unit_received_at: received_at,
+      run_id: "run-synth-01",
+      anchor_id: "anchor-synth-01",
+      reanchored: true,
+      contiguous_with_previous: false
+    }
+
+    # Received basis rejects non-nil uncertainty (uncertainty is unmeasured NULL, never 0).
+    assert {:error, :invalid_catalog_attributes} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               descriptor,
+               Map.put(catalog_attrs, :time_uncertainty_us, 0),
+               ctx.opts
+             )
+
+    assert {:ok, %RecordingCatalogEntry{} = entry} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               descriptor,
+               catalog_attrs,
+               ctx.opts
+             )
+
+    assert {:ok, sealed_block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert sealed_block.state == :sealed
+    assert entry.recording_block_id == sealed_block.id
+    assert entry.camera_source_id == ctx.source.id
+    assert entry.stream_profile_id == ctx.profile.id
+    assert entry.storage_id == ctx.block.storage_id
+    assert entry.block_key == ctx.block.block_key
+    assert entry.clock_epoch == "invented-clock"
+    assert entry.run_id == "run-synth-01"
+    assert entry.anchor_id == "anchor-synth-01"
+    assert entry.reanchored == true
+    assert entry.time_basis == :received
+    assert is_nil(entry.time_uncertainty_us)
+    assert entry.timeline_start_us == DateTime.to_unix(received_at, :microsecond)
+    assert entry.timeline_end_us == entry.timeline_start_us + 1_000_000
+    assert entry.media_start_ns == 0
+    assert entry.media_end_ns == 1_000_000_000
+    assert entry.fragment_count == 1
+    assert entry.media_bytes == 3
+    assert entry.descriptor_sha256 == sealed_block.descriptor_sha256
+    assert entry.local_state == :present
+    assert entry.archive_state == :not_required
+    assert RecordingCatalogEntry.playable?(entry) == true
+
+    # Exact retry (including second-precision DateTime) returns existing entry idempotently.
+    assert {:ok, retry} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               descriptor,
+               catalog_attrs,
+               ctx.opts
+             )
+
+    assert retry.id == entry.id
+    assert retry.inserted_at == entry.inserted_at
+
+    # Conflicting descriptor or conflicting catalog attributes are refused without altering state.
+    assert {:error, :recording_descriptor_conflict} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               put_in(descriptor["media"]["sha256"], digest("tampered")),
+               catalog_attrs,
+               ctx.opts
+             )
+
+    assert {:error, :recording_descriptor_conflict} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               descriptor,
+               Map.put(catalog_attrs, :reanchored, false),
+               ctx.opts
+             )
+
+    # Reserve a second block, release the recorder claim, and prove missing Core authority
+    # cannot freeze or catalog it.
+    assert {:ok, unfrozen} =
+             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    assert {:error, :recorder_claim_lost} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               unfrozen,
+               Fixtures.recording_descriptor(unfrozen),
+               catalog_attrs,
+               ctx.opts
+             )
+
+    assert {:ok, replacement} =
+             RecorderOwnership.acquire(
+               ctx.owner,
+               Ecto.UUID.generate(),
+               ctx.relay.media_ingest_id,
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+
+    assert {:error, :recording_block_mismatch} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               replacement,
+               unfrozen,
+               Fixtures.recording_descriptor(unfrozen),
+               catalog_attrs,
+               ctx.opts
+             )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.camera_recording_catalog WHERE block_key = $1",
+               [unfrozen.block_key]
+             )
+
+    # A block on disk with no Core authority cannot be inserted as local_state = 'present',
+    # and can only be cataloged as a never-frozen quarantined entry (never playable).
+    unattributed_storage = Ecto.UUID.generate()
+    unattributed_key = digest("unattributed-on-disk-block")
+
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{constraint: "camera_recording_catalog_sealed_or_quarantined"}
+            }} =
+             Repo.query(
+               """
+               INSERT INTO platform.camera_recording_catalog (
+                 id, storage_id, block_key, local_state, local_state_at,
+                 archive_state, archive_state_at, archive_attempts,
+                 reanchored, contiguous_with_previous, inserted_at, updated_at
+               ) VALUES (
+                 $1, $2, $3, 'present', now(),
+                 'not_required', now(), 0,
+                 false, false, now(), now()
+               )
+               """,
+               [
+                 Ecto.UUID.dump!(Ecto.UUID.generate()),
+                 Ecto.UUID.dump!(unattributed_storage),
+                 unattributed_key
+               ]
+             )
+
+    q_receipt = %{
+      "partition_path" => ".quarantine/#{unattributed_key}",
+      "placed_at_ms" => 1_763_200_500_000,
+      "files" => [%{"name" => "media.m4s", "length" => 4096, "sha256" => digest("q-media")}]
+    }
+
+    assert {:ok, quarantined} =
+             RecordingCatalogEntry.register_quarantined(
+               %{
+                 storage_id: unattributed_storage,
+                 block_key: unattributed_key,
+                 quarantine_reason: :unattributable,
+                 quarantine_receipt: q_receipt,
+                 quarantined_bytes: 4096
+               },
+               ctx.opts
+             )
+
+    q_id_bin = Ecto.UUID.dump!(quarantined.id)
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.camera_recording_catalog WHERE id = $1", [q_id_bin])
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_recording_catalog WHERE id = $1",
+                 [q_id_bin]
+               )
+    end)
+
+    assert quarantined.local_state == :quarantined
+    assert is_nil(quarantined.recording_block_id)
+    assert quarantined.quarantine_reason == :unattributable
+    assert quarantined.quarantined_bytes == 4096
+    assert RecordingCatalogEntry.playable?(quarantined) == false
+
+    # Identical quarantined retry returns retained row; conflicting reason is refused.
+    assert {:ok, q_retry} =
+             RecordingCatalogEntry.register_quarantined(
+               %{
+                 storage_id: unattributed_storage,
+                 block_key: unattributed_key,
+                 quarantine_reason: :unattributable,
+                 quarantine_receipt: q_receipt,
+                 quarantined_bytes: 4096
+               },
+               ctx.opts
+             )
+
+    assert q_retry.id == quarantined.id
+
+    assert {:error, _} =
+             RecordingCatalogEntry.register_quarantined(
+               %{
+                 storage_id: unattributed_storage,
+                 block_key: unattributed_key,
+                 quarantine_reason: :unrecoverable_journal,
+                 quarantine_receipt: q_receipt,
+                 quarantined_bytes: 4096
+               },
+               ctx.opts
+             )
+
+    # Helper for_blocks/2 authorizes settings.recording.view and devices.cameras.recordings.view.
+    assert {:error, %Ash.Error.Forbidden{}} =
+             RecordingCatalogEntry.for_blocks([sealed_block],
+               actor: %{id: "no-perm", role: :viewer, permissions: MapSet.new()}
+             )
+
+    for perm <- ["settings.recording.view", "devices.cameras.recordings.view"] do
+      permitted = %{id: "u-#{perm}", role: :viewer, permissions: MapSet.new([perm])}
+
+      assert {:ok, by_pair} =
+               RecordingCatalogEntry.for_blocks([sealed_block, unfrozen], actor: permitted)
+
+      assert Map.keys(by_pair) == [{to_string(sealed_block.storage_id), sealed_block.block_key}]
+      assert by_pair[{to_string(sealed_block.storage_id), sealed_block.block_key}].id == entry.id
+    end
+  end
+
+  test "acquire_upload refuses NVR LocalStorageBinding blocks, terminal-state trigger refuses revival, and RecordingGap enforces single end_us close",
+       ctx do
+    # 1. B.4: Register an NVR LocalStorageBinding and prove acquire_upload refuses blocks on it.
+    nvr_storage_id = Ecto.UUID.generate()
+
+    provisioner =
+      :nvr_guard_provisioner
+      |> SystemActor.system()
+      |> Map.merge(%{nvr_storage_purpose: :provision, nvr_storage_id: nvr_storage_id})
+
+    {:ok, local_binding} =
+      LocalStorageBinding.register(
+        %{
+          "schema_version" => 1,
+          "storage_id" => nvr_storage_id,
+          "generation" => 1,
+          "provider_resource_ref" => "invented-nvr-volume-guard",
+          "profile_sha256" => String.duplicate("a", 64)
+        },
+        actor: provisioner
+      )
+
+    lb_id_bin = Ecto.UUID.dump!(local_binding.id)
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.camera_local_storage_bindings WHERE id = $1", [lb_id_bin])
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_local_storage_bindings WHERE id = $1",
+                 [lb_id_bin]
+               )
+    end)
+
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    assert {:ok, nvr_claim} =
+             RecorderOwnership.acquire(
+               ctx.owner,
+               Ecto.UUID.generate(),
+               ctx.relay.media_ingest_id,
+               nvr_storage_id,
+               30_000,
+               ctx.opts
+             )
+
+    assert {:ok, nvr_block} =
+             RecorderOwnership.reserve_block(ctx.owner, nvr_claim, @clock, ctx.opts)
+
+    # Even when frozen with plain freeze/5 (before cataloging), LocalStorageBinding blocks are refused.
+    nvr_descriptor = Fixtures.recording_descriptor(nvr_block)
+
+    assert {:ok, frozen_nvr} =
+             RecordingBlocks.freeze(ctx.owner, nvr_claim, nvr_block, nvr_descriptor, ctx.opts)
+
+    assert {:error, :nvr_local_storage_block} =
+             RecordingBlocks.acquire_upload(frozen_nvr.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    # Catalog the block via freeze_and_catalog/6 on the already-frozen NVR block.
+    received_at = ~U[2026-11-16 14:10:00.000000Z]
+
+    assert {:ok, catalog_entry} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               nvr_claim,
+               nvr_block,
+               nvr_descriptor,
+               %{first_unit_pts: 0, first_unit_received_at: received_at},
+               ctx.opts
+             )
+
+    assert {:error, :nvr_local_storage_block} =
+             RecordingBlocks.acquire_upload(frozen_nvr.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    # 2. B.1 / C6: PostgreSQL BEFORE UPDATE trigger refuses revival out of reclaimed and deleted.
+    now = DateTime.utc_now()
+
+    assert {:ok, reclaimed} =
+             catalog_entry
+             |> Ash.Changeset.for_update(:transition_local_state, %{
+               local_state: :reclaimed,
+               local_state_at: now
+             })
+             |> Ash.update(ctx.opts)
+
+    assert reclaimed.local_state == :reclaimed
+
+    # Ash update out of reclaimed is refused by trigger.
+    assert {:error, _} =
+             reclaimed
+             |> Ash.Changeset.for_update(:transition_local_state, %{
+               local_state: :present,
+               local_state_at: DateTime.shift(now, second: 1)
+             })
+             |> Ash.update(ctx.opts)
+
+    # Raw SQL update out of reclaimed is refused by trigger with camera_recording_catalog_local_state_terminal.
+    entry_id_bin = Ecto.UUID.dump!(reclaimed.id)
+
+    for target_state <- ["present", "missing", "reclaiming", "quarantined"] do
+      assert {:error,
+              %Postgrex.Error{
+                postgres: %{constraint: "camera_recording_catalog_local_state_terminal"}
+              }} =
+               Repo.query(
+                 "UPDATE platform.camera_recording_catalog SET local_state = $1 WHERE id = $2",
+                 [target_state, entry_id_bin]
+               )
+    end
+
+    # Transitioning archive_state to deleted while local_state stays reclaimed IS allowed.
+    assert {:ok, both_terminal} =
+             reclaimed
+             |> Ash.Changeset.for_update(:transition_archive_state, %{
+               archive_state: :deleted,
+               archive_state_at: DateTime.shift(now, second: 2),
+               archive_deleted_reason: :object_capacity
+             })
+             |> Ash.update(ctx.opts)
+
+    assert both_terminal.local_state == :reclaimed
+    assert both_terminal.archive_state == :deleted
+    assert both_terminal.archive_deleted_reason == :object_capacity
+
+    # Ash and raw SQL updates out of deleted are refused by the terminal-state trigger.
+    assert {:error, _} =
+             both_terminal
+             |> Ash.Changeset.for_update(:transition_archive_state, %{
+               archive_state: :verified,
+               archive_state_at: DateTime.shift(now, second: 3),
+               archive_deleted_reason: nil
+             })
+             |> Ash.update(ctx.opts)
+
+    for target_archive <- ["pending", "verified", "deleting", "missing", "not_required"] do
+      assert {:error,
+              %Postgrex.Error{
+                postgres: %{constraint: "camera_recording_catalog_archive_state_terminal"}
+              }} =
+               Repo.query(
+                 "UPDATE platform.camera_recording_catalog SET archive_state = $1, archive_deleted_reason = NULL WHERE id = $2",
+                 [target_archive, entry_id_bin]
+               )
+    end
+
+    # Idempotent freeze_and_catalog retry on a terminal entry returns it without reviving either copy!
+    assert {:ok, terminal_retry} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               nvr_claim,
+               nvr_block,
+               nvr_descriptor,
+               %{first_unit_pts: 0, first_unit_received_at: received_at},
+               ctx.opts
+             )
+
+    assert terminal_retry.id == both_terminal.id
+    assert terminal_retry.local_state == :reclaimed
+    assert terminal_retry.archive_state == :deleted
+
+    # 3. B.2: RecordingGap append-only create + single close of end_us >= start_us, no destroy.
+    gap_actions =
+      RecordingGap
+      |> Ash.Resource.Info.actions()
+      |> Enum.map(& &1.type)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert gap_actions == [:create, :read, :update]
+
+    start_us = 1_763_300_000_000_000
+
+    assert {:ok, open_gap} =
+             RecordingGap.record(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 storage_id: nvr_storage_id,
+                 run_id: "run-gap-01",
+                 clock_epoch: "invented-clock",
+                 start_us: start_us,
+                 time_basis: :received,
+                 reason: :nvr_refused,
+                 detail_class: "nvr_inventory_limit"
+               },
+               ctx.opts
+             )
+
+    assert is_nil(open_gap.end_us)
+
+    # Closing with end_us < start_us is refused.
+    assert {:error, _} = RecordingGap.close(open_gap, start_us - 1, ctx.opts)
+
+    # Mutating an immutable field on an open gap via SQL is refused by trigger.
+    gap_id_bin = Ecto.UUID.dump!(open_gap.id)
+
+    assert {:error,
+            %Postgrex.Error{postgres: %{constraint: "camera_recording_gaps_immutable_fields"}}} =
+             Repo.query(
+               "UPDATE platform.camera_recording_gaps SET end_us = $1, reason = 'block_absent' WHERE id = $2",
+               [start_us + 5_000_000, gap_id_bin]
+             )
+
+    # Closing end_us once succeeds.
+    assert {:ok, closed_gap} = RecordingGap.close(open_gap, start_us + 5_000_000, ctx.opts)
+    assert closed_gap.end_us == start_us + 5_000_000
+
+    # Re-closing via Ash or raw SQL is refused.
+    assert {:error, _} = RecordingGap.close(closed_gap, start_us + 9_000_000, ctx.opts)
+
+    assert {:error,
+            %Postgrex.Error{postgres: %{constraint: "camera_recording_gaps_already_closed"}}} =
+             Repo.query(
+               "UPDATE platform.camera_recording_gaps SET end_us = $1 WHERE id = $2",
+               [start_us + 9_000_000, gap_id_bin]
+             )
   end
 
   defp close_recovery_during_query(ctx, query?, work) do

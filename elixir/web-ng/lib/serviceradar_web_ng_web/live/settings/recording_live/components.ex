@@ -1024,9 +1024,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           <div>
             <h2 class="text-base font-semibold text-sr-ink">Per-Camera Block Locations</h2>
             <p class="mt-1 text-xs text-sr-muted">
-              Core <code class="font-mono">open_local</code> rows represent Core block reservations,
-              not local NVR seal state. When the owning NVR member lookup is unavailable or
-              unreachable, local copy state is shown as <strong>unknown</strong> (never absent).
+              Sealed blocks registered in <code class="font-mono">RecordingCatalogEntry</code>
+              show
+              their cataloged copy states (local copies labelled <strong>provisional</strong>
+              until
+              local-copy registration exists) and explicit <code class="font-mono">received</code>
+              timeline basis with unmeasured uncertainty. Uncataloged
+              <code class="font-mono">open_local</code>
+              rows represent Core block reservations, with local copy state shown as
+              <strong>unknown</strong>
+              when NVR lookup is unavailable.
             </p>
           </div>
         </div>
@@ -1056,7 +1063,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 <th class="py-2 pr-3 font-medium">Storage ID</th>
                 <th class="py-2 pr-3 font-medium">Core Record</th>
                 <th class="py-2 pr-3 font-medium">Local Copy (NVR)</th>
-                <th class="py-2 pr-3 font-medium">Archive Copy (Core Receipt)</th>
+                <th class="py-2 pr-3 font-medium">Archive Copy (Catalog &amp; Receipt)</th>
+                <th class="py-2 pr-3 font-medium">Timeline Window (Time Basis)</th>
                 <th class="py-2 font-medium">Reserved At</th>
               </tr>
             </thead>
@@ -1069,25 +1077,103 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 <td class="py-2.5 pr-3 font-mono text-sr-ink">{row.block_key}</td>
                 <td class="py-2.5 pr-3 font-mono text-[11px] text-sr-muted">{row.storage_id}</td>
                 <td class="py-2.5 pr-3">
-                  <.ui_badge size="xs" variant="ghost">{row.core_state_label}</.ui_badge>
+                  <.ui_badge size="xs" variant={Map.get(row, :core_state_variant, "ghost")}>
+                    {row.core_state_label}
+                  </.ui_badge>
                 </td>
                 <td class="py-2.5 pr-3">
-                  <.ui_badge size="xs" variant="warning">{row.local_copy_label}</.ui_badge>
+                  <div class="space-y-1">
+                    <.ui_badge size="xs" variant={Map.get(row, :local_copy_variant, "warning")}>
+                      {row.local_copy_label}
+                    </.ui_badge>
+                    <div
+                      :if={Map.get(row, :local_copy_note)}
+                      class="text-[11px] text-sr-muted"
+                    >
+                      {Map.get(row, :local_copy_note)}
+                    </div>
+                    <div
+                      :if={Map.get(row, :media_bytes)}
+                      class="font-mono text-[11px] text-sr-muted"
+                    >
+                      {format_bytes(Map.get(row, :media_bytes))}<span :if={
+                        Map.get(row, :fragment_count)
+                      }> · {Map.get(row, :fragment_count)} fragments</span>
+                    </div>
+                  </div>
                 </td>
                 <td class="py-2.5 pr-3">
                   <div class="space-y-1">
                     <.ui_badge
                       size="xs"
-                      variant={if(row.receipt, do: "success", else: "ghost")}
+                      variant={
+                        Map.get(
+                          row,
+                          :archive_copy_variant,
+                          if(row.receipt, do: "success", else: "ghost")
+                        )
+                      }
                     >
                       {row.archive_copy_label}
                     </.ui_badge>
+                    <div
+                      :if={Map.get(row, :archive_copy_note)}
+                      class="text-[11px] text-sr-muted"
+                    >
+                      {Map.get(row, :archive_copy_note)}
+                    </div>
                     <div :if={row.receipt} class="text-[11px] text-sr-muted space-y-0.5">
                       <div :for={obj <- row.receipt_objects} class="font-mono">
                         {format_receipt_object(obj)}
                       </div>
                     </div>
                   </div>
+                </td>
+                <td class="py-2.5 pr-3">
+                  <%= cond do %>
+                    <% Map.get(row, :time_basis_label) && Map.get(row, :timeline_start_at) -> %>
+                      <div class="space-y-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <.ui_badge size="xs" variant="outline">
+                            {Map.get(row, :time_basis_label)}
+                          </.ui_badge>
+                          <.ui_badge
+                            :if={Map.get(row, :reanchored?)}
+                            size="xs"
+                            variant="warning"
+                          >
+                            time re-anchored
+                          </.ui_badge>
+                        </div>
+                        <div class="text-[11px] text-sr-ink">
+                          <.user_time
+                            id={"block-timeline-start-#{row.id}"}
+                            value={Map.get(row, :timeline_start_at)}
+                            timezone={@timezone}
+                            style={:compact}
+                          />
+                          <span :if={Map.get(row, :timeline_end_at)}>
+                            –
+                            <.user_time
+                              id={"block-timeline-end-#{row.id}"}
+                              value={Map.get(row, :timeline_end_at)}
+                              timezone={@timezone}
+                              style={:compact}
+                            />
+                          </span>
+                        </div>
+                        <div
+                          :if={Map.get(row, :time_uncertainty_label)}
+                          class="text-[11px] text-sr-muted"
+                        >
+                          {Map.get(row, :time_uncertainty_label)}
+                        </div>
+                      </div>
+                    <% Map.get(row, :cataloged?) -> %>
+                      <span class="text-[11px] text-sr-muted">Not playable (quarantined)</span>
+                    <% true -> %>
+                      <span class="text-[11px] text-sr-muted">Not cataloged</span>
+                  <% end %>
                 </td>
                 <td class="py-2.5 text-sr-muted">
                   <.user_time
@@ -1185,6 +1271,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         projection={@projection}
         retention_form={@retention_form}
         settings_struct={@settings_struct}
+        timezone={@timezone}
       />
 
       <form
@@ -1312,8 +1399,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :projection, :map, required: true
   attr :retention_form, :map, required: true
   attr :settings_struct, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   defp retention_usage_and_projection_card(assigns) do
+    archive = Map.get(assigns.usage_summary, :archive, %{})
+    local_blocks = Map.get(assigns.usage_summary, :local_blocks, %{})
+
+    assigns =
+      assigns
+      |> assign(:active_bucket, Map.get(archive, :active_bucket))
+      |> assign(:same_bucket_count, Map.get(archive, :same_bucket_binding_count, 0))
+      |> assign(:in_flight_bytes, Map.get(archive, :uploads_in_flight_bytes, 0))
+      |> assign(:in_flight_count, Map.get(archive, :uploads_in_flight_count, 0))
+      |> assign(:other_used_bytes, Map.get(archive, :other_buckets_used_bytes, 0))
+      |> assign(:other_buckets_count, Map.get(archive, :other_buckets_count, 0))
+      |> assign(:other_buckets, Map.get(archive, :other_buckets, []))
+      |> assign(:cataloged_block_count, Map.get(local_blocks, :cataloged_block_count, 0))
+      |> assign(:kind_b_bytes, Map.get(local_blocks, :kind_b_local_only_bytes, 0))
+      |> assign(:after_archive_bytes, Map.get(local_blocks, :local_only_after_archive_bytes, 0))
+      |> assign(
+        :oldest_after_archive_at,
+        Map.get(local_blocks, :oldest_local_only_after_archive_at)
+      )
+
     ~H"""
     <section
       id="retention-usage-and-calculator-card"
@@ -1325,8 +1433,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
             CNPG Usage &amp; Calculated Retention Summary
           </h2>
           <p class="mt-1 text-xs text-sr-muted">
-            Computed from verified <code class="font-mono">NVRArchiveReceipt</code> object lengths,
-            Core <code class="font-mono">RecordingBlock</code> reservations, and your current draft
+            Computed from <code class="font-mono">RecordingCatalogEntry</code>
+            copy states, verified <code class="font-mono">NVRArchiveReceipt</code>
+            object lengths across all retained
+            bindings sharing the active <code class="font-mono">&#123;endpoint, bucket&#125;</code>,
+            Core <code class="font-mono">RecordingBlock</code>
+            reservations, and your current draft
             inputs below (updates live before saving).
           </p>
         </div>
@@ -1347,6 +1459,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           <div class="text-[11px] text-sr-muted">
             {@usage_summary.archive.archived_block_count} blocks ({@usage_summary.archive.archived_object_count} objects)
           </div>
+          <div :if={@in_flight_count > 0} class="text-[11px] text-sr-muted">
+            +{format_bytes(@in_flight_bytes)} in flight ({@in_flight_count} uploads)
+          </div>
+          <div
+            :if={@active_bucket != nil}
+            id="retention-same-bucket-scope"
+            class="text-[11px] text-sr-muted"
+          >
+            <%= if @same_bucket_count > 1 do %>
+              Counts all <strong class="text-sr-ink">{@same_bucket_count} retained bindings</strong>
+              on <span class="font-mono text-sr-ink">{@active_bucket.endpoint}</span>
+              / <span class="font-mono text-sr-ink">{@active_bucket.bucket}</span>
+              (any prefix)
+            <% else %>
+              Active bucket <span class="font-mono">{@active_bucket.endpoint}</span>
+              / <span class="font-mono">{@active_bucket.bucket}</span>
+              (all retained bindings on same bucket)
+            <% end %>
+          </div>
         </div>
 
         <div
@@ -1366,9 +1497,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           id="retention-metric-reserved-blocks"
           class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3 space-y-1"
         >
-          <div class="text-xs text-sr-muted">Core reserved blocks</div>
+          <div class="text-xs text-sr-muted">Core reserved &amp; cataloged blocks</div>
           <div class="text-sm font-semibold font-mono text-sr-ink">
             {@usage_summary.local_blocks.total_reserved_blocks} blocks
+            <span :if={@cataloged_block_count > 0} class="text-xs font-normal text-sr-muted">
+              ({@cataloged_block_count} cataloged)
+            </span>
           </div>
           <div class="text-[11px] text-sr-muted">
             15m: {@usage_summary.local_blocks.trailing_15m_blocks} · 6h: {@usage_summary.local_blocks.trailing_6h_blocks}
@@ -1384,8 +1518,41 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
             Held: {format_bytes(@projection.object_projection.non_reapable_bytes)}
           </div>
           <div class="text-[11px] text-sr-muted">
-            Local-only footage: 0 B (catalog pending)
+            Local-only footage: <span class="font-mono">{format_bytes(@kind_b_bytes)}</span>
           </div>
+          <div
+            :if={@after_archive_bytes > 0}
+            id="retention-single-copy-local-tail"
+            class="text-[11px] text-sr-muted"
+          >
+            Local only after archive:
+            <span class="font-mono">{format_bytes(@after_archive_bytes)}</span>
+            <span :if={@oldest_after_archive_at}>
+              (from
+              <.user_time
+                id="retention-oldest-local-only-after-archive"
+                value={@oldest_after_archive_at}
+                timezone={@timezone}
+                style={:compact}
+              />)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div
+        :if={@other_used_bytes > 0}
+        id="retention-other-buckets-info"
+        class="flex items-start gap-2 rounded-lg border border-sr-line bg-sr-subtle/40 px-3.5 py-2.5 text-xs text-sr-ink"
+      >
+        <.icon name="hero-information-circle" class="mt-0.5 size-4 shrink-0 text-sr-muted" />
+        <div>
+          <strong>Other retained buckets (excluded from active budget):</strong>
+          <span class="font-mono">{format_bytes(@other_used_bytes)}</span>
+          retained across {max(@other_buckets_count, length(@other_buckets))} other bucket(s){format_other_buckets_suffix(
+            @other_buckets
+          )}. Active archive usage and capacity reaping count only retained bindings sharing the
+          active <code class="font-mono">&#123;endpoint, bucket&#125;</code>.
         </div>
       </div>
 
@@ -2427,6 +2594,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   defp format_rate_basis(:measured), do: "measured (CNPG)"
   defp format_rate_basis(:estimated), do: "estimated (what-if)"
   defp format_rate_basis(_), do: "no 24h history"
+
+  defp format_other_buckets_suffix(buckets) when is_list(buckets) and buckets != [] do
+    listed =
+      Enum.map_join(buckets, ", ", fn b ->
+        endpoint = Map.get(b, :endpoint, "unknown")
+        bucket = Map.get(b, :bucket, "unknown")
+        used = format_bytes(Map.get(b, :used_bytes, 0))
+        "#{endpoint} / #{bucket} (#{used})"
+      end)
+
+    " (#{listed})"
+  end
+
+  defp format_other_buckets_suffix(_), do: ""
 
   defp format_eviction_consequence_preview(form, saved, projection) do
     local_range = "#{form["local_low_water_percent"]}%..#{form["local_high_water_percent"]}%"

@@ -10,8 +10,10 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Camera.ArchiveDestinations
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Credentials.CredentialSecretBuilder
@@ -695,6 +697,148 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert summary.object_retention_enforced? == true
     assert summary.shorter_archive_than_local? == true
     assert summary.object_projection.object_budget_mode == :limited
+    assert summary.archive.same_bucket_binding_count == 1
+    assert summary.archive.other_buckets_used_bytes == 0
+
+    # C3a + B.3: Register a second binding on the SAME {endpoint, bucket} (new prefix) and a
+    # third binding on a DIFFERENT bucket, activate the second same-bucket binding, and verify:
+    # 1. freeze_and_catalog/6 assigns archive_state = :pending with active_archive_binding_id
+    #    for local_and_archive policies, and :not_required for local_only policies (PD8);
+    # 2. usage_summary/1 sums retained + in-flight bytes across BOTH same-bucket bindings and
+    #    reports the different bucket separately in other_buckets / other_buckets_used_bytes.
+    {:ok, same_bucket_v2} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "#{slug}-v2",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "example-archive",
+          namespace: "recordings/v2"
+        },
+        actor: admin
+      )
+
+    {:ok, other_bucket_binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "#{slug}-other",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "example-other-bucket",
+          namespace: "recordings/v1"
+        },
+        actor: admin
+      )
+
+    other_bkey =
+      :sha256
+      |> :crypto.hash("ret-other-bucket-#{slug}")
+      |> Base.encode16(case: :lower)
+
+    other_receipt_bytes =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => @storage_id_primary,
+        "block_key" => other_bkey,
+        "destination_sha256" => other_bucket_binding.destination_sha256,
+        "verified_at_ms" => now_ms - 600_000,
+        "objects" => [
+          %{
+            "name" => "media.m4s",
+            "key" => "recordings/v1/#{@storage_id_primary}/#{other_bkey}/media.m4s",
+            "length" => 3_145_728,
+            "sha256" => String.duplicate("c", 64),
+            "etag" => "\"etag-other-1\""
+          }
+        ]
+      })
+
+    assert {:ok, _} =
+             NVRArchiveReceipt.record(other_bucket_binding.id, other_receipt_bytes, actor: system)
+
+    assert {:ok, _} =
+             RecordingArchiveSettings.save_settings(
+               %{active_archive_binding_id: same_bucket_v2.id, archive_enabled: true},
+               actor: admin
+             )
+
+    gate_dir =
+      Path.join(System.tmp_dir!(), "nvr-ret-cat-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(gate_dir)
+    on_exit(fn -> File.rm_rf!(gate_dir) end)
+    _recovery = Fixtures.recording_recovery_gate(gate_dir)
+
+    live_ctx = Fixtures.context()
+    {:ok, live_relay} = Fixtures.open(live_ctx)
+    {:ok, live_relay} = Fixtures.activate(live_ctx, live_relay)
+    live_owner = Fixtures.owner(live_ctx)
+
+    clock = %{
+      "clock_epoch" => "invented-ret-clock",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    {:ok, live_claim} =
+      RecorderOwnership.acquire(
+        live_owner,
+        Ecto.UUID.generate(),
+        live_relay.media_ingest_id,
+        @storage_id_primary,
+        30_000,
+        live_ctx.opts
+      )
+
+    {:ok, b_archived} =
+      RecorderOwnership.reserve_block(live_owner, live_claim, clock, live_ctx.opts)
+
+    {:ok, b_local_only} =
+      RecorderOwnership.reserve_block(live_owner, live_claim, clock, live_ctx.opts)
+
+    t_recv = DateTime.shift(DateTime.utc_now(), minute: -2)
+
+    assert {:ok, %RecordingCatalogEntry{} = cat_pending} =
+             RecordingBlocks.freeze_and_catalog(
+               live_owner,
+               live_claim,
+               b_archived,
+               Fixtures.recording_descriptor(b_archived),
+               %{first_unit_pts: 0, first_unit_received_at: t_recv},
+               live_ctx.opts
+             )
+
+    assert cat_pending.archive_state == :pending
+    assert cat_pending.archive_binding_id == same_bucket_v2.id
+
+    assert {:ok, %RecordingCatalogEntry{} = cat_local_only} =
+             RecordingBlocks.freeze_and_catalog(
+               live_owner,
+               live_claim,
+               b_local_only,
+               Fixtures.recording_descriptor(b_local_only),
+               %{
+                 first_unit_pts: 90_000,
+                 first_unit_received_at: DateTime.shift(t_recv, second: 1),
+                 policy_storage: :local_only
+               },
+               live_ctx.opts
+             )
+
+    assert cat_local_only.archive_state == :not_required
+    assert is_nil(cat_local_only.archive_binding_id)
+
+    assert {:ok, multi_summary} = RetentionCalculator.usage_summary(actor: recording_only)
+    assert multi_summary.archive.same_bucket_binding_count == 2
+    assert multi_summary.archive.uploads_in_flight_bytes == 3
+    # Old generation same-bucket receipts (7,864,320) + new generation pending upload (3)
+    assert multi_summary.archive.archive_used_bytes == 7_864_323
+    assert multi_summary.archive.other_buckets_count == 1
+    assert multi_summary.archive.other_buckets_used_bytes == 3_145_728
+
+    assert [%{bucket: "example-other-bucket", used_bytes: 3_145_728}] =
+             multi_summary.archive.other_buckets
 
     # Clearing local_only_full_policy clears confirmation actor and timestamp cleanly.
     assert {:ok, cleared} =

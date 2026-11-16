@@ -13,9 +13,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Camera.ArchiveDestinations
   alias ServiceRadar.Camera.IngestOwner
+  alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
@@ -24,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Repo
+  alias ServiceRadarRecordingMetadata.Descriptor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.CameraRecordingSettings
@@ -265,6 +269,388 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert persisted.object_capacity_policy == :reap_oldest
     assert persisted.object_capacity_policy_confirmed_by_id == to_string(user.id)
     assert %DateTime{} = persisted.object_capacity_policy_confirmed_at
+  end
+
+  test "freeze_and_catalog surfaces real catalog copy states and received time basis on ?tab=cameras and multi-generation same-bucket vs other-bucket usage on ?tab=retention",
+       %{conn: conn, actor: actor} do
+    opts = [actor: actor]
+    writer_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Writer")
+    retention_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Retention")
+    slug_same_1 = "same-v1-#{System.unique_integer([:positive])}"
+    slug_same_2 = "same-v2-#{System.unique_integer([:positive])}"
+    slug_other = "other-bkt-#{System.unique_integer([:positive])}"
+
+    {:ok, binding_gen1} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: slug_same_1,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-shared-archive",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    {:ok, binding_gen2} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: slug_same_2,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-shared-archive",
+          namespace: "recordings/v2"
+        },
+        opts
+      )
+
+    {:ok, binding_other} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: slug_other,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-other-archive",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    # Activate binding_gen1 first so block_verified is registered under binding_gen1
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          active_archive_binding_id: binding_gen1.id,
+          archive_enabled: true,
+          writer_credential_secret_id: writer_secret.id,
+          retention_credential_secret_id: retention_secret.id
+        },
+        opts
+      )
+
+    live_ctx = setup_live_recorder_fence(actor)
+
+    block_verified = reserve_fenced_block(live_ctx, 0, opts)
+    block_pending = reserve_fenced_block(live_ctx, 1, opts)
+    block_uncataloged = reserve_fenced_block(live_ctx, 2, opts)
+    block_other_bucket = reserve_fenced_block(live_ctx, 3, opts)
+
+    descriptor_verified = build_synthetic_descriptor(block_verified, 33_554_432)
+
+    {:ok, entry_verified} =
+      RecordingBlocks.freeze_and_catalog(
+        live_ctx.owner,
+        live_ctx.claim,
+        block_verified,
+        descriptor_verified,
+        %{
+          first_unit_pts: 0,
+          first_unit_received_at: ~U[2026-11-16 11:50:00.000000Z],
+          reanchored: false
+        },
+        opts
+      )
+
+    assert entry_verified.archive_state == :pending
+    assert entry_verified.archive_binding_id == binding_gen1.id
+    assert entry_verified.local_state == :present
+    assert entry_verified.time_basis == :received
+    assert is_nil(entry_verified.time_uncertainty_us)
+
+    receipt_verified =
+      record_synthetic_receipt(
+        binding_gen1,
+        block_verified,
+        33_554_432,
+        "synth-stageb-ver-01",
+        actor
+      )
+
+    now = DateTime.utc_now()
+
+    {:ok, _entry_verified} =
+      entry_verified
+      |> Ash.Changeset.for_update(
+        :transition_archive_state,
+        %{
+          archive_state: :verified,
+          archive_state_at: now,
+          nvr_archive_receipt_id: receipt_verified.id,
+          archived_at: now
+        },
+        opts
+      )
+      |> Ash.update(opts)
+
+    # Rotate active binding to binding_gen2 on the SAME {endpoint, bucket} with a different prefix
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          active_archive_binding_id: binding_gen2.id,
+          archive_enabled: true
+        },
+        opts
+      )
+
+    descriptor_pending = build_synthetic_descriptor(block_pending, 16_777_216)
+
+    {:ok, entry_pending} =
+      RecordingBlocks.freeze_and_catalog(
+        live_ctx.owner,
+        live_ctx.claim,
+        block_pending,
+        descriptor_pending,
+        %{
+          first_unit_pts: 90_000,
+          first_unit_received_at: ~U[2026-11-16 12:00:00.000000Z],
+          reanchored: true
+        },
+        opts
+      )
+
+    assert entry_pending.archive_state == :pending
+    assert entry_pending.archive_binding_id == binding_gen2.id
+    assert entry_pending.reanchored == true
+
+    # Also record a retained receipt on a DIFFERENT bucket (excluded from active budget)
+    _receipt_other =
+      record_synthetic_receipt(
+        binding_other,
+        block_other_bucket,
+        67_108_864,
+        "synth-other-bkt-ver-01",
+        actor
+      )
+
+    # 1. Verify ?tab=cameras renders cataloged states + received time basis alongside uncataloged open_local
+    {:ok, cam_view, _cam_html} = live(conn, ~p"/settings/recording?tab=cameras")
+
+    cam_html =
+      cam_view
+      |> element("#recording-camera-picker-form")
+      |> render_change(%{"camera_source_id" => live_ctx.source.id})
+
+    assert has_element?(cam_view, "#block-timeline-start-#{block_verified.id}")
+    assert has_element?(cam_view, "#block-timeline-start-#{block_pending.id}")
+    refute has_element?(cam_view, "#block-timeline-start-#{block_uncataloged.id}")
+
+    assert cam_html =~ "Cataloged · Sealed"
+    assert cam_html =~ "present (provisional)"
+    assert cam_html =~ "verified"
+    assert cam_html =~ "version synth-stageb-ver-01"
+    assert cam_html =~ "pending"
+    assert cam_html =~ "received"
+    assert cam_html =~ "time re-anchored"
+    assert cam_html =~ "Uncertainty: unmeasured"
+    assert cam_html =~ "Core reservation"
+    assert cam_html =~ "Unknown (NVR lookup unavailable)"
+    assert cam_html =~ "Not cataloged"
+    refute String.downcase(cam_html) =~ "capture time"
+    refute String.downcase(cam_html) =~ "absent"
+
+    # 2. Verify ?tab=retention aggregates gen1 (32 MiB) + gen2 (16 MiB) = 48 MiB on same bucket
+    #    and reports binding_other (64 MiB) separately as a non-blocking info line
+    {:ok, ret_view, ret_html} = live(conn, ~p"/settings/recording?tab=retention")
+
+    assert has_element?(ret_view, "#retention-same-bucket-scope")
+    assert has_element?(ret_view, "#retention-other-buckets-info")
+    assert ret_html =~ "48 MiB"
+    assert ret_html =~ "+16 MiB in flight (1 uploads)"
+    assert ret_html =~ "Counts all"
+    assert ret_html =~ "2 retained bindings"
+    assert ret_html =~ "synthetic-shared-archive"
+    assert ret_html =~ "64 MiB"
+    assert ret_html =~ "synthetic-other-archive"
+    assert ret_html =~ "excluded from active budget"
+  end
+
+  defp setup_live_recorder_fence(actor) do
+    opts = [actor: actor]
+    key = Ecto.UUID.generate()
+
+    {:ok, source} =
+      Source.create_source(
+        %{
+          device_uid: "sr:synthetic-stageb-cam-#{key}",
+          vendor: "synthetic",
+          vendor_camera_id: key,
+          display_name: "Synthetic Stage B Camera #{System.unique_integer([:positive])}",
+          assigned_agent_id: "agent-example",
+          assigned_gateway_id: "gateway-example"
+        },
+        opts
+      )
+
+    {:ok, profile} =
+      StreamProfile.create_profile(
+        %{
+          camera_source_id: source.id,
+          profile_name: "main-stageb",
+          codec_hint: "h264",
+          relay_eligible: true
+        },
+        opts
+      )
+
+    {:ok, session} =
+      RelaySessionManager.request_open(source.id, profile.id,
+        actor: actor,
+        control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
+        dispatch_open: fn _agent, _payload, open_opts, _requester ->
+          {:ok, open_opts[:command_id]}
+        end
+      )
+
+    assignment =
+      Map.take(session, [:agent_id, :gateway_id, :camera_source_id, :stream_profile_id])
+
+    {:ok, session} =
+      RelaySessionLifecycle.activate_session(
+        session.id,
+        "synthetic-stageb-ingest-#{key}",
+        assignment,
+        opts
+      )
+
+    {:ok, owner} = IngestOwnership.for_relay(session.id, opts)
+    claim_token = Ecto.UUID.generate()
+    {:ok, consumer} = IngestOwnership.acquire_consumer(owner, :recorder, claim_token, 60_000, opts)
+
+    initial_claim =
+      RecorderClaim
+      |> Ash.Changeset.for_create(:initialize, %{ingest_owner_id: owner.id}, opts)
+      |> Ash.create!(opts)
+
+    claim =
+      initial_claim
+      |> Ash.Changeset.for_update(
+        :transition,
+        %{
+          claim_token: claim_token,
+          ingest_epoch: owner.epoch,
+          recorder_epoch: 1,
+          next_block_sequence: 4,
+          relay_session_id: owner.relay_session_id,
+          media_ingest_id: session.media_ingest_id,
+          storage_id: @storage_id,
+          consumer_id: consumer.id,
+          lease_expires_at: consumer.expires_at,
+          state: :active
+        },
+        opts
+      )
+      |> Ash.update!(opts)
+
+    %{source: source, profile: profile, session: session, owner: owner, claim: claim}
+  end
+
+  defp reserve_fenced_block(live_ctx, sequence, opts) do
+    clock = %{
+      "clock_epoch" => "synth-stageb-epoch-1",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    attrs = %{
+      camera_source_id: live_ctx.owner.camera_source_id,
+      stream_profile_id: live_ctx.owner.stream_profile_id,
+      ingest_owner_id: live_ctx.owner.id,
+      ingest_epoch: live_ctx.owner.epoch,
+      recorder_claim_id: live_ctx.claim.id,
+      recorder_epoch: live_ctx.claim.recorder_epoch,
+      block_sequence: sequence,
+      relay_session_id: live_ctx.claim.relay_session_id,
+      media_ingest_id: live_ctx.claim.media_ingest_id,
+      storage_id: live_ctx.claim.storage_id,
+      clock: clock
+    }
+
+    identity = RecordingBlock.identity(attrs)
+
+    RecordingBlock
+    |> Ash.Changeset.for_create(
+      :reserve,
+      Map.put(attrs, :block_key, Descriptor.block_key(identity)),
+      opts
+    )
+    |> Ash.create!(opts)
+  end
+
+  defp build_synthetic_descriptor(block, media_bytes) do
+    half = div(media_bytes, 2)
+
+    %{
+      "version" => 1,
+      "identity" => RecordingBlock.identity(block),
+      "format" => %{"codec" => "avc1.42001e", "timescale" => 90_000},
+      "init" => %{
+        "length" => 512,
+        "sha256" => Base.encode16(:crypto.hash(:sha256, "synth-init-#{block.id}"), case: :lower)
+      },
+      "media" => %{
+        "length" => media_bytes,
+        "sha256" => Base.encode16(:crypto.hash(:sha256, "synth-media-#{block.id}"), case: :lower)
+      },
+      "fragments" => [
+        %{
+          "sequence" => 0,
+          "offset" => 0,
+          "length" => half,
+          "start_ns" => 0,
+          "duration_ns" => 2_000_000_000,
+          "sha256" => Base.encode16(:crypto.hash(:sha256, "synth-frag0-#{block.id}"), case: :lower),
+          "tail_duration_source" => nil,
+          "motion" => "unknown"
+        },
+        %{
+          "sequence" => 1,
+          "offset" => half,
+          "length" => media_bytes - half,
+          "start_ns" => 2_000_000_000,
+          "duration_ns" => 2_000_000_000,
+          "sha256" => Base.encode16(:crypto.hash(:sha256, "synth-frag1-#{block.id}"), case: :lower),
+          "tail_duration_source" => "previous_sample",
+          "motion" => "unknown"
+        }
+      ]
+    }
+  end
+
+  defp record_synthetic_receipt(binding, block, length_bytes, version_id, actor) do
+    object_sha =
+      Base.encode16(:crypto.hash(:sha256, "synth-obj-#{block.block_key}-#{version_id}"),
+        case: :lower
+      )
+
+    receipt_bytes =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => @storage_id,
+        "block_key" => block.block_key,
+        "destination_sha256" => binding.destination_sha256,
+        "verified_at_ms" => DateTime.to_unix(DateTime.utc_now(), :millisecond),
+        "objects" => [
+          %{
+            "name" => "media.m4s",
+            "key" => "#{binding.namespace}/#{@storage_id}/#{block.block_key}/media.m4s",
+            "length" => length_bytes,
+            "sha256" => object_sha,
+            "etag" => "\"etag-#{version_id}\"",
+            "version_id" => version_id
+          }
+        ]
+      })
+
+    {:ok, receipt} =
+      NVRArchiveReceipt.record(
+        binding.id,
+        receipt_bytes,
+        %{recording_block_id: block.id},
+        actor: actor
+      )
+
+    receipt
   end
 
   defp seed_recent_blocks_and_receipts(actor, binding) do

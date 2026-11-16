@@ -1,0 +1,303 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"gen_random_uuid()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "camera_source_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "stream_profile_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "policy_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "storage_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "run_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "clock_epoch",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "start_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "end_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_gap_ns",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"received\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "time_basis",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "time_uncertainty_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "detail_class",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "end_us"
+      ],
+      "base_filter": null,
+      "check": "(end_us IS NULL OR end_us >= start_us) AND\n(media_gap_ns IS NULL OR media_gap_ns >= 0) AND\ntime_basis IN ('received', 'camera_reported') AND\n(time_basis <> 'received' OR time_uncertainty_us IS NULL) AND\n(time_uncertainty_us IS NULL OR time_uncertainty_us >= 0) AND\nreason IN ('handover_overflow', 'keyframe_wait', 'source_unavailable', 'epoch_change', 'nvr_refused', 'block_absent', 'run_stopped', 'incomplete_tail', 'quarantined', 'archive_capacity_exhausted') AND\n(detail_class IS NULL OR (octet_length(detail_class) BETWEEN 1 AND 64 AND detail_class ~ '^[a-z0-9_:-]+$'))\n",
+      "name": "camera_recording_gaps_interval_valid"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "camera_source_id",
+        "stream_profile_id",
+        "start_us"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "stream_profile_id"
+        },
+        {
+          "type": "atom",
+          "value": "start_us"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_gaps_timeline_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "camera_source_id",
+        "start_us"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "start_us"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_gaps_open_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "end_us IS NULL"
+    }
+  ],
+  "custom_statements": [
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP FUNCTION IF EXISTS platform.camera_recording_gaps_enforce_append_only();\n",
+      "global?": false,
+      "name": "enforce_gap_append_only_close_fn",
+      "up": "CREATE OR REPLACE FUNCTION platform.camera_recording_gaps_enforce_append_only()\nRETURNS trigger\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  IF OLD.end_us IS NOT NULL THEN\n    RAISE EXCEPTION 'camera_recording_gaps row is already closed and cannot be updated'\n      USING ERRCODE = 'check_violation',\n            CONSTRAINT = 'camera_recording_gaps_already_closed';\n  END IF;\n\n  IF NEW.end_us IS NULL OR\n     NEW.camera_source_id IS DISTINCT FROM OLD.camera_source_id OR\n     NEW.stream_profile_id IS DISTINCT FROM OLD.stream_profile_id OR\n     NEW.policy_id IS DISTINCT FROM OLD.policy_id OR\n     NEW.storage_id IS DISTINCT FROM OLD.storage_id OR\n     NEW.run_id IS DISTINCT FROM OLD.run_id OR\n     NEW.clock_epoch IS DISTINCT FROM OLD.clock_epoch OR\n     NEW.start_us IS DISTINCT FROM OLD.start_us OR\n     NEW.media_gap_ns IS DISTINCT FROM OLD.media_gap_ns OR\n     NEW.time_basis IS DISTINCT FROM OLD.time_basis OR\n     NEW.time_uncertainty_us IS DISTINCT FROM OLD.time_uncertainty_us OR\n     NEW.reason IS DISTINCT FROM OLD.reason OR\n     NEW.detail_class IS DISTINCT FROM OLD.detail_class OR\n     NEW.inserted_at IS DISTINCT FROM OLD.inserted_at THEN\n    RAISE EXCEPTION 'camera_recording_gaps allows only closing end_us from NULL'\n      USING ERRCODE = 'check_violation',\n            CONSTRAINT = 'camera_recording_gaps_immutable_fields';\n  END IF;\n\n  RETURN NEW;\nEND;\n$$;\n"
+    },
+    {
+      "after_tables": [
+        "camera_recording_gaps"
+      ],
+      "code?": false,
+      "down": "DROP TRIGGER IF EXISTS trg_camera_recording_gaps_enforce_append_only\nON platform.camera_recording_gaps;\n",
+      "global?": false,
+      "name": "enforce_gap_append_only_close_trg",
+      "up": "CREATE TRIGGER trg_camera_recording_gaps_enforce_append_only\nBEFORE UPDATE ON platform.camera_recording_gaps\nFOR EACH ROW\nEXECUTE FUNCTION platform.camera_recording_gaps_enforce_append_only();\n"
+    }
+  ],
+  "has_create_action": true,
+  "hash": "35AFEDCB9B763DF82F6D44F051CA0CBB853FD083C1ACE53567E86DA30F44D897",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_recording_gaps",
+  "temporal": null
+}
