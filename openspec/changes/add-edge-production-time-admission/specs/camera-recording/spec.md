@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Sealed media always has an automatic drainer
-Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block reaches a terminal disposition: with an archive destination configured, a verified archive receipt or a verified quarantine-destination archive receipt; in local-only mode (no archive destination configured), a verified local-retention publication or, for a block whose seal cannot be verified, a placement in a quarantine partition or flag of the qualified durable local archive with its central index receipt persisted.
+Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block reaches a terminal disposition: with an archive destination configured, a verified archive receipt or a verified quarantine-destination archive receipt; in local-only mode only (no archive destination configured), a verified local-retention publication with its central index receipt persisted or, for a block whose seal cannot be verified, a placement in a quarantine partition or flag of the qualified durable local archive with its central index receipt persisted.
 
 A manual command SHALL NOT be the only drain path. A dispatch whose outcome is
 unknown SHALL be reconciled automatically through idempotent read-back
@@ -13,7 +13,8 @@ recovered by the recorder's own startup reconciliation. Leftover upload scratch
 from a crash SHALL be reconciled by the service that owns it, and SHALL NOT halt
 other uploads. With an archive destination configured, only a verified archive
 receipt or a verified quarantine-destination archive receipt SHALL end the
-drainer for a block, a local publication SHALL NOT stop it, and sealed media
+drainer for a block, a local publication or a local-archive quarantine
+placement SHALL NOT stop it, and sealed media
 SHALL NOT be deleted before one of those receipts. In local-only mode a
 verified local-retention publication means the block is published into the
 qualified durable local archive and its central index receipt is persisted;
@@ -40,8 +41,8 @@ retention-policy deletion: it is never auto-deleted.
 #### Scenario: A local-only recorder finishes on a verified local publication
 - **GIVEN** an NVR in local-only mode with no archive destination configured
 - **WHEN** a sealed block is published into the qualified durable local archive and its central index receipt is persisted
-- **THEN** the drainer SHALL stop for that block
-- **AND** the block SHALL be deleted only as the retention and hold policy allows, never before that publication
+- **THEN** the drainer SHALL stop for that block, because no archive destination is configured
+- **AND** the block SHALL be deleted only as the retention and hold policy allows, never before that publication and its persisted central index receipt
 
 #### Scenario: An unknown upload outcome is reconciled
 - **GIVEN** a dispatch whose upload request ended without a known outcome

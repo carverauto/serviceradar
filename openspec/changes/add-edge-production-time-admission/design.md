@@ -496,7 +496,8 @@ undelivered entry.
   compromise-class reason, is never published for playback (approved by the
   owner). The drainer's terminal depends on the mode. With an archive
   destination configured, only a verified archive receipt or a verified
-  quarantine-destination receipt ends it, never a local publication; a bad
+  quarantine-destination receipt ends it, never a local publication or a
+  local-archive quarantine placement; a bad
   seal goes to the quarantine destination, and its verified receipt permits
   local deletion. In local-only mode (no archive destination configured),
   publishing the block into the qualified durable local archive with its
@@ -595,11 +596,12 @@ An old agent never asks for late grants and its lane opens carry no
   `produced_at` at or after it plus the clock tolerance, and reason
   `ledger_pruned`.
 - A verified quarantine-destination archive receipt is a terminal disposition
-  for a sealed media block.
+  for a sealed media block when an archive destination is configured.
 - The media seal-quarantine rule is approved. In local-only mode, publication
   into the qualified durable local archive with its central index receipt is
   terminal, and a bad seal's placement in a quarantine partition or flag of
   that archive is terminal once its central index receipt is persisted; it is
   never indexed for playback and never auto-deleted. With an archive
   destination configured, only a verified archive or quarantine-destination
-  receipt ends the drainer.
+  receipt ends the drainer; a local publication or local-archive quarantine
+  placement never does.

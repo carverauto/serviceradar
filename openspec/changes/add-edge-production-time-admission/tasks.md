@@ -206,10 +206,11 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       sealed blocks by the generation they were sealed under, and quarantine a
       seal with no history. With an archive destination configured, a
       verified quarantine-destination archive receipt is terminal: it ends the
-      drainer for that block and permits local deletion. In local-only mode
-      the bad seal goes to a quarantine partition or flag of the qualified
-      durable local archive with its central index receipt persisted, which
-      is terminal; it is retained, counted and reported, never indexed for
+      drainer for that block and permits local deletion, and no local-archive
+      placement ends it. In local-only mode only, the bad seal goes to a
+      quarantine partition or flag of the qualified durable local archive,
+      and that placement is terminal, and permits removing the spool copy,
+      only once its central index receipt is persisted; it is retained, counted and reported, never indexed for
       playback and excluded from retention-policy deletion. No new store.
 - [ ] 4.4 Add start-up reconciliation of unsealed and interrupted blocks, and
       owner reconciliation of leftover upload scratch.
