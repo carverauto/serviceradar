@@ -799,36 +799,47 @@ defmodule ServiceRadar.EventWriter.Producer do
         Map.put(entry, :error_logged?, true)
 
       true ->
-        Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
-          consumer: name,
-          attempt: entry.attempt,
-          retry_in_ms: delay,
-          reason: inspect(reason)
-        )
-
+        log_bind_still_failing(name, entry.attempt, delay, reason)
         entry
     end
   end
 
+  defp log_bind_still_failing(name, attempt, delay, reason) do
+    Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
+      consumer: name,
+      attempt: attempt,
+      retry_in_ms: delay,
+      reason: inspect(reason)
+    )
+  end
+
   # A transient NATS condition (`ConsumerSetup.transient_reason?/1`) is a warning until the
-  # stream's failed attempts outlast its bound; past it, it is an error and is reported.
+  # stream's failed attempts outlast its bound. The attempt that crosses it is an error and is
+  # reported; later attempts, including those after a reconnect, are warnings again.
   defp log_transient_bind_failure(config, stream, reason, attempt) do
     reason = unwrap_stream_reason(reason)
 
-    if ConsumerSetup.transient_within_bound?(attempt) do
-      {diagnostic, metadata} = ConsumerSetup.describe_failure(config, stream, reason)
+    cond do
+      ConsumerSetup.transient_within_bound?(attempt) ->
+        {diagnostic, metadata} = ConsumerSetup.describe_failure(config, stream, reason)
 
-      Logger.warning(
-        "EventWriter could not bind durable consumer while NATS restarts or moves a leader; " <>
-          "retrying " <> diagnostic,
-        [{:attempt, attempt} | metadata]
-      )
+        Logger.warning(
+          "EventWriter could not bind durable consumer while NATS restarts or moves a leader; " <>
+            "retrying " <> diagnostic,
+          [{:attempt, attempt} | metadata]
+        )
 
-      :warning
-    else
-      ConsumerSetup.report_transient_bound_exceeded(Map.fetch!(stream, :name), attempt, reason)
-      log_consumer_setup_failure(:required, config, stream, reason)
-      :error
+        :warning
+
+      ConsumerSetup.transient_bound_crossed?(attempt) ->
+        ConsumerSetup.report_transient_bound_exceeded(Map.fetch!(stream, :name), attempt, reason)
+        log_consumer_setup_failure(:required, config, stream, reason)
+        :error
+
+      true ->
+        name = Map.fetch!(stream, :name)
+        log_bind_still_failing(name, attempt, ConsumerSetup.retry_delay(attempt), reason)
+        :warning
     end
   end
 

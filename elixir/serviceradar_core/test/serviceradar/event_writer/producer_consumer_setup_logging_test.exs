@@ -517,8 +517,21 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert log =~ ~s(EventWriter could not bind durable consumer name="MTR_RESULTS")
       assert_received {:transient_bound_exceeded, "MTR_RESULTS", 9}
 
-      {_state, log} = retry.(state)
+      {state, log} = retry.(state)
       refute log =~ "[error]"
+
+      {state, log} =
+        with_log(fn ->
+          Producer.track_failed_streams(
+            %{state | failed_streams: %{}},
+            [{Map.fetch!(state.failed_streams, "MTR_RESULTS").stream, {"MTR_RESULTS", offline}}]
+          )
+        end)
+
+      assert %{"MTR_RESULTS" => %{attempt: 11}} = state.failed_streams
+      assert log =~ "still failing"
+      refute log =~ "[error]"
+      refute_received {:transient_bound_exceeded, _, _}
     end
 
     test "ignores a retry scheduled for an earlier connection", %{config: config, mtr: mtr} do

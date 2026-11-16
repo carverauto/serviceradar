@@ -122,12 +122,21 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
 
   @doc """
   Whether failed attempt `attempt` of a transient reason (`transient_reason?/1`) is still within
-  the bound in which it is logged as a warning. Past it, the failure is logged as an error and
-  reported (`report_transient_bound_exceeded/3`).
+  the bound in which it is logged as a warning. The first attempt past it is logged as an error
+  and reported (`transient_bound_crossed?/1`, `report_transient_bound_exceeded/3`).
   """
   @spec transient_within_bound?(pos_integer()) :: boolean()
   def transient_within_bound?(attempt) when is_integer(attempt),
     do: attempt <= @transient_attempt_bound
+
+  @doc """
+  Whether failed attempt `attempt` of a transient reason is the first one past its bound, the one
+  that is logged as an error and reported. Later attempts are warnings again, so a failure that
+  outlasts its bound escalates once even across reconnects.
+  """
+  @spec transient_bound_crossed?(pos_integer()) :: boolean()
+  def transient_bound_crossed?(attempt) when is_integer(attempt),
+    do: attempt == @transient_attempt_bound + 1
 
   @doc """
   Emits `[:serviceradar, :event_writer, :consumer_setup, :transient_bound_exceeded]` for a stream

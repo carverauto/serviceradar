@@ -326,8 +326,14 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
     assert log =~ ~s(Failed to initialize EventWriter durable consumer name="MTR_RESULTS")
     assert_received {:transient_bound_exceeded, "MTR_RESULTS", 9}
 
-    {_state, log} = retry.(state)
+    {state, log} = retry.(state)
     refute log =~ "[error]"
+
+    {state, log} = with_log(fn -> ConsumerReconciler.ensure_all(%{state | failed: %{}}) end)
+    assert %{"MTR_RESULTS" => %{attempt: 11}} = state.failed
+    assert log =~ "still failing"
+    refute log =~ "[error]"
+    refute_received {:transient_bound_exceeded, _, _}
   end
 
   test "the failed stream is retried alone and the retired durables go once all are up",

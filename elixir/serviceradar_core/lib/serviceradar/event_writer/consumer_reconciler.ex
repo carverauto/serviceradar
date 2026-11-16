@@ -522,18 +522,12 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   end
 
   # A failure is logged as an error once: on its first attempt, unless it is a transient NATS
-  # condition (`ConsumerSetup.transient_reason?/1`), which is a warning until it outlasts its
-  # bound or turns into a failure that is not transient. Every other retry that still fails is
+  # condition (`ConsumerSetup.transient_reason?/1`), which is an error only on the attempt that
+  # crosses its bound or once it turns into a failure that is not transient. Every other retry that still fails is
   # a warning.
   defp log_retry_failure(config, %{stream: stream, attempt: attempt} = entry, reason) do
     if Map.get(entry, :error_logged?, true) do
-      Logger.warning("EventWriter durable setup still failing; retrying this stream only",
-        consumer: stream.name,
-        attempt: attempt,
-        retry_in_ms: ConsumerSetup.retry_delay(attempt),
-        reason: inspect(reason)
-      )
-
+      log_still_failing(stream, attempt, reason)
       entry
     else
       %{entry | error_logged?: log_failure(config, stream, reason, attempt) == :error}
@@ -616,6 +610,10 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
         :warning
 
+      transient? and not ConsumerSetup.transient_bound_crossed?(attempt) ->
+        log_still_failing(stream, attempt, reason)
+        :warning
+
       true ->
         if transient?,
           do: ConsumerSetup.report_transient_bound_exceeded(stream.name, attempt, reason)
@@ -623,6 +621,15 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
         Logger.error("Failed to initialize EventWriter durable consumer " <> diagnostic, metadata)
         :error
     end
+  end
+
+  defp log_still_failing(stream, attempt, reason) do
+    Logger.warning("EventWriter durable setup still failing; retrying this stream only",
+      consumer: stream.name,
+      attempt: attempt,
+      retry_in_ms: ConsumerSetup.retry_delay(attempt),
+      reason: inspect(reason)
+    )
   end
 
   defp schedule_retry(conn, name, attempt) do
