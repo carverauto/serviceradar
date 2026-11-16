@@ -394,6 +394,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       data: body,
       metadata: %{
         subject: original_subject,
+        broker_subject: subject,
         reply_to: reply_to,
         headers: headers,
         jetstream_ack: jetstream_ack,
