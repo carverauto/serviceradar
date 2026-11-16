@@ -118,7 +118,7 @@ func (ca *testCA) issue(t *testing.T, serial int64, cn string, usages []x509.Ext
 func freeAddr(t *testing.T) string {
 	t.Helper()
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := lis.Addr().String()
 	require.NoError(t, lis.Close())
