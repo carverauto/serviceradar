@@ -44,8 +44,10 @@ format.
   agent now deletes that storage when it proves no record is left, and
   logs `Retired drained legacy edge storage`. Storage that may still
   hold records is no longer kept and flagged: its records are handed
-  off to late-admission storage and the flat spool is then retired; see
-  the next note (#6652, #6692).
+  off to late-admission storage and the flat spool is then retired.
+  Entries no known layout accounts for stay retained and are still
+  reported as `unsupported_legacy_storage`; see the next note (#6652,
+  #6692).
 - **Agents hand undelivered legacy spool records to late-admission
   storage (phase 1).** On start, an agent drains the committed tail of a
   pre-lane flat spool, in order, into a local late generation under
@@ -402,6 +404,9 @@ format.
   (#6593).
 - Standalone coordinator lock connections no longer inherit Repo pool
   options (#6597).
+- Logs ingested as OTLP protobuf now fill the observed timestamp, trace
+  flags, event name, source IP and scope attributes, matching logs
+  ingested as JSON (#6699).
 - Sweep lease issuance evidence is committed set-based, with a fixed
   number of statements per chunk of up to 512 entries, so a slow
   database no longer times out the whole lease push (#6679, #6689).
