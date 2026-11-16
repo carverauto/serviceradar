@@ -13,8 +13,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   streaming begins are returned as `{:error, {:nvr_ingest_uncertain, details}}`
   and are never retried or failed over to another NVR replica; the recorder
   fence stays until its lease lapses. A lost or unreadable NVR answer is
-  uncertain, as is a non-200 answer after the end marker. An NVR that refuses the unfinished stream (400, 401, 422 or 503
-  before the end marker) has sealed nothing it had open, so that capture returns
+  uncertain, as is a non-200 answer after the end marker. An NVR that refuses
+  the unfinished stream (400, 401, 422 or 503 before the end marker) has sealed
+  nothing it had open, so that capture returns
   `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the worker's
   correlation fields, after the worker has released the recorder claim. Like any
   other failure, it closes the relay when this call opened it.
