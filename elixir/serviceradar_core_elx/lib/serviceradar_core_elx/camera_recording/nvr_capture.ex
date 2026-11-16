@@ -17,8 +17,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   the unfinished stream (400, 401, 422 or 503 before the end marker) has sealed
   nothing it had open, so that capture returns
   `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the worker's
-  correlation fields, after the worker has released the recorder claim. Like any
-  other failure, it closes the relay when this call opened it.
+  correlation fields, after the worker has released the recorder claim. A
+  capture Core itself stops before the worker hands its sender `:eof`, such as
+  on a unit with a backwards timestamp, cannot have sent the end marker either,
+  so it returns `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` the
+  same way; a Core abort after `:eof`, a capture timeout and caller loss stay
+  uncertain. Like any other failure, a refused or aborted capture closes the
+  relay when this call opened it.
 
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
   `:bounds` sets the worker's frame, byte and media-duration bounds (see
@@ -135,8 +140,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     end
   end
 
-  # A definite failure, including an NVR refusal, closes a relay this call
-  # opened. An uncertain capture leaves it with its recorder fence.
+  # A definite failure, including an NVR refusal or a Core abort before the end
+  # marker, closes a relay this call opened. An uncertain capture leaves it with
+  # its recorder fence.
   defp close_on_failure({:ok, _receipt} = ok, _relay_id, _origin, _actor), do: ok
   defp close_on_failure({:error, {:nvr_ingest_uncertain, _}} = uncertain, _relay_id, _origin, _actor), do: uncertain
 
