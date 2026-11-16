@@ -90,6 +90,20 @@ class DatasvcRbacRolesTest(unittest.TestCase):
                 matching = [rule for rule in roles if rule["identity"] == identity]
                 self.assertEqual(matching, [{"identity": identity, "role": "writer"}])
 
+    def test_log_collector_reads_only_rule_bundles(self):
+        # The collector's only datasvc use is fetching its Zen rule bundles.
+        roles = render_datasvc_config()["rbac"]["roles"]
+        collector = [
+            rule for rule in roles
+            if rule["identity"] == f"CN=serviceradar-log-collector{SUBJECT_SUFFIX}"
+            or rule["identity"].endswith("/sa/serviceradar-log-collector")
+        ]
+        self.assertEqual(len(collector), 2, collector)
+        for rule in collector:
+            with self.subTest(identity=rule["identity"]):
+                self.assertEqual(rule["role"], "reader")
+                self.assertEqual(rule.get("key_prefixes"), ["zen/rulesets/"])
+
 
 if __name__ == "__main__":
     unittest.main()
