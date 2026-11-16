@@ -660,9 +660,12 @@ instead of waiting for `candidate_health_timeout`. An agent that advertises
 `addon.systemd.updater.unavailable` is marked incompatible
 (`agent_updater_outdated`) for systemd add-ons. The privileged updater is
 installed by the agent's OS package, and agent self-update does not replace it,
-so the fix is to upgrade the agent package on that host. Systemd add-ons also
-require agent 1.2.47 or newer: an agent reporting an older version, or no
-version, is marked incompatible (`unsupported_agent_version`), is not sent the
+so the fix is to upgrade the agent package on that host. An agent that
+advertises neither `addon.systemd.updater` nor
+`addon.systemd.updater.unavailable` is too old to report its updater and is
+marked incompatible (`agent_updater_unreported`) for systemd add-ons until the
+agent is upgraded. Systemd add-ons also require agent 1.2.47 or newer: an agent
+reporting an older version, or no version, is marked incompatible (`unsupported_agent_version`), is not sent the
 package, and the fleet view shows "Agent upgrade required".
 
 A rollout checks compatibility again each time it is about to start targets:
@@ -674,6 +677,15 @@ not pause the rollout or count against the candidate. If no agent is left that
 can run the candidate and none ran it, the rollout ends `canceled` with
 `no_eligible_targets`; a tracking source starts it again once an agent becomes
 eligible, for example after its package is upgraded.
+
+A paused rollout of a tracking source is also judged again on every reconcile.
+A rolled-back target whose agent now reports itself incompatible, or whose
+recorded error is the host updater lacking a flag the install needs, is
+excluded with its compatibility reason (`agent_updater_outdated` for the
+updater failure) and keeps its error. Once every rolled-back target is excluded
+and no target is still rolling back, the rollout resumes, and ends `canceled`
+with `no_eligible_targets` when no agent is left to run the candidate. A target
+rolled back because the candidate itself failed keeps the rollout paused.
 
 A paused profile rollout whose canary failed rotates past it automatically: the
 failed agent is excluded and stays on its previous version, and the rollout

@@ -36,6 +36,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # guess below.
   @native_addon_host_capability "addon.native.host"
   @native_addon_host_unavailable_capability "addon.native.host.unavailable"
+  @systemd_addon_updater_capability "addon.systemd.updater"
   @systemd_addon_updater_unavailable_capability "addon.systemd.updater.unavailable"
 
   # First agent release carrying the privileged systemd add-on install boundary
@@ -201,6 +202,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
       not agent_supports_systemd_addon_package?(package.supervision, value(agent, :version)) ->
         "unsupported_agent_version"
+
+      systemd_updater_unreported?(package.supervision, agent) ->
+        "agent_updater_unreported"
 
       true ->
         nil
@@ -666,6 +670,20 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
     systemd_supervised?(supervision) and
       MapSet.member?(capabilities, @systemd_addon_updater_unavailable_capability)
+  end
+
+  @doc """
+  Whether `agent` reports neither `addon.systemd.updater` nor
+  `addon.systemd.updater.unavailable`, so a systemd-supervised add-on cannot be
+  installed on it: the agent is too old to report its updater.
+  """
+  @spec systemd_updater_unreported?(atom() | String.t() | nil, map()) :: boolean()
+  def systemd_updater_unreported?(supervision, agent) do
+    capabilities = agent_capabilities_set(agent)
+
+    systemd_supervised?(supervision) and
+      not MapSet.member?(capabilities, @systemd_addon_updater_capability) and
+      not MapSet.member?(capabilities, @systemd_addon_updater_unavailable_capability)
   end
 
   @doc """

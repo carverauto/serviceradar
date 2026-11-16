@@ -582,6 +582,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
          "systemd add-ons require agent #{required} or newer, target reports #{inspect(target_agent_version(compatibility_row))}",
          %{agent_version_required: required}}
 
+      AddonRolloutArtifact.systemd_updater_unreported?(
+        package_supervision(profile),
+        compatibility_row
+      ) ->
+        {"agent_updater_unreported",
+         "target agent does not report its add-on updater; upgrade the agent to install systemd add-ons"}
+
       true ->
         nil
     end
