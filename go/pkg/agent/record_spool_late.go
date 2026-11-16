@@ -151,24 +151,29 @@ func (l *lateStore) close() error {
 	return errors.Join(errs...)
 }
 
-// holds reports whether a lane already holds these exact bytes unresolved. It
-// keeps a crash between a late append and the source's local resolution from
-// leaving a second copy; core's event-ledger idempotency is the backstop.
-func holdsRecord(set *spool.LaneSet, key spool.LaneKey, eventID, body []byte) (bool, error) {
-	found := false
+// holdsRecord returns the receipt of an unresolved copy of these exact bytes
+// already in the lane, so a crash between a late append and the source's local
+// resolution leaves one copy and the source records that copy's generation as
+// custody. It sees only bytes still on disk: a copy a late session already
+// delivered and reclaimed is not detected locally, and a re-admitted copy is a
+// replay no-op under core's event-ledger idempotency (phase 2, which must be
+// deployed before any late session sends).
+func holdsRecord(set *spool.LaneSet, key spool.LaneKey, eventID, body []byte) (spool.Receipt, bool, error) {
 	for _, generation := range set.Generations(key) {
+		var receipt spool.Receipt
+		found := false
 		err := generation.ScanFrom(generation.Resolved(), func(rec spool.Record) bool {
 			if bytes.Equal(rec.EventID, eventID) && bytes.Equal(rec.Body, body) {
-				found = true
+				receipt, found = spool.Receipt{Generation: generation.Identity(), Sequence: rec.Sequence}, true
 				return false
 			}
 			return true
 		})
 		if err != nil || found {
-			return found, err
+			return receipt, found, err
 		}
 	}
-	return false, nil
+	return spool.Receipt{}, false, nil
 }
 
 // AdmitLate validates raw under the production-time rule and durably appends it
@@ -217,12 +222,12 @@ func (s *RecordSpool) admitLate(raw []byte, checkDuplicate bool) (LateReceipt, e
 	key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
 	identity := spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}
 	if checkDuplicate {
-		held, holdErr := holdsRecord(set, key, record.GetEventId(), raw)
+		existing, held, holdErr := holdsRecord(set, key, record.GetEventId(), raw)
 		if holdErr != nil {
 			return LateReceipt{}, holdErr
 		}
 		if held {
-			return LateReceipt{Destination: destination, Outcome: outcome}, nil
+			return LateReceipt{Destination: destination, Outcome: outcome, Receipt: existing}, nil
 		}
 	}
 	if err = set.ActivateSession(identity); err != nil {

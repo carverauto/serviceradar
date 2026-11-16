@@ -380,14 +380,24 @@ func TestLegacyHandoffAfterACrashKeepsOneCopy(t *testing.T) {
 	sp, err := openTestRecordSpool(t, root)
 	require.NoError(t, err)
 	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
-	_, err = sp.AdmitLate(raw) // the append that landed before the crash
+	landed, err := sp.AdmitLate(raw) // the append that landed before the crash
 	require.NoError(t, err)
+	require.NotEmpty(t, landed.Receipt.Generation.SpoolID)
 	require.NoError(t, sp.Close())
 
 	sp, err = openTestRecordSpool(t, root)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	// The recognized copy is the custody the flat spool records: its own
+	// generation and slot, never an empty spool id.
+	existing, err := sp.admitLate(raw, true)
+	require.NoError(t, err)
+	require.Equal(t, landed.Receipt.Generation.SpoolID, existing.Receipt.Generation.SpoolID)
+	require.Equal(t, landed.Receipt.Sequence, existing.Receipt.Sequence)
+	require.Equal(t, uint64(1), sp.LatePending())
+
 	report, err := sp.HandOffLegacy()
 	require.NoError(t, err)
 	require.Equal(t, 1, report.HandedOff)
