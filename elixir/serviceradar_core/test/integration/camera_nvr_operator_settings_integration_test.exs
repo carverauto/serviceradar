@@ -22,6 +22,8 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
+  require Ash.Query
+
   @moduletag :integration
 
   @storage_id_primary "00000000-0000-4000-8000-000000000011"
@@ -110,11 +112,16 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
       permissions: MapSet.new(["settings.recording.view", "settings.recording.manage"])
     }
 
-    # Code defaults apply before any singleton row exists.
+    # Code defaults apply before any singleton row exists (normal local-only state).
     assert {:ok, initial} = RecordingArchiveSettings.get_settings(actor: recording_only)
     assert initial.id == "deployment"
     assert initial.archive_enabled == false
     assert is_nil(initial.active_archive_binding_id)
+
+    assert {:ok, initial_overview} = RecordingArchiveSettings.get_overview(actor: recording_only)
+    assert initial_overview.storage_mode == :local_only
+    assert initial_overview.archive_ready? == false
+    assert is_nil(initial_overview.unavailable_reason)
 
     slug = "settings-#{System.unique_integer([:positive])}"
 
@@ -180,6 +187,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert toggled.archive_enabled == true
 
     assert {:ok, overview} = RecordingArchiveSettings.get_overview(actor: recording_only)
+    assert overview.storage_mode == :local_and_archive
     assert overview.archive_ready? == true
     assert overview.writer_credential.name == writer.name
     assert overview.reader_credential.name == reader.name
@@ -294,6 +302,49 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert {:ok, [retained]} = Ash.read(NVRArchiveReceipt, actor: viewer)
     assert retained.id == first.id
     assert retained.receipt_bytes == receipt_bytes
+
+    # Receipt version 2 persists per-object version_id (both string and nil) cleanly under
+    # camera_nvr_archive_receipts_bounds without stripping version_id.
+    v2_block_key = String.duplicate("f", 64)
+
+    v2_receipt_bytes =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => @storage_id_primary,
+        "block_key" => v2_block_key,
+        "destination_sha256" => binding.destination_sha256,
+        "verified_at_ms" => 1_763_200_020_000,
+        "objects" => [
+          %{
+            "name" => "init.mp4",
+            "key" => "recordings/v1/#{@storage_id_primary}/#{v2_block_key}/init.mp4",
+            "length" => 2048,
+            "sha256" => String.duplicate("3", 64),
+            "etag" => "\"etag-v2-init\"",
+            "version_id" => "synth-ver-0001"
+          },
+          %{
+            "name" => "media.m4s",
+            "key" => "recordings/v1/#{@storage_id_primary}/#{v2_block_key}/media.m4s",
+            "length" => 8192,
+            "sha256" => String.duplicate("4", 64),
+            "etag" => "\"etag-v2-media\"",
+            "version_id" => nil
+          }
+        ]
+      })
+
+    assert {:ok, v2_recorded} =
+             NVRArchiveReceipt.record(binding.id, v2_receipt_bytes, actor: system)
+
+    assert {:ok, [v2_reloaded]} =
+             NVRArchiveReceipt
+             |> Ash.Query.filter(id == ^v2_recorded.id)
+             |> Ash.read(actor: viewer)
+
+    assert [v2_init, v2_media] = v2_reloaded.objects
+    assert v2_init["version_id"] == "synth-ver-0001"
+    assert Map.fetch(v2_media, "version_id") == {:ok, nil}
 
     # Resource exposes no update or destroy actions.
     action_types =

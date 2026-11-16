@@ -173,6 +173,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
                )
 
       assert overview.persisted? == true
+      assert overview.storage_mode == :local_and_archive
 
       assert overview.writer_credential == %{
                id: @writer_id,
@@ -194,6 +195,39 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
 
       assert overview.unavailable_reason ==
                {:reader_credential_unavailable, :credential_secret_inactive}
+
+      # Default local-only state (archive_enabled: false, no binding, no secrets) is normal,
+      # reporting storage_mode: :local_only and unavailable_reason: nil.
+      assert {:ok, local_only_overview} =
+               RecordingArchiveSettings.get_overview(
+                 actor: recording_manager,
+                 loaders: %{settings_loader: fn -> {:ok, nil} end}
+               )
+
+      assert local_only_overview.persisted? == false
+      assert local_only_overview.storage_mode == :local_only
+      assert local_only_overview.archive_ready? == false
+      assert is_nil(local_only_overview.unavailable_reason)
+
+      # Enabling archive without an active destination surfaces :missing_active_destination.
+      assert {:ok, missing_dest_overview} =
+               RecordingArchiveSettings.get_overview(
+                 actor: recording_manager,
+                 loaders: %{
+                   settings_loader: fn ->
+                     {:ok,
+                      %RecordingArchiveSettings{
+                        id: "deployment",
+                        active_archive_binding_id: nil,
+                        archive_enabled: true
+                      }}
+                   end
+                 }
+               )
+
+      assert missing_dest_overview.storage_mode == :local_only
+      assert missing_dest_overview.archive_ready? == false
+      assert missing_dest_overview.unavailable_reason == :missing_active_destination
     end
 
     test "inspect_credential_secret/2 rejects wrong provider, wrong kind, deleted, or disabled external provider" do
@@ -255,10 +289,85 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
         })
 
       assert {:ok, parsed} = NVRArchiveReceipt.parse_receipt_bytes(receipt_bytes)
+      assert parsed.version == 1
       assert parsed.storage_id == @storage_id
       assert parsed.block_key == @block_key
       assert length(parsed.objects) == 2
+      refute Map.has_key?(hd(parsed.objects), "version_id")
       assert DateTime.to_unix(parsed.verified_at, :millisecond) == 1_763_200_000_123
+
+      # Receipt version 2 preserves per-object version_id (both string and explicit nil).
+      v2_receipt_bytes =
+        Jason.encode!(%{
+          "version" => 2,
+          "storage_id" => @storage_id,
+          "block_id" => @block_key,
+          "destination_sha256" => @dest_sha,
+          "verified_at_ms" => 1_763_200_000_456,
+          "objects" => [
+            %{
+              "name" => "init.mp4",
+              "key" => "recordings/v1/#{@storage_id}/#{@block_key}/init.mp4",
+              "length" => 1024,
+              "sha256" => String.duplicate("c", 64),
+              "etag" => "\"etag-init\"",
+              "version_id" => "synth-ver-0001"
+            },
+            %{
+              "name" => "media.m4s",
+              "key" => "recordings/v1/#{@storage_id}/#{@block_key}/media.m4s",
+              "length" => 65_536,
+              "sha256" => String.duplicate("d", 64),
+              "etag" => "\"etag-media\"",
+              "version_id" => nil
+            },
+            %{
+              "name" => "descriptor.json",
+              "key" => "recordings/v1/#{@storage_id}/#{@block_key}/descriptor.json",
+              "length" => 512,
+              "sha256" => String.duplicate("e", 64),
+              "etag" => "\"etag-desc\""
+            }
+          ]
+        })
+
+      assert {:ok, parsed_v2} = NVRArchiveReceipt.parse_receipt_bytes(v2_receipt_bytes)
+      assert parsed_v2.version == 2
+      [init_obj, media_obj, desc_obj] = parsed_v2.objects
+      assert init_obj["version_id"] == "synth-ver-0001"
+      assert Map.fetch(media_obj, "version_id") == {:ok, nil}
+      assert Map.fetch(desc_obj, "version_id") == :error
+
+      # Unsupported receipt versions and malformed object version_ids are rejected.
+      for bad_version <- [0, 3, "2", -1] do
+        bad_ver_bytes =
+          Jason.encode!(%{
+            "version" => bad_version,
+            "storage_id" => @storage_id,
+            "block_id" => @block_key,
+            "verified_at_ms" => 1_763_200_000_123,
+            "objects" => [init_obj]
+          })
+
+        assert {:error, {:receipt_bytes, "receipt version must be 1 or 2"}} =
+                 NVRArchiveReceipt.parse_receipt_bytes(bad_ver_bytes)
+      end
+
+      for bad_vid <- ["", 123, "bad space", "bad\nline", String.duplicate("v", 1025)] do
+        bad_vid_bytes =
+          Jason.encode!(%{
+            "version" => 2,
+            "storage_id" => @storage_id,
+            "block_id" => @block_key,
+            "verified_at_ms" => 1_763_200_000_123,
+            "objects" => [Map.put(init_obj, "version_id", bad_vid)]
+          })
+
+        assert {:error, {:receipt_bytes, msg}} =
+                 NVRArchiveReceipt.parse_receipt_bytes(bad_vid_bytes)
+
+        assert msg =~ "version_id"
+      end
 
       assert {:error, {:receipt_bytes, _}} = NVRArchiveReceipt.parse_receipt_bytes("")
 

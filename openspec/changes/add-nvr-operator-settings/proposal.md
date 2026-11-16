@@ -21,8 +21,8 @@ without an AI agent and without hand-run commands.
   (`/settings/recording`) under a new System parent group, found by Ctrl+K
   keywords such as camera, NVR, VMS, recording, archive, S3 and bucket. It is
   always listed for permitted users and reports explicit states (NVR not
-  installed, recording disabled, recovery gate closed, archive not configured,
-  upload failing) instead of empty pages.
+  installed, recording disabled, recovery gate closed, local-only with no object
+  storage configured as a normal state, upload failing) instead of empty pages.
 - Add three RBAC keys: `settings.recording.view`, `settings.recording.manage`
   and `settings.recording.operate`. Footage reads keep the existing
   `devices.cameras.recordings.view` check.
@@ -44,10 +44,11 @@ without an AI agent and without hand-run commands.
     independently.
   - Core persistence of archive receipts. The archive slice writes the receipt
     only on the NVR volume, and the UI needs it in CNPG.
-- **Stage B (specified, blocked on recording-plane tasks):** continuous
-  recording policy per camera/profile, hot local retention (default 24 hours)
-  with archive-gated reclamation, upload backlog and archive health, and
-  playback that can be forced to the local copy or the archive copy.
+- **Stage B (specified, blocked on recording-plane and retention tasks):**
+  continuous recording policy per camera/profile, capacity-driven local
+  retention (byte-budget watermarks plus a 24-hour default maximum local age
+  ceiling up to 10 years or unlimited, an explicit local-only full policy, and
+  per-member local byte budgets), and upload backlog and recording health.
 - Runtime choices (destination, credential, policy, retention) live in CNPG with
   code defaults. Install topology (NVR replicas, storage IDs, workload mTLS,
   provider egress, recovery gate) stays deployment-owned.
@@ -59,14 +60,17 @@ without an AI agent and without hand-run commands.
   `redesign-settings-catalog-nav` change; this change adds one catalog entry.
 - Related pending work:
   [scalable recording plane](../add-scalable-camera-recording-plane/proposal.md)
-  owns placement, storage modes, reclamation and playback contracts; Stage B
-  depends on its tasks 2.2, 2.4, 3.2, 3.3, 3.4, 3.5 and 3.7.
+  owns placement, storage modes, reclamation and playback contracts.
   [VMS storage and playback](../add-vms-storage-playback-engine/proposal.md) stays
   authoritative for catalog, playback, holds and retention.
+  [NVR retention and timeline playback](../add-nvr-retention-and-timeline-playback/proposal.md)
+  supplies the Stage B continuous coordinator, reconciliation, capacity-driven
+  and age-ceiling retention, holds pinning one verified copy, receipt v2 object
+  version IDs, and unified per-camera timeline playback (including
+  `source=local|archive` forced-source playback on `/api/cameras/:id/timeline/...`).
   [Longshore](../add-longshore-object-storage/proposal.md) owns the object-storage
   client. [Local-copy registration](../define-nvr-local-copy-registration/proposal.md)
-  owns local catalog registration; until it lands, Core does not register NVR
-  blocks as playable.
+  owns qualified local-copy registration.
 - Affected code (Stage A): `elixir/web-ng` (catalog entry, router, new LiveView,
   links from camera pages); `elixir/serviceradar_core` (RBAC catalog, new
   `Camera` resources and migrations, `ArchiveDestination` v2, credential usage

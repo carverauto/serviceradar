@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(view, "#camera-recording-blocks-section")
     assert has_element?(view, "#next-camera-blocks-page")
     assert has_element?(view, "#block-inserted-#{fixture.receipt_block_id}")
+    assert render(view) =~ "version synth-ver-db-01"
 
     # Filtering by the relay-eligible stream profile exercises Enum.any?/2 on real StreamProfile structs.
     view
@@ -114,9 +115,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Archive Writer")
     slug = "synthetic-#{System.unique_integer([:positive])}"
 
-    {:ok, view, _html} = live(conn, ~p"/settings/recording?tab=archive")
+    {:ok, view, html} = live(conn, ~p"/settings/recording?tab=archive")
 
     assert has_element?(view, "#register-archive-destination-form")
+    assert html =~ "Local only: no object storage configured"
+
+    {:ok, retention_view, _retention_html} = live(conn, ~p"/settings/recording?tab=retention")
+    assert has_element?(retention_view, "#recording-retention-blocked-panel")
 
     view
     |> element("#register-archive-destination-form")
@@ -148,9 +153,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     })
 
     overview = CameraRecordingSettings.load_archive_settings_view(scope)
+    assert overview.storage_mode == :local_and_archive
     assert overview.active_binding_id == binding.id
     assert overview.form["archive_enabled"] == "true"
     assert overview.selected_writer_label == writer_secret.name
+    refute has_element?(view, "#archive-local-only-banner")
   end
 
   defp create_camera_with_profiles_and_blocks(actor, total_blocks) do
@@ -244,6 +251,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
 
     receipt_bytes =
       Jason.encode!(%{
+        "version" => 2,
         "storage_id" => @storage_id,
         "block_key" => newest.block_key,
         "destination_sha256" => binding.destination_sha256,
@@ -254,7 +262,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
             "key" => "recordings/v1/#{@storage_id}/#{newest.block_key}/media.fmp4",
             "length" => 4096,
             "sha256" => object_sha,
-            "etag" => "\"synthetic-etag-1\""
+            "etag" => "\"synthetic-etag-1\"",
+            "version_id" => "synth-ver-db-01"
           }
         ]
       })

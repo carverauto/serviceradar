@@ -6,7 +6,8 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   Credential choice stays outside `ArchiveBinding` so rotating to a new
   `s3_compatible` credential never changes `destination_sha256`. When no row
   exists in `platform.camera_recording_archive_settings`, code defaults apply
-  (`archive_enabled: false` and nil references).
+  (`archive_enabled: false` and nil references), representing normal local-only
+  recording with no object storage configured.
   """
 
   use Ash.Resource,
@@ -435,6 +436,11 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       reader_summary =
         summarize_slot(settings.reader_credential_secret_id, loaders)
 
+      storage_mode =
+        if settings.archive_enabled and not is_nil(active_binding),
+          do: :local_and_archive,
+          else: :local_only
+
       {ready?, unavailable_reason} =
         derive_readiness(settings, active_binding, writer_summary, reader_summary)
 
@@ -442,6 +448,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
        %{
          settings: settings,
          persisted?: not is_nil(persisted),
+         storage_mode: storage_mode,
          active_binding: active_binding,
          writer_credential: writer_summary,
          reader_credential: reader_summary,
@@ -555,20 +562,20 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
 
   defp derive_readiness(settings, active_binding, writer_summary, reader_summary) do
     cond do
-      is_nil(settings.active_archive_binding_id) or is_nil(active_binding) ->
-        {false, :missing_active_destination}
-
-      is_nil(writer_summary) ->
-        {false, :missing_writer_credential}
-
-      writer_summary.status != :available ->
+      not is_nil(writer_summary) and writer_summary.status != :available ->
         {false, {:writer_credential_unavailable, writer_summary.reason}}
 
       not is_nil(reader_summary) and reader_summary.status != :available ->
         {false, {:reader_credential_unavailable, reader_summary.reason}}
 
       not settings.archive_enabled ->
-        {false, :archive_disabled}
+        {false, nil}
+
+      is_nil(settings.active_archive_binding_id) or is_nil(active_binding) ->
+        {false, :missing_active_destination}
+
+      is_nil(writer_summary) ->
+        {false, :missing_writer_credential}
 
       true ->
         {true, nil}
