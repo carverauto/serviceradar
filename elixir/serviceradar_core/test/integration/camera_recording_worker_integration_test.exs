@@ -1159,8 +1159,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
     assert_receive {:nvr0_closed_mid_stream, 1}, 5_000
 
-    # The client reads the socket passively, so it only observes the drop when it
-    # next writes; keep feeding units until the worker exits.
+    # The client checks the socket only before sending a unit, so it observes the
+    # drop when the next unit arrives; keep feeding units until the worker exits.
     Enum.reduce_while(Enum.slice(ctx.media.units, 5, 15), :ok, fn unit, :ok ->
       if Process.alive?(worker) do
         send(ctx.pipeline, {:media_chunk, unit})
@@ -1197,6 +1197,70 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     assert viewer_id == viewer.id
     assert_live_delivery(ctx, List.last(ctx.media.units))
+  end
+
+  test "NVRCapture treats an NVR refusal mid-stream as definite, releasing the recorder fence for the next capture",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, _viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    abs_tmp = Path.expand(ctx.tmp_dir)
+    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "refused-certs"))
+    port = start_refusing_tls_peer(certs, self())
+    storage_id = Ecto.UUID.generate()
+    token_file = Path.join(abs_tmp, "refused-token")
+    config_file = Path.join(abs_tmp, "refused-client.json")
+    File.write!(token_file, "synthetic-nvr-refused-token-0123456789")
+
+    File.write!(
+      config_file,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => port,
+        "ca_file" => certs.client_ca,
+        "cert_file" => certs.client_cert,
+        "key_file" => certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
+      })
+    )
+
+    capture = fn ->
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: config_file,
+          token_file: token_file,
+          timeout_ms: 8_000,
+          bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+    end
+
+    {first, units} = feed_until_refused(ctx, owner, capture.(), ctx.media.units)
+    assert {:error, {:nvr_ingest_refused, details}} = first
+    assert details.status == 422
+    assert details.storage_id == storage_id
+    assert details.member == "serviceradar-nvr-0"
+    assert details.recorder_epoch == 1
+    assert details.relay_session_id == ctx.relay.id
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :released
+    assert claim.recorder_epoch == 1
+
+    assert [%{id: block_id, state: :open_local}] = recording_blocks(ctx)
+    assert block_id == details.recording_block_id
+
+    # Inside the first claim's 30s lease, a retained fence would refuse this
+    # capture with :recorder_already_owned before it reached the NVR.
+    {second, _units} = feed_until_refused(ctx, owner, capture.(), units)
+    assert {:error, {:nvr_ingest_refused, %{status: 422, recorder_epoch: 2}}} = second
   end
 
   test "NVRCapture refuses a clean seal when the relay drain fails after a bound and keeps the recorder fence",
@@ -1571,6 +1635,48 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     )
   end
 
+  # Sends five units, waits for the refusing peer to answer, then feeds one unit
+  # at a time until the worker exits: the client reads the answer before its
+  # next send. Returns the capture result and the units not yet sent.
+  defp feed_until_refused(ctx, owner, task, units) do
+    worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
+    {opening, rest} = Enum.split(units, 5)
+    Enum.each(opening, &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive :nvr_refused_mid_stream, 5_000
+
+    unsent =
+      Enum.drop_while(rest, fn unit ->
+        if Process.alive?(worker) do
+          send(ctx.pipeline, {:media_chunk, unit})
+          Process.sleep(20)
+          true
+        else
+          false
+        end
+      end)
+
+    result = Task.await(task, 10_000)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
+
+    # The registry drops a stopped worker asynchronously; the next capture's
+    # attach check must not find this one.
+    await_capture(
+      fn ->
+        case Registry.lookup(
+               ServiceRadarCoreElx.CameraRecording.Registry,
+               {owner.id, owner.epoch}
+             ) do
+          [{^worker, _}] -> :waiting
+          _ -> {:ready, :ok}
+        end
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+
+    {result, unsent}
+  end
+
   defp setup_nvr_release(base_dir) do
     dir = Path.join(Path.expand(base_dir), "nvr-fixture")
     release_dir = Path.join(dir, "release")
@@ -1885,6 +1991,37 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         {:ok, chunk} -> read_until_body_started(ssl_sock, acc <> chunk)
         _ -> acc
       end
+    end
+  end
+
+  # Answers as the NVR does when it refuses a stream mid-body, then keeps reading
+  # until the client closes, as for each connection it accepts.
+  defp start_refusing_tls_peer(certs, notify_pid) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> refusing_peer_loop(listen, notify_pid) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    port
+  end
+
+  defp refusing_peer_loop(listen, notify_pid) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         {:ok, ssl_sock} <- :ssl.handshake(transport, 5_000) do
+      _ = read_until_body_started(ssl_sock, <<>>)
+      body = ~s({"error":"ingest_incomplete"})
+      status = "HTTP/1.1 422 Unprocessable Entity\r\n"
+      headers = "content-type: application/json\r\nconnection: close\r\n"
+      length = "content-length: #{byte_size(body)}\r\n\r\n"
+      :ok = :ssl.send(ssl_sock, [status, headers, length, body])
+      send(notify_pid, :nvr_refused_mid_stream)
+      holding_peer_read(ssl_sock)
+      _ = :ssl.close(ssl_sock)
+      refusing_peer_loop(listen, notify_pid)
     end
   end
 

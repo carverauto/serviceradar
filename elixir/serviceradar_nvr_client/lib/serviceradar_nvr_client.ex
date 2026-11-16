@@ -14,6 +14,14 @@ defmodule ServiceRadarNVRClient do
   request starts, failure may leave retained blocks: there is no retry or failover.
   `:outcome_unknown` requires discovery at the original NVR, not a new capture.
 
+  The client checks for an answer before sending each chunk. A non-200 answer
+  read completely before the end marker went out returns
+  `{:error, {:ingest_refused, status}}`: the NVR refused the unfinished stream
+  and cannot have sealed its final block, whose journal it keeps unsealed. A
+  non-200 answer after the end marker returns `{:error, {:ingest_status, status}}`
+  and does not rule out a seal. A 200 before the end marker, or an answer that
+  is lost or cut short, is `:outcome_unknown`.
+
   `archive_block/4` sends one small JSON request that carries a bucket
   credential. No returned error contains that credential.
   """

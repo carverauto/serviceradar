@@ -11,7 +11,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   (`ServiceRadar.Camera.RelayHosts`), so camera media never traverses ERTS
   distribution or NATS/JetStream. Uncertain transport or RPC outcomes after
   streaming begins are returned as `{:error, {:nvr_ingest_uncertain, details}}`
-  and are never retried or failed over to another NVR replica.
+  and are never retried or failed over to another NVR replica; the recorder
+  fence stays until its lease lapses. A lost or unreadable NVR answer is
+  uncertain, as is a non-200 answer after the end marker. An NVR that refuses
+  the unfinished stream (400, 401, 422 or 503 before the end marker) has sealed
+  nothing it had open, so that capture returns
+  `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the worker's
+  correlation fields, after the worker has released the recorder claim. Like any
+  other failure, it closes the relay when this call opened it.
 
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
   `:bounds` sets the worker's frame, byte and media-duration bounds (see
@@ -117,22 +124,24 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
           {:ok, host_node} ->
             host_node
             |> dispatch_to_host(active_relay.id, member, watch, deadline, opts)
-            |> close_unless_started(active_relay.id, origin, actor)
+            |> close_on_failure(active_relay.id, origin, actor)
 
           {:error, _reason} = error ->
-            close_unless_started(error, active_relay.id, origin, actor)
+            close_on_failure(error, active_relay.id, origin, actor)
         end
 
       {:error, _reason} = error ->
-        close_unless_started(error, session.id, origin, actor)
+        close_on_failure(error, session.id, origin, actor)
     end
   end
 
-  defp close_unless_started({:ok, _receipt} = ok, _relay_id, _origin, _actor), do: ok
-  defp close_unless_started({:error, {:nvr_ingest_uncertain, _}} = uncertain, _relay_id, _origin, _actor), do: uncertain
+  # A definite failure, including an NVR refusal, closes a relay this call
+  # opened. An uncertain capture leaves it with its recorder fence.
+  defp close_on_failure({:ok, _receipt} = ok, _relay_id, _origin, _actor), do: ok
+  defp close_on_failure({:error, {:nvr_ingest_uncertain, _}} = uncertain, _relay_id, _origin, _actor), do: uncertain
 
-  defp close_unless_started({:error, _reason} = error, relay_id, origin, actor) do
-    maybe_close_unstarted_relay(relay_id, origin, actor)
+  defp close_on_failure({:error, _reason} = error, relay_id, origin, actor) do
+    maybe_close_opened_relay(relay_id, origin, actor)
     error
   end
 
@@ -356,12 +365,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
     end
   end
 
-  defp maybe_close_unstarted_relay(_relay_id, :reuse, _actor), do: :ok
+  defp maybe_close_opened_relay(_relay_id, :reuse, _actor), do: :ok
 
-  defp maybe_close_unstarted_relay(relay_id, :new, actor) do
+  defp maybe_close_opened_relay(relay_id, :new, actor) do
     _ =
       RelaySessionManager.request_close(relay_id,
-        reason: "nvr capture aborted before recorder start",
+        reason: "nvr capture failed",
         actor: actor
       )
 
