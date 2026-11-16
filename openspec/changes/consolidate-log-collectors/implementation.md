@@ -70,6 +70,13 @@ pushed or deployed.
   `dd117274-86b0-4d49-b8a3-3ee80d2a8d38` passed both Flowgger targets; the
   revocation case ran, not skipped, in each. It has not been run against a
   mutated publisher.
+- Remote, after removal became an explicit rule instruction: invocation
+  `bfada610-cc2f-4b0e-b387-75d83ef8af4e` passed zen-normalize, the NIF build
+  and the core observability shard. The event-writer shard passed on its
+  second attempt; the first failed in `EdgeRecordRetentionNatsTest` on a NATS
+  stream-info timeout, a test this branch does not touch.
+- The seeder refresh of `strip_full_message` is exercised only by a database
+  test, which no run above includes.
 - Nothing has exercised bundle publication against a database or datasvc.
 - The publish-window benchmark ran on a shared workstation over loopback. It
   shows serial publishing as the limit at window 1 and the listener and codec
