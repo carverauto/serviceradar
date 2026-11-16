@@ -248,8 +248,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
 
-    source =
-      FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
+    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
 
     scope_attributes = parse_scope_attributes(json)
     {severity_text, severity_number} = log_severity(json)
