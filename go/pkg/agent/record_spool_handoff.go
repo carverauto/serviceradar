@@ -140,6 +140,10 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 				return err
 			}
 			disposition = edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE
+		case errors.Is(admitErr, spool.ErrAdmissionRefused):
+			report.Reason = legacyHandoffInsufficientCapacity
+			report.CapacityNeeded, _, err = s.lateCopyCharge(pending[i:])
+			return errors.Join(ErrLegacyHandoffInsufficientCapacity, admitErr, err)
 		default:
 			report.Reason = admitErr.Error()
 			return admitErr
@@ -162,12 +166,15 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 	return nil
 }
 
-// lateCopyCharge bounds the ordinary room late admission needs for records: each
-// append the pass still makes, one new generation for each destination lane that
-// has none yet, and one per rotation, which comes no sooner than
-// spool.MaxSegmentKeys appended records. held marks the records late storage
-// already holds after a crash between their append and their flat resolution;
-// they cost nothing and are admitted with the duplicate check.
+// lateCopyCharge is a conservative bound on the ordinary room late admission
+// needs for records, never an under-estimate. Each append the pass still makes is
+// billed, and the appends are walked in order per destination lane: a lane opens a
+// new generation whenever the record's frozen identity (network scope, origin)
+// differs from the lane's open generation, and whenever that generation has taken
+// spool.MaxSegmentKeys records, counting those already in it, because rotation
+// comes no sooner. held marks the records late storage already holds after a crash
+// between their append and their flat resolution; they cost nothing and are
+// admitted with the duplicate check.
 func (s *RecordSpool) lateCopyCharge(records []spool.Record) (uint64, []bool, error) {
 	index, err := s.heldLate()
 	if err != nil {
@@ -179,32 +186,53 @@ func (s *RecordSpool) lateCopyCharge(records []spool.Record) (uint64, []bool, er
 			agentID = snapshot.AuthenticatedAgent()
 		}
 	}
-	var needed, appended uint64
+	type laneState struct {
+		identity spool.Identity
+		open     bool
+		records  uint64
+	}
+	var needed uint64
 	held := make([]bool, len(records))
-	billed := make(map[string]bool)
+	lanes := make(map[string]*laneState)
 	for i, rec := range records {
 		if index[heldLateKey(rec.EventID, rec.Body)] {
 			held[i] = true
 			continue
 		}
 		needed += spool.AttributedAppendCharge(len(rec.Body))
-		appended++
 		record, err := edgerecord.DecodeRecord(rec.Body)
 		if err != nil {
 			continue
 		}
 		origin := record.GetProducerContext().GetOriginPrincipalId()
+		own := agentID != nil && bytes.Equal(origin, agentID)
 		key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
-		destination := fmt.Sprintf("%x/%d/%d", origin, key.RouteProfile, key.TrafficClass)
-		if billed[destination] {
-			continue
+		identity := spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}
+		lane := fmt.Sprintf("hold/%x/%d/%d", origin, key.RouteProfile, key.TrafficClass)
+		if own {
+			lane = fmt.Sprintf("own/%d/%d", key.RouteProfile, key.TrafficClass)
 		}
-		billed[destination] = true
-		if set := s.late.existingSet(origin, agentID != nil && bytes.Equal(origin, agentID)); set == nil || len(set.Generations(key)) == 0 {
+		state, ok := lanes[lane]
+		if !ok {
+			state = &laneState{}
+			if set := s.late.existingSet(origin, own); set != nil {
+				if generation, open := set.OpenGeneration(key); open {
+					state.identity, state.open, state.records = generation.Identity().Identity, true, generation.NextSequence()-1
+				}
+			}
+			lanes[lane] = state
+		}
+		if !state.open || state.records >= spool.MaxSegmentKeys || !sameIdentity(state.identity, identity) {
 			needed += spool.GenerationMetadataCharge
+			state.identity, state.open, state.records = identity, true, 0
 		}
+		state.records++
 	}
-	return needed + appended/spool.MaxSegmentKeys*spool.GenerationMetadataCharge, held, nil
+	return needed, held, nil
+}
+
+func sameIdentity(a, b spool.Identity) bool {
+	return bytes.Equal(a.NetworkScopeID, b.NetworkScopeID) && bytes.Equal(a.AgentID, b.AgentID)
 }
 
 // heldLate indexes every record late storage holds unresolved by event id and

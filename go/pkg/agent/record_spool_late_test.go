@@ -67,6 +67,15 @@ func daysOldRelayRecord(t *testing.T, producedAt time.Time) []byte {
 // daysOldRelayRecordFrom is daysOldRelayRecord produced by origin.
 func daysOldRelayRecordFrom(t *testing.T, producedAt time.Time, origin string) []byte {
 	t.Helper()
+	return daysOldRelayRecordIn(t, producedAt, origin, testNetworkScopeID[:])
+}
+
+// lateTestOtherScope is a second invented network scope the test agent serves.
+var lateTestOtherScope = []byte{0x5c, 0x0f, 0xe0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x86, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11}
+
+// daysOldRelayRecordIn is daysOldRelayRecordFrom in network scope scope.
+func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, scope []byte) []byte {
+	t.Helper()
 	digest := sha256.Sum256([]byte("synthetic-otlp-relay-contract"))
 	capability := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1, IssuerId: []byte(lateTestIssuer), IssuerKeyId: []byte(lateTestIssuerKey), Algorithm: "ed25519",
@@ -74,7 +83,7 @@ func daysOldRelayRecordFrom(t *testing.T, producedAt time.Time, origin string) [
 		Claims: &edgev1.EdgeSignedCapabilityV1_Production{Production: &edgev1.EdgeProductionClaimsV1{
 			ContractId: edgerecord.OtlpRelayContractID, ContractVersion: edgerecord.OtlpRelayContractVersion,
 			ContractBundleSha256: digest[:], RegistryEpoch: 1, RegistrySnapshotSha256: digest[:], EffectiveGrantSha256: digest[:],
-			NetworkScopeId: testNetworkScopeID[:], ProducerAssignmentId: testAssignmentID[:], RunId: testAssignmentID[:],
+			NetworkScopeId: scope, ProducerAssignmentId: testAssignmentID[:], RunId: testAssignmentID[:],
 			AuthorityEpoch: 1, ScopeId: testAssignmentID[:], ScopeSha256: digest[:],
 			OriginKind: edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT, OriginPrincipalId: []byte(origin),
 			ProducerInstanceId: []byte(origin),
@@ -115,7 +124,7 @@ func lateTrust(t *testing.T, keyStatus string) *edgerecord.TrustSnapshot {
 			"purposes":   []string{"production", "source", "delivery"}, "status": keyStatus,
 		}},
 		"fences": []any{map[string]any{"network_scope_id": testNetworkScopeID[:], "producer_assignment_id": testAssignmentID[:], "run_shard": 0, "authority_epoch": 2}},
-		"scopes": []any{map[string]any{"agent_id": sysmonEdgeAgentID, "network_scope_ids": [][]byte{testNetworkScopeID[:]}}},
+		"scopes": []any{map[string]any{"agent_id": sysmonEdgeAgentID, "network_scope_ids": [][]byte{testNetworkScopeID[:], lateTestOtherScope}}},
 	})
 	require.NoError(t, err)
 	snapshot, err := edgerecord.ParseTrustDocument(raw, []byte(sysmonEdgeAgentID), 1)
@@ -517,6 +526,44 @@ func TestLegacyHandoffResumesInTheRoomTheSuffixNeeds(t *testing.T) {
 	require.Equal(t, len(raws), report.HandedOff)
 	require.Equal(t, uint64(len(raws)), sp.LatePending(), "one late copy of each record")
 	require.Zero(t, sp.RetainedLegacyBytes())
+	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// Two records of one lane under different network scopes cannot share a frozen
+// generation: the second opens a successor. The bound bills both generations, so a
+// budget one generation short copies nothing and reports the whole need, and
+// raising the budget to the reported need hands the tail off.
+func TestLegacyHandoffBillsASuccessorGenerationForAnotherScope(t *testing.T) {
+	root := t.TempDir()
+	base := time.Now().Add(-6 * 24 * time.Hour)
+	raws := [][]byte{
+		daysOldRelayRecordIn(t, base, sysmonEdgeAgentID, testNetworkScopeID[:]),
+		daysOldRelayRecordIn(t, base.Add(time.Hour), sysmonEdgeAgentID, lateTestOtherScope),
+	}
+	writeFlatSpoolTail(t, root, raws...)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(root, allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	appends := spool.AttributedAppendCharge(len(raws[0])) + spool.AttributedAppendCharge(len(raws[1]))
+	leaveOrdinaryRoom(t, allocator, spool.GenerationMetadataCharge+appends)
+	report, err := sp.HandOffLegacy()
+	require.ErrorIs(t, err, ErrLegacyHandoffInsufficientCapacity)
+	require.Equal(t, "insufficient_capacity", report.Reason)
+	require.Equal(t, 2*spool.GenerationMetadataCharge+appends, report.CapacityNeeded)
+	require.Empty(t, sp.LateSources(), "no partial copy")
+
+	leaveOrdinaryRoom(t, allocator, report.CapacityNeeded)
+	report, err = sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, len(raws), report.HandedOff)
+	require.Equal(t, uint64(len(raws)), sp.LatePending())
 	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
