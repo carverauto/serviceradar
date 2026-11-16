@@ -9,9 +9,10 @@ concurrently. Installs built from the schema baseline now match
 migrated installs, including seed rows and TimescaleDB compression, and
 databases already created from the older baseline are repaired once.
 The cold telemetry tier is removed. Built-in SNMP OID templates ship as
-product data. The NVR can archive sealed blocks to S3-compatible
-storage (disabled by default), and published images carry one classic
-Cosign signature format.
+product data. UDP and TCP syslog run in one log collector. The
+NVR can archive sealed blocks to S3-compatible storage (disabled by
+default), and published images carry one classic Cosign signature
+format.
 
 ## Upgrade Notes
 
@@ -173,6 +174,18 @@ Cosign signature format.
   `certs.runtimeLayoutVersion` moves to 6, so runtime certificates are
   regenerated on upgrade with the FQDN SANs. The Dgraph subchart is now
   vendored unpacked (#6617).
+- **One log collector serves UDP and TCP syslog.** The chart no longer
+  creates the separate TCP log-collector Deployment, ConfigMap or
+  external Service. `serviceradar-log-collector-tcp` remains as a
+  compatibility Service that selects the unified pods, and TCP is
+  exposed through `logCollector.externalService`. Legacy
+  `tcpCollector` replica, resource and stream settings are ignored.
+  The render fails if `logCollector.tcpCollector.subject` is not
+  `logs.syslog`, or if `logCollector.externalService.loadBalancerIP`
+  and `logCollector.tcpCollector.externalService.loadBalancerIP` differ,
+  so check those values before upgrading. The bundled
+  `strip_full_message` Zen rule now removes the field it names; seeded
+  copies are refreshed and user-authored copies are left alone (#6680).
 - **NVR and media storage (opt-in).** NVR is still disabled by default.
   New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
   mounts and a core-only NetworkPolicy; the config, token and TLS
@@ -298,6 +311,11 @@ Cosign signature format.
   (#6593).
 - Standalone coordinator lock connections no longer inherit Repo pool
   options (#6597).
+- Sweep lease issuance evidence commits in 64-entry chunks, so a slow
+  database no longer times out the whole lease push (#6679).
+- Flowgger runs UDP and TCP syslog in one collector with several
+  JetStream acknowledgments in flight per worker, and Zen rules run
+  through a shared `zen-normalize` crate (#6680).
 
 **Remote access**
 
@@ -336,7 +354,8 @@ Cosign signature format.
 - The release finalizes when the optional macOS installer fails
   (#6576).
 - `klauspost/compress` 1.20.4 (#6667), `golang.org/x/sys` 0.50.0
-  (#6670) and `setup-bazel` 0.19.2 (#6673).
+  (#6670), `setup-bazel` 0.19.2 (#6673) and `async-nats` 0.52.0
+  (#6675).
 - The NVR recording-worker integration tests no longer flake (#6654).
 - The image OSV scan runs without a docker daemon (#6577) and rescans
   of older tags use current tooling (#6588).
@@ -349,7 +368,9 @@ Cosign signature format.
 - OpenSpec proposals: edge handler outcome classification (#6579), pod
   DNS hardening (#6596), distributing SNMP targets across agents
   (#6602), decoupling the mapper discovery credential from the default
-  SNMP profile (#6641); six completed changes archived (#6630).
+  SNMP profile (#6641), production-time admission for late edge
+  records (#6681), and log collector consolidation and ingestion
+  (#6680); six completed changes archived (#6630).
 
 # ServiceRadar v1.5.3
 
