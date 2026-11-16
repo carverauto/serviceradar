@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           # Creating from a log entry
           Map.has_key?(assigns, :log) and not is_nil(assigns.log) ->
             log = assigns.log
-            parsed_attributes = parse_log_attributes(log)
+            parsed_attributes = log |> parse_log_attributes() |> SecretRedaction.redact_value()
 
             initial_values = %{
               "name" => generate_rule_name(log),
