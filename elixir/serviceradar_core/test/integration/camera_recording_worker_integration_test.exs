@@ -28,6 +28,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   @moduletag :integration
   @moduletag :tmp_dir
   @replaced_marker "00000000-0000-4000-8000-000000000099\n"
+  # The NVR client's 4-byte zero end marker as a chunk, then the chunked body end.
+  @ingest_request_end "4\r\n" <> <<0::32>> <> "\r\n0\r\n\r\n"
 
   setup ctx do
     Fixtures.recording_recovery_gate(ctx.tmp_dir)
@@ -1573,6 +1575,88 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert closed.status in [:closing, :closed, :failed]
   end
 
+  test "NVRCapture skips fence renewals that would run under the budget floor in its last seconds and still seals",
+       ctx do
+    # The recorder lease is capped by the relay and owner leases; give both room
+    # beyond the worker's 30s lease so each renewal advances it.
+    {:ok, _relay} =
+      RelaySession.renew_lease(
+        ctx.relay,
+        %{lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 3)},
+        actor: ctx.actor
+      )
+
+    owner = owner(ctx, 120_000)
+    abs_tmp = Path.expand(ctx.tmp_dir)
+    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "sealing-certs"))
+    {port, sealing_peer} = start_sealing_tls_peer(certs, self())
+    storage_id = Ecto.UUID.generate()
+    token_file = Path.join(abs_tmp, "sealing-token")
+    config_file = Path.join(abs_tmp, "sealing-client.json")
+    File.write!(token_file, "synthetic-nvr-sealing-token-0123456789")
+
+    File.write!(
+      config_file,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => port,
+        "ca_file" => certs.client_ca,
+        "cert_file" => certs.client_cert,
+        "key_file" => certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
+      })
+    )
+
+    # Renewals fall due about 6s, 3s, 1.5s, 0.75s and 0.375s before this 12s
+    # capture's deadline. The first two get database budgets of 5s and about 3s.
+    # The later ones would get less than the 2s floor while the held 30s lease
+    # already covers the capture, so they are skipped.
+    task =
+      Task.async(fn ->
+        NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+          actor: ctx.actor,
+          config_file: config_file,
+          token_file: token_file,
+          timeout_ms: 12_000,
+          bounds: %{max_frames: 3, max_bytes: 8_388_608, max_duration_ms: 6_000}
+        )
+      end)
+
+    worker = await_nvr_worker_attached(owner)
+    %{capture: %{deadline: deadline}, block: %{block_key: block_key}} = :sys.get_state(worker)
+    attached_lease = recorder_claim(ctx).lease_expires_at
+    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive :nvr_sealing_peer_request_complete, 5_000
+
+    first_renewal = await_lease_after(ctx, attached_lease, deadline - 2_000)
+    last_permitted_renewal = await_lease_after(ctx, first_renewal, deadline - 1_250)
+
+    # Answer after the first under-floor point, with a second's margin for the
+    # receipt to reach the worker before the deadline.
+    Process.sleep(max(0, deadline - 1_000 - System.monotonic_time(:millisecond)))
+
+    seal =
+      Jason.encode!(%{
+        "version" => 1,
+        "status" => "sealed_local",
+        "storage_id" => storage_id,
+        "block_ids" => [block_key]
+      })
+
+    send(sealing_peer, {:seal, seal})
+
+    assert {:ok, receipt} = Task.await(task, 15_000)
+    assert receipt.status == :sealed_local
+    assert receipt.block_key == block_key
+    assert receipt.frames_sent == 3
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :released
+    assert claim.lease_expires_at == last_permitted_renewal
+  end
+
   test "NVRCapture returns a verified seal receipt when worker cleanup outlasts the exit wait",
        ctx do
     owner = owner(ctx, 30_000)
@@ -2106,6 +2190,57 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     {:ok, port} = :inet.port(sock)
     :ok = :gen_tcp.close(sock)
     port
+  end
+
+  # Returns the recorder claim's lease once a renewal has advanced it past
+  # `previous`, failing at `deadline`.
+  defp await_lease_after(ctx, previous, deadline) do
+    await_capture(
+      fn ->
+        lease = recorder_claim(ctx).lease_expires_at
+        if DateTime.after?(lease, previous), do: {:ready, lease}, else: :waiting
+      end,
+      deadline
+    )
+  end
+
+  # Reads the ingest request through its end marker and body end, reports that,
+  # then answers with the seal response it is handed and waits for the close.
+  defp start_sealing_tls_peer(certs, notify_pid) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> sealing_peer_accept(listen, notify_pid) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    {port, pid}
+  end
+
+  defp sealing_peer_accept(listen, notify_pid) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         {:ok, ssl_sock} <- :ssl.handshake(transport, 5_000),
+         :ok <- read_until_request_end(ssl_sock, <<>>) do
+      send(notify_pid, :nvr_sealing_peer_request_complete)
+
+      receive do
+        {:seal, body} ->
+          headers = "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\n\r\n"
+          :ok = :ssl.send(ssl_sock, ["HTTP/1.1 200 OK\r\n", headers, body])
+          _ = :ssl.recv(ssl_sock, 0, 15_000)
+      end
+    end
+  end
+
+  defp read_until_request_end(ssl_sock, tail) do
+    with {:ok, chunk} <- :ssl.recv(ssl_sock, 0, 10_000) do
+      seen = tail <> chunk
+      keep = min(byte_size(seen), byte_size(@ingest_request_end))
+      tail = binary_part(seen, byte_size(seen) - keep, keep)
+      if tail == @ingest_request_end, do: :ok, else: read_until_request_end(ssl_sock, tail)
+    end
   end
 
   defp decode_rawvideo(path) do
