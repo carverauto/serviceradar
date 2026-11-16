@@ -1014,9 +1014,7 @@ object retention (C3a), applied to the space-evictable kinds:
 ```
 rate_k   = max(r15m_k, r6h_k)    bytes/s sealed by the policies of kind k
 age_k    = the kind's age ceiling from C1 (infinite when unlimited)
-pinned   = kind (c) bytes + unreconciled bytes
-           + held local copies that are the hold's pinned copy
-           + kind (b) bytes unless overwrite_oldest is recorded
+pinned   = P1 + P2 + P3 + P4       (defined below; the one definition)
 solve      sum_k rate_k * min(age_k, T) = low_water_bytes - pinned
            for T, over the space-evictable kinds k
 window_k = min(age_k, T)          shown per kind with its binding bound
@@ -1035,11 +1033,21 @@ window_k = min(age_k, T)          shown per kind with its binding bound
   solve piecewise, as in C3a. T is infinite when every `age_k` is finite and
   `sum_k rate_k * age_k` fits; T = 0 when `low_water_bytes - pinned <= 0`. With
   one kind this reduces to `min(age, (low_water_bytes - pinned) / rate)`.
-- A held local copy is the pinned copy for kind (b), before its archive copy is
-  verified (it is then kind (c) and counted once), and when its archive copy
-  had already been deleted by object retention or the reaper before the hold
-  was placed. Unheld kind (a) copies, including those local only after archive
-  expiry or reaping, are evictable bytes, not pinned bytes.
+- **Pinned bytes** are the bytes eviction cannot free: the size of the union
+  of every non-evictable local copy, computed as a disjoint partition so each
+  block is counted once. This is the one definition; the window, the
+  time-to-full (C5), the budget floor (C9), the alerts (C8), the spec and the
+  tasks refer to it.
+  - P1: kind (c) of the C1 table, held or not.
+  - P2: unreconciled bytes, blocks on the volume with no catalog row.
+  - P3: kind (b) when it is not space-evictable (`stop_when_full`, or no full
+    policy recorded), held or not.
+  - P4: held local copies that are the hold's pinned copy (C4) and are not in
+    P1 or P3: held kind (a) whose archive copy had already been deleted when
+    the hold was placed, and held kind (b) under `overwrite_oldest`.
+  A held block whose verified archive copy is the pin adds nothing. Unheld
+  kind (a) copies, including those local only after archive expiry or reaping,
+  are evictable bytes.
 - Kind (b) is pinned under `stop_when_full` or when no full policy has been
   recorded. Its window is then its `local_only_max_age` when limited, and
   otherwise the time-to-full of C5, and the page says that local-only cameras
@@ -1087,6 +1095,14 @@ pinned, under each full policy:
 | `overwrite_oldest` | 24 h (age binds; 43.2 GB) | T: (72.2 GB - 43.2 GB) / 15 kB/s, about 22 days (budget binds; about 29 days at high water) | not filling |
 | `stop_when_full`, 20 GB of local-only footage pinned | 24 h (age binds: T = (72.2 GB - 20 GB) / 500 kB/s, about 29 h) | pinned: no eviction for space | (90.2 GB - 20 GB) / 15 kB/s, about 54 days |
 | `stop_when_full`, 82.8 GB pinned (7.4 GB of the 90.2 GB budget left) | 0 (T = 0: pinned exceeds the 72.2 GB low water; each copy is evicted as soon as it is verified) | pinned: no eviction for space | 7.4 GB / 15 kB/s, about 5.7 days |
+
+Holds counted once (same member and volume):
+
+| State | P1 | P3 | P4 | Pinned |
+| --- | --- | --- | --- | --- |
+| `overwrite_oldest`, 8 GB pending of which 2 GB is held (the local copy is the pin until the archive copy is verified) | 8 GB | 0 | 0 (the held 2 GB is already in P1) | 8 GB, so the C9 floor is 8 GB, not 10 GB |
+| `stop_when_full`, 20 GB of local-only footage of which 5 GB is held | 0 | 20 GB | 0 (the held 5 GB is already in P3) | 20 GB, so time-to-full stays about 54 days, not 25 GB and about 50 days |
+| `overwrite_oldest`, 5 GB of held local-only footage | 0 | 0 | 5 GB | 5 GB |
 
 The archived camera keeps its 24 h only while pinned bytes stay at or under
 about 29 GB (72.2 GB low water less 43.2 GB of archived footage); above that
@@ -1493,20 +1509,28 @@ admin by default.
 
 ### C5. When nothing is evictable: time-to-full and admission stop
 
-Disk pressure is never deletion authority for unarchived, unreconciled or
-pinned held footage (plane design section 5, `design.md:187-193`). With archiving on, an
+Disk pressure is never deletion authority for the pinned bytes of C1a (plane
+design section 5, `design.md:187-193`). With archiving on, an
 archive outage means new footage stays unarchived, so the volume fills with
 footage that cannot be evicted.
 
 - **Time-to-full** per member:
-  `ttf = (effective_budget - pinned) / pinned_growth`, where `pinned` is the
-  C1a pinned set and `pinned_growth` is the rate at which bytes join it and
-  stay until admission stops: kind (c) growth (the archiving policies' capture
-  rate minus measured archive goodput, when positive), plus the kind (b) rate
-  when kind (b) is pinned and its age ceiling has not yet been reached.
+  `pinned` is the C1a pinned bytes and `pinned_growth` the rate at which bytes
+  join them: P1 growth (the archiving policies' capture rate minus measured
+  archive goodput, when positive) plus the kind (b) rate when P3 applies.
   Ingest that eviction frees (kind a, and kind b under `overwrite_oldest`) is
-  not in `pinned_growth`. With `pinned_growth` at or below zero the page says
-  "not filling". With the archive down, archived ingest becomes kind (c)
+  not in `pinned_growth`. The page says "not filling" when `pinned_growth` is
+  at or below zero, or when every growing part has a limited age ceiling and
+  its peak fits: `pinned` minus the current P3 bytes plus
+  `max(current P3 bytes, kind (b) rate * local_only_max_age)` is at or under
+  `effective_budget`. Otherwise
+  `ttf = (effective_budget - pinned) / pinned_growth`. Worked examples
+  (assumed figures): `stop_when_full`, `local_only_max_age` 7 days, 15 kB/s,
+  1.3 GB on disk, budget 90.2 GB, nothing else pinned: the peak is
+  15 kB/s * 7 days = 9.07 GB, so "not filling", not about 69 days. The same
+  camera 1 hour before its ceiling, with 54 MB still to come and 100 MB of
+  budget left: the peak stays 46 MB under the budget, so "not filling", not
+  about 1.9 h. With the archive down, archived ingest becomes kind (c)
   growth, so `ttf` falls steadily. It is
   shown on the page and drives alerts at 4 hours (warning) and 1 hour
   (critical) (C8).
@@ -1514,12 +1538,14 @@ footage that cannot be evicted.
   NVR's own admission refuses (`:nvr_spool_budget_exhausted` or
   `:nvr_storage_pressure`, `capacity.ex:348-353`; `:nvr_inventory_limit` at the
   block cap). The coordinator records a `nvr_refused` gap, retries admission
-  every 30 s, and a critical alert says "recording stopped: local storage full,
-  N unarchived blocks waiting". When the archive recovers, verified blocks
-  become evictable, eviction frees space at the next pass, and recording
-  resumes; the gap closes.
-- **Never**: evict kind (c) or unreconciled footage (C1) or a held local copy
-  that is the pinned copy (C4), shorten the
+  every 30 s, and a critical alert says "recording stopped: local storage
+  full" and names each pinned cause with its blocks and bytes, largest first:
+  upload backlog (`pending` or `failed_*`), archive deleting, archive missing,
+  unreconciled, held pins, and local-only footage under `stop_when_full` (the
+  C1a parts). When the cause clears (the archive recovers and verified blocks
+  become evictable, a deletion completes, a hold is released), eviction frees
+  space at the next pass and recording resumes; the gap closes.
+- **Never**: evict the pinned bytes of C1a, shorten the
   archive retention, grow the volume, or change destination to hide pressure.
 
 The same rules apply in local-only mode under `stop_when_full`, and under
@@ -1598,7 +1624,7 @@ job each pass:
 | `time_to_full` | `ttf` below 4 h | warning; critical below 1 h and when admission has stopped |
 | `archive_backlog_age` | oldest unarchived block older than 1 h (R5) | warning; critical when `ttf` is also below 4 h |
 | `local_only_target` | local-only effective window below `local_only_retention_target_seconds` | warning |
-| `held_bytes_fill` | held local copies that are the pinned copy (local-only mode, not yet archive-verified, or archive copy deleted before the hold), local-only footage that cannot be evicted (no `overwrite_oldest` recorded), plus unreconciled bytes above local high water | warning; critical at the budget |
+| `held_bytes_fill` | P2 + P3 + P4 of the C1a pinned bytes above local high water | warning; critical at the budget |
 | `held_archive_missing` | a held archive copy failed its re-check (C4) | critical |
 | object-tier checks | see C3a (`storage.recordings.*`) | |
 
@@ -1636,11 +1662,8 @@ carry across members, so they stay deployment-wide (E1).
 
 - budget at most the install ceiling (`SERVICERADAR_NVR_MAX_SPOOL_BYTES`) and at
   most the measured volume capacity minus the applied reserve;
-- budget at least the bytes currently pinned on the member (kind (c) of the C1
-  table, unreconciled, held local copies that are the hold's pinned copy, and
-  local-only footage unless `overwrite_oldest` is recorded, as in C1a; held
-  blocks whose archive copy is verified pin that copy, not local bytes), from
-  the catalog, checked by Core at save time, so an
+- budget at least the member's current pinned bytes (C1a), from the catalog,
+  checked by Core at save time, so an
   operator cannot set a budget that eviction could never reach; and at least
   two block reservations (about 36 MiB) so admission can work at all;
 - reserve at least the install reserve and at most 10% of the volume.
@@ -2049,8 +2072,8 @@ applies before archive:
   window is a ceiling and budget eviction may reclaim verified-archived blocks
   sooner. This change uses a new field, `max_local_age_seconds`, rather than
   giving `hot_retention_seconds` the opposite meaning. The requirement's other
-  rule is kept, narrowed: a block whose archive copy is `pending`,
-  `failed_retryable` or `failed_terminal` is never reclaimed by age. A local
+  rule is kept, narrowed: a block of kind (c) in the C1 table is never
+  reclaimed by age. A local
   copy that is local only after archive expiry or reaping has no verified
   archive copy and is still reclaimed by the maximum local age and by the local
   budget (C1).

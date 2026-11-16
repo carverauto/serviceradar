@@ -218,7 +218,7 @@ When usage reaches the high-water mark the system SHALL evict the space-evictabl
 - **AND** recording SHALL resume once archived blocks become evictable
 
 ### Requirement: Effective local window projection
-The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water budget less pinned bytes, and show the smaller of each kind's age ceiling and T, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be kind (c) bytes, unreconciled bytes, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded. Time-to-full SHALL divide the budget less pinned bytes by the growth rate of pinned bytes, not by ingest that eviction frees.
+The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water budget less pinned bytes, and show the smaller of each kind's age ceiling and T, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be the bytes of the union of every local copy eviction cannot free, each block counted once, as partitioned in the design's effective-window definition (C1a); every other use of pinned bytes in this specification refers to that definition. Time-to-full SHALL be reported as not filling when pinned bytes do not grow, or when every growing part has a limited age ceiling and its projected peak fits under the budget; otherwise it SHALL divide the budget less pinned bytes by the current growth rate of pinned bytes, never by ingest that eviction frees.
 Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the archive throughput needed against measured archive goodput, projected blocks per day against the block cap, and projected sessions against the member's session limit.
 
 #### Scenario: Twenty cameras shrink the window and the operator is told before saving
@@ -256,6 +256,16 @@ Before an operator saves a change to recording policies, profiles, member assign
 - **GIVEN** object retention found an archive copy changed and marked it `missing`
 - **WHEN** usage reaches the high-water mark or the local copy exceeds the maximum local age
 - **THEN** the local copy SHALL NOT be evicted and SHALL count as pinned bytes
+
+#### Scenario: Holds are counted once in pinned bytes
+- **GIVEN** `overwrite_oldest` with 8 GB pending of which 2 GB is held, or `stop_when_full` with 20 GB of local-only footage of which 5 GB is held
+- **WHEN** pinned bytes are computed
+- **THEN** they SHALL be 8 GB and 20 GB respectively
+
+#### Scenario: Age ceiling stops pinned growth
+- **GIVEN** `stop_when_full`, a local-only maximum age of 7 days, 15 kB/s of local-only footage, 1.3 GB on disk, a 90.2 GB budget and nothing else pinned
+- **WHEN** time-to-full is computed
+- **THEN** it SHALL be reported as not filling
 
 #### Scenario: Short history
 - **WHEN** a member has less than 15 minutes of recorded history
@@ -304,7 +314,7 @@ The system SHALL support recording with no object storage as a complete mode: re
 
 ### Requirement: Operator-set local budget applied at runtime
 The system SHALL let an operator set each NVR member's local byte budget and reserve from the settings UI, stored in CNPG per storage lifetime, and SHALL deliver them to the member over the existing pinned Core-to-NVR channel as a bounded, authenticated, versioned setting that the member persists beside its storage marker and applies to admission without a restart.
-The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (kind (c) of the local eviction table, unreconciled, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
+The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes as defined for the effective local window, a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
 
 #### Scenario: Operator lowers the budget below current usage
 - **GIVEN** a member's usage is above a newly saved budget that is still above its pinned bytes
@@ -438,12 +448,12 @@ When the archive copy is verified, the hold SHALL pin it and the local copy SHAL
 - **THEN** existing holds SHALL remain in force
 
 ### Requirement: Disk pressure never deletes unarchived footage
-The system SHALL NOT delete unarchived or unreconciled footage, a local copy whose archive state is `deleting` or `missing`, or a held copy that is the hold's pinned copy, shorten archive retention, grow storage or change destinations to relieve NVR storage pressure; when nothing is evictable it SHALL let the NVR refuse admission and record a gap.
+The system SHALL NOT delete pinned bytes as defined for the effective local window, or a held copy that is the hold's pinned copy, shorten archive retention, grow storage or change destinations to relieve NVR storage pressure; when nothing is evictable it SHALL let the NVR refuse admission and record a gap.
 
-#### Scenario: Pressure with only unarchived footage
-- **WHEN** headroom cannot be restored without deleting unarchived or unreconciled footage, local copies whose archive state is `deleting` or `missing`, or pinned held copies
+#### Scenario: Pressure with only pinned footage
+- **WHEN** headroom cannot be restored without deleting pinned bytes
 - **THEN** the NVR SHALL refuse admission
-- **AND** recording SHALL stop with a gap and an alert naming the unarchived backlog
+- **AND** recording SHALL stop with a gap and an alert naming each pinned cause that filled the volume with its bytes: upload backlog (pending or failed), archive deleting, archive missing, unreconciled, held pins, or local-only footage under `stop_when_full`
 
 ### Requirement: Safe and audited recording disposition
 The system SHALL perform every deletion of recorded footage as a Core-issued operation bound to one catalog entry and an append-only disposition record, SHALL verify absence in the storage before marking a copy deleted, and SHALL treat reclaimed and deleted copy states as terminal.
