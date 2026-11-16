@@ -177,21 +177,28 @@ format.
   Reusable SNMP community credentials gain an optional `v1`/`v2c`
   version (absent means `v2c`), and a rotation that leaves the version
   blank keeps the stored one (#6646).
-- **SNMP targets with no device no longer borrow a rule credential.** A
-  target whose host belongs to no device used to poll with the first
-  enabled agent- or partition-scoped SNMP rule's credential, ignoring
-  that rule's target query. It now polls with its own credential
-  (`credential_secret_id`, else its inline credential), so a target
-  that has one of its own may now poll with a different credential
-  than before. Migration `20261116060000` enqueues a one-time backfill
-  that binds a target to the credential it borrowed only when the
-  target had none of its own, its host has no device, and every agent
-  compiling its profile used the same rule secret. The write is
+- **Manual SNMP targets resolve credentials in a fixed order, and no
+  longer borrow an unrelated rule's credential.** A manual target is
+  polled with the first usable credential of: the SNMP override of the
+  device its host belongs to; a monitoring rule scoped to the polling
+  agent or partition whose target query selects that device; the
+  target's own credential; the credential of its profile. Before, a
+  target whose host belongs to no device polled with the first enabled
+  agent- or partition-scoped SNMP rule's credential whatever that
+  rule's target query, and a target on a device ignored the device's
+  override and its profile's credential. So a target may now poll with
+  a different credential than before. If the broker refuses the
+  override, rule or target credential, the target is skipped rather
+  than polled with a later one. Migration `20261116060000` enqueues a
+  one-time backfill that binds a target with no credential of its own,
+  on a host with no device, to the rule credential it borrowed, when
+  every agent compiling its profile used the same one. The write is
   compare-and-set, so a credential configured since is never
-  overwritten. A target left without any credential is reported:
-  `[:serviceradar, :snmp, :target_without_credential]` telemetry, a
-  warning once per target and agent, and a "No credential" badge on the
-  SNMP profile form (#6691).
+  overwritten. A target with no usable credential is not polled and is
+  reported: `[:serviceradar, :snmp, :target_without_credential]`
+  telemetry, a warning once per target and agent, and a "No credential"
+  badge on the profile form when neither the target nor its profile has
+  a credential (#6691, #6697).
 - **web-ng's NATS user may publish `availability.transitions.device`
   and `metrics.sweep.>`.** Retries of durable publishes run in both core
   and web-ng; without the grant a retry landing on web-ng was denied and
@@ -231,8 +238,9 @@ format.
   datasvc configuration, or issue certificates whose identities differ
   from the chart's, list every identity that calls datasvc with the
   role it needs before upgrading. A rule may now set `key_prefixes` to
-  limit an identity to KV keys under those prefixes; no identity uses
-  it by default (#6690).
+  limit an identity to KV keys under those prefixes. The chart limits
+  the log collector's `reader` rules to `zen/rulesets/`, so it can read
+  only the Zen rule bundles core publishes (#6690, #6696).
 - **NVR and media storage (opt-in).** NVR is still disabled by default.
   New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
   mounts and a core-only NetworkPolicy; the config, token and TLS
@@ -318,6 +326,8 @@ format.
   one-time backfill (#6646).
 - SNMP targets whose host has no device stop borrowing an agent-scoped
   rule's credential, and targets left without one are reported (#6691).
+- Manual SNMP targets apply the device's SNMP override and fall back to
+  their profile's credential (#6697).
 - `snmp2` 0.5.3 (#6442).
 
 **Credentials and target queries**
@@ -382,7 +392,8 @@ format.
   output error the collector waits up to one publish timeout for
   records it already admitted before it exits (#6687).
 - datasvc enforces its RBAC role list, and a rule can limit an
-  identity to KV key prefixes (#6690).
+  identity to KV key prefixes (#6690); the log collector reads only
+  Zen rule bundles (#6696).
 
 **Remote access**
 
