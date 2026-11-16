@@ -1,3 +1,309 @@
+# ServiceRadar v1.5.4
+
+This release fixes native add-on installs and agent release updates on
+the edge fleet: first-time timer add-ons install, rollouts paused by an
+outdated host updater resume, release updates no longer stay
+`dispatched`, and drained legacy spool storage is retired at agent
+start. Mapper discovery gets ICMP replies again when probes run
+concurrently. Installs built from the schema baseline now match
+migrated installs, including seed rows and TimescaleDB compression. The
+cold telemetry tier is removed. Built-in SNMP OID templates ship as
+product data. The NVR can archive sealed blocks to S3-compatible
+storage (disabled by default), and published images carry one classic
+Cosign signature format.
+
+## Upgrade Notes
+
+- **Upgrade the agent package before relying on systemd add-ons.** An
+  agent that reports neither `addon.systemd.updater` nor
+  `addon.systemd.updater.unavailable` is now ineligible for systemd
+  add-ons (`agent_updater_unreported`), and so is an agent older than
+  1.2.47 or one that reports no version (`unsupported_agent_version`).
+  This adds to the existing `agent_updater_outdated` rule. The fleet
+  view shows "Agent upgrade required". The privileged
+  `serviceradar-agent-updater` is installed by the agent OS package and
+  agent self-update does not replace it, so upgrade the package on each
+  host. A paused rollout whose only failures were the host updater
+  lacking a required flag is released on the next reconcile; one paused
+  by a real candidate failure stays paused (#6582, #6653).
+- **Timer add-ons install on first try.** The updater no longer runs
+  `systemctl reset-failed` on a unit that is not loaded yet, which made
+  every first install of a timer add-on roll back and retry. The fix is
+  in `serviceradar-agent-updater`, so it also needs the 1.5.4 agent
+  package. The agent now refuses staged units whose `ExecStart` points
+  into the agent-writable add-on tree as a permanent error, and the
+  updater exits `78` for deterministic refusals so the agent stops
+  retrying them every poll (#6582, #6647).
+- **Drained legacy flat spool storage is deleted at agent start.**
+  Agents upgraded from before the lane spool format kept a few bytes of
+  flat spool storage and reported `unsupported_legacy_storage`. The
+  agent now deletes that storage when it proves no record is left, and
+  logs `Retired drained legacy edge storage`. Storage that may still
+  hold a record is kept untouched and still flagged (#6652).
+- **The cold telemetry tier is removed.** The Helm `coldTier` values,
+  the analytics-head workloads and network policy, the
+  `serviceradar-cnpg-analytics` image, the compose `coldtier` profile
+  and `docs/cold-tier-runbook.md` are gone; a `coldTier` block left in
+  your values is ignored. Migration `20261114063254` drops
+  `platform.cold_chunk_exports` and `platform.cold_tier_boundaries`,
+  revokes the `cold_reader` grants, drops that role when the database
+  user has CREATEROLE or SUPERUSER, and deletes queued exporter/pruner
+  jobs. Parquet objects already in buckets are left alone.
+  `DataRetentionWorker` now reconciles retention itself. **Data
+  impact:** with `tracesStatsDays` unset, `traces_stats_5m` retention
+  returns to 14 days (floored at its refresh window); set
+  `tracesStatsDays` to keep a longer window (#6587).
+- **`timeseries_metrics` compression is turned on at runtime for
+  baseline-bootstrapped databases.** Databases created from an older
+  schema baseline had compression off on raw
+  `platform.timeseries_metrics`, so it grew uncompressed on installs
+  without StarRocks. `DataRetentionWorker` now enables compression with
+  the documented segmentby/orderby and adds the policy at
+  `timeseriesMetricsCompressAfterHours` (default 2). The `ALTER TABLE`
+  uses a 10s lock timeout and retries on the next run. The hourly policy
+  job then compresses the existing backlog one chunk at a time, and each
+  chunk needs free space for its compressed copy and sort temp files:
+  on a nearly full CNPG volume, grow the PVC before upgrading (#6637).
+- **The schema baseline carries seed rows and TimescaleDB policy
+  state.** New installs built from the baseline now get the same seeded
+  rows (settings, plugin repositories, SNMP profile, classification
+  rules and others) and the same compression and retention policies as
+  installs that replay every migration. The baseline generator is now
+  `bazel run //build/schema_baseline:generate`, replacing
+  `scripts/db/generate-platform-baseline.sh`. Existing databases are not
+  re-baselined (#6650).
+- **Credential values are stored byte-for-byte.** SNMP community and
+  passwords, SNMPv3 user names, credential secret payloads, mapper
+  controller secrets and outbound mail credentials no longer have
+  leading or trailing whitespace trimmed. A blank value still means
+  "keep the stored value". Values trimmed before this release stay as
+  stored; re-enter any that should contain edge whitespace (#6639).
+- **Stored inline SNMP credentials can be removed.** The SNMP profile
+  form lists inline credentials with a "Remove stored ..." control, and
+  binding a different reusable credential clears the inline values
+  (#6620).
+- **Target queries refuse result-shaping tokens.** Saving a target query
+  with `limit:`, `stats:`, `rollup_stats:`, `other:true`, `bucket:` or
+  `downsample:` is now a validation error, because every target reader
+  pages the whole selection. `sort:` and `time:` are allowed. The check
+  runs on create or when the query changes, so stored queries keep
+  working until edited. The NetBox plugin (0.4.1) no longer ships a
+  default rule query (#6636).
+- **Target selections are read in full.** Credential-rule and plugin
+  policy reconciliation, owned-assignment retraction, previews and
+  producer-schedule dispatch used only the first 100 rows of a target
+  query. They now read every page; previews report the true total next
+  to a labelled sample (#6625).
+- **Add-on profiles over `max_targets` are refused, not truncated.** An
+  over-limit profile reconciles to no assignments and shows `refused`;
+  the rest of the agent's add-on configuration is still delivered. An
+  enabled profile over its limit cannot be saved (#6623).
+- **Standard SNMP OID templates ship as product data, and profiles that
+  poll nothing are reported.** System Uptime and Interface Counters are
+  seeded with fixed ids. Migration `20261115191431` attaches them to a
+  default SNMP profile whose template list is empty, and creates the
+  starter default profile on baseline installs that have none. **Before
+  upgrading, review the default profile's target query:** once the
+  templates are attached it walks every device the query selects from
+  the agents it applies to, so narrow a broad query first. An enabled
+  profile whose query selects devices but has no OIDs now logs a
+  warning and shows a "No OIDs" badge (#6635).
+- **The SNMP profile preview counts targets with the compiler,** so it
+  matches what is polled; `tags.*` and `in:` list queries show real
+  counts instead of "Unknown". The fresh-install default profile keeps
+  `target_query = 'in:devices'` (#6589).
+- **SNMPv3 fails closed on an unrecognised security level.** Core and
+  the Go agent no longer fall back to `noAuthNoPriv`. A v3 credential
+  with no security level or an unknown one is rejected at compile, and
+  mapper SNMP is suppressed for that target. Check the security level on
+  v3 credentials before upgrading (#6580).
+- **web-ng's NATS user may publish `availability.transitions.device`
+  and `metrics.sweep.>`.** Retries of durable publishes run in both core
+  and web-ng; without the grant a retry landing on web-ng was denied and
+  could drop the record. Installs that manage NATS users outside the
+  chart must add both subjects (#6644).
+- **Device availability history.** A new dataset records merged
+  availability transitions (StarRocks when enabled, a CNPG hypertable
+  otherwise; migration `20261115000000`), queryable as
+  `in:device_availability_history`. CNPG retention uses the new
+  `availability_history_retention_days` setting (default 14). The
+  device timeline uses it once availability has converged (#6618).
+- **Pods get a fixed DNS config and runtime certificates are
+  regenerated.** Every chart workload sets `ndots: 2`, `timeout: 2`,
+  `attempts: 2` and `single-request-reopen`, and in-cluster endpoint
+  defaults use full `<service>.<namespace>.svc.cluster.local` names.
+  `certs.runtimeLayoutVersion` moves to 6, so runtime certificates are
+  regenerated on upgrade with the FQDN SANs. The Dgraph subchart is now
+  vendored unpacked (#6617).
+- **NVR and media storage (opt-in).** NVR is still disabled by default.
+  New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
+  mounts and a core-only NetworkPolicy; the config, token and TLS
+  Secrets must exist before enabling), and `nvr.archive` (sealed blocks
+  copied to an S3-compatible bucket through Longshore; needs ingest and
+  provider egress CIDRs). Bucket credentials use a new `s3_compatible`
+  credential type in the unified credential inventory. The recorder now
+  admits Main and High H264 streams that rule out frame reordering.
+  Blocks now cover minutes: the new `nvr.maxBlockFragments` (8 to 256,
+  default 150) sets fragments per block, and the `nvr.maxDurationMs`
+  default rises from 30000 to 300000 (#6581, #6586, #6616, #6621,
+  #6626, #6642, #6649, #6660).
+- **Node prerequisites for Longshore io_uring storage.**
+  `mediaStorage.seccompProfile` (and the NVR archive profile) can select
+  a node-installed `Localhost` profile; doing so adds the node selector
+  `serviceradar.io/media-storage-node-prepared=true`. Label only nodes
+  that have the reviewed io_uring seccomp profile and a locked-memory
+  limit of at least 64 MiB (`LimitMEMLOCK=64M` or `infinity` on the
+  container runtime service). See
+  `docs/media-storage-node-prerequisites.md` (#6607, #6610, #6628).
+- **One image signature format.** Images, native add-ons and Wasm
+  plugins carry only the classic Cosign `.sig` signature that admission
+  verifies; Sigstore bundle/OCI-referrer signatures are no longer
+  written. Verify with `cosign verify --new-bundle-format=false`
+  (#6624).
+- **Harbor publication goes through build storage.** Release artifacts
+  are pushed to the private `serviceradar-builds` project and promoted
+  by digest, with signatures, into protected `serviceradar` storage;
+  existing static tags are kept. Plugin and add-on imports refuse
+  `serviceradar-builds` sources. `make push_all`, `push_all_release`
+  and the other direct-push targets now fail with a pointer to the
+  GitHub workflows (#6599, #6603, #6608, #6612, #6614, #6622).
+- **New migrations:** `20261114063254`, `20261114210000`,
+  `20261115000000`, `20261115191431`. Helm
+  `core.migrations.expectedVersion` is `20261115191431`.
+
+## Whats New
+
+**Agents and add-ons**
+
+- Timer add-ons install on first try, and writable-tree units are
+  refused permanently (#6647).
+- Paused add-on rollouts whose failures were the host's updater are
+  released; agents that do not report an updater are ineligible for
+  systemd add-ons (#6653).
+- Permanent add-on install failures no longer block the rest of the
+  agent configuration, and incompatible assignments no longer shadow
+  compatible ones (#6582).
+- Agent release updates commit the command id before dispatch, and
+  reconcile recovers targets whose result can no longer arrive (#6648).
+- Drained pre-lane flat spool storage is retired at agent start
+  (#6652).
+- A gateway's graceful GOAWAY drain is no longer recorded as an error
+  span (#6640).
+
+**Discovery and SNMP**
+
+- Concurrent ICMP probes on one sweeper each receive their replies, so
+  mapper discovery stops reporting reachable hosts as "no ICMP
+  response" (#6645).
+- The SNMP poller opens a session per poll under a service-wide bound,
+  grows its ring buffers on demand, and locks per target; one target
+  failing to start no longer stops the others (#6605).
+- SNMP metric drain cost follows drained points, not series count
+  (#6634).
+- Standard OID templates are seeded and profiles that poll nothing are
+  reported (#6635).
+- The settings preview counts targets through the compiler (#6589).
+- SNMPv3 fails closed on unrecognised security levels (#6580).
+- Stored inline SNMP credentials can be removed (#6620).
+- `snmp2` 0.5.3 (#6442).
+
+**Credentials and target queries**
+
+- Secret values are stored byte-for-byte (#6639).
+- Target queries refuse limit and aggregation tokens (#6636).
+- Every policy caller reads whole target selections (#6625).
+- Add-on profiles over `max_targets` are refused instead of truncated
+  (#6623).
+- Proxmox credential binding ids stay stable across target changes
+  (#6606).
+
+**Device identity and inventory**
+
+- A device record can no longer hold two live hypervisor guests. The
+  `multi-guest-split` remediation step (dry run by default) and
+  `multi-guest-verify` check repair records that already do; see
+  `docs/source-id-remediation-runbook.md` (#6584).
+- A hypervisor guest's primary IP follows its configured NIC order, and
+  its device MAC comes from the same NIC (#6632, #6656).
+- A re-created AWX host is no longer treated as a distinct host
+  (#6611).
+- Superseded AWX inventory redeliveries settle before taking the
+  advisory lock (#6601).
+
+**Availability and topology**
+
+- The device availability timeline shows merged availability history
+  from a new `in:device_availability_history` dataset (#6618).
+- Core derives `sweep.host` per-host gauges for leased sweeps (#6592)
+  and republishes any lost between ledger commit and publish (#6604).
+- Topology edge writes require an RFC3339 `topo.last_seen`; legacy
+  undated canonical edges are replaced or pruned on rebuild, and the
+  topology cleanup worker can reschedule itself (#6595).
+
+**Core and data pipeline**
+
+- The cold telemetry tier is removed; the continuous-aggregate refresh
+  hazard alert moves to `DataRetentionWorker` (#6587).
+- `timeseries_metrics` compression is enabled on baseline-bootstrapped
+  databases (#6637).
+- The schema baseline carries seed rows and TimescaleDB policy state
+  (#6650).
+- Edge plugin handler and projector outcomes are classified as settled,
+  refused or retryable: settled deliveries ACK, deterministic refusals
+  dead-letter on first delivery, transient failures retry (#6600).
+- EventWriter retires orphan flow drain consumers at startup (#6598).
+- Stepping a completed exposure generation counts as success (#6638).
+- Linked consumer root spans are excluded from the root span ratio
+  (#6593).
+- Standalone coordinator lock connections no longer inherit Repo pool
+  options (#6597).
+
+**Remote access**
+
+- Proxmox console rule denials report the closest rule's reason, and
+  stuck remote access sessions are closed and reaped (#6583).
+
+**NVR and camera recording (disabled by default)**
+
+- Authenticated finite H264 recording over private mTLS ingress, a
+  bounded NVR recording client, and bounded relay-to-NVR capture with
+  opt-in Helm ingest (#6581, #6586, #6621).
+- Longshore S3 object-storage client and opt-in camera storage adapter
+  with CNPG credential binding (#6616, #6626); bounded locked memory and
+  prepared-node gating (#6628).
+- NVR archives sealed blocks to S3-compatible storage (#6649) and
+  records Main and High H264 streams without frame reordering (#6642).
+- Recording blocks cover minutes instead of seconds: fragments per
+  block are configurable and relay capture ceilings rise to 270 s
+  (#6660).
+- Media storage can use a node-installed seccomp profile (#6607, #6610).
+- The demo values enable the NVR recorder and ingest (#6629).
+
+**Helm**
+
+- Pod dnsConfig and full cluster FQDNs for service endpoints (#6617).
+- web-ng may publish the durable subjects core publishes (#6644).
+
+**Release and CI**
+
+- One classic Cosign signature per digest (#6624), with publication
+  through Harbor build storage and verified promotion (#6599, #6603,
+  #6608, #6612, #6614, #6622).
+- The release finalizes when the optional macOS installer fails
+  (#6576).
+- The image OSV scan runs without a docker daemon (#6577) and rescans
+  of older tags use current tooling (#6588).
+- quinn-proto and quinn-udp bumped to clear RustSec advisories (#6591);
+  docs `fast-xml-parser` 5.12.1 (#6578).
+- Integration test fixes (#6594, #6655) and agent guide update (#6613).
+
+**Specifications**
+
+- OpenSpec proposals: edge handler outcome classification (#6579), pod
+  DNS hardening (#6596), distributing SNMP targets across agents
+  (#6602), decoupling the mapper discovery credential from the default
+  SNMP profile (#6641); six completed changes archived (#6630).
+
 # ServiceRadar v1.5.3
 
 This release fixes publishing a dashboard into a slot whose previous
