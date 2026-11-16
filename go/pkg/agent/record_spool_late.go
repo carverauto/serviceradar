@@ -132,17 +132,6 @@ func (l *lateStore) laneSetFor(origin []byte, own bool) (*spool.LaneSet, error) 
 	return hold, nil
 }
 
-// existingSet returns the LaneSet a record of origin belongs in without opening a
-// hold; nil when that hold does not exist yet.
-func (l *lateStore) existingSet(origin []byte, own bool) *spool.LaneSet {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if own {
-		return l.own
-	}
-	return l.holds[string(origin)]
-}
-
 // sets returns every late LaneSet: the host's own first, then holds.
 func (l *lateStore) sets() []*spool.LaneSet {
 	l.mu.Lock()

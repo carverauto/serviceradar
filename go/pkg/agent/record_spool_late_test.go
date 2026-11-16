@@ -70,11 +70,17 @@ func daysOldRelayRecordFrom(t *testing.T, producedAt time.Time, origin string) [
 	return daysOldRelayRecordIn(t, producedAt, origin, testNetworkScopeID[:])
 }
 
+// daysOldRelayRecordIn is daysOldRelayRecordFrom in network scope scope.
+func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, scope []byte) []byte {
+	t.Helper()
+	return daysOldRelayRecordSized(t, producedAt, origin, scope, []byte{0x0a, 0x04, 's', 'p', 'a', 'n'})
+}
+
 // lateTestOtherScope is a second invented network scope the test agent serves.
 var lateTestOtherScope = []byte{0x5c, 0x0f, 0xe0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x86, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11}
 
-// daysOldRelayRecordIn is daysOldRelayRecordFrom in network scope scope.
-func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, scope []byte) []byte {
+// daysOldRelayRecordSized is daysOldRelayRecordIn carrying payload as its relayed span.
+func daysOldRelayRecordSized(t *testing.T, producedAt time.Time, origin string, scope, payload []byte) []byte {
 	t.Helper()
 	digest := sha256.Sum256([]byte("synthetic-otlp-relay-contract"))
 	capability := &edgev1.EdgeSignedCapabilityV1{
@@ -99,7 +105,7 @@ func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, sco
 		Records: []*addonpb.TelemetryRecord{{
 			EventId:     "01950000-0000-7000-8000-000000000001",
 			PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
-			Payload:     []byte{0x0a, 0x04, 's', 'p', 'a', 'n'},
+			Payload:     payload,
 		}},
 	}}
 	payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(frame)
@@ -433,6 +439,17 @@ func leaveOrdinaryRoom(t *testing.T, allocator *spool.Allocator, free uint64) {
 	require.Equal(t, free, usage.OrdinaryCeiling-usage.OrdinaryUsed)
 }
 
+// handoffNeed is the bound a handoff pass reserves for raws, none of them already
+// in late storage: each append plus one new generation, since any append may
+// rotate.
+func handoffNeed(raws [][]byte) uint64 {
+	var needed uint64
+	for _, raw := range raws {
+		needed += spool.AttributedAppendCharge(len(raw)) + spool.GenerationMetadataCharge
+	}
+	return needed
+}
+
 func lateTail(t *testing.T, n int) ([][]byte, uint64) {
 	t.Helper()
 	var raws [][]byte
@@ -451,7 +468,8 @@ func lateTail(t *testing.T, n int) ([][]byte, uint64) {
 // the whole tail off.
 func TestLegacyHandoffWaitsForCapacityWithoutAPartialCopy(t *testing.T) {
 	root := t.TempDir()
-	raws, needed := lateTail(t, 3)
+	raws, _ := lateTail(t, 3)
+	needed := handoffNeed(raws)
 	var bodies uint64
 	for _, raw := range raws {
 		bodies += uint64(len(raw))
@@ -527,7 +545,7 @@ func TestLegacyHandoffResumesInTheRoomTheSuffixNeeds(t *testing.T) {
 	held := sp.LatePending()
 	require.Equal(t, uint64(3), held)
 
-	leaveOrdinaryRoom(t, allocator, spool.AttributedAppendCharge(len(raws[3])))
+	leaveOrdinaryRoom(t, allocator, handoffNeed(raws[3:]))
 	report, err := sp.HandOffLegacy()
 	require.NoError(t, err)
 	require.Equal(t, len(raws), report.HandedOff)
@@ -564,6 +582,7 @@ func TestLegacyHandoffBillsASuccessorGenerationForAnotherScope(t *testing.T) {
 	require.ErrorIs(t, err, ErrLegacyHandoffInsufficientCapacity)
 	require.Equal(t, "insufficient_capacity", report.Reason)
 	require.Equal(t, 2*spool.GenerationMetadataCharge+appends, report.CapacityNeeded)
+	require.Equal(t, handoffNeed(raws), report.CapacityNeeded)
 	require.Empty(t, sp.LateSources(), "no partial copy")
 
 	leaveOrdinaryRoom(t, allocator, report.CapacityNeeded)
@@ -608,6 +627,50 @@ func TestLegacyHandoffAfterReenrollmentKeepsTheExistingCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, report.HandedOff)
 	require.Equal(t, uint64(1), sp.LatePending(), "no second copy")
+	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// Large records fill a late generation's recovery destination segment (8 MiB in
+// the default footprint) long before its key bound, so the small record after them
+// opens a successor generation. Free room equal to the reported need is enough to
+// hand the whole tail off.
+func TestLegacyHandoffFillsADestinationSegmentWithinTheReportedNeed(t *testing.T) {
+	root := t.TempDir()
+	base := time.Now().Add(-6 * 24 * time.Hour)
+	payload := make([]byte, 400<<10)
+	for i := range payload {
+		payload[i] = byte(i)
+	}
+	var raws [][]byte
+	var segment uint64
+	for i := 0; segment <= spool.DefaultRecoveryFootprint().DestinationSegment; i++ {
+		raw := daysOldRelayRecordSized(t, base.Add(time.Duration(i)*time.Minute), sysmonEdgeAgentID, testNetworkScopeID[:], payload)
+		raws = append(raws, raw)
+		segment += uint64(len(raw))
+	}
+	raws = append(raws, daysOldRelayRecord(t, base.Add(time.Hour)))
+	writeFlatSpoolTail(t, root, raws...)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(root, allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	leaveOrdinaryRoom(t, allocator, 0)
+	report, err := sp.HandOffLegacy()
+	require.ErrorIs(t, err, ErrLegacyHandoffInsufficientCapacity)
+	require.Empty(t, sp.LateSources(), "no partial copy")
+
+	leaveOrdinaryRoom(t, allocator, report.CapacityNeeded)
+	report, err = sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, len(raws), report.HandedOff)
+	require.Equal(t, uint64(len(raws)), sp.LatePending())
+	require.Greater(t, len(sp.LateSources()), 1, "the tail spans more than one late generation")
 	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }

@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -30,7 +29,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
-	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -166,13 +164,13 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 	return nil
 }
 
-// lateCopyCharge is a conservative bound on the ordinary room late admission
-// needs for records, never an under-estimate. Each append the pass still makes is
-// billed, and the appends are walked in order per destination lane: a lane opens a
-// new generation whenever the record's frozen identity (network scope, origin)
-// differs from the lane's open generation, and whenever that generation has taken
-// spool.MaxSegmentKeys records, counting those already in it, because rotation
-// comes no sooner. held marks the records late storage already holds after a crash
+// lateCopyCharge bounds the ordinary room late admission needs for records, and
+// never under-estimates it. It does not predict rotation: any append may need a
+// new generation, whether for a new frozen identity, the segment key or manifest
+// bound, or the recovery destination's byte budget, so every record the pass will
+// still append is billed its append charge plus one generation. The over-bill only
+// makes a large tail wait, visibly, for budget; free room equal to the bound always
+// suffices. held marks the records late storage already holds after a crash
 // between their append and their flat resolution; they cost nothing and are
 // admitted with the duplicate check.
 func (s *RecordSpool) lateCopyCharge(records []spool.Record) (uint64, []bool, error) {
@@ -180,59 +178,16 @@ func (s *RecordSpool) lateCopyCharge(records []spool.Record) (uint64, []bool, er
 	if err != nil {
 		return 0, nil, err
 	}
-	var agentID []byte
-	if s.trust != nil {
-		if snapshot := s.trust(); snapshot != nil {
-			agentID = snapshot.AuthenticatedAgent()
-		}
-	}
-	type laneState struct {
-		identity spool.Identity
-		open     bool
-		records  uint64
-	}
 	var needed uint64
 	held := make([]bool, len(records))
-	lanes := make(map[string]*laneState)
 	for i, rec := range records {
 		if index[heldLateKey(rec.EventID, rec.Body)] {
 			held[i] = true
 			continue
 		}
-		needed += spool.AttributedAppendCharge(len(rec.Body))
-		record, err := edgerecord.DecodeRecord(rec.Body)
-		if err != nil {
-			continue
-		}
-		origin := record.GetProducerContext().GetOriginPrincipalId()
-		own := agentID != nil && bytes.Equal(origin, agentID)
-		key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
-		identity := spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}
-		lane := fmt.Sprintf("hold/%x/%d/%d", origin, key.RouteProfile, key.TrafficClass)
-		if own {
-			lane = fmt.Sprintf("own/%d/%d", key.RouteProfile, key.TrafficClass)
-		}
-		state, ok := lanes[lane]
-		if !ok {
-			state = &laneState{}
-			if set := s.late.existingSet(origin, own); set != nil {
-				if generation, open := set.OpenGeneration(key); open {
-					state.identity, state.open, state.records = generation.Identity().Identity, true, generation.NextSequence()-1
-				}
-			}
-			lanes[lane] = state
-		}
-		if !state.open || state.records >= spool.MaxSegmentKeys || !sameIdentity(state.identity, identity) {
-			needed += spool.GenerationMetadataCharge
-			state.identity, state.open, state.records = identity, true, 0
-		}
-		state.records++
+		needed += spool.AttributedAppendCharge(len(rec.Body)) + spool.GenerationMetadataCharge
 	}
 	return needed, held, nil
-}
-
-func sameIdentity(a, b spool.Identity) bool {
-	return bytes.Equal(a.NetworkScopeID, b.NetworkScopeID) && bytes.Equal(a.AgentID, b.AgentID)
 }
 
 // heldLate indexes every record late storage holds unresolved by event id and
