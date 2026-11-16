@@ -280,6 +280,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
                  wedged: true,
                  gap_count: 2,
                  retained_legacy_bytes: 192,
+                 legacy_handoff_pending_records: 3,
+                 legacy_handoff_reason: "insufficient_capacity",
+                 late_pending_records: 5,
+                 late_pending_reason: "late_pending_gateway_support",
                  gap_sequences: [4, 8],
                  generation_gaps: [%{spool_generation_id: "0102030405067008800a0b0c0d0e0f10", sequence: 4}],
                  unresolved_count: 9,
@@ -884,6 +888,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         wedged: true,
         gap_count: 2,
         retained_legacy_bytes: 192,
+        legacy_handoff_pending_records: 3,
+        legacy_handoff_reason: "insufficient_capacity",
+        late_pending_records: 5,
+        late_pending_reason: "late_pending_gateway_support",
         gap_sequences: [4, 8],
         generation_gaps: [
           %Monitoring.EdgeRecordSpoolGap{

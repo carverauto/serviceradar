@@ -50,6 +50,7 @@ defmodule ServiceRadar.Edge.SemanticValidate do
   alias Serviceradar.Edge.V1.CompiledSweepAssignmentV1
   alias Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1
   alias Serviceradar.Edge.V1.EdgeCollectionClaimsV1
+  alias Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
@@ -143,6 +144,16 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     :EDGE_CAPABILITY_PURPOSE_COLLECTION,
     :EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION
   ]
+  # Core's production-time decision for a late record (add-edge-production-time-admission).
+  @late_publication [:EDGE_LATE_PUBLICATION_PRIMARY, :EDGE_LATE_PUBLICATION_AUDIT]
+  @late_decision_reason [
+    :EDGE_LATE_DECISION_REASON_ADMITTED,
+    :EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION,
+    :EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN,
+    :EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED,
+    :EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
+    :EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED
+  ]
   @result_format [:SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1]
   @transport_protocol [
     :TRANSPORT_PROTOCOL_ICMP,
@@ -186,6 +197,8 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     {Serviceradar.Edge.V1.EdgeRecordDisposition, :kind} => @disposition_kind,
     {EdgeRecordLaneOpen, :route_profile} => @route_profile,
     {EdgeRecordLaneOpen, :traffic_class} => @traffic_class,
+    {EdgeDeliveryLateAdmissionV1, :publication} => @late_publication,
+    {EdgeDeliveryLateAdmissionV1, :reason} => @late_decision_reason,
     {EdgeRecordLaneOpenAck, :route_profile} => @route_profile,
     {EdgeRecordLaneOpenAck, :traffic_class} => @traffic_class,
     {EdgeRecordV1, :compression} => @compression,
@@ -296,6 +309,7 @@ defmodule ServiceRadar.Edge.SemanticValidate do
   def validate_record(%EdgeRecordV1{} = r), do: validate_message(r)
   def validate_record(_), do: {:error, {:unsupported_enum, [:record]}}
 
+  # ---- recursive retained-value gate ------------------------------------------------------------
   @doc """
   Validates a decoded `EdgeRecordLaneOpen`, mirroring Go's `ValidateLaneOpen` enum checks.
   """
@@ -338,8 +352,6 @@ defmodule ServiceRadar.Edge.SemanticValidate do
   def disposition({:error, failure}, :lane_open), do: {:close_lane, failure}
 
   def disposition({:error, failure}, :delivery), do: {:disposition, :REJECTED_PERMANENT, failure}
-
-  # ---- recursive retained-value gate ------------------------------------------------------------
 
   defp scan(_message, path, depth) when depth >= @max_depth,
     do: {:error, {:max_depth_exceeded, Enum.reverse(path)}}

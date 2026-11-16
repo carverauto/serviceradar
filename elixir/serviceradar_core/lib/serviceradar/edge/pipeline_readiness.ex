@@ -88,6 +88,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_upgrade_blocked
           | :spool_unavailable
           | :unsupported_legacy_storage
+          | :late_pending_gateway_support
           | :no_live_gateway_on_active_epoch
           | :spool_wedged
           | :spool_backpressure
@@ -332,12 +333,16 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   @doc """
   Returns the spool conditions that represent an unhealthy bounded spool on a live agent.
-  Unsupported retained flat storage is excluded so it remains visible in the readiness report
-  without holding an open spool alert forever.
+  Retained flat storage (pending handoff or unsupported) and late records waiting for gateway
+  support are excluded so they remain visible in the readiness report without holding an open
+  spool alert forever.
   """
   @spec spool_alert_conditions(map()) :: [condition()]
   def spool_alert_conditions(%{} = spool) do
-    Enum.reject(spool_status_conditions(spool), &(&1.reason == :unsupported_legacy_storage))
+    Enum.reject(
+      spool_status_conditions(spool),
+      &(&1.reason in [:unsupported_legacy_storage, :late_pending_gateway_support])
+    )
   end
 
   defp spool_status_conditions(spool) do
@@ -347,7 +352,13 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           do: [%{reason: :unsupported_legacy_storage, detail: spool}],
           else: []
 
-      retained ++ spool_health_conditions(spool)
+      late =
+        if (spool_field(spool, :late_pending_records) || 0) > 0 and
+             spool_field(spool, :late_pending_reason) == "late_pending_gateway_support",
+           do: [%{reason: :late_pending_gateway_support, detail: spool}],
+           else: []
+
+      retained ++ late ++ spool_health_conditions(spool)
     else
       error = Map.get(spool, "error") || Map.get(spool, :error)
       detail = %{error: present(error)}

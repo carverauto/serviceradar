@@ -255,6 +255,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                     }}
   end
 
+  # add-edge-production-time-admission phase 1: a LATE session carries records only core's
+  # authority history can judge, so until that path exists the gateway refuses the session
+  # instead of judging late records by the live rule -- and never acknowledges anything on it.
+  test "refuses a LATE lane_open until late admission is implemented" do
+    late = %{lane_open() | late_admission: true}
+
+    error =
+      assert_raise GRPC.RPCError, fn ->
+        EdgeRecordIngestServer.stream([client({:lane_open, late})], stream())
+      end
+
+    assert error.status == GRPC.Status.unimplemented()
+    refute_received {:edge_record_stream_reply, _}
+  end
+
   test "refuses a lane_open when the client identity is not an agent" do
     put_resolver(__MODULE__.AddonIdentityResolverStub)
 

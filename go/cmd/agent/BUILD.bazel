@@ -17,6 +17,7 @@ go_library(
         "//go/pkg/agent",
         "//go/pkg/agentgateway",
         "//go/pkg/edge/admission",
+        "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",
         "//go/pkg/grpc",

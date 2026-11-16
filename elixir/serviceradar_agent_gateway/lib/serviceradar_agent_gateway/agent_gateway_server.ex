@@ -1258,7 +1258,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       :bytes_used,
       :budget_bytes,
       :admission_paused,
-      :retained_legacy_bytes
+      :retained_legacy_bytes,
+      :legacy_handoff_pending_records,
+      :legacy_handoff_reason,
+      :late_pending_records,
+      :late_pending_reason
     ])
     |> Map.put(
       :generation_gaps,

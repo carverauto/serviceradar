@@ -51,7 +51,12 @@ type RecordSpool struct {
 	lanes                  *spool.LaneSet
 	taxonomy               *fairsched.LaneTaxonomy
 	allocator              *spool.Allocator
-	legacyBytes            uint64
+	legacyBytes            atomic.Uint64
+	late                   *lateStore
+	latePeer               func() uint32
+	rejections             *rejectionEvidence
+	handoffMu              sync.Mutex
+	handoffStatus          atomic.Pointer[LegacyHandoff]
 	legacyRetired          spool.LegacyFlatInventory
 	legacyRetireErr        error
 	trust                  func() *edgerecord.TrustSnapshot
@@ -89,7 +94,21 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 	if err != nil {
 		return nil, err
 	}
-	store := &RecordSpool{root: root, lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained, legacyRetired: retired, legacyRetireErr: retireErr, recoveryInventoryBytes: recoveryBytes}
+	late, err := openLateStore(root, taxonomy, allocator, append(append([]spool.Option{}, common...), spool.WithAdmissionGate(nil)))
+	if err != nil {
+		_ = lanes.Close()
+		return nil, err
+	}
+	rejectedDir := filepath.Join(root, spool.LateRootEntry, rejectionEvidenceDir)
+	rejectedBytes, err := storedTreeBytes(rejectedDir, nil)
+	if err != nil {
+		_ = errors.Join(lanes.Close(), late.close())
+		return nil, err
+	}
+	allocator.ChargeMeasured(rejectedDir, rejectedBytes)
+	store := &RecordSpool{root: root, lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyRetired: retired, legacyRetireErr: retireErr, recoveryInventoryBytes: recoveryBytes,
+		late: late, rejections: &rejectionEvidence{dir: rejectedDir, allocator: allocator}}
+	store.legacyBytes.Store(retained)
 	store.recoveryReady.Store(recoveryBytes == 0 && !lanes.HasRecoveryDestinations())
 	return store, nil
 }
@@ -102,7 +121,7 @@ func (s *RecordSpool) Lanes() *spool.LaneSet { return s.lanes }
 func (s *RecordSpool) DeliveryLanes() []spool.LaneKey { return s.taxonomy.Lanes() }
 
 // RetainedLegacyBytes are unsupported flat-storage bytes, never sender input.
-func (s *RecordSpool) RetainedLegacyBytes() uint64 { return s.legacyBytes }
+func (s *RecordSpool) RetainedLegacyBytes() uint64 { return s.legacyBytes.Load() }
 
 // LegacyRetirement reports the flat storage this open inspected and, when the
 // error is nil, removed as drained. spool.ErrLegacyFlatNotDrained means the flat
@@ -112,7 +131,7 @@ func (s *RecordSpool) LegacyRetirement() (spool.LegacyFlatInventory, error) {
 }
 
 func retainedStorageBytes(root string) (uint64, error) {
-	return storedTreeBytes(root, map[string]bool{filepath.Join(root, "lanes"): true, filepath.Join(root, "recoveries"): true})
+	return storedTreeBytes(root, map[string]bool{filepath.Join(root, "lanes"): true, filepath.Join(root, "recoveries"): true, filepath.Join(root, spool.LateRootEntry): true})
 }
 
 var errStorageRootNotDirectory = errors.New("edge storage root must be a directory")
@@ -248,7 +267,7 @@ func (s *RecordSpool) activate(identity spool.Identity, replace bool) error {
 	return nil
 }
 
-func (s *RecordSpool) Close() error { return s.lanes.Close() }
+func (s *RecordSpool) Close() error { return errors.Join(s.lanes.Close(), s.late.close()) }
 
 // RecordSource carries delivery and health operations for one immutable sequence
 // namespace. It exposes no raw append bypass.

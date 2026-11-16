@@ -60,7 +60,36 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponentsTest do
       EdgePipelineComponents.explanation(%{reason: :unsupported_legacy_storage, detail: %{retained_legacy_bytes: 192}})
 
     assert explanation =~ "192 bytes of unsupported legacy edge storage are retained untouched"
-    assert explanation =~ "Only bounded lanes are delivered"
+    assert explanation =~ "not handed off"
+  end
+
+  test "legacy storage pending handoff is reported as pending delivery with its reason" do
+    explanation =
+      EdgePipelineComponents.explanation(%{
+        reason: :unsupported_legacy_storage,
+        detail: %{
+          retained_legacy_bytes: 4096,
+          legacy_handoff_pending_records: 3,
+          legacy_handoff_reason: "insufficient_capacity"
+        }
+      })
+
+    assert explanation =~ "3 records in legacy edge storage are pending handoff to late admission"
+    assert explanation =~ "insufficient_capacity"
+    assert explanation =~ "delivered once the handoff completes"
+    refute explanation =~ "untouched"
+    refute explanation =~ "not handed off"
+  end
+
+  test "late records waiting for gateway support are reported as pending delivery" do
+    explanation =
+      EdgePipelineComponents.explanation(%{
+        reason: :late_pending_gateway_support,
+        detail: %{late_pending_records: 7, late_pending_reason: "late_pending_gateway_support"}
+      })
+
+    assert explanation =~ "7 late-admitted records wait for a gateway that supports late admission"
+    assert explanation =~ "delivered once it does"
   end
 
   test "a stuck spool explains the unresolved age and byte budget" do

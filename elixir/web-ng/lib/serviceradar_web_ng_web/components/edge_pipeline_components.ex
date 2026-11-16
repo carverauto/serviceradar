@@ -47,7 +47,11 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
           if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
 
       "unsupported_legacy_storage" ->
-        "#{field(detail, :retained_legacy_bytes)} bytes of unsupported legacy edge storage are retained untouched. Only bounded lanes are delivered."
+        legacy_storage(detail)
+
+      "late_pending_gateway_support" ->
+        "#{field(detail, :late_pending_records)} late-admitted records wait for a gateway that supports " <>
+          "late admission. They stay on disk and are delivered once it does."
 
       "no_live_gateway_on_active_epoch" ->
         "Live gateway #{inspect(to_string(field(detail, :gateway_id)))} has not installed " <>
@@ -96,6 +100,24 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
 
     remainder = max((field(detail, :gap_count) || 0) - length(samples), 0)
     Enum.join(samples, ", ") <> if(remainder > 0, do: "; #{remainder} additional", else: "")
+  end
+
+  defp legacy_storage(detail) do
+    case field(detail, :legacy_handoff_pending_records) || 0 do
+      pending when pending > 0 ->
+        waiting =
+          case field(detail, :legacy_handoff_reason) do
+            reason when reason in [nil, ""] -> ""
+            reason -> " (waiting: #{reason})"
+          end
+
+        "#{pending} records in legacy edge storage are pending handoff to late admission#{waiting}. " <>
+          "They are kept and delivered once the handoff completes."
+
+      _ ->
+        "#{field(detail, :retained_legacy_bytes)} bytes of unsupported legacy edge storage are retained untouched. " <>
+          "They are not handed off; only bounded lanes are delivered."
+    end
   end
 
   defp backpressure_cause(detail) do

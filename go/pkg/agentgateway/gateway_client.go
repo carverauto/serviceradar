@@ -93,6 +93,7 @@ type GatewayClient struct {
 	gatewayID                  string
 	recoveryHelloConn          *grpc.ClientConn
 	recoveryProtocolVersion    uint32
+	lateAdmissionVersion       uint32
 	logger                     logger.Logger
 	remoteCaptureClientFactory func(grpc.ClientConnInterface) proto.RemotePacketCaptureServiceClient
 }
@@ -491,6 +492,7 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 	if g.conn == conn {
 		g.recoveryHelloConn = conn
 		g.recoveryProtocolVersion = resp.GetEdgeRecoveryProtocolVersion()
+		g.lateAdmissionVersion = resp.GetEdgeLateAdmissionProtocolVersion()
 	}
 	g.mu.Unlock()
 
@@ -511,6 +513,23 @@ func (g *GatewayClient) EdgeRecoveryProtocolVersion() uint32 {
 		return 0
 	}
 	return g.recoveryProtocolVersion
+}
+
+// EdgeLateAdmissionProtocolVersion returns the late-admission version the gateway
+// advertised in the accepted Hello on the current connection. Zero means the agent
+// opens no LATE session and advertises nothing on lane_open: an older gateway
+// rejects those fields.
+func (g *GatewayClient) EdgeLateAdmissionProtocolVersion() uint32 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if !g.connected || g.conn == nil || g.recoveryHelloConn != g.conn {
+		return 0
+	}
+	state := g.conn.GetState()
+	if state != connectivity.Ready && state != connectivity.Idle {
+		return 0
+	}
+	return g.lateAdmissionVersion
 }
 
 // GetGatewayID returns the gateway ID assigned during enrollment.

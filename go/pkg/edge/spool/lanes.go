@@ -182,6 +182,12 @@ func (g GenerationIdentity) clone() GenerationIdentity {
 	return g
 }
 
+// GenerationMetadataCharge is the ordinary room a new generation admits before it
+// exists. Two directory allocations and the bounded identity/format files may each
+// consume a filesystem block; their barrier headroom stays in flight until the
+// published spool has measured its actual file bytes.
+const GenerationMetadataCharge = 4*4096 + recoveryGenerationFixedBytes
+
 // Receipt identifies a durably appended record: its generation and sequence.
 type Receipt struct {
 	Generation GenerationIdentity
@@ -691,15 +697,11 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32, 
 	tmp := filepath.Join(l.dir, tmpPrefix+name)
 	final := filepath.Join(l.dir, name)
 	if reservation == nil && ls.allocator != nil {
-		// Two directory allocations and the bounded identity/format files may each
-		// consume a filesystem block. Keep their barrier headroom in flight until
-		// the published spool has measured its actual file bytes.
-		const metadataAdmission = 4*4096 + recoveryGenerationFixedBytes
-		if err = ls.allocator.admit(final, metadataAdmission); err != nil {
+		if err = ls.allocator.admit(final, GenerationMetadataCharge); err != nil {
 			return nil, err
 		}
 		defer func() {
-			err = ls.allocator.settleGenerationMetadata(final, tmp, metadataAdmission, err)
+			err = ls.allocator.settleGenerationMetadata(final, tmp, GenerationMetadataCharge, err)
 		}()
 	}
 	if reservation != nil {

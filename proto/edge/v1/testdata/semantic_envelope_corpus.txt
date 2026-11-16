@@ -283,6 +283,11 @@ op    delivery_claims.transition.discriminant_rollover                   u64    
 op    delivery_claims.transition.rollover.recovery_id                    bytes        preimage
 op    delivery_claims.transition.rollover.prior_spool_id                 bytes        preimage
 op    delivery_claims.transition.rollover.prior_sequence                 u64          preimage
+op    delivery_claims.transition.discriminant_late_admission             u64          preimage
+op    delivery_claims.transition.late_admission.produced_at_unix_nano    i64          preimage
+op    delivery_claims.transition.late_admission.authority_epoch          u64          preimage
+op    delivery_claims.transition.late_admission.publication              u64          preimage
+op    delivery_claims.transition.late_admission.reason                   u64          preimage
 op    delivery_claims.transition.discriminant_unset                      u64          preimage
 op    execution_grant_claims.purpose                                     u64          preimage
 op    execution_grant_claims.network_scope_id                            bytes        preimage
@@ -357,7 +362,7 @@ state presence.capability@production+source_auth                            abse
 state presence.source_authorization                                         absent+present committed
 state presence.execution_source_identity                                    absent+present preimage
 state discriminant.claims                                                 0,7,8,9,11,12 preimage
-state discriminant.delivery_transition                                    0,5,6        preimage
+state discriminant.delivery_transition                                    0,5,6,7      preimage
 state optional.producer_context.authority_epoch                           absent,0,1   digest
 
 edge  root->output_contract                                              occurrence   attach

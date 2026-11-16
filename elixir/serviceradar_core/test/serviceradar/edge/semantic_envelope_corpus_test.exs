@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
   alias Serviceradar.Edge.V1.EdgeCollectionClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1
   alias Serviceradar.Edge.V1.EdgeDeliveryRenewalV1
   alias Serviceradar.Edge.V1.EdgeDeliveryRolloverV1
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
@@ -123,7 +124,7 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
   describe "the manifest is intact" do
     test "each keyed set holds its exact count and no key repeats" do
       want = %{
-        "op" => 125,
+        "op" => 130,
         "slot" => 17,
         "state" => 8,
         "edge" => 13,
@@ -212,7 +213,7 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
         "presence.source_authorization" => {"absent+present", "committed"},
         "presence.execution_source_identity" => {"absent+present", "preimage"},
         "discriminant.claims" => {"0,7,8,9,11,12", "preimage"},
-        "discriminant.delivery_transition" => {"0,5,6", "preimage"},
+        "discriminant.delivery_transition" => {"0,5,6,7", "preimage"},
         "optional.producer_context.authority_epoch" => {"absent,0,1", "digest"}
       })
 
@@ -231,14 +232,14 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
     end
 
     test "what this runtime does NOT own is stated, not implied" do
-      # THE LEDGER SAID BOTH CONSUMERS CLOSED THE SHARED MANIFEST; THEY DO NOT. `op` is 125 keys
+      # THE LEDGER SAID BOTH CONSUMERS CLOSED THE SHARED MANIFEST; THEY DO NOT. `op` is 130 keys
       # naming leaf paths across nine grammar roots, and its closure is DESCRIPTOR-DRIVEN in Go:
-      # the walk discovers the paths and the manifest classifies them. Restating 125 keys here
+      # the walk discovers the paths and the manifest classifies them. Restating 130 keys here
       # would be duplication, not independent evidence -- so this runtime owns the slot and
       # discriminant derivations from its OWN descriptors, the exact tuples of every other set,
       # and frozen-vector parity. Go owns `op` and the nested-leaf closure. This test exists so
       # the division is asserted rather than described.
-      assert length(rows_of("op")) == 125
+      assert length(rows_of("op")) == 130
 
       bound = ~w(slot state edge sep excl rel)
 
@@ -357,6 +358,7 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
       for {name, transition} <- [
             {"renewal", {:renewal, %EdgeDeliveryRenewalV1{}}},
             {"rollover", {:rollover, %EdgeDeliveryRolloverV1{}}},
+            {"late_admission", {:late_admission, %EdgeDeliveryLateAdmissionV1{}}},
             {"unset", nil}
           ] do
         claims = %EdgeDeliveryClaimsV1{transition: transition}
@@ -398,6 +400,20 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
 
       assert hex(frame("delivery_claims", rollover)) ==
                vector!(vectors, "state.delivery_transition.rollover.populated")
+
+      late_admission = %EdgeDeliveryClaimsV1{
+        transition:
+          {:late_admission,
+           %EdgeDeliveryLateAdmissionV1{
+             produced_at_unix_nano: 1_800_000_000_000_000_000,
+             authority_epoch: 9,
+             publication: :EDGE_LATE_PUBLICATION_AUDIT,
+             reason: :EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION
+           }}
+      }
+
+      assert hex(frame("delivery_claims", late_admission)) ==
+               vector!(vectors, "state.delivery_transition.late_admission.populated")
     end
 
     test "the fully populated whole-envelope digest is the ROOT-ORDER witness" do

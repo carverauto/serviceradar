@@ -39,6 +39,10 @@ type trustDocument struct {
 	Keys               []trustDocumentKey   `json:"keys"`
 	Fences             []trustDocumentFence `json:"fences"`
 	Scopes             []trustDocumentScope `json:"scopes"`
+	// TerminalIntervals name authority intervals that ended certificate_revoked or
+	// revoked_cause_unknown. A late record naming one is security-quarantined whoever
+	// presents it, whatever grant it carries; a higher current fence alone never is.
+	TerminalIntervals []trustDocumentFence `json:"terminal_intervals"`
 	// Registry authority is consumed by gateways. Parsing this document does not
 	// install or authorize contracts: attribution still uses explicit validators.
 	Registry json.RawMessage `json:"contract_registry"`
@@ -86,7 +90,13 @@ type TrustSnapshot struct {
 	tolerance int64
 	keys      map[snapshotKeyID]snapshotKey
 	fences    map[snapshotFenceID]uint64
+	terminal  map[snapshotTerminalID]bool
 	scopes    map[string]bool
+}
+
+type snapshotTerminalID struct {
+	fence snapshotFenceID
+	epoch uint64
 }
 
 // ParseTrustDocument accepts only a document received over the authenticated
@@ -101,11 +111,11 @@ func ParseTrustDocument(raw, authenticatedAgent []byte, epoch uint64) (*TrustSna
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTrustDocument, err)
 	}
-	if doc.ClockToleranceNano < 0 || doc.ClockToleranceNano > MaxClockToleranceNano || len(doc.Keys) == 0 || len(doc.Keys) > maxTrustKeys || len(doc.Fences) > maxTrustFences || len(doc.Scopes) > 1 {
+	if doc.ClockToleranceNano < 0 || doc.ClockToleranceNano > MaxClockToleranceNano || len(doc.Keys) == 0 || len(doc.Keys) > maxTrustKeys || len(doc.Fences) > maxTrustFences || len(doc.TerminalIntervals) > maxTrustFences || len(doc.Scopes) > 1 {
 		return nil, ErrTrustDocument
 	}
 	snapshot := &TrustSnapshot{agent: bytes.Clone(authenticatedAgent), epoch: epoch, tolerance: doc.ClockToleranceNano,
-		keys: make(map[snapshotKeyID]snapshotKey), fences: make(map[snapshotFenceID]uint64), scopes: make(map[string]bool)}
+		keys: make(map[snapshotKeyID]snapshotKey), fences: make(map[snapshotFenceID]uint64), terminal: make(map[snapshotTerminalID]bool), scopes: make(map[string]bool)}
 	if err := snapshot.readScopes(doc.Scopes); err != nil {
 		return nil, err
 	}
@@ -116,6 +126,11 @@ func ParseTrustDocument(raw, authenticatedAgent []byte, epoch uint64) (*TrustSna
 	}
 	for _, fence := range doc.Fences {
 		if err := snapshot.readFence(fence); err != nil {
+			return nil, err
+		}
+	}
+	for _, interval := range doc.TerminalIntervals {
+		if err := snapshot.readTerminal(interval); err != nil {
 			return nil, err
 		}
 	}
@@ -191,6 +206,45 @@ func (s *TrustSnapshot) readFence(fence trustDocumentFence) error {
 	}
 	s.fences[id] = *fence.Epoch
 	return nil
+}
+
+// readTerminal records one terminal authority interval. Unlike a fence it need not
+// name a scope this agent is bound to: a successor presents a predecessor's records.
+func (s *TrustSnapshot) readTerminal(interval trustDocumentFence) error {
+	if interval.Shard == nil || interval.Epoch == nil || ValidateCanonicalUUID(interval.Scope) != nil || ValidateCanonicalUUID(interval.Assignment) != nil {
+		return ErrTrustDocument
+	}
+	id := snapshotTerminalID{snapshotFenceID{string(interval.Scope), string(interval.Assignment), *interval.Shard}, *interval.Epoch}
+	if s.terminal[id] {
+		return ErrTrustDocument
+	}
+	s.terminal[id] = true
+	return nil
+}
+
+// LatePolicyFor is the policy for production-time late admission. It needs only a
+// loaded snapshot: an absent fence or scope binding is admissible, because core
+// decides it from retained authority history. It never authorizes live work.
+func (s *TrustSnapshot) LatePolicyFor(record *edgev1.EdgeRecordV1, nowUnixNano int64) (AuthorizationPolicy, error) {
+	if s == nil || record == nil {
+		return AuthorizationPolicy{}, ErrTrustMissing
+	}
+	producer := record.GetProducerContext()
+	fence := snapshotFenceID{string(record.GetNetworkScopeId()), string(producer.GetProducerAssignmentId()), producer.GetRunShard()}
+	policy := AuthorizationPolicy{Trust: s, NowUnixNano: nowUnixNano, ClockToleranceNano: s.tolerance, TrustPolicyEpoch: s.epoch,
+		TerminalAuthority: s.terminal[snapshotTerminalID{fence, producer.GetAuthorityEpoch()}]}
+	if epoch, exists := s.fences[fence]; exists {
+		policy.ActiveFence = ResolvedFence(epoch)
+	}
+	return policy, nil
+}
+
+// AuthenticatedAgent is the principal this snapshot was installed for.
+func (s *TrustSnapshot) AuthenticatedAgent() []byte {
+	if s == nil {
+		return nil
+	}
+	return bytes.Clone(s.agent)
 }
 
 // PolicyFor resolves the exact namespace/assignment/shard fence from this same
