@@ -404,9 +404,11 @@ code `LATE_ADMISSION_REQUIRED`; the kind alone resolves the slot, as for every
 permanent rejection, and the capable agent does not copy the record into the
 evicting local quarantine. For an older agent, whose lane open carries no
 version (absent or 0),
-the gateway keeps today's live dispositions. The gateway resolves a live frame whose origin
-principal is not the authenticated agent the same way, in place of
-`identity_conflict`. That is a resolving disposition: it neither
+the gateway keeps today's live dispositions. On a live session whose lane
+open carried `late_admission_protocol_version >= 1`, the gateway resolves a
+live frame whose origin principal is not the authenticated agent the same way,
+in place of `identity_conflict`; with version 0 or none it keeps today's
+disposition. That is a resolving disposition: it neither
 withholds the frame nor sends it to the `fence_stale` quarantine. Before the
 agent persists the resolution (resolved prefix or reclaim), it appends the
 exact record bytes to the late generation for that lane key, or, when the
@@ -570,7 +572,9 @@ An old agent never asks for late grants and its lane opens carry no
   handled like `certificate_revoked`; neither is ever pruned. A current
   revocation state beats an already-issued late grant at publication.
 - An origin-principal mismatch replaces `identity_conflict`: security
-  quarantine on a late session, `LATE_ADMISSION_REQUIRED` on a live one.
+  quarantine on a late session, `LATE_ADMISSION_REQUIRED` on a live one whose
+  lane open carried `late_admission_protocol_version >= 1` (today's
+  disposition otherwise).
 - `LATE_ADMISSION_REQUIRED` is a `REJECTED_PERMANENT` rejection code sent only
   on live sessions whose `EdgeRecordLaneOpen.late_admission_protocol_version`
   is at least 1; older agents (absent or 0) keep today's live dispositions.
