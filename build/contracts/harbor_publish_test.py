@@ -154,6 +154,10 @@ for tag in tags.split(","):
 pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
 """)
         self.fake("git", "print('a' * 40)\n")
+        host_bin = self.root / ".local/bin"
+        host_bin.mkdir(parents=True)
+        for tool in ("git", "oras"):
+            (host_bin / tool).symlink_to(self.bin / tool)
         self.fake("signature", "pathlib.Path(sys.argv[sys.argv.index('--out') + 1]).write_text('{}')\n")
         bundle = self.root / "example.zip"
         bundle.write_bytes(b"synthetic bundle")
