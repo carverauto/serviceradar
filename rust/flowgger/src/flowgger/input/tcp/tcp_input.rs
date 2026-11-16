@@ -61,9 +61,15 @@ impl Input for TcpInput {
             let tx = tx.clone();
             let tcp_config = self.tcp_config.clone();
             let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
-            thread::spawn(move || {
+            if let Err(err) = thread::Builder::new().spawn(move || {
                 handle_client(client, tx, decoder, encoder, tcp_config);
-            });
+            }) {
+                eprintln!(
+                    "Unable to start TCP connection handler on {}: {err}",
+                    self.listen
+                );
+                thread::sleep(ACCEPT_RETRY_DELAY);
+            }
         }
     }
 }
