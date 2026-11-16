@@ -239,7 +239,7 @@ defmodule ServiceRadarRecording.Packaging do
       pts != dts ->
         {:error, :frame_reordering_unsupported}
 
-      state.last_dts != nil and dts <= state.last_dts ->
+      state.last_dts != nil and not advances?(dts, state) ->
         {:error, :non_monotonic_timestamp}
 
       true ->
@@ -252,6 +252,13 @@ defmodule ServiceRadarRecording.Packaging do
   end
 
   defp admit(_access_unit, _state), do: {:error, :invalid_access_unit}
+
+  # Until a keyframe is acquired every earlier unit is dropped and is not on the
+  # timeline, so the first kept unit may repeat the timestamp of a dropped one.
+  # A source that opens mid-GOP can stamp its leading frame and its first
+  # keyframe alike. Time never runs backwards, and never repeats once recording.
+  defp advances?(dts, %{waiting?: true, last_dts: last}), do: dts >= last
+  defp advances?(dts, %{last_dts: last}), do: dts > last
 
   defp acquisition_budget(_buffer, %{waiting?: false}), do: :ok
 
