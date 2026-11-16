@@ -97,7 +97,7 @@ With the `received` basis, a block's wall-clock position SHALL derive from Core'
 
 ### Requirement: Core catalog of sealed NVR blocks
 The system SHALL register each sealed NVR block as one catalog entry, created only in the same transaction that freezes the block's canonical descriptor, either under its original live recorder claim or by the reconciler's historical freeze under Core's retained reservation authority, and SHALL record the block's camera, profile, media and timeline ranges with their time basis and the state of its local and archive copies.
-Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged as sealed or playable on the strength of on-disk evidence alone. The catalog SHALL also admit a quarantined entry, after the NVR confirms the move into its quarantine partition: a new row for a block or journal whose seal cannot be verified or recovered or that has no Core authority, with camera, profile, policy and run fields empty where the reservation and journal do not provide them; or the existing sealed row of a block whose registered archive binding is absent from retained history or ended for a compromise-class reason, keeping its frozen descriptor. A quarantined entry SHALL carry the reason, the quarantine receipt, the bytes and, when it archives, the archive state of its quarantine-destination copy; it SHALL NOT be played, and a gap with reason `quarantined` SHALL be recorded for it only when its camera and media interval are known; otherwise it SHALL be listed on the health tab's quarantine list. This is the one statement of the quarantined-gap rule.
+Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged as sealed or playable on the strength of on-disk evidence alone. The catalog SHALL also admit a quarantined entry, after the NVR confirms the move into its quarantine partition: a new row for a block or journal whose seal cannot be verified or recovered or that has no Core authority, with camera, profile, policy and run fields empty where the reservation and journal do not provide them; or the existing sealed row of a block whose registered archive binding is absent from retained history or ended for a compromise-class reason, keeping its frozen descriptor. A quarantined entry SHALL carry the reason, the quarantine receipt, the bytes and, when it archives, the archive state of its quarantine-destination copy; it SHALL NOT be played, and a quarantined gap SHALL be recorded only when that block's camera and its own media interval are known; otherwise the entry SHALL appear only on the health tab's quarantine list. This is the one statement of the quarantined-gap rule.
 
 #### Scenario: Registration after seal
 - **WHEN** a continuous run or bounded capture receives a sealed result for its reserved block
@@ -146,7 +146,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 #### Scenario: Unrecoverable journal is quarantined
 - **WHEN** explicit recovery of a reserved block fails verification
 - **THEN** the system SHALL quarantine the block or journal and record its quarantine receipt on a quarantined catalog entry
-- **AND** SHALL record a gap only as the catalog requirement's quarantined-gap rule allows, never from the reserved interval or receipt time alone
+- **AND** a quarantined gap SHALL be recorded only when that block's camera and its own media interval are known; otherwise the entry SHALL appear only on the health tab's quarantine list
 - **AND** SHALL raise an alarm and show the quarantined bytes on the health tab
 - **AND** SHALL NOT play it or remove it until an operator records an audited disposition, at any usage
 - **AND** the alarm SHALL remain until that disposition removes it
@@ -170,9 +170,10 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** its drain SHALL end at its local quarantine receipt, without an index receipt
 
 #### Scenario: No binding active for a quarantine copy
-- **GIVEN** archiving is enabled and a quarantined block would archive, but no archive binding is active
+- **GIVEN** archiving is enabled and a quarantined block is owed a quarantine-destination copy, but no archive binding is active
 - **WHEN** the reconciler works it
-- **THEN** it SHALL stay quarantined locally with an alarm and its drain SHALL NOT end until a binding exists
+- **THEN** the entry SHALL be in the awaiting-binding state with no archive job and an open alarm, its drain SHALL stay open, and it SHALL NOT be treated as terminal or counted against the bounded-time clause
+- **AND** when a binding becomes active, the reconciler pass SHALL record it as the entry's quarantine binding, make the entry pending and enqueue its job, and the drain SHALL end only at the verified quarantine-destination receipt
 
 #### Scenario: Local-only camera ends at its local catalog entry while a destination exists
 - **GIVEN** archiving is enabled for other cameras and one camera's policy is `local_only`

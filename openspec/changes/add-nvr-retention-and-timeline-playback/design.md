@@ -761,8 +761,9 @@ above.
 
 Product rule (recorded 2026-11-15): footage captured at the edge must never be
 left stranded on disk. "Kept on the volume and flagged" is not an acceptable end
-state. Every block ends in one of the drain's terminal outcomes (R2), and any
-interval it does not cover is recorded as a gap. The authority under which an
+state. Every block ends in one of the drain's terminal outcomes (R2), except
+an entry in `awaiting_binding` (A6), which stays open with its alarm; any
+interval it does not cover is recorded as a gap as R2 allows. The authority under which an
 old block is adopted or re-delivered is the production-time rule of
 [add-edge-production-time-admission](../add-edge-production-time-admission/proposal.md):
 a sealed block is judged against the recovery generation, archive binding and
@@ -806,7 +807,10 @@ now in review, and every capture that rotated did.
 
 For every block directory on an NVR volume, within a bounded time after its
 writer retires, the reconciler works it until it reaches one of the drain's
-terminal outcomes. This is the one list; nothing else ends the drain:
+terminal outcomes. An entry in `awaiting_binding` (A6) is excluded from that
+bound: it is not terminal, has no job and an open alarm, and the reconciler
+pass resumes it when a binding becomes active. This is the one list; nothing
+else ends the drain:
 
 | Block | Terminal outcomes |
 | --- | --- |
@@ -847,11 +851,8 @@ acts on:
   and the retention job deletes any `_quarantine/` objects.
 
 **Quarantined-gap rule** (the one statement; B2, A7, R4, D2 and the spec refer
-to it): a `RecordingGap` with reason `quarantined` and the verification class
-is recorded only when that block's camera and its own media interval are
-known; otherwise the block appears on the health tab's quarantine list. A
-reservation's run timeline or a capture's receipt time is never used in place
-of the block's media interval.
+to it): a quarantined gap is recorded only when that block's camera and its own media interval are known; otherwise the entry appears only on the health tab's quarantine list. The gap carries reason `quarantined` and the
+verification class; no other interval is ever substituted.
 
 Any state other than an outcome above (unreconciled, not yet adopted, or
 archive still pending or failed) is in progress: the reconciler keeps working
@@ -942,8 +943,7 @@ descriptor SHA-256. For each block:
    rule (R2). Nothing is removed automatically.
 6. **Unattributable**: no Core authority. Quarantine it (R2) with reason class
    `unattributable`, raise an alarm and list it with the evidence on the
-   health tab; never adopt it. Apply the quarantined-gap rule (R2), taking the
-   camera from its journal identity and the interval from its readable media.
+   health tab; never adopt it. Apply the quarantined-gap rule (R2).
    The A6 predicate decides its quarantine copy. The operator's options are an audited
    disposition or an export for inspection.
 
