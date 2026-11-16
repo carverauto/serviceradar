@@ -368,11 +368,16 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
   end
 
   test "ledger coverage advances to the prune cutoff only when ledger rows go, and never backward" do
-    # Clear anything already expired so the next pass deletes nothing.
+    # Clear anything already expired so the next pass deletes nothing. The migration seeds
+    # complete_since at its own run time minus 30 days, which may already be later than a
+    # prune's cutoff (now minus the horizon), so clear the row: absent means "never pruned".
     assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
-    settled = coverage()
+    Repo.query!("DELETE FROM platform.edge_ledger_coverage WHERE id = 1")
+    assert LedgerCoverage.complete_since() == {:ok, nil}
+
+    # A pass that deletes no ledger rows leaves coverage alone.
     assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
-    assert coverage() == settled
+    assert LedgerCoverage.complete_since() == {:ok, nil}
 
     horizon = EdgeLedgerRetentionWorker.retention_horizon_seconds()
     before = DateTime.utc_now()
@@ -381,7 +386,8 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     after_prune = DateTime.utc_now()
 
     refute bundle_exists?(expired).event_ledger
-    # Every ledger row inserted at or after the cutoff is retained, so that is the coverage.
+    # Every ledger row inserted at or after the cutoff is retained, so coverage is created at
+    # exactly this prune's cutoff.
     advanced = coverage()
     refute DateTime.before?(advanced, DateTime.shift(before, second: -horizon))
     refute DateTime.after?(advanced, DateTime.shift(after_prune, second: -horizon))
