@@ -209,12 +209,16 @@ to amend its text so the two agree.
 **PD9. A block with no known camera policy follows the deployment.** A
 quarantined block whose camera policy is not known (unattributable, or its
 policy cannot be determined) is treated as archiving for quarantine purposes
-when archiving is enabled for the deployment: it is quarantined locally and
-copied to the `_quarantine/` prefix, and only the verified
-quarantine-destination receipt ends its drain, with the archive job retried
-like any other. When archiving is not enabled, it ends at its local quarantine
-receipt. Rationale: with object storage configured only an archive receipt or a
-quarantine receipt ends the drain (the owner's standing rule), and footage
+when archiving is enabled for the deployment. The three branches: (i) when
+archiving is not enabled, it ends at its local quarantine receipt; (ii) when
+archiving is enabled and a binding is active, it is pending, copied to the
+`_quarantine/` prefix by an archive job retried like any other, and only the
+verified quarantine-destination receipt ends its drain; (iii) when archiving
+is enabled and no binding is active, it is `awaiting_binding`: no job, an
+alarm, its drain open and not terminal, until a reconciler pass finds an
+active binding (A6). Rationale: with object storage configured only an archive
+receipt or a verified quarantine-destination receipt ends the drain (the
+owner's standing rule), and footage
 nobody can attribute must not exist only on one volume. The A6 archive
 predicate implements the rule and R2 states its outcomes.
 
@@ -687,7 +691,8 @@ entry. An exact retry returns the existing entry; a different descriptor is
 Blocks whose original claim is gone (uncertain outcomes, a crashed
 coordinator, blocks recorded before this change, or a block the NVR rotated
 into) cannot be frozen by this path. The reconciler (section R) adopts them
-under the authority stated there, or quarantines them with a gap (R4). They
+under the authority stated there, or quarantines them, with a gap only by the
+quarantined-gap rule (R2). They
 are never left as unexplained local bytes.
 
 The catalog therefore holds two kinds of entry, and this section is the one
@@ -836,9 +841,11 @@ acts on:
 
 - it is row (q) of the C1 table: never space- or age-evictable, always pinned,
   and exactly one term (P5) of the C1a pinned bytes;
-- when it archives by A6 predicate (b) its `archive_state` starts `pending`
-  and the A6 job copies it to the `_quarantine/` prefix of its
-  `quarantine_binding_id`, retried like any other until verified; those objects count in object usage and as
+- when it archives by A6 predicate (b) and a binding is active, its
+  `archive_state` starts `pending` and the A6 job copies it to the
+  `_quarantine/` prefix of its `quarantine_binding_id`, retried like any other
+  until verified; with no active binding it is `awaiting_binding` (no job,
+  alarm, drain open, not terminal) until a reconciler pass finds one (A6); those objects count in object usage and as
   non-reapable bytes (C3a), and object retention and the reaper never select
   them; otherwise its `archive_state` is `not_required`;
 - it is never playable: timeline coverage, playlists and fragment routes

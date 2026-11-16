@@ -160,8 +160,8 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 #### Scenario: Unattributable block with archiving enabled
 - **GIVEN** a block with a good seal, no Core authority and no known camera policy is quarantined while archiving is enabled for the deployment
 - **WHEN** the reconciler works it
-- **THEN** an archive job SHALL copy its files and manifest to the quarantine destination without a frozen descriptor, retried like any other archive job
-- **AND** its drain SHALL end only at the verified quarantine-destination receipt
+- **THEN** when an archive binding is active, it SHALL be pending and an archive job SHALL copy its files and manifest to the quarantine destination without a frozen descriptor, retried like any other archive job, and its drain SHALL end only at the verified quarantine-destination receipt
+- **AND** when no archive binding is active, it SHALL be in the awaiting-binding state with no archive job, an open alarm and its drain open, not terminal, until a reconciler pass finds an active binding
 
 #### Scenario: Unattributable block with archiving disabled
 - **GIVEN** the same block while archiving is not enabled for the deployment
