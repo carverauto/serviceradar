@@ -222,6 +222,23 @@ owner's standing rule), and footage
 nobody can attribute must not exist only on one volume. The A6 archive
 predicate implements the rule and R2 states its outcomes.
 
+**PD10. Footage owed an archive copy waits for a destination.** When archiving
+is enabled and an entry is owed a copy (A6 predicate (a), ordinary
+`local_and_archive` footage, or (b), quarantined footage) but no
+`ArchiveBinding` is active, the entry is registered in
+`archive_state = awaiting_binding`: no job, the "archive enabled but no
+destination" alarm, the entry pinned, its drain open and not terminal. When a
+binding becomes active the reconciler pass assigns it to every
+`awaiting_binding` entry, moves the entry to `pending` and enqueues its job.
+This agrees with the rule that an entry keeps the binding recorded at
+registration and that a later binding never re-archives footage that already
+had one (R8): an `awaiting_binding` entry never had a binding, so nothing is
+replaced. Rationale: with object storage enabled only an archive receipt or a
+quarantine receipt ends the drain, and footage the operator asked to archive
+must not silently become local-only because a destination was missing for a
+while. Ending at the local catalog entry or the local quarantine receipt
+applies only when archiving is not enabled or the policy is `local_only`.
+
 ## A. Continuous recording that fits the volume
 
 ### A1. Block sizing
@@ -469,8 +486,7 @@ an archive job; R2, R4, R5, the spec and the tasks refer to it. An entry
 
 - (a) `RecordingArchiveSettings.archive_enabled` is true, its policy stores
   `local_and_archive`, and it is not quarantined: the job archives the block
-  through the block contract to the `archive_binding_id` recorded at its
-  registration;
+  through the block contract to its `archive_binding_id` (B3);
 - (b) it is quarantined (R2), `archive_enabled` is true for the deployment,
   and its camera policy is not `local_only`; a block with no known policy
   (unattributable, including one with a good seal, or a policy that cannot be
@@ -480,22 +496,26 @@ an archive job; R2, R4, R5, the spec and the tasks refer to it. An entry
   (`.quarantine/<block_key>/`) as-is, plus a small manifest object listing
   each file's name, length and SHA-256 from the quarantine receipt; the
   quarantine-destination receipt records that each object's length and
-  SHA-256, read back, match the manifest. While no binding is active, the
-  entry is in `archive_state = awaiting_binding` instead (below).
+  SHA-256, read back, match the manifest.
+
+Under (a) or (b), while no `ArchiveBinding` is active the entry is in
+`archive_state = awaiting_binding` instead (below, PD10).
 
 Otherwise the entry has `archive_state = not_required` and nothing is
 enqueued.
 
-**`awaiting_binding`.** An entry that satisfies (b) while no archive binding
-is active gets `archive_state = awaiting_binding`: no job exists, the R5
-alarm is raised, and its drain stays open (it is not a terminal outcome,
-R2). Each `NVRReconcileJob` pass that finds an active binding sets the entry's
-`quarantine_binding_id` to it, moves the entry to `pending` and enqueues the
-job. This does not archive ordinary footage retroactively and is consistent
-with the rule that a later binding applies only to entries registered
-afterwards (R8): the entry never had a binding, so none is being replaced. An
-entry that did have a binding keeps it, or is quarantined if it lost its
-retained history, and is never rebound.
+**`awaiting_binding`.** An entry that satisfies (a) or (b) while no archive
+binding is active gets `archive_state = awaiting_binding` (PD10): no job
+exists, the R5 "archive enabled but no destination" alarm is raised, the entry
+is pinned (kind (c) of the C1 table, or row (q) when quarantined), and its
+drain stays open (it is not a terminal outcome, R2). Each `NVRReconcileJob`
+pass that finds an active binding assigns it to every `awaiting_binding`
+entry (`archive_binding_id` under (a), `quarantine_binding_id` under (b)),
+moves the entry to `pending` and enqueues the job. This is consistent with the
+rule that a later binding applies only to entries registered afterwards (R8):
+the entry never had a binding, so none is being replaced. An entry that did
+have a binding keeps it, or is quarantined if it lost its retained history,
+and is never rebound.
 
 When an entry archives with a binding, registering it (B2) or quarantining
 it creates it with `archive_state = pending` and enqueues one Oban job
@@ -735,9 +755,9 @@ owner of block state that every other section follows:
 | `fragment_count`, `media_bytes`, `init_sha256`, `descriptor_sha256` | From the frozen descriptor |
 | `local_state`, `local_state_at` | `present`, `quarantined`, `reclaiming`, `reclaimed`, `missing` |
 | `quarantine_reason`, `quarantine_receipt`, `quarantined_bytes` | Set exactly when `local_state = quarantined` (R2): reason class (`unrecoverable_journal`, `unattributable`, `binding_without_history`), the receipt (the NVR's confirmed partition path, per-file length and SHA-256, placed-at) and the bytes; its quarantine-destination copy uses the `archive_state` and receipt fields below |
-| `archive_state`, `archive_state_at` | `not_required`, `awaiting_binding` (quarantined entries only, A6), `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
+| `archive_state`, `archive_state_at` | `not_required`, `awaiting_binding` (A6, PD10), `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
 | `archive_deleted_reason` | Set once when `archive_state` becomes `deleted`: `object_retention`, `object_capacity` or `operator`; with `local_state = present` the entry is local only after archive expiry or reaping (C3, C3a) |
-| `archive_binding_id` | FK restrict; for an entry that archives under A6 (a), the binding active when the entry is registered; never changed. An absent or compromise-ended binding quarantines the entry (R8); it is never rebound |
+| `archive_binding_id` | FK restrict; for an entry that archives under A6 (a), the binding active when the entry is registered, or, for an entry registered in `awaiting_binding`, the first binding the reconciler pass assigns (PD10); never changed afterwards. An absent or compromise-ended binding quarantines the entry (R8); it is never rebound |
 | `quarantine_binding_id` | FK restrict; set once for a quarantined entry that archives under A6 (b): the deployment binding active when it is quarantined (for a new unknown-policy row, at its own registration); NULL while `archive_state = awaiting_binding`, set by the reconciler pass that finds a binding active (A6); the `_quarantine/` copy is written under it |
 | `nvr_archive_receipt_id` | FK restrict, set at `verified` |
 | `archive_attempts`, `archive_last_error_class` | Bounded class, no provider text |
@@ -821,7 +841,7 @@ else ends the drain:
 | --- | --- |
 | Does not archive (A6 predicate false), not quarantined: a `local_only` policy (including while a destination is configured for other cameras), or moved to `not_required` because archiving was turned off | Its catalog entry (B3) with `archive_state = not_required` and its index receipt persisted |
 | Does not archive (A6 predicate false), quarantined: any quarantine reason while archiving is not enabled, or a `local_only` policy's quarantined block | Its quarantined catalog entry with its local quarantine receipt; it has no index receipt |
-| Archives under A6 (a) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); if the entry is quarantined first (R4 step 1), the next row applies |
+| Archives under A6 (a) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); if the entry is quarantined first (R4 step 1), the next row applies; `awaiting_binding` (A6, PD10) is not an outcome: the drain stays open, bounded by its alarm |
 | Archives under A6 (b): quarantined while archiving is enabled and its policy is not `local_only`, including an unknown policy and a good-seal unattributable block (PD9) | Its quarantined entry with `archive_state = verified` for the `_quarantine/` copy (the quarantine-destination receipt). The local quarantine receipt does not end the drain; `awaiting_binding` (A6) is not an outcome: the drain stays open, bounded by its alarm |
 
 This is the one statement of the drain's terminal outcomes; it refines
@@ -937,7 +957,9 @@ descriptor SHA-256. For each block:
    `archive_binding_id`; the A6 predicate then decides its quarantine copy.
 2. **Reserved row, sealed block**: fetch the descriptor, historical freeze,
    create the catalog entry, and enqueue archive only when it archives by the
-   A6 predicate; otherwise the entry has `archive_state = not_required`.
+   A6 predicate and a binding is active; when it archives and no binding is
+   active it is `awaiting_binding` (PD10); otherwise the entry has
+   `archive_state = not_required`.
 3. **Reserved row, incomplete journal**: once the writer is retired, call
    `recover_block/2` with the row's identity. The existing explicit recovery
    repairs the journal to its last committed fragment and seals it. Then treat
@@ -992,8 +1014,9 @@ Alarms (through the deduplicated, auto-clearing health-check path in C8, not jus
 - oldest unarchived block older than 1 hour (code default);
 - any `failed_terminal` archive entry;
 - any quarantined block, until an audited disposition removes it (it clears
-  only when the condition no longer holds, like every other alarm), naming a
-  block in `awaiting_binding`;
+  only when the condition no longer holds, like every other alarm);
+- "archive enabled but no destination": any entry in `awaiting_binding`
+  (PD10), until a binding is active and the entry is pending;
 - a block unreconciled for longer than 2 reconciler intervals plus the writer
   retirement time;
 - reconciliation paused because the recovery gate is closed or history is
@@ -1053,7 +1076,7 @@ NVR archive path's own rule for each is stated here:
 | Path | Older path, verified in source | NVR archive path (this change) |
 | --- | --- | --- |
 | Unknown dispatch outcome | A dispatch observed as `:prepared` (`archive_uploads.ex:1157`) makes `publication_phase/2` return `:reconciliation_required` (`archive_uploads.ex:1231`, `1237`), and `ArchivePublication` stops with `:archive_reconciliation_required` (`archive_publication.ex:42`, `79`); nothing rearms it. Follow-up for add-edge-recording-archive | Rearmed: an unknown outcome is `failed_retryable` and A6 retries it; the retry verifies retained objects by read-back and never overwrites (A6 step 4). R5 re-enqueues any entry left without a job, so no state needs an operator |
-| Changed archive binding | `bind_archive/4` returns `:archive_binding_conflict` when a block already has another binding (`recording_blocks.ex:113-122`), permanently for existing blocks. Follow-up for add-edge-recording-archive | Rebinding rule: an entry archives to the `archive_binding_id` recorded at registration (B3), the binding valid when it was sealed, per the production-time rule; a later binding change applies only to entries registered afterwards and never conflicts with pending ones. If that binding is absent from retained history or ended for a compromise-class reason, the block is quarantined (R2), never rebound; its quarantine copy uses its `quarantine_binding_id` (B3) |
+| Changed archive binding | `bind_archive/4` returns `:archive_binding_conflict` when a block already has another binding (`recording_blocks.ex:113-122`), permanently for existing blocks. Follow-up for add-edge-recording-archive | Rebinding rule: an entry archives to the `archive_binding_id` recorded at registration (B3), the binding valid when it was sealed, per the production-time rule; a later binding change applies only to entries registered afterwards and never conflicts with pending ones; an `awaiting_binding` entry never had a binding, so the first binding assigned to it replaces nothing (PD10). If that binding is absent from retained history or ended for a compromise-class reason, the block is quarantined (R2), never rebound; its quarantine copy uses its `quarantine_binding_id` (B3) |
 | Leftover scratch after a crash | `staging_root/1` refuses an existing `vms-media-staging` root (`session.ex:330-346`), so `init/1` stops with `:storage_scratch_reconciliation_required` (`session.ex:49`) and the router answers 503 for every upload (`router.ex:95-96`). Follow-up for add-edge-recording-archive: the owning service reconciles its own scratch and does not halt other uploads | Not affected: the NVR archive holds the block in memory and writes no scratch (`archive.ex:36-42`); the only file it writes is the bounded receipt, which retries treat as retained evidence |
 
 ## C. Retention and reclaim
@@ -1134,12 +1157,12 @@ archive copy was deleted is "local only after archive expiry or reaping".
 | --- | --- | --- | --- | --- |
 | (a) | `verified`, or `deleted` for any `archive_deleted_reason` (`object_retention`, `object_capacity`, `operator`; C3, C3a) | yes | `max_local_age` when limited | `budget`, `max_local_age` |
 | (b) local-only footage | `not_required` | only when `local_only_full_policy = overwrite_oldest` is recorded; otherwise pinned | `local_only_max_age` when limited, whatever the full policy | `local_only_overwrite`, `local_only_max_age` |
-| (c) pinned by archive state | `pending`, `failed_retryable`, `failed_terminal` (unarchived); `deleting` (until the retention job confirms absence and moves the entry to `deleted`); `missing` (archive copy found changed or absent, an operator decides) | never; always pinned | never | none |
+| (c) pinned by archive state | `awaiting_binding` (PD10), `pending`, `failed_retryable`, `failed_terminal` (unarchived); `deleting` (until the retention job confirms absence and moves the entry to `deleted`); `missing` (archive copy found changed or absent, an operator decides) | never; always pinned | never | none |
 | (q) quarantined | any; the entry has `local_state = quarantined` (R2) | never; always pinned | never | `operator_quarantine` only |
 
 Row (q) applies whenever `local_state = quarantined`, whatever the
-`archive_state` (including `awaiting_binding`, which only quarantined entries
-have); rows (a) to (c) apply to every other entry. Together they cover every
+`archive_state` (including `awaiting_binding`); rows (a) to (c) apply to every
+other entry. Together they cover every
 `archive_state` of B3 exactly once. Any future `archive_state` or
 `local_state` must be added to this table before it can be written; a state
 outside the table is a defect, not an implicit kind.
@@ -2218,7 +2241,7 @@ Deployment-wide, on `RecordingArchiveSettings` (singleton, PaperTrail audited):
 
 | Setting | Default | Bounds | Unlimited / off allowed | Applied |
 | --- | --- | --- | --- | --- |
-| `archive_enabled` | false | | n/a | next block registration and archive job |
+| `archive_enabled` | false | can be enabled only while an `ArchiveBinding` is active; ending the only active binding while it is enabled warns that new footage will wait in `awaiting_binding` (PD10) | n/a | next block registration and archive job |
 | `local_high_water_percent` | 90 | 50 to 95 of the member's applied budget | no | next retention pass |
 | `local_low_water_percent` | 80 | 40 to high water minus 5 | no | next retention pass |
 | `max_local_age_mode` + `max_local_age_seconds` | `limited`, 86,400 | 3,600 to 315,360,000 (10 years) when limited | yes, `unlimited` | next retention pass |
