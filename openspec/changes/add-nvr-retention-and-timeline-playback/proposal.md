@@ -2,7 +2,7 @@
 
 ## Why
 
-The NVR path shipped today records one bounded block (at most 25 s) from the
+The NVR path shipped today records one bounded block (at most 270 s) from the
 shared camera relay into a `serviceradar-nvr` member, seals it on a replicated
 volume, and copies it to an S3-compatible bucket with a verified receipt. The
 local copy is kept. That proved the byte path on a live camera, but nothing
@@ -25,12 +25,13 @@ The product owner asked for:
 Four facts in the shipped code shape the design (details and line references
 in [design.md](design.md#1-constraints-verified-in-source)):
 
-1. A volume holds at most 4,096 blocks and a block at most 16 MiB and 8
-   fragments; the 16 MiB limit is the largest single-buffer PUT the
-   object-storage client allows, and multipart upload is not implemented. At
-   25 s per block one camera fills a volume in about a day, and nothing frees a
-   block. The NVR's byte budget is a fixed 1 GiB default, independent of the
-   volume.
+1. A volume holds at most 4,096 blocks. Since #6660 a block holds at most
+   16 MiB and 150 fragments by default, and one capture at most 270 s, 8,100
+   frames or 12 MiB; the 16 MiB limit is the largest single-buffer PUT the
+   object-storage client allows, and multipart upload is not implemented. A
+   4 Mbit/s camera still closes a 12 MiB block about every 25 s and fills
+   4,096 blocks in about 28.6 hours, and nothing frees a block. The NVR's byte
+   budget is a fixed 1 GiB default, independent of the volume.
 2. Recorded blocks carry `utc_mapping: "unknown"`; a wall-clock timeline needs
    an explicit time basis with honest uncertainty.
 3. Uncertain captures and rotated blocks leave sealed footage with no catalog
@@ -49,9 +50,8 @@ product owner's decisions of 2026-11-15 are recorded in
 - **A. Continuous recording that fits the volume.** A per-camera policy drives a
   continuous coordinator in core-elx that records with no viewers, one block
   per ingest request of up to 270 s, 8,100 frames or 12 MiB, cut at keyframes,
-  with exact gap accounting. Block sizing is the in-progress
-  `feat/nvr-longer-blocks` change (150 fragments per block, 16 MiB block
-  limit). An incremental inventory ledger raises the per-volume block cap.
+  with exact gap accounting. Block sizing is the one merged in #6660 (150
+  fragments per block, 16 MiB block limit). An incremental inventory ledger raises the per-volume block cap.
   Sealed blocks are archived automatically with retry and backlog reporting.
   Blocks above 16 MiB wait for multipart upload.
 - **B. Core catalog of NVR blocks.** One `RecordingCatalogEntry` per sealed
@@ -72,9 +72,11 @@ product owner's decisions of 2026-11-15 are recorded in
   when full). Object retention is enforced by ServiceRadar with a delete-only
   credential role. Holds keep at least one verified copy, preferring the
   archive. An optional object-tier budget with a recorded policy (reap the
-  oldest footage, whole blocks local copy first, which can delete the last
-  copy; or stop archiving) keeps fixed-size buckets working, with calculated
-  effective retention. Unarchived and unreconciled footage is never evicted;
+  archive copies of the oldest footage, keeping any local copy as local only
+  until the local rules evict it, which can delete the last copy; or stop
+  archiving) keeps fixed-size buckets working, with calculated effective
+  retention. Object retention and the reaper delete only archive copies, so a
+  large local volume keeps its history whatever the bucket's size. Unarchived and unreconciled footage is never evicted;
   every deletion is audited and re-checked; storage alerts are deduplicated and
   auto-clearing.
 - **D. Unified timeline playback.** One playback surface per camera by
@@ -131,7 +133,7 @@ deployment change.
   Kubernetes Secret custody text in `add-vms-storage-playback-engine` and the
   `mediaStorage.providerSecretName` path are left to that change to migrate or
   record as an exception (design F7).
-- Depends on: the in-progress `feat/nvr-longer-blocks` change (Stage A sizing);
+- Builds on the block sizing merged in #6660 (Stage A baseline). Depends on:
   Longshore multipart (blocks above 16 MiB, later); the control-plane storage
   entitlements issue and control #182 (Stage F phases P3, P4 and credentials).
   The StarRocks warehouse consumer of the same allocation contract is a

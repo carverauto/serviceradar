@@ -95,11 +95,6 @@ With the `received` basis, a block's wall-clock position SHALL derive from Core'
 - **THEN** the run SHALL re-anchor at that block
 - **AND** the timeline SHALL mark the boundary as re-anchored without recording a media gap
 
-#### Scenario: A camera-reported mapping becomes available later
-- **WHEN** a validated camera-reported clock mapping exists only for blocks reserved after it was established
-- **THEN** only those blocks SHALL use the camera-reported basis
-- **AND** earlier blocks SHALL keep the `received` basis
-
 ### Requirement: Core catalog of sealed NVR blocks
 The system SHALL register each sealed NVR block as one catalog entry, created only in the same transaction that freezes the block's canonical descriptor, either under its original live recorder claim or by the reconciler's historical freeze under Core's retained reservation authority, and SHALL record the block's camera, profile, media and timeline ranges with their time basis and the state of its local and archive copies.
 Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged on the strength of on-disk evidence alone.
@@ -163,8 +158,8 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** SHALL raise an alarm while the pause lasts longer than its threshold
 
 ### Requirement: Capacity-driven local tier with archiving
-The system SHALL treat local NVR storage recorded with archiving as a bounded cache with a byte budget, evicting the oldest local copies that are cataloged, reconciled and archive-verified when usage reaches the high-water mark until it reaches the low-water mark, or when a copy exceeds the maximum local age when that age is limited, whichever comes first.
-The maximum local age SHALL accept an explicit unlimited state, in which only the byte budget evicts and footage stays in both tiers until then. An archive copy SHALL NOT be deleted by object retention while its local copy is present. Unarchived and unreconciled footage SHALL NOT be evicted; a held block's local copy MAY be evicted only when its archive copy is verified, because the hold then pins the archive copy. Eviction SHALL also require that the member's recovery gate and current-history state permit destructive operations. When the installation does not set a budget, the budget SHALL be derived from the volume size minus a reserve rather than a fixed default.
+The system SHALL treat local NVR storage recorded with archiving as a bounded cache with a byte budget, evicting the oldest evictable local copies when usage reaches the high-water mark until it reaches the low-water mark, or when a copy exceeds the maximum local age when that age is limited, whichever comes first. A local copy SHALL be evictable when it is cataloged and reconciled, is not a hold's pinned copy, and its archive copy is either verified or was deleted by object retention or the object reaper; such a block is local only after archive expiry or reaping, SHALL NOT count as unarchived, and SHALL NOT be re-archived automatically.
+The maximum local age SHALL accept an explicit unlimited state, in which only the byte budget evicts local copies. Unarchived footage (archive state pending or failed) and unreconciled footage SHALL NOT be evicted; a held block's local copy MAY be evicted only when its archive copy is verified, because the hold then pins the archive copy. Eviction SHALL also require that the member's recovery gate and current-history state permit destructive operations. When the installation does not set a budget, the budget SHALL be derived from the volume size minus a reserve rather than a fixed default.
 
 #### Scenario: Budget-driven eviction with archiving on
 - **GIVEN** a member's usage reaches the high-water mark and its oldest blocks are archive-verified
@@ -173,15 +168,16 @@ The maximum local age SHALL accept an explicit unlimited state, in which only th
 - **AND** their archive copies SHALL remain playable
 
 #### Scenario: Operator keeps footage locally with no age limit
-- **GIVEN** archiving is on and the maximum local age is set to unlimited
-- **WHEN** footage is older than its object retention but usage is below the high-water mark
-- **THEN** neither the local copy nor the archive copy SHALL be deleted
+- **GIVEN** archiving is on, the maximum local age is set to unlimited and archive retention is 30 days
+- **WHEN** an unheld block is 31 days old and usage is below the high-water mark
+- **THEN** its archive copy SHALL be deleted by object retention and its local copy SHALL be kept
+- **AND** the catalog SHALL record the block as local only after archive expiry
 - **AND** the effective window SHALL be shown as the budget-bound figure
-- **AND** when usage reaches the high-water mark the oldest evictable local copies SHALL be evicted, after which expired archive copies MAY be deleted by object retention
+- **AND** when usage reaches the high-water mark that local copy SHALL be evicted with the other evictable local copies, oldest first
 
 #### Scenario: Maximum local age reached first
 - **GIVEN** usage is below the high-water mark
-- **WHEN** an archive-verified local copy exceeds the maximum local age
+- **WHEN** an evictable local copy (archive-verified, or local only after archive expiry or reaping) exceeds the maximum local age
 - **THEN** that local copy SHALL be evicted
 
 #### Scenario: Archive outage fills the volume and recording stops with an alarm
@@ -252,7 +248,7 @@ The system SHALL support recording with no object storage as a complete mode: re
 
 ### Requirement: Operator-set local budget applied at runtime
 The system SHALL let an operator set each NVR member's local byte budget and reserve from the settings UI, stored in CNPG per storage lifetime, and SHALL deliver them to the member over the existing pinned Core-to-NVR channel as a bounded, authenticated, versioned setting that the member persists beside its storage marker and applies to admission without a restart.
-The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes, a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
+The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (unarchived, unreconciled, and held local copies that are the hold's pinned copy), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
 
 #### Scenario: Operator lowers the budget below current usage
 - **GIVEN** a member's usage is above a newly saved budget that is still above its pinned bytes
@@ -261,8 +257,9 @@ The applied budget SHALL NOT exceed the install ceiling or the measured volume c
 - **AND** footage SHALL be removed only by eviction of evictable blocks through audited dispositions, never by the budget change itself
 
 #### Scenario: Budget below pinned bytes
-- **WHEN** an operator tries to save a budget below the member's unarchived, unreconciled and held bytes
+- **WHEN** an operator tries to save a budget below the member's unarchived and unreconciled bytes plus its held local copies that are the hold's pinned copy
 - **THEN** Core SHALL refuse the change and state the pinned bytes
+- **AND** held bytes whose verified archive copy is the pinned copy SHALL NOT count toward that floor
 
 #### Scenario: Desired versus applied budget differ
 - **WHEN** a member is unreachable or refuses a saved budget
@@ -284,11 +281,12 @@ Each condition SHALL clear when it no longer holds, and repeated evaluation of a
 
 ### Requirement: Application-managed object retention
 The system SHALL expire archive copies itself through a dedicated retention credential role limited to DELETE and HEAD on the destination prefix, and SHALL NOT depend on provider lifecycle rules to expire recorded footage.
-Without a selected retention credential, object retention SHALL be reported as not enforced and nothing SHALL be deleted. Object retention SHALL never be shorter than the maximum local age.
+Without a selected retention credential, object retention SHALL be reported as not enforced and nothing SHALL be deleted. Expiry SHALL delete only the archive copy; a local copy that is still present SHALL be kept, recorded as local only after archive expiry and governed by the local budget and maximum local age.
 
 #### Scenario: Archive copy expires
 - **WHEN** an archive copy is older than its object retention and unheld
 - **THEN** the system SHALL delete each of its objects and confirm by HEAD that each is absent before marking the copy deleted
+- **AND** if its local copy is present, the local copy SHALL be kept, the entry SHALL be recorded as local only after archive expiry, and the local copy SHALL remain evictable by the local budget and maximum local age
 
 #### Scenario: Versioned bucket
 - **WHEN** the destination reports an object version
@@ -305,20 +303,34 @@ Without a selected retention credential, object retention SHALL be reported as n
 - **AND** the view SHALL state that object retention is not enforced
 
 ### Requirement: Object-tier capacity budget
-The system SHALL support an optional object-tier byte budget, unlimited by default, with high and low water marks and an explicitly selected capacity policy recorded with its confirming actor or plan terms: `reap_oldest`, which deletes the oldest unheld archived footage from high water down to low water, or `stop_archiving`, which pauses archiving and keeps footage locally. When no policy has been recorded the system SHALL behave as `stop_archiving`.
-With `reap_oldest`, the system SHALL delete whole blocks oldest first, evicting a block's local copy before deleting its archive copy so that no local copy is left behind a deleted archive copy, each deletion an audited disposition with reason `object_capacity` using the retention credential; this policy can delete the last copy of footage and the settings UI SHALL say so before the selection is recorded. Time-based archive retention SHALL still apply and whichever limit is reached first SHALL delete. Held archive copies SHALL NOT be deleted. The system SHALL compute and show, per policy, the effective object retention from the shared calculation (see "Shared calculated retention and usage report") beside the configured archive retention, with the binding bound and the same what-if projection as the local window.
+The system SHALL support an optional object-tier byte budget, unlimited by default, with high and low water marks and an explicitly selected capacity policy recorded with its confirming actor or plan terms: `reap_oldest`, which deletes the archive copies of the oldest unheld blocks from high water down to low water, or `stop_archiving`, which pauses archiving and keeps footage locally. When no policy has been recorded the system SHALL behave as `stop_archiving`.
+With `reap_oldest`, the system SHALL delete only archive copies, oldest first, each deletion an audited disposition with reason `object_capacity` using the retention credential. A reaped block whose local copy still exists SHALL keep it; the catalog SHALL record the block as local only after archive reaping and the disposition SHALL record that the local copy remained. That local copy SHALL then be governed like local-only footage: kept until the local budget or the maximum local age requires eviction, oldest first, evictable and not pinned as unarchived, and never re-archived automatically. The recorded `reap_oldest` selection SHALL also authorize that later local eviction, which deletes the last copy, and the settings UI SHALL say so before the selection is recorded and SHALL show which footage exists only on local storage. Time-based archive retention SHALL still apply and whichever limit is reached first SHALL delete the archive copy. Held archive copies SHALL NOT be deleted. The system SHALL compute and show, per policy, the effective object retention from the shared calculation (see "Shared calculated retention and usage report") beside the configured archive retention, with the binding bound and the same what-if projection as the local window.
 
 #### Scenario: Reaper keeps a fixed-size bucket within budget
 - **GIVEN** the object budget is limited and `reap_oldest` has been confirmed
 - **WHEN** object usage reaches the high-water mark
-- **THEN** the oldest unheld archived blocks SHALL be deleted, local copy first when present, until usage is at or below the low-water mark
+- **THEN** the archive copies of the oldest unheld blocks SHALL be deleted until usage is at or below the low-water mark
 - **AND** an event SHALL report the bytes and blocks deleted and the resulting effective object retention
 
-#### Scenario: Archive copy whose local copy still exists
-- **GIVEN** the oldest reap candidate still has a local copy because the maximum local age is unlimited
-- **WHEN** the reaper selects it
-- **THEN** the local copy SHALL be evicted first and the archive copy deleted afterwards
-- **AND** the system SHALL NOT leave a local copy whose archive copy was deleted
+#### Scenario: Bucket full with a large local volume keeps local history
+- **GIVEN** `reap_oldest` is confirmed, the maximum local age is unlimited and the local budget holds more footage than the bucket
+- **WHEN** the reaper deletes the archive copy of a block whose local copy still exists
+- **THEN** the local copy SHALL be kept and stay playable
+- **AND** the catalog SHALL record the block as local only after archive reaping and the `object_capacity` disposition SHALL record that the local copy remained
+- **AND** the settings page SHALL show that footage older than the bucket holds exists only on local storage
+- **AND** the block SHALL NOT be archived again
+
+#### Scenario: Reaped block later evicted locally
+- **GIVEN** a block is local only after archive reaping and unheld
+- **WHEN** local usage reaches the high-water mark and it is among the oldest evictable local copies
+- **THEN** its local copy SHALL be evicted through an audited disposition with reason `budget`
+- **AND** it SHALL NOT be treated as unarchived footage that blocks eviction
+
+#### Scenario: Held block is neither reaped nor evicted
+- **GIVEN** a hold covers the oldest block while object usage and local usage are both at their high-water marks
+- **WHEN** the reaper and the local retention pass run
+- **THEN** its archive copy SHALL NOT be reaped
+- **AND** the copy the hold pins SHALL NOT be evicted; when its archive copy had already been reaped before the hold was placed, its local copy SHALL be pinned and kept
 
 #### Scenario: Stop archiving when the bucket is full
 - **GIVEN** the object budget is limited and the policy is `stop_archiving` or none has been recorded
@@ -469,8 +481,13 @@ Every optional limit SHALL be stored as an explicit mode with a value that is pr
 - **THEN** the code defaults SHALL apply and the view SHALL show them as defaults
 
 #### Scenario: Invalid combination
-- **WHEN** an operator sets a limited object retention shorter than a limited maximum local age, or a limited mode without a value
+- **WHEN** an operator sets a limited mode without a value, or a value out of bounds
 - **THEN** the change SHALL be refused with the offending field named
+
+#### Scenario: Archive retention shorter than the maximum local age
+- **WHEN** an operator sets a limited object retention shorter than a limited maximum local age
+- **THEN** the change SHALL be accepted
+- **AND** the settings view SHALL warn that archive copies will expire while their local copies remain, leaving that footage with a single local copy
 
 #### Scenario: Per-tier retention
 - **WHEN** a camera has one policy for a high-bitrate profile with a short object retention override and another for a low-bitrate profile with a long override
