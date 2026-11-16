@@ -10,6 +10,22 @@ on:
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.github/workflows/tests-fingerprint-licensing.yml'
+      # Docs-only changes skip this workflow: Markdown is docs unless a build reads it.
+      # Derived from build/ci/detect_docs_only.py (--print-github-paths <these paths>) and
+      # checked by //build/contracts:docs_only_ci_contract_test.
+      - '!**/*.md'
+      - 'docs/sigstore/**/*.md'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**/*.md'
+      - '**/vendor/**/*.md'
+      - 'swift/FieldSurvey/LocalPackages/**/*.md'
+      - '**/priv/**/*.md'
+      - '**/testdata/**/*.md'
+      - 'js/cli/templates/**/*.md'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
   push:
     branches: [staging]
     paths:
@@ -19,6 +35,22 @@ on:
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.github/workflows/tests-fingerprint-licensing.yml'
+      # Docs-only changes skip this workflow: Markdown is docs unless a build reads it.
+      # Derived from build/ci/detect_docs_only.py (--print-github-paths <these paths>) and
+      # checked by //build/contracts:docs_only_ci_contract_test.
+      - '!**/*.md'
+      - 'docs/sigstore/**/*.md'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**/*.md'
+      - '**/vendor/**/*.md'
+      - 'swift/FieldSurvey/LocalPackages/**/*.md'
+      - '**/priv/**/*.md'
+      - '**/testdata/**/*.md'
+      - 'js/cli/templates/**/*.md'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}

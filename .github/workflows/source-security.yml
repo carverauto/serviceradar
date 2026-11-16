@@ -7,6 +7,37 @@ on:
       - staging
     tags:
       - 'v*'
+    # GitHub does not evaluate path filters for tag pushes, so every release tag still runs.
+    # Docs-only changes skip this workflow. This filter is the docs-only definition in
+    # build/ci/detect_docs_only.py (print it with --print-github-paths);
+    # //build/contracts:docs_only_ci_contract_test fails when the two differ.
+    paths:
+      - '**'
+      - '.*'
+      - '.*/**'
+      - '**/.*'
+      - '**/.*/**'
+      - '!CHANGELOG'
+      - '!**/*.md'
+      - '!docs/**'
+      - '!openspec/**'
+      - '**/BUILD'
+      - '**/BUILD.bazel'
+      - '**/*.bzl'
+      - 'docs/lint_placeholder.sh'
+      - 'docs/cosign.pub'
+      - 'docs/sigstore/**'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**'
+      - '**/vendor/**'
+      - 'swift/FieldSurvey/LocalPackages/**'
+      - '**/priv/**'
+      - '**/testdata/**'
+      - 'js/cli/templates/**'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
   workflow_dispatch:
     inputs:
       tag:

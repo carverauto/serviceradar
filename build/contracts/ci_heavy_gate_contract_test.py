@@ -3391,7 +3391,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
 
 
 class DocsOnlyExclusionCoverageContractTest(unittest.TestCase):
-    """Verifies that all build inputs under docs/ or openspec/ are covered by exclusions."""
+    """Verifies that every docs-only path a BUILD or .bzl file names is covered by an exclusion."""
 
     def test_docs_only_exclusions_cover_all_build_graph_inputs(self):
         from build.ci.detect_docs_only import is_allowlisted, is_excluded
@@ -3455,6 +3455,12 @@ class DocsOnlyExclusionCoverageContractTest(unittest.TestCase):
                     target_path = lit
                 elif lit.startswith("openspec/") and pkg_dir == "":
                     target_path = lit
+                elif lit.endswith(".md") and lit.startswith("//"):
+                    # Markdown anywhere is docs; a label naming one makes it a build input.
+                    package, _, name = lit[len("//") :].partition(":")
+                    target_path = f"{package}/{name}" if package else name
+                elif lit.endswith(".md") and (ROOT / pkg_dir / lit).is_file():
+                    target_path = f"{pkg_dir}/{lit}" if pkg_dir else lit
 
                 if target_path and is_allowlisted(target_path):
                     if not is_excluded(target_path):
@@ -3463,7 +3469,7 @@ class DocsOnlyExclusionCoverageContractTest(unittest.TestCase):
         self.assertEqual(
             [],
             uncovered,
-            f"Build graph inputs under docs/ or openspec/ are not covered by exclusions: {uncovered}",
+            f"Build graph inputs in the docs-only set are not covered by exclusions: {uncovered}",
         )
 
 

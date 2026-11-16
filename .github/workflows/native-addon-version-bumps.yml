@@ -26,7 +26,38 @@ on:
   push:
     branches:
       - staging
+    # Docs-only changes skip this workflow. This filter is the docs-only definition in
+    # build/ci/detect_docs_only.py (print it with --print-github-paths);
+    # //build/contracts:docs_only_ci_contract_test fails when the two differ.
+    paths: &docs_only_skip
+      - '**'
+      - '.*'
+      - '.*/**'
+      - '**/.*'
+      - '**/.*/**'
+      - '!CHANGELOG'
+      - '!**/*.md'
+      - '!docs/**'
+      - '!openspec/**'
+      - '**/BUILD'
+      - '**/BUILD.bazel'
+      - '**/*.bzl'
+      - 'docs/lint_placeholder.sh'
+      - 'docs/cosign.pub'
+      - 'docs/sigstore/**'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**'
+      - '**/vendor/**'
+      - 'swift/FieldSurvey/LocalPackages/**'
+      - '**/priv/**'
+      - '**/testdata/**'
+      - 'js/cli/templates/**'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
   pull_request:
+    paths: *docs_only_skip
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}

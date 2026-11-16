@@ -62,6 +62,7 @@ exports_files([
     "elixir/.credo.jump_checks.exs",
     "elixir/.credo.ex_slop.exs",
     "k8s/argocd/applications/demo-prod.yaml",
+    ".no-mistakes.yaml",
     "buildbuddy.yaml",
     "buildbuddy_setup_fixture_env.sh",
     "docker-compose.yml",
