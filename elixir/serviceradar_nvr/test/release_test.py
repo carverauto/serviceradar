@@ -1272,7 +1272,7 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertIn(b"NVR_CLIENT_PROBE_OK", result.stdout)
         return json.loads(output.read_bytes())
 
-    def sender_peer(self, response_body, status=200, hang=False, drop_after=None):
+    def sender_peer(self, response_body, status=200, hang=False, drop_after=None, answer_after=None):
         observations = []
         closed = threading.Event()
 
@@ -1283,7 +1283,7 @@ class NVRReleaseTest(unittest.TestCase):
                 pass
 
             def do_POST(self):
-                observation = {"path": self.path, "body": bytearray(), "complete": False}
+                observation = {"path": self.path, "body": bytearray(), "complete": False, "answered_at": None}
                 observations.append(observation)
                 self.connection.settimeout(5)
                 try:
@@ -1308,18 +1308,29 @@ class NVRReleaseTest(unittest.TestCase):
                             # Close mid-body without any answer, not even to a next request.
                             self.close_connection = True
                             return
+                        if (answer_after is not None and observation["answered_at"] is None
+                                and len(observation["body"]) >= answer_after):
+                            # Answer before the body ends, then keep recording what still arrives.
+                            observation["answered_at"] = len(observation["body"])
+                            self.answer()
+                    if observation["answered_at"] is not None:
+                        return
                     if hang:
                         self.rfile.read(1)
                         return
-                    self.send_response(status)
-                    self.send_header("Content-Length", str(len(response_body)))
-                    self.send_header("Connection", "close")
-                    self.end_headers()
-                    self.wfile.write(response_body)
+                    self.answer()
                 except (OSError, ValueError):
                     pass
                 finally:
                     closed.set()
+
+            def answer(self):
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(response_body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(response_body)
+                self.wfile.flush()
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -1375,10 +1386,16 @@ class NVRReleaseTest(unittest.TestCase):
             observed, _ = self.sender_peer(json.dumps(bad).encode())
             self.assertEqual(self.send_with_client(units), {"error": ":outcome_unknown"})
             self.assertEqual(len(observed), 1)
-        for raw, status in ((b"invalid json", 200), (b"x" * 32769, 200), (b"", 307), (b"", 503)):
+        for raw, status in ((b"invalid json", 200), (b"x" * 32769, 200)):
             observed, _ = self.sender_peer(raw, status=status)
             self.assertIn("error", self.send_with_client(units))
             self.assertEqual(len(observed), 1)
+        # A non-200 after the end marker may follow a seal, so it is never a refusal.
+        for status in (307, 422, 503):
+            observed, _ = self.sender_peer(b"{}", status=status)
+            self.assertEqual(self.send_with_client(units), {"error": "{:ingest_status, %d}" % status})
+            self.assertEqual(len(observed), 1)
+            self.assertTrue(observed[0]["complete"])
 
     def test_sender_rejects_invalid_header_configuration_and_server_identity(self):
         self.ingest_installation()
@@ -1459,6 +1476,22 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertTrue(closed.wait(3))
         self.assertEqual(len(observations), 1)
         self.assertFalse(observations[0]["complete"])
+        # Any answer before the end marker stops the stream. A non-200 is a refusal;
+        # a 200 with a well-formed receipt cannot be a seal, so it proves nothing.
+        identity = ["synthetic-network-camera", "recording", 1, 0]
+        key = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        receipt = json.dumps({"version": 1, "status": "sealed_local",
+                              "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"], "block_ids": [key]}).encode()
+        for status, body, expected in ((400, b"{}", "{:ingest_refused, 400}"), (401, b"{}", "{:ingest_refused, 401}"),
+                                       (503, b"{}", "{:ingest_refused, 503}"), (200, receipt, ":outcome_unknown")):
+            observations, closed = self.sender_peer(body, status=status, answer_after=len(self.ingest_header()) + 1)
+            result = self.send_with_client(units, mode="paced", pace_ms=50)
+            self.assertEqual(result["error"], expected, status)
+            self.assertLess(result["pulled"], len(units))
+            self.assertTrue(closed.wait(3))
+            self.assertEqual(len(observations), 1)
+            self.assertFalse(observations[0]["complete"])
+            self.assertNotEqual(bytes(observations[0]["body"][-4:]), b"\0" * 4)
 
     def test_network_ingest_seals_and_preserves_decodable_frames_across_restart(self):
         self.ingest_installation()
