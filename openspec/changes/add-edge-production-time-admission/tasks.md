@@ -16,17 +16,19 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 1.2 Add `edgerecord.ValidateRecordProduced` (Decision 3, agent checks 1
       to 5) and `RecordLateAttribution`. Classify the outcome as admissible,
       admissible-security, foreign-principal, retryable or permanent. With a
-      loaded trust snapshot, an absent fence entry or scope binding is
-      admissible; only an unloaded snapshot or an epoch ahead of a present
-      fence is retryable. The live
+      loaded trust snapshot, an absent fence entry or scope binding, an epoch
+      ahead of the known fence and a `produced_at` ahead of the local clock are
+      admissible; only an unloaded snapshot or an `UNAVAILABLE` key is
+      retryable. The live
       `ValidateRecordSigned` is unchanged.
 - [ ] 1.3 Extend `ValidateFrameSigned`, the Go oracle of the gateway decision,
       with the late transition: late-session acceptance only, the binding of
       `produced_at` and epoch, grant-decided publication, security quarantine
-      for a foreign origin principal or `HISTORICALLY_REVOKED` key decided
-      before the missing-grant withhold, and `late_admission_required` for any
-      live-lane record with a stale or missing fence, whatever its production
-      window.
+      for a foreign origin principal (before the identity rejection, replacing
+      `identity_conflict`) or a `HISTORICALLY_REVOKED` key decided before the
+      missing-grant withhold, and `late_admission_required` for any live-lane
+      record with a stale or missing fence, whatever its production window, or
+      a foreign origin principal.
 - [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
       and per-principal holds keyed by `(lane key, origin principal)`
       (`<root>/late/<lane>/principal/<origin principal>/`).
@@ -74,7 +76,8 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
     agent's own late records behind it;
   - a live record with a stale fence and a still-open production window
     resolved as `late_admission_required`;
-  - a future `produced_at` that is refused.
+  - a `produced_at` ahead of the local clock, and an epoch ahead of the known
+    fence, appended to the late generation without stopping the handoff.
 - [ ] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta and
       `legacy-recovery-decision.md` so the "SHALL NOT migrate, drain" sentence
       for flat storage points to this handoff, which is not a recovery
@@ -89,7 +92,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 2.1 Migration: `platform.edge_authority_history`, its triggers on
       `sweep_producer_assignments` and `edge_output_grants` (insert opens;
       update closes and opens; delete only closes with `deleted`), an
-      immutability guard, and seeding from current rows.
+      immutability guard, and seeding from current rows, with already-revoked
+      output grants ended `revoked_cause_unknown` and already-revoked sweep
+      assignments keeping their normal reason. Never prune
+      `certificate_revoked` or `revoked_cause_unknown` intervals.
 - [ ] 2.2 Make `OutputGrants.revoke_agent` record its cause:
       `identity_superseded` or `certificate_revoked`, on every revocation path
       including an operator-request certificate revocation that leaves the
@@ -109,18 +115,23 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       decision (Decision 3, checks 6 to 9, including `ledger_pruned`), reasons
       no grant for non-owners or a foreign origin principal (the gateway
       quarantines those), and no grant for a record naming a
-      `certificate_revoked` interval whoever presents it, returning
-      `certificate_revoked_interval`,
+      `certificate_revoked` or `revoked_cause_unknown` interval whoever
+      presents it, returning `certificate_revoked_interval`, a "not yet"
+      answer for a record whose `produced_at` is in core's future,
       plus a gateway RPC for late grants within the existing batch bounds.
 - [ ] 2.6 Gateway: add late sessions (`admission = LATE`), replacing the
       phase 1 refusal, and late-grant verification in
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
       resolve any live record with a stale or missing fence, whatever its
-      production window, as `late_admission_required`. Publish
-      foreign-principal, `HISTORICALLY_REVOKED` and
-      `certificate_revoked_interval` frames to security quarantine before the
-      missing-grant withhold, recording the origin and
-      presenting principals. Assign
+      production window, or with a foreign origin principal (in place of
+      `identity_conflict`), as `late_admission_required`. On a late session
+      publish foreign-principal frames to security quarantine before the
+      identity rejection, and `HISTORICALLY_REVOKED` and
+      `certificate_revoked_interval` frames before the missing-grant withhold,
+      recording the origin and presenting principals. Re-check the interval's
+      terminal state in the trust snapshot before publishing under an
+      already-issued grant, so a current `certificate_revoked` or
+      `revoked_cause_unknown` state beats it. Assign
       the provenance `LATE_ADMISSION` delivery mode (grammar-8 transport
       provenance, value 5) in Go and Elixir together, and advertise
       `late_admission_v1`.

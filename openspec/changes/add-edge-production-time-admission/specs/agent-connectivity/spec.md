@@ -14,8 +14,13 @@ append it durably to the hold for `(lane key, origin principal)` before
 resolving it when its origin principal is not the authenticated agent, or write it to rejection evidence and
 resolve it when it is permanently invalid. A rejection-evidence write that is
 paused or refused SHALL be retryable, and the legacy record SHALL stay
-unresolved until that write succeeds. A retryable refusal SHALL stop the pass
-without skipping or reordering, and the pass SHALL be retried. A crash between the late append and the legacy resolve
+unresolved until that write succeeds. Only an unloaded trust snapshot or an
+`UNAVAILABLE` key lookup SHALL be a retryable refusal; it SHALL stop the pass
+without skipping or reordering, and the pass SHALL be retried. A record whose
+epoch is ahead of the known fence, or whose `produced_at` is ahead of the local
+clock plus tolerance, SHALL be appended to the late generation for core to
+judge and SHALL NOT stop the pass. Rejection evidence SHALL be used only for a
+structurally invalid record or an `INVALID` key. A crash between the late append and the legacy resolve
 SHALL NOT produce a second copy in the late generation. While committed records
 remain, the agent SHALL report `legacy_storage_handoff_pending` with the record
 count, bytes, oldest age and refusal reason. `unsupported_legacy_storage` SHALL
@@ -39,6 +44,12 @@ make live production not ready.
 - **WHEN** the handoff tries to write that record to rejection evidence and the write is refused
 - **THEN** the agent SHALL NOT resolve the record in the flat spool
 - **AND** SHALL stop the pass, report `legacy_storage_handoff_pending` and retry until the evidence write succeeds
+
+#### Scenario: A record ahead of the local clock does not stop the handoff
+- **GIVEN** a flat spool whose first committed record has a `produced_at` ahead of the local clock plus tolerance and whose later records are ordinary
+- **WHEN** the handoff runs
+- **THEN** every record SHALL be appended to the late generation in sequence order and resolved
+- **AND** the first record SHALL wait in the late generation for core to judge it
 
 #### Scenario: A retryable refusal pauses the handoff in order
 - **GIVEN** a flat spool whose first unresolved record cannot be validated because the trust snapshot is not yet available
