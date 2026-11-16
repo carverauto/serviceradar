@@ -25,7 +25,7 @@ authority SHALL NOT be evicted to free space.
 - **THEN** the agent SHALL leave the entry untouched, keep it charged to the storage budget and report it as unsupported legacy storage
 
 ### Requirement: Late admission is a separate generation and session
-The agent SHALL admit a committed record whose live admission is no longer possible only into a dedicated late generation for the record's lane key or, for a foreign origin principal, into the hold for `(lane key, origin principal)`, and SHALL deliver both only on the lane key's late session opened with `EdgeRecordLaneOpen.admission = LATE`.
+The agent SHALL admit a committed record whose live admission is no longer possible only into a dedicated late generation for the record's lane key or, for a foreign origin principal, into the hold for `(lane key, origin principal)`, and SHALL deliver both only on the lane key's late session opened with `EdgeRecordLaneOpen.late_admission = true`.
 
 The live rule (production authority current now, fence current) SHALL remain
 the only rule for live generations. A late record SHALL NOT be re-signed,
@@ -431,10 +431,12 @@ On a live session whose `EdgeRecordLaneOpen.late_admission_protocol_version` is 
 The disposition kind alone resolves the slot; the rejection code is the
 annotation that tells the capable agent to move the bytes. The gateway SHALL
 NOT withhold the frame and SHALL NOT reject it as `fence_stale`, and the agent
-SHALL NOT copy the record into the evicting local quarantine. Agents implementing the
-late generation SHALL send `late_admission_protocol_version = 1` in every
-`EdgeRecordLaneOpen`, the session input the gateway's authorization already
-holds. For a session whose lane open carried no version or 0, the gateway SHALL
+SHALL NOT copy the record into the evicting local quarantine. When the gateway's
+Hello advertised late admission, agents implementing the late generation SHALL
+send `late_admission_protocol_version = 1` in every `EdgeRecordLaneOpen`, live
+and late, the session input the gateway's authorization already holds, and
+SHALL set `late_admission = true` only on the late session. When Hello did not
+advertise late admission, the agent SHALL set neither field. For a session whose lane open carried no version or 0, the gateway SHALL
 keep today's live dispositions unchanged, so an older agent's
 records follow today's paths. The live lane SHALL NOT wait on a late grant, and a late grant
 SHALL be accepted only on a late session. If the late append is not durable,
