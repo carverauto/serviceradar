@@ -39,6 +39,16 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_timeseries_metrics_chunk_interval_hours 4
   @default_timeseries_metrics_compress_after_hours 2
   @timeseries_metrics_compression_schedule_hours 1
+  # Readers and the hourly rollups filter and group by device and metric, so
+  # those columns segment. `series_key` would explode the segment count.
+  # Timescale requires every primary key column, `(timestamp, gateway_id,
+  # series_key)`, in segmentby or orderby. These equal migration
+  # 20261006160000, so an install that ran it is already in this state.
+  @timeseries_metrics_compress_segmentby "device_id, metric_type, metric_name"
+  @timeseries_metrics_compress_orderby ~s("timestamp" DESC, gateway_id, series_key)
+  # Enabling compression locks the hypertable against the writers. Give up
+  # rather than queue ingestion behind the lock; the next run retries.
+  @timeseries_metrics_compression_lock_timeout "10s"
   @default_otel_traces_chunk_interval_hours 1
   @default_logs_chunk_interval_hours 6
   @default_otel_metrics_chunk_interval_hours 24
@@ -395,19 +405,27 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   @doc """
-  Reconcile the compression policy on raw `platform.timeseries_metrics` to the
-  configured lag (`:timeseries_metrics_compress_after_hours`).
+  Reconcile compression on raw `platform.timeseries_metrics`: enable it when
+  it is off, and hold the policy at the configured lag
+  (`:timeseries_metrics_compress_after_hours`).
 
-  Migration `20261006160000` enables compression and installs the policy, but
-  with a fixed 6-day lag, and an existing policy keeps whatever lag it was
-  created with. At sweep volume six raw days outgrow the CNPG volume, so the
-  lag is configuration. Compressing a raw chunk does not stop the hourly
-  rollups from refreshing over it.
+  Migration `20261006160000` first enabled compression, with a fixed 6-day
+  policy. A database bootstrapped from the schema baseline does not run that
+  migration: the baseline records it as applied, but a schema-only dump
+  carries no TimescaleDB compression settings or policy jobs. Such a database
+  has an uncompressed table that only grows, so this pass enables compression
+  with the migration's segmentby and orderby. It does nothing to a table that
+  already has compression enabled.
+
+  At sweep volume six raw days outgrow the CNPG volume, so the lag is
+  configuration. Compressing a raw chunk does not stop the hourly rollups
+  from refreshing over it. Existing chunks are left to the policy job, which
+  compresses them one at a time; this pass never compresses a chunk itself.
 
   The policy is re-registered only when the lag changed, because
   `add_compression_policy` resets the job schedule. The job runs hourly so a
   closed chunk does not wait out a 12-hour default schedule. A database
-  without TimescaleDB, or a table without compression enabled, is skipped.
+  without TimescaleDB, or without the hypertable, is skipped.
   """
   @spec reconcile_timeseries_metrics_compression(keyword()) :: :ok
   def reconcile_timeseries_metrics_compression(config) do
@@ -462,6 +480,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       ts_schema text;
       compress_after interval := make_interval(hours => #{compress_after_hours});
       schedule interval := make_interval(hours => #{@timeseries_metrics_compression_schedule_hours});
+      enabled boolean;
       current_after interval;
       current_job integer;
       current_schedule interval;
@@ -476,16 +495,30 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         RETURN;
       END IF;
 
-      -- segmentby/orderby belong to the migration; without them there is
-      -- nothing for a policy to run.
-      IF NOT EXISTS (
-        SELECT 1
-        FROM timescaledb_information.hypertables
-        WHERE hypertable_schema = 'platform'
-          AND hypertable_name = 'timeseries_metrics'
-          AND compression_enabled
-      ) THEN
+      SELECT h.compression_enabled
+      INTO enabled
+      FROM timescaledb_information.hypertables h
+      WHERE h.hypertable_schema = 'platform'
+        AND h.hypertable_name = 'timeseries_metrics';
+
+      IF NOT FOUND THEN
         RETURN;
+      END IF;
+
+      IF NOT enabled THEN
+        PERFORM set_config('lock_timeout', '#{@timeseries_metrics_compression_lock_timeout}', true);
+
+        EXECUTE format(
+          'ALTER TABLE %I.%I SET (
+             timescaledb.compress,
+             timescaledb.compress_segmentby = %L,
+             timescaledb.compress_orderby = %L
+           )',
+          'platform',
+          'timeseries_metrics',
+          '#{@timeseries_metrics_compress_segmentby}',
+          '#{@timeseries_metrics_compress_orderby}'
+        );
       END IF;
 
       SELECT (j.config->>'compress_after')::interval

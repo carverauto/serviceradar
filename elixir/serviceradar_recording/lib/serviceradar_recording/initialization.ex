@@ -9,18 +9,22 @@ defmodule ServiceRadarRecording.Initialization do
 
   alias Membrane.MP4.Container
 
+  # Baseline, Main and High. Admission decides which streams may be written.
+  @profiles [66, 77, 100]
+
   def parse(payload) when is_binary(payload) and byte_size(payload) <= 1_048_576 do
     with {:ok, boxes, <<>>} <- Container.parse(payload),
          %{fields: %{timescale: timescale}} when timescale in 1..1_000_000_000 <-
            box(boxes, [:moov, :trak, :mdia, :mdhd]),
          %{fields: %{entry_count: 1}, children: [avc1: %{children: children}]} <-
            box(boxes, [:moov, :trak, :mdia, :minf, :stbl, :stsd]),
-         %{content: <<1, 66, compatibility, level, _rest::binary>>} <- box(children, [:avcC]) do
+         %{content: <<1, profile, compatibility, level, _rest::binary>>} when profile in @profiles <-
+           box(children, [:avcC]) do
       {:ok,
        %{
          sha256: :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower),
          timescale: timescale,
-         codecs: %{avc1: %{profile: 66, compatibility: compatibility, level: level}}
+         codecs: %{avc1: %{profile: profile, compatibility: compatibility, level: level}}
        }}
     else
       _ -> {:error, :invalid_initialization}

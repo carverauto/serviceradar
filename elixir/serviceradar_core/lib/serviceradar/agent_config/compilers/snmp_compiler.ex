@@ -77,6 +77,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.MissingOIDs
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
@@ -361,6 +362,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_profile_targets(profile, actor, opts, format) do
     with {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
          {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor),
+         :ok <- report_missing_oids(profile, oids, Keyword.get(opts, :agent_id)),
          {:ok, query_targets} <-
            compile_query_targets(target_query(profile), profile, oids, actor, opts) do
       compiled_targets =
@@ -402,6 +404,29 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if WarningLedger.changed?(subject, {refusal.count, refusal.limit}) do
       Logger.warning("SNMPCompiler: " <> TargetLimit.message(refusal))
     end
+  end
+
+  # A target query whose devices have no OID to poll compiles no target for
+  # them. As with a target-limit refusal, the counter fires on every such
+  # compile and the log line when the condition starts or the query changes.
+  defp report_missing_oids(profile, oids, agent_id) do
+    subject = {:snmp_profile_without_oids, profile.id, agent_id}
+
+    if MissingOIDs.missing?(profile, oids) do
+      :telemetry.execute(
+        [:serviceradar, :snmp, :profile_without_oids],
+        %{count: 1},
+        %{profile_id: profile.id, profile_name: profile.name, agent_id: agent_id}
+      )
+
+      if WarningLedger.changed?(subject, target_query(profile)) do
+        Logger.warning("SNMPCompiler: " <> MissingOIDs.message(profile))
+      end
+    else
+      WarningLedger.forget(subject)
+    end
+
+    :ok
   end
 
   @doc """
@@ -490,9 +515,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # on a credential or alias outage compiles an empty target list that
   # ConfigServer would cache. The error fails the compile instead.
   #
-  # A profile without OIDs yields no query target for any device. The first
-  # page is still read, so a failed device read fails the compile, and the
-  # reduction stops there instead of walking the inventory for nothing.
+  # A profile without OIDs yields no query target for any device (reported by
+  # report_missing_oids/3). The first page is still read, so a failed device
+  # read fails the compile, and the reduction stops there instead of walking
+  # the inventory for nothing.
   defp compile_query_targets(target_query, profile, oids, actor, opts) do
     compiled_oids = compile_oids(oids)
 

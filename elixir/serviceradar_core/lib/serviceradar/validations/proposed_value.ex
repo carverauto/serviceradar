@@ -1,4 +1,4 @@
-defmodule ServiceRadar.Credentials.Validations.ProposedValue do
+defmodule ServiceRadar.Validations.ProposedValue do
   @moduledoc false
 
   # Reads the value an atomic update will write to one attribute.

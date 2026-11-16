@@ -702,6 +702,22 @@ unproved. Restricting admission is sound because unsupported footage fails
 explicitly without changing the already working live stream. Reconnect and
 configuration changes require a new packager instance and recording epoch.
 
+### Main and High admitted when the stream rules out reordering
+
+When: first capture from an inventory camera.
+
+Baseline-only admission refused every stream from the first real camera, which
+sends Main profile with no B-frames. The profile was standing in for the
+property the writer needs: decode order equal to presentation order. The stream
+states that property itself. A sequence parameter set with picture order count
+type 2 makes output order equal decode order, and one whose bitstream
+restrictions give a reorder depth of zero forbids reordering. Admission now
+accepts Main and High when every parameter set in the stream says one or the
+other, and still refuses a stream that says neither, with a reason that names
+reordering. Equal PTS/DTS is still not evidence. Streams with B-frames still
+need the later clock and codec contract. The descriptor and initialization
+parsers accept the matching codec strings.
+
 ### Complete segment bytes own the fragment contract
 
 When: bounded CMAF packaging pass.

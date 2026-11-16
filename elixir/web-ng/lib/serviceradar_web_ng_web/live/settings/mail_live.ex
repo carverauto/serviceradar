@@ -399,9 +399,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
       relay: blank_to_nil(params["relay"]),
       port: int_or_nil(params["port"]),
       hostname: blank_to_nil(params["hostname"]),
-      username: blank_to_nil(params["username"]),
-      password: blank_to_nil(params["password"]),
-      api_key: blank_to_nil(params["api_key"]),
+      # Credentials pass through untrimmed: the resource stores them exactly and
+      # treats a blank password or API key as "keep the saved one".
+      username: params["username"],
+      password: params["password"],
+      api_key: params["api_key"],
       password_secret_id: blank_to_nil(params["password_secret_id"]),
       api_key_secret_id: blank_to_nil(params["api_key_secret_id"]),
       clear_password: truthy?(params["clear_password"]),

@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.MtrPolicy do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Observability.Changes.SyncBaselineProtocols
+  alias ServiceRadar.Validations.TargetQuery
 
   postgres do
     table "mtr_policies"
@@ -53,6 +54,9 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_min_agents
       ]
 
+      validate {TargetQuery,
+                attribute: :target_selector, shape: {:map, ["srql_query", :srql_query]}}
+
       change SyncBaselineProtocols
     end
 
@@ -75,6 +79,9 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_threshold,
         :consensus_min_agents
       ]
+
+      validate {TargetQuery,
+                attribute: :target_selector, shape: {:map, ["srql_query", :srql_query]}}
 
       change SyncBaselineProtocols
     end

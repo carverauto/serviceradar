@@ -7,13 +7,27 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
 
+  @doc """
+  Advances one generation's finalization by one bounded step.
+
+  Idempotent: the publisher pass and the maintenance tick both step the same
+  generation, so a step that finds it already `complete` returns `:ok` instead
+  of reporting the finished generation as incomplete.
+  """
   def step(id) do
-    with {:ok, generation} <- State.get(id),
-         true <- generation["status"] == "finalizing",
+    case State.get(id) do
+      {:ok, %{"status" => "complete"}} -> :ok
+      {:ok, generation} -> advance(generation)
+      error -> error
+    end
+  end
+
+  defp advance(generation) do
+    with true <- generation["status"] == "finalizing",
          true <- generation["receipts"] == generation["manifest"] and generation["pending"] == %{} do
       case custody(generation) do
         :gap ->
-          abort_for_gap(id)
+          abort_for_gap(generation["id"])
 
         _ ->
           if generation["repairs"] == [] do
@@ -24,7 +38,6 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
       end
     else
       false -> {:error, :exposure_snapshot_incomplete}
-      error -> error
     end
   end
 

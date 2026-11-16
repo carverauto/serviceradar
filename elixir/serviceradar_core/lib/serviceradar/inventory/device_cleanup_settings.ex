@@ -16,7 +16,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
-  alias ServiceRadar.Inventory.Validations.EphemeralExpiryExclusionQuery
+  alias ServiceRadar.Validations.TargetQuery
 
   @settings_fields [
     :retention_days,
@@ -75,13 +75,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       description "Create device cleanup settings"
       accept @settings_fields
       change set_attribute(:key, "default")
-      validate EphemeralExpiryExclusionQuery
+      validate {TargetQuery, attribute: :ephemeral_expiry_exclusion_query, entity: :devices}
     end
 
     update :update do
       description "Update device cleanup settings"
       accept @settings_fields
-      validate EphemeralExpiryExclusionQuery
+      validate {TargetQuery, attribute: :ephemeral_expiry_exclusion_query, entity: :devices}
     end
 
     action :run_cleanup do

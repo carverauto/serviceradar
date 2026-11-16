@@ -22,7 +22,7 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterial do
   use Ash.Resource.Validation
 
   alias Ash.Error.Changes.InvalidAttribute
-  alias ServiceRadar.Credentials.Validations.ProposedValue
+  alias ServiceRadar.Validations.ProposedValue
 
   @fingerprint_format ~r/\Asha256:[0-9a-f]{64}\z/
   @combined_message "cannot be combined with a CA bundle; supply one form of trust material"

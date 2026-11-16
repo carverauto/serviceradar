@@ -14,7 +14,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikController do
     name_description: "Optional RouterOS source name",
     insecure_description: "Skip TLS verification for RouterOS API",
     extra_fields: [
-      {:username, :string, [allow_nil?: false, description: "RouterOS API username"]}
+      {:username, :string,
+       [allow_nil?: false, constraints: [trim?: false], description: "RouterOS API username"]}
     ],
     create_accept: [
       :name,

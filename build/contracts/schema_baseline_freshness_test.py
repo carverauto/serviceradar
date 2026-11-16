@@ -73,6 +73,105 @@ def _runfiles_root() -> pathlib.Path:
 
 ROOT = _runfiles_root()
 
+# Section headers build/schema_baseline/generate_baseline.py writes. A baseline without them was
+# produced by a generator that drops the state they carry.
+SEED_DATA_MARKER = "-- ServiceRadar: seed data left by the migrations."
+POLICY_MARKER = "-- ServiceRadar: restore TimescaleDB compression and retention."
+
+# Tables a covered migration inserts literal rows into that the baseline deliberately does not
+# carry, each with the reason. Keep this short: every entry is a table a fresh install and an
+# upgraded install disagree about.
+SEED_EXEMPTIONS = {
+    "oban_jobs": "jobs a migration enqueues process rows an existing database holds; "
+    "a database the baseline creates holds none",
+}
+
+# `INSERT INTO` followed by an optionally schema-qualified table. A table named by interpolation
+# (`device_inventory_#{dimension}_counts`) is captured with its `#` and then skipped.
+INSERT_RE = re.compile(
+    r"INSERT\s+INTO\s+(?:#\{[^}]*\}\.|\"?platform\"?\.)?\"?([a-z_][a-z0-9_#{}@]*)",
+    re.IGNORECASE,
+)
+# Code that only a trigger body can run, assembled outside a dollar-quoted string.
+TRIGGER_ONLY_RE = re.compile(r"\b(?:NEW|OLD)\.|\bTG_[A-Z]+\b", re.IGNORECASE)
+DOLLAR_QUOTE_RE = re.compile(r"\$([A-Za-z_]*)\$")
+POLICY_CALL_RE = re.compile(
+    r"\b(?:add_retention_policy|add_compression_policy)\s*\(|timescaledb\.compress\b"
+)
+
+
+def strip_function_bodies(text: str) -> str:
+    """Drop dollar-quoted bodies except `DO` blocks.
+
+    A function or trigger body runs later, against rows that exist then; only a `DO` block runs
+    while the migration itself does.
+    """
+    out: list[str] = []
+    pos = 0
+    while (match := DOLLAR_QUOTE_RE.search(text, pos)) is not None:
+        end = text.find(match.group(0), match.end())
+        if end < 0:
+            break
+        is_do_block = re.search(r"\bDO\s*$", text[: match.start()], re.IGNORECASE) is not None
+        out.append(text[pos : match.start()])
+        out.append(text[match.start() : end + len(match.group(0))] if is_do_block else " ")
+        pos = end + len(match.group(0))
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def _statement_tail(text: str, start: int) -> str:
+    ends = [i for i in (text.find(";", start), text.find('"""', start)) if i >= 0]
+    return text[start : min(ends) if ends else len(text)]
+
+
+def _selects_from_rows(tail: str) -> bool:
+    """Whether the outermost SELECT reads rows (has its own FROM), at parenthesis depth 0."""
+    select = re.search(r"\bSELECT\b", tail, re.IGNORECASE)
+    if select is None:
+        return False
+    depth = 0
+    for match in re.finditer(r"\(|\)|\b(FROM|WHERE|ON\s+CONFLICT)\b", tail[select.end() :], re.I):
+        token = match.group(0)
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+        elif depth == 0:
+            return token.upper() == "FROM"
+    return False
+
+
+def literal_seed_tables(text: str) -> set[str]:
+    """Tables a migration inserts literal rows into when it runs.
+
+    `INSERT ... VALUES`, `DEFAULT VALUES`, and an `INSERT ... SELECT` whose outer SELECT reads no
+    table count; an `INSERT ... SELECT ... FROM` copies existing rows and inserts nothing into an
+    empty database. Rows written by function and trigger bodies do not count either.
+    """
+    text = strip_function_bodies(text)
+    tables = set()
+    for match in INSERT_RE.finditer(text):
+        if "#" in match.group(1):
+            continue
+        tail = _statement_tail(text, match.end())
+        if TRIGGER_ONLY_RE.search(tail):
+            continue
+        values = re.search(r"\bVALUES\b", tail, re.IGNORECASE)
+        select = re.search(r"\bSELECT\b", tail, re.IGNORECASE)
+        if values and (select is None or values.start() < select.start()):
+            tables.add(match.group(1).lower())
+        elif select and not _selects_from_rows(tail):
+            tables.add(match.group(1).lower())
+    return tables
+
+
+def baseline_seed_tables(schema_sql: str) -> set[str]:
+    _, marker, section = schema_sql.partition(SEED_DATA_MARKER)
+    if not marker:
+        return set()
+    return {m.lower() for m in re.findall(r"^INSERT INTO platform\.\"?(\w+)\"? ", section, re.MULTILINE)}
+
 
 def migration_versions() -> list[int]:
     versions = []
@@ -128,7 +227,7 @@ class SchemaBaselineFreshnessTest(unittest.TestCase):
             leftovers,
             [],
             f"\n{schema_file} creates TimescaleDB compressed-chunk tables {leftovers}.\n"
-            "scripts/db/generate-platform-baseline.sh must exclude them from pg_dump.",
+            "build/schema_baseline/generate_baseline.py must exclude them from pg_dump.",
         )
 
     def test_baseline_is_not_too_far_behind_the_migrations_on_disk(self) -> None:
@@ -164,6 +263,104 @@ class SchemaBaselineFreshnessTest(unittest.TestCase):
             "migration means the baseline was generated against a different tree, and the\n"
             "boundary between 'contained' and 'replayed' is guesswork.",
         )
+
+
+class SchemaBaselineReproducesReplayTest(unittest.TestCase):
+    """A database created from the baseline must hold what a full replay leaves behind.
+
+    The baseline records every covered migration as applied, so a migration that seeds rows or
+    installs TimescaleDB policies never runs on a fresh install; what it did has to be in the
+    baseline. `build/schema_baseline/generate_baseline.py` captures both from the replayed
+    database it dumps. These checks fail when a baseline lacks them, from a migration's source
+    alone; `database_bootstrap_integration_test.exs` compares the policy state of a database
+    actually built from the baseline against a replayed one.
+    """
+
+    def setUp(self) -> None:
+        self.metadata = json.loads((ROOT / METADATA).read_text())
+        self.schema_sql = (ROOT / BASELINE_DIR / self.metadata["schema_file"]).read_text()
+        through = int(self.metadata["included_through"])
+        self.covered = [
+            path
+            for path in sorted((ROOT / MIGRATIONS).glob("*.exs"))
+            if (m := VERSION_RE.match(path.name)) and int(m.group(1)) <= through
+        ]
+
+    def test_every_covered_seed_is_in_the_baseline(self) -> None:
+        carried = baseline_seed_tables(self.schema_sql)
+        missing = sorted(
+            f"{table} (seeded by {path.name})"
+            for path in self.covered
+            for table in literal_seed_tables(path.read_text())
+            if table not in carried and table not in SEED_EXEMPTIONS
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "\nThese tables get rows from a migration the baseline records as applied, and the "
+            "baseline carries none, so a fresh install never has them:\n  "
+            + "\n  ".join(missing)
+            + "\n\nRegenerate the baseline with `bazel run //build/schema_baseline:generate`, "
+            "which captures seed rows from the replayed database. If a table is meant to start "
+            "empty on a fresh install, add it to SEED_EXEMPTIONS with the reason.",
+        )
+
+    def test_covered_timescaledb_policies_are_in_the_baseline(self) -> None:
+        callers = [p.name for p in self.covered if POLICY_CALL_RE.search(p.read_text())]
+        if not callers:
+            self.skipTest("no covered migration configures compression or retention")
+        self.assertIn(
+            POLICY_MARKER,
+            self.schema_sql,
+            f"\n{len(callers)} covered migrations configure TimescaleDB compression or retention "
+            f"(for example {callers[0]}), but the baseline restores none of it. Regenerate it with "
+            "`bazel run //build/schema_baseline:generate`.",
+        )
+
+
+class SeedScannerTest(unittest.TestCase):
+    """The migration scanner above, on invented migration text."""
+
+    def test_literal_rows_count_and_copies_do_not(self) -> None:
+        source = '''
+        execute("INSERT INTO #{@prefix}.widget_settings DEFAULT VALUES")
+        execute("""
+        INSERT INTO platform.widget_rules (name) VALUES ('a'), ('b')
+        """)
+        execute("""
+        INSERT INTO platform.widget_profiles (name)
+        SELECT 'Default' WHERE NOT EXISTS (SELECT 1 FROM platform.widget_profiles)
+        """)
+        execute("INSERT INTO platform.widget_archive (id) SELECT id FROM platform.widgets")
+        execute("INSERT INTO platform.widget_#{kind}_counts (key) VALUES ('total')")
+        '''
+        self.assertEqual(
+            literal_seed_tables(source),
+            {"widget_settings", "widget_rules", "widget_profiles"},
+        )
+
+    def test_function_bodies_do_not_count_but_do_blocks_do(self) -> None:
+        source = '''
+        execute("""
+        CREATE FUNCTION platform.widget_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          INSERT INTO platform.widget_log (id) VALUES (NEW.id);
+          RETURN NEW;
+        END
+        $$
+        """)
+        @log_insert """
+        INSERT INTO #{@prefix}.widget_audit (id) VALUES (NEW.id);
+        """
+        execute("""
+        DO $$
+        BEGIN
+          INSERT INTO platform.widget_defaults (name) VALUES ('x');
+        END
+        $$
+        """)
+        '''
+        self.assertEqual(literal_seed_tables(source), {"widget_defaults"})
 
 
 if __name__ == "__main__":

@@ -73,10 +73,11 @@ defmodule ServiceRadar.Integrations.OutboundMailSettings do
       end
     end
 
+    # Whitespace at either end of a mail credential is part of it.
     create :create do
       accept @fields
-      argument :password, :string, sensitive?: true
-      argument :api_key, :string, sensitive?: true
+      argument :password, :string, sensitive?: true, constraints: [trim?: false]
+      argument :api_key, :string, sensitive?: true, constraints: [trim?: false]
       argument :clear_password, :boolean, default: false
       argument :clear_api_key, :boolean, default: false
       change SetOutboundMailSecrets
@@ -84,8 +85,8 @@ defmodule ServiceRadar.Integrations.OutboundMailSettings do
 
     update :update do
       accept @fields
-      argument :password, :string, sensitive?: true
-      argument :api_key, :string, sensitive?: true
+      argument :password, :string, sensitive?: true, constraints: [trim?: false]
+      argument :api_key, :string, sensitive?: true, constraints: [trim?: false]
       argument :clear_password, :boolean, default: false
       argument :clear_api_key, :boolean, default: false
       change SetOutboundMailSecrets
@@ -146,6 +147,7 @@ defmodule ServiceRadar.Integrations.OutboundMailSettings do
 
     attribute :username, :string do
       public? true
+      constraints trim?: false
     end
 
     attribute :password_secret_id, :uuid do

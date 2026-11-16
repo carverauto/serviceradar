@@ -21,6 +21,42 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
   @credential_permission "settings.credentials.manage"
   @system_actor SystemActor.system(:credential_rotation_db_test)
 
+  # A scalar or template payload is the credential itself, so whitespace at
+  # either end is part of the secret and must survive create and rotation.
+  test "create and complete_rotation store the secret payload byte-for-byte" do
+    suffix = Integer.to_string(System.unique_integer([:positive, :monotonic]))
+    payload = "  example-token-#{suffix}\t"
+    rotated_payload = " example-rotated-#{suffix}\n"
+
+    secret =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "exact-payload-#{suffix}",
+          provider: "credential-exact-payload-#{suffix}",
+          credential_kind: :api_token,
+          secret_payload: payload,
+          source_type: :internal_encrypted,
+          metadata: %{}
+        },
+        actor: @system_actor
+      )
+      |> Ash.create!(actor: @system_actor)
+
+    assert stored_payload!(secret) == payload
+
+    secret
+    |> Ash.Changeset.for_update(:start_rotation, %{}, actor: @system_actor)
+    |> Ash.update!(actor: @system_actor)
+    |> Ash.Changeset.for_update(:complete_rotation, %{secret_payload: rotated_payload},
+      actor: @system_actor
+    )
+    |> Ash.update!(actor: @system_actor)
+
+    assert stored_payload!(secret) == rotated_payload
+  end
+
   test "default rotation path refreshes authority and descriptor, backfills legacy metadata, and redacts secret material" do
     suffix = Integer.to_string(System.unique_integer([:positive, :monotonic]))
     provider = "credential-rotation-db-#{suffix}"
@@ -205,6 +241,14 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
 
     assert refreshed_controller.status == :auth_failed
     assert refreshed_controller.last_health_summary =~ "401"
+  end
+
+  defp stored_payload!(secret) do
+    NetworkCredentialSecret
+    |> Ash.Query.for_read(:by_id_with_secret, %{id: secret.id}, actor: @system_actor)
+    |> Ash.read_one!(actor: @system_actor)
+    |> Ash.load!(:secret_payload, actor: @system_actor)
+    |> Map.fetch!(:secret_payload)
   end
 
   defp credential_manager!(suffix) do

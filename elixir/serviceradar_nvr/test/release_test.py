@@ -1,4 +1,5 @@
 """Execute the shipped release with synthetic media and no control-plane services."""
+import base64
 import hashlib
 import http.client
 import http.server
@@ -654,7 +655,7 @@ class NVRReleaseTest(unittest.TestCase):
         source = self.make_media()
         self.run_probe("record")
         receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
-        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512)
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512 + 4096)
         self.run_probe("recover")
         expected = self.decode(source)
         self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
@@ -784,9 +785,9 @@ class NVRReleaseTest(unittest.TestCase):
         block = self.record_publication_block()
         retained = sum(p.stat().st_size for p in block.iterdir())
         block_bytes = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())["block_bytes"]
-        # Keep room for the retained block's two bounded metadata records and
-        # the next block's records, independently of its media reservation.
-        capture_budget = retained + block_bytes + 2 * (65536 + 512) - 1
+        # Keep room for the retained block's bounded intent, acknowledgement and
+        # archive receipt, and the next block's, independently of its media reservation.
+        capture_budget = retained + block_bytes + 2 * (65536 + 512 + 4096) - 1
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(capture_budget)
         self.run_probe("publication_headroom")
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
@@ -808,10 +809,12 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("publication_ack_pressure")
         self.assertFalse((block / "publication-ack.json").exists())
 
-        # The acknowledgement can spend its own reserved slot. Once both
-        # immutable records exist, unused headroom is available to capture.
+        # The acknowledgement can spend its own reserved slot; the absent archive
+        # receipt keeps its own. Once both publication records exist, their unused
+        # headroom is available to capture.
         del self.env["SERVICERADAR_NVR_RESERVE_BYTES"]
-        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()) + 512)
+        retained = sum(p.stat().st_size for p in block.iterdir())
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(retained + 512 + 4096)
         self.run_probe("publication_ack_store")
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(capture_budget)
         self.run_probe("publication_headroom_released")
@@ -955,7 +958,7 @@ class NVRReleaseTest(unittest.TestCase):
         self.spool = self.root / "limited-spool"
         self.spool.mkdir(mode=0o700)
         self.env["SERVICERADAR_NVR_SPOOL_ROOT"] = str(self.spool)
-        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512)
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"] + 65536 + 512 + 4096)
         self.run_probe("rotation_budget")
         self.assertEqual(len(list(self.spool.iterdir())), 2)
         Path(self.env["NVR_TEST_RECEIPT"]).unlink()
@@ -1012,7 +1015,7 @@ class NVRReleaseTest(unittest.TestCase):
         header = json.loads(journal[4:4 + header_size])
         init = (block / "init.mp4").read_bytes()
         self.assertEqual(init.count(b"avcC\x01\x42"), 1)
-        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x64")
+        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x58")
         for content in [init[:-1], unsupported, b"synthetic non-MP4 initialization"]:
             with self.subTest(initialization_bytes=len(content)):
                 # Integrity-valid persisted records must still have a supported format.
@@ -1225,24 +1228,27 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertNotIn("seal", types)
 
     def send_with_client(self, units, mode="normal", timeout_ms=20000, config_changes=None, header_changes=None):
+        units_path = self.root / "client-units.bin"
+        units_path.write_bytes(b"".join(units))
+        return self.run_client({"header": json.loads(self.ingest_header(**(header_changes or {}))[4:]),
+                                "units_path": str(units_path), "mode": mode, "timeout_ms": timeout_ms},
+                               config_changes=config_changes)
+
+    def run_client(self, request, config_changes=None, timeout=35):
         config = {"host": "localhost", "port": self.ingest_port,
                   "ca_file": str(self.root / "client-ca.pem"),
                   "cert_file": str(self.root / "client.pem"), "key_file": str(self.root / "client-key.pem")}
         config.update(config_changes or {})
         config_path = self.root / "client-config.json"
         config_path.write_text(json.dumps(config))
-        units_path = self.root / "client-units.bin"
-        units_path.write_bytes(b"".join(units))
-        request = {"config_path": str(config_path), "token_path": str(self.root / "ingest-token"),
-                   "header": json.loads(self.ingest_header(**(header_changes or {}))[4:]),
-                   "units_path": str(units_path), "mode": mode, "timeout_ms": timeout_ms}
+        request = {"config_path": str(config_path), "token_path": str(self.root / "ingest-token")} | request
         request_path = self.root / "client-request.json"
         request_path.write_text(json.dumps(request))
         output = self.root / "client-result.json"
         output.unlink(missing_ok=True)
         env = self.env | {"NVR_CLIENT_REQUEST": str(request_path), "NVR_CLIENT_RESULT": str(output)}
         result = subprocess.run([self.client_binary, "eval", f'Code.require_file("{self.client_probe}")'],
-                                env=env, capture_output=True, timeout=35)
+                                env=env, capture_output=True, timeout=timeout)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b"NVR_CLIENT_PROBE_OK", result.stdout)
         return json.loads(output.read_bytes())
@@ -1445,6 +1451,63 @@ class NVRReleaseTest(unittest.TestCase):
         status, _ = self.ingest_request(self.ingest_header() + b"".join(units) + struct.pack("!I", 0))
         self.assertNotEqual(status, 200)
         self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
+
+    def encode_profile(self, codec_args, x264_params="aud=1:repeat-headers=1", pix_fmt="yuv420p"):
+        source = self.env["NVR_TEST_H264"]
+        # Each stream replaces the previous one at the shared source path.
+        subprocess.run([self.ffmpeg, "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=size=64x64:rate=15", "-frames:v", "75", "-pix_fmt", pix_fmt,
+                        "-c:v", "libx264", "-sc_threshold", "0", "-x264-params", x264_params,
+                        *codec_args, "-f", "h264", source],
+                       check=True, capture_output=True, timeout=30)
+        return source
+
+    def test_network_ingest_admits_main_and_high_only_without_frame_reordering(self):
+        self.ingest_installation()
+        proc = self.start_ingest_release()
+        admitted = {
+            "main": (["-profile:v", "main", "-bf", "0", "-g", "30"], "aud=1:repeat-headers=1", b"avcC\x01\x4d"),
+            "high": (["-profile:v", "high", "-bf", "0", "-g", "30"], "aud=1:repeat-headers=1", b"avcC\x01\x64"),
+            # Interlaced x264 output uses POC type 0, so only its VUI restriction excludes reordering.
+            "interlaced-main": (["-profile:v", "main", "-bf", "0", "-g", "30", "-flags", "+ildct+ilme"],
+                                "tff=1:aud=1:repeat-headers=1", b"avcC\x01\x4d"),
+        }
+        for name, (args, params, avcc) in admitted.items():
+            with self.subTest(stream=name):
+                source = self.encode_profile(args, params)
+                status, receipt = self.ingest_request(self.ingest_header(source=f"synthetic-{name}-camera")
+                                                      + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+                self.assertEqual(status, 200, receipt)
+                self.assertEqual(receipt["status"], "sealed_local")
+                decoded = bytearray()
+                for block_id in receipt["block_ids"]:
+                    block = self.spool / block_id
+                    init = (block / "init.mp4").read_bytes()
+                    self.assertEqual(init.count(avcc), 1)
+                    output = self.root / (block_id + ".mp4")
+                    output.write_bytes(init + (block / "media.m4s").read_bytes())
+                    decoded.extend(self.decode(str(output)))
+                self.assertEqual(bytes(decoded), self.decode(source))
+        sealed = sorted(p.name for p in self.spool.iterdir() if p.is_dir())
+        refused = {
+            "reordering-main": (["-profile:v", "main", "-bf", "2", "-g", "30"], "yuv420p", "h264_frame_reordering"),
+            "high422": (["-profile:v", "high422", "-bf", "0", "-g", "30"], "yuv422p", "unsupported_h264_profile"),
+        }
+        for name, (args, pix_fmt, _) in refused.items():
+            with self.subTest(stream=name):
+                self.encode_profile(args, pix_fmt=pix_fmt)
+                status, result = self.ingest_request(self.ingest_header(source=f"synthetic-{name}-camera")
+                                                     + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+                self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
+        for block in self.spool.iterdir():
+            if block.is_dir() and block.name not in sealed:
+                journal = (block / "journal").read_bytes() if (block / "journal").exists() else b""
+                self.assertNotIn(b'"type":"seal"', journal.replace(b" ", b""))
+        proc.send_signal(signal.SIGTERM)
+        log = proc.communicate(timeout=15)[0].decode(errors="replace")
+        warnings = [line for line in log.splitlines() if "NVR ingest incomplete:" in line]
+        self.assertEqual([w.split("NVR ingest incomplete: ", 1)[1].strip() for w in warnings],
+                         [":" + reason for _, _, reason in refused.values()])
 
     def test_network_ingest_authentication_binding_and_incomplete_input(self):
         self.ingest_installation()
@@ -1671,6 +1734,291 @@ class NVRReleaseTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(error, result.stdout + result.stderr)
                 self.assertEqual(list(self.spool.iterdir()), [])
+
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+class NVRArchiveReleaseTest(NVRReleaseTest):
+    """Archive a sealed block from the packaged release to a synthetic object store.
+
+    The store is a plain-HTTP path-style S3 peer on a numeric loopback address,
+    the only plaintext target the Longshore client accepts. It keeps objects in
+    memory, honours If-None-Match/If-Match and answers ranged reads with 206.
+    """
+
+    content_type = "application/vnd.serviceradar.nvr-archive.v1+json"
+    secret = "example-archive-secret-not-a-credential"
+
+    def object_store(self):
+        store = {"objects": {}, "requests": [], "refuse_put": False, "corrupt_get": False,
+                 "hold": None, "held": threading.Event()}
+        bucket = "/example-archive/"
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def record(self, method):
+                key = self.path[len(bucket):] if self.path.startswith(bucket) else None
+                store["requests"].append((method, key, {k.lower(): v for k, v in self.headers.items()}))
+                return key
+
+            def reply(self, status, headers=(), body=b"", length=None):
+                self.send_response(status)
+                for name, value in headers:
+                    self.send_header(name, value)
+                self.send_header("Content-Length", str(len(body) if length is None else length))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+
+            def do_PUT(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                key = self.record("PUT")
+                if store["hold"] is not None:
+                    store["held"].set()
+                    store["hold"].wait(30)
+                if store["refuse_put"]:
+                    return self.reply(403, body=b"<Error><Code>AccessDenied</Code></Error>")
+                if key in store["objects"] and self.headers.get("If-None-Match") == "*":
+                    return self.reply(412, body=b"<Error><Code>PreconditionFailed</Code></Error>")
+                if self.headers.get("x-amz-checksum-sha256") != base64.b64encode(hashlib.sha256(body).digest()).decode():
+                    return self.reply(400, body=b"<Error><Code>BadDigest</Code></Error>")
+                etag = '"' + hashlib.sha256(b"etag" + body).hexdigest()[:32] + '"'
+                store["objects"][key] = (body, etag)
+                return self.reply(200, [("ETag", etag), ("x-amz-server-side-encryption", "AES256")])
+
+            def stored(self, method):
+                key = self.record(method)
+                if key not in store["objects"]:
+                    return None
+                body, etag = store["objects"][key]
+                if self.headers.get("If-Match") not in (None, etag):
+                    return None
+                return body, etag
+
+            def do_HEAD(self):
+                found = self.stored("HEAD")
+                if found is None:
+                    return self.reply(404)
+                body, etag = found
+                return self.reply(200, [("ETag", etag), ("x-amz-server-side-encryption", "AES256")], length=len(body))
+
+            def do_GET(self):
+                found = self.stored("GET")
+                if found is None:
+                    return self.reply(412, body=b"<Error><Code>PreconditionFailed</Code></Error>")
+                body, etag = found
+                first, last = (int(n) for n in self.headers["Range"].removeprefix("bytes=").split("-"))
+                chunk = body[first:last + 1]
+                if store["corrupt_get"]:
+                    chunk = bytes([chunk[0] ^ 1]) + chunk[1:]
+                return self.reply(206, [("ETag", etag), ("Content-Range", f"bytes {first}-{last}/{len(body)}")], chunk)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return store, server.server_address[1]
+
+    def archive_document(self, port, **changes):
+        document = {
+            "version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+            "recovery_generation": self.generation,
+            # The test peer listens on an ephemeral port; providers use the default 443.
+            "destination": {"host": "127.0.0.1", "port": port, "region": "example-region-1",
+                            "bucket": "example-archive", "object_prefix": "recordings/v1"},
+            "credential": {"access_key_id": "EXAMPLEARCHIVEKEY", "secret_access_key": self.secret},
+        }
+        document.update(changes)
+        return document
+
+    def archive_request(self, block_id, body, content_type=None, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=90)
+        try:
+            connection.request("POST", f"/v1/blocks/{block_id}/archive",
+                               body=canonical(body) if isinstance(body, dict) else body,
+                               headers={"Authorization": "Bearer " + (token or self.ingest_token),
+                                        "Content-Type": content_type or self.content_type})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def sealed_network_block(self):
+        self.ingest_installation()
+        self.make_media()
+        proc = self.start_ingest_release()
+        status, receipt = self.ingest_request(self.ingest_header() + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(len(receipt["block_ids"]), 1)
+        return proc, receipt["block_ids"][0]
+
+    def object_prefix(self, block_id):
+        return f"recordings/v1/{self.env['NVR_TEST_EXPECTED_STORAGE_ID']}/{block_id}/"
+
+    def test_archive_copies_sealed_block_and_returns_retained_receipt_after_restart(self):
+        proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        store, port = self.object_store()
+        document = self.archive_document(port)
+        result = self.run_client({"mode": "archive", "block_id": block_id, "archive_request": document,
+                                  "timeout_ms": 60000}, timeout=90)
+        self.assertIn("ok", result, result)
+        retained = (block / "archive-receipt.json").read_bytes()
+        self.assertEqual(retained, canonical(result["ok"]))
+        receipt = json.loads(retained)
+        self.assertEqual({key: receipt[key] for key in ("version", "storage_id", "block_id", "destination")},
+                         {"version": 1, "storage_id": document["storage_id"], "block_id": block_id,
+                          "destination": document["destination"]})
+        self.assertGreater(receipt["verified_at_ms"], 0)
+        prefix = self.object_prefix(block_id)
+        self.assertEqual([entry["name"] for entry in receipt["objects"]], ["init.mp4", "media.m4s", "descriptor.json"])
+        for entry in receipt["objects"]:
+            body, etag = store["objects"][prefix + entry["name"]]
+            self.assertEqual(entry, {"name": entry["name"], "key": prefix + entry["name"], "length": len(body),
+                                     "sha256": hashlib.sha256(body).hexdigest(), "etag": etag})
+        for name in ("init.mp4", "media.m4s"):
+            self.assertEqual(store["objects"][prefix + name][0], (block / name).read_bytes())
+        puts = [headers for method, _key, headers in store["requests"] if method == "PUT"]
+        self.assertEqual(len(puts), 3)
+        for headers in puts:
+            self.assertEqual((headers["if-none-match"], headers["x-amz-server-side-encryption"]), ("*", "AES256"))
+            self.assertTrue(headers["authorization"].startswith("AWS4-HMAC-SHA256 Credential=EXAMPLEARCHIVEKEY/"))
+        reads = [headers for method, _key, headers in store["requests"] if method == "GET"]
+        self.assertEqual(len(reads), 3)
+        self.assertTrue(all(headers["if-match"].startswith('"') and headers["range"] for headers in reads))
+        self.assertNotIn(self.secret.encode(), retained)
+
+        # A restarted NVR inventories the receipt beside its block, charges it and
+        # returns the same receipt without contacting the provider again.
+        self.stop_ingest_release(proc)
+        self.env["NVR_TEST_BLOCK_ID"] = block_id
+        self.run_probe("archive_retained")
+        descriptor = Path(self.env["NVR_TEST_MP4"] + ".json").read_bytes()
+        self.assertEqual(store["objects"][prefix + "descriptor.json"][0], descriptor)
+        observed = len(store["requests"])
+        self.start_ingest_release()
+        self.assertEqual(self.archive_request(block_id, document), (200, retained))
+        self.assertEqual(len(store["requests"]), observed)
+
+    def test_archive_failures_write_no_receipt_and_existing_objects_are_verified_not_replaced(self):
+        proc, block_id = self.sealed_network_block()
+        receipt_path = self.spool / block_id / "archive-receipt.json"
+        store, port = self.object_store()
+        document = self.archive_document(port)
+        init_key = self.object_prefix(block_id) + "init.mp4"
+
+        store["refuse_put"] = True
+        status, body = self.archive_request(block_id, document)
+        self.assertEqual((status, json.loads(body)), (502, {"error": "archive_failed", "stage": "put", "object": "init.mp4"}))
+        self.assertEqual(store["objects"], {})
+        self.assertFalse(receipt_path.exists())
+
+        store["refuse_put"] = False
+        store["corrupt_get"] = True
+        status, body = self.archive_request(block_id, document)
+        self.assertEqual((status, json.loads(body)),
+                         (502, {"error": "archive_failed", "stage": "readback", "object": "init.mp4"}))
+        self.assertEqual(list(store["objects"]), [init_key])
+        self.assertFalse(receipt_path.exists())
+
+        # The retry meets the stored object (412), verifies it and never replaces it.
+        stored = store["objects"][init_key]
+        store["corrupt_get"] = False
+        status, body = self.archive_request(block_id, document)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body, receipt_path.read_bytes())
+        self.assertEqual(store["objects"][init_key], stored)
+        self.assertEqual(json.loads(body)["objects"][0]["etag"], stored[1])
+        self.assertEqual(len([1 for method, key, _ in store["requests"] if (method, key) == ("PUT", init_key)]), 3)
+
+        proc.send_signal(signal.SIGTERM)
+        output = proc.communicate(timeout=15)[0]
+        self.assertIn(b"NVR archive failed: stage=put object=init.mp4 outcome=status_403", output)
+        self.assertIn(b"NVR archive failed: stage=readback object=init.mp4 outcome=digest_mismatch", output)
+        self.assertNotIn(self.secret.encode(), output)
+
+    def test_archive_refuses_invalid_unknown_unsealed_and_concurrent_requests(self):
+        proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        store, port = self.object_store()
+        document = self.archive_document(port)
+        destination = document["destination"]
+        invalid = [
+            self.archive_document(port, storage_id="00000000-0000-4000-8000-000000000099"),
+            self.archive_document(port, recovery_generation="00000000-0000-4000-8000-000000000098"),
+            self.archive_document(port, extra=True),
+            {key: value for key, value in document.items() if key != "credential"},
+            self.archive_document(port, destination={**destination, "object_prefix": "/recordings/v1"}),
+            self.archive_document(port, destination={**destination, "host": "objects"}),
+            self.archive_document(port, credential={"access_key_id": "EXAMPLEARCHIVEKEY"}),
+            b"not json", json.dumps(document, indent=1).encode(), canonical(document) + b" " * 8192,
+        ]
+        for body in invalid:
+            with self.subTest(body=body if isinstance(body, bytes) else sorted(body)):
+                self.assertEqual(self.archive_request(block_id, body), (400, b'{"error":"invalid_archive_request"}'))
+        self.assertEqual(self.archive_request(block_id, document, content_type="application/json")[0], 400)
+        self.assertEqual(self.archive_request(block_id, document, token="incorrect-token")[0], 401)
+        self.assertEqual(self.archive_request("0" * 64, document), (404, b'{"error":"block_not_found"}'))
+
+        # Removing the seal record leaves an open block, which is never archived.
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        self.assertEqual(store["requests"], [])
+        self.assertFalse((block / "archive-receipt.json").exists())
+
+        # A receipt file the NVR cannot trust is a local fault, retried as 503 and
+        # left in place; a readable receipt for another request is a conflict.
+        receipt = block / "archive-receipt.json"
+        unrelated = canonical({"objects": [], "verified_at_ms": 1})
+        receipt.write_bytes(unrelated)
+        receipt.chmod(0o644)
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_unavailable"}'))
+        self.assertEqual(receipt.read_bytes(), unrelated)
+        receipt.chmod(0o600)
+        self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"archive_receipt_conflict"}'))
+        self.assertEqual(receipt.read_bytes(), unrelated)
+        self.assertEqual(store["requests"], [])
+        receipt.unlink()
+
+        # One archive runs per NVR; a second request while it is in flight is refused.
+        store["hold"] = threading.Event()
+        first = []
+        worker = threading.Thread(target=lambda: first.append(self.archive_request(block_id, document)))
+        worker.start()
+        self.assertTrue(store["held"].wait(30))
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_busy"}'))
+        store["hold"].set()
+        worker.join(90)
+        self.assertEqual(first[0][0], 200, first)
+
+        proc.send_signal(signal.SIGTERM)
+        output = proc.communicate(timeout=15)[0]
+        self.assertIn(b"NVR archive failed: stage=receipt outcome=invalid_archive_receipt", output)
+        self.assertNotIn(self.secret.encode(), output)
+
+
+def load_tests(loader, _tests, _pattern):
+    # The archive suite opens a real Longshore client and runs on the
+    # longshore-qualification executor pool (see BUILD.bazel); the default suite
+    # does not need that executor.
+    if os.environ.get("NVR_RELEASE_SUITE") == "archive":
+        names = [name for name in loader.getTestCaseNames(NVRArchiveReleaseTest) if name in vars(NVRArchiveReleaseTest)]
+        return unittest.TestSuite(NVRArchiveReleaseTest(name) for name in names)
+    return loader.loadTestsFromTestCase(NVRReleaseTest)
 
 
 if __name__ == "__main__":

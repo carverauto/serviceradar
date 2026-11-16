@@ -713,6 +713,8 @@ func (*SNMPCollector) convertGauge(value interface{}) (float64, error) {
 		return float64(v), nil
 	case int32:
 		return float64(v), nil
+	case int:
+		return float64(v), nil
 	default:
 		return 0, fmt.Errorf("%w %T", ErrInvalidGaugeType, value)
 	}

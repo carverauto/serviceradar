@@ -8,7 +8,7 @@ metadata-only `serviceradar_recording_metadata` contract.
 
 This checkpoint processes finite recording sessions through a trusted same-VM API
 or an opt-in private TLS stream. It has no camera source connector, assignment
-protocol, archive upload worker or playback catalog. Starting the service does not start recording. It does not join an
+protocol, automatic archive scheduling or playback catalog. Starting the service does not start recording. It does not join an
 Erlang distribution cluster or start core, a Repo, NATS or libcluster.
 
 ## Private network input
@@ -25,6 +25,12 @@ release test streams synthetic media across TLS, compares decoded frames after
 restart and exercises refusal and producer retirement. Inventory-driven source
 assignment and the agent/gateway sender remain integration work; merely enabling
 this listener does not connect an inventory camera.
+
+The same listener accepts `POST /v1/blocks/<block_id>/archive`: Core sends a
+bucket destination and its credential for one request, and the NVR copies the
+sealed block's init, media and descriptor through Longshore, reads every object
+back and only then retains `archive-receipt.json` beside the block. The local
+block is kept. See [archive upload](../../docs/nvr-ingest.md#archive-upload).
 
 ## Deployment recovery admission
 
@@ -393,8 +399,9 @@ separately opt-in:
 configured private storage root and identity. Neither admits a recording pool.
 
 Before starting a worker, the serialized capacity owner charges one maximum block
-(init, media and journal) plus 64 KiB for its intent and 512 bytes for its
-acknowledgement against both the spool budget and available disk space.
+(init, media and journal) plus 64 KiB for its intent, 512 bytes for its
+acknowledgement and 4 KiB for its archive receipt against both the spool budget
+and available disk space.
 It counts existing sealed, partial and abandoned files without recovering or
 deleting them. Each retained block also reserves the maximum size of each missing
 publication record. Existing records are immutable: even partial/corrupt records
@@ -407,13 +414,15 @@ other active reservations remain charged.
 media `reserved_bytes`, `publication_reserved_bytes` (missing retained records
 plus a full allowance per active recording and any pending publication write),
 `publication_write_reserved_bytes` (the pending write alone),
-`publication_operations` (zero or one), `publication_block_bytes` (66,048) and
+`publication_operations` (zero or one, including an archive receipt write),
+`publication_block_bytes` (70,144) and
 available space. It is not a promise to a future caller. Reducing the spool
 budget below retained bytes plus these allowances refuses new capture; it does
 not delete evidence or invalidate exact publication retries.
 
 Inventory accepts at most 4096 block directories with the spool file names and
-the optional `publication.json` and `publication-ack.json`. Unknown entries,
+the optional `publication.json`, `publication-ack.json`, `archive-receipt.json`
+and an interrupted `archive-receipt.json.tmp`. Unknown entries,
 aliases and unreadable inventory refuse admission and
 remain intact. Admission conservatively counts active bytes both as inventory
 and as full reservations. It can refuse early; it cannot spend that slack on a
@@ -454,6 +463,7 @@ S3 archival also needs a protected spool for footage awaiting upload.
 bazel build --config=remote //elixir/serviceradar_nvr:release_tar
 bazel build --config=remote //docker/images:nvr_image_multiarch
 bazel test --config=remote //elixir/serviceradar_nvr:release_test
+bazel test --config=remote //elixir/serviceradar_nvr:archive_release_test
 ```
 
 The release test starts the shipped VM without control-plane services, exercises

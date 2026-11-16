@@ -53,6 +53,7 @@ const (
 	unttEnv      = "SERVICERADAR_HELM_UNITTEST_BINARY"
 
 	coreSubject  = "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+	webNgSubject = "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 	toolsSubject = "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 
 	// The account the chart binds its built-in users to; a callout grant names it.
@@ -62,15 +63,39 @@ const (
 	confEnd   = "\nEOF\n"
 )
 
-// Subjects core publishes, the edge-record projectors' republish targets among
-// them (MetricsBatchProjection's metrics.<family>.<type>.<name>, so a sweep
-// summary is metrics.sweep.sweep.<name>; TelemetryBatch; OtlpRelay; the
-// edge-record dead letter).
+// Subjects ServiceRadar.NATS.DurablePublish carries, one per producer. A
+// publish that fails, and every publish made inside a transaction, becomes a
+// ServiceRadar.NATS.DurablePublishWorker job on the :events Oban queue. Core and
+// web-ng both work that queue (web-ng's WEB_NG_OBAN_QUEUE_EVENTS), so either
+// release may publish the message under its own identity, and a subject granted
+// to only one of them is denied whenever the other picks the job up. Every
+// subject here is therefore asserted for both identities; a new DurablePublish
+// producer belongs in this table, not in one identity's list.
+func durablePublishSubjects() []string {
+	return []string{
+		// Events.InternalLogPublisher (AuditWriter, onboarding, job logs).
+		"logs.internal.audit",
+		// Events.OcsfEventPublisher.
+		"events.internal.integration",
+		// Events.SignalPublisher.
+		"signals.analytics.inventory.vulnerability_match",
+		// Inventory.Availability.History, published from the
+		// Inventory.Availability.Transitions worker, itself on :events.
+		"availability.transitions.device",
+		// Edge.SweepHostMetrics (MetricsBatchProjection.subject("sweep", ...)).
+		"metrics.sweep.sweep.sweep_host_available",
+	}
+}
+
+// Subjects core publishes besides the durable ones, the edge-record
+// projectors' republish targets among them (MetricsBatchProjection's
+// metrics.<family>.<type>.<name>, so a sweep summary is
+// metrics.sweep.sweep.<name>; TelemetryBatch; OtlpRelay; the edge-record dead
+// letter).
 func coreAllowedSubjects() []string {
 	return []string{
 		"scans.results.run01",
 		"mtr.results.ingest",
-		"availability.transitions.device",
 		"events.example",
 		"metrics.event_writer.warehouse",
 		"metrics.sysmon.sysmon_cpu.cpu_usage_percent",
@@ -102,15 +127,49 @@ func coreDeniedSubjects() []string {
 	}
 }
 
-// TestCoreCanPublishToChartSubjects boots nats-server from the configuration
-// the chart renders and checks what the core identity may publish through the
-// static verify_and_map users.
-func TestCoreCanPublishToChartSubjects(t *testing.T) {
+// Subjects that stay core's alone: web-ng does not run the queues that publish
+// them (notifications, alerts), so granting them would only widen its identity.
+func webNgDeniedSubjects() []string {
+	return []string{
+		"notifications.example",
+		"metrics.ingestion_lanes",
+		"zz.not.allowed",
+	}
+}
+
+type identityPublishes struct {
+	name    string
+	dn      string
+	allowed []string
+	denied  []string
+}
+
+func chartPublishers() []identityPublishes {
+	return []identityPublishes{
+		{
+			name:    "core",
+			dn:      coreSubject,
+			allowed: append(durablePublishSubjects(), coreAllowedSubjects()...),
+			denied:  coreDeniedSubjects(),
+		},
+		{
+			name:    "web-ng",
+			dn:      webNgSubject,
+			allowed: durablePublishSubjects(),
+			denied:  webNgDeniedSubjects(),
+		},
+	}
+}
+
+// TestChartPublishPermissions boots nats-server from the configuration the
+// chart renders and checks what the core and web-ng identities may publish
+// through the static verify_and_map users.
+func TestChartPublishPermissions(t *testing.T) {
 	pki := newTestPKI(t)
 	rendered := renderChart(t, pki, nil)
 	srv := startServer(t, rendered.conf)
 
-	assertCorePublishes(t, srv, pki)
+	assertChartPublishers(t, srv, pki)
 }
 
 // TestCalloutGrantsMatchStaticUsers enables certificate authorization, so the
@@ -118,8 +177,8 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 // each certificate the block the chart's serviceradar-nats-static-users
 // ConfigMap lists for its subject, which is what core's authorizer grants an
 // adopted infrastructure certificate (ServiceRadar.NATS.StaticIdentityGrants).
-// That list must be the broker's static user configuration exactly, and core's
-// projector subjects must still be delivered.
+// That list must be the broker's static user configuration exactly, and the
+// core and web-ng subjects must still be delivered.
 func TestCalloutGrantsMatchStaticUsers(t *testing.T) {
 	pki := newTestPKI(t)
 	issuer := newKey(t, nkeys.CreateAccount)
@@ -150,21 +209,31 @@ func TestCalloutGrantsMatchStaticUsers(t *testing.T) {
 	srv := startServer(t, rendered.conf)
 	serveCallout(t, srv, pki, authUser, issuer, rendered.staticUsers)
 
-	assertCorePublishes(t, srv, pki)
+	assertChartPublishers(t, srv, pki)
 }
 
-// assertCorePublishes publishes every core subject and observes the verdict.
-// A plain NATS publish reports success even when the server denies it, so the
-// assertions observe delivery to an independent subscriber and the permission
-// violation the server reports back.
-func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
+func assertChartPublishers(t *testing.T, srv *server.Server, pki *testPKI) {
+	t.Helper()
+
+	for _, publisher := range chartPublishers() {
+		t.Run(publisher.name, func(t *testing.T) {
+			assertPublishes(t, srv, pki, publisher)
+		})
+	}
+}
+
+// assertPublishes publishes every subject of one identity and observes the
+// verdict. A plain NATS publish reports success even when the server denies it,
+// so the assertions observe delivery to an independent subscriber and the
+// permission violation the server reports back.
+func assertPublishes(t *testing.T, srv *server.Server, pki *testPKI, publisher identityPublishes) {
 	t.Helper()
 
 	tools := pki.connect(t, srv, toolsSubject, nil)
-	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
+	client, clientErrs := pki.connectTracked(t, srv, publisher.dn)
 
-	allowed := coreAllowedSubjects()
-	denied := coreDeniedSubjects()
+	allowed := publisher.allowed
+	denied := publisher.denied
 	all := append(append([]string{}, allowed...), denied...)
 	received := make(map[string]chan struct{})
 
@@ -182,41 +251,41 @@ func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
 	}
 
 	for _, subject := range all {
-		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
+		if err := client.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
 	}
 
-	if err := core.Flush(); err != nil {
-		t.Fatalf("flush core: %v", err)
+	if err := client.Flush(); err != nil {
+		t.Fatalf("flush %s: %v", publisher.name, err)
 	}
 
 	// The server answers publishes on one connection in order, so once the
 	// violation for the last subject has arrived every earlier verdict has too.
 	last := denied[len(denied)-1]
-	if !coreErrs.waitFor(last, 5*time.Second) {
-		t.Fatalf("expected a permissions violation for %s, got %v", last, coreErrs.all())
+	if !clientErrs.waitFor(last, 5*time.Second) {
+		t.Fatalf("expected a permissions violation for %s, got %v", last, clientErrs.all())
 	}
 
 	for _, subject := range allowed {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):
-			t.Errorf("core publish to %s was not delivered; violations: %v", subject, coreErrs.all())
+			t.Errorf("%s publish to %s was not delivered; violations: %v", publisher.name, subject, clientErrs.all())
 		}
 
-		if coreErrs.has(subject) {
-			t.Errorf("server denied core publish to %s: %v", subject, coreErrs.all())
+		if clientErrs.has(subject) {
+			t.Errorf("server denied %s publish to %s: %v", publisher.name, subject, clientErrs.all())
 		}
 	}
 
 	for _, subject := range denied {
-		if !coreErrs.has(subject) {
-			t.Errorf("expected permission denial for %s", subject)
+		if !clientErrs.has(subject) {
+			t.Errorf("expected permission denial for %s publish to %s", publisher.name, subject)
 		}
 		select {
 		case <-received[subject]:
-			t.Errorf("forbidden core publish to %s was delivered", subject)
+			t.Errorf("forbidden %s publish to %s was delivered", publisher.name, subject)
 		default:
 		}
 	}

@@ -236,7 +236,8 @@ func (g *GatewayClient) buildDialOptions(ctx context.Context, existingProvider s
 			PermitWithoutStream: true,
 		}),
 		// Create client spans and propagate W3C trace context to the gateway.
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		// A gateway rollout's graceful drain is not recorded as an error span.
+		grpc.WithStatsHandler(drainAwareClientHandler{Handler: otelgrpc.NewClientHandler()}),
 	}
 
 	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {

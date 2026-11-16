@@ -241,6 +241,10 @@ The target query is SRQL. It selects the devices the rule applies to, and the
 selection is re-evaluated -- a device that starts matching tomorrow is covered
 tomorrow.
 
+The rule always covers every device the query matches, so the query may not
+contain `limit:` or an aggregation such as `stats:`; see
+[Target queries](./srql-language-reference.md#target-queries).
+
 The **Runtime** column on the rules table reports how the rule finds its targets.
 It shows one of five values:
 
@@ -702,7 +706,7 @@ provider on this page. What the manifest declares:
 | Purpose | `inventory_sync` |
 | Scope types | `agent`, and nothing else |
 | Rule controls | allowed ports, controller host, target query, transport |
-| Rule defaults | target query `in:devices sort:uid:asc limit:1`, scope type `agent`, allowed ports `443, 8443`, TLS policy `verify` |
+| Rule defaults | scope type `agent`, allowed ports `443, 8443`, TLS policy `verify`; no target query |
 | Provisioning | `target_policy`, consumer `netbox-inventory` declared `target_cardinality: single`, grant type `netbox_api_token` resolved at the control plane with a 300 second TTL |
 
 Delivery follows the ordinary path in
@@ -726,10 +730,10 @@ rule and ignores `inputs[].items[]`. The consumer is declared
 devices the query matches, they arrive as one un-chunked assignment, and a
 target set too large for one payload is an error telling you to narrow the
 target query rather than a split into several assignments that would each
-re-walk the whole instance. The default is a query that resolves one stable
-device for that reason, `in:devices sort:uid:asc limit:1`; narrow it to the
-NetBox host's own device record (for example `in:devices ip:10.0.0.5`) when you
-want the targets to name the instance.
+re-walk the whole instance. For that reason the manifest ships no default
+target query: none would both resolve and stay small on every deployment, and
+`limit:` cannot bound one (see [Target queries](./srql-language-reference.md#target-queries)). Set it to the
+NetBox host's own device record (for example `in:devices ip:192.0.2.10`).
 
 **The scope is `agent`, and the profile may not offer anything else.** Not
 chunking the targets is only half of "one sync per instance". The other half is

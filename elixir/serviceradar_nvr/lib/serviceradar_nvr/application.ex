@@ -21,6 +21,10 @@ defmodule ServiceRadarNVR.Application do
         {Task.Supervisor, name: ServiceRadarNVR.ReadTasks, max_children: 4},
         Supervisor.child_spec({Task.Supervisor, name: ServiceRadarNVR.DeliveryTasks, max_children: 1},
           id: ServiceRadarNVR.DeliveryTasks
+        ),
+        # One archive (and so one object-storage client) at a time per NVR.
+        Supervisor.child_spec({Task.Supervisor, name: ServiceRadarNVR.ArchiveTasks, max_children: 1},
+          id: ServiceRadarNVR.ArchiveTasks
         )
       ]
 

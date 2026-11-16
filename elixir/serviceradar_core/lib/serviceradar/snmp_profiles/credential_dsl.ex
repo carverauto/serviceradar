@@ -6,14 +6,27 @@ defmodule ServiceRadar.SNMPProfiles.CredentialDsl do
   `ServiceRadar.SNMPProfiles.Changes.EncryptCredentials`, which documents what
   each one means.
 
-  A blank `community`/`auth_password`/`priv_password` keeps the stored value;
-  `clear_credentials` is the only way to remove one.
+  A blank (empty or whitespace-only) `community`/`auth_password`/`priv_password`
+  keeps the stored value; `clear_credentials` is the only way to remove one. Any
+  other value is stored exactly as given: whitespace at either end is part of
+  the secret, so `trim?: false` overrides the `:string` default.
   """
   defmacro credential_action_arguments do
     quote do
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      argument :community, :string,
+        allow_nil?: true,
+        sensitive?: true,
+        constraints: [trim?: false]
+
+      argument :auth_password, :string,
+        allow_nil?: true,
+        sensitive?: true,
+        constraints: [trim?: false]
+
+      argument :priv_password, :string,
+        allow_nil?: true,
+        sensitive?: true,
+        constraints: [trim?: false]
 
       argument :clear_credentials, {:array, :atom} do
         allow_nil? false
@@ -48,6 +61,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialDsl do
       attribute :username, :string do
         allow_nil? true
         public? true
+        # A USM user name may contain spaces, including at either end.
+        constraints trim?: false
         description "Username for SNMPv3"
       end
 
