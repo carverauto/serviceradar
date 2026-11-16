@@ -249,13 +249,16 @@ format.
   method, are now refused with `PermissionDenied`; health, reflection
   and NATS account methods are not affected. The chart now grants
   `writer` to web-ng and agent-gateway, and the Compose configs change
-  `web.serviceradar` from `reader` to `writer`. If you maintain your own
-  datasvc configuration, or issue certificates whose identities differ
-  from the chart's, list every identity that calls datasvc with the
-  role it needs before upgrading. A rule may now set `key_prefixes` to
-  limit an identity to KV keys under those prefixes. The chart limits
-  the log collector's `reader` rules to `zen/rulesets/`, so it can read
-  only the Zen rule bundles core publishes (#6690, #6696).
+  `web.serviceradar` from `reader` to `writer`. The chart's rules name
+  each component by certificate common name (for example
+  `CN=serviceradar-core`), so they match whatever organization, unit,
+  locality or state the certificate carries. If you maintain your own
+  datasvc configuration, or issue certificates with other common names,
+  list every identity that calls datasvc with the role it needs before
+  upgrading. A rule may now set `key_prefixes` to limit an identity to
+  KV keys under those prefixes. The chart limits the log collector's
+  `reader` rules to `zen/rulesets/`, so it can read only the Zen rule
+  bundles core publishes (#6690, #6696).
 - **NVR and media storage (opt-in).** NVR is still disabled by default.
   New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
   mounts and a core-only NetworkPolicy; the config, token and TLS

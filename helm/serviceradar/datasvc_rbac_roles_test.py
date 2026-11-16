@@ -3,9 +3,10 @@
 
 web-ng writes Zen rule bundles and uploads plugin and addon artifacts, and
 agent-gateway uploads agent artifacts. datasvc enforces its role list, so each
-must be listed as writer under the identity its certificate presents. The
-identities follow the subject that files/generate-certs.sh issues:
-CN=<component CN>,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US.
+must be listed as writer under an identity its certificate presents. Rules
+name a component by common name only, which datasvc derives from any subject,
+so a rule does not depend on the organization, unit, locality or state a
+certificate was issued with.
 """
 
 from pathlib import Path
@@ -30,7 +31,6 @@ def _repo_root() -> Path:
 
 
 CHART_DIR = _repo_root() / "helm" / "serviceradar"
-SUBJECT_SUFFIX = ",OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 
 
 def render_datasvc_config():
@@ -85,7 +85,7 @@ class DatasvcRbacRolesTest(unittest.TestCase):
     def test_web_ng_and_agent_gateway_are_writers(self):
         roles = render_datasvc_config()["rbac"]["roles"]
         for cn in ("serviceradar-web-ng", "serviceradar-agent-gateway"):
-            identity = f"CN={cn}{SUBJECT_SUFFIX}"
+            identity = f"CN={cn}"
             with self.subTest(identity=identity):
                 matching = [rule for rule in roles if rule["identity"] == identity]
                 self.assertEqual(matching, [{"identity": identity, "role": "writer"}])
@@ -95,7 +95,7 @@ class DatasvcRbacRolesTest(unittest.TestCase):
         roles = render_datasvc_config()["rbac"]["roles"]
         collector = [
             rule for rule in roles
-            if rule["identity"] == f"CN=serviceradar-log-collector{SUBJECT_SUFFIX}"
+            if rule["identity"] == "CN=serviceradar-log-collector"
             or rule["identity"].endswith("/sa/serviceradar-log-collector")
         ]
         self.assertEqual(len(collector), 2, collector)
@@ -103,6 +103,27 @@ class DatasvcRbacRolesTest(unittest.TestCase):
             with self.subTest(identity=rule["identity"]):
                 self.assertEqual(rule["role"], "reader")
                 self.assertEqual(rule.get("key_prefixes"), ["zen/rulesets/"])
+
+    def test_rules_do_not_depend_on_other_subject_fields(self):
+        # A certificate issued with another organization or locality must
+        # still match, so a subject rule carries the common name and nothing
+        # else. Every component the chart runs against datasvc is listed.
+        roles = render_datasvc_config()["rbac"]["roles"]
+        subject_rules = sorted(
+            rule["identity"] for rule in roles if not rule["identity"].startswith("spiffe://")
+        )
+        self.assertEqual(
+            subject_rules,
+            [
+                "CN=serviceradar-agent",
+                "CN=serviceradar-agent-gateway",
+                "CN=serviceradar-core",
+                "CN=serviceradar-falcosidekick",
+                "CN=serviceradar-log-collector",
+                "CN=serviceradar-tools",
+                "CN=serviceradar-web-ng",
+            ],
+        )
 
 
 if __name__ == "__main__":

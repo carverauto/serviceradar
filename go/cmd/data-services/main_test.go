@@ -94,12 +94,19 @@ func newTestCA(t *testing.T) *testCA {
 func (ca *testCA) issue(t *testing.T, serial int64, cn string, usages []x509.ExtKeyUsage, ips ...net.IP) (certPEM, keyPEM []byte) {
 	t.Helper()
 
+	return ca.issueSubject(t, serial, pkix.Name{CommonName: cn, Organization: []string{"Example"}}, usages, ips...)
+}
+
+// issueSubject signs a leaf certificate carrying subject.
+func (ca *testCA) issueSubject(t *testing.T, serial int64, subject pkix.Name, usages []x509.ExtKeyUsage, ips ...net.IP) (certPEM, keyPEM []byte) {
+	t.Helper()
+
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(serial),
-		Subject:      pkix.Name{CommonName: cn, Organization: []string{"Example"}},
+		Subject:      subject,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -190,7 +197,13 @@ func startDatasvc(t *testing.T, ca *testCA, roles []datasvc.RBACRule) string {
 func dial(t *testing.T, ca *testCA, addr, cn string) *ggrpc.ClientConn {
 	t.Helper()
 
-	certPEM, keyPEM := ca.issue(t, time.Now().UnixNano(), cn, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+	return dialSubject(t, ca, addr, pkix.Name{CommonName: cn, Organization: []string{"Example"}})
+}
+
+func dialSubject(t *testing.T, ca *testCA, addr string, subject pkix.Name) *ggrpc.ClientConn {
+	t.Helper()
+
+	certPEM, keyPEM := ca.issueSubject(t, time.Now().UnixNano(), subject, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	require.NoError(t, err)
 
@@ -318,5 +331,90 @@ func TestDatasvcServerEnforcesRBAC(t *testing.T) {
 
 	for name, err := range denied {
 		assert.Equal(t, codes.PermissionDenied, status.Code(err), "limited identity %s: %v", name, err)
+	}
+}
+
+// TestDatasvcServerMatchesChartRolesOnCommonName runs the server with the
+// Helm chart's certificate rules, which name each platform component by
+// common name only. The oracle is that contract: a component certificate is
+// authorized whatever organization, unit, locality, state or country it
+// carries, while edge certificates (CN <component>.<partition>.serviceradar or
+// a 64-hex hash) and look-alike names match no rule.
+func TestDatasvcServerMatchesChartRolesOnCommonName(t *testing.T) {
+	ca := newTestCA(t)
+	// Same identities as the certificate rules in
+	// helm/serviceradar/files/serviceradar-config.yaml.
+	addr := startDatasvc(t, ca, []datasvc.RBACRule{
+		{Identity: "CN=serviceradar-agent", Role: datasvc.RoleReader},
+		{Identity: "CN=serviceradar-log-collector", Role: datasvc.RoleReader, KeyPrefixes: []string{"zen/rulesets/"}},
+		{Identity: "CN=serviceradar-core", Role: datasvc.RoleWriter},
+		{Identity: "CN=serviceradar-web-ng", Role: datasvc.RoleWriter},
+		{Identity: "CN=serviceradar-agent-gateway", Role: datasvc.RoleWriter},
+		{Identity: "CN=serviceradar-falcosidekick", Role: datasvc.RoleReader},
+		{Identity: "CN=serviceradar-tools", Role: datasvc.RoleReader},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	otherSubject := func(cn string) pkix.Name {
+		return pkix.Name{
+			CommonName:         cn,
+			Organization:       []string{"Other Org"},
+			OrganizationalUnit: []string{"Platform"},
+			Locality:           []string{"Springfield"},
+			Province:           []string{"ZZ"},
+			Country:            []string{"XX"},
+		}
+	}
+	chartSubject := func(cn string) pkix.Name {
+		return pkix.Name{
+			CommonName:         cn,
+			Organization:       []string{"ServiceRadar"},
+			OrganizationalUnit: []string{"Kubernetes"},
+			Locality:           []string{"San Francisco"},
+			Province:           []string{"CA"},
+			Country:            []string{"US"},
+		}
+	}
+
+	core := proto.NewKVServiceClient(dialSubject(t, ca, addr, otherSubject("serviceradar-core")))
+	require.Eventually(t, func() bool {
+		_, err := core.Put(ctx, &proto.PutRequest{Key: rulesKey, Value: []byte("rules")})
+		return err == nil
+	}, 15*time.Second, 100*time.Millisecond, "core with another subject must be authorized as writer")
+	_, err := core.Put(ctx, &proto.PutRequest{Key: otherKey, Value: []byte("other")})
+	require.NoError(t, err, "core Put")
+
+	tests := []struct {
+		name    string
+		subject pkix.Name
+		get     codes.Code // Get of otherKey
+		getRule codes.Code // Get of rulesKey
+		put     codes.Code
+	}{
+		{"core, other subject", otherSubject("serviceradar-core"), codes.OK, codes.OK, codes.OK},
+		{"web-ng, other subject", otherSubject("serviceradar-web-ng"), codes.OK, codes.OK, codes.OK},
+		{"agent-gateway, other subject", otherSubject("serviceradar-agent-gateway"), codes.OK, codes.OK, codes.OK},
+		{"core, chart subject", chartSubject("serviceradar-core"), codes.OK, codes.OK, codes.OK},
+		{"agent reader", otherSubject("serviceradar-agent"), codes.OK, codes.OK, codes.PermissionDenied},
+		{"tools reader", chartSubject("serviceradar-tools"), codes.OK, codes.OK, codes.PermissionDenied},
+		{"log collector", otherSubject("serviceradar-log-collector"), codes.PermissionDenied, codes.OK, codes.PermissionDenied},
+		{"look-alike name", chartSubject("serviceradar-core-evil"), codes.PermissionDenied, codes.PermissionDenied, codes.PermissionDenied},
+		{"edge agent name", chartSubject("agent01.default.serviceradar"), codes.PermissionDenied, codes.PermissionDenied, codes.PermissionDenied},
+		{"edge hash name", chartSubject("3f2a9c1e7b4d6058a1c2e3f4a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e"), codes.PermissionDenied, codes.PermissionDenied, codes.PermissionDenied},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kv := proto.NewKVServiceClient(dialSubject(t, ca, addr, tc.subject))
+
+			_, err := kv.Get(ctx, &proto.GetRequest{Key: otherKey})
+			assert.Equal(t, tc.get, status.Code(err), "Get %s: %v", otherKey, err)
+			_, err = kv.Get(ctx, &proto.GetRequest{Key: rulesKey})
+			assert.Equal(t, tc.getRule, status.Code(err), "Get %s: %v", rulesKey, err)
+			_, err = kv.Put(ctx, &proto.PutRequest{Key: otherKey, Value: []byte("other")})
+			assert.Equal(t, tc.put, status.Code(err), "Put %s: %v", otherKey, err)
+		})
 	}
 }
