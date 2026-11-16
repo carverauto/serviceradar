@@ -12,7 +12,7 @@
 - [ ] 2.2a Call the shared rule set from Flowgger with records built directly as Zen variables. Blocked on collector rule delivery (2.4).
 - [x] 2.3 Publish self-versioned effective rules through datasvc; reconcile rule scope. `ZenRuleSync` publishes one digest-identified bundle per stream and subject at `zen/rulesets/<stream>/<subject>.json`, built from the rule list core's normalizer also reads; `rust/zen-normalize` verifies and compiles it.
 - [ ] 2.3a Publish a rule set too large for one KV value as immutable documents under a manifest. Today datasvc rejects it and the previous bundle stays. Also observe a published bundle on a running deployment.
-- [ ] 2.4 Implement bounded fetch/watch/reconnect, atomic activation, cold start, empty snapshots and invalid/stale updates.
+- [ ] 2.4 Implement bounded fetch/watch/reconnect, atomic activation, cold start, empty snapshots and invalid/stale updates. `ActiveRules` in `rust/zen-normalize` does activation, cold start, empty snapshots and invalid or stale updates. Still open: the collector's datasvc fetch, watch and reconnect, which needs the log collector to be granted datasvc access; datasvc roles are per identity for the whole store, not per key.
 
 ## 3. Binary and consumers
 - [ ] 3.1 Specify metadata fields and complete OTLP/JSON field parity. OTLP protobuf rows now fill observed_timestamp, trace_flags, event_name, source_ip and scope_attributes like JSON rows (#6699). Still open: the collector-authenticated source identity and the syslog fallback fields on the binary path.
