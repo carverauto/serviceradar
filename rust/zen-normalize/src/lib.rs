@@ -11,6 +11,14 @@
 //!
 //! This is not Zen's built-in merge, which treats `null` differently.
 //!
+//! A rule removes a top-level field by returning its input and setting that
+//! field to `null`. Zen deletes such a field from the rule's own result, so the
+//! result alone cannot say whether the rule removed a field or never mentioned
+//! it. A rule whose graph connects its input node directly to its output node
+//! returns every field it was given; a field it was given and did not return
+//! was therefore removed, and is removed from the record. Other rules cannot
+//! remove top-level fields.
+//!
 //! Records stay [`Variable`] values between rules; strings are shared, not
 //! copied. A record is JSON text only at [`RuleSet::normalize_json`], once on
 //! the way in and once on the way out.
@@ -26,10 +34,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use zen_engine::DecisionEngine;
 use zen_engine::loader::MemoryLoader;
-use zen_engine::model::DecisionContent;
+use zen_engine::model::{DecisionContent, DecisionNodeKind};
 use zen_engine::nodes::custom::NoopCustomNode;
 
-use zen_expression::variable::DynamicVariable;
+use zen_expression::variable::{DynamicVariable, Symbol};
 
 mod bundle;
 
@@ -52,7 +60,33 @@ pub enum Error {
 #[derive(Clone)]
 pub struct RuleSet {
     engine: DecisionEngine,
-    keys: Arc<[String]>,
+    rules: Arc<[Rule]>,
+}
+
+struct Rule {
+    key: String,
+    /// The graph hands the rule's whole input to its output.
+    returns_input: bool,
+}
+
+fn returns_input(content: &DecisionContent) -> bool {
+    let DecisionContent::Graph(graph) = content else {
+        return false;
+    };
+    let ids = |wanted: fn(&DecisionNodeKind) -> bool| {
+        graph
+            .nodes
+            .iter()
+            .filter(move |node| wanted(&node.kind))
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let inputs = ids(|kind| matches!(kind, DecisionNodeKind::InputNode { .. }));
+    let outputs = ids(|kind| matches!(kind, DecisionNodeKind::OutputNode { .. }));
+    graph
+        .edges
+        .iter()
+        .any(|edge| inputs.contains(&edge.source_id) && outputs.contains(&edge.target_id))
 }
 
 impl RuleSet {
@@ -65,7 +99,7 @@ impl RuleSet {
         R: AsRef<str>,
     {
         let loader = MemoryLoader::default();
-        let mut keys = Vec::with_capacity(rules.len());
+        let mut compiled = Vec::with_capacity(rules.len());
         for (key, rule_json) in rules {
             let key = key.as_ref();
             let content: DecisionContent =
@@ -73,32 +107,48 @@ impl RuleSet {
                     key: key.to_owned(),
                     reason: error.to_string(),
                 })?;
+            compiled.push(Rule {
+                key: key.to_owned(),
+                returns_input: returns_input(&content),
+            });
             loader.add(key, content);
-            keys.push(key.to_owned());
         }
         let engine = DecisionEngine::new(Arc::new(loader), Arc::new(NoopCustomNode));
         engine.compile();
         Ok(Self {
             engine,
-            keys: keys.into(),
+            rules: compiled.into(),
         })
     }
 
     pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+        self.rules.is_empty()
     }
 
     /// Applies every rule in order and returns the normalized record.
     pub fn normalize(&self, record: Variable) -> Result<Variable, Error> {
         let mut record = record;
-        for key in self.keys.iter() {
-            let response =
-                futures::executor::block_on(self.engine.evaluate(key, rule_context(&record)))
-                    .map_err(|error| Error::Evaluation {
-                        key: key.clone(),
-                        reason: error.to_string(),
-                    })?;
-            record = overlay(record, response.result);
+        for rule in self.rules.iter() {
+            let context = rule_context(&record);
+            let given = if rule.returns_input {
+                present_fields(&context)
+            } else {
+                Vec::new()
+            };
+            let result = futures::executor::block_on(self.engine.evaluate(&rule.key, context))
+                .map_err(|error| Error::Evaluation {
+                    key: rule.key.clone(),
+                    reason: error.to_string(),
+                })?
+                .result;
+            if let (Variable::Object(fields), Variable::Object(returned)) = (&record, &result) {
+                let returned = returned.borrow();
+                let mut fields = fields.borrow_mut();
+                for removed in given.iter().filter(|key| !returned.contains_key(key)) {
+                    fields.remove(removed);
+                }
+            }
+            record = overlay(record, result);
         }
         Ok(record)
     }
@@ -186,6 +236,20 @@ fn rule_context(record: &Variable) -> Variable {
         },
         other => other.shallow_clone(),
     }
+}
+
+/// The top-level fields a rule was given with a value. Zen drops a `null` field
+/// from every result, so a missing one says nothing about the rule.
+fn present_fields(context: &Variable) -> Vec<Symbol> {
+    let Variable::Object(fields) = context else {
+        return Vec::new();
+    };
+    fields
+        .borrow()
+        .iter()
+        .filter(|(_, value)| !matches!(value, Variable::Null))
+        .map(|(key, _)| key.clone())
+        .collect()
 }
 
 /// Lays a rule result over the record it was computed from.

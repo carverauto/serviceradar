@@ -75,16 +75,19 @@ pushed or deployed.
 
 ## Findings that need an owner
 
-- The bundled `strip_full_message` rule does not remove `full_message`. Zen
-  drops a top-level `null` from a rule result, so the overlay keeps the
-  original field. The JSON-text implementation behaved the same way; the
-  shared crate preserves it. A nested `null` is kept and does replace.
+- Fixed on this branch at the product owner's direction: the bundled
+  `strip_full_message` rule did not remove `full_message`, because Zen deletes
+  a top-level `null` from a rule result and the overlay then kept the original.
+  A rule that returns its input now removes the top-level fields it was given
+  and did not return. Syslog records therefore stop carrying `full_message`,
+  and any custom rule of that shape that nulls a top-level field starts
+  removing it. A rule that returns only some fields still cannot remove one.
 - A number Zen's decimal cannot hold is replaced by `null` when a rule returns
   it inside a nested object or array. At the top level it survives. Also
   inherited, also preserved.
-- A certificate policy revocation while ACKs are pending cannot be tested from
-  Flowgger without a production seam, because the policy loader accepts only
-  root-owned paths (`accelerate-log-ingestion` task 1.3a).
+- A certificate policy revocation while ACKs are pending is covered by
+  `//rust/flowgger:flowgger_managed_policy_test`, which needs uid 0 for the
+  root-owned policy file. It skips on a workstation.
 - The per-agent `_rules.json` index still orders by `order`, then name, and is
   scoped by agent. The new bundle follows core: stream and subject, `order`,
   then insertion time. The web-ng rules settings page still lists the

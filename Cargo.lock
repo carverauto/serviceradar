@@ -6836,6 +6836,7 @@ dependencies = [
  "notify",
  "quickcheck",
  "rand 0.10.2",
+ "rcgen",
  "redis",
  "rustls",
  "rustls-pemfile",

@@ -11,6 +11,10 @@ struct Broker {
 
 impl Broker {
     fn start() -> Self {
+        Self::start_with::<&str>(&[])
+    }
+
+    fn start_with<A: AsRef<std::ffi::OsStr>>(extra: &[A]) -> Self {
         let address = TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
@@ -22,6 +26,7 @@ impl Broker {
             .arg(address.port().to_string())
             .arg("--store_dir")
             .arg(storage.path())
+            .args(extra)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -34,12 +39,16 @@ impl Broker {
     }
 
     async fn connect(&mut self) -> jetstream::Context {
+        self.connect_with(ConnectOptions::new).await
+    }
+
+    async fn connect_with(&mut self, options: impl Fn() -> ConnectOptions) -> jetstream::Context {
         timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(status) = self.process.try_wait().unwrap() {
                     panic!("NATS test broker exited before becoming ready: {status}");
                 }
-                match async_nats::connect(&self.url).await {
+                match options().connect(&self.url).await {
                     Ok(client) => return jetstream::new(client),
                     Err(_) => sleep(Duration::from_millis(10)).await,
                 }
@@ -328,5 +337,152 @@ fn certificate_policy_without_managed_tls_inputs_fails_closed() {
             js.get_stream("SYNTHETIC_LOGS").await.is_err(),
             "an unmanaged connection reached the broker"
         );
+    });
+}
+
+/// A directory the managed policy loader accepts: it and every parent owned by
+/// root and writable by nobody else. Only root can create one.
+#[cfg(unix)]
+fn privileged_directory() -> Option<tempfile::TempDir> {
+    use std::os::unix::fs::MetadataExt;
+    let directory = tempfile::tempdir_in("/").ok()?;
+    (std::fs::metadata(directory.path()).ok()?.uid() == 0).then_some(directory)
+}
+
+#[cfg(unix)]
+fn write_policy(path: &std::path::Path, allowed_fingerprint: String) {
+    let now = chrono::Utc::now();
+    let snapshot = serviceradar_cert_policy::Snapshot {
+        version: 1,
+        generated_at: now,
+        valid_until: now + chrono::Duration::seconds(30),
+        allowed_fingerprints: vec![allowed_fingerprint],
+    };
+    // Rename into place so the publisher never reads a partial policy.
+    let staged = path.with_extension("staged");
+    std::fs::write(&staged, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    std::fs::rename(staged, path).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn revoked_broker_certificate_fails_the_publisher_with_acknowledgments_pending() {
+    use rcgen::{BasicConstraints, Certificate, CertificateParams, IsCa, SanType};
+    use rustls::pki_types::{CertificateDer, pem::PemObject};
+
+    let Some(privileged) = privileged_directory() else {
+        // //rust/flowgger:flowgger_managed_policy_test runs this as root and sets
+        // the variable, so the case cannot be skipped everywhere.
+        assert!(
+            std::env::var_os("FLOWGGER_REQUIRE_MANAGED_POLICY_TEST").is_none(),
+            "the managed policy test must run as root"
+        );
+        eprintln!("skipped: a managed certificate policy file must be root-owned");
+        return;
+    };
+
+    let mut authority = CertificateParams::default();
+    authority.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    let authority = Certificate::from_params(authority).unwrap();
+    let leaf = || {
+        let mut params = CertificateParams::default();
+        params.subject_alt_names = vec![SanType::IpAddress("127.0.0.1".parse().unwrap())];
+        Certificate::from_params(params).unwrap()
+    };
+    let (broker_leaf, client_leaf) = (leaf(), leaf());
+    // Signing is randomized: sign each leaf once and fingerprint that PEM.
+    let broker_pem = broker_leaf.serialize_pem_with_signer(&authority).unwrap();
+    let client_pem = client_leaf.serialize_pem_with_signer(&authority).unwrap();
+    let fingerprint = |pem: &str| {
+        serviceradar_cert_policy::fingerprint(
+            &CertificateDer::from_pem_slice(pem.as_bytes()).unwrap(),
+        )
+    };
+    let (broker_fingerprint, client_fingerprint) =
+        (fingerprint(&broker_pem), fingerprint(&client_pem));
+
+    let files = tempfile::tempdir().unwrap();
+    let file = |name: &str, contents: String| {
+        let path = files.path().join(name);
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    let authority_file = file("ca.pem", authority.serialize_pem().unwrap());
+    let broker_certificate = file("broker.pem", broker_pem);
+    let broker_key = file("broker-key.pem", broker_leaf.serialize_private_key_pem());
+    let client_certificate = file("client.pem", client_pem);
+    let client_key = file("client-key.pem", client_leaf.serialize_private_key_pem());
+    let policy = privileged.path().join("nats-policy.json");
+    write_policy(&policy, broker_fingerprint);
+
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut broker = Broker::start_with(&[
+            "--tls".as_ref(),
+            "--tlscert".as_ref(),
+            broker_certificate.as_os_str(),
+            "--tlskey".as_ref(),
+            broker_key.as_os_str(),
+        ]);
+        broker.url = broker.url.replace("nats://", "tls://");
+        let js = broker
+            .connect_with(|| {
+                ConnectOptions::new()
+                    .add_root_certificates(authority_file.clone())
+                    .require_tls(true)
+            })
+            .await;
+        // Records are stored but never acknowledged, so both stay pending.
+        let mut stream = js
+            .create_stream(jetstream::stream::Config {
+                name: "SYNTHETIC_LOGS".into(),
+                subjects: vec!["synthetic.logs".into()],
+                no_ack: true,
+                duplicate_window: Duration::from_secs(120),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let (worker, tx) = worker_with(
+            &broker.url,
+            2,
+            1024,
+            500,
+            &format!(
+                "nats_tls_ca_file = {:?}\nnats_tls_cert = {:?}\nnats_tls_key = {:?}\nnats_cert_policy_file = {:?}",
+                authority_file, client_certificate, client_key, policy
+            ),
+        );
+        tx.send(vec![b'a'; 64]).unwrap();
+        tx.send(vec![b'b'; 64]).unwrap();
+        drop(tx);
+        let publishing = tokio::spawn(worker.run());
+        timeout(Duration::from_secs(10), async {
+            while stream.info().await.unwrap().state.messages < 2 {
+                assert!(
+                    !publishing.is_finished(),
+                    "publisher exited while its broker certificate was authorized"
+                );
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("publisher did not send its records over the managed connection");
+
+        // The policy stays fresh and valid; it no longer lists the broker.
+        write_policy(&policy, client_fingerprint);
+        let error = timeout(Duration::from_secs(20), publishing)
+            .await
+            .expect("publisher kept running after its broker certificate was revoked")
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            error.contains("NATS reconnect failed while retaining pending records"),
+            "{error}"
+        );
+        assert_eq!(stream.info().await.unwrap().state.messages, 2);
     });
 }

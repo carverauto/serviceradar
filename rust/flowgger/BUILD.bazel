@@ -81,3 +81,32 @@ rust_test(
         normal_dev = True,
     ),
 )
+
+# The managed certificate policy loader accepts only a root-owned file under
+# root-owned directories, and the RBE action user is not uid 0 unless the test
+# asks for it. flowgger_lib_test skips this case; here a skip is a failure.
+rust_test(
+    name = "flowgger_managed_policy_test",
+    args = ["revoked_broker_certificate_fails_the_publisher"],
+    crate = ":flowgger_lib",
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    data = ["//third_party/binaries:nats_server_linux_amd64"],
+    env = {
+        "FLOWGGER_REQUIRE_MANAGED_POLICY_TEST": "1",
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
+    exec_properties = {"test.dockerUser": "0"},
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)

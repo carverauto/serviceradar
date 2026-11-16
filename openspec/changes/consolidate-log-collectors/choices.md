@@ -60,9 +60,14 @@ benchmark candidates rather than claims of an optimum.
   numbers keep their original text until a rule returns them, and a number
   Zen cannot hold survives at the top level. A simpler conversion would have
   rewritten `1.0` as `1` in fields no rule returned and turned `1e300` into
-  `null`. Two inherited behaviors are preserved, not endorsed: a top-level
-  `null` result does not remove a field, and a nested unrepresentable number a
-  rule returns becomes `null`.
+  `null`. One inherited behavior is preserved, not endorsed: a nested
+  unrepresentable number a rule returns becomes `null`.
+- **Field removal is read from the rule graph, not guessed from the result.**
+  Zen deletes a top-level `null` before the result is returned, so a missing
+  field can mean removed or never mentioned. A direct edge from the input node
+  to the output node means the rule returns everything it was given, which
+  makes a missing field a removal. A pass-through expression node without that
+  edge is not recognized; such a rule keeps the old behavior.
 - **Each rule evaluates a copy of the record's containers.** Strings are
   shared. Passing the record itself would be cheaper, but nothing establishes
   that every Zen node type leaves its context unchanged.

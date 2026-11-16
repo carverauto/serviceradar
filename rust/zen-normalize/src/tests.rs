@@ -54,8 +54,18 @@ fn normalize(rules: &[(&str, String)], record: &str) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-// Every expected record below was produced by the JSON-text implementation
-// this crate replaced, so these cases hold the two to the same results.
+/// A rule that returns its whole input with the listed fields changed.
+fn changes(fields: &[(&str, &str)]) -> String {
+    let mut rule: Value = serde_json::from_str(&sets(fields)).unwrap();
+    rule["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "c", "sourceId": "in", "targetId": "out", "type": "edge"}));
+    rule.to_string()
+}
+
+// Except for field removal, every expected record below was produced by the
+// JSON-text implementation this crate replaced, which could not remove a field.
 
 #[test]
 fn each_rule_sees_the_record_the_previous_rules_left() {
@@ -90,6 +100,23 @@ fn results_merge_objects_and_replace_everything_else() {
         )
         .unwrap(),
         r#"{"attrs":{"gone":null,"host":"host01.example.com","level":"warn"},"list":[3],"object":7,"scalar":{"k":1}}"#
+    );
+}
+
+#[test]
+fn a_rule_that_returns_its_input_removes_a_field_by_setting_it_to_null() {
+    let record =
+        r#"{"full_message":"<13>raw text","short_message":"text","empty":null,"huge":1e300}"#;
+    // `empty` and `huge` reach the rule as null and are missing from its
+    // result for that reason alone, so neither is removed.
+    assert_eq!(
+        normalize(&[("strip", changes(&[("full_message", "null")]))], record).unwrap(),
+        r#"{"empty":null,"huge":1e+300,"short_message":"text"}"#
+    );
+    // Without the input, a missing field is one the rule never mentioned.
+    assert_eq!(
+        normalize(&[("partial", sets(&[("full_message", "null")]))], record).unwrap(),
+        r#"{"empty":null,"full_message":"<13>raw text","huge":1e+300,"short_message":"text"}"#
     );
 }
 
