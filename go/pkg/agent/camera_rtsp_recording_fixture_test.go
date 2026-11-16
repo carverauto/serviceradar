@@ -232,7 +232,7 @@ func captureCameraRTSP(t *testing.T, server *gortsplib.Server, handler *syntheti
 	handler.mu.Lock()
 	handler.stream = stream
 	handler.mu.Unlock()
-	receiver, err := newRTSPCameraRelayStream(cameraRelaySessionSpec{SourceURL: url, RTSPTransport: "tcp"})
+	receiver, err := newRTSPCameraRelayStream(cameraRelaySessionSpec{SourceURL: url, RTSPTransport: "tcp"}, createTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
