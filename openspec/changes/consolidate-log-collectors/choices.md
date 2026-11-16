@@ -62,12 +62,12 @@ benchmark candidates rather than claims of an optimum.
   rewritten `1.0` as `1` in fields no rule returned and turned `1e300` into
   `null`. One inherited behavior is preserved, not endorsed: a nested
   unrepresentable number a rule returns becomes `null`.
-- **Field removal is read from the rule graph, not guessed from the result.**
-  Zen deletes a top-level `null` before the result is returned, so a missing
-  field can mean removed or never mentioned. A direct edge from the input node
-  to the output node means the rule returns everything it was given, which
-  makes a missing field a removal. A pass-through expression node without that
-  edge is not recognized; such a rule keeps the old behavior.
+- **Field removal is an explicit instruction in the rule result.** Zen deletes
+  a top-level `null` before the result is returned, so a missing field can mean
+  removed or never mentioned. Inferring removal from the rule graph would have
+  changed every existing rule that nulls a field. A rule names the fields in
+  `serviceradar_remove_fields` instead. The instruction is withheld from rule
+  input, so a log sender cannot supply it.
 - **Each rule evaluates a copy of the record's containers.** Strings are
   shared. Passing the record itself would be cheaper, but nothing establishes
   that every Zen node type leaves its context unchanged.

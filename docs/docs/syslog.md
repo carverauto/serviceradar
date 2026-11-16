@@ -134,6 +134,8 @@ The default decision group for syslog chains two GoRules/zen flows that focus on
 - `strip_full_message` removes the duplicated `full_message` field that UniFi devices emit so only the structured payload remains.
 - `cef_severity` inspects the CEF header segment and maps the embedded numeric severity into the ServiceRadar priority scale (`Low`, `Medium`, `High`, `Very High`, or `Unknown`).
 
+A rule removes top-level fields by returning their names as an array in `serviceradar_remove_fields`, as `strip_full_message` does. Setting a top-level field to `null` does not remove it. The instruction is not stored, and a record that arrives with that field cannot use it to remove anything.
+
 You can inspect the bundled JSON definitions under
 `elixir/serviceradar_core/priv/zen/rules/`. See the
 [Rule Builder](./rule-builder.md) guide for the UI used to manage rule

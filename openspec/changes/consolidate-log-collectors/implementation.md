@@ -84,10 +84,13 @@ pushed or deployed.
 - Fixed on this branch at the product owner's direction: the bundled
   `strip_full_message` rule did not remove `full_message`, because Zen deletes
   a top-level `null` from a rule result and the overlay then kept the original.
-  A rule that returns its input now removes the top-level fields it was given
-  and did not return. Syslog records therefore stop carrying `full_message`,
-  and any custom rule of that shape that nulls a top-level field starts
-  removing it. A rule that returns only some fields still cannot remove one.
+  A rule now removes top-level fields by naming them in
+  `serviceradar_remove_fields`. Only the bundled rule uses it, so no customer
+  rule changes behavior; a rule that nulls a top-level field still removes
+  nothing. Syslog records stop carrying `full_message` once the seeder has
+  refreshed the seeded rule. A user-authored copy of that rule is left alone.
+  An earlier attempt inferred removal from the rule graph and was replaced
+  because it changed every rule of that shape.
 - A number Zen's decimal cannot hold is replaced by `null` when a rule returns
   it inside a nested object or array. At the top level it survives. Also
   inherited, also preserved.

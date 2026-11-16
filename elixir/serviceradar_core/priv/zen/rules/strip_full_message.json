@@ -8,7 +8,7 @@
       "position": { "x": 300, "y": 150 },
       "content": {
         "expressions": [
-          { "id": "expr1", "key": "full_message", "value": "null" }
+          { "id": "expr1", "key": "serviceradar_remove_fields", "value": "['full_message']" }
         ]
       }
     },

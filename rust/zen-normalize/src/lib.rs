@@ -11,13 +11,13 @@
 //!
 //! This is not Zen's built-in merge, which treats `null` differently.
 //!
-//! A rule removes a top-level field by returning its input and setting that
-//! field to `null`. Zen deletes such a field from the rule's own result, so the
-//! result alone cannot say whether the rule removed a field or never mentioned
-//! it. A rule whose graph connects its input node directly to its output node
-//! returns every field it was given; a field it was given and did not return
-//! was therefore removed, and is removed from the record. Other rules cannot
-//! remove top-level fields.
+//! Zen deletes a top-level `null` from a rule's own result, so a rule cannot
+//! remove a field by nulling it: the result no longer mentions the field and
+//! the record keeps it. A rule removes top-level fields by returning their
+//! names as an array of strings in [`REMOVE_FIELDS`]. That field is an
+//! instruction, never data: it is not written to the record, and a record
+//! that arrives carrying it does not show it to the rules, so a sender cannot
+//! remove fields by naming them in a log.
 //!
 //! Records stay [`Variable`] values between rules; strings are shared, not
 //! copied. A record is JSON text only at [`RuleSet::normalize_json`], once on
@@ -34,15 +34,18 @@ use std::rc::Rc;
 use std::sync::Arc;
 use zen_engine::DecisionEngine;
 use zen_engine::loader::MemoryLoader;
-use zen_engine::model::{DecisionContent, DecisionNodeKind};
+use zen_engine::model::DecisionContent;
 use zen_engine::nodes::custom::NoopCustomNode;
 
-use zen_expression::variable::{DynamicVariable, Symbol};
+use zen_expression::variable::DynamicVariable;
 
 mod bundle;
 
 pub use bundle::{BUNDLE_SCHEMA, BundleError, RuleBundle};
 pub use zen_engine::Variable;
+
+/// The result field in which a rule names the top-level fields to remove.
+pub const REMOVE_FIELDS: &str = "serviceradar_remove_fields";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -60,33 +63,7 @@ pub enum Error {
 #[derive(Clone)]
 pub struct RuleSet {
     engine: DecisionEngine,
-    rules: Arc<[Rule]>,
-}
-
-struct Rule {
-    key: String,
-    /// The graph hands the rule's whole input to its output.
-    returns_input: bool,
-}
-
-fn returns_input(content: &DecisionContent) -> bool {
-    let DecisionContent::Graph(graph) = content else {
-        return false;
-    };
-    let ids = |wanted: fn(&DecisionNodeKind) -> bool| {
-        graph
-            .nodes
-            .iter()
-            .filter(move |node| wanted(&node.kind))
-            .map(|node| node.id.clone())
-            .collect::<Vec<_>>()
-    };
-    let inputs = ids(|kind| matches!(kind, DecisionNodeKind::InputNode { .. }));
-    let outputs = ids(|kind| matches!(kind, DecisionNodeKind::OutputNode { .. }));
-    graph
-        .edges
-        .iter()
-        .any(|edge| inputs.contains(&edge.source_id) && outputs.contains(&edge.target_id))
+    keys: Arc<[String]>,
 }
 
 impl RuleSet {
@@ -99,7 +76,7 @@ impl RuleSet {
         R: AsRef<str>,
     {
         let loader = MemoryLoader::default();
-        let mut compiled = Vec::with_capacity(rules.len());
+        let mut keys = Vec::with_capacity(rules.len());
         for (key, rule_json) in rules {
             let key = key.as_ref();
             let content: DecisionContent =
@@ -107,48 +84,41 @@ impl RuleSet {
                     key: key.to_owned(),
                     reason: error.to_string(),
                 })?;
-            compiled.push(Rule {
-                key: key.to_owned(),
-                returns_input: returns_input(&content),
-            });
             loader.add(key, content);
+            keys.push(key.to_owned());
         }
         let engine = DecisionEngine::new(Arc::new(loader), Arc::new(NoopCustomNode));
         engine.compile();
         Ok(Self {
             engine,
-            rules: compiled.into(),
+            keys: keys.into(),
         })
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rules.is_empty()
+        self.keys.is_empty()
     }
 
     /// Applies every rule in order and returns the normalized record.
     pub fn normalize(&self, record: Variable) -> Result<Variable, Error> {
         let mut record = record;
-        for rule in self.rules.iter() {
-            let context = rule_context(&record);
-            let given = if rule.returns_input {
-                present_fields(&context)
-            } else {
-                Vec::new()
+        for key in self.keys.iter() {
+            let evaluation = |reason: String| Error::Evaluation {
+                key: key.clone(),
+                reason,
             };
-            let result = futures::executor::block_on(self.engine.evaluate(&rule.key, context))
-                .map_err(|error| Error::Evaluation {
-                    key: rule.key.clone(),
-                    reason: error.to_string(),
-                })?
-                .result;
-            if let (Variable::Object(fields), Variable::Object(returned)) = (&record, &result) {
-                let returned = returned.borrow();
+            let result =
+                futures::executor::block_on(self.engine.evaluate(key, rule_context(&record)))
+                    .map_err(|error| evaluation(error.to_string()))?
+                    .result;
+            let removed = take_removed_fields(&result).map_err(evaluation)?;
+            record = overlay(record, result);
+            if let Variable::Object(fields) = &record {
                 let mut fields = fields.borrow_mut();
-                for removed in given.iter().filter(|key| !returned.contains_key(key)) {
-                    fields.remove(removed);
+                for field in &removed {
+                    fields.remove_str(field);
                 }
             }
-            record = overlay(record, result);
         }
         Ok(record)
     }
@@ -219,15 +189,23 @@ fn record_from_json(value: serde_json::Value) -> Variable {
 /// gets its own containers and the record changes only through [`overlay`];
 /// strings are still shared.
 fn rule_context(record: &Variable) -> Variable {
+    let context = copy_for_rule(record);
+    if let Variable::Object(fields) = &context {
+        fields.borrow_mut().remove_str(REMOVE_FIELDS);
+    }
+    context
+}
+
+fn copy_for_rule(record: &Variable) -> Variable {
     match record {
         Variable::Array(items) => {
-            Variable::from_array(items.borrow().iter().map(rule_context).collect())
+            Variable::from_array(items.borrow().iter().map(copy_for_rule).collect())
         }
         Variable::Object(fields) => Variable::from_object(
             fields
                 .borrow()
                 .iter()
-                .map(|(key, value)| (key.clone(), rule_context(value)))
+                .map(|(key, value)| (key.clone(), copy_for_rule(value)))
                 .collect(),
         ),
         Variable::Dynamic(value) => match value.as_any().downcast_ref::<JsonNumber>() {
@@ -238,18 +216,24 @@ fn rule_context(record: &Variable) -> Variable {
     }
 }
 
-/// The top-level fields a rule was given with a value. Zen drops a `null` field
-/// from every result, so a missing one says nothing about the rule.
-fn present_fields(context: &Variable) -> Vec<Symbol> {
-    let Variable::Object(fields) = context else {
-        return Vec::new();
+/// Takes the removal instruction out of a rule result, so it is acted on and
+/// never stored.
+fn take_removed_fields(result: &Variable) -> Result<Vec<String>, String> {
+    let Variable::Object(fields) = result else {
+        return Ok(Vec::new());
     };
-    fields
-        .borrow()
-        .iter()
-        .filter(|(_, value)| !matches!(value, Variable::Null))
-        .map(|(key, _)| key.clone())
-        .collect()
+    let Some(instruction) = fields.borrow_mut().remove_str(REMOVE_FIELDS) else {
+        return Ok(Vec::new());
+    };
+    let names = match &instruction {
+        Variable::Array(names) => names
+            .borrow()
+            .iter()
+            .map(|name| name.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>(),
+        _ => None,
+    };
+    names.ok_or_else(|| format!("{REMOVE_FIELDS} must be an array of field names"))
 }
 
 /// Lays a rule result over the record it was computed from.

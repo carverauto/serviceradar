@@ -20,9 +20,14 @@ Collector and NIF normalization SHALL share one Rust implementation preserving o
 - **THEN** that field remains present with a null value
 
 #### Scenario: A rule removes a top-level field
-- **WHEN** a rule whose graph connects its input directly to its output sets a top-level field to null
-- **THEN** that field is absent from the normalized record
-- **AND** a field that reached the rule as null is kept
+- **WHEN** a rule result names top-level fields in `serviceradar_remove_fields`
+- **THEN** those fields are absent from the normalized record
+- **AND** `serviceradar_remove_fields` is not written to the record
+
+#### Scenario: A record names fields to remove
+- **WHEN** an incoming record carries `serviceradar_remove_fields`
+- **THEN** no rule receives that field
+- **AND** no field is removed because of it
 
 ### Requirement: Versioned ruleset activation
 The collector SHALL receive effective rules through datasvc, validate complete snapshots before activation, and bind each batch to one version without per-record control-plane requests.

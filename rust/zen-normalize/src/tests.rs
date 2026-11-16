@@ -54,16 +54,6 @@ fn normalize(rules: &[(&str, String)], record: &str) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-/// A rule that returns its whole input with the listed fields changed.
-fn changes(fields: &[(&str, &str)]) -> String {
-    let mut rule: Value = serde_json::from_str(&sets(fields)).unwrap();
-    rule["edges"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"id": "c", "sourceId": "in", "targetId": "out", "type": "edge"}));
-    rule.to_string()
-}
-
 // Except for field removal, every expected record below was produced by the
 // JSON-text implementation this crate replaced, which could not remove a field.
 
@@ -104,19 +94,42 @@ fn results_merge_objects_and_replace_everything_else() {
 }
 
 #[test]
-fn a_rule_that_returns_its_input_removes_a_field_by_setting_it_to_null() {
-    let record =
-        r#"{"full_message":"<13>raw text","short_message":"text","empty":null,"huge":1e300}"#;
-    // `empty` and `huge` reach the rule as null and are missing from its
-    // result for that reason alone, so neither is removed.
+fn a_rule_removes_only_the_top_level_fields_it_names() {
+    let record = r#"{"full_message":"<13>raw text","short_message":"text","attrs":{"full_message":"nested"}}"#;
     assert_eq!(
-        normalize(&[("strip", changes(&[("full_message", "null")]))], record).unwrap(),
-        r#"{"empty":null,"huge":1e+300,"short_message":"text"}"#
+        normalize(
+            &[(
+                "strip",
+                sets(&[(REMOVE_FIELDS, "['full_message', 'absent']")])
+            )],
+            record
+        )
+        .unwrap(),
+        r#"{"attrs":{"full_message":"nested"},"short_message":"text"}"#
     );
-    // Without the input, a missing field is one the rule never mentioned.
+    // Nulling a field does not remove it: Zen drops the null from the result.
     assert_eq!(
-        normalize(&[("partial", sets(&[("full_message", "null")]))], record).unwrap(),
-        r#"{"empty":null,"full_message":"<13>raw text","huge":1e+300,"short_message":"text"}"#
+        normalize(&[("null", sets(&[("full_message", "null")]))], record).unwrap(),
+        r#"{"attrs":{"full_message":"nested"},"full_message":"<13>raw text","short_message":"text"}"#
+    );
+    assert_eq!(
+        normalize(
+            &[("bad", sets(&[(REMOVE_FIELDS, "'full_message'")]))],
+            record
+        )
+        .unwrap_err(),
+        "failed to evaluate Zen rule bad: serviceradar_remove_fields must be an array of field names"
+    );
+}
+
+#[test]
+fn a_record_cannot_remove_its_own_fields() {
+    // A sender controls the record; a rule that returns its input must not
+    // hand the sender's instruction back as its own.
+    let record = r#"{"serviceradar_remove_fields":["severity"],"severity":"high"}"#;
+    assert_eq!(
+        normalize(&[("all", passthrough())], record).unwrap(),
+        r#"{"serviceradar_remove_fields":["severity"],"severity":"high"}"#
     );
 }
 
