@@ -18,6 +18,15 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
   @startup_retry_base_ms 1_000
   @startup_retry_max_ms 5_000
 
+  # JetStream `err_code`s a rolling restart or a stream/consumer leader move returns while the
+  # asset has no leader: JSClusterNotAvailErr (10008), JSClusterNotLeaderErr (10009),
+  # JSStreamOfflineErr (10118) and JSConsumerOfflineErr (10119). Each clears once a leader is
+  # elected.
+  @transient_err_codes [10_008, 10_009, 10_118, 10_119]
+  # Eight attempts at `retry_delay/1`'s backoff span about four minutes of retries, longer than
+  # a rolling restart of a three-node NATS cluster takes.
+  @transient_attempt_bound 8
+
   @doc """
   Opens an unlinked NATS connection and monitors it. The caller handles the
   `:DOWN` message; `close/1` stops the connection.
@@ -93,6 +102,45 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
     do: not_ready_reason?(reason)
 
   def not_ready_reason?(_reason), do: false
+
+  @doc """
+  Whether `reason` is a NATS condition that a rolling restart or a JetStream leader move causes
+  and that clears by itself: the connection process exited (`{:connection_exit, _}`, such as
+  `:noproc` while the server restarts), a JetStream API request timed out, or the server
+  reported the cluster without a leader or the stream or consumer offline. A missing stream, a
+  denied permission or a mismatched consumer configuration is not transient.
+  """
+  @spec transient_reason?(term()) :: boolean()
+  def transient_reason?({:connection_exit, _reason}), do: true
+  def transient_reason?(:timeout), do: true
+  def transient_reason?(%{"err_code" => code}) when code in @transient_err_codes, do: true
+
+  def transient_reason?({stream_name, reason}) when is_binary(stream_name),
+    do: transient_reason?(reason)
+
+  def transient_reason?(_reason), do: false
+
+  @doc """
+  Whether failed attempt `attempt` of a transient reason (`transient_reason?/1`) is still within
+  the bound in which it is logged as a warning. Past it, the failure is logged as an error and
+  reported (`report_transient_bound_exceeded/3`).
+  """
+  @spec transient_within_bound?(pos_integer()) :: boolean()
+  def transient_within_bound?(attempt) when is_integer(attempt),
+    do: attempt <= @transient_attempt_bound
+
+  @doc """
+  Emits `[:serviceradar, :event_writer, :consumer_setup, :transient_bound_exceeded]` for a stream
+  whose transient setup or bind failure outlasted its bound.
+  """
+  @spec report_transient_bound_exceeded(String.t(), pos_integer(), term()) :: :ok
+  def report_transient_bound_exceeded(stream, attempt, reason) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :consumer_setup, :transient_bound_exceeded],
+      %{count: 1, attempt: attempt},
+      %{stream: stream, reason: inspect(reason)}
+    )
+  end
 
   @doc """
   The durable a configured stream consumes from. A stream may name a

@@ -24,7 +24,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   decode that is transient (`ServiceRadar.Edge.WireDecode.transient?/1`: a schema not deployed
   yet, a decoder fault), from the record frame, its body or a persisted plan a projector reads, is
   not a refusal: it fails as `ServiceRadar.EventWriter.EdgeRecordTransientError` and is
-  redelivered like any other failure.
+  redelivered like any other failure. So does a `publish/3` failure that wraps a
+  `ServiceRadar.Dgraph.TransientError` (a Dgraph timeout or leader election).
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
       delivery is primary. Completed projection replays make no domain changes; a deferred
       recovery projection revisits its durable state. Late-fenced deliveries remain ledger-only.
@@ -66,6 +67,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Ash.NotificationQueue
+  alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
@@ -157,6 +159,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     denied in PublishDeniedError ->
       PipelineStats.record(:failed, contract)
       {:failed, denied}
+
+    # A transient failure is logged by the pipeline, at warning and rate-limited
+    # (`ServiceRadar.EventWriter.Pipeline`), not as an error for every record. Past the
+    # stream's threshold it is dead-lettered, and the dead-letter is logged as an error.
+    transient in EdgeRecordTransientError ->
+      PipelineStats.record(:failed, contract)
+      {:failed, transient}
 
     e ->
       PipelineStats.record(:failed, contract)
@@ -348,10 +357,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
+  # A failure that wraps a transient Dgraph error (a timeout or a leader election) is not the
+  # record's fault: it fails as `EdgeRecordTransientError`, redelivered with backoff and logged
+  # as the transient condition it is. Any other failure is unexplained and raises as an error.
   defp raise_publish_failure(reason) do
-    case PublishDeniedError.find(reason) do
-      %PublishDeniedError{} = denied -> raise denied
-      nil -> raise "edge record publish failed: #{inspect(reason)}"
+    cond do
+      denied = PublishDeniedError.find(reason) -> raise denied
+      TransientError.find(reason) -> raise EdgeRecordTransientError, reason: reason
+      true -> raise "edge record publish failed: #{inspect(reason)}"
     end
   end
 

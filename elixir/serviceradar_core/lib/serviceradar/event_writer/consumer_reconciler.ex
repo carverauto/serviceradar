@@ -477,7 +477,6 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
             record_recovered(acc, stream.name)
 
           {:error, reason} ->
-            log_failure(config, stream, reason)
             track_failure(acc, stream, reason)
         end
       end)
@@ -490,11 +489,13 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   # timer and never holding back retirement.
   defp track_failure(state, stream, reason) do
     if Map.get(stream, :best_effort, false) do
+      log_failure(state.config, stream, reason, nil)
       state
     else
       {state, attempt} = record_failed(state, stream.name, reason)
+      error_logged? = log_failure(state.config, stream, reason, attempt) == :error
       schedule_retry(state.conn, stream.name, attempt)
-      entry = %{stream: stream, attempt: attempt}
+      entry = %{stream: stream, attempt: attempt, error_logged?: error_logged?}
       %{state | failed: Map.put(state.failed, stream.name, entry)}
     end
   end
@@ -514,16 +515,28 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
       {:error, reason} ->
         {state, next} = record_failed(state, name, reason)
-
-        Logger.warning("EventWriter durable setup still failing; retrying this stream only",
-          consumer: name,
-          attempt: next,
-          retry_in_ms: ConsumerSetup.retry_delay(next),
-          reason: inspect(reason)
-        )
-
+        entry = log_retry_failure(state.config, %{entry | attempt: next}, reason)
         schedule_retry(state.conn, name, next)
-        %{state | failed: Map.put(state.failed, name, %{entry | attempt: next})}
+        %{state | failed: Map.put(state.failed, name, entry)}
+    end
+  end
+
+  # A failure is logged as an error once: on its first attempt, unless it is a transient NATS
+  # condition (`ConsumerSetup.transient_reason?/1`), which is a warning until it outlasts its
+  # bound or turns into a failure that is not transient. Every other retry that still fails is
+  # a warning.
+  defp log_retry_failure(config, %{stream: stream, attempt: attempt} = entry, reason) do
+    if Map.get(entry, :error_logged?, true) do
+      Logger.warning("EventWriter durable setup still failing; retrying this stream only",
+        consumer: stream.name,
+        attempt: attempt,
+        retry_in_ms: ConsumerSetup.retry_delay(attempt),
+        reason: inspect(reason)
+      )
+
+      entry
+    else
+      %{entry | error_logged?: log_failure(config, stream, reason, attempt) == :error}
     end
   end
 
@@ -584,13 +597,31 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
     end
   end
 
-  defp log_failure(config, stream, reason) do
+  # Returns the level it logged at. `attempt` is nil for a best-effort stream.
+  defp log_failure(config, stream, reason, attempt) do
     {diagnostic, metadata} = ConsumerSetup.describe_failure(config, stream, reason)
+    transient? = ConsumerSetup.transient_reason?(reason)
 
-    if Map.get(stream, :best_effort, false) do
-      Logger.warning("EventWriter skipping best-effort drain consumer " <> diagnostic, metadata)
-    else
-      Logger.error("Failed to initialize EventWriter durable consumer " <> diagnostic, metadata)
+    cond do
+      Map.get(stream, :best_effort, false) ->
+        Logger.warning("EventWriter skipping best-effort drain consumer " <> diagnostic, metadata)
+        :warning
+
+      transient? and ConsumerSetup.transient_within_bound?(attempt) ->
+        Logger.warning(
+          "EventWriter durable consumer not set up while NATS restarts or moves a leader; " <>
+            "retrying " <> diagnostic,
+          [{:attempt, attempt} | metadata]
+        )
+
+        :warning
+
+      true ->
+        if transient?,
+          do: ConsumerSetup.report_transient_bound_exceeded(stream.name, attempt, reason)
+
+        Logger.error("Failed to initialize EventWriter durable consumer " <> diagnostic, metadata)
+        :error
     end
   end
 

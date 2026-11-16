@@ -286,14 +286,19 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     @moduledoc false
     # A JetStream server where the METRICS durable exists and the MTR_RESULTS
     # durable appears only after `misses` reads, as when the coordinator's
-    # reconciler has not created it yet.
+    # reconciler has not created it yet. Each miss answers `error`, by default
+    # "consumer not found".
 
     use GenServer
 
-    def child_spec({test_pid, misses}) do
+    @not_found %{"code" => 404, "err_code" => 10_014, "description" => "consumer not found"}
+
+    def child_spec({test_pid, misses}), do: child_spec({test_pid, misses, @not_found})
+
+    def child_spec({test_pid, misses, error}) do
       %{
         id: __MODULE__,
-        start: {__MODULE__, :start_link, [{test_pid, misses}]},
+        start: {__MODULE__, :start_link, [{test_pid, misses, error}]},
         restart: :temporary
       }
     end
@@ -301,8 +306,10 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
     @impl true
-    def init({test_pid, misses}),
-      do: {:ok, %{test_pid: test_pid, misses: misses, request_count: 0, next_sid: 200}}
+    def init({test_pid, misses, error}),
+      do:
+        {:ok,
+         %{test_pid: test_pid, misses: misses, error: error, request_count: 0, next_sid: 200}}
 
     @impl true
     def handle_call({:request, request}, _from, state) do
@@ -337,9 +344,7 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
     defp respond("$JS.API.CONSUMER.INFO.mtr_results." <> _durable, %{misses: misses} = state)
          when misses > 0 do
-      {%{
-         "error" => %{"code" => 404, "err_code" => 10_014, "description" => "consumer not found"}
-       }, %{state | misses: misses - 1}}
+      {%{"error" => state.error}, %{state | misses: misses - 1}}
     end
 
     defp respond("$JS.API.CONSUMER.INFO.mtr_results." <> durable, state),
@@ -443,6 +448,77 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert state.degraded_streams == %{"MTR_RESULTS" => 2}
       assert Enum.map(state.consumer_context.consumers, & &1.stream) == ["metrics"]
       assert_received {:failed, "MTR_RESULTS", %{attempt: 2}}
+    end
+
+    # A JetStream consumer leader move answers "consumer is offline" until a new leader is up.
+    test "an offline consumer is a warning while it retries within its bound, then an error once",
+         %{config: config} do
+      offline = %{"code" => 500, "err_code" => 10_119, "description" => "consumer is offline"}
+      conn = start_supervised!({DurableNotReadyConnection, {self(), 100, offline}})
+      test_pid = self()
+      handler = "producer-transient-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :event_writer, :consumer_setup, :transient_bound_exceeded],
+        fn _event, %{attempt: attempt}, %{stream: stream}, _ ->
+          send(test_pid, {:transient_bound_exceeded, stream, attempt})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      retry = fn state ->
+        with_log(fn ->
+          {:noreply, [], state} =
+            Producer.handle_info({:retry_consumer, conn, "MTR_RESULTS"}, state)
+
+          state
+        end)
+      end
+
+      {state, log} =
+        with_log(fn ->
+          assert {:ok, context} = Producer.setup_jetstream_consumers(conn, config)
+          assert [{_mtr, {"MTR_RESULTS", ^offline}}] = context.failed_streams
+
+          Producer.track_failed_streams(
+            %Producer{
+              config: config,
+              conn: conn,
+              consumer_context: context,
+              connected: true,
+              pull_subjects: context.pull_subjects,
+              sid_to_pull_subject: context.sid_to_pull_subject,
+              failed_streams: %{},
+              degraded_streams: %{},
+              setup_failures: 0
+            },
+            context.failed_streams
+          )
+        end)
+
+      assert log =~ "[warning]"
+      assert log =~ "consumer is offline"
+      refute log =~ "[error]"
+
+      state =
+        Enum.reduce(2..8, state, fn _attempt, state ->
+          {state, log} = retry.(state)
+          refute log =~ "[error]"
+          state
+        end)
+
+      refute_received {:transient_bound_exceeded, _, _}
+
+      {state, log} = retry.(state)
+      assert log =~ "[error]"
+      assert log =~ ~s(EventWriter could not bind durable consumer name="MTR_RESULTS")
+      assert_received {:transient_bound_exceeded, "MTR_RESULTS", 9}
+
+      {_state, log} = retry.(state)
+      refute log =~ "[error]"
     end
 
     test "ignores a retry scheduled for an earlier connection", %{config: config, mtr: mtr} do
