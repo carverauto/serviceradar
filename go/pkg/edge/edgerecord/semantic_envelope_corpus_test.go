@@ -105,7 +105,7 @@ func semRowsOfKind(t *testing.T, kind string) []semRow {
 // no key repeats. The counts are stated here rather than derived from the file, so a row
 // silently deleted from the manifest fails instead of shrinking the inventory it defines.
 func TestSemanticCorpusCardinality(t *testing.T) {
-	want := map[string]int{"op": 125, "slot": 17, "state": 8, "edge": 13, "sep": 5, "excl": 2, "rel": 1}
+	want := map[string]int{"op": 130, "slot": 17, "state": 8, "edge": 13, "sep": 5, "excl": 2, "rel": 1}
 
 	got := map[string]int{}
 	seen := map[string]bool{}
@@ -335,7 +335,7 @@ func semanticSortedKeys(m map[string]bool) []string {
 }
 
 // ---------------------------------------------------------------------------
-// framer-local operations: 125 keys, driven from the manifest
+// framer-local operations: 130 keys, driven from the manifest
 // ---------------------------------------------------------------------------
 
 // semFramerOutput runs one framer over a message and returns the framed bytes. The framers are
@@ -779,6 +779,12 @@ func TestSemanticFramerOperations(t *testing.T) {
 			}
 		}
 
+		if strings.Contains(r.key, ".transition.late_admission.") {
+			base.(*edgev1.EdgeDeliveryClaimsV1).Transition = &edgev1.EdgeDeliveryClaimsV1_LateAdmission{
+				LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{},
+			}
+		}
+
 		seed = 100
 		semPopulate(base, &seed)
 
@@ -806,12 +812,12 @@ func TestSemanticFramerOperations(t *testing.T) {
 	t.Logf("framer-local operations: %d at the seam, %d through the digest entry point, %d state cases",
 		covered, viaDigest, viaState)
 
-	if covered != 89 || viaDigest != 22 || viaState != 14 {
-		t.Fatalf("bucket sizes drifted: seam=%d digest=%d state=%d (want 89/22/14)", covered, viaDigest, viaState)
+	if covered != 93 || viaDigest != 22 || viaState != 15 {
+		t.Fatalf("bucket sizes drifted: seam=%d digest=%d state=%d (want 93/22/15)", covered, viaDigest, viaState)
 	}
 
-	if covered+viaDigest+viaState != 125 {
-		t.Fatalf("accounted for %d operation rows, the inventory names 125", covered+viaDigest+viaState)
+	if covered+viaDigest+viaState != 130 {
+		t.Fatalf("accounted for %d operation rows, the inventory names 130", covered+viaDigest+viaState)
 	}
 }
 
@@ -822,20 +828,21 @@ type semRoute struct{ detail, probe string }
 //
 //nolint:gochecknoglobals // immutable declared axis
 var semStateKeys = map[string]semRoute{
-	"output_contract.presence":                         {detail: "present", probe: "preimage"},
-	"claims_framed.discriminant_7":                     {detail: "u64", probe: "preimage"},
-	"claims_framed.discriminant_8":                     {detail: "u64", probe: "preimage"},
-	"claims_framed.discriminant_9":                     {detail: "u64", probe: "preimage"},
-	"claims_framed.discriminant_11":                    {detail: "u64", probe: "preimage"},
-	"claims_framed.discriminant_12":                    {detail: "u64", probe: "preimage"},
-	"claims_framed.discriminant_unset":                 {detail: "u64", probe: "preimage"},
-	"delivery_claims.transition.discriminant_renewal":  {detail: "u64", probe: "preimage"},
-	"delivery_claims.transition.discriminant_rollover": {detail: "u64", probe: "preimage"},
-	"delivery_claims.transition.discriminant_unset":    {detail: "u64", probe: "preimage"},
-	"execution_grant_claims.source_identity.presence":  {detail: "present", probe: "preimage"},
-	"capability.presence":                              {detail: "present", probe: "committed"},
-	"source_auth.presence":                             {detail: "present", probe: "committed"},
-	"producer_context.presence":                        {detail: "present", probe: "committed"},
+	"output_contract.presence":                               {detail: "present", probe: "preimage"},
+	"claims_framed.discriminant_7":                           {detail: "u64", probe: "preimage"},
+	"claims_framed.discriminant_8":                           {detail: "u64", probe: "preimage"},
+	"claims_framed.discriminant_9":                           {detail: "u64", probe: "preimage"},
+	"claims_framed.discriminant_11":                          {detail: "u64", probe: "preimage"},
+	"claims_framed.discriminant_12":                          {detail: "u64", probe: "preimage"},
+	"claims_framed.discriminant_unset":                       {detail: "u64", probe: "preimage"},
+	"delivery_claims.transition.discriminant_renewal":        {detail: "u64", probe: "preimage"},
+	"delivery_claims.transition.discriminant_rollover":       {detail: "u64", probe: "preimage"},
+	"delivery_claims.transition.discriminant_late_admission": {detail: "u64", probe: "preimage"},
+	"delivery_claims.transition.discriminant_unset":          {detail: "u64", probe: "preimage"},
+	"execution_grant_claims.source_identity.presence":        {detail: "present", probe: "preimage"},
+	"capability.presence":                                    {detail: "present", probe: "committed"},
+	"source_auth.presence":                                   {detail: "present", probe: "committed"},
+	"producer_context.presence":                              {detail: "present", probe: "committed"},
 }
 
 // semDigestKeys pins the EXACT tuple, not just the key. These rows bypassed the descriptor kind check entirely, so capability.algorithm could be
@@ -1083,7 +1090,7 @@ func semDescriptorEdges(t *testing.T, edges map[string]bool) map[int]string {
 
 // TestSemanticNestedClosure is bidirectional over the DISCOVERED graph: every scalar leaf the
 // descriptors define must be classified by the manifest, and every manifest operation must
-// name a leaf that exists or be one of the fourteen synthetic ones.
+// name a leaf that exists or be one of the fifteen synthetic ones.
 func TestSemanticNestedClosure(t *testing.T) {
 	discovered := map[string]string{}
 	edges := map[string]bool{}
@@ -1092,8 +1099,8 @@ func TestSemanticNestedClosure(t *testing.T) {
 		semWalkLeaves(t, root, mk().ProtoReflect().Descriptor(), "", discovered, edges)
 	}
 
-	if len(discovered) != 111 {
-		t.Fatalf("the descriptor graph yields %d scalar leaves, the inventory names 111: %v",
+	if len(discovered) != 115 {
+		t.Fatalf("the descriptor graph yields %d scalar leaves, the inventory names 115: %v",
 			len(discovered), semanticSortedKeys(func() map[string]bool {
 				m := map[string]bool{}
 				for k := range discovered {
@@ -1117,8 +1124,8 @@ func TestSemanticNestedClosure(t *testing.T) {
 		manifest[r.key] = r.detail
 	}
 
-	if synthetic != 14 {
-		t.Fatalf("the manifest carries %d synthetic operations, the inventory names 14", synthetic)
+	if synthetic != 15 {
+		t.Fatalf("the manifest carries %d synthetic operations, the inventory names 15", synthetic)
 	}
 
 	for path, kind := range discovered {
@@ -1699,7 +1706,7 @@ func TestSemanticStateCases(t *testing.T) {
 		check("state.claims_discriminant."+v, semClaimsFramed(t, v))
 	}
 
-	for _, v := range []string{"renewal", "rollover", "unset"} {
+	for _, v := range []string{"renewal", "rollover", "late_admission", "unset"} {
 		check("state.delivery_transition."+v, semDeliveryTransition(t, v))
 	}
 
@@ -1709,6 +1716,7 @@ func TestSemanticStateCases(t *testing.T) {
 	// A populated body per branch is what separates those positions.
 	check("state.delivery_transition.renewal.populated", semTransitionPopulated(t, "renewal"))
 	check("state.delivery_transition.rollover.populated", semTransitionPopulated(t, "rollover"))
+	check("state.delivery_transition.late_admission.populated", semTransitionPopulated(t, "late_admission"))
 
 	// The three record-level presence markers are committed as whole-envelope digests, since
 	// their framers are not seam-runnable from this suite.
@@ -1739,15 +1747,15 @@ func TestSemanticStateCases(t *testing.T) {
 	check("state.authority_epoch.zero", semAuthorityEpochDigest(t, proto.Uint64(0)))
 	check("state.authority_epoch.one", semAuthorityEpochDigest(t, proto.Uint64(1)))
 
-	// TWENTY-EIGHT ARTIFACTS from eight rows: two seam presence pairs (4), six claims
-	// discriminants, three transition discriminants PLUS two populated transition bodies (5),
+	// THIRTY ARTIFACTS from eight rows: two seam presence pairs (4), six claims
+	// discriminants, four transition discriminants PLUS three populated transition bodies (7),
 	// three record-level presence pairs (6), the ROOT-level output-contract pair (2), the SECOND
 	// capability carrier (2) and the optU64 triple (3).
 	//
 	// The whole-record SHAPES are a separate evidence class with their own vectors and their own
 	// signature guard; they are not counted here.
-	if len(seen) != 28 {
-		t.Fatalf("discharged %d state vectors; the eight state rows expand to 28 artifacts", len(seen))
+	if len(seen) != 30 {
+		t.Fatalf("discharged %d state vectors; the eight state rows expand to 30 artifacts", len(seen))
 	}
 
 	// THE MANIFEST TUPLES ARE BOUND TO THIS EVIDENCE. Without it the state keys could be
@@ -1759,7 +1767,7 @@ func TestSemanticStateCases(t *testing.T) {
 		"presence.source_authorization":              {"absent+present", "committed"},
 		"presence.execution_source_identity":         {"absent+present", "preimage"},
 		"discriminant.claims":                        {"0,7,8,9,11,12", "preimage"},
-		"discriminant.delivery_transition":           {"0,5,6", "preimage"},
+		"discriminant.delivery_transition":           {"0,5,6,7", "preimage"},
 		"optional.producer_context.authority_epoch":  {"absent,0,1", "digest"},
 	})
 }
@@ -1831,6 +1839,8 @@ func semDeliveryTransition(t *testing.T, variant string) []byte {
 		c.Transition = &edgev1.EdgeDeliveryClaimsV1_Renewal{Renewal: &edgev1.EdgeDeliveryRenewalV1{}}
 	case "rollover":
 		c.Transition = &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{}}
+	case "late_admission":
+		c.Transition = &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{}}
 	case "unset":
 	default:
 		t.Fatalf("unknown transition variant %q", variant)
@@ -2954,6 +2964,13 @@ func semTransitionMessage(t *testing.T, variant string) *edgev1.EdgeDeliveryClai
 			PriorSpoolId:  bytes.Repeat([]byte{0x62}, 16),
 			PriorSequence: 7,
 		}}
+	case "late_admission":
+		c.Transition = &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{
+			ProducedAtUnixNano: 1_800_000_000_000_000_000,
+			AuthorityEpoch:     9,
+			Publication:        edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_AUDIT,
+			Reason:             edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION,
+		}}
 	default:
 		t.Fatalf("unknown transition variant %q", variant)
 	}
@@ -3361,6 +3378,12 @@ func (m *semMirror) deliveryClaims(p string, c *edgev1.EdgeDeliveryClaimsV1) {
 		m.bytes(p+".transition.rollover.recovery_id", tr.Rollover.GetRecoveryId())
 		m.bytes(p+".transition.rollover.prior_spool_id", tr.Rollover.GetPriorSpoolId())
 		m.u64(p+".transition.rollover.prior_sequence", tr.Rollover.GetPriorSequence())
+	case *edgev1.EdgeDeliveryClaimsV1_LateAdmission:
+		m.konst(p+".transition.discriminant", 7)
+		m.i64(p+".transition.late_admission.produced_at_unix_nano", tr.LateAdmission.GetProducedAtUnixNano())
+		m.u64(p+".transition.late_admission.authority_epoch", tr.LateAdmission.GetAuthorityEpoch())
+		m.u64(p+".transition.late_admission.publication", uint64(tr.LateAdmission.GetPublication()))
+		m.u64(p+".transition.late_admission.reason", uint64(tr.LateAdmission.GetReason()))
 	default:
 		m.konst(p+".transition.discriminant", 0)
 	}

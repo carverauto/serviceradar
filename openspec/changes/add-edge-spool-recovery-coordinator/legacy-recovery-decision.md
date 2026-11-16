@@ -58,3 +58,15 @@ update stops the old agent cannot be added either. The stopping is done by the
 old agent and the package-installed updater already on the host, and new code
 reaches neither. Lane storage persists across restarts, so the stranding is
 specific to the move from flat storage to lanes.
+
+## Amendment: retained tails are handed off (2026-11-15)
+
+The product owner directed that no record captured at the edge may be left
+stranded. The production-time admission rule in
+[add-edge-production-time-admission](../add-edge-production-time-admission/design.md)
+supplies what this decision lacked: committed records in the pre-lane flat spool
+are handed off, in order, to a late generation and judged by core against the
+authority that was valid when they were produced. The flat spool is then retired
+through the same structural emptiness proof. This is late admission, not a
+recovery operation; Decisions 1-5 are unchanged. Only root entries no known
+layout accounts for stay retained and reported as unsupported.

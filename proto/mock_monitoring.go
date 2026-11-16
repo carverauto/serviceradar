@@ -421,6 +421,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) RenewCertificate(ctx, in an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewCertificate), varargs...)
 }
 
+// IssueEdgeLateAdmissionGrants mocks base method.
+func (m *MockAgentGatewayServiceClient) IssueEdgeLateAdmissionGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "IssueEdgeLateAdmissionGrants", varargs...)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IssueEdgeLateAdmissionGrants indicates an expected call of IssueEdgeLateAdmissionGrants.
+func (mr *MockAgentGatewayServiceClientMockRecorder) IssueEdgeLateAdmissionGrants(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IssueEdgeLateAdmissionGrants", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).IssueEdgeLateAdmissionGrants), varargs...)
+}
+
 // RenewEdgeDeliveryGrants mocks base method.
 func (m *MockAgentGatewayServiceClient) RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
 	m.ctrl.T.Helper()
@@ -697,6 +717,21 @@ func (m *MockAgentGatewayServiceServer) RenewCertificate(arg0 context.Context, a
 func (mr *MockAgentGatewayServiceServerMockRecorder) RenewCertificate(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewCertificate), arg0, arg1)
+}
+
+// IssueEdgeLateAdmissionGrants mocks base method.
+func (m *MockAgentGatewayServiceServer) IssueEdgeLateAdmissionGrants(arg0 context.Context, arg1 *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IssueEdgeLateAdmissionGrants", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IssueEdgeLateAdmissionGrants indicates an expected call of IssueEdgeLateAdmissionGrants.
+func (mr *MockAgentGatewayServiceServerMockRecorder) IssueEdgeLateAdmissionGrants(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IssueEdgeLateAdmissionGrants", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).IssueEdgeLateAdmissionGrants), arg0, arg1)
 }
 
 // RenewEdgeDeliveryGrants mocks base method.

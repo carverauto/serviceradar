@@ -108,7 +108,7 @@ func (s *Sender) renewGrants(ctx context.Context) error {
 		}
 		frames++
 		bytesInWin += uint64(len(rec.Body))
-		if s.holdsCurrentGrant(rec, now) || (!s.cfg.RequireDeliveryGrant && !authorityLapsing(rec.Body, now)) {
+		if s.holdsCurrentGrant(rec, now) || (!s.cfg.RequireDeliveryGrant && !s.cfg.LateAdmission && !authorityLapsing(rec.Body, now)) {
 			return true
 		}
 		need = append(need, rec)

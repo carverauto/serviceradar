@@ -385,7 +385,7 @@ func TestSenderPreservesGenerationNamespacesAndContinuesPastACoverageGap(t *test
 		t.Fatalf("qualified gap = %v", gap)
 	}
 	gateway, address := listenGrantGateway(t, false)
-	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	runners, _, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestLaneSenderRevisitsItsOnlyGenerationOnConsecutivePolls(t *testing.T) {
 	defer func() { _ = store.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	senders, closeAll, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	senders, _, closeAll, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestUnsupportedLegacyStorageIsRetainedAccountedAndNeverDelivered(t *testing
 		t.Fatalf("retained status = %v", status)
 	}
 	gateway, address := listenGrantGateway(t, false)
-	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	runners, _, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -856,7 +856,7 @@ func TestRecoverySuspendsAndJoinsAnInflightSourceSession(t *testing.T) {
 	defer func() { _ = store.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	workers, closeWorkers, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	workers, _, closeWorkers, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}

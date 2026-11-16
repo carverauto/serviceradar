@@ -219,6 +219,7 @@ message EdgeDeliveryClaimsV1 {
   oneof transition {
     EdgeDeliveryRenewalV1 renewal = 5;     // same-spool lease renewal
     EdgeDeliveryRolloverV1 rollover = 6;   // recovery rollover to a new spool
+    EdgeDeliveryLateAdmissionV1 late_admission = 7; // production-time late admission
   }
 }
 
@@ -228,6 +229,39 @@ message EdgeDeliveryClaimsV1 {
 message EdgeDeliveryRenewalV1 {
   int64 renewed_not_before_unix_nano = 1;
   int64 renewed_expires_unix_nano = 2;     // MUST be > not_before
+}
+
+// EdgeLatePublication is core's production-time publication decision for a late
+// record (add-edge-production-time-admission, Decision 3). PRIMARY projects it;
+// AUDIT stores it without projection. UNSPECIFIED is rejected.
+enum EdgeLatePublication {
+  EDGE_LATE_PUBLICATION_UNSPECIFIED = 0;
+  EDGE_LATE_PUBLICATION_PRIMARY = 1;
+  EDGE_LATE_PUBLICATION_AUDIT = 2;
+}
+
+// EdgeLateDecisionReason states why core decided a late publication. ADMITTED
+// pairs only with PRIMARY; every other reason pairs only with AUDIT.
+enum EdgeLateDecisionReason {
+  EDGE_LATE_DECISION_REASON_UNSPECIFIED = 0;
+  EDGE_LATE_DECISION_REASON_ADMITTED = 1;
+  EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION = 2;
+  EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN = 3;
+  EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED = 4;
+  EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW = 5;
+  EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 6;
+}
+
+// EdgeDeliveryLateAdmissionV1 is core's production-time decision for one late
+// record: the authority it names (produced_at, authority_epoch) was judged against
+// retained authority history, not current state. produced_at MUST equal the UUIDv7
+// time of the record's event_id and authority_epoch MUST equal the record's
+// producer_context.authority_epoch, so the grant cannot be moved to another record.
+message EdgeDeliveryLateAdmissionV1 {
+  int64 produced_at_unix_nano = 1;
+  uint64 authority_epoch = 2;
+  EdgeLatePublication publication = 3;
+  EdgeLateDecisionReason reason = 4;
 }
 
 // EdgeDeliveryRolloverV1 binds the COMPLETE old and new coordinate of a recovery
@@ -569,7 +603,15 @@ message EdgeRecordLaneOpen {
   bytes session_nonce = 6;                // fresh random per session
   uint64 requested_byte_credits = 7;
   uint32 requested_frame_credits = 8;
+  // True for a LATE session: it carries only late-admitted generations, decided
+  // under the production-time rule. False (every older agent) is a live session.
+  bool late_admission = 9;
+  // The late-admission protocol this agent implements. A gateway sends the
+  // resolving LATE_ADMISSION_REQUIRED live disposition only on a lane whose
+  // lane_open advertises >= 1; zero (every older agent) keeps today's dispositions.
+  uint32 late_admission_protocol_version = 10;
 }
+
 
 message EdgeRecordLaneOpenAck {
   bytes spool_id = 1;

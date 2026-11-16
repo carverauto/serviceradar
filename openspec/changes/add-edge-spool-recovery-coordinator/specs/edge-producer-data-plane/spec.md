@@ -345,20 +345,23 @@ Recovery sizing SHALL be bounded for an entire recovery GENERATION, not only per
 segment. New attributed generations SHALL enforce cumulative recovery bounds before
 sequence allocation so one operation covers the complete physical generation.
 Known attribution SHALL NOT be downgraded to UNATTRIBUTABLE for sizing.
-Existing flat or oversized storage that cannot satisfy these bounds SHALL
-remain intact, accounted and reported as unsupported while it may hold a
-record. The agent SHALL NOT migrate, drain or partition that storage into
-recovery operations. Flat storage that provably holds no record (every segment
-and both commit evidence copies empty) SHALL be removed at open and recorded in
-an audit log line, and SHALL NOT be reported as retained.
+Existing flat or oversized storage that cannot satisfy these bounds SHALL NOT
+be migrated, drained or partitioned into recovery operations. Committed records
+the pre-lane flat spool still holds are handed off through production-time late
+admission instead (add-edge-production-time-admission), which is not a recovery
+operation, and the flat spool is then retired. Only storage holding an entry no
+known layout accounts for SHALL remain intact, accounted and reported as
+unsupported. Flat storage that provably holds no record (every segment and both
+commit evidence copies empty) SHALL be removed at open and recorded in an audit
+log line, and SHALL NOT be reported as retained.
 
 #### Scenario: Drained flat storage is retired
 - **GIVEN** flat storage left by an agent before the lane format whose segments and evidence copies are all empty
 - **WHEN** the agent opens its edge record root
 - **THEN** it SHALL remove that storage, log the removed entries and bytes, and report zero retained legacy bytes
 
-#### Scenario: Flat storage that may hold a record is kept
-- **GIVEN** flat storage with any segment byte or evidence entry, or any root entry the agent cannot account for
+#### Scenario: Flat storage the agent cannot account for is kept
+- **GIVEN** flat storage with any root entry the agent cannot account for
 - **WHEN** the agent opens its edge record root
 - **THEN** it SHALL leave every file untouched, keep it charged to the shared budget and report it as unsupported legacy storage
 

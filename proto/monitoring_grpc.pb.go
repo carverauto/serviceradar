@@ -227,6 +227,7 @@ const (
 	AgentGatewayService_RenewCertificate_FullMethodName                = "/monitoring.AgentGatewayService/RenewCertificate"
 	AgentGatewayService_GetCertificatePolicy_FullMethodName            = "/monitoring.AgentGatewayService/GetCertificatePolicy"
 	AgentGatewayService_RenewEdgeDeliveryGrants_FullMethodName         = "/monitoring.AgentGatewayService/RenewEdgeDeliveryGrants"
+	AgentGatewayService_IssueEdgeLateAdmissionGrants_FullMethodName    = "/monitoring.AgentGatewayService/IssueEdgeLateAdmissionGrants"
 	AgentGatewayService_RegisterEdgeRecovery_FullMethodName            = "/monitoring.AgentGatewayService/RegisterEdgeRecovery"
 	AgentGatewayService_AuthorizeEdgeRecovery_FullMethodName           = "/monitoring.AgentGatewayService/AuthorizeEdgeRecovery"
 	AgentGatewayService_RenewEdgeRecoveryCopies_FullMethodName         = "/monitoring.AgentGatewayService/RenewEdgeRecoveryCopies"
@@ -269,6 +270,10 @@ type AgentGatewayServiceClient interface {
 	// for each spooled edge record whose production authority has lapsed, so a
 	// reconnecting agent can drain its backlog.
 	RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error)
+	// IssueEdgeLateAdmissionGrants asks core for a production-time late-admission
+	// grant (EdgeDeliveryLateAdmissionV1) for each record of a LATE lane generation.
+	// Core decides PRIMARY or AUDIT from retained authority history.
+	IssueEdgeLateAdmissionGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error)
 	// Recovery control is authenticated independently of the blocked delivery lane.
 	// Registration is not publication or permission to reclaim source bytes.
 	RegisterEdgeRecovery(ctx context.Context, in *EdgeRecoveryRegistration, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error)
@@ -410,6 +415,16 @@ func (c *agentGatewayServiceClient) RenewEdgeDeliveryGrants(ctx context.Context,
 	return out, nil
 }
 
+func (c *agentGatewayServiceClient) IssueEdgeLateAdmissionGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeDeliveryGrantResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_IssueEdgeLateAdmissionGrants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentGatewayServiceClient) RegisterEdgeRecovery(ctx context.Context, in *EdgeRecoveryRegistration, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EdgeRecoveryStatus)
@@ -486,6 +501,10 @@ type AgentGatewayServiceServer interface {
 	// for each spooled edge record whose production authority has lapsed, so a
 	// reconnecting agent can drain its backlog.
 	RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error)
+	// IssueEdgeLateAdmissionGrants asks core for a production-time late-admission
+	// grant (EdgeDeliveryLateAdmissionV1) for each record of a LATE lane generation.
+	// Core decides PRIMARY or AUDIT from retained authority history.
+	IssueEdgeLateAdmissionGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error)
 	// Recovery control is authenticated independently of the blocked delivery lane.
 	// Registration is not publication or permission to reclaim source bytes.
 	RegisterEdgeRecovery(context.Context, *EdgeRecoveryRegistration) (*EdgeRecoveryStatus, error)
@@ -534,6 +553,9 @@ func (UnimplementedAgentGatewayServiceServer) GetCertificatePolicy(context.Conte
 }
 func (UnimplementedAgentGatewayServiceServer) RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenewEdgeDeliveryGrants not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) IssueEdgeLateAdmissionGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IssueEdgeLateAdmissionGrants not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) RegisterEdgeRecovery(context.Context, *EdgeRecoveryRegistration) (*EdgeRecoveryStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterEdgeRecovery not implemented")
@@ -737,6 +759,24 @@ func _AgentGatewayService_RenewEdgeDeliveryGrants_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentGatewayService_IssueEdgeLateAdmissionGrants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeDeliveryGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).IssueEdgeLateAdmissionGrants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_IssueEdgeLateAdmissionGrants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).IssueEdgeLateAdmissionGrants(ctx, req.(*EdgeDeliveryGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentGatewayService_RegisterEdgeRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EdgeRecoveryRegistration)
 	if err := dec(in); err != nil {
@@ -847,6 +887,10 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RenewEdgeDeliveryGrants",
 			Handler:    _AgentGatewayService_RenewEdgeDeliveryGrants_Handler,
+		},
+		{
+			MethodName: "IssueEdgeLateAdmissionGrants",
+			Handler:    _AgentGatewayService_IssueEdgeLateAdmissionGrants_Handler,
 		},
 		{
 			MethodName: "RegisterEdgeRecovery",

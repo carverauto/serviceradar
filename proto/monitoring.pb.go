@@ -2651,8 +2651,16 @@ type EdgeRecordSpoolStatus struct {
 	GenerationGaps []*EdgeRecordSpoolGap `protobuf:"bytes,15,rep,name=generation_gaps,json=generationGaps,proto3" json:"generation_gaps,omitempty"`
 	// Unsupported flat-storage bytes retained untouched and charged to the shared budget.
 	RetainedLegacyBytes uint64 `protobuf:"varint,16,opt,name=retained_legacy_bytes,json=retainedLegacyBytes,proto3" json:"retained_legacy_bytes,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Committed records an older storage layout still holds that the agent has not
+	// yet handed off to late admission, and why the last pass stopped (empty when none).
+	LegacyHandoffPendingRecords uint64 `protobuf:"varint,17,opt,name=legacy_handoff_pending_records,json=legacyHandoffPendingRecords,proto3" json:"legacy_handoff_pending_records,omitempty"`
+	LegacyHandoffReason         string `protobuf:"bytes,18,opt,name=legacy_handoff_reason,json=legacyHandoffReason,proto3" json:"legacy_handoff_reason,omitempty"`
+	// Unresolved records in late generations and holds, and why they are not
+	// draining (for example late_pending_gateway_support; empty when draining).
+	LatePendingRecords uint64 `protobuf:"varint,19,opt,name=late_pending_records,json=latePendingRecords,proto3" json:"late_pending_records,omitempty"`
+	LatePendingReason  string `protobuf:"bytes,20,opt,name=late_pending_reason,json=latePendingReason,proto3" json:"late_pending_reason,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *EdgeRecordSpoolStatus) Reset() {
@@ -2795,6 +2803,34 @@ func (x *EdgeRecordSpoolStatus) GetRetainedLegacyBytes() uint64 {
 		return x.RetainedLegacyBytes
 	}
 	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetLegacyHandoffPendingRecords() uint64 {
+	if x != nil {
+		return x.LegacyHandoffPendingRecords
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetLegacyHandoffReason() string {
+	if x != nil {
+		return x.LegacyHandoffReason
+	}
+	return ""
+}
+
+func (x *EdgeRecordSpoolStatus) GetLatePendingRecords() uint64 {
+	if x != nil {
+		return x.LatePendingRecords
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetLatePendingReason() string {
+	if x != nil {
+		return x.LatePendingReason
+	}
+	return ""
 }
 
 type EdgeRecordSpoolGap struct {
@@ -3036,8 +3072,11 @@ type AgentHelloResponse struct {
 	ConfigOutdated       bool                   `protobuf:"varint,7,opt,name=config_outdated,json=configOutdated,proto3" json:"config_outdated,omitempty"`                     // True if agent should fetch new config
 	// Zero means recovery is unavailable; agents retain all source evidence.
 	EdgeRecoveryProtocolVersion uint32 `protobuf:"varint,10,opt,name=edge_recovery_protocol_version,json=edgeRecoveryProtocolVersion,proto3" json:"edge_recovery_protocol_version,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// Zero means late admission is unavailable; agents keep late generations on
+	// disk, accounted and reported, and open no LATE session.
+	EdgeLateAdmissionProtocolVersion uint32 `protobuf:"varint,11,opt,name=edge_late_admission_protocol_version,json=edgeLateAdmissionProtocolVersion,proto3" json:"edge_late_admission_protocol_version,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *AgentHelloResponse) Reset() {
@@ -3122,6 +3161,13 @@ func (x *AgentHelloResponse) GetConfigOutdated() bool {
 func (x *AgentHelloResponse) GetEdgeRecoveryProtocolVersion() uint32 {
 	if x != nil {
 		return x.EdgeRecoveryProtocolVersion
+	}
+	return 0
+}
+
+func (x *AgentHelloResponse) GetEdgeLateAdmissionProtocolVersion() uint32 {
+	if x != nil {
+		return x.EdgeLateAdmissionProtocolVersion
 	}
 	return 0
 }
@@ -10493,7 +10539,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_edge_record_capabilitiesB\x14\n" +
-	"\x12_edge_record_spool\"\xb5\x05\n" +
+	"\x12_edge_record_spool\"\x90\a\n" +
 	"\x15EdgeRecordSpoolStatus\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12)\n" +
@@ -10512,7 +10558,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\fbudget_bytes\x18\r \x01(\x04R\vbudgetBytes\x12)\n" +
 	"\x10admission_paused\x18\x0e \x01(\bR\x0fadmissionPaused\x12G\n" +
 	"\x0fgeneration_gaps\x18\x0f \x03(\v2\x1e.monitoring.EdgeRecordSpoolGapR\x0egenerationGaps\x122\n" +
-	"\x15retained_legacy_bytes\x18\x10 \x01(\x04R\x13retainedLegacyBytes\"\x86\x02\n" +
+	"\x15retained_legacy_bytes\x18\x10 \x01(\x04R\x13retainedLegacyBytes\x12C\n" +
+	"\x1elegacy_handoff_pending_records\x18\x11 \x01(\x04R\x1blegacyHandoffPendingRecords\x122\n" +
+	"\x15legacy_handoff_reason\x18\x12 \x01(\tR\x13legacyHandoffReason\x120\n" +
+	"\x14late_pending_records\x18\x13 \x01(\x04R\x12latePendingRecords\x12.\n" +
+	"\x13late_pending_reason\x18\x14 \x01(\tR\x11latePendingReason\"\x86\x02\n" +
 	"\x12EdgeRecordSpoolGap\x12.\n" +
 	"\x13spool_generation_id\x18\x01 \x01(\fR\x11spoolGenerationId\x12Q\n" +
 	"\rroute_profile\x18\x02 \x01(\x0e2,.serviceradar.edge.v1.EdgeRecordRouteProfileR\frouteProfile\x12Q\n" +
@@ -10530,7 +10580,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x06master\x18\b \x01(\tR\x06master\"@\n" +
 	"\x12HostTlsFingerprint\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x16\n" +
-	"\x06sha256\x18\x02 \x01(\tR\x06sha256\"\xd5\x02\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\"\xa5\x03\n" +
 	"\x12AgentHelloResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x18\n" +
@@ -10542,7 +10592,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x16heartbeat_interval_sec\x18\x06 \x01(\x05R\x14heartbeatIntervalSec\x12'\n" +
 	"\x0fconfig_outdated\x18\a \x01(\bR\x0econfigOutdated\x12C\n" +
 	"\x1eedge_recovery_protocol_version\x18\n" +
-	" \x01(\rR\x1bedgeRecoveryProtocolVersionJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	" \x01(\rR\x1bedgeRecoveryProtocolVersion\x12N\n" +
+	"$edge_late_admission_protocol_version\x18\v \x01(\rR edgeLateAdmissionProtocolVersionJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"\"\xaf\x05\n" +
 	"\x18EdgeRecoveryRegistration\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12(\n" +
@@ -11329,7 +11380,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
 	"GetResults\x12\x1a.monitoring.ResultsRequest\x1a\x1b.monitoring.ResultsResponse\"\x00\x12I\n" +
-	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xdd\v\n" +
+	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xcc\f\n" +
 	"\x13AgentGatewayService\x12H\n" +
 	"\x05Hello\x12\x1d.monitoring.AgentHelloRequest\x1a\x1e.monitoring.AgentHelloResponse\"\x00\x12N\n" +
 	"\tGetConfig\x12\x1e.monitoring.AgentConfigRequest\x1a\x1f.monitoring.AgentConfigResponse\"\x00\x12P\n" +
@@ -11342,7 +11393,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x1fResolveAutomationLaunchEnvelope\x122.monitoring.AutomationLaunchEnvelopeResolveRequest\x1a3.monitoring.AutomationLaunchEnvelopeResolveResponse\"\x00\x12c\n" +
 	"\x10RenewCertificate\x12%.monitoring.CertificateRenewalRequest\x1a&.monitoring.CertificateRenewalResponse\"\x00\x12e\n" +
 	"\x14GetCertificatePolicy\x12$.monitoring.CertificatePolicyRequest\x1a%.monitoring.CertificatePolicyResponse\"\x00\x12h\n" +
-	"\x17RenewEdgeDeliveryGrants\x12$.monitoring.EdgeDeliveryGrantRequest\x1a%.monitoring.EdgeDeliveryGrantResponse\"\x00\x12^\n" +
+	"\x17RenewEdgeDeliveryGrants\x12$.monitoring.EdgeDeliveryGrantRequest\x1a%.monitoring.EdgeDeliveryGrantResponse\"\x00\x12m\n" +
+	"\x1cIssueEdgeLateAdmissionGrants\x12$.monitoring.EdgeDeliveryGrantRequest\x1a%.monitoring.EdgeDeliveryGrantResponse\"\x00\x12^\n" +
 	"\x14RegisterEdgeRecovery\x12$.monitoring.EdgeRecoveryRegistration\x1a\x1e.monitoring.EdgeRecoveryStatus\"\x00\x12v\n" +
 	"\x15AuthorizeEdgeRecovery\x12,.monitoring.EdgeRecoveryAuthorizationRequest\x1a-.monitoring.EdgeRecoveryAuthorizationResponse\"\x00\x12l\n" +
 	"\x17RenewEdgeRecoveryCopies\x12(.monitoring.EdgeRecoveryCopyGrantRequest\x1a%.monitoring.EdgeDeliveryGrantResponse\"\x00\x12R\n" +
@@ -11621,30 +11673,32 @@ var file_monitoring_proto_depIdxs = []int32{
 	41,  // 126: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
 	100, // 127: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
 	102, // 128: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
-	33,  // 129: monitoring.AgentGatewayService.RegisterEdgeRecovery:input_type -> monitoring.EdgeRecoveryRegistration
-	36,  // 130: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:input_type -> monitoring.EdgeRecoveryAuthorizationRequest
-	38,  // 131: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:input_type -> monitoring.EdgeRecoveryCopyGrantRequest
-	35,  // 132: monitoring.AgentGatewayService.GetEdgeRecovery:input_type -> monitoring.EdgeRecoveryQuery
-	13,  // 133: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	15,  // 134: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	18,  // 135: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	32,  // 136: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	44,  // 137: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	48,  // 138: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	22,  // 139: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	22,  // 140: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	59,  // 141: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	64,  // 142: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	126, // 143: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
-	42,  // 144: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
-	101, // 145: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
-	104, // 146: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
-	40,  // 147: monitoring.AgentGatewayService.RegisterEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
-	37,  // 148: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:output_type -> monitoring.EdgeRecoveryAuthorizationResponse
-	104, // 149: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:output_type -> monitoring.EdgeDeliveryGrantResponse
-	40,  // 150: monitoring.AgentGatewayService.GetEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
-	133, // [133:151] is the sub-list for method output_type
-	115, // [115:133] is the sub-list for method input_type
+	102, // 129: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
+	33,  // 130: monitoring.AgentGatewayService.RegisterEdgeRecovery:input_type -> monitoring.EdgeRecoveryRegistration
+	36,  // 131: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:input_type -> monitoring.EdgeRecoveryAuthorizationRequest
+	38,  // 132: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:input_type -> monitoring.EdgeRecoveryCopyGrantRequest
+	35,  // 133: monitoring.AgentGatewayService.GetEdgeRecovery:input_type -> monitoring.EdgeRecoveryQuery
+	13,  // 134: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	15,  // 135: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	18,  // 136: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	32,  // 137: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	44,  // 138: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	48,  // 139: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	22,  // 140: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	22,  // 141: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	59,  // 142: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	64,  // 143: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	126, // 144: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	42,  // 145: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
+	101, // 146: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
+	104, // 147: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
+	104, // 148: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
+	40,  // 149: monitoring.AgentGatewayService.RegisterEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
+	37,  // 150: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:output_type -> monitoring.EdgeRecoveryAuthorizationResponse
+	104, // 151: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:output_type -> monitoring.EdgeDeliveryGrantResponse
+	40,  // 152: monitoring.AgentGatewayService.GetEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
+	134, // [134:153] is the sub-list for method output_type
+	115, // [115:134] is the sub-list for method input_type
 	115, // [115:115] is the sub-list for extension type_name
 	115, // [115:115] is the sub-list for extension extendee
 	0,   // [0:115] is the sub-list for field type_name

@@ -71,9 +71,10 @@ func TestRunningAgentRetiresDrainedFlatSpool(t *testing.T) {
 	t.Logf("hello retained_legacy_bytes=%d available=%v", status.GetRetainedLegacyBytes(), status.GetAvailable())
 }
 
-// A flat spool still holding a committed, undelivered record is never removed:
-// the running agent keeps it byte-identical, reports its bytes in the hello and
-// logs the retention warning.
+// A flat spool still holding a committed, undelivered record is never removed
+// while it cannot be handed off: with no trust snapshot installed, the running
+// agent keeps it byte-identical, reports its bytes in the hello, logs that it is
+// handing the tail off, and reports the handoff as pending rather than retiring.
 func TestRunningAgentRetainsFlatSpoolWithUndeliveredRecord(t *testing.T) {
 	gw, addr := listenSpoolHelloGateway(t, false, 0)
 	dir := filepath.Join(t.TempDir(), "spool")
@@ -98,7 +99,8 @@ func TestRunningAgentRetainsFlatSpoolWithUndeliveredRecord(t *testing.T) {
 	if status == nil || status.GetRetainedLegacyBytes() == 0 {
 		t.Fatalf("hello edge_record_spool = %v, want retained_legacy_bytes > 0\nlog:\n%s", status, logs.snapshot())
 	}
-	waitForLog(t, logs, "Legacy edge storage retained untouched", 20*time.Second)
+	waitForLog(t, logs, "Legacy edge storage holds undelivered records; handing them off to late admission", 20*time.Second)
+	waitForLog(t, logs, "Legacy edge storage handoff pending; will retry", 20*time.Second)
 	if bytes.Contains(logs.snapshot(), []byte("Retired drained legacy edge storage")) {
 		t.Fatalf("agent claimed retirement of a spool holding a record\nlog:\n%s", logs.snapshot())
 	}

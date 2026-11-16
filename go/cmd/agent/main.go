@@ -209,6 +209,7 @@ func runPushMode(
 		pushLoop.SetEdgeSpoolStatusSampler(edgeSpoolStatusSampler(edgeSpool, edgeBudget))
 		edgeSpool.SetRecoveryGrantProvider(pushLoop.EdgeRecoveryProductionCapability)
 		edgeSpool.SetRecoveryPeerProvider(pushLoop.EdgeRecoveryProtocolVersion)
+		edgeSpool.SetLatePeerProvider(pushLoop.EdgeLateAdmissionProtocolVersion)
 		pushLoop.SetEdgeSweepSpool(edgeSpool)
 		pushLoop.SetEdgeMetricsSpool(edgeSpool)
 		pushLoop.SetEdgeTelemetrySpool(edgeSpool)

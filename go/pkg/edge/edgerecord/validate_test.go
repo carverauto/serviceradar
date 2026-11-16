@@ -1145,6 +1145,12 @@ func enumPolicyContexts() []enumPolicyContext {
 		{"EdgeAssignmentExecutionClaimsV1.traffic_class", trafficEnum, traffic},
 		{"EdgeRecordLaneOpen.route_profile", routeEnum, route},
 		{"EdgeRecordLaneOpen.traffic_class", trafficEnum, traffic},
+		{"EdgeDeliveryLateAdmissionV1.publication", edgev1.EdgeLatePublication(0).Descriptor(), func(v int32) bool {
+			return knownLatePublication(edgev1.EdgeLatePublication(v))
+		}},
+		{"EdgeDeliveryLateAdmissionV1.reason", edgev1.EdgeLateDecisionReason(0).Descriptor(), func(v int32) bool {
+			return knownLateDecisionReason(edgev1.EdgeLateDecisionReason(v))
+		}},
 		{"EdgeRecordLaneOpenAck.route_profile", routeEnum, route},
 		{"EdgeRecordLaneOpenAck.traffic_class", trafficEnum, traffic},
 		{"EdgeRecordV1.compression", edgev1.EdgeRecordCompression(0).Descriptor(), func(v int32) bool {

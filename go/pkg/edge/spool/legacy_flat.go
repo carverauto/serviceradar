@@ -36,9 +36,15 @@ import (
 // legacySpoolIDFile is the identity the pre-lane sender persisted beside the spool.
 const legacySpoolIDFile = "spool_id"
 
+// LateRootEntry is the root entry holding late-admission generations and
+// foreign-origin holds (openspec add-edge-production-time-admission).
+const LateRootEntry = "late"
+
 // currentFormatEntry reports root entries that belong to the bounded lane format
 // and are never legacy storage.
-func currentFormatEntry(name string) bool { return name == "lanes" || name == "recoveries" }
+func currentFormatEntry(name string) bool {
+	return name == "lanes" || name == "recoveries" || name == LateRootEntry
+}
 
 // ErrLegacyFlatNotDrained refuses to retire flat storage that may hold records.
 var ErrLegacyFlatNotDrained = errors.New("spool: legacy flat storage is not provably drained")

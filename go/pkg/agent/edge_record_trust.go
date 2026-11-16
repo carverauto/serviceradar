@@ -39,6 +39,15 @@ func (p *PushLoop) EdgeRecoveryProtocolVersion() uint32 {
 	return p.gateway.EdgeRecoveryProtocolVersion()
 }
 
+// EdgeLateAdmissionProtocolVersion is the late-admission version the current
+// gateway connection advertised. Zero means late sessions stay closed.
+func (p *PushLoop) EdgeLateAdmissionProtocolVersion() uint32 {
+	if p.gateway == nil {
+		return 0
+	}
+	return p.gateway.EdgeLateAdmissionProtocolVersion()
+}
+
 // Full configuration replaces the entire policy. NotModified is handled before
 // this boundary and retains its installed snapshot; the server's version hash
 // covers all key statuses and authority fences, not just output grant bytes.
