@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   use ServiceRadarWebNGWeb, :live_component
 
   alias Ash.Error.Invalid
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.EventRule
 
   @severity_options [
@@ -64,7 +65,10 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
             initial_values = %{
               "name" => generate_rule_name(log),
-              "body_contains" => Map.get(log, "body") || Map.get(log, "message") || "",
+              "body_contains" =>
+                SecretRedaction.redact_text(
+                  Map.get(log, "body") || Map.get(log, "message") || ""
+                ),
               "body_contains_enabled" => true,
               "severity_text" => Map.get(log, "severity_text") || "",
               "severity_enabled" => Map.get(log, "severity_text") != nil,
@@ -403,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                         />
                       </span>
                       <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
-                      <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
+                      <span class="truncate">{truncate(SecretRedaction.redact_text(log["body"] || log["message"]), 60)}</span>
                     </div>
                   <% end %>
                 </div>

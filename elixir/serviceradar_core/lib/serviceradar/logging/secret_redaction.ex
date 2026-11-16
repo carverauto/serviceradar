@@ -320,11 +320,14 @@ defmodule ServiceRadar.Logging.SecretRedaction do
     double_quoted = ~S/"(?:[^"\\]|\\.)*"(?:\.\.\.)?/
     single_quoted = ~S/'(?:[^'\\]|\\.)*'/
     charlist_sigil = ~S/~c"(?:[^"\\]|\\.)*"/
-    # A flat tuple or map, possibly across lines: {true, <<1, 2>>}, %{a: 1}
-    braced = ~S/%?\{[^{}]*\}/
+    # A flat tuple, map or list, possibly across lines: {true, <<1, 2>>},
+    # %{a: 1}, %Mod{a: 1}, #{a => 1}, [1, 2]
+    braced = ~S/(?:%[A-Za-z0-9_.]*|#)?\{[^{}]*\}|\[[^\[\]]*\]/
     # An existing marker, plus the binary that a pre-fix redaction left behind it.
     already_redacted = ~S/\[REDACTED\]\]*(?:\s+(?:/ <> binary_string <> "|" <> byte_list <> "))?"
-    bare = ~S/(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&"'}\])>]+/
+
+    bare =
+      ~S/(?:(?:Bearer|Basic|Digest|Token)\s+)?(?!%[A-Za-z0-9_.]*\{)[^\s,;&"'}\])>#{\[][^\s,;&"'}\])>]*/
 
     value =
       Enum.join(

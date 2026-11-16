@@ -157,6 +157,11 @@ defmodule ServiceRadar.Logging.SecretRedactionTest do
         "erlang ~p" => IO.chardata_to_string(:io_lib.format(~c"~p", [term])),
         "erlang ~0tp" => IO.chardata_to_string(:io_lib.format(~c"~0tp", [term])),
         "erlang ~P depth-limited" => IO.chardata_to_string(:io_lib.format(~c"~P", [term, 12])),
+        "erlang ~0tp of a credentials map" =>
+          IO.chardata_to_string(
+            :io_lib.format(~c"~0tp", [%{credentials: %{password: @password}}])
+          ),
+        "inspect of a list-valued password" => inspect(%{password: [@password]}),
         "json" =>
           Jason.encode!(%{
             "password" => @password,
