@@ -6,8 +6,9 @@ outdated host updater resume, release updates no longer stay
 `dispatched`, and drained legacy spool storage is retired at agent
 start. Mapper discovery gets ICMP replies again when probes run
 concurrently. Installs built from the schema baseline now match
-migrated installs, including seed rows and TimescaleDB compression. The
-cold telemetry tier is removed. Built-in SNMP OID templates ship as
+migrated installs, including seed rows and TimescaleDB compression, and
+databases already created from the older baseline are repaired once.
+The cold telemetry tier is removed. Built-in SNMP OID templates ship as
 product data. The NVR can archive sealed blocks to S3-compatible
 storage (disabled by default), and published images carry one classic
 Cosign signature format.
@@ -70,8 +71,45 @@ Cosign signature format.
   rules and others) and the same compression and retention policies as
   installs that replay every migration. The baseline generator is now
   `bazel run //build/schema_baseline:generate`, replacing
-  `scripts/db/generate-platform-baseline.sh`. Existing databases are not
-  re-baselined (#6650).
+  `scripts/db/generate-platform-baseline.sh`. Databases created from
+  the older baseline are repaired separately; see the next note
+  (#6650).
+- **Databases created from the older baseline are repaired once, and
+  the repair deletes old history.** Migration `20261115233000` enqueues
+  a one-time maintenance job, only on databases created from a schema
+  baseline; databases that replayed every migration are left alone. The
+  job adds the seed rows and TimescaleDB policy state those databases
+  were missing (#6659). Before upgrading such an install:
+  - **New retention policies delete existing history.** These had no
+    retention until now. On the first run, chunks older than each
+    window are dropped:
+    - `mtr_hops`: 30 days
+    - `mtr_traces`: 30 days
+    - `bmp_routing_events`: 3 days
+    - `survey_rf_observations`: 30 days
+    - `survey_pose_samples`: 30 days
+    - `survey_spectrum_observations`: 30 days
+    - `survey_arrow_ipc_frames`: 30 days
+    - `ocsf_events_hourly_stats`: 1 day
+
+    Note `ocsf_events_hourly_stats` in particular: it is the hourly
+    OCSF event rollup (a continuous aggregate), not a raw table, and on
+    the first run every hourly bucket older than one day is dropped.
+    Tables whose retention `DataRetentionWorker` owns keep what it has
+    already reconciled.
+  - **Compression is turned on for 8 hypertables that had it off:**
+    `mtr_hops`, `mtr_traces`, `capacity_forecasts` and the four
+    `endpoint_inventory_*` history tables by the repair job, and
+    `timeseries_metrics` by `DataRetentionWorker` (#6637). The
+    compression policy then works through the backlog one chunk at a
+    time. While a chunk compresses it needs free disk roughly the size
+    of the largest raw chunk, so grow a nearly full volume before
+    upgrading.
+  - **Existing state is never overwritten.** Seed rows go only into
+    empty tables, so operator edits are not overwritten or duplicated,
+    and an existing compression or retention policy is kept, including
+    one whose interval an operator changed. The job skips
+    `snmp_profiles`, which migration `20261115191431` owns (#6635).
 - **Credential values are stored byte-for-byte.** SNMP community and
   passwords, SNMPv3 user names, credential secret payloads, mapper
   controller secrets and outbound mail credentials no longer have
@@ -168,8 +206,8 @@ Cosign signature format.
   and the other direct-push targets now fail with a pointer to the
   GitHub workflows (#6599, #6603, #6608, #6612, #6614, #6622).
 - **New migrations:** `20261114063254`, `20261114210000`,
-  `20261115000000`, `20261115191431`. Helm
-  `core.migrations.expectedVersion` is `20261115191431`.
+  `20261115000000`, `20261115191431`, `20261115233000`. Helm
+  `core.migrations.expectedVersion` is `20261115233000`.
 
 ## Whats New
 
@@ -229,6 +267,8 @@ Cosign signature format.
   (#6611).
 - Superseded AWX inventory redeliveries settle before taking the
   advisory lock (#6601).
+- AWX host matching skips record pairs that the merge guards hold to
+  be different machines, instead of attempting a merge (#6651).
 
 **Availability and topology**
 
@@ -247,7 +287,8 @@ Cosign signature format.
 - `timeseries_metrics` compression is enabled on baseline-bootstrapped
   databases (#6637).
 - The schema baseline carries seed rows and TimescaleDB policy state
-  (#6650).
+  (#6650), and a one-time job repairs databases created from the older
+  baseline (#6659).
 - Edge plugin handler and projector outcomes are classified as settled,
   refused or retryable: settled deliveries ACK, deterministic refusals
   dead-letter on first delivery, transient failures retry (#6600).
@@ -276,6 +317,9 @@ Cosign signature format.
 - Recording blocks cover minutes instead of seconds: fragments per
   block are configurable and relay capture ceilings rise to 270 s
   (#6660).
+- A capture whose relay stream opens with a dropped leading frame at
+  the first keyframe's timestamp starts at that keyframe instead of
+  being refused (#6661).
 - Media storage can use a node-installed seccomp profile (#6607, #6610).
 - The demo values enable the NVR recorder and ingest (#6629).
 
@@ -291,6 +335,9 @@ Cosign signature format.
   #6608, #6612, #6614, #6622).
 - The release finalizes when the optional macOS installer fails
   (#6576).
+- `klauspost/compress` 1.20.4 (#6667), `golang.org/x/sys` 0.50.0
+  (#6670) and `setup-bazel` 0.19.2 (#6673).
+- The NVR recording-worker integration tests no longer flake (#6654).
 - The image OSV scan runs without a docker daemon (#6577) and rescans
   of older tags use current tooling (#6588).
 - quinn-proto and quinn-udp bumped to clear RustSec advisories (#6591);
