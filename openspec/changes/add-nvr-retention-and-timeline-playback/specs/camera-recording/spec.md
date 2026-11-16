@@ -48,7 +48,7 @@ At the cap the NVR SHALL refuse new admission with a reported reason and SHALL N
 
 ### Requirement: Automatic archive of sealed NVR blocks
 The system SHALL archive every sealed block of a `local_and_archive` policy through the existing NVR archive contract when archiving is enabled, with bounded concurrency per member, retry with backoff for transient and unknown outcomes, and terminal reporting for conflicts.
-Archive SHALL keep the local copy and SHALL be retried only from a pending or retryable state.
+Archive SHALL keep the local copy and SHALL be retried only from a pending or retryable state. A block SHALL be archived only when archiving is enabled and its policy stores `local_and_archive`; otherwise its catalog entry SHALL have archive state `not_required` and no archive job SHALL be enqueued, and a pending or retryable entry that no longer meets both conditions SHALL move to `not_required`.
 
 #### Scenario: Provider is unavailable
 - **WHEN** an archive attempt fails with a provider error or an unknown outcome
@@ -115,14 +115,14 @@ Catalog registration SHALL be create-only per storage identity and block key. A 
 - **THEN** the request SHALL be refused
 
 ### Requirement: No stranded NVR footage
-The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to exactly one accounted end state: cataloged (and, when its policy archives, archived or under retried archive with backlog reporting and alarms), recorded as a gap with a reason, or tombstoned by an audited disposition. A block with no Core authority SHALL raise an operator alarm and SHALL NOT be adopted or deleted automatically.
+The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to exactly one accounted end state: cataloged (and, when archiving is enabled and its policy stores `local_and_archive`, archived or under retried archive with backlog reporting and alarms), recorded as a gap with a reason, or tombstoned by an audited disposition. A block with no Core authority SHALL raise an operator alarm and SHALL NOT be adopted or deleted automatically.
 A periodic reconciler SHALL compare each member's inventory with the Core catalog and SHALL adopt a block only under Core's retained reservation authority: the reservation row created under the live recorder fence before the block existed, matching storage identity, block key and verified journal identity including the clock, unchanged fence history, retired writer, and a ready recovery state. A block the NVR rotated into without a reservation SHALL be adopted only when its reserved predecessor in the same recorder epoch and clock epoch is adopted, its sequence was never allocated, and its journal identity differs from the predecessor's only in sequence. Incomplete journals SHALL be recovered through the existing explicit recovery to their last committed fragment before adoption. A block SHALL NOT be reclaimed while it is unreconciled.
 
 #### Scenario: Uncertain capture later reconciled
 - **GIVEN** a capture ended uncertain, its reserved block row is `open_local` and its claim has expired
 - **WHEN** the reconciler finds that block sealed on the reserved storage with a journal identity equal to the row's identity
 - **THEN** it SHALL freeze the descriptor historically and create the catalog entry
-- **AND** it SHALL enqueue archive only when the block's policy archives; for a local-only policy the entry SHALL have archive state `not_required` and no archive job SHALL be enqueued
+- **AND** it SHALL enqueue archive only when archiving is enabled and the block's policy stores `local_and_archive`; otherwise the entry SHALL have archive state `not_required` and no archive job SHALL be enqueued
 - **AND** a concurrent live freeze of the same block SHALL resolve as an exact retry or a conflict, never two entries
 
 #### Scenario: Second rotated block adopted
@@ -159,7 +159,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** SHALL raise an alarm while the pause lasts longer than its threshold
 
 ### Requirement: Capacity-driven local tier with archiving
-The system SHALL treat local NVR storage recorded with archiving as a bounded cache with a byte budget, evicting the oldest evictable local copies when usage reaches the high-water mark until it reaches the low-water mark, or when a copy exceeds the maximum local age when that age is limited, whichever comes first. A local copy SHALL be evictable when it is cataloged and reconciled, is not a hold's pinned copy, and its archive copy is either verified or was deleted by object retention or the object reaper; such a block is local only after archive expiry or reaping, SHALL NOT count as unarchived, and SHALL NOT be re-archived automatically.
+The system SHALL treat local NVR storage recorded with archiving as a bounded cache with a byte budget, evicting the oldest evictable local copies when usage reaches the high-water mark until it reaches the low-water mark, or when a copy exceeds the maximum local age when that age is limited, whichever comes first. A local copy SHALL be evictable when it is cataloged and reconciled, is not a hold's pinned copy, and either its archive copy is verified, or its archive copy was deleted by object retention or the object reaper, or the block is local-only (archive state `not_required`) and the recorded local-only full policy is `overwrite_oldest`. Only a block whose archive state is `deleted` is local only after archive expiry or reaping; it SHALL NOT count as unarchived and SHALL NOT be re-archived automatically. Evictable copies of all kinds on a member SHALL be evicted in one oldest-first order by block time, and a local-only block's age ceiling SHALL be the local-only maximum age. Blocks whose archive state is pending or failed SHALL NOT be selected by budget or age eviction.
 The maximum local age SHALL accept an explicit unlimited state, in which only the byte budget evicts local copies. Unarchived footage (archive state pending or failed) and unreconciled footage SHALL NOT be evicted; a held block's local copy MAY be evicted only when its archive copy is verified, because the hold then pins the archive copy. Eviction SHALL also require that the member's recovery gate and current-history state permit destructive operations. When the installation does not set a budget, the budget SHALL be derived from the volume size minus a reserve rather than a fixed default.
 
 #### Scenario: Budget-driven eviction with archiving on
@@ -181,6 +181,23 @@ The maximum local age SHALL accept an explicit unlimited state, in which only th
 - **WHEN** an evictable local copy (archive-verified, or local only after archive expiry or reaping) exceeds the maximum local age
 - **THEN** that local copy SHALL be evicted
 
+#### Scenario: Mixed member evicts a local-only camera's oldest block
+- **GIVEN** archiving is enabled, one camera's policy on the member is `local_only`, `overwrite_oldest` is recorded, and that camera's block is the oldest evictable block
+- **WHEN** usage reaches the high-water mark
+- **THEN** that local-only block SHALL be evicted first through an audited disposition with reason `local_only_overwrite`
+- **AND** eviction SHALL continue oldest first across local-only, archive-verified and archive-deleted blocks until usage is at or below the low-water mark
+
+#### Scenario: Mixed member with stop when full counts local-only footage as pinned
+- **GIVEN** archiving is enabled, one camera's policy on the member is `local_only`, and the full policy is `stop_when_full` or none is recorded
+- **WHEN** the retention pass and the window calculation run
+- **THEN** that camera's blocks SHALL NOT be evicted for space and SHALL count as pinned bytes in the effective window and the budget floor
+- **AND** the page SHALL report that local-only cameras are consuming space that cannot be freed
+
+#### Scenario: Pending upload is never selected
+- **GIVEN** a block's archive state is pending or failed
+- **WHEN** usage reaches the high-water mark or the block exceeds any age ceiling
+- **THEN** the block SHALL NOT be evicted
+
 #### Scenario: Archive outage fills the volume and recording stops with an alarm
 - **GIVEN** the archive destination is unreachable and new blocks stay unarchived
 - **WHEN** usage approaches the budget
@@ -190,7 +207,7 @@ The maximum local age SHALL accept an explicit unlimited state, in which only th
 - **AND** recording SHALL resume once archived blocks become evictable
 
 ### Requirement: Effective local window projection
-The system SHALL compute and display, per NVR member, how long local storage holds at the current recording rate: the low-water budget less non-evictable bytes divided by the larger of the trailing 15-minute and 6-hour sealed-byte rates, capped by the maximum local age when archiving is on, stating which bound applies.
+The system SHALL compute and display, per NVR member, how long local storage holds at the current recording rate: the low-water budget less non-evictable bytes divided by the larger of the trailing 15-minute and 6-hour sealed-byte rates, capped by the maximum local age for archived footage and by the local-only maximum age for local-only footage when that limit is set, stating which bound applies. Non-evictable bytes SHALL include unarchived and unreconciled bytes, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded.
 Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the archive throughput needed against measured archive goodput, projected blocks per day against the block cap, and projected sessions against the member's session limit.
 
 #### Scenario: Twenty cameras shrink the window and the operator is told before saving
@@ -202,6 +219,11 @@ Before an operator saves a change to recording policies, profiles, member assign
 #### Scenario: No ingest
 - **WHEN** a member has no enabled recording policy
 - **THEN** the view SHALL report that it is not recording rather than an unbounded window
+
+#### Scenario: Local-only maximum age caps the window
+- **GIVEN** a local-only member whose budget alone would hold about 60 days and whose local-only maximum age is limited to 7 days
+- **WHEN** the window is shown
+- **THEN** it SHALL be 7 days with the local-only maximum age named as the binding bound
 
 #### Scenario: Short history
 - **WHEN** a member has less than 15 minutes of recorded history
@@ -249,7 +271,7 @@ The system SHALL support recording with no object storage as a complete mode: re
 
 ### Requirement: Operator-set local budget applied at runtime
 The system SHALL let an operator set each NVR member's local byte budget and reserve from the settings UI, stored in CNPG per storage lifetime, and SHALL deliver them to the member over the existing pinned Core-to-NVR channel as a bounded, authenticated, versioned setting that the member persists beside its storage marker and applies to admission without a restart.
-The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (unarchived, unreconciled, and held local copies that are the hold's pinned copy), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
+The applied budget SHALL NOT exceed the install ceiling or the measured volume capacity minus the reserve, Core SHALL refuse a budget below the member's pinned bytes (unarchived, unreconciled, held local copies that are the hold's pinned copy, and local-only footage unless `overwrite_oldest` is recorded), a reserve SHALL NOT fall below the install reserve, a stale revision SHALL be refused, and a budget change SHALL NOT delete footage by itself. The member SHALL report the applied values and revision so the UI shows desired versus applied.
 
 #### Scenario: Operator lowers the budget below current usage
 - **GIVEN** a member's usage is above a newly saved budget that is still above its pinned bytes
@@ -258,7 +280,7 @@ The applied budget SHALL NOT exceed the install ceiling or the measured volume c
 - **AND** footage SHALL be removed only by eviction of evictable blocks through audited dispositions, never by the budget change itself
 
 #### Scenario: Budget below pinned bytes
-- **WHEN** an operator tries to save a budget below the member's unarchived and unreconciled bytes plus its held local copies that are the hold's pinned copy
+- **WHEN** an operator tries to save a budget below the member's pinned bytes
 - **THEN** Core SHALL refuse the change and state the pinned bytes
 - **AND** held bytes whose verified archive copy is the pinned copy SHALL NOT count toward that floor
 
@@ -273,7 +295,7 @@ The applied budget SHALL NOT exceed the install ceiling or the measured volume c
 - **THEN** it SHALL apply the install values, report the persisted setting as refused with the reason, and the view SHALL show the difference
 
 ### Requirement: Deduplicated storage alerts
-The system SHALL raise NVR storage conditions through the platform's existing deduplicated, auto-clearing health-check path, per member: usage above high water with nothing evictable, effective window below the configured threshold, projected time-to-full below 4 hours (critical below 1 hour or when admission has stopped), oldest unarchived footage older than 1 hour when archiving is on, local-only retention target not met, held local copies that are the pinned copy filling the local budget, a held archive copy failing its re-check, effective object retention below configured retention, projected days until object high water below 7, object usage at 75% and 90% of the hard limit, metered overage active, non-reapable bytes at object high water, and archive uploads paused for capacity; object checks SHALL fire before the first capacity deletion. Each object reaper run that deletes footage SHALL also publish an event with the bytes deleted and the resulting effective object retention.
+The system SHALL raise NVR storage conditions through the platform's existing deduplicated, auto-clearing health-check path, per member: usage above high water with nothing evictable, effective window below the configured threshold, projected time-to-full below 4 hours (critical below 1 hour or when admission has stopped), oldest unarchived footage older than 1 hour when archiving is on, local-only retention target not met, held local copies that are the pinned copy or local-only footage that cannot be evicted filling the local budget, a held archive copy failing its re-check, effective object retention below configured retention, projected days until object high water below 7, object usage at 75% and 90% of the hard limit, metered overage active, non-reapable bytes at object high water, and archive uploads paused for capacity; object checks SHALL fire before the first capacity deletion. Each object reaper run that deletes footage SHALL also publish an event with the bytes deleted and the resulting effective object retention.
 Each condition SHALL clear when it no longer holds, and repeated evaluation of an unchanged condition SHALL NOT raise duplicates.
 
 #### Scenario: Condition persists and then clears
@@ -549,7 +571,8 @@ The system SHALL expose, under the `entitlements` purpose, a bounded per-day usa
 
 #### Scenario: Held bytes consume the available space
 - **WHEN** non-reapable bytes reach the object low-water bytes
-- **THEN** T SHALL be 0 and the page SHALL report archiving paused for capacity
+- **THEN** T SHALL be 0
+- **AND** archive uploads SHALL continue, and SHALL pause for capacity only when non-reapable bytes reach the object high-water mark
 
 #### Scenario: Usage report replay
 - **WHEN** the control plane requests the same closed day twice

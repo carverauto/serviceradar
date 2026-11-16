@@ -62,7 +62,8 @@ product owner's decisions of 2026-11-15 are recorded in
   sealed blocks only under Core's retained reservation authority (rotated
   blocks only on proof that they continue a reserved block), recovers
   incomplete journals, records unrecoverable footage as gaps, retries archive
-  until it succeeds, and alarms on anything it cannot attribute.
+  until it succeeds for blocks that archive (archiving enabled and policy
+  `local_and_archive`), and alarms on anything it cannot attribute.
 - **C. Retention and reclaim.** The local tier is a capacity-driven cache:
   budget derived from the volume and editable per member at runtime, high and
   low water marks, and a maximum local age (24 h by default, up to 10 years, or

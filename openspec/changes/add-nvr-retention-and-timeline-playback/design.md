@@ -306,8 +306,8 @@ today. It:
    (used by the time basis, section T).
 4. Loops: reserve the next block sequence, open one ingest request, stream
    access units until a cut point (A4), end the stream, await `sealed_local`,
-   then register the block (B2) and, when the policy archives, enqueue its
-   archive (A6).
+   then register the block (B2) and, when the block archives (A6), enqueue
+   its archive.
 5. Ends the run on policy disable, relay session end, recorder claim loss,
    recovery gate closure or an unresolved block (below). A new run starts with
    a new claim and clock epoch; the boundary is a recorded gap.
@@ -432,12 +432,18 @@ room (C5).
 
 ### A6. Automatic archive after seal
 
-When `RecordingArchiveSettings.archive_enabled` is true and the policy stores
-`local_and_archive`, registering a block (B2) enqueues one Oban job
-(`ArchiveBlockJob`, unique per catalog entry, queue `nvr_archive`). The job:
+A block archives only when both hold: `RecordingArchiveSettings.archive_enabled`
+is true and the block's policy stores `local_and_archive`. Then registering the
+block (B2), from the live path or the reconciler, creates the catalog entry
+with `archive_state = pending` and enqueues one Oban job (`ArchiveBlockJob`,
+unique per catalog entry, queue `nvr_archive`). Otherwise the entry is created
+with `archive_state = not_required` and nothing is enqueued. The job:
 
 1. Re-reads the catalog entry; proceeds only if the archive state is `pending`
-   or `failed_retryable`.
+   or `failed_retryable` and the block still archives. If archiving has since
+   been disabled or the policy changed to `local_only`, the entry moves to
+   `not_required` (local-only footage, C2) and the job ends; blocks are not
+   archived retroactively when archiving is enabled again.
 2. Calls the shipped `NVRArchive.archive_block/5` with the active
    `ArchiveBinding` and the writer credential from `RecordingArchiveSettings`.
    The NVR still holds the credential only for that request.
@@ -454,8 +460,8 @@ When `RecordingArchiveSettings.archive_enabled` is true and the policy stores
    stays on the health tab until an operator resolves it (R5); it is never a
    silent end state.
 
-Every sealed block is archived. Dual write here means "kept locally and copied
-after sealing", not a synchronous write to two places (settings change D13).
+Every sealed block that archives (above) is archived. Dual write here means
+"kept locally and copied after sealing", not a synchronous write to two places (settings change D13).
 
 The NVR keeps one archive slot per member (`application.ex:26`). One slot holds
 a block of up to 16 MiB in memory and 48 MiB of locked Longshore buffers. The
@@ -661,8 +667,8 @@ above.
 
 Product rule (recorded 2026-11-15): footage captured at the edge must never be
 left stranded on disk. "Kept on the volume and flagged" is not an acceptable end
-state. Everything recorded ends up cataloged (and archived when its policy
-archives), or is explicitly accounted for as a gap.
+state. Everything recorded ends up cataloged (and archived when the block
+archives, A6), or is explicitly accounted for as a gap.
 
 ### R1. How footage is stranded today
 
@@ -702,7 +708,7 @@ writer retires, exactly one of these holds:
 
 | End state | Meaning |
 | --- | --- |
-| Cataloged | A catalog entry exists (B3); if its policy archives, the archive copy is verified or being retried with backlog reporting and alarms (R5) |
+| Cataloged | A catalog entry exists (B3); if the block archives (A6: archiving enabled and policy `local_and_archive`), the archive copy is verified or being retried with backlog reporting and alarms (R5); otherwise `archive_state = not_required` |
 | Gap | The block could not be recovered; a `RecordingGap` with reason `unrecoverable_journal` covers its interval and the residue is disposed through an audited disposition (R4) |
 | Tombstoned | Deleted by retention through an audited disposition (C6) |
 | Unattributable | No Core authority covers the block; an alarm is raised and an operator decision is required (R3, last row) |
@@ -777,9 +783,9 @@ descriptor SHA-256. For each block:
 
 1. **Cataloged**: check the archive state; nothing else.
 2. **Reserved row, sealed block**: fetch the descriptor, historical freeze,
-   create the catalog entry, and enqueue archive only when the block's policy
-   archives; for a local-only policy the entry has
-   `archive_state = not_required` and nothing is enqueued.
+   create the catalog entry, and enqueue archive only when the block archives
+   (A6: archiving enabled and policy `local_and_archive`); otherwise the entry
+   has `archive_state = not_required` and nothing is enqueued.
 3. **Reserved row, incomplete journal**: once the writer is retired, call
    `recover_block/2` with the row's identity. The existing explicit recovery
    repairs the journal to its last committed fragment and seals it. Then treat
@@ -818,8 +824,10 @@ and per-pass time and count limits; a pass resumes from its cursor.
 
 Archive retry is the A6 job: jittered exponential backoff (30 s doubling to
 30 min) for as long as the block exists. The reconciler enqueues archive for
-every cataloged block whose archive state is `pending` or `failed_retryable`
-and has no job, so a lost job or an outage cannot strand a block.
+every cataloged block whose archive state is `pending` or `failed_retryable`,
+that still archives (A6) and has no job, so a lost job or an outage cannot
+strand a block; such an entry that no longer archives moves to `not_required`
+as in A6 step 1.
 
 Exposed to the settings `health` tab per member and in total: unarchived block
 count and bytes, oldest unarchived age, archive goodput against capture,
@@ -956,20 +964,29 @@ archive copy as local-only footage until the budget evicts it.
 member's `GET /v1/status` every 60 s. A block's local copy is evictable when all
 hold: it is cataloged and reconciled (section R); its archive copy is either
 `verified` or was deleted by object retention or the object reaper
-(`archive_state = deleted`, C3, C3a); it is not the copy a hold pins (C4); and
-the member's recovery gate and current-history state permit destructive
-operations. "Unarchived" means `archive_state` is `pending`,
+(`archive_state = deleted`, C3, C3a), or the block is local-only
+(`archive_state = not_required`) and the recorded local-only full policy is
+`overwrite_oldest` (C2); it is not the copy a hold pins (C4); and the member's
+recovery gate and current-history state permit destructive operations. A member
+may hold both kinds: a camera policy may be `local_only` while archiving is
+enabled for others (E1). "Unarchived" means `archive_state` is `pending`,
 `failed_retryable` or `failed_terminal`; a block whose archive copy was deleted
 is not unarchived but local only after archive expiry or reaping, and its local
 copy is evicted under the same budget and age rules as any other. The job
-evicts evictable blocks oldest first:
+evicts evictable blocks in one oldest-first order across all evictable local
+bytes of the member, whatever their kind, ordered by `timeline_start_us`, with
+ties broken by `sealed_at` and then `block_key`:
 
 - when usage reaches high water, until projected usage is at or below low water;
-- whenever a block's local age exceeds the maximum local age, when it is
-  `limited`.
+- whenever a block's local age exceeds its age ceiling, when that is `limited`:
+  the maximum local age for blocks that archive or did archive, and
+  `local_only_max_age` for `not_required` blocks (C2).
 
 Whichever comes first. Each eviction is an audited disposition (C6, C7) with
-reason `budget` or `max_local_age`. Unarchived and unreconciled footage is never
+reason `budget` or `max_local_age`, or `local_only_overwrite` or
+`local_only_max_age` for a `not_required` block. Blocks whose archive state is
+`pending`, `failed_retryable` or `failed_terminal` are never selected by
+either rule. Unarchived and unreconciled footage is never
 evicted; a held block keeps its pinned copy (C4). Evicting a local copy whose
 archive copy was already deleted removes the last copy; the recorded object
 retention or `reap_oldest` selection is the authority for that (C3, C3a). This
@@ -989,8 +1006,11 @@ The effective local window is a computed, displayed figure, per member:
 rate     = max(r15m, r6h)      bytes/s of sealed media on the member
 pinned   = unarchived + unreconciled bytes
            + held local copies that are the hold's pinned copy
+           + local-only (not_required) bytes unless overwrite_oldest is recorded
 window   = (low_water_bytes - pinned) / rate
-           capped at the maximum local age when it is limited
+           capped by the age ceiling when it is limited: max_local_age_seconds
+           for archived footage, local_only_max_age_seconds for local-only
+           footage
 ```
 
 - `r15m` is the sum of `media_bytes` of catalog entries sealed on that storage
@@ -1006,6 +1026,13 @@ window   = (low_water_bytes - pinned) / rate
   before the hold was placed. Local copies of
   blocks that are local only after archive expiry or reaping and are not held
   are evictable bytes, not pinned bytes, so they do not shorten the window.
+- Local-only (`not_required`) blocks, on a local-only member or on a member
+  that also archives, are evictable bytes under `overwrite_oldest` and pinned
+  bytes under `stop_when_full` or when no full policy has been recorded. In the
+  pinned case the page says that local-only cameras are consuming space that
+  cannot be freed, and the window is the time until recording stops at the
+  limit. On a member that holds both kinds the page shows the window for each
+  kind with its own age ceiling.
 - With less than 15 minutes of history, `rate` is the sum of the assigned
   profiles' relay-observed bitrates and the figure is labelled "estimated".
 - With no enabled policy on the member the page says "not recording" rather
@@ -1014,9 +1041,11 @@ window   = (low_water_bytes - pinned) / rate
 - The page shows the window as "local storage holds about N hours (or minutes)
   at the current rate", with the high-water figure as the upper end of the
   range, and says which bound applies: budget, maximum age, or block cap. With
-  the maximum local age `unlimited` (or `local_only_max_age` unlimited in
-  local-only mode) the figure is the budget-bound one, labelled "until the
-  local budget is full".
+  the maximum local age `unlimited` (or `local_only_max_age` unlimited for
+  local-only footage) the figure is the budget-bound one, labelled "until the
+  local budget is full"; with `local_only_max_age` limited, the local-only
+  figure is capped by it (for example 7 days, not the 56 to 63 days the budget
+  alone would allow for one 120 kbit/s camera below).
 
 **What-if before saving.** Editing a recording policy (adding or removing a
 camera, changing profile, member or storage mode) or the watermarks shows the
@@ -1032,7 +1061,7 @@ threshold (C8).
 **Worked examples** for a 100 GiB volume (84.0 GiB budget, low water 67.2 GiB,
 high water 75.6 GiB). Bitrates are assumed, not measured:
 
-| Recording on the member | Rate | Window with archiving (age ceiling 24 h) | Window local-only (no age ceiling) | Block cap 4,096 today | Block cap 131,072 (ledger, A5) |
+| Recording on the member | Rate | Window with archiving (age ceiling 24 h) | Window local-only (`overwrite_oldest`, no age ceiling) | Block cap 4,096 today | Block cap 131,072 (ledger, A5) |
 | --- | --- | --- | --- | --- | --- |
 | 1 camera, 120 kbit/s | 15 kB/s | 24 h (age ceiling binds; about 1.3 GB used) | about 56 to 63 days | binds first: 4,096 blocks of about 4.05 MB hold about 12.8 days | bytes bind |
 | 1 camera, 4 Mbit/s | 500 kB/s | 24 h (age ceiling binds; about 43 GB used) | about 40 to 45 hours | binds first: 4,096 blocks of 12 MiB hold about 28.6 hours | bytes bind |
@@ -1091,17 +1120,25 @@ deletes the only copy. It happens only under an explicitly selected policy,
 
 - `overwrite_oldest`: a ring buffer, the conventional NVR behaviour. At high
   water, Core evicts the oldest cataloged, reconciled, unheld blocks down to
-  low water, with disposition reason `local_only_overwrite`.
+  low water, with disposition reason `local_only_overwrite`. On a member that
+  also archives other cameras, `not_required` blocks join the single
+  oldest-first eviction order of C1.
 - `stop_when_full`: nothing is evicted for space. When the budget is reached
   the NVR's admission refuses (`capacity.ex:348-353`), recording stops with a
   `nvr_refused` gap, and a critical alert is raised. Footage is deleted only by
-  the optional age ceiling below or by an operator.
+  the optional age ceiling below or by an operator. Local-only footage then
+  counts as pinned bytes (C1a, C9), including on a member that also archives,
+  where it can stop recording for every camera on the member.
 
 Recommended default: the UI preselects `overwrite_oldest` and the operator must
 confirm it when creating the first local-only policy; that confirmation is
 recorded with the actor in the settings revision. When no selection has been
 recorded (for example a policy created through the API, or an upgrade), the
-behaviour is `stop_when_full`.
+behaviour is `stop_when_full`. This applies equally to a `local_only` camera
+policy on a deployment with archiving enabled: saving it requires a recorded
+full policy, or the settings page explains that those cameras' footage will
+fill the member and stop its recording, and the what-if (C1a) shows the effect
+on the member's effective window before saving.
 
 Reasoning: the plane design says disk pressure is not deletion authority but an
 explicitly selected recording policy is allowed (`design.md:187-193`). A silent
@@ -1128,7 +1165,8 @@ Also for local-only:
   local copies filling the budget can therefore happen only in local-only mode
   or, with archiving on, for blocks not yet archive-verified (which are pinned
   as unarchived anyway) or whose archive copy had already been deleted when the
-  hold was placed. If held footage alone (plus unreconciled footage)
+  hold was placed. If held footage alone (plus unreconciled footage, and
+  local-only footage that cannot be evicted)
   reaches the budget, nothing can be evicted, so recording stops with a
   `nvr_refused` gap even under `overwrite_oldest`, and a critical alert names
   the held bytes and the holds; the operator must release or export holds. The
@@ -1317,7 +1355,10 @@ until the local budget fills, then stops with a gap with reason
 copies (PD5) and the reaper never deletes them. Non-reapable bytes are held archive
 bytes plus uploads in flight. When they alone reach object high water, nothing
 can be reaped: new archive uploads pause (as in `stop_archiving`), recording
-continues locally, and a critical alert names the held bytes and holds. The
+continues locally, and a critical alert names the held bytes and holds. Between
+object low water and high water the calculated T is already 0 (no reapable
+history fits under low water), but uploads continue; they pause only at high
+water. The
 local tier then follows C1 and C5. Releasing a hold, raising the budget or
 enabling overage resumes archiving, and the backlog uploads oldest first.
 
@@ -1518,7 +1559,7 @@ job each pass:
 | `time_to_full` | `ttf` below 4 h | warning; critical below 1 h and when admission has stopped |
 | `archive_backlog_age` | oldest unarchived block older than 1 h (R5) | warning; critical when `ttf` is also below 4 h |
 | `local_only_target` | local-only effective window below `local_only_retention_target_seconds` | warning |
-| `held_bytes_fill` | held local copies that are the pinned copy (local-only mode, not yet archive-verified, or archive copy deleted before the hold) plus unreconciled bytes above local high water | warning; critical at the budget |
+| `held_bytes_fill` | held local copies that are the pinned copy (local-only mode, not yet archive-verified, or archive copy deleted before the hold), local-only footage that cannot be evicted (no `overwrite_oldest` recorded), plus unreconciled bytes above local high water | warning; critical at the budget |
 | `held_archive_missing` | a held archive copy failed its re-check (C4) | critical |
 | object-tier checks | see C3a (`storage.recordings.*`) | |
 
@@ -1557,9 +1598,10 @@ carry across members, so they stay deployment-wide (E1).
 - budget at most the install ceiling (`SERVICERADAR_NVR_MAX_SPOOL_BYTES`) and at
   most the measured volume capacity minus the applied reserve;
 - budget at least the bytes currently pinned on the member (unarchived,
-  unreconciled, and held local copies that are the hold's pinned copy, as in
-  C1a; held blocks whose archive copy is verified pin that copy, not local
-  bytes), from the catalog, checked by Core at save time, so an
+  unreconciled, held local copies that are the hold's pinned copy, and
+  local-only footage unless `overwrite_oldest` is recorded, as in C1a; held
+  blocks whose archive copy is verified pin that copy, not local bytes), from
+  the catalog, checked by Core at save time, so an
   operator cannot set a budget that eviction could never reach; and at least
   two block reservations (about 36 MiB) so admission can work at all;
 - reserve at least the install reserve and at most 10% of the volume.
@@ -1897,7 +1939,7 @@ Per camera and profile, on `CameraRecordingPolicy`:
 | `mode` | `off` | `off`, `continuous` | n/a | assignment transition (A3) |
 | `stream_profile_id` | none | relay-eligible profile | n/a | assignment transition |
 | `nvr_member` | none | configured member | n/a | assignment transition |
-| `storage` | `local_and_archive` when archiving is enabled, else `local_only` | `local_and_archive`, `local_only` | n/a | next block |
+| `storage` | `local_and_archive` when archiving is enabled, else `local_only` | `local_and_archive`, `local_only`; `local_only` is allowed while archiving is enabled and its blocks follow the local-only full policy (C2); saving it without a recorded full policy shows that its footage will fill the member, with the what-if window; a block archives only when archiving is enabled and this is `local_and_archive` (A6) | n/a | next block |
 | `archive_retention_override_mode` + `archive_retention_days_override` | `inherit` | 1 to 3,650 when limited | yes, `unlimited` | next retention pass |
 | `policy_revision` | | | | |
 
@@ -2116,7 +2158,7 @@ is compared with a relative tolerance of 1e-6):
 | V2 | as V1 with available 1,600 GB | T = 14.814815; binds capacity |
 | V3 | A: rate 50 GB/day, ret 7; B: rate 20 GB/day, ret 60; available 1,000 GB | T = 32.5; A effective 7 (time); B effective 32.5 (capacity) |
 | V4 | one policy: rate 10 GB/day, ret 30; available 1,000 GB | T infinite; effective 30; binds time |
-| V5 | one policy: rate 10 GB/day, ret 30; available 0 (held bytes at low water) | T = 0; effective 0; binds capacity; archiving paused |
+| V5 | one policy: rate 10 GB/day, ret 30; available 0 (held bytes at low water) | T = 0; effective 0; binds capacity; uploads continue until non-reapable bytes reach object high water |
 | V6 | one policy: rate 20 GB/day, ret unlimited; available 500 GB | T = 25; effective 25; binds capacity |
 
 The product exposes, under the `entitlements` purpose:
