@@ -11,7 +11,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
   holds its exact bundle (`ServiceRadar.Edge.OutputContract.current/1`), and the agent's
   partition has a row.
 
-  `revoke_agent/1` revokes every grant of an agent whose identity is superseded or whose
+  `revoke_agent/2` revokes every grant of an agent whose identity is superseded or whose
   certificate is revoked. Revoking moves a grant's epoch, so the gateway refuses records signed
   before it. The agent's next config, which it can only fetch after authenticating again (a
   revived identity, a new certificate), reactivates the grant under a new epoch, as does moving
@@ -190,18 +190,23 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   @doc """
   Revokes every active grant of an agent, moving each one's epoch so the gateway's next trust
-  document fences the records signed before. Called when the agent's identity is superseded or
-  its certificate is revoked; grants already revoked are left alone. Returns how many were
-  revoked.
+  document fences the records signed before. Called when the agent's identity is superseded
+  (`:identity_superseded`) or its certificate is revoked (`:certificate_revoked`); the cause is
+  recorded in the authority history, where a certificate-revoked interval is never backfilled by
+  late admission. Grants already revoked are left alone. Returns how many were revoked.
   """
-  @spec revoke_agent(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def revoke_agent(agent_id) when is_binary(agent_id) do
+  @spec revoke_agent(String.t(), :identity_superseded | :certificate_revoked) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def revoke_agent(agent_id, cause)
+      when is_binary(agent_id) and cause in [:identity_superseded, :certificate_revoked] do
     with {:ok, grants} <-
            OutputGrant
            |> Ash.Query.filter(agent_id == ^agent_id and state == :active)
            |> Ash.read(actor: actor()) do
       Enum.reduce_while(grants, {:ok, 0}, fn grant, {:ok, count} ->
-        case grant |> Ash.Changeset.for_update(:revoke, %{}, actor: actor()) |> Ash.update() do
+        case grant
+             |> Ash.Changeset.for_update(:revoke, %{cause: cause}, actor: actor())
+             |> Ash.update() do
           {:ok, _revoked} -> {:cont, {:ok, count + 1}}
           {:error, reason} -> {:halt, {:error, reason}}
         end

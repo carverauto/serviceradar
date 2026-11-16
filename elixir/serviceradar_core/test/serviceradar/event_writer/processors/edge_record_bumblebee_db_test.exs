@@ -183,7 +183,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordBumblebeeDbTest do
 
     frame = standing_grant_frame(agent_id, partition, scan, 1)
 
-    assert {:ok, 1} = OutputGrants.revoke_agent(agent_id)
+    assert {:ok, 1} = OutputGrants.revoke_agent(agent_id, :identity_superseded)
 
     assert {:error, :output_grant_not_current} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
