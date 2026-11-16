@@ -23,12 +23,19 @@ units =
 
 mode = request["mode"] || "normal"
 parent = self()
+# Shared with the sender process, which pulls the enumerable.
+pulled = :counters.new(1, [:atomics])
 
 units =
   Stream.map(units, fn unit ->
     case mode do
       "raise" ->
         raise "synthetic producer failed"
+
+      "paced" ->
+        :counters.add(pulled, 1, 1)
+        Process.sleep(request["pace_ms"])
+        unit
 
       "block" ->
         Process.sleep(:infinity)
@@ -92,6 +99,8 @@ result =
     {:error, {:archive_status, status, error}} -> %{error: "archive_status", status: status, body: error}
     {:error, reason} -> %{error: inspect(reason)}
   end
+
+result = if mode == "paced", do: Map.put(result, :pulled, :counters.get(pulled, 1)), else: result
 
 File.write!(System.fetch_env!("NVR_CLIENT_RESULT"), Jason.encode!(result))
 IO.puts("NVR_CLIENT_PROBE_OK")

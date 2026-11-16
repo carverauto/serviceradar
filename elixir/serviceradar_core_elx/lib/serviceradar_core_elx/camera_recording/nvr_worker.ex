@@ -14,7 +14,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   production immediately without sending the clean wire EOF marker, never retry
   against the same or another replica, never bump `recorder_epoch`, and leave
   the reserved block and active recorder fence intact for operator inspection or
-  recovery.
+  recovery. Only a lost, cut-short or unreadable NVR answer is uncertain.
+
+  An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
+  refused the unfinished stream and sealed nothing it had open. That is a
+  definite failure: the worker reports `{:nvr_ingest_refused, details}` with the
+  status and correlation fields and releases the recorder claim, as it does for
+  a failure before streaming, so the next capture of the source can start at
+  once. The reserved `RecordingBlock` row stays `:open_local`, as after any
+  other failure; the NVR keeps the block's unsealed journal.
 
   A capture stops at the first of its frame, byte and media-duration bounds
   (defaults 240 frames, 8 MiB, 6 s). The ceilings are 8,100 frames, 12 MiB and
@@ -53,6 +61,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   @max_frames_ceiling 8_100
   @max_bytes_ceiling 12_582_912
   @max_duration_ms_ceiling 270_000
+  # The NVR ingest route refuses a stream with 400 (invalid header or request),
+  # 401 (unauthorized), 422 (incomplete or rejected media) or 503 (unavailable).
+  # Read before the end marker went out (`:ingest_refused`), each means the
+  # block the NVR had open was never sealed: it seals the final block only after
+  # the end marker, and keeps that block's journal. The same status after the
+  # end marker (`:ingest_status`) can follow a seal, so it stays uncertain.
+  @definite_refusals [400, 401, 422, 503]
 
   def start_link(opts) do
     owner = Keyword.fetch!(opts, :owner)
@@ -140,7 +155,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       state = %{state | owner: owner, claim: claim, recovery_gate: gate}
       open_and_attach(state, compute_deadline(request_start, claim, state.capture))
     else
-      {:error, reason} -> stop_before_stream(state, reason)
+      {:error, reason} -> stop_failed(state, reason)
     end
   end
 
@@ -190,7 +205,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   def handle_info({:recording_end, id}, %{inbox: %{id: id}} = state) do
     if state.sender_pid == nil do
-      stop_before_stream(%{state | detached?: true, input_complete?: true}, state.drain_reason || :no_recorded_media)
+      stop_failed(%{state | detached?: true, input_complete?: true}, state.drain_reason || :no_recorded_media)
     else
       complete_input(state, drain_usable(state))
     end
@@ -293,7 +308,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       notify(next, {:attached, correlation_fields(next)})
       {:noreply, next}
     else
-      {:error, reason} -> stop_before_stream(state, reason)
+      {:error, reason} -> stop_failed(state, reason)
     end
   end
 
@@ -324,7 +339,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp renewal_failed(%{detached?: true} = state, :recording_stopped), do: {:noreply, state}
   defp renewal_failed(state, :recording_stopped), do: handle_administrative_stop(state)
-  defp renewal_failed(%{sender_pid: nil} = state, :deadline_imminent), do: stop_before_stream(state, :capture_timeout)
+  defp renewal_failed(%{sender_pid: nil} = state, :deadline_imminent), do: stop_failed(state, :capture_timeout)
   defp renewal_failed(state, :deadline_imminent), do: {:noreply, state}
   defp renewal_failed(state, reason), do: abort_stream(state, reason)
 
@@ -558,7 +573,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       maybe_reply_puller(%{state | abort_reason: state.abort_reason || reason, detached?: true, input_complete?: true})
 
     if next.sender_pid == nil do
-      stop_before_stream(next, next.abort_reason)
+      stop_failed(next, next.abort_reason)
     else
       {:noreply, next}
     end
@@ -566,7 +581,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp handle_interrupt(state, reason) do
     if state.sender_pid == nil do
-      stop_before_stream(state, reason)
+      stop_failed(state, reason)
     else
       finalize_uncertain(%{state | abort_reason: state.abort_reason || reason}, reason)
     end
@@ -590,6 +605,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
         notify(state, {:completed, payload})
         {:stop, :normal, state}
+
+      {nil, :ok, _has_frames, {:ok, _gate}, {:error, {:ingest_refused, status}}} when status in @definite_refusals ->
+        refusal =
+          state
+          |> correlation_fields()
+          |> Map.put(:status, status)
+
+        stop_failed(state, {:nvr_ingest_refused, refusal})
 
       {abort_reason, capture_status, _has_frames, _gate_status, other_result} ->
         reason = classify_send_failure(abort_reason || capture_error(capture_status), state.frames_sent, other_result)
@@ -624,9 +647,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     {:stop, :normal, next}
   end
 
-  defp stop_before_stream(state, :deadline_imminent), do: stop_before_stream(state, :capture_timeout)
+  defp stop_failed(state, :deadline_imminent), do: stop_failed(state, :capture_timeout)
 
-  defp stop_before_stream(state, reason) do
+  defp stop_failed(state, reason) do
     if state.inbox, do: Inbox.cancel(state.inbox)
     notify(state, {:failed, %{reason: reason}})
     {:stop, :normal, state}

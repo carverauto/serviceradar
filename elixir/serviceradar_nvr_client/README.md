@@ -34,8 +34,19 @@ A successful response must identify the requested storage lifetime and exactly
 the consecutive block keys derived from the original recording identity. The
 result is `{:ok, %{status: :sealed_local, storage_id: id, block_ids: ids}}`. It is
 local sealing evidence, not catalog, playback, preservation or deletion
-authority. A definite non-success HTTP response returns an `:ingest_status`
-error. After transport, source or response-validation failure, `:outcome_unknown`
+authority.
+
+The NVR refuses a stream by answering at once and no longer reading the body.
+Before sending each chunk, up to and including the end marker, the client polls
+the connection without blocking; after a failed send it makes one more
+non-blocking read. When an answer has started it sends nothing more and reads
+that answer within the same deadline and limits. A complete non-200 answer
+read before the end marker went out returns `{:error, {:ingest_refused, status}}`:
+a definite refusal of an unfinished stream, which cannot have sealed the block
+the NVR had open (its journal stays unsealed). A non-200 answer after the end
+marker returns `{:error, {:ingest_status, status}}` and does not rule out a
+seal. A 200 before the end marker is `:outcome_unknown`, never success.
+After transport, source or response-validation failure, `:outcome_unknown`
 means partial or complete recordings may remain at the original NVR. The client
 never retries media, increments the epoch or selects another endpoint. Discover
 and reconcile retained blocks before authorizing any later operation.
@@ -77,7 +88,10 @@ The receiver's `//elixir/serviceradar_nvr:release_test` owns end-to-end transpor
 coverage. Its client cases run this library in an independent release VM,
 exercise real mutual TLS, and independently decode NVR footage after restart.
 An independent HTTP peer checks exact wire bytes, uncorrelated/malformed
-receipts, server identity, no retries, aborted producers and deadline cleanup.
+receipts, server identity, no retries, aborted producers, mid-stream drops and
+deadline cleanup. A real NVR refusing a stream mid-body checks that the client
+reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
-with the request file's `block_id` and `archive_request`.
+with the request file's `block_id` and `archive_request`; its `paced` mode
+sleeps `pace_ms` before each unit and reports how many units were pulled.

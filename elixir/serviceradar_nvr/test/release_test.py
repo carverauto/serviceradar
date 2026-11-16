@@ -1244,11 +1244,13 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertIn("fragment", types)
         self.assertNotIn("seal", types)
 
-    def send_with_client(self, units, mode="normal", timeout_ms=20000, config_changes=None, header_changes=None):
+    def send_with_client(self, units, mode="normal", timeout_ms=20000, config_changes=None, header_changes=None,
+                         pace_ms=None):
         units_path = self.root / "client-units.bin"
         units_path.write_bytes(b"".join(units))
         return self.run_client({"header": json.loads(self.ingest_header(**(header_changes or {}))[4:]),
-                                "units_path": str(units_path), "mode": mode, "timeout_ms": timeout_ms},
+                                "units_path": str(units_path), "mode": mode, "timeout_ms": timeout_ms,
+                                "pace_ms": pace_ms},
                                config_changes=config_changes)
 
     def run_client(self, request, config_changes=None, timeout=35):
@@ -1270,7 +1272,7 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertIn(b"NVR_CLIENT_PROBE_OK", result.stdout)
         return json.loads(output.read_bytes())
 
-    def sender_peer(self, response_body, status=200, hang=False):
+    def sender_peer(self, response_body, status=200, hang=False, drop_after=None):
         observations = []
         closed = threading.Event()
 
@@ -1301,6 +1303,10 @@ class NVRReleaseTest(unittest.TestCase):
                         data = self.rfile.read(size)
                         observation["body"].extend(data)
                         if len(data) != size or self.rfile.read(2) != b"\r\n":
+                            return
+                        if drop_after is not None and len(observation["body"]) >= drop_after:
+                            # Close mid-body without any answer, not even to a next request.
+                            self.close_connection = True
                             return
                     if hang:
                         self.rfile.read(1)
@@ -1433,6 +1439,26 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(body), len(header) + 63 * len(unit))
         self.assertEqual(body[:len(header)], header)
         self.assertLess(len(body), 64 * 1024 * 1024)
+
+    def test_sender_reports_mid_stream_refusal_definitely_and_a_drop_as_unknown(self):
+        self.ingest_installation()
+        self.make_media(150)
+        units = self.ingest_units()
+        # A sequence gap after five valid units: the NVR answers 422 and stops
+        # reading while the client still has most of the stream to send.
+        gapped = units[:5] + units[6:]
+        self.start_ingest_release()
+        result = self.send_with_client(gapped, mode="paced", pace_ms=50)
+        self.assertEqual(result["error"], "{:ingest_refused, 422}")
+        self.assertLess(result["pulled"], len(gapped))
+        # A connection closed mid-body without an answer stays an unknown outcome.
+        observations, closed = self.sender_peer(b"{}", drop_after=len(self.ingest_header()) + 1)
+        result = self.send_with_client(gapped, mode="paced", pace_ms=50)
+        self.assertEqual(result["error"], ":outcome_unknown")
+        self.assertLess(result["pulled"], len(gapped))
+        self.assertTrue(closed.wait(3))
+        self.assertEqual(len(observations), 1)
+        self.assertFalse(observations[0]["complete"])
 
     def test_network_ingest_seals_and_preserves_decodable_frames_across_restart(self):
         self.ingest_installation()
