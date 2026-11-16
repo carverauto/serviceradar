@@ -128,11 +128,13 @@ SHALL receive a grant with AUDIT publication and one reason:
 no grant only for an item that does not bind to the requesting agent,
 including a record whose origin principal is not the requesting agent
 (`not_assignment_owner`), for a record naming an interval that ended with
-`certificate_revoked` or `revoked_cause_unknown` (`certificate_revoked_interval`), and, until its
-own clock passes `produced_at` minus the tolerance, for a record produced in
-core's future; such a frame SHALL NOT
-be rejected, and the gateway SHALL publish it to security quarantine without a
-grant.
+`certificate_revoked` or `revoked_cause_unknown` (`certificate_revoked_interval`); such a
+frame SHALL NOT be rejected, and the gateway SHALL publish it to security
+quarantine without a grant. Core SHALL also issue no grant yet for a record
+whose `produced_at` is ahead of core's clock; that frame SHALL be withheld as
+retryable, SHALL NOT be rejected or quarantined, and SHALL wait in the late
+generation until core's clock passes `produced_at` minus the tolerance, when
+core SHALL judge it normally.
 
 #### Scenario: A record produced while its epoch was live is applied after the epoch moved
 - **GIVEN** an output grant whose epoch 4 was live from day 1 to day 5 and whose epoch 5 is live now
@@ -219,18 +221,22 @@ A late-admission delivery grant SHALL carry `EdgeDeliveryLateAdmissionV1` in `Ed
 
 The gateway SHALL accept a late grant only when it is signed by a key valid for
 the `delivery` purpose, is current, its `produced_at` and epoch equal the
-record's, and the record's interval has not ended with `certificate_revoked` or `revoked_cause_unknown` in the
-gateway's trust snapshot at publication time; that revocation state SHALL beat
-an already-issued grant and send the frame to security quarantine. A late
+record's, and the record's `(producer_assignment_id, authority_epoch)` is not
+in the trust snapshot's terminal-interval list. Core's trust document SHALL
+carry, separately from the current fences, `(producer_assignment_id,
+network_scope_id, run_shard, authority_epoch)` for every interval that ended
+with `certificate_revoked` or `revoked_cause_unknown`; frame authorization SHALL quarantine a record
+whose interval is in that list before the missing-grant withhold and
+regardless of any already-issued grant, so that revocation beats the grant. A
+higher current fence alone SHALL NOT quarantine a record. The gateway SHALL
+NOT depend on remembering a late-grant RPC refusal. A late
 grant SHALL NOT be accepted where a renewal or rollover is expected, nor the
 reverse. On a late session, a frame whose origin principal is not the
 authenticated agent SHALL be published to security quarantine, recording both
 principals, before the identity rejection and before any grant check, and
 SHALL NOT be rejected as `identity_conflict`. A frame whose production or
-source key is compromise-revoked, or whose interval ended with
-`certificate_revoked` or `revoked_cause_unknown` (core's `certificate_revoked_interval` refusal, relayed
-from the late-grant RPC response and applied at frame authorization), SHALL be
-published to security quarantine without a grant, decided before the
+source key is compromise-revoked, or whose interval is in the trust
+snapshot's terminal-interval list, SHALL be published to security quarantine without a grant, decided before the
 missing-grant check; any other frame with no valid
 late grant SHALL be withheld as retryable. The agent SHALL send those
 quarantine-bound frames without waiting for a grant, so they never stall the
@@ -246,15 +252,25 @@ transport provenance on both the primary and audit routes.
 - **WHEN** a late-session frame of the authenticated agent's own origin principal carries no delivery capability, its keys are valid, and its interval has not ended with `certificate_revoked` or `revoked_cause_unknown`
 - **THEN** the gateway SHALL withhold it as retryable and SHALL NOT publish it
 
-#### Scenario: A relayed revocation refusal quarantines a frame without a grant
-- **GIVEN** a late record of the authenticated agent's own origin principal for which core refused a grant as `certificate_revoked_interval`
-- **WHEN** its frame arrives with no delivery capability
+#### Scenario: A bare frame after a revocation refusal is quarantined through the snapshot
+- **GIVEN** a late record of the authenticated agent's own origin principal for which core refused a grant as `certificate_revoked_interval`, and a trust snapshot whose terminal-interval list holds that interval
+- **WHEN** its frame arrives with no delivery capability, at any gateway
 - **THEN** the gateway SHALL publish it to security quarantine and SHALL NOT withhold it
 
 #### Scenario: A revocation after grant issue beats the grant
 - **GIVEN** a late grant with PRIMARY publication issued while the record's interval was open
-- **WHEN** the interval is closed with `certificate_revoked` before the frame is published, inside the grant's lifetime
+- **WHEN** the interval is closed with `certificate_revoked` inside the grant's lifetime and the trust snapshot carries it
 - **THEN** the gateway SHALL publish the frame only to security quarantine
+
+#### Scenario: A normal epoch advance does not quarantine
+- **GIVEN** a late record naming epoch 4 under a valid PRIMARY late grant, while the current fence is epoch 5 and the terminal-interval list does not hold epoch 4
+- **WHEN** the gateway authorizes the frame
+- **THEN** it SHALL publish the record PRIMARY
+
+#### Scenario: A record in core's future waits, not quarantined
+- **WHEN** a late record's `produced_at` is ahead of core's clock and core issues no grant yet
+- **THEN** the gateway SHALL withhold its frame as retryable and SHALL NOT quarantine or reject it
+- **AND** core SHALL judge it normally once its clock passes `produced_at` minus the tolerance
 
 #### Scenario: A foreign-origin frame is quarantined, not identity-rejected
 - **WHEN** a late-session frame's origin principal is not the authenticated agent
@@ -431,3 +447,149 @@ record's publication.
 - **WHEN** the agent crashes after the gateway response and before the late append is durable
 - **THEN** the record SHALL remain unresolved in the live lane after restart
 - **AND** the agent SHALL append it to the late generation before persisting the resolution
+
+## MODIFIED Requirements
+
+### Requirement: Record authorization is four separate typed decisions
+Record authorization SHALL be evaluated as FOUR distinct decisions, each returning a TYPED disposition, and SHALL NOT be collapsed into a single boolean result.
+
+A signature-verification helper MAY exist, but its boolean SHALL NOT be the only
+authorization result. The four dimensions and their typed outcome sets are:
+
+1. HISTORICAL COLLECTION/PROVENANCE PROOF -- whether the production/source
+   capability was valid over the signed collection interval. This dimension has an
+   INPUT on the wire and an OUTPUT that is not on the wire, and this change freezes
+   only the input.
+   The INPUT is `source_authorization`, whose kind is the generated
+   `EdgeSourceAuthorizationKind`. Its members are frozen here, in full:
+   `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND`,
+   `EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN`, and
+   `EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL`.
+   ABSENCE AND PRESENT-ZERO ARE DIFFERENT. `source_authorization` is OPTIONAL, and
+   its ABSENCE is the only way to express "no source authorization"; such a record
+   is REPRESENTABLE and valid AT THIS LAYER. A PRESENT `source_authorization` whose
+   kind is `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED` SHALL be REJECTED: it
+   asserts a source authorization while naming none.
+   THESE RULES ARE RECORD-LAYER REPRESENTABILITY, SUBJECT TO PAYLOAD-SPECIFIC
+   REQUIREMENTS. "Valid at the record layer" does NOT mean every payload accepts it:
+   a payload contract MAY REQUIRE source authorization, and `SweepObservationBatchV1`
+   DOES -- see the sweep correlation requirements below. The record layer says the
+   field is optional and therefore no structural gate can demand it; a payload
+   contract may still demand it, and where it does that demand governs. Read as an
+   unqualified permission, this paragraph would contradict the sweep matrix.
+   SOURCE PRESENCE IS INDEPENDENT OF ATTRIBUTION CLASSIFICATION. Absence SHALL NOT
+   be read as, or equated with, PASSIVE -- PASSIVE asserts only that a record claims
+   no produced target range, which is a different question from whether a source
+   authorization is carried. All four combinations of
+   {ACTIVE, PASSIVE} x {source present, source absent} are legal and SHALL each be
+   REPRESENTABLE at the record and classification layers; no component SHALL infer
+   one axis from the other. Representable is not the same as accepted by every
+   payload: a payload contract requiring source authorization narrows which of the
+   four its own records may use, without making any of them unrepresentable.
+   The OUTPUT -- the historical-proof RESULT -- is NOT frozen here. It is not
+   carried on the wire, it is not this enum (which says which authorization a record
+   CLAIMS, never whether that claim proved out), and it exists even for records with
+   no source authorization at all. This change freezes only the INVARIANT that the
+   historical proof is a decision SEPARATE from the authorization kind the record
+   carries. Its outcome vocabulary, its key-rotation versus compromise-revocation
+   rules, and its evidence are owned downstream.
+2. GATEWAY PUBLICATION -- the outcome delivered ON THE WIRE SHALL be one of the
+   generated `EdgeRecordDispositionKind` members and nothing else:
+   `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`,
+   `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`, `EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE` (`UNSPECIFIED` is rejected). Any
+   INTERNAL publication subtype -- for example a security-quarantine variant --
+   SHALL MAP onto one of those five and SHALL NOT appear as a sixth wire value.
+   The internal subtypes themselves, and which maps to which, are runtime and are
+   defined downstream.
+3. DELIVERY MODE -- carried on the wire as a `u64` in the transport-provenance
+   grammar, NOT as a proto enum. The frozen constants are
+   `DeliveryModeUnspecified = 0` (rejected), `DeliveryModeFresh = 1`,
+   `DeliveryModeRenewal = 2`, `DeliveryModeRollover = 3`,
+   `DeliveryModeLateFenced = 4`, and `DeliveryModeLateAdmission = 5`.
+   `DeliveryModeLateAdmission` marks a record published under a late-admission
+   delivery grant on a late session, on the primary or audit route. Its
+   `delivery_proof_digest` SHALL be computed over the grant's
+   `EdgeDeliveryLateAdmissionV1` transition, which SHALL be admitted alongside
+   the renewal and rollover transitions; a late-admission proof SHALL be valid
+   only with `DeliveryModeLateAdmission`, and a renewal or rollover proof SHALL
+   NOT be valid with it.
+4. PROJECTION -- the outcome set is RUNTIME and is defined downstream, because it
+   is not carried on the wire. This change freezes only that projection is a
+   SEPARATE decision from publication, and that a publication accept SHALL NOT
+   imply an authoritative projection.
+
+This requirement defines the four DIMENSIONS. What it freezes is only the values
+carried on the wire, and they are not all of the same kind:
+
+- dimension 1's `EdgeSourceAuthorizationKind` is a wire INPUT -- the source
+  authorization a record CLAIMS. It is NOT dimension 1's outcome vocabulary. Note
+  also that source authorization is only ONE input to the historical proof, which
+  also weighs production authority and therefore runs even when
+  `source_authorization` is absent. Dimension 1's OUTCOME is runtime-owned.
+- dimension 2's `EdgeRecordDispositionKind` members and dimension 3's
+  `DeliveryMode` constants ARE outcome vocabularies, and are frozen as such.
+- dimension 4's outcome vocabulary is runtime-owned. Dimension 4's outcome set is NOT frozen here; the
+only projection facts frozen here are that it is a separate decision from
+publication and that a publication accept does not imply an authoritative
+projection.
+
+Everything about applying any dimension -- the projection outcome set and its
+meanings, which component evaluates which dimension and in what order, how
+capability grants may be cached and fenced, which destination stream or DLQ each
+outcome routes to, the PubAck requirement, and whether the agent may resolve its
+spool entry -- is runtime behaviour and is specified in the companion runtime
+change, as one complete requirement there.
+
+An earlier revision split this requirement MID-SENTENCE across the two changes:
+decision 1 ended on "at the trust-policy" here and continued with "epoch) is a
+reusable grant..." there. A requirement SHALL be complete in the change that owns
+it.
+
+#### Scenario: One boolean cannot stand in for the four decisions
+- **WHEN** a component needs an authorization outcome
+- **THEN** it SHALL consume the typed historical-proof, publication, delivery-mode,
+  and projection dispositions
+- **AND** a single `ValidateRecordSigned`-style boolean SHALL NOT be the sole basis
+  for publication or projection
+
+#### Scenario: Audit and quarantine are distinct generated ACK values
+- **WHEN** a delivery ACK carries `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY` or `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`
+- **THEN** each SHALL be distinguishable from `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE` and from
+  `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`
+- **AND** a reader SHALL NOT collapse them into either
+
+#### Scenario: An internal subtype maps onto a generated value
+- **WHEN** the runtime distinguishes an internal publication subtype such as a
+  security quarantine
+- **THEN** it SHALL be delivered as one of the five generated
+  `EdgeRecordDispositionKind` members
+- **AND** SHALL NOT introduce a sixth wire value
+
+#### Scenario: A record asserts a source authorization without naming one
+- **WHEN** a record carries a present `source_authorization` whose kind is
+  `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED`
+- **THEN** it SHALL be rejected
+- **AND** an ABSENT `source_authorization` SHALL remain valid AT THE RECORD LAYER, being the
+  only way to express no source authorization
+- **AND** this SHALL NOT be read as accepting absence in a payload whose own contract
+  REQUIRES source authorization, such as `SweepObservationBatchV1`
+
+#### Scenario: Source presence is not read as an attribution classification
+- **GIVEN** a record whose `source_authorization` is absent
+- **WHEN** its attribution classification is determined
+- **THEN** the absence SHALL NOT make it PASSIVE, and an ACTIVE record with no
+  source authorization SHALL remain legal AT THE RECORD AND CLASSIFICATION LAYERS
+- **AND** neither axis SHALL be inferred from the other
+- **AND** a payload contract MAY still require source authorization, narrowing which
+  combinations its own records may use without making any of them unrepresentable
+
+#### Scenario: A late-admission record carries its own delivery mode
+- **WHEN** the gateway publishes a record under a late-admission delivery grant
+- **THEN** its transport provenance SHALL carry `DeliveryModeLateAdmission = 5`
+- **AND** its `delivery_proof_digest` SHALL be computed over the `EdgeDeliveryLateAdmissionV1` transition
+- **AND** a late-admission proof paired with any other delivery mode SHALL be rejected

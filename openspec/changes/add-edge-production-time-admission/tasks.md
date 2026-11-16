@@ -12,7 +12,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       rejection code to `proto/edge/v1/record.proto`. Regenerate the Go and
       Elixir bindings together (`make verify-proto-edge-elixir` stays green).
       Older peers fail closed on the unknown oneof member. The provenance
-      `LATE_ADMISSION` delivery mode is not added here (task 2.6).
+      `LATE_ADMISSION` delivery mode (`DeliveryModeLateAdmission = 5`, the
+      MODIFIED four-decisions requirement) is not added here: it is implemented
+      in phase 2 with its Elixir peer (task 2.6), so phase 1 does not change
+      the shared Go/Elixir provenance vectors.
 - [ ] 1.2 Add `edgerecord.ValidateRecordProduced` (Decision 3, agent checks 1
       to 5) and `RecordLateAttribution`. Classify the outcome as admissible,
       admissible-security, foreign-principal, retryable or permanent. With a
@@ -25,8 +28,11 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       with the late transition: late-session acceptance only, the binding of
       `produced_at` and epoch, grant-decided publication, security quarantine
       for a foreign origin principal (before the identity rejection, replacing
-      `identity_conflict`) or a `HISTORICALLY_REVOKED` key decided before the
-      missing-grant withhold, and `late_admission_required` for any live-lane
+      `identity_conflict`), a `HISTORICALLY_REVOKED` key, or an
+      `(assignment, epoch)` in the trust snapshot's terminal-interval list
+      (regardless of any grant), decided before the missing-grant withhold, a
+      retryable withhold for any other frame without a grant (including one
+      in core's future), and `late_admission_required` for any live-lane
       record with a stale or missing fence, whatever its production window, or
       a foreign origin principal.
 - [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
@@ -86,6 +92,11 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       do not advertise `late_admission_v1`, until phase 2 implements the late
       path. The regenerated Elixir bindings decode the field, so the refusal
       must be explicit.
+- [ ] 1.11 Parse the trust document's terminal-interval list
+      (`certificate_revoked` and `revoked_cause_unknown` intervals by
+      `(producer_assignment_id, network_scope_id, run_shard,
+      authority_epoch)`) into the Go `TrustSnapshot`, separately from the
+      current fences, for the oracle in task 1.3.
 
 ## 2. Core and gateway (Elixir), phase 2. Deploy before late sessions do anything; until then late records stay on disk, accounted and reported.
 
@@ -127,13 +138,14 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `identity_conflict`), as `late_admission_required`. On a late session
       publish foreign-principal frames to security quarantine before the
       identity rejection, and `HISTORICALLY_REVOKED` and
-      `certificate_revoked_interval` frames before the missing-grant withhold,
-      recording the origin and presenting principals. Re-check the interval's
-      terminal state in the trust snapshot before publishing under an
-      already-issued grant, so a current `certificate_revoked` or
-      `revoked_cause_unknown` state beats it. Assign
+      terminal-interval frames before the missing-grant withhold, recording the
+      origin and presenting principals. Core emits the terminal-interval list
+      in the trust document and `EdgeRecordTrust` parses it; frame
+      authorization quarantines a listed interval regardless of an
+      already-issued grant, and a higher fence alone never quarantines. Assign
       the provenance `LATE_ADMISSION` delivery mode (grammar-8 transport
-      provenance, value 5) in Go and Elixir together, and advertise
+      provenance, `DeliveryModeLateAdmission = 5`, with a delivery proof over
+      the `EdgeDeliveryLateAdmissionV1` transition) in Go and Elixir together, and advertise
       `late_admission_v1`.
 - [ ] 2.7 EventWriter: accept `LATE_ADMISSION` on the primary and audit routes,
       add audit-trail columns to the ledger, let projectors authorize from the

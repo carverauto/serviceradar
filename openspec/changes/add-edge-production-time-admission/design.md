@@ -179,11 +179,15 @@ issues no grant only for an item that does not bind to the requesting agent,
 such as a foreign origin principal (`not_assignment_owner`), and for a record
 naming a `certificate_revoked` or `revoked_cause_unknown` interval
 (`certificate_revoked_interval`). Neither frame is rejected: the gateway
-learns the refusal from the late-grant RPC response it relays, applies it at
-frame authorization, and publishes the frame to security quarantine without a
-grant, before the missing-grant withhold, so it never waits. A record whose
-`produced_at` is still in core's future is the one other no-grant case: core
-answers "not yet" and the record waits in the late generation.
+publishes it to security quarantine without a grant, before the missing-grant
+withhold, so it never waits. The gateway does not remember RPC refusals: it
+recognizes a foreign origin from the frame and authenticated identity, and a
+revoked interval from the terminal-interval list in its trust snapshot
+(Decision 4). A record whose `produced_at` is still in core's future is
+different: core answers "not yet", issues no grant, and the frame is withheld
+as retryable, never rejected and never quarantined. The record waits in the
+late generation until core's clock passes `produced_at` minus the tolerance,
+and is then judged normally.
 
 The agent cannot fake checks 6 to 8. They read core-owned history and core's
 clock, and the record's `produced_at` is already bound inside a window that
@@ -239,6 +243,17 @@ so their records stay quarantine-only; no separate tombstone table is needed.
 A pruned `compromised` interval collapses to `history_unknown`, which stays
 AUDIT. A record naming a pruned interval gets `history_unknown`, so raising the
 setting later never invents history.
+
+**Terminal intervals in the trust document.** Core's trust document carries,
+separately from the current fences, the identity of every interval that ended
+with `certificate_revoked` or `revoked_cause_unknown`: `(producer_assignment_id, network_scope_id,
+run_shard, authority_epoch)`. The gateway's `EdgeRecordTrust` snapshot and the
+Go `TrustSnapshot` parse this list. Frame authorization stays stateless
+(frame, lane, identity, snapshot): a record whose `(assignment, epoch)` is in
+the list goes to security quarantine, before the missing-grant withhold and
+regardless of any already-issued grant. A higher current fence alone never
+quarantines; a normal epoch advance stays PRIMARY-eligible through its late
+grant. These intervals are never pruned, so the list is complete.
 
 **Keys.** Historical verification needs the issuer key's evidence (see
 "Current permission and historical verification are separate questions").
@@ -355,17 +370,17 @@ follows:
 - **AUDIT** goes to the audit route, with the same mode and the reason.
 - **Security quarantine** is the outcome for a compromise-revoked key, as
   today, for every frame whose origin principal is not the authenticated
-  agent, whatever grant it carries, and for every frame whose interval ended
-  with `certificate_revoked` or `revoked_cause_unknown` (core's `certificate_revoked_interval`
-  refusal, relayed and applied at frame authorization). The origin mismatch is
-  decided before the identity rejection, and all three before any grant
-  check, so these frames never wait for a grant. Before publishing PRIMARY or
-  AUDIT under an already-issued late grant, the gateway re-checks the
-  interval's terminal state in its trust snapshot; a current
-  `certificate_revoked` or `revoked_cause_unknown` state beats the grant and the frame goes to
-  security quarantine.
+  agent, whatever grant it carries, and for every frame whose `(assignment,
+  epoch)` is in the trust snapshot's terminal-interval list (Decision 4). The
+  origin mismatch is decided before the identity rejection, and all three
+  before any grant check, so these frames never wait for a grant. Because the
+  terminal-interval check runs at frame authorization regardless of grant, a
+  PRIMARY or AUDIT grant issued before the revocation loses once the snapshot
+  carries the interval, and the frame goes to security quarantine. A higher
+  current fence alone never quarantines.
 - **A frame without a valid late grant** on a late session, other than those
-  above, is withheld (retry). It is never rejected for that reason alone.
+  above, is withheld (retry). It is never rejected for that reason alone. A
+  record whose `produced_at` is in core's future is one such frame.
 
 EventWriter accepts `LATE_ADMISSION` on both routes. Projectors use the grant's
 historical decision in place of `OutputGrants.check_current` for a late
