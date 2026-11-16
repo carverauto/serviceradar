@@ -311,6 +311,8 @@ func knownLateDecisionReason(r edgev1.EdgeLateDecisionReason) bool {
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED:
 		return true
+	case edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_UNSPECIFIED:
+		return false
 	default:
 		return false
 	}
@@ -338,9 +340,14 @@ func validateLateAdmissionClaims(late *edgev1.EdgeDeliveryLateAdmissionV1) error
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED:
+		case edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_UNSPECIFIED,
+			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_ADMITTED:
+			return fmt.Errorf("%w: late_admission AUDIT requires an audit reason", ErrDeliveryClaims)
 		default:
 			return fmt.Errorf("%w: late_admission AUDIT requires an audit reason", ErrDeliveryClaims)
 		}
+	case edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_UNSPECIFIED:
+		return fmt.Errorf("%w: late_admission publication", ErrDeliveryClaims)
 	default:
 		return fmt.Errorf("%w: late_admission publication", ErrDeliveryClaims)
 	}

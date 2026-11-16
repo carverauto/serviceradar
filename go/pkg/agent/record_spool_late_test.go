@@ -76,8 +76,10 @@ func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, sco
 	return daysOldRelayRecordSized(t, producedAt, origin, scope, []byte{0x0a, 0x04, 's', 'p', 'a', 'n'})
 }
 
-// lateTestOtherScope is a second invented network scope the test agent serves.
-var lateTestOtherScope = []byte{0x5c, 0x0f, 0xe0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x86, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11}
+// lateTestOtherScope returns a second invented network scope the test agent serves.
+func lateTestOtherScope() []byte {
+	return []byte{0x5c, 0x0f, 0xe0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x86, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11}
+}
 
 // daysOldRelayRecordSized is daysOldRelayRecordIn carrying payload as its relayed span.
 func daysOldRelayRecordSized(t *testing.T, producedAt time.Time, origin string, scope, payload []byte) []byte {
@@ -137,7 +139,7 @@ func lateTrustAs(t *testing.T, keyStatus, agentID string) *edgerecord.TrustSnaps
 			"purposes":   []string{"production", "source", "delivery"}, "status": keyStatus,
 		}},
 		"fences": []any{map[string]any{"network_scope_id": testNetworkScopeID[:], "producer_assignment_id": testAssignmentID[:], "run_shard": 0, "authority_epoch": 2}},
-		"scopes": []any{map[string]any{"agent_id": agentID, "network_scope_ids": [][]byte{testNetworkScopeID[:], lateTestOtherScope}}},
+		"scopes": []any{map[string]any{"agent_id": agentID, "network_scope_ids": [][]byte{testNetworkScopeID[:], lateTestOtherScope()}}},
 	})
 	require.NoError(t, err)
 	snapshot, err := edgerecord.ParseTrustDocument(raw, []byte(agentID), 1)
@@ -452,7 +454,7 @@ func handoffNeed(raws [][]byte) uint64 {
 
 func lateTail(t *testing.T, n int) ([][]byte, uint64) {
 	t.Helper()
-	var raws [][]byte
+	raws := make([][]byte, 0, n)
 	needed := uint64(spool.GenerationMetadataCharge)
 	for i := range n {
 		raw := daysOldRelayRecord(t, time.Now().Add(-time.Duration(6*24-i)*time.Hour))
@@ -564,7 +566,7 @@ func TestLegacyHandoffBillsASuccessorGenerationForAnotherScope(t *testing.T) {
 	base := time.Now().Add(-6 * 24 * time.Hour)
 	raws := [][]byte{
 		daysOldRelayRecordIn(t, base, sysmonEdgeAgentID, testNetworkScopeID[:]),
-		daysOldRelayRecordIn(t, base.Add(time.Hour), sysmonEdgeAgentID, lateTestOtherScope),
+		daysOldRelayRecordIn(t, base.Add(time.Hour), sysmonEdgeAgentID, lateTestOtherScope()),
 	}
 	writeFlatSpoolTail(t, root, raws...)
 
@@ -687,7 +689,7 @@ func TestConcurrentLateAdmissionsOfTwoScopesAllLand(t *testing.T) {
 
 	const perScope = 8
 	base := time.Now().Add(-6 * 24 * time.Hour)
-	scopes := [][]byte{testNetworkScopeID[:], lateTestOtherScope}
+	scopes := [][]byte{testNetworkScopeID[:], lateTestOtherScope()}
 	errs := make(chan error, len(scopes)*perScope)
 	var wg sync.WaitGroup
 	for s, scope := range scopes {

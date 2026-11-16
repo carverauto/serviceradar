@@ -25,7 +25,7 @@ defmodule TransformFixtureTest do
 
   # Exactly the modules the transform pins, so a clean fixture satisfies the inventory check.
   @inventory ~w(
-    EdgeCapabilityPurpose EdgeOriginKind EdgeRecordCompression EdgeRecordEncoding EdgeRecordDispositionKind
+    EdgeCapabilityPurpose EdgeLateDecisionReason EdgeLatePublication EdgeOriginKind EdgeRecordCompression EdgeRecordEncoding EdgeRecordDispositionKind
     EdgeRecordPayloadFamily EdgeRecordRouteProfile EdgeRecordTrafficClass
     EdgeSourceAuthorizationKind EdgeUnattributableReason MtrCompletionDisposition MtrOutcome
     MtrTcpProbeModeV1

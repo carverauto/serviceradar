@@ -141,7 +141,8 @@ func (l *lateStore) laneSetFor(origin []byte, own bool) (*spool.LaneSet, error) 
 func (l *lateStore) sets() []*spool.LaneSet {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := []*spool.LaneSet{l.own}
+	out := make([]*spool.LaneSet, 0, 1+len(l.holds))
+	out = append(out, l.own)
 	for _, hold := range l.holds {
 		out = append(out, hold)
 	}
@@ -149,8 +150,9 @@ func (l *lateStore) sets() []*spool.LaneSet {
 }
 
 func (l *lateStore) close() error {
-	var errs []error
-	for _, set := range l.sets() {
+	sets := l.sets()
+	errs := make([]error, 0, len(sets))
+	for _, set := range sets {
 		errs = append(errs, set.Close())
 	}
 	return errors.Join(errs...)
