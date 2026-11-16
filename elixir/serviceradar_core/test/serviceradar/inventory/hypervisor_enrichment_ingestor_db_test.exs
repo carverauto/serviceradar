@@ -337,6 +337,160 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     assert guest_hostname == guest_name
   end
 
+  # The device's address and MAC are one NIC's: the lowest configured index. Interface names
+  # are the guest's own choice and need not sort that way: here net0 is "mgmt" and net1 is
+  # "data", reported first. Invented addresses and MACs under the Proxmox OUI.
+  test "a dual-homed guest's device MAC comes from the NIC its primary IP comes from", %{
+    actor: actor
+  } do
+    suffix = System.unique_integer([:positive])
+    node = "pve-nic-order-#{suffix}"
+    guest_name = "ct-nic-order-#{suffix}"
+    octet = rem(suffix, 200) + 1
+    byte = suffix |> rem(250) |> Integer.to_string(16) |> String.pad_leading(2, "0")
+    net0_mac = "BC:24:11:F0:#{byte}:01"
+    net1_mac = "BC:24:11:0A:#{byte}:02"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    guest = %{
+      "node" => node,
+      "type" => "lxc",
+      "vmid" => 100 + rem(suffix, 800),
+      "name" => guest_name,
+      "status" => "running",
+      "interfaces" => [
+        %{
+          "name" => "data",
+          "config_key" => "net1",
+          "mac_address" => net1_mac,
+          "ip_addresses" => ["198.51.100.#{octet}/24"],
+          "source" => "config"
+        },
+        %{
+          "name" => "mgmt",
+          "config_key" => "net0",
+          "mac_address" => net0_mac,
+          "ip_addresses" => ["192.0.2.#{octet}/24"],
+          "source" => "config"
+        }
+      ]
+    }
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "nic-order-#{suffix}"}],
+            "nodes" => [%{"node" => node, "status" => "online", "ip" => "203.0.113.#{octet}"}],
+            "guests" => [guest]
+          }
+        ]
+      }
+    }
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
+
+    net0_ip = "192.0.2.#{octet}"
+    net0_normalized_mac = IdentityReconciler.normalize_mac(net0_mac)
+
+    assert [[^net0_ip, ^net0_normalized_mac]] =
+             Repo.query!(
+               """
+               SELECT d.ip, d.mac
+               FROM platform.virtualization_guests g
+               JOIN platform.ocsf_devices d ON d.uid = g.device_uid
+               WHERE g.provider = 'proxmox' AND g.name = $1
+               """,
+               [guest_name]
+             ).rows
+  end
+
+  # The primary NIC (net0) reports no MAC; net1's MAC must not stand in for it, or the
+  # device's MAC and IP come from different NICs. Invented addresses and MAC.
+  test "a guest whose primary NIC has no MAC gets no device MAC from another NIC", %{
+    actor: actor
+  } do
+    suffix = System.unique_integer([:positive])
+    node = "pve-nic-nomac-#{suffix}"
+    guest_name = "ct-nic-nomac-#{suffix}"
+    octet = rem(suffix, 200) + 1
+    byte = suffix |> rem(250) |> Integer.to_string(16) |> String.pad_leading(2, "0")
+    net1_mac = "BC:24:11:0B:#{byte}:02"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    guest = %{
+      "node" => node,
+      "type" => "lxc",
+      "vmid" => 100 + rem(suffix, 800),
+      "name" => guest_name,
+      "status" => "running",
+      "interfaces" => [
+        %{
+          "name" => "eth0",
+          "config_key" => "net0",
+          "ip_addresses" => ["192.0.2.#{octet}/24"],
+          "source" => "config"
+        },
+        %{
+          "name" => "eth1",
+          "config_key" => "net1",
+          "mac_address" => net1_mac,
+          "ip_addresses" => ["198.51.100.#{octet}/24"],
+          "source" => "config"
+        }
+      ]
+    }
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "nic-nomac-#{suffix}"}],
+            "nodes" => [%{"node" => node, "status" => "online", "ip" => "203.0.113.#{octet}"}],
+            "guests" => [guest]
+          }
+        ]
+      }
+    }
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
+
+    net0_ip = "192.0.2.#{octet}"
+
+    assert [[^net0_ip, nil]] =
+             Repo.query!(
+               """
+               SELECT d.ip, NULLIF(btrim(d.mac), '')
+               FROM platform.virtualization_guests g
+               JOIN platform.ocsf_devices d ON d.uid = g.device_uid
+               WHERE g.provider = 'proxmox' AND g.name = $1
+               """,
+               [guest_name]
+             ).rows
+  end
+
   test "resolves hosts to existing devices by case-insensitive hostname", %{actor: actor} do
     suffix = System.unique_integer([:positive])
     provider = "testhv"

@@ -24,10 +24,9 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
   end
 
   test "a dual-homed guest's primary is its lowest configured NIC, whatever the report order" do
-    # The ingestor dedupes NIC records through a map keyed by provider ref, so
-    # the order they arrive in follows the NIC MACs, not the guest config. The
-    # Proxmox connector carries the config key (`netN`) in each record's
-    # metadata; that index is the guest's NIC order.
+    # Report order is the connector's, not the guest config's. The Proxmox
+    # connector carries the config key (`netN`) in each record's metadata;
+    # that index is the guest's NIC order.
     second_nic_first = [
       %{
         name: "eth1",
@@ -62,6 +61,51 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
     ]
 
     assert GuestAddress.primary(interfaces) == "192.0.2.20"
+  end
+
+  # The device's MAC is the MAC of the interface its address comes from, which is
+  # not the first interface in preference order when that one has no accepted
+  # address. Invented MACs under the Proxmox OUI.
+  test "primary_interface/1 is the interface primary/1 takes the address from" do
+    awaiting_lease = [
+      %{
+        name: "mgmt",
+        source: "config",
+        mac_address: "BC:24:11:0F:00:01",
+        ip_addresses: ["dhcp"],
+        config_key: "net0"
+      },
+      %{
+        name: "data",
+        source: "config",
+        mac_address: "BC:24:11:0F:00:02",
+        ip_addresses: ["192.0.2.10/24"],
+        config_key: "net1"
+      }
+    ]
+
+    assert %{mac_address: "BC:24:11:0F:00:02"} = GuestAddress.primary_interface(awaiting_lease)
+    assert GuestAddress.primary(awaiting_lease) == "192.0.2.10"
+
+    guest_tools = [
+      %{
+        name: "ens5",
+        source: "guest_tools",
+        mac_address: "BC:24:11:0F:00:05",
+        ip_addresses: ["172.30.0.1/24"]
+      },
+      %{
+        name: "eth0",
+        source: "guest_tools",
+        mac_address: "BC:24:11:0F:00:06",
+        ip_addresses: ["192.0.2.20/24"]
+      }
+    ]
+
+    assert %{mac_address: "BC:24:11:0F:00:06"} = GuestAddress.primary_interface(guest_tools)
+
+    only_bridge = [%{name: "docker0", ip_addresses: ["172.17.0.1/16"]}]
+    assert GuestAddress.primary_interface(only_bridge) == nil
   end
 
   test "a guest that reports only host-internal networks has no primary address" do

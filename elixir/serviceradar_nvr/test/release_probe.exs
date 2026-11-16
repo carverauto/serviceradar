@@ -859,10 +859,12 @@ case System.fetch_env!("NVR_TEST_MODE") do
     end
 
     blocks = collect.(collect, [])
-    expected_sequences = if mode == "rotation", do: [0, 1, 2], else: [0]
-    ^expected_sequences = Enum.map(blocks, & &1.identity["block_sequence"])
-    expected_fragments = if mode == "rotation", do: [8, 8, 1], else: [8]
+    # Python states the layout its SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS must produce.
+    rotation = Jason.decode!(System.fetch_env!("NVR_TEST_ROTATION_FRAGMENTS"))
+    expected_fragments = if mode == "rotation", do: rotation, else: Enum.take(rotation, 1)
     ^expected_fragments = Enum.map(blocks, &length(&1.entries))
+    expected_sequences = Enum.with_index(expected_fragments, fn _fragments, sequence -> sequence end)
+    ^expected_sequences = Enum.map(blocks, & &1.identity["block_sequence"])
     true = Enum.all?(blocks, & &1.sealed?)
     expected_clock = Jason.decode!(Jason.encode!(clock))
     true = Enum.all?(blocks, &(&1.identity["clock"] == expected_clock))

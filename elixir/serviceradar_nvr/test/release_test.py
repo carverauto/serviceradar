@@ -64,6 +64,8 @@ class NVRReleaseTest(unittest.TestCase):
             "SERVICERADAR_NVR_STORAGE_ID": "00000000-0000-4000-8000-000000000011",
             "NVR_TEST_EXPECTED_STORAGE_ID": "00000000-0000-4000-8000-000000000011",
             "SERVICERADAR_NVR_MAX_SESSIONS": "2", "SERVICERADAR_NVR_HEALTH_PORT": str(port),
+            # Rotation and capacity cases are sized for eight-fragment blocks.
+            "SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": "8", "NVR_TEST_ROTATION_FRAGMENTS": "[8, 8, 1]",
             "NVR_TEST_RECEIPT": str(self.root / "receipt.json"),
             "NVR_TEST_H264": str(self.root / "synthetic.h264"),
             "NVR_TEST_MP4": str(self.root / "recovered.mp4"),
@@ -965,6 +967,20 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("discover_rotation")
         self.assertEqual(self.decode(self.env["NVR_TEST_MP4"] + ".0"), expected[:240 * 64 * 64 * 3 // 2])
 
+    def test_configured_fragment_limit_rotates_blocks_that_stay_readable_after_it_is_lowered(self):
+        source = self.make_media(510)
+        expected = self.decode(source)
+        self.env["SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS"] = "12"
+        self.env["NVR_TEST_ROTATION_FRAGMENTS"] = "[12, 5]"
+        self.run_probe("rotation")
+        Path(self.env["NVR_TEST_RECEIPT"]).unlink()
+        # A restart with a smaller limit still discovers, verifies and reads both blocks.
+        self.env["SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS"] = "8"
+        self.run_probe("discover_rotation")
+        decoded = [self.decode(self.env["NVR_TEST_MP4"] + f".{i}") for i in range(2)]
+        self.assertEqual([len(x) for x in decoded], [n * 64 * 64 * 3 // 2 for n in [360, 150]])
+        self.assertEqual(b"".join(decoded), expected)
+
     def test_discovery_preserves_unsealed_corrupt_and_uncommitted_blocks(self):
         self.make_media()
         self.run_probe("record")
@@ -982,7 +998,8 @@ class NVRReleaseTest(unittest.TestCase):
         cases = [
             ("journal", journal[:last], "unsealed_block"),
             ("journal", journal[:-1] + bytes([journal[-1] ^ 1]), "invalid_journal_record"),
-            ("journal", b"x" * 50000, "journal_too_large"),
+            # Reads accept a journal for the largest configurable block, whatever the current setting.
+            ("journal", b"x" * ((256 + 2) * (4096 + 36) + 1), "journal_too_large"),
             ("media.m4s", b"x" + originals["media.m4s"][1:], "media_digest_mismatch"),
             ("media.m4s", originals["media.m4s"] + b"uncommitted", "uncommitted_block_bytes"),
             ("init.mp4", originals["init.mp4"] + b"uncommitted", "uncommitted_block_bytes"),
@@ -1712,6 +1729,8 @@ class NVRReleaseTest(unittest.TestCase):
         malformed.write_text("{}")
         settings = [({"SERVICERADAR_NVR_" + key: "0"}, b"invalid_nvr_limit")
                     for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]]
+        settings += [({"SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": value}, b"invalid_nvr_limit")
+                     for value in ["7", "257"]]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
                      ({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed),
                        "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]

@@ -3307,7 +3307,13 @@ nvr:
     # This chart never creates or opens the restore gate. See docs/nvr-runtime.md.
     existingConfigMap: ""
   maxSessions: 1
-  maxDurationMs: 30000
+  # Bounds each recording session and ingest request, including its seal. The
+  # service ceiling, so a 270-second Core capture fits with room to seal.
+  maxDurationMs: 300000
+  # Fragments (about 2 s each) per local block before rotation, 8 through 256.
+  # 150 holds one 270-second Core capture in one block. Blocks also rotate at
+  # 16 MiB. Lowering it affects new blocks only.
+  maxBlockFragments: 150
   # Per-replica logical spool budget and physical free-space floor. Size these
   # below the qualified PVC capacity, leaving filesystem/recovery headroom.
   maxSpoolBytes: 1073741824

@@ -381,11 +381,12 @@ authorization and automatic assignment reconciliation remain pending.
 | Setting | Default | Ceiling / behavior |
 | --- | --- | --- |
 | `SERVICERADAR_NVR_MAX_SESSIONS` | 1 | 16; excess admission is refused |
-| `SERVICERADAR_NVR_MAX_DURATION_MS` | 30000 | 300000; no implicit renewal |
+| `SERVICERADAR_NVR_MAX_DURATION_MS` | 30000 | 300000; bounds each session and ingest request, including its seal; no implicit renewal. The Helm chart sets 300000 |
+| `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` | 150 | 8 through 256; fragments per local block before rotation. Reads accept up to 256, so lowering it never strands a retained block. 256 keeps the publication intent, which lists every fragment, within its 64 KiB cap |
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes, full active reservations and missing publication records |
 | `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
-| Local block | 16 MiB / 8 fragments | rotate at a complete fragment boundary; no eviction or deletion |
+| Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most 4096 blocks per volume; no eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
 | Read work | 4 tasks per replica / 10 seconds each | no media-work queue; separate from writers |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
@@ -393,6 +394,27 @@ authorization and automatic assignment reconciliation remain pending.
 
 These are finite runtime limits, not measured camera capacity. Storage replication,
 physical I/O budgets and continuous-policy admission remain qualification work.
+
+The 16 MiB block byte limit is fixed because the archive uploads each block
+object in a single PUT of at most 16 MiB. A fragment ends at the first keyframe
+after the packager's two-second minimum segment duration, which is also the
+playback seek step. With a keyframe every one or two seconds, fragments are
+about two seconds long and the default 150 fragments hold about 300 seconds of
+media. A Core
+capture is at most 270 seconds and 12 MiB (see
+[the relay coordinator](../../docs/nvr-ingest.md#bounded-relay-coordinator)),
+so it fits one block. Back-to-back 270-second captures of one camera make
+86400 / 270 = 320 blocks a day while the stream averages below about
+370 kbit/s (12 MiB in 270 seconds). A higher-bitrate stream reaches the byte
+limit first and makes more, shorter blocks: at 1 Mbit/s a 12 MiB capture lasts
+about 100 seconds, about 860 blocks a day. A direct ingest session longer than
+one block still rotates at 16 MiB or at the fragment limit. The volume still
+holds at most 4096 blocks, so at 320 blocks a day one camera fills it in about
+13 days. With the default 1 GiB `SERVICERADAR_NVR_MAX_SPOOL_BYTES` the byte
+budget fills well before 4096 blocks for any real camera stream. Nothing
+reclaims blocks yet: reclamation is not implemented, and a full volume or
+budget refuses new captures.
+
 The default network listener only serves health probes; private media ingress is
 separately opt-in:
 `GET /healthz` means the runtime is live; `/readyz` additionally verifies the
@@ -401,7 +423,9 @@ configured private storage root and identity. Neither admits a recording pool.
 Before starting a worker, the serialized capacity owner charges one maximum block
 (init, media and journal) plus 64 KiB for its intent, 512 bytes for its
 acknowledgement and 4 KiB for its archive receipt against both the spool budget
-and available disk space.
+and available disk space. A maximum block is 1 MiB of init, 16 MiB of media and
+one 4132-byte journal record for each fragment plus two: 18,453,856 bytes at the
+default 150 fragments (17,867,112 at 8, 18,891,848 at 256).
 It counts existing sealed, partial and abandoned files without recovering or
 deleting them. Each retained block also reserves the maximum size of each missing
 publication record. Existing records are immutable: even partial/corrupt records

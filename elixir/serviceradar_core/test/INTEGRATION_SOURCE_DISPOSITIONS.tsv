@@ -263,7 +263,7 @@ test/serviceradar/edge/agent_control_session_push_isolation_test.exs	ServiceRada
 test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs	ServiceRadar.Edge.AgentGatewaySyncConfigAckTest	data_case	async	transaction_owner	test:14 DataCase owner; synchronous Repo work only
 test/serviceradar/edge/agent_gateway_sync_host_evidence_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/agent_gateway_sync_test.exs	ServiceRadar.Edge.AgentGatewaySyncTest	data_case	serial	application_env	test:29-38 replaces agent_release_public_key
-test/serviceradar/edge/agent_release_manager_test.exs	ServiceRadar.Edge.AgentReleaseManagerTest	data_case	serial	application_env	test:75-94 replaces release key and artifact mirror module
+test/serviceradar/edge/agent_release_manager_test.exs	ServiceRadar.Edge.AgentReleaseManagerTest	data_case	serial	application_env	test:78-97 replaces release key and artifact mirror module
 test/serviceradar/edge/asn_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/bounds_precedence_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/canonical_micros_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.

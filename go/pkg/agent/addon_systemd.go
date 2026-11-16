@@ -685,7 +685,7 @@ func stagedTimerService(path, timer string, units []string) (string, error) {
 
 func (h systemHost) activateAddonSystemdUnits(ctx context.Context, enable, timerService string) error {
 	if timerService != "" {
-		if err := h.runSystemctl(ctx, "reset-failed", timerService); err != nil {
+		if err := h.clearTimerServiceFailure(ctx, timerService); err != nil {
 			return err
 		}
 	}
@@ -701,6 +701,18 @@ func (h systemHost) activateAddonSystemdUnits(ctx context.Context, enable, timer
 		return h.runSystemctl(ctx, "restart", "--no-block", timerService)
 	}
 	return nil
+}
+
+// clearTimerServiceFailure clears the previous scan's failed state so health
+// reports the candidate's own result. Only a loaded, failed unit has such a
+// state. systemd loads units lazily, so the service of a timer add-on installed
+// for the first time is not loaded yet, and `reset-failed` refuses it with "Unit
+// ... not loaded" -- which failed every first install of a timer add-on.
+func (h systemHost) clearTimerServiceFailure(ctx context.Context, service string) error {
+	if h.runSystemctl(ctx, "is-failed", "--quiet", service) != nil {
+		return nil
+	}
+	return h.runSystemctl(ctx, "reset-failed", service)
 }
 
 // UninstallAddonSystemdUnits is the privileged teardown: it disables (--now) each unit,
@@ -1147,6 +1159,9 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	if len(req.Units) == 0 {
 		return ErrAddonSystemdNoUnits
 	}
+	if err := rejectStagedUnitsExecutingFromWritableTree(req); err != nil {
+		return err
+	}
 
 	cmd, err := systemdInstallUpdaterArgs(req)
 	if err != nil {
@@ -1162,6 +1177,31 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 		return fmt.Errorf("agent-updater systemd install failed: %w", err)
 	}
 
+	return nil
+}
+
+// rejectStagedUnitsExecutingFromWritableTree applies the updater's writable-tree
+// refusal to the staged copies of the units before the updater runs. It is not the
+// security boundary -- the updater re-checks the units it materializes from the
+// verified artifact -- but it is what makes the refusal permanent. The updater
+// reaches a host only through a package upgrade, and one installed before it
+// reported this refusal as permanent exits 1, which reads as transient: the
+// install was retried on every config poll and held the config unacknowledged.
+// The agent self-updates, so its classification is current on every host.
+func rejectStagedUnitsExecutingFromWritableTree(req AddonSystemdInstallRequest) error {
+	for _, name := range req.Units {
+		path, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, name)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read staged addon unit %s: %w", name, err)
+		}
+		if err := rejectAgentWritableUnitExecPaths(data, req.RuntimeRoot); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
