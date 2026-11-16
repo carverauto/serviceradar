@@ -172,6 +172,9 @@ spec:
             store_dir: /data/jetstream
             max_memory_store: {{ default "1G" $jetstream.maxMemoryStore }}
             max_file_store: {{ $jsBudget.maxFileStore }}
+            {{- if $jetstream.allowOvercommit }}
+            allow_overcommit: true
+            {{- end }}
           }
 
           tls {
