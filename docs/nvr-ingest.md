@@ -104,9 +104,10 @@ sending media over NATS/JetStream or ERTS distribution:
    `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` with the same
    correlation fields and releases its recorder claim, exactly as for a
    refusal. A Core abort after the worker handed out `:eof` stays uncertain,
-   because the end marker may have gone out. `frames_sent` and `bytes_sent`
-   count units handed to the NVR client, so after a failure they bound from
-   above what reached the NVR.
+   because the end marker may have gone out. A capture timeout or caller loss
+   stays uncertain even when Core stops the stream before `:eof`.
+   `frames_sent` and `bytes_sent` count units handed to the NVR client, so
+   after a failure they bound from above what reached the NVR.
 7. A capture `timeout_ms` outside 1 through 300000 is refused before any
    recorder claim is taken. A capture with less than 250 ms left before its NVR
    stream opens stops with `:capture_timeout` (not uncertain) and releases its
@@ -232,7 +233,8 @@ A stream the coordinator stops before it releases the end marker is not an
 unknown outcome either: without the marker the NVR seals nothing it had open,
 whatever the transport reports. The coordinator treats that as a definite
 failure and releases its recorder claim. Once the end marker may have gone out,
-a coordinator-side stop stays unknown.
+a coordinator-side stop stays unknown. A capture timeout or caller loss stays
+unknown at any point in the stream.
 
 | When the stream ended | What Core knows | Capture result | Recorder claim |
 | --- | --- | --- | --- |
@@ -240,6 +242,8 @@ a coordinator-side stop stays unknown.
 | NVR answered 400, 401, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Released |
 | Core stopped the stream before handing out the end marker | Open block not sealed | `{:error, {:nvr_ingest_aborted, details}}` | Released |
 | Core stopped the stream after handing out the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Capture timeout, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Caller loss, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 | Answer lost, cut short, malformed, or non-200 after the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 
 A refused or aborted capture with the recovery gate closed is reported as

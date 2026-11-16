@@ -33,10 +33,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   `{:nvr_ingest_aborted, details}` with the abort `reason` and the correlation
   fields and releases the recorder claim. A Core abort after `:eof` stays
   uncertain, because the end marker may have gone out and the NVR may have
-  sealed. On an NVR whose block limit a capture can exceed, the NVR may already
-  have rotated and sealed an earlier block of an aborted or refused capture. It
-  keeps that block, but reports mid-stream seals only in a 200 receipt, so Core
-  never learns its ID.
+  sealed. Capture timeout and caller loss stay uncertain before `:eof` too. On
+  an NVR whose block limit a capture can exceed, the NVR may already have
+  rotated and sealed an earlier block of an aborted or refused capture. It keeps
+  that block, but reports mid-stream seals only in a 200 receipt, so Core never
+  learns its ID.
 
   `frames_sent` and `bytes_sent` count the units the sender pulled for the NVR
   client, not the units accepted from the relay. On a failure they are an upper
@@ -87,6 +88,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   # the end marker, and keeps that block's journal. The same status after the
   # end marker (`:ingest_status`) can follow a seal, so it stays uncertain.
   @definite_refusals [400, 401, 422, 503]
+
+  # Capture timeout and caller loss are interrupts the NVR ingest docs define as
+  # uncertain, and they stay so even when Core stops the stream before `:eof`.
+  # Making them definite is a separate product decision.
+  @uncertain_interrupts [:capture_timeout, :capture_cancelled]
 
   def start_link(opts) do
     owner = Keyword.fetch!(opts, :owner)
@@ -650,7 +656,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       # never sent the end marker and the NVR sealed nothing it had open,
       # whatever the client returned.
       {abort_reason, _capture_status, _has_frames, {:ok, _gate}, _result}
-      when not is_nil(abort_reason) and not eof_replied? ->
+      when not is_nil(abort_reason) and abort_reason not in @uncertain_interrupts and not eof_replied? ->
         abort =
           state
           |> correlation_fields()

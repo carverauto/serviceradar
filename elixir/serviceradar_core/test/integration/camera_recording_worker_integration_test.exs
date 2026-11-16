@@ -1346,6 +1346,71 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert claim.recorder_epoch == 1
   end
 
+  test "NVRCapture keeps a capture uncertain when its caller dies while a unit is queued before the end marker, holding the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "caller-lost", &start_reading_tls_peer/1)
+    caller = spawn(fn -> Process.sleep(:infinity) end)
+    task = start_fake_nvr_host_capture(ctx, nvr, caller)
+    worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
+    [first_unit, second_unit | _] = ctx.media.units
+
+    send(ctx.pipeline, {:media_chunk, first_unit})
+    await_sender_blocked_in_pull(worker)
+
+    # The worker meets the caller's DOWN while it handles the queued unit, and
+    # the capture's watcher is held so its interrupt cannot reach the worker
+    # before the sender's result does.
+    :ok = :sys.suspend(worker)
+    send(ctx.pipeline, {:media_chunk, second_unit})
+    await_worker_message(worker, &match?({:recording_media, _id, _unit}, &1))
+    true = :erlang.suspend_process(task.pid)
+    Process.exit(caller, :kill)
+    await_worker_message(worker, &match?({:DOWN, _ref, :process, ^caller, _reason}, &1))
+    :ok = :sys.resume(worker)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
+    true = :erlang.resume_process(task.pid)
+
+    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
+    assert details.reason == :capture_cancelled
+    assert details.frames_sent == 1
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :active
+    assert claim.recorder_epoch == 1
+  end
+
+  test "NVRCapture keeps a capture uncertain when a queued unit meets the capture deadline before the end marker, holding the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "deadline-seen", &start_reading_tls_peer/1)
+    task = start_fake_nvr_host_capture(ctx, nvr, self())
+    worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
+    [first_unit, second_unit | _] = ctx.media.units
+
+    send(ctx.pipeline, {:media_chunk, first_unit})
+    await_sender_blocked_in_pull(worker)
+
+    # The worker sees the deadline pass while handling the next unit, before its
+    # own deadline message or the watcher's interrupt arrives.
+    :sys.replace_state(worker, fn state ->
+      put_in(state.capture.deadline, System.monotonic_time(:millisecond) - 1)
+    end)
+
+    send(ctx.pipeline, {:media_chunk, second_unit})
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
+
+    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
+    assert details.reason == :capture_timeout
+    assert details.frames_sent == 1
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :active
+    assert claim.recorder_epoch == 1
+  end
+
   test "NVRCapture refuses a clean seal when the relay drain fails after a bound and releases the recorder fence",
        ctx do
     owner = owner(ctx, 30_000)
@@ -1887,6 +1952,39 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         bounds: %{max_frames: max_frames, max_bytes: 8_388_608, max_duration_ms: 6_000}
       )
     end)
+  end
+
+  # Runs the host-side capture directly so the test owns the capture's caller.
+  defp start_fake_nvr_host_capture(ctx, nvr, caller) do
+    Task.async(fn ->
+      NVRCapture.capture_on_host(ctx.relay.id, "serviceradar-nvr-0", caller, 8_000,
+        config_file: nvr.config_file,
+        token_file: nvr.token_file,
+        bounds: %{max_frames: 60, max_bytes: 8_388_608, max_duration_ms: 6_000}
+      )
+    end)
+  end
+
+  defp await_sender_blocked_in_pull(worker) do
+    await_capture(
+      fn ->
+        case :sys.get_state(worker) do
+          %{frames_sent: 1, waiting_puller: from} when from != nil -> {:ready, :ok}
+          _ -> :waiting
+        end
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+  end
+
+  defp await_worker_message(worker, matches?) do
+    await_capture(
+      fn ->
+        {:messages, messages} = Process.info(worker, :messages)
+        if Enum.any?(messages, matches?), do: {:ready, :ok}, else: :waiting
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
   end
 
   # Writes synthetic mTLS material and a client config naming one NVR member,
