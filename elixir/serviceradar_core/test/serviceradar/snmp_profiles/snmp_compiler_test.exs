@@ -22,6 +22,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
@@ -2328,6 +2329,89 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
                SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
 
       assert_received {:target_limit_exceeded, %{targets: 4, limit: 3}, _metadata}
+    end
+  end
+
+  describe "a target query with no OID to poll" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      unique = System.unique_integer([:positive])
+      handler = "snmp-missing-oids-#{unique}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :snmp, :profile_without_oids],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:profile_without_oids, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      {:ok, actor: SystemActor.system(:test), gateway_id: "gw-no-oids-#{unique}"}
+    end
+
+    @tag :integration
+    test "is reported on compile until a template names an OID", %{
+      actor: actor,
+      gateway_id: gateway_id
+    } do
+      create_gateway_device(actor, gateway_id)
+      profile = create_gateway_profile(gateway_id, actor, %{oid_template_ids: []})
+      profile_id = profile.id
+      agent_id = "agent-#{gateway_id}"
+
+      assert {:ok, %{"targets" => []}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      assert_received {:profile_without_oids, %{count: 1},
+                       %{profile_id: ^profile_id, agent_id: ^agent_id}}
+
+      {:ok, template} = create_read_failure_template("Polled #{gateway_id}", actor)
+
+      profile =
+        profile
+        |> Ash.Changeset.for_update(:update, %{oid_template_ids: [template.id]})
+        |> Ash.update!(actor: actor)
+
+      assert {:ok, %{"targets" => [_target]}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      refute_received {:profile_without_oids, _measurements, _metadata}
+    end
+
+    @tag :integration
+    test "the default profile's built-in templates compile uptime and walked interface counters",
+         %{actor: actor, gateway_id: gateway_id} do
+      assert {:ok, _created} = BuiltinTemplates.seed(actor)
+      create_gateway_device(actor, gateway_id)
+
+      profile =
+        create_gateway_profile(gateway_id, actor, %{
+          oid_template_ids: BuiltinTemplates.default_profile_template_ids()
+        })
+
+      assert {:ok, %{"targets" => [target]}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: "agent-#{gateway_id}")
+
+      oids = Map.new(target["oids"], &{&1["name"], &1})
+
+      assert %{"oid" => ".1.3.6.1.2.1.1.3.0"} = uptime = oids["sysUpTime"]
+      refute Map.has_key?(uptime, "mode")
+
+      assert %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6", "mode" => "walk", "delta" => true} =
+               oids["ifHCInOctets"]
+
+      walked =
+        ~w(ifHCOutOctets ifHCInUcastPkts ifHCOutUcastPkts ifInErrors ifOutErrors) ++
+          ~w(ifInDiscards ifOutDiscards ifOperStatus)
+
+      for name <- walked, do: assert(oids[name]["mode"] == "walk", "#{name} is not walked")
+
+      refute_received {:profile_without_oids, _measurements, _metadata}
     end
   end
 

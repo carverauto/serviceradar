@@ -5,6 +5,13 @@ defmodule ServiceRadarNVRClient.Wire do
 
   @uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @max_ticks 9_223_372_036_854_775_807
+  @hex64 ~r/\A[0-9a-f]{64}\z/
+  @dns_name ~r/\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z/
+  @region ~r/\A[a-z0-9-]{1,40}\z/
+  @object_prefix ~r/\A[a-z0-9_-](?:[a-z0-9\/_-]{0,126}[a-z0-9_-])?\z/
+  @max_archive_request 8_192
+  @max_archive_object 16_777_216
+  @archive_objects ["descriptor.json", "init.mp4", "media.m4s"]
 
   def header(
         %{
@@ -57,6 +64,88 @@ defmodule ServiceRadarNVRClient.Wire do
       _ -> {:error, :outcome_unknown}
     end
   end
+
+  def archive_request(
+        block_id,
+        %{
+          "version" => 1,
+          "storage_id" => storage,
+          "recovery_generation" => generation,
+          "destination" => destination,
+          "credential" => credential
+        } = request
+      ) do
+    with true <- map_size(request) == 5 and matches?(block_id, @hex64) and uuid?(storage) and uuid?(generation),
+         true <- destination?(destination) and credential?(credential),
+         {:ok, json} <- CanonicalJSON.encode(request),
+         true <- byte_size(json) <= @max_archive_request do
+      {:ok, json}
+    else
+      _ -> {:error, :invalid_archive_request}
+    end
+  end
+
+  def archive_request(_, _), do: {:error, :invalid_archive_request}
+
+  def archive_receipt(bytes, block_id, %{"storage_id" => storage, "destination" => destination}) do
+    prefix = Enum.join([destination["object_prefix"], storage, block_id], "/") <> "/"
+
+    with {:ok,
+          %{
+            "version" => 1,
+            "storage_id" => ^storage,
+            "block_id" => ^block_id,
+            "destination" => ^destination,
+            "objects" => objects,
+            "verified_at_ms" => verified_at
+          } = receipt} <- Jason.decode(bytes),
+         true <- map_size(receipt) == 6 and is_integer(verified_at) and verified_at > 0,
+         true <- is_list(objects),
+         true <- objects |> Enum.map(&archive_object(&1, prefix)) |> Enum.sort() == @archive_objects do
+      {:ok, receipt}
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  def archive_error(bytes) do
+    case Jason.decode(bytes) do
+      {:ok, %{} = error} -> error
+      _ -> %{}
+    end
+  end
+
+  defp archive_object(%{"name" => name, "key" => key, "length" => size, "sha256" => sha, "etag" => tag} = entry, prefix) do
+    if map_size(entry) == 5 and is_binary(name) and key == prefix <> name and size in 1..@max_archive_object and
+         matches?(sha, @hex64) and is_binary(tag) and byte_size(tag) in 1..1024,
+       do: name
+  end
+
+  defp archive_object(_, _), do: nil
+
+  defp destination?(%{"host" => host, "region" => region, "bucket" => bucket, "object_prefix" => prefix} = destination) do
+    port?(destination) and dns_name?(host, 1, 253) and matches?(region, @region) and
+      dns_name?(bucket, 3, 63) and matches?(prefix, @object_prefix)
+  end
+
+  defp destination?(_), do: false
+
+  # The provider port defaults to 443 and is named only for a loopback peer.
+  defp port?(%{"port" => port} = destination), do: map_size(destination) == 5 and is_integer(port) and port in 1..65_535
+  defp port?(destination), do: map_size(destination) == 4
+
+  defp credential?(%{"access_key_id" => access_key_id, "secret_access_key" => secret_access_key} = credential) do
+    map_size(credential) == 2 and secret_string?(access_key_id, 256) and secret_string?(secret_access_key, 512)
+  end
+
+  defp credential?(_), do: false
+
+  defp secret_string?(value, limit), do: is_binary(value) and byte_size(value) in 1..limit and String.valid?(value)
+
+  defp dns_name?(value, minimum, maximum),
+    do: is_binary(value) and byte_size(value) in minimum..maximum and Regex.match?(@dns_name, value)
+
+  defp matches?(value, regex), do: is_binary(value) and Regex.match?(regex, value)
 
   defp uuid?(value), do: is_binary(value) and Regex.match?(@uuid, value)
 end

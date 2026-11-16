@@ -4,11 +4,11 @@ package scan
 
 import (
 	"net"
-	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -116,116 +116,201 @@ func TestPrepareEchoRequestForFamilyIPv6(t *testing.T) {
 	}
 }
 
-func TestProcessReplyIPv6EchoReply(t *testing.T) {
+// startTestSession registers a scan of targets on s the way Scan does,
+// without sending anything. The sweeper has no sockets, so no reader runs and
+// the test feeds replies to dispatchReply itself.
+func startTestSession(t *testing.T, s *ICMPSweeper, targets ...models.Target) *icmpScanSession {
+	t.Helper()
+
+	session, err := s.startSession(targets, func() {})
+	if err != nil {
+		t.Fatalf("startSession() error = %v", err)
+	}
+
+	return session
+}
+
+// finishTestSession ends a scan the way Scan does and returns its results by host.
+func finishTestSession(s *ICMPSweeper, session *icmpScanSession, targets ...models.Target) map[string]models.Result {
+	ch := make(chan models.Result, len(targets))
+	s.finishSession(session, targets, ch)
+	close(ch)
+
+	results := make(map[string]models.Result, len(targets))
+	for r := range ch {
+		results[r.Target.Host] = r
+	}
+
+	return results
+}
+
+func dispatchTestReply(t *testing.T, s *ICMPSweeper, from string, protocol int, data []byte, at time.Time) {
+	t.Helper()
+
+	echoReplyType := icmp.Type(ipv4.ICMPTypeEchoReply)
+	if protocol == protocolICMPv6 {
+		echoReplyType = ipv6.ICMPTypeEchoReply
+	}
+
+	if err := s.dispatchReply(&net.IPAddr{IP: net.ParseIP(from)}, data, protocol, echoReplyType, at); err != nil {
+		t.Fatalf("dispatchReply(%s) error = %v", from, err)
+	}
+}
+
+// The mapper probes hosts from many workers through one sweeper, so scans
+// start and finish while others wait for replies. Each reply must reach the
+// scan that pinged its sender, and a scan starting later must not discard an
+// earlier scan's state.
+func TestConcurrentScanSessionsEachReceiveTheirReplies(t *testing.T) {
 	t.Parallel()
 
+	sweeper := &ICMPSweeper{identifier: 77, rawSocketFD: invalidRawSocketFD, logger: logger.NewTestLogger()}
+	hostA := models.Target{Host: "192.0.2.10", Mode: models.ModeICMP}
+	hostB := models.Target{Host: "192.0.2.20", Mode: models.ModeICMP}
+	hostC := models.Target{Host: "192.0.2.30", Mode: models.ModeICMP}
+	sent := time.Now()
+
+	scanA := startTestSession(t, sweeper, hostA)
+	scanA.recordSend(hostA, 1, sent)
+
+	scanB := startTestSession(t, sweeper, hostB)
+	scanB.recordSend(hostB, 1, sent)
+
+	dispatchTestReply(t, sweeper, hostA.Host, protocolICMPv4,
+		mustICMPEchoMessage(t, ipv4.ICMPTypeEchoReply, 77, 1), sent.Add(2*time.Millisecond))
+
+	// A scan that starts after A's reply arrived must not erase it.
+	scanC := startTestSession(t, sweeper, hostC)
+	scanC.recordSend(hostC, 1, sent)
+
+	dispatchTestReply(t, sweeper, hostB.Host, protocolICMPv4,
+		mustICMPEchoMessage(t, ipv4.ICMPTypeEchoReply, 77, 1), sent.Add(4*time.Millisecond))
+
+	resultsC := finishTestSession(sweeper, scanC, hostC)
+	resultsA := finishTestSession(sweeper, scanA, hostA)
+	resultsB := finishTestSession(sweeper, scanB, hostB)
+
+	for _, tc := range []struct {
+		results map[string]models.Result
+		host    string
+		want    bool
+		rtt     time.Duration
+	}{
+		{resultsA, hostA.Host, true, 2 * time.Millisecond},
+		{resultsB, hostB.Host, true, 4 * time.Millisecond},
+		{resultsC, hostC.Host, false, 0},
+	} {
+		if len(tc.results) != 1 {
+			t.Errorf("%s: scan reported %d results, want only its own target", tc.host, len(tc.results))
+		}
+
+		got, ok := tc.results[tc.host]
+		if !ok {
+			t.Errorf("%s: no result", tc.host)
+			continue
+		}
+
+		if got.Available != tc.want || got.RespTime != tc.rtt {
+			t.Errorf("%s: available=%v rtt=%v, want available=%v rtt=%v", tc.host, got.Available, got.RespTime, tc.want, tc.rtt)
+		}
+	}
+}
+
+// Overlapping scans of the same host share its replies, since they share the
+// echo identifier, but each counts at most one reply per request it sent.
+func TestOverlappingScansOfOneHostCountEachRequestOnce(t *testing.T) {
+	t.Parallel()
+
+	sweeper := &ICMPSweeper{identifier: 77, rawSocketFD: invalidRawSocketFD, logger: logger.NewTestLogger()}
+	host := models.Target{Host: "192.0.2.40", Mode: models.ModeICMP}
+	sent := time.Now()
+
+	first := startTestSession(t, sweeper, host)
+	first.recordSend(host, 1, sent)
+
+	second := startTestSession(t, sweeper, host)
+	second.recordSend(host, 1, sent)
+
+	reply := mustICMPEchoMessage(t, ipv4.ICMPTypeEchoReply, 77, 1)
+	dispatchTestReply(t, sweeper, host.Host, protocolICMPv4, reply, sent.Add(time.Millisecond))
+	dispatchTestReply(t, sweeper, host.Host, protocolICMPv4, reply, sent.Add(2*time.Millisecond))
+
+	for name, session := range map[string]*icmpScanSession{"first": first, "second": second} {
+		got := finishTestSession(sweeper, session, host)[host.Host]
+		if !got.Available || got.PacketsSent != 1 || got.PacketsReceived != 1 || got.PacketLoss != 0 {
+			t.Errorf("%s scan: available=%v sent=%d received=%d loss=%v, want available with 1/1 and no loss",
+				name, got.Available, got.PacketsSent, got.PacketsReceived, got.PacketLoss)
+		}
+	}
+}
+
+func TestDispatchReplyIPv6EchoReply(t *testing.T) {
+	t.Parallel()
+
+	// The target is written non-canonically; replies come from the canonical form.
 	target := models.Target{Host: "2001:0db8:0000::10", Mode: models.ModeICMP}
-	now := time.Now()
-	sweeper := &ICMPSweeper{
-		identifier: 77,
-		results: map[string]models.Result{
-			target.Host: {
-				Target:     target,
-				Available:  false,
-				FirstSeen:  now,
-				LastSeen:   now,
-				PacketLoss: 100,
-			},
-		},
-		hostStats: map[string]*hostICMPStats{
-			target.Host: {
-				sent:      2,
-				sendTimes: map[int]time.Time{2: now.Add(-3 * time.Millisecond)},
-			},
-		},
-		logger: logger.NewTestLogger(),
-	}
+	sweeper := &ICMPSweeper{identifier: 77, rawSocketFD: invalidRawSocketFD, logger: logger.NewTestLogger()}
+	sent := time.Now()
 
-	data := mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 77, 2)
-	reply := icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::10")}, data)
+	session := startTestSession(t, sweeper, target)
+	session.recordSend(target, 1, sent)
+	session.recordSend(target, 2, sent)
 
-	err := sweeper.processReply(
-		reply,
-		map[string]string{"2001:db8::10": target.Host},
-		58,
-		ipv6.ICMPTypeEchoReply,
-	)
-	if err != nil {
-		t.Fatalf("processReply() error = %v", err)
-	}
+	dispatchTestReply(t, sweeper, "2001:db8::10", protocolICMPv6,
+		mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 77, 2), sent.Add(3*time.Millisecond))
 
-	result := sweeper.results[target.Host]
+	result := finishTestSession(sweeper, session, target)[target.Host]
 	if !result.Available {
 		t.Fatalf("expected IPv6 target to be marked available")
 	}
 	if result.PacketLoss != 50 {
 		t.Fatalf("packet loss = %v, want 50", result.PacketLoss)
 	}
-	if result.RespTime <= 0 {
-		t.Fatalf("expected positive response time, got %v", result.RespTime)
+	if result.RespTime != 3*time.Millisecond {
+		t.Fatalf("response time = %v, want 3ms", result.RespTime)
 	}
-
-	stats := sweeper.hostStats[target.Host]
-	if stats.received != 1 {
-		t.Fatalf("received count = %d, want 1", stats.received)
-	}
-	if _, ok := stats.sendTimes[2]; ok {
-		t.Fatalf("expected sequence send time to be removed after reply processing")
+	if result.PacketsReceived != 1 {
+		t.Fatalf("received count = %d, want 1", result.PacketsReceived)
 	}
 }
 
-func TestProcessReplyIPv6IgnoresWrongIdentifier(t *testing.T) {
+func TestDispatchReplyIgnoresWrongIdentifier(t *testing.T) {
 	t.Parallel()
 
 	target := models.Target{Host: "2001:db8::20", Mode: models.ModeICMP}
-	sweeper := &ICMPSweeper{
-		identifier: 77,
-		results: map[string]models.Result{
-			target.Host: {Target: target, Available: false, PacketLoss: 100},
-		},
-		hostStats: map[string]*hostICMPStats{
-			target.Host: {sent: 1, sendTimes: map[int]time.Time{1: time.Now()}},
-		},
-		logger: logger.NewTestLogger(),
-	}
+	sweeper := &ICMPSweeper{identifier: 77, rawSocketFD: invalidRawSocketFD, logger: logger.NewTestLogger()}
+	sent := time.Now()
 
-	data := mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 78, 1)
-	err := sweeper.processReply(
-		icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::20")}, data),
-		map[string]string{"2001:db8::20": target.Host},
-		58,
-		ipv6.ICMPTypeEchoReply,
-	)
-	if err != nil {
-		t.Fatalf("processReply() error = %v", err)
-	}
+	session := startTestSession(t, sweeper, target)
+	session.recordSend(target, 1, sent)
 
-	if sweeper.results[target.Host].Available {
-		t.Fatalf("wrong identifier should not mark target available")
-	}
-	if sweeper.hostStats[target.Host].received != 0 {
-		t.Fatalf("wrong identifier should not increment received count")
+	dispatchTestReply(t, sweeper, target.Host, protocolICMPv6,
+		mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 78, 1), sent.Add(time.Millisecond))
+
+	result := finishTestSession(sweeper, session, target)[target.Host]
+	if result.Available || result.PacketsReceived != 0 {
+		t.Fatalf("wrong identifier counted as a reply: available=%v received=%d", result.Available, result.PacketsReceived)
 	}
 }
 
-func TestProcessReplyIPv6TimeoutAndMalformedDecode(t *testing.T) {
+func TestDispatchReplyNoAddressAndMalformedDecode(t *testing.T) {
 	t.Parallel()
 
-	sweeper := &ICMPSweeper{identifier: 77, logger: logger.NewTestLogger()}
+	target := models.Target{Host: "2001:db8::30", Mode: models.ModeICMP}
+	sweeper := &ICMPSweeper{identifier: 77, rawSocketFD: invalidRawSocketFD, logger: logger.NewTestLogger()}
+	session := startTestSession(t, sweeper, target)
 
-	if err := sweeper.processReply(icmpTestReply(nil, nil), nil, 58, ipv6.ICMPTypeEchoReply); err != nil {
-		t.Fatalf("timeout/no-address reply error = %v", err)
+	if err := sweeper.dispatchReply(nil, nil, protocolICMPv6, ipv6.ICMPTypeEchoReply, time.Now()); err != nil {
+		t.Fatalf("no-address reply error = %v", err)
 	}
 
-	err := sweeper.processReply(
-		icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::30")}, []byte{0x80}),
-		map[string]string{"2001:db8::30": "2001:db8::30"},
-		58,
-		ipv6.ICMPTypeEchoReply,
-	)
+	err := sweeper.dispatchReply(
+		&net.IPAddr{IP: net.ParseIP(target.Host)}, []byte{0x80}, protocolICMPv6, ipv6.ICMPTypeEchoReply, time.Now())
 	if err == nil {
 		t.Fatalf("expected malformed ICMPv6 payload to return an error")
 	}
+
+	finishTestSession(sweeper, session, target)
 }
 
 func TestICMPAddressCanonicalization(t *testing.T) {
@@ -236,18 +321,6 @@ func TestICMPAddressCanonicalization(t *testing.T) {
 	if got := addrIPString(&net.IPAddr{IP: net.ParseIP("2001:db8::2")}); got != "2001:db8::2" {
 		t.Fatalf("addrIPString IPv6 = %q, want 2001:db8::2", got)
 	}
-}
-
-func icmpTestReply(addr net.Addr, data []byte) struct {
-	n    int
-	addr net.Addr
-	data []byte
-} {
-	return struct {
-		n    int
-		addr net.Addr
-		data []byte
-	}{n: len(data), addr: addr, data: data}
 }
 
 func mustICMPEchoMessage(t *testing.T, typ icmp.Type, identifier, sequence int) []byte {
@@ -326,12 +399,9 @@ func TestPacketLossCalculation(t *testing.T) {
 }
 
 func TestProcessResultsWithHostStats(t *testing.T) {
-	sweeper := &ICMPSweeper{
+	sweeper := &icmpScanSession{
 		results:   make(map[string]models.Result),
 		hostStats: make(map[string]*hostICMPStats),
-		mu:        sync.Mutex{},
-		icmpCount: 3,
-		logger:    logger.NewTestLogger(),
 	}
 
 	targets := []models.Target{
@@ -394,7 +464,7 @@ func TestProcessResultsWithHostStats(t *testing.T) {
 	}
 
 	resultCh := make(chan models.Result, len(targets))
-	sweeper.processResults(targets, resultCh)
+	sweeper.deliverResults(targets, resultCh, logger.NewTestLogger())
 	close(resultCh)
 
 	results := make(map[string]models.Result)
@@ -645,9 +715,8 @@ func TestPerSequenceRTTVsFirstSeenBug(t *testing.T) {
 }
 
 func TestProcessResults(t *testing.T) {
-	sweeper := &ICMPSweeper{
+	sweeper := &icmpScanSession{
 		results: make(map[string]models.Result),
-		mu:      sync.Mutex{},
 	}
 
 	targets := []models.Target{
@@ -666,7 +735,7 @@ func TestProcessResults(t *testing.T) {
 	}
 
 	resultCh := make(chan models.Result, len(targets))
-	sweeper.processResults(targets, resultCh)
+	sweeper.deliverResults(targets, resultCh, logger.NewTestLogger())
 	close(resultCh)
 
 	results := make([]models.Result, 0, len(targets))
@@ -675,7 +744,7 @@ func TestProcessResults(t *testing.T) {
 	}
 
 	if len(results) != len(targets) {
-		t.Errorf("processResults() sent %d results, want %d", len(results), len(targets))
+		t.Errorf("deliverResults() sent %d results, want %d", len(results), len(targets))
 	}
 
 	for _, r := range results {
@@ -691,9 +760,9 @@ func TestProcessResults(t *testing.T) {
 
 func TestICMPFinalResultPreservesPacketCounts(t *testing.T) {
 	target := models.Target{Host: "192.0.2.10", Mode: models.ModeICMP}
-	scanner := &ICMPSweeper{logger: logger.NewTestLogger(), results: map[string]models.Result{target.Host: {Target: target, Available: true}}, hostStats: map[string]*hostICMPStats{target.Host: {sent: 5, received: 2, totalRTT: 10 * time.Millisecond}}}
+	scanner := &icmpScanSession{results: map[string]models.Result{target.Host: {Target: target, Available: true}}, hostStats: map[string]*hostICMPStats{target.Host: {sent: 5, received: 2, totalRTT: 10 * time.Millisecond}}}
 	results := make(chan models.Result, 1)
-	scanner.processResults([]models.Target{target}, results)
+	scanner.deliverResults([]models.Target{target}, results, logger.NewTestLogger())
 	result := <-results
 	if result.PacketsSent != 5 || result.PacketsReceived != 2 || result.PacketLoss != 60 || result.RespTime != 5*time.Millisecond {
 		t.Fatalf("final ICMP result lost measured counters: %+v", result)

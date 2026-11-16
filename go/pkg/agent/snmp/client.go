@@ -387,8 +387,6 @@ func (s *SNMPClientImpl) handleError(err error) {
 	_ = s.closeLocked()
 }
 
-const defaultTimeTickDuration = time.Second / 100
-
 // convertVariable converts an SNMP variable to the appropriate Go type.
 func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
 	// Map of SNMP types to conversion functions
@@ -520,7 +518,7 @@ func convertCounter64(variable gosnmp.SnmpPDU) interface{} {
 }
 
 func convertTimeTicks(variable gosnmp.SnmpPDU) interface{} {
-	return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration
+	return variable.Value.(uint32)
 }
 
 func convertNoSuchObject(gosnmp.SnmpPDU) (interface{}, error) {

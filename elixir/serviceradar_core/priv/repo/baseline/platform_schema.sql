@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict awC9YQrxkmar0OucV6OBDZclhqbDrxmcOpW6D0jKJGM8diKi41hcVvHcgPtdqTR
+\restrict 0okjQbrcf67Z4czTr3UwGKFPca5hpX9CeXwiYTPd6hKkajxe9n0C3Wwh8aVOUYY
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
--- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg12+1)
+-- Dumped by pg_dump version 18.4 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -31819,7 +31819,7 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict awC9YQrxkmar0OucV6OBDZclhqbDrxmcOpW6D0jKJGM8diKi41hcVvHcgPtdqTR
+\unrestrict 0okjQbrcf67Z4czTr3UwGKFPca5hpX9CeXwiYTPd6hKkajxe9n0C3Wwh8aVOUYY
 
 --
 -- ServiceRadar: restore TimescaleDB hypertable registration.
@@ -32080,3 +32080,112 @@ SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_interface_ho
 SELECT add_continuous_aggregate_policy('platform.traces_stats_5m', start_offset => '1 day'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
 
 RESET search_path;
+
+--
+-- ServiceRadar: restore TimescaleDB compression and retention.
+--
+-- pg_dump --schema-only captures neither a hypertable's compression settings
+-- nor its compression and retention policy jobs. Without this block a
+-- database bootstrapped from the baseline stores those hypertables
+-- uncompressed and keeps their rows forever.
+--
+ALTER TABLE platform.capacity_forecasts SET (timescaledb.compress, timescaledb.compress_segmentby = 'resource_key,metric_name,horizon_seconds', timescaledb.compress_orderby = 'forecasted_at DESC');
+ALTER TABLE platform.endpoint_inventory_cpe_count_history SET (timescaledb.compress, timescaledb.compress_segmentby = 'cpe', timescaledb.compress_orderby = 'scan_time DESC');
+ALTER TABLE platform.endpoint_inventory_package_count_history SET (timescaledb.compress, timescaledb.compress_segmentby = 'coordinate_hash', timescaledb.compress_orderby = 'scan_time DESC');
+ALTER TABLE platform.endpoint_inventory_package_events SET (timescaledb.compress, timescaledb.compress_segmentby = 'agent_id', timescaledb.compress_orderby = 'scan_time DESC,package_manager,name');
+ALTER TABLE platform.endpoint_inventory_scan_history SET (timescaledb.compress, timescaledb.compress_segmentby = 'agent_id', timescaledb.compress_orderby = 'scan_time DESC');
+ALTER TABLE platform.mtr_hops SET (timescaledb.compress, timescaledb.compress_segmentby = 'addr', timescaledb.compress_orderby = '"time" DESC,id');
+ALTER TABLE platform.mtr_traces SET (timescaledb.compress, timescaledb.compress_segmentby = 'target_ip', timescaledb.compress_orderby = '"time" DESC,id');
+ALTER TABLE platform.timeseries_metrics SET (timescaledb.compress, timescaledb.compress_segmentby = 'device_id,metric_type,metric_name', timescaledb.compress_orderby = '"timestamp" DESC,gateway_id,series_key');
+SELECT platform.add_compression_policy('platform.capacity_forecasts', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.endpoint_inventory_cpe_count_history', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.endpoint_inventory_package_count_history', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.endpoint_inventory_package_events', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.endpoint_inventory_scan_history', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.mtr_hops', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.mtr_traces', compress_after => '7 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_compression_policy('platform.timeseries_metrics', compress_after => '6 days'::interval, schedule_interval => '12:00:00'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.adhoc_scan_results', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.bmp_routing_events', drop_after => '3 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.capacity_forecasts', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.cpu_cluster_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.cpu_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.cpu_metrics_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.disk_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.disk_metrics_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.endpoint_inventory_cpe_count_history', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.endpoint_inventory_package_count_history', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.endpoint_inventory_package_events', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.endpoint_inventory_scan_history', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.events', drop_after => '14 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.logs', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.memory_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.memory_metrics_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.mtr_hops', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.mtr_traces', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.ocsf_events', drop_after => '14 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.ocsf_events_hourly_stats', drop_after => '24:00:00'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.otel_metric_points', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.otel_metrics', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.otel_metrics_hourly_stats', drop_after => '90 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.otel_traces', drop_after => '3 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.process_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.process_metrics_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.service_status', drop_after => '14 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.spans_red_1h', drop_after => '90 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.survey_arrow_ipc_frames', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.survey_pose_samples', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.survey_rf_observations', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.survey_spectrum_observations', drop_after => '30 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.timeseries_metrics', drop_after => '7 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.timeseries_metrics_disk_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.timeseries_metrics_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.timeseries_metrics_interface_hourly', drop_after => '395 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+SELECT platform.add_retention_policy('platform.traces_stats_5m', drop_after => '14 days'::interval, schedule_interval => '1 day'::interval, if_not_exists => true);
+
+--
+-- ServiceRadar: seed data left by the migrations.
+--
+-- A migration that inserts default rows (settings singletons, built-in
+-- catalogs, default profiles) is recorded as applied by the baseline and
+-- never runs, so its rows are carried here. Columns whose default is not
+-- immutable are omitted, so each installation generates its own ids, epochs
+-- and timestamps.
+--
+ALTER TABLE platform.auth_settings DISABLE TRIGGER USER;
+INSERT INTO platform.auth_settings (mode, provider_type, oidc_client_id, encrypted_oidc_client_secret_encrypted, oidc_discovery_url, oidc_scopes, saml_idp_metadata_url, saml_idp_metadata_xml, saml_sp_entity_id, encrypted_saml_private_key_encrypted, saml_pinned_cert_fingerprints, jwt_public_key_pem, jwt_jwks_url, jwt_issuer, jwt_audience, jwt_header_name, claim_mappings, is_enabled, allow_password_fallback, sso_auto_provision, oidc_pkce_mode) VALUES ('password_only', NULL, NULL, NULL, NULL, 'openid email profile', NULL, NULL, NULL, NULL, '{}', NULL, NULL, NULL, NULL, 'Authorization', '{"sub": "sub", "name": "name", "email": "email"}', 'false', 'true', 'false', 'auto');
+ALTER TABLE platform.auth_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.availability_settings DISABLE TRIGGER USER;
+INSERT INTO platform.availability_settings (singleton, expiry_watermark, transition_events, converged_at) VALUES ('true', (now() AT TIME ZONE 'utc'), 'false', (now() AT TIME ZONE 'utc'));
+ALTER TABLE platform.availability_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.device_inventory_counts DISABLE TRIGGER USER;
+INSERT INTO platform.device_inventory_counts (key, value) VALUES ('available', '0');
+INSERT INTO platform.device_inventory_counts (key, value) VALUES ('total', '0');
+INSERT INTO platform.device_inventory_counts (key, value) VALUES ('unavailable', '0');
+ALTER TABLE platform.device_inventory_counts ENABLE TRIGGER USER;
+ALTER TABLE platform.fleet_dictionary_epochs DISABLE TRIGGER USER;
+INSERT INTO platform.fleet_dictionary_epochs (name) VALUES ('inventory');
+ALTER TABLE platform.fleet_dictionary_epochs ENABLE TRIGGER USER;
+ALTER TABLE platform.interface_classification_rules DISABLE TRIGGER USER;
+INSERT INTO platform.interface_classification_rules (name, enabled, priority, vendor_pattern, model_pattern, sys_descr_pattern, if_name_pattern, if_descr_pattern, if_alias_pattern, if_type_ids, ip_cidr_allow, ip_cidr_deny, classifications, metadata) VALUES ('ubiquiti_management_adapter', 'true', '100', '(?i)ubiquiti|unifi', NULL, NULL, NULL, E'(?i)Annapurna Labs Ltd\\..*Ethernet Adapter', NULL, '{}', '{}', '{}', '{management}', '{}');
+INSERT INTO platform.interface_classification_rules (name, enabled, priority, vendor_pattern, model_pattern, sys_descr_pattern, if_name_pattern, if_descr_pattern, if_alias_pattern, if_type_ids, ip_cidr_allow, ip_cidr_deny, classifications, metadata) VALUES ('wireguard_interface_descr', 'true', '80', NULL, NULL, NULL, NULL, '(?i)wireguard', NULL, '{}', '{}', '{}', '{vpn,wireguard}', '{}');
+INSERT INTO platform.interface_classification_rules (name, enabled, priority, vendor_pattern, model_pattern, sys_descr_pattern, if_name_pattern, if_descr_pattern, if_alias_pattern, if_type_ids, ip_cidr_allow, ip_cidr_deny, classifications, metadata) VALUES ('wireguard_interface_name', 'true', '90', NULL, NULL, NULL, '(?i)^wg', NULL, NULL, '{}', '{}', '{}', '{vpn,wireguard}', '{}');
+ALTER TABLE platform.interface_classification_rules ENABLE TRIGGER USER;
+ALTER TABLE platform.mapbox_settings DISABLE TRIGGER USER;
+INSERT INTO platform.mapbox_settings (enabled, encrypted_access_token, style_light, style_dark) VALUES ('false', NULL, 'mapbox://styles/mapbox/light-v11', 'mapbox://styles/mapbox/dark-v11');
+ALTER TABLE platform.mapbox_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.mtr_settings DISABLE TRIGGER USER;
+INSERT INTO platform.mtr_settings (mtr_retention_days, mtr_default_history_window, mtr_history_page_size_default, inserted_at, updated_at) VALUES ('30', 'last_30d', '50', (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'));
+ALTER TABLE platform.mtr_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.netflow_settings DISABLE TRIGGER USER;
+INSERT INTO platform.netflow_settings (ipinfo_enabled, ipinfo_base_url, encrypted_ipinfo_api_key, threat_intel_enabled, threat_intel_feed_urls, anomaly_enabled, anomaly_baseline_window_seconds, anomaly_threshold_percent, port_scan_enabled, port_scan_window_seconds, port_scan_unique_ports_threshold, geoip_enabled, geolite_mmdb_last_attempt_at, geolite_mmdb_last_success_at, geolite_mmdb_last_error, ip_enrichment_last_attempt_at, ip_enrichment_last_success_at, ip_enrichment_last_error, otx_enabled, otx_execution_mode, otx_base_url, encrypted_otx_api_key, otx_sync_interval_seconds, otx_page_size, otx_timeout_ms, otx_max_indicators, otx_modified_since, otx_raw_payload_archive_enabled, otx_retrohunt_window_seconds, threat_intel_match_window_seconds, otx_credential_secret_id, otx_retrohunt_interval_seconds) VALUES ('false', 'https://api.ipinfo.io', NULL, 'false', '{}', 'false', '604800', '300', 'false', '300', '50', 'false', NULL, NULL, NULL, NULL, NULL, NULL, 'false', 'edge_plugin', 'https://otx.alienvault.com', NULL, '3600', '100', '120000', '5000', NULL, 'false', '7776000', '3600', NULL, NULL);
+ALTER TABLE platform.netflow_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.outbound_mail_settings DISABLE TRIGGER USER;
+INSERT INTO platform.outbound_mail_settings (enabled, adapter, from_name, from_email, relay, port, hostname, username, encrypted_password, encrypted_api_key, password_secret_id, api_key_secret_id, auth, tls, ssl, retries, provider_options, inserted_at, updated_at) VALUES ('false', 'local', 'ServiceRadar', 'noreply@serviceradar.cloud', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'if_available', 'if_available', 'false', '1', '{}', (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'));
+ALTER TABLE platform.outbound_mail_settings ENABLE TRIGGER USER;
+ALTER TABLE platform.plugin_repositories DISABLE TRIGGER USER;
+INSERT INTO platform.plugin_repositories (name, repo_url, artifact_kind, index_asset_name, signing_key_id, signing_public_key, credential_secret_id, enabled, builtin, is_default, last_sync_at, last_sync_error, created_by_id, inserted_at, updated_at, last_sync_summary) VALUES ('ServiceRadar', 'https://github.com/carverauto/serviceradar', 'wasm_plugin', 'serviceradar-wasm-plugin-index.json', 'serviceradar-first-party-v2', '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', NULL, 'true', 'true', 'true', NULL, NULL, NULL, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'), NULL);
+ALTER TABLE platform.plugin_repositories ENABLE TRIGGER USER;
+ALTER TABLE platform.snmp_profiles DISABLE TRIGGER USER;
+INSERT INTO platform.snmp_profiles (name, description, poll_interval, timeout, retries, is_default, enabled, target_query, priority, version, community_encrypted, username, security_level, auth_protocol, auth_password_encrypted, priv_protocol, priv_password_encrypted, oid_template_ids, credential_secret_id, agent_ids, plugin_package_id) VALUES ('Default SNMP', 'Default SNMP polling profile for discovered devices', '60', '5', '3', 'true', 'true', 'in:devices', '0', 'v2c', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '{}', NULL, '{}', NULL);
+ALTER TABLE platform.snmp_profiles ENABLE TRIGGER USER;

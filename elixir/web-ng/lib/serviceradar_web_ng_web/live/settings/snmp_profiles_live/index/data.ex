@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.SNMPProfiles.BuiltinTemplates
+  alias ServiceRadar.SNMPProfiles.MissingOIDs
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     |> assign(:profiles, profiles)
     |> assign(:profile_target_counts, profile_target_counts)
     |> assign_profile_target_refusals(profiles)
+    |> assign_profiles_missing_oids(profiles)
     |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
   end
 
@@ -47,6 +48,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
       end
 
     assign(socket, :profile_target_refusals, refusals)
+  end
+
+  @doc """
+  Assigns the ids of the enabled profiles whose target query selects devices
+  while their OID templates name no OID, judged as the compiler judges them
+  (`ServiceRadar.SNMPProfiles.MissingOIDs`). Nothing is read before the socket
+  connects.
+  """
+  def assign_profiles_missing_oids(socket, profiles) do
+    ids =
+      if connected?(socket) do
+        MissingOIDs.profile_ids(profiles)
+      else
+        MapSet.new()
+      end
+
+    assign(socket, :profiles_missing_oids, ids)
   end
 
   def load_profiles_with_counts(scope) do
@@ -298,41 +316,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     end
   end
 
+  # Every template a profile can reference by id: the seeded built-in ones and
+  # the operator's own, built-in first.
   def load_all_templates(scope) do
-    # Load builtin templates
-    builtin =
-      Enum.map(BuiltinTemplates.all_templates(), fn t ->
-        %{
-          id: t.id,
-          name: t.name,
-          description: t.description,
-          vendor: t.vendor,
-          category: t.category,
-          oid_count: length(t.oids || []),
-          is_builtin: true
-        }
-      end)
+    case Ash.read(SNMPOIDTemplate, scope: scope) do
+      {:ok, templates} ->
+        templates
+        |> Enum.sort_by(&{not &1.is_builtin, &1.vendor, &1.name})
+        |> Enum.map(fn t ->
+          %{
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            vendor: t.vendor,
+            category: t.category,
+            oid_count: length(t.oids || []),
+            is_builtin: t.is_builtin
+          }
+        end)
 
-    # Load custom templates from database
-    custom =
-      case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
-        {:ok, templates} ->
-          Enum.map(templates, fn t ->
-            %{
-              id: t.id,
-              name: t.name,
-              description: t.description,
-              vendor: t.vendor,
-              category: t.category,
-              oid_count: length(t.oids || []),
-              is_builtin: false
-            }
-          end)
-
-        {:error, _} ->
-          []
-      end
-
-    builtin ++ custom
+      {:error, _} ->
+        []
+    end
   end
 end
