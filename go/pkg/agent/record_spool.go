@@ -35,8 +35,10 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-// RecordSpool owns bounded producer lanes. Existing flat storage is retained
-// untouched and charged to the same allocator, but never opened or delivered.
+// RecordSpool owns bounded producer lanes. Flat storage left by an agent before
+// the lane format is retired at open when it is provably drained; otherwise it is
+// retained untouched and charged to the same allocator, but never opened or
+// delivered.
 type RecordSpool struct {
 	root                   string
 	recoveryInventoryBytes uint64
@@ -50,6 +52,8 @@ type RecordSpool struct {
 	taxonomy               *fairsched.LaneTaxonomy
 	allocator              *spool.Allocator
 	legacyBytes            uint64
+	legacyRetired          spool.LegacyFlatInventory
+	legacyRetireErr        error
 	trust                  func() *edgerecord.TrustSnapshot
 }
 
@@ -66,6 +70,9 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 		return nil, err
 	}
 	common := append(append([]spool.Option{}, options...), spool.WithAllocator(allocator))
+	// Retire drained flat storage before measuring what is retained. A refusal or a
+	// failed removal leaves the bytes retained and charged, as before.
+	retired, retireErr := spool.RetireDrainedLegacyFlat(root)
 	retained, err := retainedStorageBytes(root)
 	if err != nil {
 		return nil, err
@@ -82,7 +89,7 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 	if err != nil {
 		return nil, err
 	}
-	store := &RecordSpool{root: root, lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained, recoveryInventoryBytes: recoveryBytes}
+	store := &RecordSpool{root: root, lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained, legacyRetired: retired, legacyRetireErr: retireErr, recoveryInventoryBytes: recoveryBytes}
 	store.recoveryReady.Store(recoveryBytes == 0 && !lanes.HasRecoveryDestinations())
 	return store, nil
 }
@@ -96,6 +103,13 @@ func (s *RecordSpool) DeliveryLanes() []spool.LaneKey { return s.taxonomy.Lanes(
 
 // RetainedLegacyBytes are unsupported flat-storage bytes, never sender input.
 func (s *RecordSpool) RetainedLegacyBytes() uint64 { return s.legacyBytes }
+
+// LegacyRetirement reports the flat storage this open inspected and, when the
+// error is nil, removed as drained. spool.ErrLegacyFlatNotDrained means the flat
+// storage may hold undelivered records and was retained untouched.
+func (s *RecordSpool) LegacyRetirement() (spool.LegacyFlatInventory, error) {
+	return s.legacyRetired, s.legacyRetireErr
+}
 
 func retainedStorageBytes(root string) (uint64, error) {
 	return storedTreeBytes(root, map[string]bool{filepath.Join(root, "lanes"): true, filepath.Join(root, "recoveries"): true})
