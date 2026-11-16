@@ -43,7 +43,22 @@ format.
   flat spool storage and reported `unsupported_legacy_storage`. The
   agent now deletes that storage when it proves no record is left, and
   logs `Retired drained legacy edge storage`. Storage that may still
-  hold a record is kept untouched and still flagged (#6652).
+  hold records is no longer kept and flagged: its records are handed
+  off to late-admission storage and the flat spool is then retired; see
+  the next note (#6652, #6692).
+- **Agents hand undelivered legacy spool records to late-admission
+  storage (phase 1).** On start, an agent drains the committed tail of a
+  pre-lane flat spool, in order, into a local late generation under
+  `<spool root>/late/own`; permanently invalid records go to durable
+  rejection evidence. It then retires the flat spool. A live record that
+  a capable gateway marks `LATE_ADMISSION_REQUIRED` moves there too,
+  instead of into the evicting quarantine. In this release the gateway
+  advertises no late-admission support and refuses late sessions, so
+  late records stay on the agent's disk, counted against its spool
+  budget, and are not delivered yet. Pipeline readiness reports them as
+  the non-alerting `late_pending_gateway_support` condition, and the
+  web-ng edge pipeline view shows the legacy-handoff and late-pending
+  counts (#6692).
 - **The cold telemetry tier is removed.** The Helm `coldTier` values,
   the analytics-head workloads and network policy, the
   `serviceradar-cnpg-analytics` image, the compose `coldtier` profile
@@ -303,7 +318,8 @@ format.
 - Agent release updates commit the command id before dispatch, and
   reconcile recovers targets whose result can no longer arrive (#6648).
 - Drained pre-lane flat spool storage is retired at agent start
-  (#6652).
+  (#6652), and undelivered legacy records are handed off to local
+  late-admission storage first (#6692).
 - A gateway's graceful GOAWAY drain is no longer recorded as an error
   span (#6640).
 
@@ -460,9 +476,8 @@ format.
   (#6602), decoupling the mapper discovery credential from the default
   SNMP profile (#6641, implemented by #6646), production-time
   admission for late edge records (#6681, with phase-1 status notes in
-  #6693; not implemented in this release), and log collector
-  consolidation and ingestion (#6680); six completed changes archived
-  (#6630).
+  #6693), and log collector consolidation and ingestion (#6680); six
+  completed changes archived (#6630).
 
 # ServiceRadar v1.5.3
 
