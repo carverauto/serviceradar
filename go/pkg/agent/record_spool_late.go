@@ -163,7 +163,8 @@ func (l *lateStore) close() error {
 }
 
 // holdsRecord returns the receipt of an unresolved copy of these exact bytes
-// already in the lane, so a crash between a late append and the source's local
+// already in the lane; admitLate asks every late LaneSet, own and holds, so a
+// retry whose destination changed still finds the copy, so a crash between a late append and the source's local
 // resolution leaves one copy and the source records that copy's generation as
 // custody. It sees only bytes still on disk: a copy a late session already
 // delivered and reclaimed is not detected locally, and a re-admitted copy is a
@@ -226,21 +227,27 @@ func (s *RecordSpool) admitLate(raw []byte, checkDuplicate bool) (LateReceipt, e
 		// Another principal's bytes: security quarantine only, whatever their keys say.
 		destination, outcome = LateDestinationHold, edgerecord.LateAdmissibleSecurity
 	}
+	key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
+	if checkDuplicate {
+		for i, held := range s.late.sets() {
+			existing, found, holdErr := holdsRecord(held, key, record.GetEventId(), raw)
+			if holdErr != nil {
+				return LateReceipt{}, holdErr
+			}
+			if !found {
+				continue
+			}
+			if i == 0 {
+				return LateReceipt{Destination: LateDestinationOwn, Outcome: outcome, Receipt: existing}, nil
+			}
+			return LateReceipt{Destination: LateDestinationHold, Outcome: edgerecord.LateAdmissibleSecurity, Receipt: existing}, nil
+		}
+	}
 	set, err := s.late.laneSetFor(origin, own)
 	if err != nil {
 		return LateReceipt{}, err
 	}
-	key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
 	identity := spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}
-	if checkDuplicate {
-		existing, held, holdErr := holdsRecord(set, key, record.GetEventId(), raw)
-		if holdErr != nil {
-			return LateReceipt{}, holdErr
-		}
-		if held {
-			return LateReceipt{Destination: destination, Outcome: outcome, Receipt: existing}, nil
-		}
-	}
 	if err = set.ActivateSession(identity); err != nil {
 		return LateReceipt{}, err
 	}

@@ -117,6 +117,13 @@ func daysOldRelayRecordIn(t *testing.T, producedAt time.Time, origin string, sco
 // status, a fence that has since moved to epoch 2, and the agent's scope binding.
 func lateTrust(t *testing.T, keyStatus string) *edgerecord.TrustSnapshot {
 	t.Helper()
+	return lateTrustAs(t, keyStatus, sysmonEdgeAgentID)
+}
+
+// lateTrustAs is lateTrust installed for authenticated agent agentID, bound to
+// the same scopes as the test agent.
+func lateTrustAs(t *testing.T, keyStatus, agentID string) *edgerecord.TrustSnapshot {
+	t.Helper()
 	raw, err := json.Marshal(map[string]any{
 		"keys": []any{map[string]any{
 			"issuer_id": []byte(lateTestIssuer), "issuer_key_id": []byte(lateTestIssuerKey),
@@ -124,10 +131,10 @@ func lateTrust(t *testing.T, keyStatus string) *edgerecord.TrustSnapshot {
 			"purposes":   []string{"production", "source", "delivery"}, "status": keyStatus,
 		}},
 		"fences": []any{map[string]any{"network_scope_id": testNetworkScopeID[:], "producer_assignment_id": testAssignmentID[:], "run_shard": 0, "authority_epoch": 2}},
-		"scopes": []any{map[string]any{"agent_id": sysmonEdgeAgentID, "network_scope_ids": [][]byte{testNetworkScopeID[:], lateTestOtherScope}}},
+		"scopes": []any{map[string]any{"agent_id": agentID, "network_scope_ids": [][]byte{testNetworkScopeID[:], lateTestOtherScope}}},
 	})
 	require.NoError(t, err)
-	snapshot, err := edgerecord.ParseTrustDocument(raw, []byte(sysmonEdgeAgentID), 1)
+	snapshot, err := edgerecord.ParseTrustDocument(raw, []byte(agentID), 1)
 	require.NoError(t, err)
 	return snapshot
 }
@@ -564,6 +571,43 @@ func TestLegacyHandoffBillsASuccessorGenerationForAnotherScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, len(raws), report.HandedOff)
 	require.Equal(t, uint64(len(raws)), sp.LatePending())
+	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// A crash after the late append leaves the record in the host's own late lane.
+// If the agent re-enrolls before the retry, the same bytes would now go to a hold,
+// but they are already in late storage: the retry finds that copy, records its
+// generation as custody and appends nothing, so it needs no free room at all.
+func TestLegacyHandoffAfterReenrollmentKeepsTheExistingCopy(t *testing.T) {
+	root := t.TempDir()
+	raw := daysOldRelayRecord(t, time.Now().Add(-6*24*time.Hour))
+	writeFlatSpoolTail(t, root, raw)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(root, allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	before := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return before })
+	landed, err := sp.AdmitLate(raw)
+	require.NoError(t, err)
+	require.Equal(t, LateDestinationOwn, landed.Destination)
+
+	after := lateTrustAs(t, "valid", "agent-reenrolled-02")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return after })
+	leaveOrdinaryRoom(t, allocator, 0)
+
+	custody, err := sp.admitLate(raw, true)
+	require.NoError(t, err)
+	require.Equal(t, landed.Receipt.Generation.SpoolID, custody.Receipt.Generation.SpoolID)
+	require.Equal(t, landed.Receipt.Sequence, custody.Receipt.Sequence)
+
+	report, err := sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, 1, report.HandedOff)
+	require.Equal(t, uint64(1), sp.LatePending(), "no second copy")
 	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
