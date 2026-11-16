@@ -10,9 +10,12 @@ spool is `flat_v1`. For each layout present, the agent SHALL inspect it
 read-only, read committed records above the resolved watermark in sequence
 order, and for each record either append it to the late generation and wait
 for the append to become durable before resolving it in the legacy layout, or
-write it to rejection evidence and resolve it when it is permanently invalid. A
-retryable refusal SHALL stop the pass without skipping or reordering, and the
-pass SHALL be retried. A crash between the late append and the legacy resolve
+append it durably to the per-principal hold before resolving it when its origin
+principal is not the authenticated agent, or write it to rejection evidence and
+resolve it when it is permanently invalid. A rejection-evidence write that is
+paused or refused SHALL be retryable, and the legacy record SHALL stay
+unresolved until that write succeeds. A retryable refusal SHALL stop the pass
+without skipping or reordering, and the pass SHALL be retried. A crash between the late append and the legacy resolve
 SHALL NOT produce a second copy in the late generation. While committed records
 remain, the agent SHALL report `legacy_storage_handoff_pending` with the record
 count, bytes, oldest age and refusal reason. `unsupported_legacy_storage` SHALL
@@ -30,6 +33,12 @@ make live production not ready.
 - **GIVEN** a record appended to the late generation whose flat-spool resolve did not complete before a crash
 - **WHEN** the agent restarts and resumes the handoff
 - **THEN** the late generation SHALL hold exactly one copy of the record
+
+#### Scenario: A paused rejection-evidence write keeps the legacy record
+- **GIVEN** a local rejection quarantine at its bound and a flat spool whose next committed record is permanently invalid
+- **WHEN** the handoff tries to write that record to rejection evidence and the write is refused
+- **THEN** the agent SHALL NOT resolve the record in the flat spool
+- **AND** SHALL stop the pass, report `legacy_storage_handoff_pending` and retry until the evidence write succeeds
 
 #### Scenario: A retryable refusal pauses the handoff in order
 - **GIVEN** a flat spool whose first unresolved record cannot be validated because the trust snapshot is not yet available

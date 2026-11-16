@@ -59,7 +59,9 @@ instead of trusting it.
   layout left behind, the flat spool included, through the late generation
   under the new rule. Only unrecognizable bytes stay retained and flagged.
 - **Other stranding paths.** These are in-lane records whose fence is missing
-  or stale, the evicting local rejection quarantine, the OTel add-on spool
+  or stale (resolved as `late_admission_required` and moved to the late
+  generation), records left by a revoked or superseded principal (security
+  quarantine only), the evicting local rejection quarantine, the OTel add-on spool
   across a directory or backend change, and the NVR/VMS media path. Each gets
   a requirement and a task phase here.
 
@@ -78,6 +80,8 @@ instead of trusting it.
 - Supersedes the "retained and flagged" state for real data in
   `add-edge-spool-recovery-coordinator/legacy-recovery-decision.md` (2026-11-15
   amendment). Only bytes the agent cannot parse as a known layout stay retained.
-- Rollout order: core and gateway first, then agents. The agent moves late
-  records into its late generation at once, but opens a late session only when
-  the gateway advertises `late_admission_v1`.
+- Rollout: phase 1 edge Go (with the gateway refusing late lane opens), then
+  phase 2 core and gateway. The agent moves late records into its late
+  generation at once, but opens a late session only when the gateway
+  advertises `late_admission_v1`, which phase 2 adds. Until then late records
+  stay on disk, accounted and reported.

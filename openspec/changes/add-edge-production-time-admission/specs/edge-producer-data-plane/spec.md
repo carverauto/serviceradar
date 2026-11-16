@@ -46,12 +46,12 @@ SHALL be retained, accounted and reported as `late_pending_gateway_support`.
 - **THEN** the agent SHALL NOT open a late session
 - **AND** SHALL report the records as `late_pending_gateway_support` with their count, bytes and oldest age
 
-#### Scenario: A gateway refuses late authority on a live session for a current-fence record
-- **WHEN** a live-session frame carries a late-admission delivery grant for a record whose fence is current at the gateway
-- **THEN** the gateway SHALL reject the frame permanently
+#### Scenario: A gateway never accepts a late grant on a live session
+- **WHEN** a live-session frame carries a late-admission delivery grant
+- **THEN** the gateway SHALL NOT accept the grant and SHALL NOT publish the frame under it
 
 ### Requirement: The agent applies the production-time rule before late admission
-Before appending a record to a late generation, the agent SHALL validate it with the production-time rule: full structural and typed-body validation, production and source signatures verified under the pinned trust epoch against retained key history with the capability's signed window as evidence, `produced_at <= now + clock tolerance`, origin principal equal to the authenticated agent, network scope bound to that agent, and a resolved fence that is not ahead of the record's epoch.
+Before appending a record to a late generation, the agent SHALL validate it with the production-time rule: full structural and typed-body validation, production and source signatures verified under the pinned trust epoch against retained key history with the capability's signed window as evidence, `produced_at <= now + clock tolerance`, network scope bound to its origin principal, and a resolved fence that is not ahead of the record's epoch; a record whose origin principal is not the authenticated agent SHALL be appended to the per-principal hold for that origin principal.
 
 `produced_at` SHALL be the UUIDv7 time of `event_id`, which structural
 validation already binds inside the signed production window and any source
@@ -64,6 +64,7 @@ apply the maximum late age. Outcomes SHALL be classified as follows:
 | --- | --- | --- |
 | Admissible | valid key, current or stale fence | appended to the late generation |
 | Admissible, security | `HISTORICALLY_REVOKED` key | appended to the late generation; the gateway quarantines it |
+| Foreign principal | origin principal is a different, revoked or superseded principal | appended to the per-principal hold for that origin principal; never retried as a refusal; the gateway quarantines it |
 | Retryable | `UNAVAILABLE` key, trust or scope missing, fence unavailable or ahead, `produced_at` in the future | left in its source; retried |
 | Permanent | structural or body failure, `INVALID` key | written to rejection evidence |
 
@@ -81,6 +82,12 @@ apply the maximum late age. Outcomes SHALL be classified as follows:
 - **WHEN** a record's production capability resolves to an `INVALID` key
 - **THEN** the agent SHALL NOT admit it late and SHALL write it to rejection evidence
 
+#### Scenario: A foreign-principal record goes to its own hold
+- **GIVEN** a committed record whose origin principal is a revoked predecessor of the authenticated agent on the same host
+- **WHEN** the agent validates it with the production-time rule
+- **THEN** the agent SHALL append it to the per-principal hold for that origin principal
+- **AND** SHALL NOT classify it as retryable
+
 #### Scenario: A compromise-revoked key cannot reach projection
 - **GIVEN** a committed record whose production signing key is compromise-revoked
 - **WHEN** the agent validates it with the production-time rule
@@ -95,12 +102,15 @@ interval exists for the record's `(producer_assignment_id, authority_epoch)` tha
 binds the requesting agent, the record's network scope and run shard, satisfies
 `active_from - tolerance <= produced_at < coalesce(active_until, +infinity) +
 tolerance`, and did not end for a compromise-class reason; and when `now -
-produced_at` does not exceed the effective late age; and when the record's
+produced_at` does not exceed `late_admission_max_age_seconds`; and when
+`produced_at` is at or after `ledger_complete_since`; and when the record's
 registry epoch is still admitted. A record that verified but fails any of these
 SHALL receive a grant with AUDIT publication and one reason:
 `fenced_at_production`, `history_unknown`, `compromise_ended`,
-`beyond_late_window` or `contract_retired`. Core SHALL refuse a grant only for an
-item that does not bind to the requesting agent.
+`beyond_late_window`, `ledger_pruned` or `contract_retired`. Core SHALL refuse a
+grant only for an item that does not bind to the requesting agent, and SHALL
+NOT issue a grant for a record whose origin principal is not the requesting
+agent.
 
 #### Scenario: A record produced while its epoch was live is applied after the epoch moved
 - **GIVEN** an output grant whose epoch 4 was live from day 1 to day 5 and whose epoch 5 is live now
@@ -138,10 +148,10 @@ deleting an assignment keeps its history. Revoking an agent's grants SHALL recor
 whether the cause was `identity_superseded` or `certificate_revoked`. The seeding
 migration SHALL create one interval per existing row from `epoch_changed_at` (or
 `inserted_at`) and `revoked_at`, and SHALL NOT invent intervals for earlier
-epochs. Ended intervals older than the effective late age plus the clock
-tolerance MAY be pruned in bounded batches; open intervals SHALL NOT be pruned.
-Retired issuer keys SHALL remain in the trust document as valid for at least the
-effective late age after their last signed window ends.
+epochs. Ended intervals older than `late_admission_max_age_seconds` plus the
+clock tolerance MAY be pruned in bounded batches; open intervals SHALL NOT be
+pruned. Retired issuer keys SHALL remain in the trust document as valid for at
+least `late_admission_max_age_seconds` after their last signed window ends.
 
 #### Scenario: An upsert that bypasses Ash still records history
 - **WHEN** an assignment's epoch changes through a raw `on_conflict` update
@@ -159,7 +169,8 @@ the `delivery` purpose, is current, and its `produced_at` and epoch equal the
 record's. A late grant SHALL NOT be accepted where a renewal or rollover is
 expected, nor the reverse. On a late session a frame with no valid late grant
 SHALL be withheld as retryable; a frame whose production or source key is
-compromise-revoked SHALL be published to security quarantine without a grant.
+compromise-revoked, or whose origin principal is not the authenticated agent,
+SHALL be published to security quarantine without a grant.
 Published late records SHALL carry delivery mode `LATE_ADMISSION` in their
 transport provenance on both the primary and audit routes.
 
@@ -177,34 +188,59 @@ A late record SHALL NOT be published PRIMARY when its production or source signi
 A compromise-revoked key SHALL route the record to security quarantine. An
 interval ended by `certificate_revoked` or an explicit `compromised` reason
 SHALL yield AUDIT (`compromise_ended`) for every late record that names it,
-including records produced before the revocation. Normal key rotation, identity
-supersession by re-enrollment, reassignment and epoch changes SHALL NOT block
-PRIMARY publication of records produced while their epoch was live.
+including records produced before the revocation. Normal key rotation,
+reassignment and epoch changes SHALL NOT block PRIMARY publication of records
+their own origin principal produced while their epoch was live.
 
-#### Scenario: A record from a revoked certificate is audit only
-- **GIVEN** an agent whose output grants were revoked because its certificate was revoked
-- **WHEN** a late record that agent produced before the revocation is presented
+#### Scenario: A record naming a certificate-revoked interval is audit only
+- **GIVEN** an output grant interval that ended with reason `certificate_revoked`
+- **WHEN** its origin principal presents a late record produced during that interval
 - **THEN** core SHALL issue a late grant with AUDIT publication and reason `compromise_ended`
 
 #### Scenario: A rotated key still verifies
 - **WHEN** a late record is signed by an issuer key that was rotated out of issuance but not compromised
 - **THEN** the key SHALL resolve as valid and the record SHALL be eligible for PRIMARY publication
 
+### Requirement: Another principal's records reach security quarantine only
+The currently authenticated agent on a host SHALL deliver records whose origin principal is a different, revoked or superseded principal from a per-principal hold on a late session, and the gateway SHALL publish them only to security quarantine.
+
+A per-principal hold SHALL be a separate late generation keyed by the origin
+principal and SHALL NOT block the in-order handoff of the host's own records.
+Such a record SHALL still pass signature verification. It SHALL NOT be
+projected and SHALL NOT receive PRIMARY or AUDIT publication, whatever grant it
+carries. Its security quarantine row SHALL record both the origin principal and
+the presenting principal. No such record SHALL be left on the host.
+
+#### Scenario: A foreign-principal record is never projected, even with a grant
+- **GIVEN** a late-session frame whose origin principal is not the authenticated agent
+- **WHEN** the frame carries a late-admission grant with PRIMARY publication
+- **THEN** the gateway SHALL publish it only to security quarantine
+- **AND** the quarantine row SHALL record the origin principal and the presenting principal
+
+#### Scenario: The host's own records hand off past a foreign record
+- **GIVEN** a flat spool whose first committed record has a revoked predecessor's origin principal and whose later records are the authenticated agent's own
+- **WHEN** the handoff runs
+- **THEN** the foreign record SHALL be appended to its per-principal hold
+- **AND** the agent's own records SHALL be appended to the late generation in sequence order
+
 ### Requirement: Late admission is bounded and idempotent
 Core SHALL bound late PRIMARY publication by `late_admission_max_age_seconds`, a runtime setting in `platform.edge_pipeline_settings` with a code default of 14 days, and SHALL keep event-ledger rows for at least that long.
 
 The edge ledger retention horizon SHALL be at least the configured late age.
-Core SHALL use as the effective late age the smaller of the setting and the
-ledger horizon, so it never projects a record whose earlier application could
-have been pruned from the ledger. A record older than the effective late age
-SHALL be delivered as AUDIT (`beyond_late_window`), never refused. A late
+Core SHALL persist `ledger_complete_since`, a monotonic timestamp at or after
+which every event-ledger row is still retained; only ledger pruning SHALL
+advance it and it SHALL NOT move backward. A late record SHALL receive PRIMARY
+publication only when its `produced_at` is at or after `ledger_complete_since`;
+an older record SHALL be delivered as AUDIT (`ledger_pruned`). A record older
+than `late_admission_max_age_seconds` SHALL be delivered as AUDIT
+(`beyond_late_window`). Neither SHALL be refused. A late
 PRIMARY record SHALL pass through the idempotent event ledger: the same
 `(network_scope_id, event_id)` with the same semantic digest SHALL be a replay
 no-op, and a different digest SHALL be `EVENT_ID_CONFLICT`. Late grants SHALL be
 issued in batches within the existing request bounds.
 
 #### Scenario: A record older than the late age is stored, not projected
-- **WHEN** a verified late record's `produced_at` is older than the effective late age
+- **WHEN** a verified late record's `produced_at` is older than `late_admission_max_age_seconds`
 - **THEN** core SHALL issue a grant with AUDIT publication and reason `beyond_late_window`
 
 #### Scenario: A record delivered before the upgrade is not applied twice
@@ -215,6 +251,12 @@ issued in batches within the existing request bounds.
 #### Scenario: The ledger horizon follows the late age
 - **WHEN** an operator raises `late_admission_max_age_seconds`
 - **THEN** the ledger retention horizon SHALL be at least the new value
+
+#### Scenario: Raising the late age after pruning never replays a duplicate
+- **GIVEN** ledger rows pruned up to a cutoff 30 days ago, so `ledger_complete_since` is 30 days ago
+- **WHEN** an operator raises `late_admission_max_age_seconds` to 90 days and a late record produced 40 days ago arrives
+- **THEN** core SHALL issue a grant with AUDIT publication and reason `ledger_pruned`
+- **AND** `ledger_complete_since` SHALL NOT move backward
 
 ### Requirement: Late records stay distinguishable end to end
 Every late record SHALL be recorded as late in an audit trail that stores admission `late`, `produced_at`, publication, decision reason, the grant's issuer key id and the receiving gateway.
@@ -235,16 +277,26 @@ than the state it holds; time-series rows SHALL be written at their own time.
 - **WHEN** a late record of that contract produced on day 3 is applied
 - **THEN** the stored state SHALL remain the day 5 state and the late record SHALL be retained as history
 
-### Requirement: In-lane records with a stale or missing fence receive a late decision
-The sender SHALL request a late grant, on the record's existing live coordinate, for a record already in a live generation whose production authority has lapsed and whose fence is stale or missing at the gateway; the gateway SHALL publish such a record according to the grant.
+### Requirement: A live-lane record that needs late admission moves to the late generation
+The gateway SHALL resolve a live-lane record whose production authority has expired and whose fence is stale or missing at the gateway with the rejection code `late_admission_required`, and the agent SHALL append the exact record bytes to the late generation for that lane key, durably, before it persists that resolution.
 
-This replaces withholding a missing-fence record indefinitely and permanently
-rejecting a stale-fence record into the local quarantine. A late grant on a live
-session SHALL be accepted only for a record whose fence is stale or missing at
-the gateway.
+`late_admission_required` SHALL be a resolving disposition: the gateway SHALL
+NOT withhold the frame and SHALL NOT reject it as `fence_stale` into the local
+quarantine. The live lane SHALL NOT wait on a late grant, and a late grant
+SHALL be accepted only on a late session. If the late append is not durable,
+the agent SHALL NOT persist the resolution (resolved prefix or reclaim) and
+SHALL retry. The late session and core's authority history then decide the
+record's publication.
 
 #### Scenario: A missing fence no longer wedges a lane
-- **GIVEN** a live-lane record whose producer assignment was deleted after the record was produced during a live epoch
-- **WHEN** the sender delivers it with a late grant
-- **THEN** the gateway SHALL publish it according to the grant
+- **GIVEN** a live-lane record whose producer assignment was deleted after the record was produced during a live epoch, and whose production grant has expired
+- **WHEN** the sender delivers it on the live session
+- **THEN** the gateway SHALL resolve it with `late_admission_required`
 - **AND** SHALL NOT withhold it for a missing fence
+- **AND** the live lane SHALL continue with the records behind it
+
+#### Scenario: The late append precedes the live resolution
+- **GIVEN** a live-lane record the gateway resolved with `late_admission_required`
+- **WHEN** the agent crashes after the gateway response and before the late append is durable
+- **THEN** the record SHALL remain unresolved in the live lane after restart
+- **AND** the agent SHALL append it to the late generation before persisting the resolution
