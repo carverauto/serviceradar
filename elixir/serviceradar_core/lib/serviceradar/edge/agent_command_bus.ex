@@ -57,6 +57,16 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     "awx.delete_callback_credential"
   ]
   @notification_command_type "plugin.run_action"
+  # Command types whose caller must record the command id before the agent can
+  # act on it, so the caller allocates the UUID up front. A release update is one:
+  # the agent downloads its artifact and reports its result against the target
+  # row, which must already carry the command id when the command arrives.
+  @preallocatable_command_types [
+    @notification_command_type,
+    "camera.open_relay",
+    "camera.close_relay",
+    "agent.update_release"
+  ]
   @notification_envelope_schema "serviceradar.notification_delivery.v1"
   @callback_command_context_schema "serviceradar.automation_callback_command/v1"
   @secure_execution_command_context_schema "serviceradar.automation_execution_command/v1"
@@ -251,12 +261,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp normalize_preallocated_command_id(command_type, command_id)
-       when command_type in [
-              @notification_command_type,
-              "camera.open_relay",
-              "camera.close_relay"
-            ] and
-              is_binary(command_id) do
+       when command_type in @preallocatable_command_types and is_binary(command_id) do
     case Ecto.UUID.cast(command_id) do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, :invalid_preallocated_command_id}
@@ -2751,11 +2756,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
        do: canonical_command_id(value)
 
   defp canonical_optional_command_id(command_type, value, _payload)
-       when command_type in [
-              @notification_command_type,
-              "camera.open_relay",
-              "camera.close_relay"
-            ] and is_binary(value),
+       when command_type in @preallocatable_command_types and is_binary(value),
        do: canonical_command_id(value)
 
   defp canonical_optional_command_id(_command_type, _value, _payload),
