@@ -1,14 +1,23 @@
 ## MODIFIED Requirements
 
 ### Requirement: Protect camera inventory and stream discovery
-The UniFi Protect plugin SHALL interrogate Protect controller APIs and report normalized camera inventory metadata and stream descriptors that contain no stream secret. A stream descriptor SHALL carry the profile name, the vendor profile id (quality or channel id), transport and codec hints, and the stream origin (scheme, host, port). It SHALL NOT carry an RTSP or RTSPS path, an `rtspAlias` or `rtspsAlias` value, or raw controller channel objects.
+The UniFi Protect plugin SHALL interrogate Protect controller APIs and report normalized camera inventory metadata and stream descriptors. When its assignment config carries the inventory address cutover key defined in design D8, a stream descriptor SHALL carry the profile name, the vendor profile id (quality or channel id), transport and codec hints, and the stream origin (scheme, host, port), and SHALL NOT carry an RTSP or RTSPS path, an `rtspAlias` or `rtspsAlias` value, or raw controller channel objects. Without that key the plugin SHALL report stream descriptors as it did before this change.
 
 #### Scenario: Protect camera metadata retrieved successfully
 - **GIVEN** valid Protect controller credentials and reachable controller APIs
 - **WHEN** the plugin runs
 - **THEN** it SHALL collect camera identity metadata and stream descriptor information
 - **AND** include normalized values in plugin result details and enrichment payloads
-- **AND** no part of the result SHALL contain a stream alias or a stream URL path
+
+#### Scenario: Core has cut over
+- **GIVEN** the design D8 key in the assignment config
+- **WHEN** the plugin reports camera inventory
+- **THEN** no part of the result SHALL contain a stream alias or a stream URL path
+
+#### Scenario: Core has not cut over
+- **GIVEN** no design D8 key in the assignment config
+- **WHEN** the plugin reports camera inventory
+- **THEN** each stream descriptor SHALL carry the full stream address it carried before this change
 
 ## ADDED Requirements
 

@@ -176,12 +176,37 @@ It walks the payload recursively, and for every string value:
 This is the only definition of "reduced"; the ingest path, the D7 scrub and
 `pending/0` all call the same function.
 
-`PluginResultIngestor.ingest_durable/3` and `ingest/2` apply the rule before
-anything else. Everything downstream (status rows, service state, every handler,
-and inventory and device metadata) therefore never sees the secret, whatever the
-agent or plugin version. The status payload digest is computed over the reduced
-payload. The ingestor derives `source_origin` from the descriptor before the
-rule runs, by calling the rule's origin function on the descriptor URL.
+`PluginResultIngestor.ingest_durable/3` and `ingest/2` apply the rule to the
+whole result before anything else, with no exemption. Everything persisted or
+passed on is built only from the reduced result: `service_status.details`,
+`service_state.message` and `service_state.details`, edge-record handling, every
+handler, the profile, source and device metadata that `InventoryIngestor`
+writes, events and logs. None of them sees the secret, whatever the agent or
+plugin version. The status payload digest is computed over the reduced payload.
+From Stage 3 the ingestor sets `source_origin` from the reduced result: the
+descriptor's `source_origin` field, or else the rule's origin function applied
+to its URL field (an older plugin's address, already reduced to an origin).
+
+Stage 1 ingest rule (Stages 1 and 2 only, while Core still writes the two relay
+columns). On arrival the entry point derives two values from each plugin result:
+
+- (a) The relay address extract, `ServiceRadar.Camera.RelayAddressExtract`,
+  taken from the unreduced result. It holds only, per camera (`vendor`,
+  `vendor_camera_id`), the value destined for `camera_sources.source_url`, and
+  per profile of that camera (`profile_name`), the value destined for
+  `camera_stream_profiles.source_url_override`. It is built with
+  `InventoryIngestor`'s own descriptor normalization, so cameras and profiles
+  match exactly as the upserts match them.
+- (b) The reduced result, as above.
+
+The two column writes take their values only from (a), through one function,
+`InventoryIngestor.put_relay_addresses/2`. It is the only setter of those two
+attributes; nothing built from (b) sets them. A camera or profile that the
+result reports without an address gets null in that column, as today. (a) lives
+only for that ingest call. It is never persisted, logged, put in an event, error
+or command result, or passed to any other handler, and an error path reports its
+keys, never its values. Stage 3 deletes `RelayAddressExtract` and
+`put_relay_addresses/2`.
 
 Profile metadata is also filtered against an allowlist (`source`, `width`,
 `height`, `fps`, `bitrate`, `auth_mode`, `credential_reference_id`, `protocol`,
@@ -238,10 +263,28 @@ operator as sentences:
 - New agent, old Core: the agent still accepts `source_url` when the command has
   no `source_resolver`. That legacy branch is removed together with the column
   drop (Stage 4).
-- Old plugin, new agent: the open fails with `source_resolver_unsupported`. The
-  plugin's results are still reduced by D2.
+- Old plugin, new agent, Core from Stage 3: the open fails with
+  `source_resolver_unsupported`. Before Stage 3, Core sends the stored address
+  and the agent's legacy branch opens it.
+- New plugin, Core before Stage 3: no D8 key, so the plugin reports addresses
+  as before. The D2 Stage 1 ingest rule keeps the two columns filled and the
+  relay opens from them.
+- New plugin, Core from Stage 3: the D8 key is present, so the plugin reports no
+  address.
+- Old plugin, Core from Stage 3: the plugin ignores the D8 key and keeps
+  reporting addresses. D2 reduces them at entry, and nothing writes the two
+  columns.
 - Old Core replicas during the rollout keep writing copies. The cleanup in D7
-  handles that.
+  handles that, and holds each target until no older node remains.
+- During the Stage 3 rollout, a Stage 3 node already delivers the D8 key while a
+  Stage 1 node may still ingest the resulting origin-only report and open relays
+  from the two columns. For a camera whose report took that path, a relay opened
+  by a Stage 1 node finds no address until the rollout ends. No address is
+  written; streaming is interrupted for that window. See Open Questions.
+- Release ordering: camera plugins are upgraded before Core Stage 3; otherwise
+  streams stop with `source_resolver_unsupported` until the plugin is upgraded.
+- Release ordering: a Stage 4 agent requires Core at Stage 3 or later, because
+  it no longer accepts `source_url`.
 
 ### D7. Cleanup of existing data
 
@@ -284,14 +327,20 @@ the column is non-null. Stage 1 deliberately leaves targets 5 and 7 in place for
 the relay opener, and `source_origin` does not exist before Stage 3. Stage 4
 drops the two columns and removes targets 5 and 7 from the list.
 
-Termination: after each pass that changed in-scope rows, the worker schedules another
-pass `camera_stream_scrub_repass_seconds` later (runtime setting, code default
-600). It finishes only after a pass that changes nothing and that started when
-every connected Core node had `StreamAddressReduction` loaded (checked with
-`:erpc`). Without that check, an old replica still running during the rollout
-can write a copy after the last zero pass. Every rolling deploy goes through
-that window, so it is not a theoretical race. The worker logs counts per pass
-and emits one completion event.
+Termination: a pass scrubs a target only while every connected Core node
+reports, over `:erpc`, a scrub stage no lower than that target's stage (the
+stage of the code the node runs; a node without the worker counts as stage 0).
+Otherwise the pass skips that target. After each pass that changed in-scope rows
+or skipped a target, the worker schedules another pass
+`camera_stream_scrub_repass_seconds` later (runtime setting, code default 600).
+It finishes only after a pass that scrubbed every in-scope target and changed
+nothing. Without the stage check, an older replica still running during the
+rollout can write a copy after the last zero pass: a node from before Stage 1
+writes every copy, and a Stage 1 node writes the two columns that Stage 3
+brings into scope. Every rolling deploy goes through that window, so it is not a
+theoretical race. Holding targets 5 and 7 until no Stage 1 node remains also
+keeps a Stage 1 node from opening a relay from a column already nulled. The
+worker logs counts per pass and emits one completion event.
 
 Following "close the path before deleting", the reduction ships in the same
 stage as each cleanup run.
@@ -320,23 +369,69 @@ the operator, and backups expire under backup retention. Every Protect alias
 that was stored was exposed, so operators should regenerate them by turning RTSP
 off and on in Protect.
 
+### D8. Inventory address cutover signal
+
+Plugins keep reporting stream addresses in inventory results until Core has cut
+over. Until Stage 3, Core opens relays from the two stored columns, and every
+inventory upsert writes them (`inventory_ingestor.ex:294,370-377`; both upsert
+actions accept the fields, including null). An origin-only Protect result would
+clear the stored address, and an origin-only Axis result would drop its media
+path (`/axis-media/media.amp`, which is not a secret). The switch belongs to
+Core and is visible to the plugin.
+
+Mechanism: a host-owned config key, the same kind as
+`_serviceradar_run_overrides` (`go/pkg/agent/plugin_runtime_overrides.go:52`,
+read by plugins through the SDK constant `sdk.RunOverridesConfigKey`). From
+Stage 3, `AgentConfigGenerator.build_plugin_assignment_config/2` puts
+`"_serviceradar_camera_stream_addresses": "omit"` at the top level of `params`
+for every plugin assignment whose package manifest declares the
+`camera_inventory` credential purpose (Protect and Axis today), replacing any
+value already there. That map is built on Core (a gateway only encodes it,
+`config_sync_forwarder.ex:101`). It reaches the plugin unchanged through
+`params_json` and the Wasm `get_config` host call
+(`plugin_runtime_execution.go:194-213`), so the Core release alone decides it
+and no agent change is needed. The Stage 2 SDK release adds the constant and a
+helper that reports whether the key is set. Adding the key changes those
+assignments' config generation once, so their plugin runners restart once at the
+Stage 3 upgrade. Manifest `capabilities` do not fit:
+they list host functions the plugin may call (`unifi-protect/plugin.yaml:8-16`),
+the opposite direction.
+
+A Stage 2 plugin that sees the key with value `omit` reports `source_origin` per
+profile in inventory results, and no `source_url`, `source_url_override`,
+`streams[].url`, raw `cameras[].channels` or alias key. Without the key it
+reports them exactly as today. After Stage 3, D2 drops any address that an
+older plugin still sends.
+
+Shipping Stages 2 and 3 in one release remains allowed and makes the key a
+no-op for the transition; it is not required.
+
+Rejected alternative: have Core ignore a missing address and keep the stored
+one. That would also keep a stale address for a camera that genuinely lost its
+stream.
+
 ## Stages (landing order)
 
 1. **Containment** (Core and web-ng; about 1 PR, medium-small). D4 attribute
-   hiding and readers moved to `source_scheme`. D2 applied at plugin-result entry
-   to everything except the two inventory columns: handlers still get the
-   descriptor URL fields for those two columns only. Device metadata
+   hiding and readers moved to `source_scheme`. D2 applied at plugin-result
+   entry under its Stage 1 ingest rule: everything persisted or passed on comes
+   from the reduced result, and only `put_relay_addresses/2` writes the two
+   columns, from the relay address extract. Device metadata
    `camera_source_url` and the profile alias keys are no longer written. D7
    runs its Stage 1 targets. **This leaves the address at rest in
    `source_url` and `source_url_override`. It is not the fix.**
 2. **Edge resolution** (SDK, Protect and Axis plugins, agent; 2 to 3 PRs plus an
-   SDK release, medium). The resolver contract, plugin resolvers, plugin results
-   that carry origins only, agent resolver invocation, the
+   SDK release, medium). The resolver contract, plugin resolvers, the D8 key in
+   the SDK and its handling in both plugins, agent resolver invocation, the
    `camera_source_resolution` capability, and the new failure classes.
+   Inventory results do not change in this stage: no Core sends the D8 key
+   before Stage 3, so the plugins keep reporting addresses.
 3. **Core cutover** (Core and web-ng; 1 PR, medium; same release as Stage 2 or
-   later). The `source_resolver` payload, removal of the two attributes, D2 with
-   no exemption, `source_origin` and `discovery_assignment_id`, and D7 runs again
-   with its Stage 3 targets in scope.
+   later). The `source_resolver` payload, removal of the two attributes,
+   deletion of the D2 Stage 1 ingest rule (`RelayAddressExtract` and
+   `put_relay_addresses/2`), the D8 key in plugin assignment config,
+   `source_origin` and `discovery_assignment_id`, and D7 runs again with its
+   Stage 3 targets in scope.
 4. **Contract** (next release; small). Drop the columns and their D7 targets,
    remove the agent's legacy `source_url` branch, refresh the baseline schema.
 
@@ -356,3 +451,10 @@ off and on in Protect.
 - Product owner: is the hard cut in D6 acceptable? The alternative is to keep
   sending the stored address to agents that are not upgraded, which keeps the
   secret at rest until the last camera agent upgrades. Decided: hard cut.
+- Product owner: is the Stage 1 to Stage 3 rolling-deploy window in D6
+  acceptable? Recommendation: accept the interruption. Relay opens served by
+  not-yet-upgraded Core nodes can fail for the duration of the rollout, no
+  address is written, and it clears when the rollout completes. The alternative,
+  delivering the D8 key only once every connected Core node reports Stage 3
+  (the D7 `:erpc` stage check), adds a cluster-wide check to the config-compile
+  path for a window of minutes per upgrade.

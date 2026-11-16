@@ -1,16 +1,41 @@
 ## ADDED Requirements
 
 ### Requirement: Stream address reduction at Core entry
-Core SHALL apply one stream address reduction to every plugin result before persisting it or passing it to any handler, on the durable edge-record path and on the legacy status path. The reduction SHALL replace every `rtsp://` and `rtsps://` URL with its origin (scheme, host, port), SHALL remove userinfo from every other URL, and SHALL remove keys named `rtsp_alias`, `rtsps_alias`, `rtspAlias` or `rtspsAlias` in any letter case. It SHALL apply these rules inside strings that are themselves JSON, to a bounded nesting depth beyond which the value is replaced by a marker, and to URLs written with JSON solidus escapes, as defined once in design D2.
+Core SHALL apply one stream address reduction to every plugin result before persisting it or passing it to any handler, on the durable edge-record path and on the legacy status path. The reduction SHALL replace every `rtsp://` and `rtsps://` URL with its origin (scheme, host, port), SHALL remove userinfo from every other URL, and SHALL remove keys named `rtsp_alias`, `rtsps_alias`, `rtspAlias` or `rtspsAlias` in any letter case. It SHALL apply these rules inside strings that are themselves JSON, to a bounded nesting depth beyond which the value is replaced by a marker, and to URLs written with JSON solidus escapes, as defined once in design D2. While Core still writes `camera_sources.source_url` and `camera_stream_profiles.source_url_override` (before Stage 3), the values written to those two columns SHALL come only from the relay address extract of the design D2 Stage 1 ingest rule, and that extract SHALL NOT be persisted, logged or passed anywhere else.
+
+#### Scenario: Scheduled report after a zero scrub pass
+- **GIVEN** Core before Stage 3, and a scrub pass after which `pending/0` reports zero for every in-scope target
+- **WHEN** the next scheduled plugin report arrives carrying `rtsps://192.0.2.10:7441/AbCdEf` for a camera profile
+- **THEN** `pending/0` still reports zero for every in-scope target
+- **AND** `source_url_override` for that profile holds `rtsps://192.0.2.10:7441/AbCdEf`
 
 #### Scenario: Un-upgraded plugin reports an alias URL
 - **WHEN** a plugin result contains `rtsps://192.0.2.10:7441/AbCdEf` and a profile metadata key `rtsps_alias`
-- **THEN** every stored copy and every handler input holds only `rtsps://192.0.2.10:7441`
+- **THEN** every handler input and every stored copy holds only `rtsps://192.0.2.10:7441`, except the two relay columns before Stage 3
 - **AND** no stored row contains the `rtsps_alias` key
 
 #### Scenario: Credentials in a generic stream URL
 - **WHEN** a plugin result contains `rtsp://viewer:secret@cam01.example.com/live`
-- **THEN** Core stores `rtsp://cam01.example.com` and never stores `viewer` or `secret`
+- **THEN** every copy Core stores outside the two relay columns is `rtsp://cam01.example.com`
+- **AND** from Stage 3 Core stores neither `viewer` nor `secret` anywhere
+
+### Requirement: Core owns the inventory address cutover
+Core SHALL deliver the host-owned assignment config key defined in design D8 to camera inventory plugin assignments starting with the release that stops writing `source_url` and `source_url_override` (Stage 3), and SHALL NOT deliver it before. A camera inventory plugin that implements stream source resolution SHALL omit stream addresses and alias keys from its inventory results when that key is present, and SHALL report them unchanged when it is absent.
+
+#### Scenario: New plugin and Core before cutover
+- **GIVEN** a plugin with a stream source resolver and Core before Stage 3, with `source_url_override` holding `rtsps://192.0.2.10:7441/AbCdEf`
+- **WHEN** the plugin sends an inventory report for that camera
+- **THEN** the report carries `rtsps://192.0.2.10:7441/AbCdEf` as before
+- **AND** after the inventory upsert `source_url_override` still holds `rtsps://192.0.2.10:7441/AbCdEf` and a relay opened by Core uses it
+
+#### Scenario: New plugin and Core after cutover
+- **WHEN** the plugin runs with the design D8 key in its assignment config
+- **THEN** its inventory report carries the origin `rtsps://192.0.2.10:7441` and no stream address, `streams[].url` or alias key
+
+#### Scenario: Old plugin and Core after cutover
+- **WHEN** a plugin without resolver support reports `rtsps://192.0.2.10:7441/AbCdEf` to Core from Stage 3
+- **THEN** Core reduces it to `rtsps://192.0.2.10:7441` at entry
+- **AND** no camera inventory row, device metadata or plugin status row holds the path
 
 ### Requirement: Camera inventory holds no stream secret
 Camera inventory SHALL store only non-secret stream facts: the profile `source_origin`, the profile name, transport, codec and container hints, the vendor camera and profile ids, and the source `discovery_assignment_id`. A stream address, path alias or stream credential SHALL NOT be readable through Ash reads, SRQL, APIs, LiveView assigns, AshAdmin, logs or events.
