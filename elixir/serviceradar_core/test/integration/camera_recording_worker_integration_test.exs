@@ -1631,11 +1631,6 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_receive :nvr_sealing_peer_request_complete, 5_000
 
     first_renewal = await_lease_after(ctx, attached_lease, deadline - 2_000)
-    last_permitted_renewal = await_lease_after(ctx, first_renewal, deadline - 1_250)
-
-    # Answer after the first under-floor point, with a second's margin for the
-    # receipt to reach the worker before the deadline.
-    Process.sleep(max(0, deadline - 1_000 - System.monotonic_time(:millisecond)))
 
     seal =
       Jason.encode!(%{
@@ -1645,7 +1640,27 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         "block_ids" => [block_key]
       })
 
-    send(sealing_peer, {:seal, seal})
+    # Answer after the first under-floor point, with a second's margin for the
+    # receipt to reach the worker before the deadline.
+    seal_at = deadline - 1_000 - System.monotonic_time(:millisecond)
+    Process.send_after(sealing_peer, {:seal, seal}, max(0, seal_at))
+
+    # A renewal that starts with 2s or more left has a budget ending by the
+    # capture deadline, so any second permitted renewal commits by then. Without
+    # one, the first renewal is the last permitted.
+    last_permitted_renewal =
+      await_capture(
+        fn ->
+          lease = recorder_claim(ctx).lease_expires_at
+
+          cond do
+            DateTime.after?(lease, first_renewal) -> {:ready, lease}
+            System.monotonic_time(:millisecond) >= deadline -> {:ready, first_renewal}
+            true -> :waiting
+          end
+        end,
+        deadline + 1_000
+      )
 
     assert {:ok, receipt} = Task.await(task, 15_000)
     assert receipt.status == :sealed_local
