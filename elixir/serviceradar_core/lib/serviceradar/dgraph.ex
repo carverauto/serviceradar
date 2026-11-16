@@ -25,12 +25,16 @@ defmodule ServiceRadar.Dgraph do
   jittered exponential backoff (`:retry_base_ms`, `:retry_max_ms`). Pruning,
   hosted- and contained-edge replacement and retirement, and reads are not retried: their
   result or their guard depends on state a repeat could observe differently.
+  Whichever it is, a call whose last attempt timed out or failed transiently
+  returns `{:error, %ServiceRadar.Dgraph.TransientError{}}`, so its caller can
+  retry the whole operation later instead of treating it as a refusal.
   All of these are read from `config :serviceradar_core, ServiceRadar.Dgraph, ...`.
   """
 
   alias ServiceRadar.Dgraph.Call
   alias ServiceRadar.Dgraph.CanonicalRebuild
   alias ServiceRadar.Dgraph.Native
+  alias ServiceRadar.Dgraph.TransientError
 
   @defaults [
     item_deadline_ms: 30_000,
@@ -41,12 +45,18 @@ defmodule ServiceRadar.Dgraph do
     retry_max_ms: 2_000
   ]
 
-  @type write_result :: :ok | {:error, String.t()}
-  @type count_result :: {:ok, non_neg_integer()} | {:error, String.t()}
-  @type keys_result :: {:ok, [String.t()]} | {:error, String.t()}
-  @type query_result :: {:ok, term()} | {:error, String.t()}
-  @type edges_result :: {:ok, [map()]} | {:error, String.t()}
-  @type graph_result :: {:ok, %{nodes: [map()], edges: [map()]}} | {:error, String.t()}
+  @typedoc """
+  Why a call failed: `ServiceRadar.Dgraph.TransientError` when a later attempt
+  can succeed (a timeout, an unreachable cluster, an aborted transaction, a
+  leader election), else the native client's message.
+  """
+  @type error :: TransientError.t() | String.t()
+  @type write_result :: :ok | {:error, error()}
+  @type count_result :: {:ok, non_neg_integer()} | {:error, error()}
+  @type keys_result :: {:ok, [String.t()]} | {:error, error()}
+  @type query_result :: {:ok, term()} | {:error, error()}
+  @type edges_result :: {:ok, [map()]} | {:error, error()}
+  @type graph_result :: {:ok, %{nodes: [map()], edges: [map()]}} | {:error, error()}
 
   @doc """
   Resolve the `dgraph://` URL.
@@ -306,7 +316,7 @@ defmodule ServiceRadar.Dgraph do
   the inventory. A failed page fails the read; it never returns a partial set.
   Not retried.
   """
-  @spec query_rebuild_inputs() :: {:ok, [map()]} | {:error, String.t()}
+  @spec query_rebuild_inputs() :: {:ok, [map()]} | {:error, error()}
   def query_rebuild_inputs do
     with {:ok, url} <- url(),
          {:ok, json} <-
@@ -320,7 +330,7 @@ defmodule ServiceRadar.Dgraph do
   `"iface.if_index"` and its owning devices under `"~device.interfaces"`. Read
   in bounded chunks from one Dgraph snapshot. Not retried.
   """
-  @spec query_interfaces_by_key([String.t()]) :: {:ok, [map()]} | {:error, String.t()}
+  @spec query_interfaces_by_key([String.t()]) :: {:ok, [map()]} | {:error, error()}
   def query_interfaces_by_key([]), do: {:ok, []}
 
   def query_interfaces_by_key(keys) when is_list(keys) do
@@ -341,7 +351,7 @@ defmodule ServiceRadar.Dgraph do
   Does not return postpone/sequence.
   """
   @spec downstream_of([String.t()], [String.t()]) ::
-          {:ok, :reachable | :disjoint} | {:error, String.t()}
+          {:ok, :reachable | :disjoint} | {:error, error()}
   def downstream_of(from_ids, to_ids) when is_list(from_ids) and is_list(to_ids) do
     with {:ok, url} <- url() do
       case call(:downstream_of, :item, false, &Native.downstream_of(url, from_ids, to_ids, &1)) do
@@ -377,7 +387,7 @@ defmodule ServiceRadar.Dgraph do
   `{:ok, nil}` when no Device carries the id. Not retried.
   """
   @spec query_device_neighborhood(String.t(), boolean()) ::
-          {:ok, map() | nil} | {:error, String.t()}
+          {:ok, map() | nil} | {:error, error()}
   def query_device_neighborhood(device_id, include_topology)
       when is_binary(device_id) and is_boolean(include_topology) do
     with {:ok, url} <- url(),
@@ -396,7 +406,7 @@ defmodule ServiceRadar.Dgraph do
   Read-only DQL returned as the SRQL `in:graph` `{nodes, edges}` rows. Mutations
   are refused without contacting Dgraph. Not retried.
   """
-  @spec query_graph_rows(String.t()) :: {:ok, [map()]} | {:error, String.t()}
+  @spec query_graph_rows(String.t()) :: {:ok, [map()]} | {:error, error()}
   def query_graph_rows(dql) when is_binary(dql) do
     cond do
       String.trim(dql) == "" ->

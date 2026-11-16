@@ -19,10 +19,13 @@ defmodule ServiceRadarWebNG.SRQL.GraphQuery do
   @spec execute(String.t()) :: {:ok, [map()]} | {:error, String.t()}
   def execute(query) when is_binary(query) do
     with {:ok, ast_json} <- Native.parse_ast(query),
-         {:ok, ast} <- Jason.decode(ast_json) do
-      run(ast)
+         {:ok, ast} <- Jason.decode(ast_json),
+         {:ok, _rows} = ok <- run(ast) do
+      ok
     else
-      {:error, %Jason.DecodeError{} = error} -> {:error, Exception.message(error)}
+      # A JSON decode failure, or a Dgraph read that timed out or failed transiently
+      # (`ServiceRadar.Dgraph.TransientError`), is reported by its message.
+      {:error, error} when is_exception(error) -> {:error, Exception.message(error)}
       {:error, reason} -> {:error, reason}
     end
   end

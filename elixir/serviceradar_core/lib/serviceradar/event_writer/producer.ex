@@ -568,8 +568,11 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     startup_bound_ms = Config.startup_wait_bound_ms(config)
 
+    # A transient bind failure is logged where its attempt is known (`track_failed_streams/2`,
+    # `record_connect_failure/2`): a warning until it outlasts its bound.
     Enum.each(hard_failures, fn {stream, {:error, reason}} ->
-      log_consumer_setup_failure(:required, config, stream, reason)
+      if !ConsumerSetup.transient_reason?(reason),
+        do: log_consumer_setup_failure(:required, config, stream, reason)
     end)
 
     if startup_bound_ms <= 0 do
@@ -659,7 +662,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     Enum.reduce(failed, state, fn {stream, reason}, acc ->
       name = Map.fetch!(stream, :name)
       {acc, attempt} = record_stream_failed(acc, name, reason)
-      error_logged? = not ConsumerSetup.not_ready_reason?(reason) or startup_bound_ms <= 0
+
+      error_logged? =
+        if ConsumerSetup.transient_reason?(reason),
+          do: log_transient_bind_failure(acc.config, stream, reason, attempt) == :error,
+          else: not ConsumerSetup.not_ready_reason?(reason) or startup_bound_ms <= 0
 
       entry = %{
         stream: stream,
@@ -679,7 +686,11 @@ defmodule ServiceRadar.EventWriter.Producer do
   def record_connect_failure(state, {:consumer_setup_failed, failures}) do
     state =
       Enum.reduce(failures, state, fn {stream, reason}, acc ->
-        {acc, _attempt} = record_stream_failed(acc, Map.fetch!(stream, :name), reason)
+        {acc, attempt} = record_stream_failed(acc, Map.fetch!(stream, :name), reason)
+
+        if ConsumerSetup.transient_reason?(reason),
+          do: log_transient_bind_failure(acc.config, stream, reason, attempt)
+
         acc
       end)
 
@@ -779,23 +790,60 @@ defmodule ServiceRadar.EventWriter.Producer do
       ConsumerSetup.not_ready_reason?(reason) and within_startup_bound? ->
         entry
 
+      ConsumerSetup.transient_reason?(reason) and not Map.get(entry, :error_logged?, false) ->
+        level = log_transient_bind_failure(config, entry.stream, reason, entry.attempt)
+        Map.put(entry, :error_logged?, level == :error)
+
       not Map.get(entry, :error_logged?, false) ->
         log_consumer_setup_failure(:required, config, entry.stream, unwrap_stream_reason(reason))
         Map.put(entry, :error_logged?, true)
 
       true ->
-        Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
-          consumer: name,
-          attempt: entry.attempt,
-          retry_in_ms: delay,
-          reason: inspect(reason)
-        )
-
+        log_bind_still_failing(name, entry.attempt, delay, reason)
         entry
     end
   end
 
-  defp unwrap_stream_reason({_stream_name, reason}), do: reason
+  defp log_bind_still_failing(name, attempt, delay, reason) do
+    Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
+      consumer: name,
+      attempt: attempt,
+      retry_in_ms: delay,
+      reason: inspect(reason)
+    )
+  end
+
+  # A transient NATS condition (`ConsumerSetup.transient_reason?/1`) is a warning until the
+  # stream's failed attempts outlast its bound. The attempt that crosses it is an error and is
+  # reported; later attempts, including those after a reconnect, are warnings again.
+  defp log_transient_bind_failure(config, stream, reason, attempt) do
+    reason = unwrap_stream_reason(reason)
+
+    cond do
+      ConsumerSetup.transient_within_bound?(attempt) ->
+        {diagnostic, metadata} = ConsumerSetup.describe_failure(config, stream, reason)
+
+        Logger.warning(
+          "EventWriter could not bind durable consumer while NATS restarts or moves a leader; " <>
+            "retrying " <> diagnostic,
+          [{:attempt, attempt} | metadata]
+        )
+
+        :warning
+
+      ConsumerSetup.transient_bound_crossed?(attempt) ->
+        ConsumerSetup.report_transient_bound_exceeded(Map.fetch!(stream, :name), attempt, reason)
+        log_consumer_setup_failure(:required, config, stream, reason)
+        :error
+
+      true ->
+        name = Map.fetch!(stream, :name)
+        log_bind_still_failing(name, attempt, ConsumerSetup.retry_delay(attempt), reason)
+        :warning
+    end
+  end
+
+  defp unwrap_stream_reason({stream_name, reason}) when is_binary(stream_name), do: reason
   defp unwrap_stream_reason(reason), do: reason
 
   defp add_consumer(%{consumer_context: context} = state, consumer) do

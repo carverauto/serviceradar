@@ -4,6 +4,7 @@ defmodule ServiceRadar.DgraphTest do
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Dgraph.Call
   alias ServiceRadar.Dgraph.Native
+  alias ServiceRadar.Dgraph.TransientError
 
   @dgraph_url System.get_env("DGRAPH_URL")
 
@@ -244,7 +245,9 @@ defmodule ServiceRadar.DgraphTest do
 
       on_exit(fn -> Enum.each(bulk, &Native.cancel/1) end)
 
-      assert {:error, reason} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      assert {:error, %TransientError{reason: reason}} =
+               Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+
       # The item call got a slot and failed on its own stalled connect, rather
       # than waiting out its deadline behind the bulk calls.
       refute reason =~ "waiting for an in-flight slot", reason
@@ -282,7 +285,9 @@ defmodule ServiceRadar.DgraphTest do
 
       # Without cancellation the dead callers' calls would hold every slot for
       # their full 10s deadline.
-      assert {:error, reason} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      assert {:error, %TransientError{reason: reason}} =
+               Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+
       refute reason =~ "waiting for an in-flight slot", reason
       assert reason =~ "timed out"
     end
@@ -317,7 +322,9 @@ defmodule ServiceRadar.DgraphTest do
       File.rm(path)
 
       for call <- calls do
-        assert {:error, reason} = Task.await(call, 10_000)
+        assert {:error, %TransientError{reason: reason}} =
+                 Task.await(call, 10_000)
+
         assert reason =~ "timed out"
       end
     end
@@ -342,7 +349,9 @@ defmodule ServiceRadar.DgraphTest do
 
       attach_telemetry([[:serviceradar, :dgraph, :call, :stop]])
 
-      assert {:error, reason} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      assert {:error, %TransientError{reason: reason}} =
+               Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+
       assert reason =~ "timed out"
 
       assert_received {:telemetry, [:serviceradar, :dgraph, :call, :stop],
@@ -381,8 +390,11 @@ defmodule ServiceRadar.DgraphTest do
       :ok
     end
 
-    test "retries an idempotent upsert, then returns the last error" do
-      assert {:error, reason} = Dgraph.upsert_device(%{id: "sr:host01.example.com"})
+    test "retries an idempotent upsert, then returns the last error as transient" do
+      assert {:error,
+              %TransientError{operation: :upsert_device, kind: :transient, reason: reason}} =
+               Dgraph.upsert_device(%{id: "sr:host01.example.com"})
+
       assert reason =~ "connect"
 
       assert_received {:telemetry, [:serviceradar, :dgraph, :call, :retry], %{backoff_ms: _},
@@ -410,12 +422,12 @@ defmodule ServiceRadar.DgraphTest do
     end
 
     test "device_graph and graph reads cross the NIF boundary and are not retried" do
-      assert {:error, neighborhood_reason} =
+      assert {:error, %TransientError{reason: neighborhood_reason}} =
                Dgraph.query_device_neighborhood("sr:host01.example.com", true)
 
       assert neighborhood_reason =~ "connect"
 
-      assert {:error, rows_reason} =
+      assert {:error, %TransientError{reason: rows_reason}} =
                Dgraph.query_graph_rows(
                  ~s|{ q(func: eq(device.id, "sr:host01.example.com")) { device.id } }|
                )
@@ -426,7 +438,7 @@ defmodule ServiceRadar.DgraphTest do
 
     test "management edge kinds decode at the NIF boundary" do
       for kind <- [:managed_by, :manages] do
-        assert {:error, reason} =
+        assert {:error, %TransientError{reason: reason}} =
                  Dgraph.upsert_edge(%{
                    source: "sr:host01.example.com",
                    target: "sr:host02.example.com",
@@ -463,7 +475,7 @@ defmodule ServiceRadar.DgraphTest do
     test "MTR path measurements decode at the NIF boundary" do
       # A map the NIF cannot decode raises ArgumentError before any connect,
       # so a connect error proves the measurement shape crossed the ABI.
-      assert {:error, reason} =
+      assert {:error, %TransientError{reason: reason}} =
                Dgraph.upsert_mtr_path(%{
                  source: "sr:agent01.example.com",
                  target: "198.51.100.7",

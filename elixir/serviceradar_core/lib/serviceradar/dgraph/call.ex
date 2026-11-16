@@ -15,10 +15,13 @@ defmodule ServiceRadar.Dgraph.Call do
   here before returning.
 
   `kind` is `:ok`, `:timeout`, `:transient` (unreachable cluster, transport
-  failure, aborted transaction), `:error` or `:panic`. Only `:timeout` and
-  `:transient` are retried, and only when the caller says the operation is
-  idempotent. The backoff is jittered. When the last attempt fails, its
-  `{:error, reason}` is returned to the caller, never dropped.
+  failure, aborted transaction, a Zero or Alpha leader election), `:error` or
+  `:panic`. Only `:timeout` and `:transient` are retried, and only when the
+  caller says the operation is idempotent. The backoff is jittered. When the
+  last attempt fails, its error is returned to the caller, never dropped: as
+  `{:error, %ServiceRadar.Dgraph.TransientError{}}` when its kind was
+  `:timeout` or `:transient`, so a caller can retry later without matching on
+  text, and as the bare `{:error, reason}` otherwise.
 
   Telemetry:
 
@@ -32,6 +35,8 @@ defmodule ServiceRadar.Dgraph.Call do
       Measurements: `:backoff_ms`. Metadata: `:operation`, `:attempt` (the
       attempt that failed), `:kind`.
   """
+
+  alias ServiceRadar.Dgraph.TransientError
 
   @reply :dgraph_nif_reply
   @collect_replying_ms 5_000
@@ -83,9 +88,14 @@ defmodule ServiceRadar.Dgraph.Call do
       Process.sleep(backoff_ms)
       attempt(operation, submit, opts, attempt + 1, max_attempts)
     else
-      result
+      typed(result, kind, operation)
     end
   end
+
+  defp typed({:error, reason}, kind, operation) when kind in @retryable and is_binary(reason),
+    do: {:error, %TransientError{operation: operation, kind: kind, reason: reason}}
+
+  defp typed(result, _kind, _operation), do: result
 
   @doc """
   Wait up to `timeout_ms` for the reply to `ref`, cancelling through `cancel`

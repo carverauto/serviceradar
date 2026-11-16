@@ -42,7 +42,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordDeferredError
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+  alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.EventWriter.JetStreamAck
+  alias ServiceRadar.EventWriter.LogRateLimit
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -59,6 +61,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   # Maximum number of upstream trace contexts linked onto a batch span.
   @max_batch_links 8
+  @transient_log_interval_ms 60_000
   @tracer_cache_key {__MODULE__, :batch_tracer}
 
   @doc """
@@ -371,7 +374,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
       {:incomplete, count, failures} ->
         failed_by_message = Map.new(failures, fn {message, reason} -> {message, reason} end)
-        reason = failures |> hd() |> elem(1)
+        reasons = Enum.map(failures, &elem(&1, 1))
+        # The batch is logged by its most severe failure, so a record that failed for an
+        # unexplained reason is not hidden behind a transient one before it.
+        reason = Enum.find(reasons, hd(reasons), &(batch_failure_level(&1) == :error))
         log_batch_failure(batcher, reason, map_size(failed_by_message))
 
         EventWriterTelemetry.emit_batch(:ok, messages, count, duration, %{
@@ -412,30 +418,58 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # (`EdgeRecordDeadLetter.terminal?/1`), so they are not logged again for every batch.
   # Alert-evaluation backpressure never reaches here: processors defer it to
   # `ServiceRadar.EventWriter.AlertAdmissionBacklog` and succeed.
+  #
+  # A transient failure (a Dgraph leader election, a timeout) is redelivered with backoff and
+  # dead-lettered, as an error, only at the stream's threshold. Until then it is a warning, at
+  # most one per batcher per minute, counting the batches held back.
   defp log_batch_failure(batcher, reason, message_count) do
-    {level, text} =
-      case reason do
-        %PublishDeniedError{} ->
-          {:debug, "Batch holds records whose republish the NATS broker denied"}
+    {level, text, metadata} =
+      case batch_failure_level(reason) do
+        :transient ->
+          case LogRateLimit.admit(
+                 {:transient_batch_failure, batcher},
+                 @transient_log_interval_ms
+               ) do
+            {:log, suppressed} ->
+              {:warning, "Batch holds edge records that failed transiently; redelivering them",
+               [suppressed_batches: suppressed]}
 
-        %EdgeRecordRefusedError{} ->
-          {:debug, "Batch holds edge records the processor refused"}
+            :suppress ->
+              {:debug, "Batch holds edge records that failed transiently; redelivering them", []}
+          end
 
-        %EdgeRecordDeferredError{} ->
-          {:debug, "Recovery receipt committed; awaiting remaining work"}
+        :error ->
+          {:error, "Batch processing failed", []}
 
-        _other ->
-          {:error, "Batch processing failed"}
+        :debug ->
+          {:debug, quiet_batch_failure_text(reason), []}
       end
 
-    Logger.log(level, text,
-      batcher: batcher,
-      reason: inspect(reason),
-      message_count: message_count
+    Logger.log(
+      level,
+      text,
+      [batcher: batcher, reason: inspect(reason), message_count: message_count] ++ metadata
     )
 
     level
   end
+
+  defp batch_failure_level(%EdgeRecordTransientError{}), do: :transient
+
+  defp batch_failure_level(%struct{})
+       when struct in [PublishDeniedError, EdgeRecordRefusedError, EdgeRecordDeferredError],
+       do: :debug
+
+  defp batch_failure_level(_reason), do: :error
+
+  defp quiet_batch_failure_text(%PublishDeniedError{}),
+    do: "Batch holds records whose republish the NATS broker denied"
+
+  defp quiet_batch_failure_text(%EdgeRecordRefusedError{}),
+    do: "Batch holds edge records the processor refused"
+
+  defp quiet_batch_failure_text(%EdgeRecordDeferredError{}),
+    do: "Recovery receipt committed; awaiting remaining work"
 
   @impl true
   def handle_failed(messages, _context) do
@@ -450,6 +484,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
           EdgeRecordDeadLetter.terminal?(message) ->
             {:debug, "Message cannot succeed on redelivery; dead-lettering it"}
+
+          # Its batch logged it (`log_batch_failure/3`), rate-limited.
+          match?(%{status: {:failed, %EdgeRecordTransientError{}}}, message) ->
+            {:debug, "Edge record failed transiently; redelivering it"}
 
           true ->
             {:warning, "Message failed"}

@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.EventIngestor
   alias ServiceRadar.Camera.InventoryIngestor
+  alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
@@ -232,6 +233,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp strip_legacy_errors({:refused, reason_tuple, _errors}), do: {:refused, reason_tuple}
+
+  defp strip_legacy_errors({:transient, {failure_kind, _errors}, transient}),
+    do: {:error, {failure_kind, transient}}
+
   defp strip_legacy_errors(other), do: other
 
   defp to_legacy_ingest_result(:ok), do: :ok
@@ -239,6 +244,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp to_legacy_ingest_result({:refused, _reason_tuple, errors}),
     do: {:error, {:plugin_result_handlers_failed, errors}}
+
+  defp to_legacy_ingest_result({:transient, reason, _transient}), do: {:error, reason}
 
   defp to_legacy_ingest_result({:error, _reason} = error), do: error
 
@@ -313,11 +320,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
         end
 
-      {:retryable, failure_kind, _outcomes, errors} ->
+      {:retryable, failure_kind, outcomes, errors} ->
         case persist_err_fn.(attrs, payload, errors, handlers, actor) do
           {:ok, status_event} ->
             publish_fn.(status_event || reported_status)
-            {:error, {failure_kind, errors}}
+            retryable_error(failure_kind, errors, outcomes)
 
           {:error, persistence_error_text} ->
             publish_fn.(reported_status)
@@ -326,6 +333,25 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
         end
     end
+  end
+
+  # When every failed handler hit a dependency a later delivery can find available again (a
+  # Dgraph timeout or leader election, `ServiceRadar.Dgraph.TransientError`), the durable result
+  # carries that typed failure instead of the handler texts, so its caller retries the record
+  # as transient rather than as an unexplained failure. The texts are already persisted.
+  defp retryable_error(failure_kind, errors, outcomes) do
+    case transient_failure(outcomes) do
+      %TransientError{} = transient -> {:transient, {failure_kind, errors}, transient}
+      nil -> {:error, {failure_kind, errors}}
+    end
+  end
+
+  defp transient_failure(outcomes) do
+    failures =
+      for %{outcome: :retryable, raw_error: raw_error} <- outcomes,
+          do: TransientError.find(raw_error)
+
+    if failures != [] and Enum.all?(failures), do: hd(failures)
   end
 
   defp redeliver_durable(
