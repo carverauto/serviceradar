@@ -258,22 +258,33 @@ operator as sentences:
   `(timestamp, gateway_id, service_name)` for the `service_status` hypertable.
   It skips rows that changed since it read them, and it is idempotent.
 
-Targets:
+Targets. This ordered list is the single definition of what the worker scrubs
+and what `pending/0` checks; each target is tagged with the stage that brings it
+into scope, and the running code version evaluates only the targets in scope
+for it:
 
-1. `camera_stream_profiles`: set `source_origin` from `source_url_override`,
-   then null `source_url_override`, reduce `source_origin`, and drop the alias
-   keys and non-allowlisted keys from `metadata`.
-2. `camera_sources`: null `source_url` and reduce `metadata`.
-3. `ocsf_devices.metadata`: drop `camera_source_url` and reduce
-   `camera_metadata`.
-4. `service_status.details` and `service_state.message`/`details`: reduce rows
-   that match, and recompute the reported marker's payload digest with the
-   ingest function.
+1. [Stage 1] `camera_stream_profiles.metadata`: reduce, and drop
+   non-allowlisted keys.
+2. [Stage 1] `camera_sources.metadata`: reduce.
+3. [Stage 1] `ocsf_devices.metadata`: drop `camera_source_url`, and reduce the
+   rest, including `camera_metadata`.
+4. [Stage 1] `service_status.details`, `service_state.message` and
+   `service_state.details`: reduce, and recompute the reported marker's payload
+   digest with the ingest function.
+5. [Stage 3] `camera_stream_profiles.source_url_override`: set `source_origin`
+   from it with the D2 origin function, then null it.
+6. [Stage 3] `camera_stream_profiles.source_origin`: reduce.
+7. [Stage 3] `camera_sources.source_url`: null.
 
-Stage 1 runs targets 1 to 4 without the two columns. Stage 3 runs again
-including them.
+"Reduce" means the D2 function. A row counts against a target exactly when
+that target's scrub would change it: for a reduce target, when D2 (plus the
+allowlist on target 1) is not a no-op, so an origin never counts and a path,
+userinfo on any scheme, or an alias key always does; for targets 5 and 7, while
+the column is non-null. Stage 1 deliberately leaves targets 5 and 7 in place for
+the relay opener, and `source_origin` does not exist before Stage 3. Stage 4
+drops the two columns and removes targets 5 and 7 from the list.
 
-Termination: after each pass that changed rows, the worker schedules another
+Termination: after each pass that changed in-scope rows, the worker schedules another
 pass `camera_stream_scrub_repass_seconds` later (runtime setting, code default
 600). It finishes only after a pass that changes nothing and that started when
 every connected Core node had `StreamAddressReduction` loaded (checked with
@@ -285,19 +296,23 @@ and emits one completion event.
 Following "close the path before deleting", the reduction ships in the same
 stage as each cleanup run.
 
-Operator verification. The worker exposes `pending/0`, which reads every
-target column above (including `source_origin` and every JSON path inside the
-metadata, details and message values), applies that target's scrub (the same D2
-reduction function the ingest path uses, plus the column and allowlist steps
-above), and returns, per target, the count of rows the scrub would still change.
-A row is clean exactly when the scrub is a no-op on it,
-so an origin never counts, and a path, userinfo on any scheme, or an alias key
-always does. Completion means `pending/0` returns zero for every target. The
-worker's last pass uses the same check, and the operator runs it with
+Operator verification. The worker exposes `pending/0`, which returns two
+things:
+
+- `in_scope`: per in-scope target, the count of rows that count against it
+  under the rule above. Completion means every one is zero, and the worker's
+  last-pass check is this same count.
+- `at_rest_until_stage_3`: while targets 5 and 7 are not yet in scope, the
+  count of rows with a non-null `source_url` and with a non-null
+  `source_url_override`, reported by column name. It never blocks completion;
+  it exists so that a Stage 1 result (`in_scope` all zero, addresses still at
+  rest in those columns) cannot be mistaken for the fix. From Stage 3 it is
+  absent.
+
+The operator runs it with
 `bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.Camera.StreamSecretScrubWorker.pending())'`.
 This is the only verification the spec and the runbook refer to; there is no
-separate SQL proof. After Stage 4, `pending/0` no longer reads the two dropped
-columns.
+separate SQL proof.
 
 Out of band, and documented for operators: JetStream source streams age out
 under their retention, DLQ entries for plugin-result batches must be purged by
@@ -312,7 +327,7 @@ off and on in Protect.
    to everything except the two inventory columns: handlers still get the
    descriptor URL fields for those two columns only. Device metadata
    `camera_source_url` and the profile alias keys are no longer written. D7
-   targets 1 to 4 run without the columns. **This leaves the address at rest in
+   runs its Stage 1 targets. **This leaves the address at rest in
    `source_url` and `source_url_override`. It is not the fix.**
 2. **Edge resolution** (SDK, Protect and Axis plugins, agent; 2 to 3 PRs plus an
    SDK release, medium). The resolver contract, plugin resolvers, plugin results
@@ -320,10 +335,10 @@ off and on in Protect.
    `camera_source_resolution` capability, and the new failure classes.
 3. **Core cutover** (Core and web-ng; 1 PR, medium; same release as Stage 2 or
    later). The `source_resolver` payload, removal of the two attributes, D2 with
-   no exemption, `source_origin` and `discovery_assignment_id`, and D7 run again
-   with the columns.
-4. **Contract** (next release; small). Drop the columns, remove the agent's
-   legacy `source_url` branch, refresh the baseline schema.
+   no exemption, `source_origin` and `discovery_assignment_id`, and D7 runs again
+   with its Stage 3 targets in scope.
+4. **Contract** (next release; small). Drop the columns and their D7 targets,
+   remove the agent's legacy `source_url` branch, refresh the baseline schema.
 
 ## Risks / Trade-offs
 

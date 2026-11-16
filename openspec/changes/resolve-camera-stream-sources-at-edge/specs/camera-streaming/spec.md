@@ -52,4 +52,5 @@ The system SHALL remove every stored stream address, path alias and URL userinfo
 
 #### Scenario: Operator verification
 - **WHEN** the job reports completion
-- **THEN** the scrub worker's `pending/0` check defined in design D7 returns zero for every target
+- **THEN** the scrub worker's `pending/0` check defined in design D7 returns zero for every target in scope for the running stage
+- **AND** while the Stage 3 targets are not yet in scope, `pending/0` separately reports the rows still holding an address in `source_url` and `source_url_override` by column name

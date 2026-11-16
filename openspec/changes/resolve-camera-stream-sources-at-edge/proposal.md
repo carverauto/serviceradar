@@ -38,7 +38,9 @@ the address from the controller or camera when a stream opens.
 - **Cleanup.** An Oban job, enqueued from a migration, removes every existing
   copy. It repeats passes until a pass finds nothing, and that pass must start
   after every Core node runs this change. Operators check the result with the
-  worker's `pending/0`, which must return zero for every target.
+  worker's `pending/0`, which must return zero for every target in scope for
+  the running stage, and which reports separately the addresses still at rest
+  until Stage 3.
 - **Containment first.** Stage 1 is a Core and web-ng change only, with no agent
   or plugin release. It hides the two columns from every reader except the relay
   resolver and removes the other copies. It is not the fix: the addresses stay

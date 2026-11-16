@@ -18,7 +18,7 @@
       columns; digest the reduced payload.
 - [ ] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
       the allowlist.
-- [ ] 1.5 `StreamSecretScrubWorker` targets 1-4 without the columns, plus the migration that
+- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list (Stage 1 targets in scope), plus the migration that
       enqueues it; bump `core.migrations.expectedVersion`; run
       `scripts/db/check-migration-startup-safety.sh`.
 - [ ] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
@@ -27,12 +27,14 @@
       the repeat-until-zero and old-node termination branches; and a web-ng test asserting that
       assigns hold no address.
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
-      it and through the D2 reduction and asserts they agree: an origin only (not pending);
-      `rtsps://` with a path; `rtsp://` with userinfo; `https://` with userinfo; an alias key in
-      profile, source and device metadata; a verbatim URL in `source_origin`; a path and a
+      it and through the worker's scrub of the same in-scope target and asserts they agree: an
+      origin only (not pending); `rtsps://` with a path; `rtsp://` with userinfo; `https://`
+      with userinfo; an alias key in profile, source and device metadata; a path and a
       userinfo written with JSON solidus escapes (`\/`, `\u002f`, `\u0040`); a URL and an
       alias key inside a double-encoded JSON string; and a value nested beyond the D2 depth
-      (each pending, and clean after one pass, the last replaced by the D2 marker).
+      (each pending, and clean after one pass, the last replaced by the D2 marker). The same
+      test asserts that a path left in `source_url_override` or `source_url` appears only in
+      `at_rest_until_stage_3` and does not block completion.
 
 ## 2. Edge resolution (Stage 2)
 
@@ -63,14 +65,18 @@
 - [ ] 3.2 `RelaySourceResolver` builds `source_resolver`; the capability gate produces
       `agent_upgrade_required`; `source_resolver_missing`.
 - [ ] 3.3 D2 with no exemption; delete the descriptor URL handling in `InventoryIngestor`.
-- [ ] 3.4 Enqueue the scrub worker again with the column targets; bump `expectedVersion`.
+- [ ] 3.4 Enqueue the scrub worker again with the D7 Stage 3 targets in scope; bump
+      `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
+      URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
+      and assert `at_rest_until_stage_3` is absent.
 - [ ] 3.5 Web-ng operator sentences for the D5 classes.
 - [ ] 3.6 DB-backed tests in the Core Integration lanes; every unboxed test deletes its rows.
 
 ## 4. Contract (Stage 4, next release)
 
 - [ ] 4.1 Migration that drops `camera_sources.source_url` and
-      `camera_stream_profiles.source_url_override`; refresh the baseline.
+      `camera_stream_profiles.source_url_override` and removes D7 targets 5 and 7; refresh the
+      baseline.
 - [ ] 4.2 Remove the agent's legacy `source_url` branch.
 
 ## 5. Docs
