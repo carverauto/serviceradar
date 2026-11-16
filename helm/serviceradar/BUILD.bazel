@@ -89,6 +89,19 @@ py_test(
 )
 
 py_test(
+    name = "nats_normalized_log_subject_test",
+    srcs = ["nats_normalized_log_subject_test.py"],
+    data = [
+        ":chart_files",
+        ":helm_unittest_binary",
+    ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = ["@pyyaml//:yaml"],
+)
+
+py_test(
     name = "pod_dns_and_fqdn_test",
     srcs = ["pod_dns_and_fqdn_test.py"],
     data = [
