@@ -135,7 +135,7 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 2.4 Keep issuer key history: retired keys stay `valid` in the trust
       document for at least `late_admission_max_age_seconds` after their last
       window.
-- [ ] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/…` with the history
+- [ ] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/...` with the history
       decision (Decision 3, checks 6 to 9, including `ledger_pruned`), reasons
       no grant for non-owners or a foreign origin principal (the gateway
       quarantines those), and no grant for a record naming a
