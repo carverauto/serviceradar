@@ -33,6 +33,9 @@ without `[[inputs]]` retains its single-input behavior.
 Duplicate socket configurations and unknown input types fail startup. With
 multiple listeners, a listener panic or exit fails the whole pipeline so an
 embedding collector cannot continue reporting healthy after losing a listener.
+A TCP listener logs a failed `accept` or a failed connection-handler thread
+start to stderr and retries after 100 ms; it ends only when the listening socket
+itself is unusable.
 
 ## JetStream publish window
 
