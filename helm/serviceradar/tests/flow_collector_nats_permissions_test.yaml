@@ -25,10 +25,10 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "flow\.host-slice\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "flow\.host-slice\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-netflow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+          pattern: '(?s)user: "CN=serviceradar-netflow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
 
   - it: scopes stream management to a custom configured stream
     template: templates/nats.yaml
@@ -54,7 +54,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
 
   - it: rejects unsafe stream names when the collector is enabled
     template: templates/nats.yaml

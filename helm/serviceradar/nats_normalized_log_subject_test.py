@@ -33,8 +33,18 @@ CHART_DIR = _repo_root() / "helm" / "serviceradar"
 NORMALIZED_SUBJECT = "logs.normalized.syslog"
 LOG_COLLECTOR = "CN=serviceradar-log-collector"
 
+# The default rendering leaves the flow and inventory identities with an empty
+# allow list; enabling them gives each a scoped list instead.
+RENDERINGS = {
+    "default": {},
+    "flow collector and k8s inventory enabled": {
+        "flowCollector.enabled": True,
+        "k8sInventory.enabled": True,
+    },
+}
 
-def render_static_users():
+
+def render_static_users(values=None):
     """Consume helm-unittest's snapshot of the static-users ConfigMap."""
     binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
     with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
@@ -57,6 +67,7 @@ def render_static_users():
             "release": {"name": "nats-test", "namespace": "nats-test"},
             "tests": [{
                 "it": "static users",
+                "set": values or {},
                 "documentSelector": {
                     "path": "metadata.name",
                     "value": "serviceradar-nats-static-users",
@@ -101,21 +112,25 @@ def covers(pattern: str, subject: str) -> bool:
 
 
 def may_publish(user: dict, subject: str) -> bool:
+    """Static NATS semantics: a missing or empty allow list permits every subject, then deny applies."""
     publish = user.get("publish") or {}
-    allowed = any(covers(pattern, subject) for pattern in publish.get("allow") or [])
+    allow = publish.get("allow") or []
+    allowed = not allow or any(covers(pattern, subject) for pattern in allow)
     denied = any(covers(pattern, subject) for pattern in publish.get("deny") or [])
     return allowed and not denied
 
 
 class NormalizedLogSubjectTest(unittest.TestCase):
     def test_only_the_log_collector_may_publish_normalized_logs(self):
-        users = render_static_users()
-        self.assertGreater(len(users), 10)
-        publishers = sorted(
-            user["user"] for user in users if may_publish(user, NORMALIZED_SUBJECT)
-        )
-        self.assertEqual(len(publishers), 1, publishers)
-        self.assertTrue(publishers[0].startswith(LOG_COLLECTOR + ","), publishers)
+        for rendering, values in RENDERINGS.items():
+            with self.subTest(rendering=rendering):
+                users = render_static_users(values)
+                self.assertGreater(len(users), 10)
+                publishers = sorted(
+                    user["user"] for user in users if may_publish(user, NORMALIZED_SUBJECT)
+                )
+                self.assertEqual(len(publishers), 1, publishers)
+                self.assertTrue(publishers[0].startswith(LOG_COLLECTOR + ","), publishers)
 
     def test_the_identities_that_lost_it_keep_their_other_log_subjects(self):
         # The deny is narrow: these identities still publish the logs they did.

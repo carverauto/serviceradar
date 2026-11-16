@@ -47,7 +47,8 @@ Add or change a built-in identity's subjects only here.
 {{- /* logs.normalized.> carries log batches the log collector has already
      normalized, which EventWriter stores without running Zen rules. Only the
      log collector may publish there, so every identity whose allow list would
-     otherwise cover it denies it. */}}
+     otherwise cover it, including one whose allow list is empty in some
+     rendering, denies it. */}}
 - user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: [">"]
@@ -346,6 +347,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
@@ -359,6 +361,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
@@ -394,6 +397,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $k8sInventoryNatsEnabled }}
     allow: ["_INBOX.>"]
