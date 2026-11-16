@@ -5,8 +5,8 @@ defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
   filter would pollute the count. A full 7-day horizon on a 5-minute schedule
   holds ~2,016 slots; the measured push is a refresh that re-pushes the whole
   carried window at once. Evidence entries are built for every slot and
-  committed through the set-based `commit_issuance/1` in 1,024-entry chunks:
-  four transactions of a fixed handful of statements for the whole window,
+  committed through the set-based `commit_issuance/1` in 512-entry chunks:
+  eight transactions of a fixed handful of statements for the whole window,
   where the per-entry commit ran seven or eight statements per entry (about
   28,000 for this window) and failed the 15s checkout timeout on a slow
   database. Minting is bounded the same way: a pass inserts its new slots a
