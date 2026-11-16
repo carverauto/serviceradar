@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraRecordingSettings
@@ -660,6 +662,171 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert saved.archive_retention_days == 1
       assert saved.max_local_age_seconds == 172_800
     end
+
+    test "renders C3a same-bucket multi-binding usage scope and separate non-blocking other-bucket info line" do
+      viewer_scope = scope_with_permissions(["settings.recording.view"])
+      storage_id = "00000000-0000-4000-8000-000000000011"
+      binding_gen1_id = "00000000-0000-4000-8000-000000000031"
+      binding_gen2_id = "00000000-0000-4000-8000-000000000032"
+      other_binding_id = "00000000-0000-4000-8000-000000000033"
+      retention_secret_id = "00000000-0000-4000-8000-000000000045"
+      now = ~U[2026-11-16 14:00:00Z]
+
+      settings =
+        struct(RecordingArchiveSettings.default_settings(),
+          active_archive_binding_id: binding_gen2_id,
+          archive_enabled: true,
+          retention_credential_secret_id: retention_secret_id
+        )
+
+      bindings = [
+        %ArchiveBinding{
+          id: binding_gen1_id,
+          provisioning_ref: "operator:primary",
+          generation: 1,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-archive",
+          namespace: "recordings/v1"
+        },
+        %ArchiveBinding{
+          id: binding_gen2_id,
+          provisioning_ref: "operator:primary",
+          generation: 2,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-archive",
+          namespace: "recordings/v2"
+        },
+        %ArchiveBinding{
+          id: other_binding_id,
+          provisioning_ref: "operator:legacy",
+          generation: 1,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-legacy-bucket",
+          namespace: "recordings/v1"
+        }
+      ]
+
+      key_1 = String.duplicate("1", 64)
+      key_2 = String.duplicate("2", 64)
+      key_3 = String.duplicate("3", 64)
+      key_reaped = String.duplicate("4", 64)
+
+      catalog_entries = [
+        %{
+          id: "00000000-0000-4000-8000-000000000081",
+          storage_id: storage_id,
+          block_key: key_1,
+          local_state: :present,
+          archive_state: :verified,
+          archive_binding_id: binding_gen1_id,
+          media_bytes: 52_428_800,
+          sealed_at: ~U[2026-11-15 10:00:00Z],
+          archived_at: ~U[2026-11-15 10:01:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000082",
+          storage_id: storage_id,
+          block_key: key_2,
+          local_state: :present,
+          archive_state: :pending,
+          archive_binding_id: binding_gen2_id,
+          media_bytes: 26_214_400,
+          sealed_at: ~U[2026-11-16 13:55:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000083",
+          storage_id: storage_id,
+          block_key: key_3,
+          local_state: :reclaimed,
+          archive_state: :verified,
+          archive_binding_id: other_binding_id,
+          media_bytes: 67_108_864,
+          sealed_at: ~U[2026-11-14 08:00:00Z],
+          archived_at: ~U[2026-11-14 08:02:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000084",
+          storage_id: storage_id,
+          block_key: key_reaped,
+          local_state: :present,
+          archive_state: :deleted,
+          archive_deleted_reason: :object_capacity,
+          archive_binding_id: binding_gen1_id,
+          media_bytes: 16_777_216,
+          sealed_at: ~U[2026-11-10 06:00:00Z]
+        }
+      ]
+
+      {:ok, summary} =
+        RetentionCalculator.usage_summary(
+          scope: viewer_scope,
+          now: now,
+          settings: settings,
+          loaders: %{
+            bindings_loader: fn -> {:ok, bindings} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, catalog_entries} end,
+            blocks_loader: fn -> {:ok, []} end
+          }
+        )
+
+      assert summary.archive.same_bucket_binding_count == 2
+      assert summary.archive.archive_used_bytes == 78_643_200
+      assert summary.archive.other_buckets_used_bytes == 67_108_864
+
+      deps = %{
+        load_archive_settings_view: fn _ ->
+          %{
+            default_overview()
+            | settings: settings,
+              storage_mode: :local_and_archive,
+              active_binding_id: binding_gen2_id,
+              object_retention_enforced?: true,
+              selected_retention_label: "Synthetic retention deleter"
+          }
+        end,
+        load_retention_usage_summary: fn _ -> summary end
+      }
+
+      socket =
+        viewer_scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "retention")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      used_text = doc |> LazyHTML.query("#retention-metric-archive-used") |> LazyHTML.text() |> normalize_ws()
+      assert used_text =~ "75 MiB"
+      assert used_text =~ "+25 MiB in flight (1 uploads)"
+      assert used_text =~ "Counts all 2 retained bindings on https://objects.example.com / synthetic-archive"
+
+      local_tail_text =
+        doc |> LazyHTML.query("#retention-single-copy-local-tail") |> LazyHTML.text() |> normalize_ws()
+
+      assert local_tail_text =~ "Local only after archive: 16 MiB"
+
+      other_info = LazyHTML.query(doc, "#retention-other-buckets-info")
+      assert Enum.count(other_info) == 1
+      assert LazyHTML.attribute(other_info, "role") == []
+
+      [other_classes] = LazyHTML.attribute(other_info, "class")
+      refute other_classes =~ "rose"
+      refute other_classes =~ "amber"
+
+      other_text = other_info |> LazyHTML.text() |> normalize_ws()
+      assert other_text =~ "64 MiB retained across 1 other bucket(s)"
+      assert other_text =~ "https://objects.example.com / synthetic-legacy-bucket (64 MiB)"
+      assert other_text =~ "excluded from active budget"
+
+      # When other_buckets_used_bytes is 0, the other-buckets info banner is omitted
+      no_other_summary = put_in(summary, [:archive, :other_buckets_used_bytes], 0)
+      no_other_socket = assign(socket, :usage_summary, no_other_summary)
+      no_other_doc = no_other_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert no_other_doc |> LazyHTML.query("#retention-other-buckets-info") |> Enum.count() == 0
+    end
   end
 
   describe "A1.8 archive mutations and per-event RBAC re-authorization" do
@@ -1148,6 +1315,220 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert filtered_end_doc |> LazyHTML.query("#camera-recording-blocks-empty") |> Enum.count() == 1
       assert filtered_end_doc |> LazyHTML.query("#camera-recording-blocks-filtered-more") |> Enum.count() == 0
       assert filtered_end_doc |> LazyHTML.query("#next-camera-blocks-page") |> Enum.count() == 0
+    end
+
+    test "joins RecordingCatalogEntry copy states and received time basis while preserving Core reservation and unknown local state on uncataloged rows" do
+      camera_id = "00000000-0000-4000-8000-000000000061"
+      profile_id = "00000000-0000-4000-8000-000000000062"
+      storage_id = "00000000-0000-4000-8000-000000000011"
+
+      key_verified = String.duplicate("a", 64)
+      key_reaped_local = String.duplicate("b", 64)
+      key_reclaimed = String.duplicate("c", 64)
+      key_failed = String.duplicate("d", 64)
+      key_uncataloged = String.duplicate("e", 64)
+
+      blocks = [
+        %{
+          id: "00000000-0000-4000-8000-000000000091",
+          block_key: key_verified,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 12:10:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000092",
+          block_key: key_reaped_local,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 12:08:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000093",
+          block_key: key_reclaimed,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 12:06:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000094",
+          block_key: key_failed,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 12:04:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000095",
+          block_key: key_uncataloged,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :open_local,
+          inserted_at: ~U[2026-11-16 12:02:00Z]
+        }
+      ]
+
+      receipt_id = "00000000-0000-4000-8000-000000000099"
+
+      receipt = %{
+        id: receipt_id,
+        storage_id: storage_id,
+        block_key: key_verified,
+        objects: [
+          %{
+            "name" => "media.m4s",
+            "key" => "recordings/v1/#{storage_id}/#{key_verified}/media.m4s",
+            "length" => 4_194_304,
+            "sha256" => String.duplicate("f", 64),
+            "etag" => "\"etag-cat-1\"",
+            "version_id" => "synth-v2-cat-01"
+          }
+        ]
+      }
+
+      catalog_entries = %{
+        {storage_id, key_verified} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000101",
+          recording_block_id: "00000000-0000-4000-8000-000000000091",
+          storage_id: storage_id,
+          block_key: key_verified,
+          local_state: :present,
+          archive_state: :verified,
+          nvr_archive_receipt_id: receipt_id,
+          time_basis: :received,
+          timeline_start_us: 1_763_295_000_000_000,
+          timeline_end_us: 1_763_295_012_000_000,
+          time_uncertainty_us: nil,
+          reanchored: true,
+          media_bytes: 4_194_304,
+          fragment_count: 6
+        },
+        {storage_id, key_reaped_local} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000102",
+          recording_block_id: "00000000-0000-4000-8000-000000000092",
+          storage_id: storage_id,
+          block_key: key_reaped_local,
+          local_state: :present,
+          archive_state: :deleted,
+          archive_deleted_reason: :object_capacity,
+          time_basis: :received,
+          timeline_start_us: 1_763_294_880_000_000,
+          timeline_end_us: 1_763_294_892_000_000,
+          time_uncertainty_us: nil,
+          reanchored: false,
+          media_bytes: 2_097_152,
+          fragment_count: 3
+        },
+        {storage_id, key_reclaimed} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000103",
+          recording_block_id: "00000000-0000-4000-8000-000000000093",
+          storage_id: storage_id,
+          block_key: key_reclaimed,
+          local_state: :reclaimed,
+          archive_state: :not_required,
+          time_basis: :received,
+          timeline_start_us: 1_763_294_760_000_000,
+          timeline_end_us: 1_763_294_770_000_000,
+          time_uncertainty_us: nil,
+          reanchored: false,
+          media_bytes: 1_048_576,
+          fragment_count: 2
+        },
+        {storage_id, key_failed} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000104",
+          recording_block_id: "00000000-0000-4000-8000-000000000094",
+          storage_id: storage_id,
+          block_key: key_failed,
+          local_state: :missing,
+          archive_state: :failed_terminal,
+          archive_attempts: 2,
+          archive_last_error_class: "archive_receipt_conflict",
+          time_basis: :received,
+          timeline_start_us: 1_763_294_640_000_000,
+          timeline_end_us: 1_763_294_650_000_000,
+          time_uncertainty_us: nil,
+          reanchored: false,
+          media_bytes: 1_048_576,
+          fragment_count: 2
+        }
+      }
+
+      scope = scope_with_permissions(["settings.recording.view", "devices.view"])
+
+      deps = %{
+        authorize_current: &scope_authorize_current/2,
+        authorize_current_any: &scope_authorize_current_any/2,
+        list_relay_profiles: fn _scope, ^camera_id ->
+          [%{id: profile_id, profile_name: "main", codec_hint: "h264"}]
+        end,
+        list_camera_blocks_page: fn s, cid, opts ->
+          CameraRecordingSettings.list_camera_blocks_page(
+            s,
+            cid,
+            Keyword.put(opts, :loaders, %{
+              blocks_page_loader: fn ^camera_id, _page_opts -> {:ok, blocks} end,
+              receipts_for_blocks_loader: fn _ ->
+                %{
+                  {storage_id, key_verified} => receipt,
+                  {:receipt_id, receipt_id} => receipt
+                }
+              end,
+              catalog_for_blocks_loader: fn _ -> {:ok, catalog_entries} end
+            })
+          )
+        end
+      }
+
+      socket =
+        scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "cameras")
+        |> assign(:sources, [
+          %{
+            id: camera_id,
+            display_name: "Synthetic Gate Camera",
+            device_uid: "sr:cam-01",
+            vendor_camera_id: "cam-01"
+          }
+        ])
+
+      {:noreply, selected_socket} =
+        RecordingLive.handle_event(
+          "select_camera_context",
+          %{"camera_source_id" => camera_id},
+          socket
+        )
+
+      doc = selected_socket |> render_mounted() |> LazyHTML.from_fragment()
+      rows_html = doc |> LazyHTML.query("#camera-recording-blocks-stream") |> LazyHTML.text() |> normalize_ws()
+
+      # Cataloged rows render Cataloged · Sealed, provisional local copy (PD2), archive_state, and received time basis
+      assert rows_html =~ "Cataloged · Sealed"
+      assert rows_html =~ "present (provisional)"
+      assert rows_html =~ "4 MiB · 6 fragments"
+      assert rows_html =~ "verified"
+      assert rows_html =~ "version synth-v2-cat-01"
+      assert rows_html =~ "Local only after archive reaping"
+      assert rows_html =~ "Deleted (object_capacity)"
+      assert rows_html =~ "reclaimed"
+      assert rows_html =~ "not_required (local only)"
+      assert rows_html =~ "missing"
+      assert rows_html =~ "failed_terminal"
+      assert rows_html =~ "Error: archive_receipt_conflict (attempt 2)"
+      assert rows_html =~ "received"
+      assert rows_html =~ "time re-anchored"
+      assert rows_html =~ "Uncertainty: unmeasured"
+      assert doc |> LazyHTML.query("#block-timeline-start-00000000-0000-4000-8000-000000000091") |> Enum.count() == 1
+
+      # Uncataloged open_local row preserves Core reservation and Unknown (never absent)
+      assert rows_html =~ "Core reservation"
+      assert rows_html =~ "Unknown (NVR lookup unavailable)"
+      assert rows_html =~ "Not cataloged"
+      refute String.downcase(rows_html) =~ "absent"
+      refute String.downcase(rows_html) =~ "capture time"
     end
   end
 

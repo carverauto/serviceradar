@@ -19,9 +19,11 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingCatalogEntry
 
   require Ash.Query
 
@@ -1075,9 +1077,12 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
   end
 
   @doc """
-  Reads live CNPG `NVRArchiveReceipt` and `RecordingBlock` rows under
-  `settings.recording.view | manage | operate` authorization and returns usage
-  totals together with calculated object and local retention projections.
+  Reads live CNPG `ArchiveBinding`, `RecordingCatalogEntry`, `NVRArchiveReceipt`,
+  and `RecordingBlock` rows under `settings.recording.view | manage | operate`
+  authorization and returns usage totals (grouped across all retained bindings
+  sharing `{endpoint, bucket}` with the active binding per `C3a`, with other
+  buckets reported separately) together with calculated object and local
+  retention projections.
   """
   @spec usage_summary(keyword()) :: {:ok, map()} | {:error, term()}
   def usage_summary(opts \\ []) when is_list(opts) do
@@ -1086,14 +1091,38 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
 
     with :ok <- RecordingArchiveSettings.authorize_recording_read(opts),
          {:ok, settings} <- load_settings_for_summary(opts, loaders),
-         {:ok, receipts} <- load_receipts_for_binding(settings.active_archive_binding_id, loaders),
+         {:ok, bindings} <- load_bindings_for_summary(settings.active_archive_binding_id, loaders),
+         {:ok, receipts} <- load_all_receipts(settings.active_archive_binding_id, loaders),
+         {:ok, catalog_entries} <- load_catalog_entries(loaders),
          {:ok, blocks} <- load_reserved_blocks(loaders) do
-      archive_stats = aggregate_receipts(receipts, settings.active_archive_binding_id, now)
-      block_stats = aggregate_blocks(blocks, now)
-      avg_block_bytes = estimate_avg_block_bytes(archive_stats)
+      archive_stats =
+        aggregate_object_usage(
+          bindings,
+          catalog_entries,
+          receipts,
+          settings.active_archive_binding_id,
+          now
+        )
 
-      r15m_bps = block_stats.trailing_15m_blocks * avg_block_bytes / @window_15m_seconds
-      r6h_bps = block_stats.trailing_6h_blocks * avg_block_bytes / @window_6h_seconds
+      block_stats = aggregate_blocks_and_catalog(blocks, catalog_entries, now)
+      avg_block_bytes = estimate_avg_block_bytes(archive_stats, block_stats)
+
+      {r15m_bps, r6h_bps, local_history_sec} =
+        resolve_summary_local_rates(block_stats, avg_block_bytes)
+
+      default_pinned =
+        calculate_pinned_bytes(%{
+          local_only_full_policy: settings.local_only_full_policy,
+          p1_unarchived_bytes: block_stats.unarchived_local_bytes,
+          kind_b_local_only_bytes: block_stats.kind_b_local_only_bytes,
+          p5_quarantined_bytes: block_stats.quarantined_local_bytes
+        }).total_pinned_bytes
+
+      has_activity? =
+        block_stats.total_reserved_blocks > 0 or
+          block_stats.cataloged_block_count > 0 or
+          archive_stats.archived_block_count > 0 or
+          archive_stats.uploads_in_flight_count > 0
 
       sim_inputs = %{
         archive_used_bytes: archive_stats.archive_used_bytes,
@@ -1101,22 +1130,15 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         trailing_7d_bytes: archive_stats.trailing_7d_bytes,
         trailing_7d_daily_mean_bytes: archive_stats.trailing_7d_daily_mean_bytes,
         history_seconds: archive_stats.history_seconds,
-        local_history_seconds: block_stats.history_seconds,
+        local_history_seconds: local_history_sec,
         r15m_bytes_per_sec: r15m_bps,
         r6h_bytes_per_sec: r6h_bps,
-        camera_count:
-          Keyword.get(
-            opts,
-            :camera_count,
-            if(block_stats.total_reserved_blocks > 0 or archive_stats.archived_block_count > 0,
-              do: 1,
-              else: 0
-            )
-          ),
+        camera_count: Keyword.get(opts, :camera_count, if(has_activity?, do: 1, else: 0)),
         nominal_bitrate_bps: Keyword.get(opts, :nominal_bitrate_bps, 0),
         local_budget_bytes: Keyword.get(opts, :local_budget_bytes, @default_local_budget_bytes),
-        pinned_bytes: Keyword.get(opts, :pinned_bytes, 0),
-        non_reapable_bytes: Keyword.get(opts, :non_reapable_bytes, 0),
+        pinned_bytes: Keyword.get(opts, :pinned_bytes, default_pinned),
+        non_reapable_bytes:
+          Keyword.get(opts, :non_reapable_bytes, archive_stats.catalog_non_reapable_bytes),
         max_blocks: Keyword.get(opts, :max_blocks),
         avg_block_bytes: avg_block_bytes
       }
@@ -1160,18 +1182,110 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end
   end
 
-  defp load_receipts_for_binding(nil, _loaders), do: {:ok, []}
+  defp load_bindings_for_summary(active_binding_id, loaders) do
+    case Map.get(loaders, :bindings_loader) do
+      loader when is_function(loader, 0) ->
+        loader.()
 
-  defp load_receipts_for_binding(binding_id, loaders) do
-    case Map.get(loaders, :receipts_loader) do
-      loader when is_function(loader, 1) ->
-        loader.(binding_id)
+      _ when map_size(loaders) > 0 ->
+        if is_nil(active_binding_id) do
+          {:ok, []}
+        else
+          {:ok,
+           [
+             %{
+               id: active_binding_id,
+               endpoint: "https://objects.example.com",
+               bucket: "default-bucket",
+               namespace: "recordings/v1"
+             }
+           ]}
+        end
 
       _ ->
+        ArchiveBinding
+        |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+        |> Ash.Query.select([:id, :endpoint, :bucket, :namespace, :provisioning_ref, :generation])
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp load_all_receipts(active_binding_id, loaders) do
+    cond do
+      is_function(Map.get(loaders, :all_receipts_loader), 0) ->
+        loaders.all_receipts_loader.()
+
+      is_function(Map.get(loaders, :receipts_loader), 0) ->
+        loaders.receipts_loader.()
+
+      is_function(Map.get(loaders, :receipts_loader), 1) ->
+        if is_nil(active_binding_id) do
+          {:ok, []}
+        else
+          case loaders.receipts_loader.(active_binding_id) do
+            {:ok, rows} when is_list(rows) ->
+              {:ok, Enum.map(rows, &ensure_receipt_binding(&1, active_binding_id))}
+
+            other ->
+              other
+          end
+        end
+
+      map_size(loaders) > 0 ->
+        {:ok, []}
+
+      true ->
         NVRArchiveReceipt
         |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
-        |> Ash.Query.filter(archive_binding_id == ^binding_id)
-        |> Ash.Query.select([:id, :objects, :verified_at])
+        |> Ash.Query.select([
+          :id,
+          :storage_id,
+          :block_key,
+          :archive_binding_id,
+          :recording_block_id,
+          :objects,
+          :verified_at
+        ])
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp ensure_receipt_binding(receipt, active_binding_id) when is_map(receipt) do
+    if is_nil(fetch_val(receipt, :archive_binding_id)) do
+      Map.put(receipt, :archive_binding_id, active_binding_id)
+    else
+      receipt
+    end
+  end
+
+  defp load_catalog_entries(loaders) do
+    case Map.get(loaders, :catalog_loader) do
+      loader when is_function(loader, 0) ->
+        loader.()
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
+      _ ->
+        RecordingCatalogEntry
+        |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+        |> Ash.Query.select([
+          :id,
+          :recording_block_id,
+          :storage_id,
+          :block_key,
+          :local_state,
+          :archive_state,
+          :archive_deleted_reason,
+          :archive_binding_id,
+          :quarantine_binding_id,
+          :nvr_archive_receipt_id,
+          :media_bytes,
+          :quarantined_bytes,
+          :archive_last_error_class,
+          :sealed_at,
+          :archived_at
+        ])
         |> Ash.read(actor: @system_actor)
     end
   end
@@ -1181,6 +1295,9 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       loader when is_function(loader, 0) ->
         loader.()
 
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
       _ ->
         RecordingBlock
         |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
@@ -1189,15 +1306,262 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end
   end
 
-  defp aggregate_receipts(receipts, binding_id, now) do
+  defp aggregate_object_usage(bindings, catalog_entries, receipts, active_binding_id, now) do
+    bindings_by_id =
+      Map.new(bindings, fn b ->
+        {to_string(fetch_val(b, :id)), b}
+      end)
+
+    {active_bucket, same_bucket_ids} =
+      resolve_same_bucket_bindings(bindings, bindings_by_id, active_binding_id)
+
+    items = build_object_usage_items(catalog_entries, receipts)
+
+    {same_items, other_items} =
+      Enum.split_with(items, &MapSet.member?(same_bucket_ids, &1.binding_id))
+
+    same_acc = summarize_same_bucket_items(same_items, now)
+    other_buckets = summarize_other_bucket_items(other_items, bindings_by_id)
+    other_used_bytes = Enum.reduce(other_buckets, 0, &(&1.used_bytes + &2))
+
+    Map.merge(same_acc, %{
+      active_archive_binding_id: active_binding_id,
+      active_bucket: active_bucket,
+      same_bucket_binding_ids: same_bucket_ids |> MapSet.to_list() |> Enum.sort(),
+      same_bucket_binding_count: MapSet.size(same_bucket_ids),
+      other_buckets: other_buckets,
+      other_buckets_count: length(other_buckets),
+      other_buckets_used_bytes: other_used_bytes
+    })
+  end
+
+  defp resolve_same_bucket_bindings(_bindings, _bindings_by_id, nil) do
+    {nil, MapSet.new()}
+  end
+
+  defp resolve_same_bucket_bindings(bindings, bindings_by_id, active_binding_id) do
+    active_id_str = to_string(active_binding_id)
+
+    case Map.get(bindings_by_id, active_id_str) do
+      nil ->
+        {nil, MapSet.new([active_id_str])}
+
+      active_b ->
+        endpoint = fetch_val(active_b, :endpoint)
+        bucket = fetch_val(active_b, :bucket)
+
+        if is_binary(endpoint) and is_binary(bucket) do
+          matching_ids =
+            for b <- bindings,
+                fetch_val(b, :endpoint) == endpoint and fetch_val(b, :bucket) == bucket,
+                into: MapSet.new([active_id_str]),
+                do: to_string(fetch_val(b, :id))
+
+          {%{endpoint: endpoint, bucket: bucket}, matching_ids}
+        else
+          {nil, MapSet.new([active_id_str])}
+        end
+    end
+  end
+
+  defp build_object_usage_items(catalog_entries, receipts) do
+    receipts_by_id =
+      for r <- receipts,
+          id = fetch_val(r, :id),
+          not is_nil(id),
+          into: %{},
+          do: {to_string(id), r}
+
+    receipts_by_copy =
+      for r <- receipts,
+          sid = fetch_val(r, :storage_id),
+          bkey = fetch_val(r, :block_key),
+          bid = fetch_val(r, :archive_binding_id),
+          not is_nil(sid) and not is_nil(bkey) and not is_nil(bid),
+          into: %{},
+          do: {{to_string(sid), to_string(bkey), to_string(bid)}, r}
+
+    cataloged_pairs =
+      for entry <- catalog_entries,
+          sid = fetch_val(entry, :storage_id),
+          bkey = fetch_val(entry, :block_key),
+          not is_nil(sid) and not is_nil(bkey),
+          into: MapSet.new(),
+          do: {to_string(sid), to_string(bkey)}
+
+    catalog_items =
+      Enum.flat_map(
+        catalog_entries,
+        &catalog_entry_object_items(&1, receipts_by_id, receipts_by_copy)
+      )
+
+    fallback_items =
+      for r <- receipts,
+          not receipt_covered_by_catalog?(r, cataloged_pairs),
+          bid = fetch_val(r, :archive_binding_id),
+          not is_nil(bid) do
+        objects = List.wrap(fetch_val(r, :objects))
+
+        %{
+          kind: :verified_or_deleting,
+          binding_id: to_string(bid),
+          bytes: sum_receipt_object_bytes(objects),
+          object_count: length(objects),
+          timestamp: fetch_val(r, :verified_at),
+          blocked_by_provider?: false
+        }
+      end
+
+    catalog_items ++ fallback_items
+  end
+
+  defp receipt_covered_by_catalog?(receipt, cataloged_pairs) do
+    sid = fetch_val(receipt, :storage_id)
+    bkey = fetch_val(receipt, :block_key)
+
+    not is_nil(sid) and not is_nil(bkey) and
+      MapSet.member?(cataloged_pairs, {to_string(sid), to_string(bkey)})
+  end
+
+  defp catalog_entry_object_items(entry, receipts_by_id, receipts_by_copy) do
+    local_state = normalize_atom_state(fetch_val(entry, :local_state))
+    archive_state = normalize_atom_state(fetch_val(entry, :archive_state))
+
+    if local_state == :quarantined do
+      quarantine_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy)
+    else
+      sealed_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy)
+    end
+  end
+
+  defp sealed_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy) do
+    binding_id = fetch_val(entry, :archive_binding_id)
+
+    cond do
+      is_nil(binding_id) ->
+        []
+
+      archive_state in [:verified, :deleting] ->
+        receipt = lookup_entry_receipt(entry, binding_id, receipts_by_id, receipts_by_copy)
+        {bytes, obj_count} = receipt_or_media_bytes(receipt, fetch_val(entry, :media_bytes), 3)
+
+        ts =
+          fetch_val(entry, :archived_at) ||
+            (receipt && fetch_val(receipt, :verified_at)) ||
+            fetch_val(entry, :sealed_at)
+
+        [
+          %{
+            kind: :verified_or_deleting,
+            binding_id: to_string(binding_id),
+            bytes: bytes,
+            object_count: obj_count,
+            timestamp: ts,
+            blocked_by_provider?:
+              fetch_val(entry, :archive_last_error_class) == "blocked_by_provider"
+          }
+        ]
+
+      archive_state in [:pending, :failed_retryable] ->
+        bytes = max(0, trunc(number_or_zero(fetch_val(entry, :media_bytes))))
+
+        [
+          %{
+            kind: :in_flight,
+            binding_id: to_string(binding_id),
+            bytes: bytes,
+            object_count: 0,
+            timestamp: nil,
+            blocked_by_provider?: false
+          }
+        ]
+
+      true ->
+        []
+    end
+  end
+
+  defp quarantine_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy) do
+    q_binding_id = fetch_val(entry, :quarantine_binding_id)
+    fallback_bytes = fetch_val(entry, :quarantined_bytes) || fetch_val(entry, :media_bytes)
+
+    cond do
+      is_nil(q_binding_id) ->
+        []
+
+      archive_state in [:verified, :deleting] ->
+        receipt = lookup_entry_receipt(entry, q_binding_id, receipts_by_id, receipts_by_copy)
+        {bytes, obj_count} = receipt_or_media_bytes(receipt, fallback_bytes, 1)
+
+        [
+          %{
+            kind: :quarantine,
+            binding_id: to_string(q_binding_id),
+            bytes: bytes,
+            object_count: obj_count,
+            timestamp: fetch_val(entry, :archived_at),
+            blocked_by_provider?: false
+          }
+        ]
+
+      archive_state in [:pending, :failed_retryable] ->
+        bytes = max(0, trunc(number_or_zero(fallback_bytes)))
+
+        [
+          %{
+            kind: :in_flight,
+            binding_id: to_string(q_binding_id),
+            bytes: bytes,
+            object_count: 0,
+            timestamp: nil,
+            blocked_by_provider?: false
+          }
+        ]
+
+      true ->
+        []
+    end
+  end
+
+  defp lookup_entry_receipt(entry, binding_id, receipts_by_id, receipts_by_copy) do
+    rid = fetch_val(entry, :nvr_archive_receipt_id)
+    sid = fetch_val(entry, :storage_id)
+    bkey = fetch_val(entry, :block_key)
+
+    cond do
+      not is_nil(rid) and Map.has_key?(receipts_by_id, to_string(rid)) ->
+        Map.get(receipts_by_id, to_string(rid))
+
+      not is_nil(sid) and not is_nil(bkey) ->
+        Map.get(receipts_by_copy, {to_string(sid), to_string(bkey), to_string(binding_id)})
+
+      true ->
+        nil
+    end
+  end
+
+  defp receipt_or_media_bytes(nil, fallback_bytes, default_objects) do
+    {max(0, trunc(number_or_zero(fallback_bytes))), default_objects}
+  end
+
+  defp receipt_or_media_bytes(receipt, _fallback_bytes, _default_objects) do
+    objects = List.wrap(fetch_val(receipt, :objects))
+    {sum_receipt_object_bytes(objects), length(objects)}
+  end
+
+  defp summarize_same_bucket_items(items, now) do
     cutoff_24h = DateTime.shift(now, second: -@window_24h_seconds)
     cutoff_7d = DateTime.shift(now, second: -@window_7d_seconds)
 
     acc =
       Enum.reduce(
-        receipts,
+        items,
         %{
-          used_bytes: 0,
+          verified_bytes: 0,
+          in_flight_bytes: 0,
+          in_flight_count: 0,
+          quarantine_bytes: 0,
+          blocked_bytes: 0,
           block_count: 0,
           object_count: 0,
           oldest: nil,
@@ -1205,26 +1569,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           b24: 0,
           b7: 0
         },
-        fn receipt, st ->
-          objects = List.wrap(fetch_val(receipt, :objects))
-          row_bytes = sum_receipt_object_bytes(objects)
-          verified_at = fetch_val(receipt, :verified_at)
-
-          in_24h? =
-            match?(%DateTime{}, verified_at) and DateTime.compare(verified_at, cutoff_24h) != :lt
-
-          in_7d? =
-            match?(%DateTime{}, verified_at) and DateTime.compare(verified_at, cutoff_7d) != :lt
-
-          %{
-            used_bytes: st.used_bytes + row_bytes,
-            block_count: st.block_count + 1,
-            object_count: st.object_count + length(objects),
-            oldest: min_datetime(st.oldest, verified_at),
-            newest: max_datetime(st.newest, verified_at),
-            b24: st.b24 + if(in_24h?, do: row_bytes, else: 0),
-            b7: st.b7 + if(in_7d?, do: row_bytes, else: 0)
-          }
+        fn item, st ->
+          accumulate_same_bucket_item(item, st, cutoff_24h, cutoff_7d)
         end
       )
 
@@ -1234,9 +1580,17 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         _ -> 0
       end
 
+    total_used = acc.verified_bytes + acc.in_flight_bytes + acc.quarantine_bytes
+    non_reapable = acc.in_flight_bytes + acc.quarantine_bytes + acc.blocked_bytes
+
     %{
-      active_archive_binding_id: binding_id,
-      archive_used_bytes: acc.used_bytes,
+      archive_used_bytes: total_used,
+      verified_and_deleting_bytes: acc.verified_bytes,
+      uploads_in_flight_bytes: acc.in_flight_bytes,
+      uploads_in_flight_count: acc.in_flight_count,
+      quarantine_object_bytes: acc.quarantine_bytes,
+      blocked_by_provider_bytes: acc.blocked_bytes,
+      catalog_non_reapable_bytes: non_reapable,
       archived_block_count: acc.block_count,
       archived_object_count: acc.object_count,
       oldest_verified_at: acc.oldest,
@@ -1248,11 +1602,321 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     }
   end
 
+  defp accumulate_same_bucket_item(
+         %{kind: :verified_or_deleting} = item,
+         st,
+         cutoff_24h,
+         cutoff_7d
+       ) do
+    ts = item.timestamp
+    in_24h? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_24h) != :lt
+    in_7d? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_7d) != :lt
+
+    %{
+      st
+      | verified_bytes: st.verified_bytes + item.bytes,
+        blocked_bytes: st.blocked_bytes + if(item.blocked_by_provider?, do: item.bytes, else: 0),
+        block_count: st.block_count + 1,
+        object_count: st.object_count + item.object_count,
+        oldest: min_datetime(st.oldest, ts),
+        newest: max_datetime(st.newest, ts),
+        b24: st.b24 + if(in_24h?, do: item.bytes, else: 0),
+        b7: st.b7 + if(in_7d?, do: item.bytes, else: 0)
+    }
+  end
+
+  defp accumulate_same_bucket_item(%{kind: :in_flight} = item, st, _cutoff_24h, _cutoff_7d) do
+    %{
+      st
+      | in_flight_bytes: st.in_flight_bytes + item.bytes,
+        in_flight_count: st.in_flight_count + 1
+    }
+  end
+
+  defp accumulate_same_bucket_item(%{kind: :quarantine} = item, st, _cutoff_24h, _cutoff_7d) do
+    %{
+      st
+      | quarantine_bytes: st.quarantine_bytes + item.bytes,
+        object_count: st.object_count + item.object_count
+    }
+  end
+
+  defp summarize_other_bucket_items([], _bindings_by_id), do: []
+
+  defp summarize_other_bucket_items(other_items, bindings_by_id) do
+    other_items
+    |> Enum.group_by(fn item ->
+      case Map.get(bindings_by_id, item.binding_id) do
+        nil ->
+          {"unknown", item.binding_id}
+
+        b ->
+          {fetch_val(b, :endpoint) || "unknown", fetch_val(b, :bucket) || item.binding_id}
+      end
+    end)
+    |> Enum.map(fn {{endpoint, bucket}, bucket_items} ->
+      acc =
+        Enum.reduce(
+          bucket_items,
+          %{
+            binding_ids: MapSet.new(),
+            verified_bytes: 0,
+            in_flight_bytes: 0,
+            quarantine_bytes: 0,
+            block_count: 0,
+            object_count: 0
+          },
+          fn item, st ->
+            accumulate_other_bucket_item(item, st)
+          end
+        )
+
+      used = acc.verified_bytes + acc.in_flight_bytes + acc.quarantine_bytes
+
+      %{
+        endpoint: endpoint,
+        bucket: bucket,
+        binding_ids: acc.binding_ids |> MapSet.to_list() |> Enum.sort(),
+        binding_count: MapSet.size(acc.binding_ids),
+        used_bytes: used,
+        verified_and_deleting_bytes: acc.verified_bytes,
+        uploads_in_flight_bytes: acc.in_flight_bytes,
+        quarantine_object_bytes: acc.quarantine_bytes,
+        archived_block_count: acc.block_count,
+        archived_object_count: acc.object_count
+      }
+    end)
+    |> Enum.filter(&(&1.used_bytes > 0 or &1.archived_block_count > 0))
+    |> Enum.sort_by(&{&1.endpoint, &1.bucket})
+  end
+
+  defp accumulate_other_bucket_item(item, st) do
+    next_ids = MapSet.put(st.binding_ids, item.binding_id)
+
+    case item.kind do
+      :verified_or_deleting ->
+        %{
+          st
+          | binding_ids: next_ids,
+            verified_bytes: st.verified_bytes + item.bytes,
+            block_count: st.block_count + 1,
+            object_count: st.object_count + item.object_count
+        }
+
+      :in_flight ->
+        %{st | binding_ids: next_ids, in_flight_bytes: st.in_flight_bytes + item.bytes}
+
+      :quarantine ->
+        %{
+          st
+          | binding_ids: next_ids,
+            quarantine_bytes: st.quarantine_bytes + item.bytes,
+            object_count: st.object_count + item.object_count
+        }
+    end
+  end
+
   defp sum_receipt_object_bytes(objects) do
     Enum.reduce(objects, 0, fn obj, acc ->
       len = if is_map(obj), do: fetch_val(obj, :length) || 0, else: 0
       if is_integer(len) and len > 0, do: acc + len, else: acc
     end)
+  end
+
+  defp aggregate_blocks_and_catalog(blocks, catalog_entries, now) do
+    base = aggregate_blocks(blocks, now)
+    catalog = aggregate_catalog_local(catalog_entries, now)
+
+    merged_by_storage =
+      Map.merge(base.by_storage, catalog.by_storage, fn _sid, b_info, c_info ->
+        Map.merge(b_info, c_info)
+      end)
+
+    Map.merge(base, %{
+      by_storage: merged_by_storage,
+      cataloged_block_count: catalog.cataloged_block_count,
+      local_present_blocks: catalog.local_present_blocks,
+      local_present_bytes: catalog.local_present_bytes,
+      unarchived_local_count: catalog.unarchived_local_count,
+      unarchived_local_bytes: catalog.unarchived_local_bytes,
+      kind_b_local_only_bytes: catalog.kind_b_local_only_bytes,
+      quarantined_local_count: catalog.quarantined_local_count,
+      quarantined_local_bytes: catalog.quarantined_local_bytes,
+      local_only_after_archive_count: catalog.local_only_after_archive_count,
+      local_only_after_archive_bytes: catalog.local_only_after_archive_bytes,
+      oldest_local_only_after_archive_at: catalog.oldest_local_only_after_archive_at,
+      trailing_15m_catalog_bytes: catalog.trailing_15m_bytes,
+      trailing_6h_catalog_bytes: catalog.trailing_6h_bytes,
+      catalog_r15m_bytes_per_sec: catalog.trailing_15m_bytes / @window_15m_seconds,
+      catalog_r6h_bytes_per_sec: catalog.trailing_6h_bytes / @window_6h_seconds,
+      catalog_history_seconds: catalog.history_seconds
+    })
+  end
+
+  defp aggregate_catalog_local(catalog_entries, now) do
+    cutoff_15m = DateTime.shift(now, second: -@window_15m_seconds)
+    cutoff_6h = DateTime.shift(now, second: -@window_6h_seconds)
+
+    acc =
+      Enum.reduce(
+        catalog_entries,
+        %{
+          count: 0,
+          present_blocks: 0,
+          present_bytes: 0,
+          unarchived_count: 0,
+          unarchived_bytes: 0,
+          kind_b_bytes: 0,
+          quarantined_count: 0,
+          quarantined_bytes: 0,
+          after_archive_count: 0,
+          after_archive_bytes: 0,
+          oldest_after_archive: nil,
+          oldest_sealed: nil,
+          b15m: 0,
+          b6h: 0,
+          by_storage: %{}
+        },
+        fn entry, st ->
+          accumulate_catalog_local_entry(entry, st, cutoff_15m, cutoff_6h)
+        end
+      )
+
+    history_seconds =
+      case acc.oldest_sealed do
+        %DateTime{} = oldest -> max(0, DateTime.diff(now, oldest, :second))
+        _ -> 0
+      end
+
+    by_storage =
+      Map.new(acc.by_storage, fn {sid, s} ->
+        {sid,
+         Map.merge(s, %{
+           catalog_r15m_bytes_per_sec: s.trailing_15m_catalog_bytes / @window_15m_seconds,
+           catalog_r6h_bytes_per_sec: s.trailing_6h_catalog_bytes / @window_6h_seconds
+         })}
+      end)
+
+    %{
+      cataloged_block_count: acc.count,
+      local_present_blocks: acc.present_blocks,
+      local_present_bytes: acc.present_bytes,
+      unarchived_local_count: acc.unarchived_count,
+      unarchived_local_bytes: acc.unarchived_bytes,
+      kind_b_local_only_bytes: acc.kind_b_bytes,
+      quarantined_local_count: acc.quarantined_count,
+      quarantined_local_bytes: acc.quarantined_bytes,
+      local_only_after_archive_count: acc.after_archive_count,
+      local_only_after_archive_bytes: acc.after_archive_bytes,
+      oldest_local_only_after_archive_at: acc.oldest_after_archive,
+      trailing_15m_bytes: acc.b15m,
+      trailing_6h_bytes: acc.b6h,
+      history_seconds: history_seconds,
+      by_storage: by_storage
+    }
+  end
+
+  defp accumulate_catalog_local_entry(entry, st, cutoff_15m, cutoff_6h) do
+    local_state = normalize_atom_state(fetch_val(entry, :local_state))
+    archive_state = normalize_atom_state(fetch_val(entry, :archive_state))
+    media_bytes = max(0, trunc(number_or_zero(fetch_val(entry, :media_bytes))))
+    q_bytes = max(0, trunc(number_or_zero(fetch_val(entry, :quarantined_bytes))))
+    sealed_at = fetch_val(entry, :sealed_at)
+    sid = to_string(fetch_val(entry, :storage_id) || "unknown")
+
+    in_15m? =
+      local_state != :quarantined and match?(%DateTime{}, sealed_at) and
+        DateTime.compare(sealed_at, cutoff_15m) != :lt
+
+    in_6h? =
+      local_state != :quarantined and match?(%DateTime{}, sealed_at) and
+        DateTime.compare(sealed_at, cutoff_6h) != :lt
+
+    present? = local_state == :present
+    quarantined? = local_state == :quarantined
+
+    pinned_kind_c? =
+      present? and
+        archive_state in [
+          :awaiting_binding,
+          :pending,
+          :failed_retryable,
+          :failed_terminal,
+          :deleting,
+          :missing
+        ]
+
+    kind_b? = present? and archive_state == :not_required
+    after_archive? = present? and archive_state == :deleted
+
+    prev_s =
+      Map.get(st.by_storage, sid, %{
+        total_blocks: 0,
+        trailing_15m_blocks: 0,
+        trailing_6h_blocks: 0,
+        cataloged_blocks: 0,
+        local_present_bytes: 0,
+        unarchived_local_bytes: 0,
+        quarantined_local_bytes: 0,
+        trailing_15m_catalog_bytes: 0,
+        trailing_6h_catalog_bytes: 0
+      })
+
+    next_s =
+      Map.merge(prev_s, %{
+        cataloged_blocks: Map.get(prev_s, :cataloged_blocks, 0) + 1,
+        local_present_bytes:
+          Map.get(prev_s, :local_present_bytes, 0) + if(present?, do: media_bytes, else: 0),
+        unarchived_local_bytes:
+          Map.get(prev_s, :unarchived_local_bytes, 0) +
+            if(pinned_kind_c?, do: media_bytes, else: 0),
+        quarantined_local_bytes:
+          Map.get(prev_s, :quarantined_local_bytes, 0) + if(quarantined?, do: q_bytes, else: 0),
+        trailing_15m_catalog_bytes:
+          Map.get(prev_s, :trailing_15m_catalog_bytes, 0) + if(in_15m?, do: media_bytes, else: 0),
+        trailing_6h_catalog_bytes:
+          Map.get(prev_s, :trailing_6h_catalog_bytes, 0) + if(in_6h?, do: media_bytes, else: 0)
+      })
+
+    %{
+      count: st.count + 1,
+      present_blocks: st.present_blocks + if(present?, do: 1, else: 0),
+      present_bytes: st.present_bytes + if(present?, do: media_bytes, else: 0),
+      unarchived_count: st.unarchived_count + if(pinned_kind_c?, do: 1, else: 0),
+      unarchived_bytes: st.unarchived_bytes + if(pinned_kind_c?, do: media_bytes, else: 0),
+      kind_b_bytes: st.kind_b_bytes + if(kind_b?, do: media_bytes, else: 0),
+      quarantined_count: st.quarantined_count + if(quarantined?, do: 1, else: 0),
+      quarantined_bytes: st.quarantined_bytes + if(quarantined?, do: q_bytes, else: 0),
+      after_archive_count: st.after_archive_count + if(after_archive?, do: 1, else: 0),
+      after_archive_bytes: st.after_archive_bytes + if(after_archive?, do: media_bytes, else: 0),
+      oldest_after_archive:
+        if(after_archive?,
+          do: min_datetime(st.oldest_after_archive, sealed_at),
+          else: st.oldest_after_archive
+        ),
+      oldest_sealed:
+        if(quarantined?, do: st.oldest_sealed, else: min_datetime(st.oldest_sealed, sealed_at)),
+      b15m: st.b15m + if(in_15m?, do: media_bytes, else: 0),
+      b6h: st.b6h + if(in_6h?, do: media_bytes, else: 0),
+      by_storage: Map.put(st.by_storage, sid, next_s)
+    }
+  end
+
+  defp resolve_summary_local_rates(%{cataloged_block_count: c_count} = stats, _avg_block_bytes)
+       when c_count > 0 do
+    {
+      stats.catalog_r15m_bytes_per_sec,
+      stats.catalog_r6h_bytes_per_sec,
+      max(stats.history_seconds, stats.catalog_history_seconds)
+    }
+  end
+
+  defp resolve_summary_local_rates(stats, avg_block_bytes) do
+    {
+      stats.trailing_15m_blocks * avg_block_bytes / @window_15m_seconds,
+      stats.trailing_6h_blocks * avg_block_bytes / @window_6h_seconds,
+      stats.history_seconds
+    }
   end
 
   defp aggregate_blocks(blocks, now) do
@@ -1311,12 +1975,34 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     }
   end
 
-  defp estimate_avg_block_bytes(%{archived_block_count: count, archive_used_bytes: bytes})
+  defp estimate_avg_block_bytes(_archive_stats, %{
+         local_present_blocks: p_count,
+         local_present_bytes: p_bytes
+       })
+       when p_count > 0 and p_bytes > 0 do
+    div(p_bytes, p_count)
+  end
+
+  defp estimate_avg_block_bytes(
+         %{archived_block_count: count, verified_and_deleting_bytes: bytes},
+         _block_stats
+       )
        when count > 0 and bytes > 0 do
     div(bytes, count)
   end
 
-  defp estimate_avg_block_bytes(_), do: @default_avg_block_bytes
+  defp estimate_avg_block_bytes(_, _), do: @default_avg_block_bytes
+
+  defp normalize_atom_state(val) when is_atom(val), do: val
+
+  defp normalize_atom_state(val) when is_binary(val) do
+    Enum.find(
+      RecordingCatalogEntry.local_states() ++ RecordingCatalogEntry.archive_states(),
+      &(Atom.to_string(&1) == val)
+    )
+  end
+
+  defp normalize_atom_state(_), do: nil
 
   defp min_datetime(nil, %DateTime{} = dt), do: dt
   defp min_datetime(%DateTime{} = dt, nil), do: dt
