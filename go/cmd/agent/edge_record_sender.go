@@ -377,6 +377,9 @@ func pollLegacyHandoff(ctx context.Context, sp *agent.RecordSpool, interval time
 			return
 		case err == nil:
 			return
+		case errors.Is(err, agent.ErrLegacyHandoffInsufficientCapacity):
+			log.Warn().Uint64("pending", report.Pending).Uint64("capacity_needed_bytes", report.CapacityNeeded).
+				Str("reason", report.Reason).Msg("Legacy edge storage handoff waits for spool capacity; will retry")
 		case report.Reason == "unsupported_legacy_storage":
 			log.Warn().Uint64("retained_legacy_bytes", sp.RetainedLegacyBytes()).
 				Msg("Unsupported legacy edge storage retained; it holds entries no known layout accounts for")

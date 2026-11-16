@@ -368,6 +368,15 @@ func (s *Spool) open() error {
 // than its own allowance.
 const terminalEvidenceAllowance = 256
 
+// AttributedAppendCharge bounds the ordinary bytes one attributed append of a
+// bodyLen-byte record charges the allocator: the record frame, the committed and
+// resolved entries in every evidence copy, one attribution sidecar slot, and the
+// terminal-evidence allowance.
+func AttributedAppendCharge(bodyLen int) uint64 {
+	entry := uint64(evidenceBodyLen2 + sha256.Size)
+	return uint64(minRecordLen+bodyLen) + evidenceCopies*2*entry + sidecarSlotSize + terminalEvidenceAllowance
+}
+
 // chargeLane charges every regular file in the lane directory to the allocator,
 // not only the segment: whatever the lane keeps beside it occupies its disk too,
 // including both commit evidence copies in their own directories. It also charges

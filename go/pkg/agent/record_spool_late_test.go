@@ -401,6 +401,112 @@ func TestLegacyHandoffDrainsWhileTheAdmissionGateIsPaused(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
+func flatRecords(raws [][]byte) []spool.Record {
+	out := make([]spool.Record, 0, len(raws))
+	for _, raw := range raws {
+		out = append(out, spool.Record{Body: raw})
+	}
+	return out
+}
+
+// leaveOrdinaryRoom applies a spool budget, through the runtime path core's
+// edge_spool_max_bytes takes, that leaves exactly free ordinary bytes.
+func leaveOrdinaryRoom(t *testing.T, allocator *spool.Allocator, free uint64) {
+	t.Helper()
+	usage := allocator.Usage()
+	require.NoError(t, allocator.SetCapacity(usage.Floor+usage.OrdinaryUsed+free))
+	usage = allocator.Usage()
+	require.Equal(t, free, usage.OrdinaryCeiling-usage.OrdinaryUsed)
+}
+
+func lateTail(t *testing.T, n int) ([][]byte, uint64) {
+	t.Helper()
+	var raws [][]byte
+	needed := uint64(spool.GenerationMetadataCharge)
+	for i := range n {
+		raw := daysOldRelayRecord(t, time.Now().Add(-time.Duration(6*24-i)*time.Hour))
+		raws = append(raws, raw)
+		needed += spool.AttributedAppendCharge(len(raw))
+	}
+	return raws, needed
+}
+
+// A flat tail is reclaimed only after every record is resolved, so a pass must
+// hold two copies at once. When the budget cannot, the pass copies nothing and
+// says how much room it needs; once core raises the budget the next pass hands
+// the whole tail off.
+func TestLegacyHandoffWaitsForCapacityWithoutAPartialCopy(t *testing.T) {
+	root := t.TempDir()
+	raws, needed := lateTail(t, 3)
+	var bodies uint64
+	for _, raw := range raws {
+		bodies += uint64(len(raw))
+	}
+	require.Greater(t, needed, bodies, "a copy charges more than its bodies")
+	require.Equal(t, needed, lateCopyCharge(flatRecords(raws)))
+	writeFlatSpoolTail(t, root, raws...)
+	segment := filepath.Join(root, "lane.seg")
+	before, err := os.ReadFile(segment)
+	require.NoError(t, err)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(root, allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+	leaveOrdinaryRoom(t, allocator, needed-1)
+
+	report, err := sp.HandOffLegacy()
+	require.ErrorIs(t, err, ErrLegacyHandoffInsufficientCapacity)
+	require.Equal(t, "insufficient_capacity", report.Reason)
+	require.Equal(t, needed, report.CapacityNeeded)
+	require.Equal(t, uint64(len(raws)), report.Pending)
+	require.Zero(t, report.HandedOff)
+	require.Empty(t, sp.LateSources(), "no partial copy")
+	after, err := os.ReadFile(segment)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	status, ok := sp.LegacyHandoffStatus()
+	require.True(t, ok)
+	require.Equal(t, "insufficient_capacity", status.Reason)
+
+	leaveOrdinaryRoom(t, allocator, needed)
+	report, err = sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, len(raws), report.HandedOff)
+	require.Equal(t, uint64(len(raws)), sp.LatePending())
+	require.Zero(t, sp.RetainedLegacyBytes())
+	_, statErr := os.Lstat(segment)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// A LATE_ADMISSION_REQUIRED acknowledgement relocates at most one credit window
+// of records, each charged no more than spool.AttributedAppendCharge (plus the
+// late generation they open), so a window relocates into exactly that much room
+// and charges no more.
+func TestRelocatingACreditWindowStaysWithinItsBound(t *testing.T) {
+	raws, needed := lateTail(t, 4)
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(t.TempDir(), allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+	leaveOrdinaryRoom(t, allocator, needed)
+	used := allocator.Usage().OrdinaryUsed
+
+	for i, raw := range raws {
+		record, decodeErr := edgerecord.DecodeRecord(raw)
+		require.NoError(t, decodeErr)
+		require.NoError(t, sp.RelocateLate(spool.Record{Sequence: uint64(i + 1), EventID: record.GetEventId(), Body: raw}))
+	}
+	require.Equal(t, uint64(len(raws)), sp.LatePending())
+	require.LessOrEqual(t, allocator.Usage().OrdinaryUsed-used, needed)
+}
+
 // A crash after the late append and before the flat spool recorded the handoff
 // leaves the record in both; the next pass recognizes it and keeps one copy.
 func TestLegacyHandoffAfterACrashKeepsOneCopy(t *testing.T) {

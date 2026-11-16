@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -41,6 +42,13 @@ import (
 // retired by the structural emptiness proof RetireDrainedLegacyFlat already uses.
 // Only bytes the agent cannot parse as a known layout stay retained and flagged.
 
+// ErrLegacyHandoffInsufficientCapacity means the pass copied nothing because the
+// shared allocator could not hold a second copy of the whole pending tail. The
+// next pass retries; it proceeds once the spool budget leaves that room.
+var ErrLegacyHandoffInsufficientCapacity = errors.New("legacy handoff: insufficient spool capacity for the pending tail")
+
+const legacyHandoffInsufficientCapacity = "insufficient_capacity"
+
 // LegacyHandoff reports one handoff pass over the pre-lane flat spool.
 type LegacyHandoff struct {
 	// HandedOff counts records admitted late this pass; Rejected counts records
@@ -50,6 +58,9 @@ type LegacyHandoff struct {
 	Pending uint64
 	// Reason is why the pass stopped with records pending (empty when none).
 	Reason string
+	// CapacityNeeded is the ordinary allocator room the pending tail needs, set
+	// when the pass copied nothing because that room was not free.
+	CapacityNeeded uint64
 	// Retired lists what was removed once the spool was empty.
 	Retired spool.LegacyFlatInventory
 }
@@ -102,6 +113,15 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 		return err
 	}
 	report.Pending = uint64(len(pending))
+	// The flat segment is reclaimed only once every record in it is resolved, so a
+	// pass holds both copies of the whole tail until it finishes. Copy nothing
+	// unless that room is free; reclaiming a resolved prefix mid-pass is deferred
+	// to its own change.
+	needed := lateCopyCharge(pending)
+	if usage := s.allocator.Usage(); needed > usage.OrdinaryCeiling-min(usage.OrdinaryCeiling, usage.OrdinaryUsed) {
+		report.Reason, report.CapacityNeeded = legacyHandoffInsufficientCapacity, needed
+		return ErrLegacyHandoffInsufficientCapacity
+	}
 	for i, rec := range pending {
 		// Only the first record of a pass can already be in late storage: a crash
 		// after its late append and before its local resolution.
@@ -137,6 +157,22 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 		return fmt.Errorf("reclaim legacy flat spool: %w", err)
 	}
 	return nil
+}
+
+// lateCopyCharge bounds the ordinary room late admission needs for records: each
+// append, plus one new generation per destination and one per rotation, which
+// comes no sooner than spool.MaxSegmentKeys records.
+func lateCopyCharge(records []spool.Record) uint64 {
+	var needed uint64
+	destinations := make(map[string]bool)
+	for _, rec := range records {
+		needed += spool.AttributedAppendCharge(len(rec.Body))
+		if record, err := edgerecord.DecodeRecord(rec.Body); err == nil {
+			destinations[fmt.Sprintf("%x/%d/%d", record.GetProducerContext().GetOriginPrincipalId(), record.GetRouteProfile(), record.GetTrafficClass())] = true
+		}
+	}
+	generations := uint64(len(destinations)) + uint64(len(records))/spool.MaxSegmentKeys
+	return needed + generations*spool.GenerationMetadataCharge
 }
 
 // resolveHandedOff persists the layout's local custody transfer for one record.

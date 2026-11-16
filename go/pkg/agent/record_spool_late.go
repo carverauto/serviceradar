@@ -301,6 +301,12 @@ func (s *RecordSpool) LatePending() uint64 {
 // the exact bytes go to late storage before the live resolution is persisted.
 // A permanently invalid record is kept as rejection evidence instead; a full
 // evidence store is retryable, so the live resolution waits rather than drop it.
+//
+// Until the source generation is fully resolved and reclaimed, a relocated record
+// is charged twice. One acknowledgement adds at most one credit window of copies,
+// because the gateway resolves only frames sent in that window, each charged at
+// most spool.AttributedAppendCharge; the source bytes are released when the
+// generation reclaims.
 func (s *RecordSpool) RelocateLate(rec spool.Record) error {
 	_, err := s.admitLate(rec.Body, true)
 	if err != nil && errors.Is(err, spool.ErrPermanent) {
