@@ -118,15 +118,17 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 	// pass holds both copies of the whole tail until it finishes. Copy nothing
 	// unless that room is free; reclaiming a resolved prefix mid-pass is deferred
 	// to its own change.
-	needed := s.lateCopyCharge(pending)
+	needed, held, err := s.lateCopyCharge(pending)
+	if err != nil {
+		report.Reason = err.Error()
+		return err
+	}
 	if usage := s.allocator.Usage(); needed > usage.OrdinaryCeiling-min(usage.OrdinaryCeiling, usage.OrdinaryUsed) {
 		report.Reason, report.CapacityNeeded = legacyHandoffInsufficientCapacity, needed
 		return ErrLegacyHandoffInsufficientCapacity
 	}
 	for i, rec := range pending {
-		// Only the first record of a pass can already be in late storage: a crash
-		// after its late append and before its local resolution.
-		receipt, admitErr := s.admitLate(rec.Body, i == 0)
+		receipt, admitErr := s.admitLate(rec.Body, held[i])
 		disposition := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
 		var custody []byte
 		switch {
@@ -161,11 +163,16 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 }
 
 // lateCopyCharge bounds the ordinary room late admission needs for records: each
-// append the pass still makes (the first record may already be in late storage
-// after a crash), one new generation for each destination lane without an open
-// generation under the record's identity, and one per rotation, which comes no
-// sooner than spool.MaxSegmentKeys appended records.
-func (s *RecordSpool) lateCopyCharge(records []spool.Record) uint64 {
+// append the pass still makes, one new generation for each destination lane that
+// has none yet, and one per rotation, which comes no sooner than
+// spool.MaxSegmentKeys appended records. held marks the records late storage
+// already holds after a crash between their append and their flat resolution;
+// they cost nothing and are admitted with the duplicate check.
+func (s *RecordSpool) lateCopyCharge(records []spool.Record) (uint64, []bool, error) {
+	index, err := s.heldLate()
+	if err != nil {
+		return 0, nil, err
+	}
 	var agentID []byte
 	if s.trust != nil {
 		if snapshot := s.trust(); snapshot != nil {
@@ -173,46 +180,55 @@ func (s *RecordSpool) lateCopyCharge(records []spool.Record) uint64 {
 		}
 	}
 	var needed, appended uint64
+	held := make([]bool, len(records))
 	billed := make(map[string]bool)
 	for i, rec := range records {
+		if index[heldLateKey(rec.EventID, rec.Body)] {
+			held[i] = true
+			continue
+		}
+		needed += spool.AttributedAppendCharge(len(rec.Body))
+		appended++
 		record, err := edgerecord.DecodeRecord(rec.Body)
 		if err != nil {
-			needed += spool.AttributedAppendCharge(len(rec.Body))
-			appended++
 			continue
 		}
 		origin := record.GetProducerContext().GetOriginPrincipalId()
 		key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
-		set := s.late.existingSet(origin, agentID != nil && bytes.Equal(origin, agentID))
-		if i == 0 && set != nil {
-			if _, held, holdErr := holdsRecord(set, key, record.GetEventId(), rec.Body); holdErr == nil && held {
-				continue
-			}
-		}
-		needed += spool.AttributedAppendCharge(len(rec.Body))
-		appended++
 		destination := fmt.Sprintf("%x/%d/%d", origin, key.RouteProfile, key.TrafficClass)
 		if billed[destination] {
 			continue
 		}
 		billed[destination] = true
-		if !hasOpenGeneration(set, key, spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}) {
+		if set := s.late.existingSet(origin, agentID != nil && bytes.Equal(origin, agentID)); set == nil || len(set.Generations(key)) == 0 {
 			needed += spool.GenerationMetadataCharge
 		}
 	}
-	return needed + appended/spool.MaxSegmentKeys*spool.GenerationMetadataCharge
+	return needed + appended/spool.MaxSegmentKeys*spool.GenerationMetadataCharge, held, nil
 }
 
-func hasOpenGeneration(set *spool.LaneSet, key spool.LaneKey, identity spool.Identity) bool {
-	if set == nil {
-		return false
+// heldLate indexes every record late storage holds unresolved by event id and
+// body digest, in one scan.
+func (s *RecordSpool) heldLate() (map[string]bool, error) {
+	index := make(map[string]bool)
+	for _, set := range s.late.sets() {
+		for _, key := range set.Lanes() {
+			for _, generation := range set.Generations(key) {
+				if err := generation.ScanFrom(generation.Resolved(), func(rec spool.Record) bool {
+					index[heldLateKey(rec.EventID, rec.Body)] = true
+					return true
+				}); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
-	open, ok := set.OpenGeneration(key)
-	if !ok {
-		return false
-	}
-	frozen := open.Identity().Identity
-	return bytes.Equal(frozen.NetworkScopeID, identity.NetworkScopeID) && bytes.Equal(frozen.AgentID, identity.AgentID)
+	return index, nil
+}
+
+func heldLateKey(eventID, body []byte) string {
+	digest := sha256.Sum256(body)
+	return string(eventID) + string(digest[:])
 }
 
 // resolveHandedOff persists the layout's local custody transfer for one record.

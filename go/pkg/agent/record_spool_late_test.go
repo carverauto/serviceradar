@@ -61,6 +61,12 @@ func uuidV7At(t *testing.T, at time.Time) []byte {
 // grant that was valid then and has since expired, at authority epoch 1.
 func daysOldRelayRecord(t *testing.T, producedAt time.Time) []byte {
 	t.Helper()
+	return daysOldRelayRecordFrom(t, producedAt, sysmonEdgeAgentID)
+}
+
+// daysOldRelayRecordFrom is daysOldRelayRecord produced by origin.
+func daysOldRelayRecordFrom(t *testing.T, producedAt time.Time, origin string) []byte {
+	t.Helper()
 	digest := sha256.Sum256([]byte("synthetic-otlp-relay-contract"))
 	capability := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1, IssuerId: []byte(lateTestIssuer), IssuerKeyId: []byte(lateTestIssuerKey), Algorithm: "ed25519",
@@ -70,8 +76,8 @@ func daysOldRelayRecord(t *testing.T, producedAt time.Time) []byte {
 			ContractBundleSha256: digest[:], RegistryEpoch: 1, RegistrySnapshotSha256: digest[:], EffectiveGrantSha256: digest[:],
 			NetworkScopeId: testNetworkScopeID[:], ProducerAssignmentId: testAssignmentID[:], RunId: testAssignmentID[:],
 			AuthorityEpoch: 1, ScopeId: testAssignmentID[:], ScopeSha256: digest[:],
-			OriginKind: edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT, OriginPrincipalId: []byte(sysmonEdgeAgentID),
-			ProducerInstanceId: []byte(sysmonEdgeAgentID),
+			OriginKind: edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT, OriginPrincipalId: []byte(origin),
+			ProducerInstanceId: []byte(origin),
 			RouteProfile:       edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 			TrafficClass:       edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 			PackageId:          "serviceradar.agent.otlp_relay", PackageSha256: digest[:], CostModelVersion: 1,
@@ -473,13 +479,21 @@ func TestLegacyHandoffWaitsForCapacityWithoutAPartialCopy(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-// A pass that stopped part-way, here after handing off the first record and
-// appending the second before a crash, resumes in the room the rest of the tail
-// still needs: the open late generation is not billed again, and the second
-// record, already in late storage, needs only its flat resolution.
+// A pass that stopped part-way resumes in the room the rest of the tail still
+// needs. Here a crash left three records in late storage, across the host's own
+// lane and another principal's hold, before the flat spool resolved any of them:
+// they need only their flat resolution, the hold's generation is not billed
+// again, and only the last record is appended.
 func TestLegacyHandoffResumesInTheRoomTheSuffixNeeds(t *testing.T) {
 	root := t.TempDir()
-	raws, _ := lateTail(t, 3)
+	const otherPrincipal = "agent-superseded-0001"
+	base := time.Now().Add(-6 * 24 * time.Hour)
+	raws := [][]byte{
+		daysOldRelayRecord(t, base),
+		daysOldRelayRecord(t, base.Add(time.Hour)),
+		daysOldRelayRecordFrom(t, base.Add(2*time.Hour), otherPrincipal),
+		daysOldRelayRecordFrom(t, base.Add(3*time.Hour), otherPrincipal),
+	}
 	writeFlatSpoolTail(t, root, raws...)
 
 	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
@@ -490,21 +504,17 @@ func TestLegacyHandoffResumesInTheRoomTheSuffixNeeds(t *testing.T) {
 	trust := lateTrust(t, "valid")
 	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
 
-	first, err := sp.AdmitLate(raws[0])
-	require.NoError(t, err)
-	_, err = sp.AdmitLate(raws[1])
-	require.NoError(t, err)
-	flat, err := spool.Open(root)
-	require.NoError(t, err)
-	pending, err := flat.Unresolved()
-	require.NoError(t, err)
-	require.NoError(t, resolveHandedOff(flat, pending[0], edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, first.Receipt.Generation.SpoolID))
-	require.NoError(t, flat.Close())
+	for _, raw := range raws[:3] {
+		_, err = sp.AdmitLate(raw)
+		require.NoError(t, err)
+	}
+	held := sp.LatePending()
+	require.Equal(t, uint64(3), held)
 
-	leaveOrdinaryRoom(t, allocator, spool.AttributedAppendCharge(len(raws[2])))
+	leaveOrdinaryRoom(t, allocator, spool.AttributedAppendCharge(len(raws[3])))
 	report, err := sp.HandOffLegacy()
 	require.NoError(t, err)
-	require.Equal(t, 2, report.HandedOff)
+	require.Equal(t, len(raws), report.HandedOff)
 	require.Equal(t, uint64(len(raws)), sp.LatePending(), "one late copy of each record")
 	require.Zero(t, sp.RetainedLegacyBytes())
 	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
