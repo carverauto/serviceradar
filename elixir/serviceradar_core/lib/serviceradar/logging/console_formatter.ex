@@ -36,9 +36,11 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
 
   ## Redacted secrets
 
-  The formatted line goes through `ServiceRadar.Logging.SecretRedaction.redact_text/1`,
-  so a crash report that renders a struct holding a password or key material
-  prints `[REDACTED]` in place of the value.
+  Each printed metadata value goes through
+  `ServiceRadar.Logging.SecretRedaction.redact_text/1` before it is cut, so a
+  cut can never leave the prefix of a secret behind, and the whole formatted
+  line is redacted again. A crash report that renders a struct holding a
+  password or key material prints `[REDACTED]` in place of the value.
 
   Only the console rendering is bounded and redacted. The log event itself is
   never modified here; the OTLP log handler that `ServiceRadar.Telemetry.OtelSetup`
