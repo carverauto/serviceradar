@@ -120,11 +120,26 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
       kind text := CASE TG_TABLE_NAME WHEN 'edge_output_grants' THEN 'output_grant' ELSE 'sweep' END;
       at timestamptz;
       reason text;
+      open_id bigint;
+      open_from timestamptz;
     BEGIN
       IF TG_OP = 'DELETE' THEN
-        UPDATE #{schema}.#{@table}
-           SET active_until = GREATEST(now(), active_from), ended_reason = 'deleted'
-         WHERE assignment_id = OLD.id AND active_until IS NULL;
+        SELECT id, active_from INTO open_id, open_from
+          FROM #{schema}.#{@table}
+         WHERE assignment_id = OLD.id AND active_until IS NULL
+           FOR UPDATE;
+
+        IF FOUND THEN
+          at := now();
+          IF at <= open_from THEN
+            at := GREATEST(clock_timestamp(), open_from + interval '1 microsecond');
+          END IF;
+
+          UPDATE #{schema}.#{@table}
+             SET active_until = at, ended_reason = 'deleted'
+           WHERE id = open_id;
+        END IF;
+
         RETURN OLD;
       END IF;
 
@@ -152,9 +167,20 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
           ELSE now()
         END;
 
-        UPDATE #{schema}.#{@table}
-           SET active_until = GREATEST(at, active_from), ended_reason = reason
-         WHERE assignment_id = NEW.id AND active_until IS NULL;
+        SELECT id, active_from INTO open_id, open_from
+          FROM #{schema}.#{@table}
+         WHERE assignment_id = NEW.id AND active_until IS NULL
+           FOR UPDATE;
+
+        IF FOUND THEN
+          IF at <= open_from THEN
+            at := GREATEST(clock_timestamp(), open_from + interval '1 microsecond');
+          END IF;
+
+          UPDATE #{schema}.#{@table}
+             SET active_until = at, ended_reason = reason
+           WHERE id = open_id;
+        END IF;
       ELSE
         at := COALESCE(NEW.epoch_changed_at, NEW.inserted_at, now());
       END IF;
@@ -212,6 +238,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
     for table <- ["sweep_producer_assignments", "edge_output_grants"] do
       execute("DROP TRIGGER IF EXISTS #{table}_authority_history_trg ON #{schema}.#{table}")
     end
+
+    execute("""
+    UPDATE #{schema}.edge_output_grants
+       SET epoch_reason = 'revoked'
+     WHERE epoch_reason IN ('identity_superseded', 'certificate_revoked')
+    """)
 
     execute("DROP FUNCTION IF EXISTS #{schema}.edge_authority_history_record()")
     execute("DROP TABLE IF EXISTS #{schema}.#{@table}")

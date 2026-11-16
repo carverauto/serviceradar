@@ -80,6 +80,42 @@ defmodule ServiceRadar.Edge.AuthorityHistoryDbTest do
     assert intervals(grant.id) == [{1, false, "epoch_changed"}, {2, false, "deleted"}]
   end
 
+  test "an epoch bump that does not advance epoch_changed_at still closes a non-empty interval",
+       ctx do
+    {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.scope)
+    id = Ecto.UUID.dump!(grant.id)
+
+    Repo.query!(
+      "UPDATE platform.edge_output_grants SET authority_epoch = authority_epoch + 1 WHERE id = $1",
+      [id]
+    )
+
+    Repo.query!(
+      "UPDATE platform.edge_output_grants SET authority_epoch = authority_epoch + 1, epoch_changed_at = now() WHERE id = $1",
+      [id]
+    )
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT authority_epoch, active_from, active_until
+          FROM platform.edge_authority_history
+         WHERE assignment_id = $1
+         ORDER BY id
+        """,
+        [id]
+      )
+
+    assert [[1, from1, until1], [2, from2, until2], [3, from3, nil]] = rows
+
+    # Each closed epoch covers a real span, and its successor starts exactly where it ended,
+    # so a record produced while an epoch was live always falls inside one interval.
+    assert DateTime.after?(until1, from1)
+    assert from2 == until1
+    assert DateTime.after?(until2, from2)
+    assert from3 == until2
+  end
+
   test "a closed interval cannot be rewritten", ctx do
     {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.scope)
     assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent, :certificate_revoked)
