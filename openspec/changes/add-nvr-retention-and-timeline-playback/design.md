@@ -508,7 +508,7 @@ written, including the quarantine variants their cells name. Indexes over
 
 | `archive_state` | Entry condition | Binding | Job | Alarm (R5) | Pin (C1) | Drain | Admission-stop cause (C5) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `not_required` | not owed a copy: archiving not enabled, or policy `local_only` (PD8) | kept if one was recorded, otherwise NULL | none | none | kind (b) | terminal: the local catalog entry with its index receipt, or for a quarantined entry its local quarantine receipt | local-only footage under `stop_when_full` |
+| `not_required` | not owed a copy: archiving not enabled, or policy `local_only` (PD8); or an operator accepted the loss of a `missing` archive copy (transition 9) | kept if one was recorded, otherwise NULL | none | none | kind (b) | terminal: the local catalog entry with its index receipt, or for a quarantined entry its local quarantine receipt | local-only footage under `stop_when_full` |
 | `awaiting_binding` | owed a copy, the owed copy's binding not yet assigned (NULL), and no `ArchiveBinding` active (PD10) | owed copy's binding NULL; any other recorded binding is kept | none | "archive enabled but no destination" | kind (c) | open | upload backlog |
 | `pending` | owed a copy, and the owed copy's binding recorded or a binding active | the recorded binding, or the active binding assigned on entry when none is recorded; changed only by transition 3's quarantine re-target | one `ArchiveBlockJob`, held while archiving is paused (below) | oldest unarchived over 1 h | kind (c) | open | upload backlog |
 | `failed_retryable` | job hit a provider error or unknown outcome | recorded | retried with backoff, held while archiving is paused (below) | oldest unarchived over 1 h | kind (c) | open | upload backlog |
@@ -516,7 +516,7 @@ written, including the quarantine variants their cells name. Indexes over
 | `verified` | archive receipt recorded, or for a quarantined entry its quarantine-destination receipt; also a retention or reaper DELETE refused by a provider object lock or legal hold (`blocked_by_provider`, transition 7) | recorded | none; a `blocked_by_provider` delete is retried daily | "archive delete blocked by provider" when `blocked_by_provider` for over 24 h | kind (a) | terminal | none |
 | `deleting` | object retention or the reaper deleting (C3, C3a) | recorded | `ArchiveRetentionJob` | none | kind (c) | already terminal | archive deleting |
 | `deleted` | absence confirmed | recorded | none | none | kind (a) | already terminal | none |
-| `missing` | archive copy found changed or absent | recorded | none; an operator decides | `archive_missing` until an operator resolves the entry, plus `held_archive_missing` when held | kind (c) | already terminal | archive missing |
+| `missing` | archive copy found changed or absent | recorded | none until an operator resolves the entry by transition 8 or 9 | `archive_missing` until transition 8 or 9, plus `held_archive_missing` when held | kind (c) | already terminal | archive missing |
 
 Held jobs: while archiving is stopped by `stop_archiving` (C3a, including its
 non-reapable-bytes pause), while a hosted install awaits its first
@@ -579,6 +579,18 @@ Transitions:
    `archive_last_error_class = blocked_by_provider`; until a daily retry
    succeeds its bytes are non-reapable (C3a), the reaper skips it and its
    local copy stays kind (a).
+8. **Operator re-archives a `missing` entry** (health tab, E2): offered only
+   when the local copy is present and verified. The entry returns to
+   `pending` under its recorded binding, `archive_missing` and
+   `held_archive_missing` clear, and the normal `ArchiveBlockJob` uploads and
+   verifies it. Audited with actor, time and reason.
+9. **Operator accepts the loss of a `missing` archive copy** (health tab, E2):
+   the entry moves to `not_required` with a `RecordingDisposition` of reason
+   `archive_loss_accepted` (C7), `archive_missing` and `held_archive_missing`
+   clear, and the local copy, if present, returns to kind (b) retention. When
+   a hold covers the entry, the action requires the hold's own release
+   authority (`devices.cameras.recordings.hold`, C4) and is refused otherwise.
+   Audited with actor, time and reason.
 
 The `ArchiveBlockJob` (unique per catalog entry, queue `nvr_archive`):
 
@@ -1617,9 +1629,13 @@ object tier gets a byte budget symmetric with the local tier.
   values. Water marks stay operator settings.
 
 **Usage** is what ServiceRadar wrote: the sum of object lengths in the receipts
-of archive copies that are `verified` or `deleting`, for the active binding,
-plus the bytes of uploads in flight and of quarantine objects (R2), maintained
-in the catalog. It does not
+of archive copies that are `verified` or `deleting`, plus the bytes of uploads
+in flight and of quarantine objects (R2), over every retained binding whose
+destination is the same bucket as the active binding (same endpoint and
+bucket; the prefix may differ), whatever that binding's active flag,
+maintained in the catalog. A retained binding in a different bucket is
+reported separately and is not part of this budget. This is the one
+definition; the reaper, the alerts and the F5 usage report use it. It does not
 list the bucket (costly, and providers report usage differently); in SaaS the
 control plane compares it with the provider's own bucket size (stage F). A
 self-hosted bucket shared with other data needs a budget that leaves room for
@@ -1627,8 +1643,8 @@ it. Probe residue (settings change D12) is negligible and excluded.
 
 **`reap_oldest`.** When usage reaches object high water (of the hard limit),
 Core deletes archive copies of the oldest blocks first, down to object low
-water. Candidates are blocks whose archive copy is `verified`, not
-`blocked_by_provider` (A6 transition 7), cataloged, reconciled, unheld and not
+water. Candidates are blocks whose archive copy is `verified` on a binding
+counted in usage (above), not `blocked_by_provider` (A6 transition 7), cataloged, reconciled, unheld and not
 quarantined (R2). The reaper deletes only the archive copy: each deletion
 uses the retention credential (C3: versioned delete, HEAD 404 re-check) and is
 an audited disposition of the archive copy with reason `object_capacity`. Each
@@ -1910,8 +1926,8 @@ Re-checks:
 `platform.camera_recording_dispositions`, append-only (no update, no destroy):
 operation ID, catalog entry, copy (`local` or `archive`), reason
 (`budget`, `max_local_age`, `local_only_overwrite`, `local_only_max_age`,
-`object_retention`, `object_capacity`, `operator_quarantine`),
-the settings revision and the effective values used, the hold check result,
+`object_retention`, `object_capacity`, `operator_quarantine`,
+`archive_loss_accepted` (A6 transition 9)), the settings revision and the effective values used, the hold check result,
 for an archive-copy deletion whether the local copy remained,
 then one row per step: `requested`, `executed`, `verified_absent`, `failed`
 (bounded class). Settings changes are already audited by AshPaperTrail on
@@ -2379,7 +2395,9 @@ On `/settings/recording`:
   configured" as a normal state, not an error.
 - `health` tab: archive backlog (that change's requirement) with unarchived
   count, bytes and oldest unarchived age; reconciliation status (unreconciled,
-  quarantined blocks and bytes, last pass, paused reason) and alarms (R5); retention status
+  quarantined blocks and bytes, last pass, paused reason) and alarms (R5);
+  `missing` entries with the operator actions re-archive and accept the loss
+  (A6 transitions 8 and 9); retention status
   (blocks due, blocks blocked by holds, last pass, failures); per member
   "local storage holds about N hours (or minutes) at the current rate" with the
   binding bound (budget, maximum age or block cap), used and pinned bytes
@@ -2551,7 +2569,7 @@ is compared with a relative tolerance of 1e-6):
 The product exposes, under the `entitlements` purpose:
 
 - `GET /v1/storage/usage?from=<YYYY-MM-DD>`: per consumer, per closed UTC day:
-  `retained_bytes_end`, `retained_bytes_max`, `added_bytes`, `deleted_bytes`
+  `retained_bytes_end`, `retained_bytes_max` (both the C3a usage), `added_bytes`, `deleted_bytes`
   by reason (`object_retention`, `object_capacity`, `operator`), `held_bytes`,
   `non_reapable_bytes` (C3a), `object_count`
   (three objects per block, from receipts), `requests` (PUT, GET, HEAD, DELETE
