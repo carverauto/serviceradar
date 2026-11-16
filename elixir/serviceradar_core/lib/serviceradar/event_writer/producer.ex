@@ -385,16 +385,16 @@ defmodule ServiceRadar.EventWriter.Producer do
   # Erlang queue so enqueue and drain are O(1) per message without list reversal.
   defp buffer_message(state, body, subject, reply_to, msg) do
     headers = Map.get(msg, :headers, %{})
-    original_subject = extract_original_subject(subject, headers)
     jetstream_ack = JetStreamAck.parse(reply_to)
-    stream = configured_stream(state.config, jetstream_ack, original_subject)
+    stream = configured_stream(state.config, jetstream_ack, subject)
     max_deliver = max_deliver_for(state.config, stream)
 
     broadway_event = %{
       data: body,
       metadata: %{
-        subject: original_subject,
-        broker_subject: subject,
+        # The subject the broker delivered on. Headers are publisher-supplied
+        # and never change it: broker permissions are enforced on this subject.
+        subject: subject,
         reply_to: reply_to,
         headers: headers,
         jetstream_ack: jetstream_ack,
@@ -417,7 +417,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         pending_count: state.pending_count + 1
     }
 
-    EventWriterTelemetry.emit_queue(state, :enqueue, original_subject)
+    EventWriterTelemetry.emit_queue(state, :enqueue, subject)
 
     if state.demand > 0 do
       {messages, state} =
@@ -1265,57 +1265,6 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     "_INBOX.serviceradar.event_writer.pull.#{base}.#{suffix}.#{token}"
   end
-
-  defp extract_original_subject(topic, headers) do
-    find_header_value(headers, "nats-subject") ||
-      find_header_value(headers, "nats-subject-token") ||
-      topic
-  end
-
-  defp find_header_value(headers, key) when is_map(headers) do
-    Enum.find_value(headers, fn {k, v} ->
-      if normalize_header_key(k) == key do
-        normalize_header_value(v)
-      end
-    end)
-  end
-
-  defp find_header_value(headers, key) when is_list(headers) do
-    Enum.find_value(headers, fn
-      {k, v} ->
-        if normalize_header_key(k) == key do
-          normalize_header_value(v)
-        end
-
-      _ ->
-        nil
-    end)
-  end
-
-  defp find_header_value(_headers, _key), do: nil
-
-  defp normalize_header_key(key) when is_binary(key), do: String.downcase(key)
-
-  defp normalize_header_key(key) when is_atom(key),
-    do: key |> Atom.to_string() |> String.downcase()
-
-  defp normalize_header_key(key) when is_list(key), do: key |> to_string() |> String.downcase()
-  defp normalize_header_key(_), do: ""
-
-  defp normalize_header_value(value) when is_binary(value), do: value
-
-  defp normalize_header_value(value) when is_list(value) do
-    case value do
-      [first | _] when is_binary(first) -> first
-      [first | _] when is_list(first) -> to_string(first)
-      _ -> to_string(value)
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp normalize_header_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_header_value(value), do: to_string(value)
 
   defp configured_stream(%Config{} = config, jetstream_ack, subject) do
     Enum.find(config.streams, &stream_matches_message?(&1, jetstream_ack, subject))

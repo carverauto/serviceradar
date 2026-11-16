@@ -97,7 +97,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attribution = IngestAttribution.from_metadata(metadata)
 
     case_result =
-      if normalized_subject?(delivered_subject(metadata)) do
+      if normalized_subject?(metadata[:subject]) do
         parse_normalized_log(data, metadata)
       else
         case Jason.decode(data) do
@@ -176,13 +176,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   @normalized_subject_prefix "logs.normalized."
   @normalized_schema "otlp-normalized-v1"
 
-  defp delivered_subject(metadata) do
-    case Map.fetch(metadata, :broker_subject) do
-      {:ok, subject} -> subject
-      :error -> metadata[:subject]
-    end
-  end
-
   defp normalized_subject?(subject) when is_binary(subject),
     do: String.starts_with?(subject, @normalized_subject_prefix)
 
@@ -195,7 +188,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
       schema ->
         Logger.warning("Refusing normalized log batch with unsupported schema",
-          subject: delivered_subject(metadata),
+          subject: metadata[:subject],
           schema: schema
         )
 
@@ -210,11 +203,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_log_payload({:error, _}, data, metadata) do
-    if protobuf_subject?(delivered_subject(metadata)) do
+    if protobuf_subject?(metadata[:subject]) do
       parse_protobuf_log(data, metadata)
     else
       Logger.debug("Refusing non-JSON log on a JSON log subject",
-        subject: delivered_subject(metadata)
+        subject: metadata[:subject]
       )
 
       nil
@@ -255,8 +248,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
 
-    source =
-      FieldParser.get_field(json, "source", "source") || source_kind(delivered_subject(metadata))
+    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
 
     scope_attributes = parse_scope_attributes(json)
     {severity_text, severity_number} = log_severity(json)
@@ -574,7 +566,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       record_attributes = key_values_to_map(log_record.attributes)
       log_attributes = attach_ingest_metadata(record_attributes, metadata)
       log_id = generated_uuid()
-      source = source_kind(delivered_subject(metadata))
+      source = source_kind(metadata[:subject])
       {severity_text, severity_number} = protobuf_log_severity(log_record)
       trace_id = OtelId.normalize_trace_id(log_record.trace_id)
 
@@ -726,16 +718,16 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp build_ingest_metadata(metadata) do
     %{}
-    |> maybe_put_ingest(:subject, delivered_subject(metadata))
+    |> maybe_put_ingest(:subject, metadata[:subject])
     |> maybe_put_ingest(:reply_to, metadata[:reply_to])
     |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
-    |> maybe_put_ingest(:source_kind, source_kind(delivered_subject(metadata)))
+    |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
     |> maybe_put_ingest(:ruleset_id, normalized_ruleset_id(metadata))
   end
 
   # The digest of the rule bundle the collector normalized the batch with.
   defp normalized_ruleset_id(metadata) do
-    with true <- normalized_subject?(delivered_subject(metadata)),
+    with true <- normalized_subject?(metadata[:subject]),
          ruleset_id when ruleset_id != "" <- IngestAttribution.header(metadata, "sr-ruleset-id") do
       ruleset_id
     else
