@@ -435,6 +435,219 @@ defmodule ServiceRadar.Camera.RetentionCalculatorTest do
       assert summary.shorter_archive_than_local? == true
       assert summary.object_retention_enforced? == false
     end
+
+    test "sums usage across all bindings sharing {endpoint, bucket}, excludes deleted catalog entries, and reports other buckets separately (C3a)" do
+      viewer = %{
+        id: "u-bucket-view",
+        role: :viewer,
+        permissions: MapSet.new(["settings.recording.view"])
+      }
+
+      now = ~U[2026-11-16 12:00:00Z]
+      b_prev_same = "00000000-0000-4000-8000-000000000101"
+      b_active_same = "00000000-0000-4000-8000-000000000102"
+      b_other_bucket = "00000000-0000-4000-8000-000000000103"
+      storage_id = "00000000-0000-4000-8000-000000000201"
+
+      bindings = [
+        %{
+          id: b_prev_same,
+          endpoint: "https://objects.example.com",
+          bucket: "recordings-shared",
+          namespace: "recordings/v1"
+        },
+        %{
+          id: b_active_same,
+          endpoint: "https://objects.example.com",
+          bucket: "recordings-shared",
+          namespace: "recordings/v2"
+        },
+        %{
+          id: b_other_bucket,
+          endpoint: "https://objects.example.com",
+          bucket: "recordings-retired",
+          namespace: "recordings/v1"
+        }
+      ]
+
+      settings = %{
+        RecordingArchiveSettings.default_settings()
+        | active_archive_binding_id: b_active_same,
+          archive_enabled: true,
+          object_budget_mode: :limited,
+          object_budget_bytes: 100_000_000,
+          object_capacity_policy: :reap_oldest,
+          local_only_full_policy: :stop_when_full
+      }
+
+      k_verified_old_gen = String.duplicate("1", 64)
+      k_deleting_active = String.duplicate("2", 64)
+      k_pending_active = String.duplicate("3", 64)
+      k_deleted_active = String.duplicate("4", 64)
+      k_quarantine_same = String.duplicate("5", 64)
+      k_other_bucket = String.duplicate("6", 64)
+
+      receipts = [
+        %{
+          id: "00000000-0000-4000-8000-000000000301",
+          storage_id: storage_id,
+          block_key: k_verified_old_gen,
+          archive_binding_id: b_prev_same,
+          verified_at: DateTime.shift(now, hour: -4),
+          objects: [%{"length" => 3_000_000}, %{"length" => 1_000_000}]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000302",
+          storage_id: storage_id,
+          block_key: k_deleting_active,
+          archive_binding_id: b_active_same,
+          verified_at: DateTime.shift(now, hour: -30),
+          objects: [%{"length" => 2_500_000}]
+        },
+        # Append-only receipt for an already-deleted archive copy must NOT count in usage.
+        %{
+          id: "00000000-0000-4000-8000-000000000303",
+          storage_id: storage_id,
+          block_key: k_deleted_active,
+          archive_binding_id: b_active_same,
+          verified_at: DateTime.shift(now, day: -3),
+          objects: [%{"length" => 9_000_000}]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000304",
+          storage_id: storage_id,
+          block_key: k_other_bucket,
+          archive_binding_id: b_other_bucket,
+          verified_at: DateTime.shift(now, hour: -6),
+          objects: [%{"length" => 8_000_000}, %{"length" => 500_000}]
+        }
+      ]
+
+      catalog_entries = [
+        %{
+          id: "00000000-0000-4000-8000-000000000401",
+          storage_id: storage_id,
+          block_key: k_verified_old_gen,
+          local_state: :present,
+          archive_state: :verified,
+          archive_binding_id: b_prev_same,
+          nvr_archive_receipt_id: "00000000-0000-4000-8000-000000000301",
+          media_bytes: 3_800_000,
+          sealed_at: DateTime.shift(now, minute: -10),
+          archived_at: DateTime.shift(now, hour: -4)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000402",
+          storage_id: storage_id,
+          block_key: k_deleting_active,
+          local_state: :reclaimed,
+          archive_state: :deleting,
+          archive_binding_id: b_active_same,
+          nvr_archive_receipt_id: "00000000-0000-4000-8000-000000000302",
+          media_bytes: 2_400_000,
+          sealed_at: DateTime.shift(now, hour: -30),
+          archived_at: DateTime.shift(now, hour: -30)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000403",
+          storage_id: storage_id,
+          block_key: k_pending_active,
+          local_state: :present,
+          archive_state: :pending,
+          archive_binding_id: b_active_same,
+          media_bytes: 1_500_000,
+          sealed_at: DateTime.shift(now, minute: -2)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000404",
+          storage_id: storage_id,
+          block_key: k_deleted_active,
+          local_state: :present,
+          archive_state: :deleted,
+          archive_deleted_reason: :object_capacity,
+          archive_binding_id: b_active_same,
+          nvr_archive_receipt_id: "00000000-0000-4000-8000-000000000303",
+          media_bytes: 8_800_000,
+          sealed_at: DateTime.shift(now, day: -3)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000405",
+          storage_id: storage_id,
+          block_key: k_quarantine_same,
+          local_state: :quarantined,
+          archive_state: :verified,
+          quarantine_binding_id: b_prev_same,
+          quarantined_bytes: 700_000
+        }
+      ]
+
+      assert {:ok, summary} =
+               RetentionCalculator.usage_summary(
+                 actor: viewer,
+                 now: now,
+                 loaders: %{
+                   settings_loader: fn -> {:ok, settings} end,
+                   bindings_loader: fn -> {:ok, bindings} end,
+                   all_receipts_loader: fn -> {:ok, receipts} end,
+                   catalog_loader: fn -> {:ok, catalog_entries} end,
+                   blocks_loader: fn -> {:ok, []} end
+                 }
+               )
+
+      assert summary.archive.active_bucket == %{
+               endpoint: "https://objects.example.com",
+               bucket: "recordings-shared"
+             }
+
+      assert summary.archive.same_bucket_binding_count == 2
+
+      assert summary.archive.same_bucket_binding_ids == [
+               b_prev_same,
+               b_active_same
+             ]
+
+      # Same-bucket verified+deleting (4.0M + 2.5M) + in-flight (1.5M) + quarantine (0.7M) = 8.7M
+      # (deleted 9.0M receipt and other-bucket 8.5M receipt are both excluded!)
+      assert summary.archive.verified_and_deleting_bytes == 6_500_000
+      assert summary.archive.uploads_in_flight_bytes == 1_500_000
+      assert summary.archive.uploads_in_flight_count == 1
+      assert summary.archive.quarantine_object_bytes == 700_000
+      assert summary.archive.archive_used_bytes == 8_700_000
+      assert summary.archive.archived_block_count == 2
+
+      # Non-reapable bytes default from catalog: in-flight (1.5M) + quarantine (0.7M) = 2.2M
+      assert summary.object_projection.non_reapable_bytes == 2_200_000
+      assert summary.object_projection.usage_bytes == 8_700_000
+
+      # Other bucket is reported separately and excluded from the active bucket budget.
+      assert summary.archive.other_buckets_count == 1
+      assert summary.archive.other_buckets_used_bytes == 8_500_000
+
+      assert [
+               %{
+                 endpoint: "https://objects.example.com",
+                 bucket: "recordings-retired",
+                 binding_ids: [^b_other_bucket],
+                 binding_count: 1,
+                 used_bytes: 8_500_000,
+                 archived_block_count: 1,
+                 archived_object_count: 2
+               }
+             ] = summary.archive.other_buckets
+
+      # Local catalog rates & pinned bytes:
+      # 15m sealed catalog media_bytes = 3.8M + 1.5M = 5.3M -> 5,300,000 / 900 B/s
+      assert_rel_close(summary.local_blocks.catalog_r15m_bytes_per_sec, 5_300_000 / 900.0)
+      assert summary.local_blocks.unarchived_local_bytes == 1_500_000
+      assert summary.local_blocks.quarantined_local_bytes == 700_000
+      assert summary.local_blocks.local_only_after_archive_bytes == 8_800_000
+      assert summary.local_blocks.local_only_after_archive_count == 1
+
+      assert summary.local_blocks.oldest_local_only_after_archive_at ==
+               DateTime.shift(now, day: -3)
+
+      assert summary.local_projection.pinned_bytes == 2_200_000
+    end
   end
 
   defp assert_rel_close(actual, expected) do
