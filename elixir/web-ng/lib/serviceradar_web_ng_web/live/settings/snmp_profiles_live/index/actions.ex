@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Actions do
     |> assign(:show_template_browser, false)
     |> assign(:selected_template_ids, [])
     |> Data.assign_profile_target_refusals(socket.assigns.profiles)
+    |> Data.assign_profiles_missing_oids(socket.assigns.profiles)
   end
 
   def apply_action(socket, :new_profile, _params) do

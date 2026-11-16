@@ -4,14 +4,16 @@
 
 A fresh deployment does not replay migrations. `SchemaBootstrap` loads the
 committed schema baseline (`priv/repo/baseline/platform_schema.sql`) and
-records every migration it contains as applied. The baseline is a
-`pg_dump --schema-only`, and its generator restores hypertable registration,
-continuous aggregates and their refresh policies, but not TimescaleDB
-compression settings or any compression or retention policy job.
+records every migration it contains as applied. Baselines generated before
+change `fix-baseline-replay-parity` were a `pg_dump --schema-only` whose
+generator restored hypertable registration, continuous aggregates and their
+refresh policies, but not TimescaleDB compression settings or any compression
+or retention policy job. The current baseline carries compression and
+retention state; databases already created from an older baseline do not.
 
 Migration `20261006160000`, which enables compression on raw
 `platform.timeseries_metrics`, is inside the baseline. So on every database
-bootstrapped from it, the table has `compression_enabled = false`, the
+bootstrapped from a schema-only baseline, the table has `compression_enabled = false`, the
 migration is recorded as applied and never runs, and
 `DataRetentionWorker.reconcile_timeseries_metrics_compression/1` returns
 early because it treats segmentby/orderby as migration-owned. The table is
@@ -53,6 +55,6 @@ state.
   compression of `mtr_hops`, `mtr_traces`, `capacity_forecasts` and the four
   endpoint inventory history tables, and the migration-installed retention of
   `mtr_hops`, `mtr_traces`, `bmp_routing_events` and the four `survey_*`
-  hypertables that `DataRetentionWorker` does not reconcile. Closing that path
-  needs the baseline to carry TimescaleDB policy state, and its comparison to
-  check it.
+  hypertables that `DataRetentionWorker` does not reconcile. Change
+  `fix-baseline-replay-parity` closes that path for new installs by making the
+  baseline carry TimescaleDB policy state.

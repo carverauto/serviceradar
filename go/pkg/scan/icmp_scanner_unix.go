@@ -43,6 +43,10 @@ const (
 	invalidRawSocketFD   = -1
 )
 
+// ICMPSweeper sends ICMP echo requests and matches the replies. One sweeper
+// may serve concurrent Scan calls: they share its sockets and echo identifier,
+// a single reader per address family receives every reply, and each reply is
+// routed to the scans waiting on its source address.
 type ICMPSweeper struct {
 	rateLimit   int
 	timeout     time.Duration
@@ -51,27 +55,47 @@ type ICMPSweeper struct {
 	rawSocketFD int
 	conn        *icmp.PacketConn
 	conn6       *icmp.PacketConn
-	mu          sync.Mutex
-	results     map[string]models.Result
-	cancel      context.CancelFunc
 	logger      logger.Logger
 
-	// Per-host tracking for multi-packet ICMP
-	hostStats map[string]*hostICMPStats
+	// mu guards sessions, readersStarted, stopped and resultCallback. It is
+	// never held while a session's lock is taken.
+	mu             sync.Mutex
+	sessions       map[*icmpScanSession]struct{}
+	readersStarted bool
+	stopped        bool
+
+	// scans counts in-flight Scan calls and readers the reply readers, so
+	// Stop closes the sockets only after nothing uses them.
+	scans   sync.WaitGroup
+	readers sync.WaitGroup
 
 	// Streaming results callback for immediate result emission
 	resultCallback func(models.Result)
 }
 
-// hostICMPStats tracks ICMP statistics per host for multi-packet scanning
+// icmpScanSession is the state of one Scan call.
+type icmpScanSession struct {
+	// targets maps each target's canonical IP to its result key (the
+	// target's Host as given). It is not modified after creation.
+	targets map[string]string
+	cancel  context.CancelFunc
+	// callback is the sweeper's result callback when the scan started.
+	callback func(models.Result)
+
+	mu        sync.Mutex
+	results   map[string]models.Result
+	hostStats map[string]*hostICMPStats
+}
+
+// hostICMPStats tracks ICMP statistics per host for multi-packet scanning.
+// The owning session's mu guards it.
 type hostICMPStats struct {
 	sent      int
 	received  int
 	totalRTT  time.Duration // sum of all response times for averaging
 	firstSeen time.Time
 	lastSeen  time.Time
-	sendTimes map[int]time.Time // send time per sequence number for accurate RTT
-	mu        sync.Mutex
+	sendTimes map[int]time.Time // send time per outstanding sequence number
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
@@ -120,8 +144,6 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		rawSocketFD: sockets.rawSocketFD,
 		conn:        sockets.conn,
 		conn6:       sockets.conn6,
-		results:     make(map[string]models.Result),
-		hostStats:   make(map[string]*hostICMPStats),
 		logger:      log,
 	}
 
@@ -238,7 +260,8 @@ func WithICMPCount(count int) ICMPSweeperOption {
 	}
 }
 
-// Scan performs the ICMP sweep and returns results.
+// Scan performs the ICMP sweep and returns results. It is safe to call
+// concurrently; each call reports only on its own targets.
 func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	icmpTargets := filterICMPTargets(targets)
 
@@ -250,67 +273,108 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 	}
 
 	scanCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
+
+	session, err := s.startSession(icmpTargets, cancel)
+	if err != nil {
+		cancel()
+
+		return nil, err
+	}
 
 	resultCh := make(chan models.Result, len(icmpTargets))
 
-	// Reset results and hostStats maps for this scan
-	s.mu.Lock()
-	s.results = make(map[string]models.Result)
-	s.hostStats = make(map[string]*hostICMPStats)
-	s.mu.Unlock()
-
-	// Start listener goroutine
-	listenerDone := make(chan struct{})
-
-	go func() {
-		defer close(listenerDone)
-
-		s.listenForReplies(scanCtx, icmpTargets)
-	}()
-
-	// Start sender goroutine
-	senderDone := make(chan struct{})
-
-	go func() {
-		defer close(senderDone)
-
-		s.sendPings(scanCtx, icmpTargets)
-	}()
-
-	// Process results after scanning is done or timeout
 	go func() {
 		defer close(resultCh)
 
-		// Wait for sender to finish or context to be canceled
+		s.sendPings(scanCtx, session, icmpTargets)
+
+		// Wait for replies until the timeout or cancellation.
+		timer := time.NewTimer(s.timeout)
 		select {
-		case <-senderDone:
-			// Wait for all replies or timeout
-			timer := time.NewTimer(s.timeout)
-			select {
-			case <-timer.C:
-				// Timeout reached
-			case <-scanCtx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
-			}
+		case <-timer.C:
 		case <-scanCtx.Done():
+			timer.Stop()
 		}
 
 		cancel()
-		<-listenerDone
-
-		// Process and send results
-		s.processResults(icmpTargets, resultCh)
+		s.finishSession(session, icmpTargets, resultCh)
 	}()
 
 	return resultCh, nil
 }
 
+// startSession registers a scan so the reply readers route replies to it,
+// starting the readers on first use.
+func (s *ICMPSweeper) startSession(targets []models.Target, cancel context.CancelFunc) (*icmpScanSession, error) {
+	session := &icmpScanSession{
+		targets:   make(map[string]string, len(targets)),
+		cancel:    cancel,
+		results:   make(map[string]models.Result, len(targets)),
+		hostStats: make(map[string]*hostICMPStats, len(targets)),
+	}
+
+	for _, t := range targets {
+		if canonical := canonicalIPString(t.Host); canonical != "" {
+			session.targets[canonical] = t.Host
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopped {
+		return nil, ErrICMPSweeperStopped
+	}
+
+	session.callback = s.resultCallback
+
+	if s.sessions == nil {
+		s.sessions = make(map[*icmpScanSession]struct{})
+	}
+
+	s.sessions[session] = struct{}{}
+	s.scans.Add(1)
+	s.startReadersLocked()
+
+	return session, nil
+}
+
+// finishSession stops routing replies to a scan and delivers its results.
+func (s *ICMPSweeper) finishSession(session *icmpScanSession, targets []models.Target, ch chan<- models.Result) {
+	defer s.scans.Done()
+
+	s.mu.Lock()
+	delete(s.sessions, session)
+	s.mu.Unlock()
+
+	session.deliverResults(targets, ch, s.logger)
+}
+
+// startReadersLocked starts one reply reader per open socket. They run until
+// Stop closes the sockets. The caller must hold s.mu.
+func (s *ICMPSweeper) startReadersLocked() {
+	if s.readersStarted {
+		return
+	}
+
+	s.readersStarted = true
+
+	if s.conn != nil {
+		s.readers.Add(1)
+
+		go s.readReplies(s.conn, protocolICMPv4, ipv4.ICMPTypeEchoReply)
+	}
+
+	if s.conn6 != nil {
+		s.readers.Add(1)
+
+		go s.readReplies(s.conn6, protocolICMPv6, ipv6.ICMPTypeEchoReply)
+	}
+}
+
 // sendPings sends ICMP echo requests to all targets with rate limiting.
 // Sends icmpCount packets per target with incrementing sequence numbers.
-func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
+func (s *ICMPSweeper) sendPings(ctx context.Context, session *icmpScanSession, targets []models.Target) {
 	packetsPerInterval := s.calculatePacketsPerInterval()
 
 	s.logger.Info().
@@ -329,7 +393,7 @@ func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 			continue
 		}
 
-		s.sendBatches(ctx, targets, data, packetsPerInterval, seq)
+		s.sendBatches(ctx, session, targets, data, packetsPerInterval, seq)
 
 		// Brief pause between rounds to allow replies to come back
 		if seq < s.icmpCount {
@@ -388,7 +452,14 @@ const (
 )
 
 // sendBatches manages the sending of ping batches.
-func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int, seq int) {
+func (s *ICMPSweeper) sendBatches(
+	ctx context.Context,
+	session *icmpScanSession,
+	targets []models.Target,
+	data []byte,
+	batchSize int,
+	seq int,
+) {
 	ticker := time.NewTicker(batchInterval)
 	defer ticker.Stop()
 
@@ -407,7 +478,7 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 		batchEnd := s.calculateBatchEnd(targetIndex, maxBatchSize, len(targets))
 		batch := targets[targetIndex:batchEnd]
 
-		s.processBatch(batch, data, seq)
+		s.processBatch(session, batch, data, seq)
 
 		targetIndex = batchEnd
 		if targetIndex >= len(targets) {
@@ -446,7 +517,7 @@ func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
 }
 
 // processBatch sends pings to a batch of targets.
-func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte, seq int) {
+func (s *ICMPSweeper) processBatch(session *icmpScanSession, targets []models.Target, data []byte, seq int) {
 	for _, target := range targets {
 		ipAddr := net.ParseIP(target.Host)
 		if ipAddr == nil {
@@ -463,12 +534,12 @@ func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte, seq int
 			}
 		}
 
-		s.sendPingToTarget(target, sendData, seq)
+		s.sendPingToTarget(session, target, sendData, seq)
 	}
 }
 
-// sendPingToTarget sends a single ICMP ping and tracks it in hostStats.
-func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq int) {
+// sendPingToTarget sends a single ICMP ping and tracks it in the session.
+func (s *ICMPSweeper) sendPingToTarget(session *icmpScanSession, target models.Target, data []byte, seq int) {
 	ipAddr := net.ParseIP(target.Host)
 	if ipAddr == nil {
 		s.logger.Debug().Str("host", target.Host).Msg("Invalid IP address")
@@ -476,34 +547,12 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 		return
 	}
 
-	// Record initial result BEFORE sending the first packet to avoid race condition
-	// where handleReply could run before the result exists in the map
-	if seq == 1 {
-		s.recordInitialResult(target)
-	}
-
-	// Track sent packet in hostStats
-	now := time.Now()
-
-	s.mu.Lock()
-	stats, exists := s.hostStats[target.Host]
-	if !exists {
-		stats = &hostICMPStats{
-			firstSeen: now,
-			sendTimes: make(map[int]time.Time),
-		}
-		s.hostStats[target.Host] = stats
-	}
-	s.mu.Unlock()
-
-	stats.mu.Lock()
-	stats.sent++
-	stats.sendTimes[seq] = now // Record send time for this sequence number
-	stats.mu.Unlock()
+	// Record the send before the packet leaves so a fast reply finds it.
+	session.recordSend(target, seq, time.Now())
 
 	if ip4 := ipAddr.To4(); ip4 != nil {
 		if !s.icmpv4Available() {
-			s.recordUnavailableResult(target, ErrICMPv4Unavailable)
+			session.recordUnavailable(target, ErrICMPv4Unavailable)
 			return
 		}
 
@@ -520,7 +569,7 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	}
 
 	if s.conn6 == nil {
-		s.recordUnavailableResult(target, ErrICMPv6Unavailable)
+		session.recordUnavailable(target, ErrICMPv6Unavailable)
 		return
 	}
 
@@ -530,9 +579,38 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	}
 }
 
-func (s *ICMPSweeper) recordUnavailableResult(target models.Target, resultErr error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// recordSend counts an echo request to target with sequence number seq,
+// creating the target's initial unavailable result on its first packet.
+func (session *icmpScanSession) recordSend(target models.Target, seq int, now time.Time) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if _, ok := session.results[target.Host]; !ok {
+		session.results[target.Host] = models.Result{
+			Target:     target,
+			Available:  false,
+			FirstSeen:  now,
+			LastSeen:   now,
+			PacketLoss: 100,
+		}
+	}
+
+	stats, ok := session.hostStats[target.Host]
+	if !ok {
+		stats = &hostICMPStats{
+			firstSeen: now,
+			sendTimes: make(map[int]time.Time),
+		}
+		session.hostStats[target.Host] = stats
+	}
+
+	stats.sent++
+	stats.sendTimes[seq] = now
+}
+
+func (session *icmpScanSession) recordUnavailable(target models.Target, resultErr error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
 
 	now := time.Now()
 	result := models.Result{
@@ -543,275 +621,187 @@ func (s *ICMPSweeper) recordUnavailableResult(target models.Target, resultErr er
 		LastSeen:   now,
 		PacketLoss: 100,
 	}
-	s.emitResult(target.Host, &result)
-}
-
-// recordInitialResult stores the initial ping result.
-func (s *ICMPSweeper) recordInitialResult(target models.Target) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now()
-	result := models.Result{
-		Target:     target,
-		Available:  false,
-		FirstSeen:  now,
-		LastSeen:   now,
-		PacketLoss: 100,
-	}
-	s.emitResult(target.Host, &result)
+	session.emitLocked(target.Host, &result)
 }
 
 const (
-	defaultBytesRead    = 1500
-	defaultReadDeadline = 100 * time.Millisecond
+	defaultBytesRead = 1500
+	readErrorBackoff = 100 * time.Millisecond
+
+	protocolICMPv4 = 1
+	protocolICMPv6 = 58
 )
 
-// listenForReplies listens for and processes ICMP echo replies.
-func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Target) {
-	targetMap := make(map[string]string)
-	for _, t := range targets {
-		if canonical := canonicalIPString(t.Host); canonical != "" {
-			targetMap[canonical] = t.Host
-		}
-	}
+// readReplies reads ICMP messages from conn until it is closed and routes
+// each echo reply to the scans waiting for it.
+func (s *ICMPSweeper) readReplies(conn *icmp.PacketConn, protocol int, echoReplyType icmp.Type) {
+	defer s.readers.Done()
 
-	var wg sync.WaitGroup
-	if s.conn != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.listenForRepliesOnConn(ctx, s.conn, targetMap, 1, ipv4.ICMPTypeEchoReply)
-		}()
-	}
-	if s.conn6 != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.listenForRepliesOnConn(ctx, s.conn6, targetMap, 58, ipv6.ICMPTypeEchoReply)
-		}()
-	}
-
-	wg.Wait()
-}
-
-func (s *ICMPSweeper) listenForRepliesOnConn(
-	ctx context.Context,
-	conn *icmp.PacketConn,
-	targetMap map[string]string,
-	protocol int,
-	echoReplyType icmp.Type,
-) {
 	buf := make([]byte, defaultBytesRead)
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			if err := conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					s.logger.Debug().Msg("ICMP connection closed, stopping listener")
-					return
-				}
-
-				s.logger.Error().Err(err).Msg("Error setting read deadline")
-				continue
+		n, addr, err := conn.ReadFrom(buf)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				s.logger.Debug().Msg("ICMP reply reader stopping: connection closed")
+				return
 			}
 
-			reply, err := s.readReply(conn, buf)
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					s.logger.Debug().Msg("ICMP reply reader stopping: connection closed")
-					return
-				}
+			s.logger.Error().Err(err).Msg("Error reading ICMP reply")
 
-				continue
-			}
+			// Back off so a persistent socket error cannot spin.
+			time.Sleep(readErrorBackoff)
 
-			if err := s.processReply(reply, targetMap, protocol, echoReplyType); err != nil {
-				continue
-			}
+			continue
+		}
+
+		if err := s.dispatchReply(addr, buf[:n], protocol, echoReplyType, time.Now()); err != nil {
+			s.logger.Error().Err(err).Str("addr", addr.String()).Msg("Error parsing ICMP message")
 		}
 	}
 }
 
-// readReply reads an ICMP reply from the connection.
-func (s *ICMPSweeper) readReply(conn *icmp.PacketConn, buf []byte) (reply struct {
-	n    int
-	addr net.Addr
-	data []byte
-}, err error) {
-	n, addr, err := conn.ReadFrom(buf)
-	if err != nil {
-		var netErr net.Error
-
-		if errors.As(err, &netErr) && netErr.Timeout() {
-			return reply, nil // Timeout is not an error in this context
-		}
-
-		if errors.Is(err, net.ErrClosed) {
-			s.logger.Debug().Msg("ICMP connection closed while reading reply")
-			return reply, err
-		}
-
-		s.logger.Error().Err(err).Msg("Error reading ICMP reply")
-
-		return reply, err
-	}
-
-	return struct {
-		n    int
-		addr net.Addr
-		data []byte
-	}{n, addr, buf[:n]}, nil
-}
-
-// processReply processes a valid ICMP reply.
-func (s *ICMPSweeper) processReply(reply struct {
-	n    int
-	addr net.Addr
-	data []byte
-}, targetMap map[string]string, protocol int, echoReplyType icmp.Type) error {
-	if reply.addr == nil {
-		// Timeout or invalid reply, skip processing
+// dispatchReply routes an ICMP message received at now from addr to every
+// scan that has the sender as a target, if it is an echo reply carrying this
+// sweeper's identifier.
+func (s *ICMPSweeper) dispatchReply(addr net.Addr, data []byte, protocol int, echoReplyType icmp.Type, now time.Time) error {
+	if addr == nil {
 		return nil
 	}
 
-	ip := addrIPString(reply.addr)
+	ip := addrIPString(addr)
 	if ip == "" {
 		return nil
 	}
 
-	// Verify this is one of our targets
-	resultKey, ok := targetMap[ip]
-	if !ok {
-		return nil // Not an error, just not our target
+	s.mu.Lock()
+	waiting := make([]*icmpScanSession, 0, 1)
+
+	for session := range s.sessions {
+		if _, ok := session.targets[ip]; ok {
+			waiting = append(waiting, session)
+		}
+	}
+	s.mu.Unlock()
+
+	if len(waiting) == 0 {
+		return nil // Not a reply any scan is waiting for
 	}
 
-	// Parse the ICMP message
-	msg, err := icmp.ParseMessage(protocol, reply.data)
+	msg, err := icmp.ParseMessage(protocol, data)
 	if err != nil {
-		s.logger.Error().Err(err).Str("ip", ip).Msg("Error parsing ICMP message")
 		return err
 	}
 
-	// Verify it's an echo reply with our identifier
 	echo, ok := msg.Body.(*icmp.Echo)
 	if !ok || msg.Type != echoReplyType || echo.ID != s.identifier {
-		return nil // Not an error, just not our reply
+		return nil // Not our reply
 	}
 
-	now := time.Now()
-	seq := echo.Seq
-
-	// Update hostStats with received packet
-	s.mu.Lock()
-	stats, statsExist := s.hostStats[resultKey]
-	s.mu.Unlock()
-
-	if statsExist {
-		stats.mu.Lock()
-		stats.received++
-		// Calculate RTT based on when this specific packet was sent
-		if sendTime, ok := stats.sendTimes[seq]; ok {
-			rtt := now.Sub(sendTime)
-			stats.totalRTT += rtt
-			delete(stats.sendTimes, seq) // Clean up to prevent memory growth
-		}
-		stats.lastSeen = now
-		stats.mu.Unlock()
-	}
-
-	// Update the result - mark as available if ANY reply is received
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if result, ok := s.results[resultKey]; ok {
-		result.Available = true
-		result.LastSeen = now
-
-		// Calculate response time and packet loss from stats
-		if statsExist {
-			stats.mu.Lock()
-			if stats.received > 0 {
-				// Average response time from all received replies
-				result.RespTime = stats.totalRTT / time.Duration(stats.received)
-			}
-			if stats.sent > 0 {
-				// Packet loss = (sent - received) / sent * 100
-				result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
-			}
-			stats.mu.Unlock()
-		} else {
-			// Fallback for single packet case
-			result.RespTime = now.Sub(result.FirstSeen)
-			result.PacketLoss = 0
-		}
-
-		// Write the updated result back to the map
-		// (result is a value copy, so we must store it back)
-		s.results[resultKey] = result
-
-		s.emitResult(resultKey, &result)
+	for _, session := range waiting {
+		session.recordReply(ip, echo.Seq, now)
 	}
 
 	return nil
 }
 
-// processResults sends final results to the result channel.
-func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.Result) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// recordReply marks the target at ip available when it answered an echo
+// request this scan sent and has not yet seen answered.
+func (session *icmpScanSession) recordReply(ip string, seq int, now time.Time) {
+	resultKey, ok := session.targets[ip]
+	if !ok {
+		return
+	}
 
-	// Send all results to the channel, with final packet loss calculations
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	stats, ok := session.hostStats[resultKey]
+	if !ok {
+		return
+	}
+
+	// Only an outstanding sequence number counts, so a duplicate reply, or
+	// a reply to another scan's request, cannot push received above sent.
+	sendTime, outstanding := stats.sendTimes[seq]
+	if !outstanding {
+		return
+	}
+
+	delete(stats.sendTimes, seq)
+
+	stats.received++
+	stats.totalRTT += now.Sub(sendTime)
+	stats.lastSeen = now
+
+	result, ok := session.results[resultKey]
+	if !ok {
+		return
+	}
+
+	// Mark as available if ANY reply is received
+	result.Available = true
+	result.LastSeen = now
+	result.RespTime = stats.totalRTT / time.Duration(stats.received)
+	result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
+
+	session.emitLocked(resultKey, &result)
+}
+
+// deliverResults sends the final result for every target to ch.
+func (session *icmpScanSession) deliverResults(targets []models.Target, ch chan<- models.Result, log logger.Logger) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
 	for _, target := range targets {
-		if result, ok := s.results[target.Host]; ok {
-			// Update final stats from hostStats
-			if stats, statsExist := s.hostStats[target.Host]; statsExist {
-				stats.mu.Lock()
-				result.PacketsSent = uint32(stats.sent)
-				result.PacketsReceived = uint32(stats.received)
-				if stats.sent > 0 {
-					result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
-					if stats.received > 0 && result.RespTime == 0 {
-						result.RespTime = stats.totalRTT / time.Duration(stats.received)
-					}
-				}
-
-				// Log partial success for debugging
-				if stats.received > 0 && stats.received < stats.sent {
-					s.logger.Debug().
-						Str("host", target.Host).
-						Int("sent", stats.sent).
-						Int("received", stats.received).
-						Float64("packetLoss", result.PacketLoss).
-						Dur("avgRTT", result.RespTime).
-						Msg("Partial ICMP success - host marked available")
-				} else if stats.received == 0 {
-					s.logger.Debug().
-						Str("host", target.Host).
-						Int("sent", stats.sent).
-						Msg("No ICMP replies received - host marked unavailable")
-				}
-				stats.mu.Unlock()
-			}
-			ch <- result
-		} else {
+		result, ok := session.results[target.Host]
+		if !ok {
 			// If we somehow don't have a result for this target, create a default one
+			now := time.Now()
 			ch <- models.Result{
 				Target:     target,
 				Available:  false,
 				PacketLoss: 100,
-				FirstSeen:  time.Now(),
-				LastSeen:   time.Now(),
+				FirstSeen:  now,
+				LastSeen:   now,
+			}
+
+			continue
+		}
+
+		if stats, statsExist := session.hostStats[target.Host]; statsExist {
+			result.PacketsSent = uint32(stats.sent)
+			result.PacketsReceived = uint32(stats.received)
+
+			if stats.sent > 0 {
+				result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
+				if stats.received > 0 && result.RespTime == 0 {
+					result.RespTime = stats.totalRTT / time.Duration(stats.received)
+				}
+			}
+
+			if stats.received > 0 && stats.received < stats.sent {
+				log.Debug().
+					Str("host", target.Host).
+					Int("sent", stats.sent).
+					Int("received", stats.received).
+					Float64("packetLoss", result.PacketLoss).
+					Dur("avgRTT", result.RespTime).
+					Msg("Partial ICMP success - host marked available")
+			} else if stats.received == 0 {
+				log.Debug().
+					Str("host", target.Host).
+					Int("sent", stats.sent).
+					Msg("No ICMP replies received - host marked unavailable")
 			}
 		}
+
+		ch <- result
 	}
 }
 
-// Stop stops the scanner and releases resources.
-// SetResultCallback sets a callback function that will be called immediately when a result becomes available
+// SetResultCallback sets a callback function that will be called immediately
+// when a result becomes available. It applies to scans started after the call.
 func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -819,57 +809,72 @@ func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
 	s.resultCallback = callback
 }
 
-// emitResult stores the result and immediately calls the callback if available and result is definitive
-func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
-	s.results[host] = *result
+// emitLocked stores the result and calls the callback when the result is
+// definitive (Available=true or has Error). The caller must hold session.mu.
+func (session *icmpScanSession) emitLocked(host string, result *models.Result) {
+	session.results[host] = *result
 
-	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
-	if s.resultCallback != nil && (result.Available || result.Error != nil) {
-		cb := s.resultCallback
+	if session.callback != nil && (result.Available || result.Error != nil) {
+		cb := session.callback
 		res := *result
 
 		go cb(res)
 	}
 }
 
+// Stop cancels in-flight scans, waits for them to deliver their results,
+// then closes the sockets. Later Scan calls fail with ErrICMPSweeperStopped.
 func (s *ICMPSweeper) Stop() error {
-	if s.cancel != nil {
-		s.cancel()
+	s.mu.Lock()
+	s.stopped = true
+
+	for session := range s.sessions {
+		session.cancel()
 	}
+	s.mu.Unlock()
 
-	// Close the connection and socket
+	s.scans.Wait()
+
+	err := s.closeSockets()
+
+	s.readers.Wait()
+
+	return err
+}
+
+// closeSockets closes every open socket, attempting each one even when an
+// earlier close fails so no descriptor is leaked.
+func (s *ICMPSweeper) closeSockets() error {
+	var errs []error
+
 	if s.conn != nil {
-		err := s.conn.Close()
-		if err != nil {
+		if err := s.conn.Close(); err != nil {
 			s.logger.Error().Err(err).Msg("Error closing ICMP connection")
-
-			return err
+			errs = append(errs, err)
 		}
+
 		s.conn = nil
 	}
 
 	if s.conn6 != nil {
-		err := s.conn6.Close()
-		if err != nil {
+		if err := s.conn6.Close(); err != nil {
 			s.logger.Error().Err(err).Msg("Error closing ICMPv6 connection")
-
-			return err
+			errs = append(errs, err)
 		}
+
 		s.conn6 = nil
 	}
 
 	if rawSocketAvailable(s.rawSocketFD) {
-		err := syscall.Close(s.rawSocketFD)
-		if err != nil {
+		if err := syscall.Close(s.rawSocketFD); err != nil {
 			s.logger.Error().Err(err).Msg("Error closing raw socket")
-
-			return err
+			errs = append(errs, err)
 		}
 
 		s.rawSocketFD = invalidRawSocketFD
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func canonicalIPString(host string) string {

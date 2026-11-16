@@ -9,10 +9,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
     only: [format_target_count: 1, target_count_title: 1]
 
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.MissingOIDs
 
   attr :profiles, :list, required: true
   attr :profile_target_counts, :map, default: %{}
   attr :profile_target_refusals, :map, default: %{}
+  attr :profiles_missing_oids, :any, default: MapSet.new()
   attr :profile_package_names, :map, default: %{}
 
   def profiles_panel(assigns) do
@@ -111,6 +113,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                       title={Map.get(@profile_target_refusals, profile.id)}
                     >
                       Too many targets
+                    </.ui_badge>
+                    <!--
+                    A target query whose devices have no OID to poll compiles
+                    no target for them. Shown persistently for the same reason
+                    as the credential warning above.
+                    -->
+                    <.ui_badge
+                      :if={MapSet.member?(@profiles_missing_oids, profile.id)}
+                      id={"snmp-profile-#{profile.id}-no-oids"}
+                      variant="error"
+                      size="xs"
+                      title={MissingOIDs.message(profile)}
+                    >
+                      No OIDs
                     </.ui_badge>
                   </div>
                   <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">

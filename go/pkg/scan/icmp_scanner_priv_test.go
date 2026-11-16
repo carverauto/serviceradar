@@ -4,6 +4,10 @@ package scan
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -162,31 +166,122 @@ func TestICMPSweeper_IPv6LoopbackScan(t *testing.T) {
 	}
 }
 
+// One sweeper serves overlapping Scans when the mapper probes hosts from
+// several workers at once. Every scan must see the replies to its own
+// pings even while other scans start, send and finish around it.
+func TestICMPSweeper_ConcurrentScansEachSeeTheirReplies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping concurrent ICMP scan test in short mode")
+	}
+
+	if runtime.GOOS != "linux" {
+		t.Skip("needs every 127/8 address to answer on loopback, which only Linux does by default")
+	}
+
+	sweeper, err := NewICMPSweeper(time.Second, 100, logger.NewTestLogger(), WithICMPCount(1))
+	if err != nil {
+		t.Skipf("ICMP scanner requires runtime socket privileges: %v", err)
+	}
+
+	defer func() {
+		if stopErr := sweeper.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop ICMPSweeper: %v", stopErr)
+		}
+	}()
+
+	if !sweeper.Capabilities().ICMPv4 {
+		t.Skip("ICMPv4 socket is unavailable on this runtime")
+	}
+
+	const scans = 8
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	results := make([][]models.Result, scans)
+
+	for i := range scans {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			// Stagger the starts so each scan begins while earlier ones are
+			// still waiting for replies, as the mapper's workers do.
+			time.Sleep(time.Duration(i) * 50 * time.Millisecond)
+
+			host := fmt.Sprintf("127.0.0.%d", i+1)
+
+			resultCh, scanErr := sweeper.Scan(ctx, []models.Target{{Host: host, Mode: models.ModeICMP}})
+			if scanErr != nil {
+				t.Errorf("Scan(%s) error = %v", host, scanErr)
+				return
+			}
+
+			for result := range resultCh {
+				results[i] = append(results[i], result)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, got := range results {
+		host := fmt.Sprintf("127.0.0.%d", i+1)
+		if len(got) != 1 {
+			t.Errorf("%s: result count = %d, want 1", host, len(got))
+			continue
+		}
+
+		if got[0].Target.Host != host || !got[0].Available {
+			t.Errorf("%s: want an available result for the scanned host, got host=%s available=%v loss=%v",
+				host, got[0].Target.Host, got[0].Available, got[0].PacketLoss)
+		}
+	}
+}
+
 func TestICMPSweeper_Stop(t *testing.T) {
-	sweeper, err := NewICMPSweeper(1*time.Second, 100, logger.NewTestLogger())
+	// A reply timeout far longer than the test, so only Stop can end the scan.
+	sweeper, err := NewICMPSweeper(time.Minute, 100, logger.NewTestLogger(), WithICMPCount(1))
 	if err != nil {
 		t.Skipf("ICMP scanner requires root privileges: %v", err)
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	sweeper.cancel = cancel
+	// TEST-NET-1 (RFC 5737) never answers.
+	target := models.Target{Host: "192.0.2.1", Mode: models.ModeICMP}
+
+	resultCh, err := sweeper.Scan(context.Background(), []models.Target{target})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
 
 	err = sweeper.Stop()
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}
 
-	// Check that rawSocketFD is closed
+	// Stop waits for in-flight scans, so their results are already delivered.
+	select {
+	case result, ok := <-resultCh:
+		if !ok || result.Target.Host != target.Host || result.Available {
+			t.Errorf("in-flight scan result = %+v (ok=%v), want an unavailable result for %s", result, ok, target.Host)
+		}
+	default:
+		t.Fatal("Stop() returned before the in-flight scan delivered its result")
+	}
+
+	if _, ok := <-resultCh; ok {
+		t.Error("result channel not closed after Stop()")
+	}
+
 	if sweeper.rawSocketFD != invalidRawSocketFD {
 		t.Errorf("rawSocketFD not reset after Stop()")
 	}
 
-	// Check that context was canceled
-	select {
-	case <-ctx.Done():
-		// Expected
-	default:
-		t.Errorf("Context not canceled after Stop()")
+	if _, err := sweeper.Scan(context.Background(), []models.Target{target}); !errors.Is(err, ErrICMPSweeperStopped) {
+		t.Errorf("Scan() after Stop() error = %v, want %v", err, ErrICMPSweeperStopped)
 	}
 }

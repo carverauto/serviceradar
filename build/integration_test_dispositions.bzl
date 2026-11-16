@@ -465,6 +465,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/security/edge_isolation_test.exs": 1,
     "test/serviceradar/security/events_test.exs": 1,
     "test/serviceradar/security/rate_limiter_test.exs": 1,
+    "test/serviceradar/snmp_profiles/builtin_templates_db_test.exs": 1,
     "test/serviceradar/snmp_profiles/credential_resolver_test.exs": 1,
     "test/serviceradar/snmp_profiles/snmp_compiler_test.exs": 1,
     "test/serviceradar/snmp_profiles/snmp_profile_lifecycle_db_test.exs": 1,

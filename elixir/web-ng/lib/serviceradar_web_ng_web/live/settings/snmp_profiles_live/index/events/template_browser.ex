@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBr
               "data_type" => to_string(oid.data_type),
               "scale" => to_string(oid.scale || 1.0),
               "delta" => oid.delta || false,
+              "mode" => Map.get(oid, :mode, "get"),
               "temp_id" => System.unique_integer([:positive])
             }
           end)
@@ -77,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBr
               "data_type" => Map.get(oid, "data_type", "gauge"),
               "scale" => to_string(Map.get(oid, "scale", 1.0)),
               "delta" => Map.get(oid, "delta", false),
+              "mode" => Map.get(oid, "mode", "get"),
               "temp_id" => System.unique_integer([:positive])
             }
           end)
@@ -118,7 +120,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBr
               "name" => oid.name,
               "data_type" => to_string(oid.data_type),
               "scale" => oid.scale || 1.0,
-              "delta" => oid.delta || false
+              "delta" => oid.delta || false,
+              "mode" => Map.get(oid, :mode, "get")
             }
           end)
 
