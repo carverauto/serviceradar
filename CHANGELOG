@@ -169,8 +169,10 @@ format.
   agent it compiled for arrived at the same credential (reusing it, or
   saving inline material as a reusable credential), so no secret has to
   be re-entered. Jobs whose agents disagreed, or that had no credential,
-  stay unbound: the Discovery list shows "No SNMP credential" and the
-  job compiles to no SNMP until a credential is picked on the job form.
+  stay unbound and the Discovery list shows "No SNMP credential". An
+  unbound job still saves and runs but probes only devices that have
+  their own credential; seeds and newly found neighbours get no SNMP
+  until a credential is picked on the job form.
   A credential a job references cannot be deleted (`credential_in_use`).
   Reusable SNMP community credentials gain an optional `v1`/`v2c`
   version (absent means `v2c`), and a rotation that leaves the version
@@ -255,11 +257,12 @@ format.
   Camera Recording > Recording & Storage (`/settings/recording`) shows
   NVR runtime status, the archive destination and its credential,
   retained recording blocks and recording history, and reports
-  local-only storage as a normal state. It uses two new permissions:
-  `settings.recording.view` (viewer, operator and admin) and
-  `settings.recording.manage` (admin). Migration `20261115210000` adds
-  the recording archive settings, archive receipt and recording
-  operation tables (#6662, #6694).
+  local-only storage as a normal state. It uses three new permissions,
+  `settings.recording.view`, `settings.recording.manage` and
+  `settings.recording.operate`; by default only the admin role holds
+  them, so other roles must be granted them to open the page.
+  Migration `20261115210000` adds the recording archive settings,
+  archive receipt and recording operation tables (#6662, #6694).
 - **One image signature format.** Images, native add-ons and Wasm
   plugins carry only the classic Cosign `.sig` signature that admission
   verifies; Sigstore bundle/OCI-referrer signatures are no longer
