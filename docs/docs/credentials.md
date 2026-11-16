@@ -808,7 +808,10 @@ SNMP is a protocol ServiceRadar speaks itself, so its descriptor is
 platform-owned rather than package-published. It supports rules, scoped to
 agents, with one purpose (`snmp_monitoring`) and two auth methods:
 
-- `community` -- a community string, for v1/v2c.
+- `community` -- a community string, and an optional **SNMP version** (`v1`
+  or `v2c`, default `v2c`). A credential stored without a version is used as
+  v2c. The version travels with the credential, so a discovery job that
+  references it sends v1 when the credential says v1.
 - `v3` -- username, security level, and the authentication and privacy
   protocol and password that level uses.
 
@@ -830,7 +833,9 @@ protocol outside the list is refused with the field named.
 
 Rotating a credential replaces it completely. The stored level and protocols are
 not loaded into the rotation form, so choose them again along with the new
-passwords. Credentials saved before the lists existed keep working in whatever
+passwords. The one exception is the community SNMP version: left on
+**Keep current version**, the rotation keeps the stored version; choosing `v1`
+or `v2c` replaces it. Credentials saved before the lists existed keep working in whatever
 spelling they were typed (`SHA-256`, `auth_priv`); a rotation rewrites them in
 the listed spelling.
 
