@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
 
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -754,7 +755,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             <tbody>
               <%= for target <- @targets do %>
                 <tr class="hover:bg-sr-subtle/40">
-                  <td class="font-medium">{target.name}</td>
+                  <td class="font-medium">
+                    {target.name}
+                    <!--
+                    A credential rule applies to a manual target only when its
+                    target query selects the device at the target's host, so a
+                    target without its own credential is polled only in that case.
+                    -->
+                    <.ui_badge
+                      :if={not CredentialResolver.record_has_credential?(target)}
+                      id={"snmp-target-#{target.id}-no-credential"}
+                      variant="warning"
+                      size="xs"
+                      title="This target has no credential of its own. It is polled only while a credential rule's target query selects the device at its host; a host that belongs to no device is not polled."
+                    >
+                      No credential
+                    </.ui_badge>
+                  </td>
                   <td class="font-mono text-xs">{target.host}</td>
                   <td class="font-mono text-xs">{target.port}</td>
                   <td>

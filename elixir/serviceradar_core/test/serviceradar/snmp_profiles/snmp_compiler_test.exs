@@ -2415,6 +2415,131 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
+  # remove-snmp-unbound-host-rule-fallback: a credential rule reaches an explicit
+  # target only through its target query, which selects devices; a host that
+  # belongs to no device is selected by no rule, whatever the rule's scope or
+  # priority.
+  describe "explicit targets and SNMP credential rules" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      unique = System.unique_integer([:positive])
+      handler = "snmp-target-without-credential-#{unique}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :snmp, :target_without_credential],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:target_without_credential, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      actor = SystemActor.system(:test)
+      agent_id = "agent-explicit-#{unique}"
+
+      # Two rules on one agent, each written for one device.
+      for {name, priority} <- [{"host01", 10}, {"host02", 20}] do
+        secret = create_snmp_secret("#{name} #{unique}", "#{name}-community", actor)
+
+        NetworkCredentialRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "#{name} rule #{unique}",
+            provider: "snmp",
+            auth_method: :community,
+            purpose: "snmp_monitoring",
+            priority: priority,
+            target_query: ~s(in:devices hostname:"#{name}-#{unique}.example.com"),
+            scope_type: :agent,
+            scope_value: agent_id,
+            secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+      end
+
+      profile = scope_profile(actor, "explicit-#{unique}", [agent_id], nil)
+
+      {:ok, actor: actor, agent_id: agent_id, profile: profile, unique: unique}
+    end
+
+    @tag :integration
+    test "a host no device holds gets neither rule, and is reported when it has no credential",
+         %{actor: actor, agent_id: agent_id, profile: profile} do
+      host = ServiceRadar.TestSupport.unique_device_ip()
+      target = explicit_target(profile, "Unbound", host, %{}, actor)
+      target_id = target.id
+
+      assert {:ok, %{"targets" => []}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      assert_received {:target_without_credential, %{count: 1},
+                       %{target_id: ^target_id, agent_id: ^agent_id}}
+    end
+
+    @tag :integration
+    test "a host no device holds is polled with its own credential, not a rule's",
+         %{actor: actor, agent_id: agent_id, profile: profile, unique: unique} do
+      own = create_snmp_secret("Own #{unique}", "own-community", actor)
+      host = ServiceRadar.TestSupport.unique_device_ip()
+      explicit_target(profile, "OwnCredential", host, %{credential_secret_id: own.id}, actor)
+
+      assert {:ok, %{"targets" => [%{"host" => ^host, "community" => "own-community"}]}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+
+      refute_received {:target_without_credential, _measurements, _metadata}
+    end
+
+    @tag :integration
+    test "a host whose device a rule selects is polled with that rule's credential",
+         %{actor: actor, agent_id: agent_id, profile: profile, unique: unique} do
+      host = ServiceRadar.TestSupport.unique_device_ip()
+
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "host02-#{unique}.example.com",
+        ip: host
+      })
+      |> Ash.create!(actor: actor)
+
+      explicit_target(profile, "Bound", host, %{}, actor)
+
+      assert {:ok, %{"targets" => [%{"host" => ^host, "community" => "host02-community"}]}} =
+               SNMPCompiler.compile_profile(profile, actor, agent_id: agent_id)
+    end
+  end
+
+  defp explicit_target(profile, name, host, attrs, actor) do
+    target =
+      SNMPTarget
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(
+          %{snmp_profile_id: profile.id, name: name, host: host, port: 161, version: :v2c},
+          attrs
+        ),
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    SNMPOIDConfig
+    |> Ash.Changeset.for_create(
+      :create,
+      %{snmp_target_id: target.id, oid: ".1.3.6.1.2.1.1.3.0", name: "sysUpTime"},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    target
+  end
+
   defp create_gateway_profile(gateway_id, actor, attrs \\ %{}) do
     gateway_id |> gateway_profile_changeset(actor, attrs) |> Ash.create!(actor: actor)
   end

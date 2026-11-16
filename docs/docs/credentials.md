@@ -931,6 +931,27 @@ credential source left. Migrate it by creating the equivalent SNMP credential
 above, binding it to the profile that covers those targets, and then removing the
 credentials from the file. Do not add new deployments to this path.
 
+#### Manual SNMP target credentials
+
+A manual (legacy) SNMP target on a profile is polled with a monitoring rule
+only when the rule is scoped to the polling agent and its target query selects
+the device the target's host belongs to: the device whose uid, confirmed IP
+alias, IP, hostname or name it is. A host that belongs to no device is selected
+by no rule, whatever the rule's scope or priority, and is polled with the
+target's own credential. A target with no usable credential is not polled; the
+compiler logs a warning and emits
+`[:serviceradar, :snmp, :target_without_credential]`, and the profile's list of
+manual targets marks a target that has no credential of its own
+**No credential**.
+
+Before this, a target whose host had no device record was polled with the first
+SNMP rule scoped to the agent or its partition, whatever its target query, even
+when the target had a credential of its own. On upgrade, a one-off background
+job binds each such target that has no credential of its own to the credential
+that rule used, when every agent polling the profile used the same one. A
+target with its own credential is now polled with that credential instead of
+the rule's.
+
 #### Mapper target credentials
 
 Mapper uses the shared SNMP resolver for known inventory devices named by job
