@@ -35,7 +35,7 @@ merges (rebase onto staging, add the registration, revalidate).
       proved a whole-window single transaction does not); preserve
       halt-before-send on conflict and
       all `verify_issuance` checks. Fail-first DB test (unboxed, serial lane):
-      a 2,015-slot window's re-push issues a bounded handful of `commit`
+      a 2,015-slot window's re-push issues a bounded number of `commit`
       queries counted client-side via Ecto telemetry; a conflicting entry
       still blocks the send. (`pg_stat_database` is unsound here: inside the
       sandbox every inner transaction is a savepoint, and the fixture
