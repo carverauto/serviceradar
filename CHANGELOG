@@ -260,7 +260,7 @@ format.
   upgrading. A rule may now set `key_prefixes` to limit an identity to
   KV keys under those prefixes. The chart limits the log collector's
   `reader` rules to `zen/rulesets/`, so it can read only the Zen rule
-  bundles core publishes (#6690, #6696).
+  bundles core publishes (#6690, #6696, #6705).
 - **NVR and media storage (opt-in).** NVR is still disabled by default.
   New opt-in blocks: `nvr.ingest` (mTLS + token ingest, core client
   mounts and a core-only NetworkPolicy; the config, token and TLS
@@ -325,6 +325,9 @@ format.
 - Drained pre-lane flat spool storage is retired at agent start
   (#6652), and undelivered legacy records are handed off to local
   late-admission storage first (#6692).
+- Agents accept the `LEDGER_PRUNED` late-decision reason, so a later
+  AUDIT grant carrying it is not treated as malformed and the record
+  is not held forever (#6702).
 - A gateway's graceful GOAWAY drain is no longer recorded as an error
   span (#6640).
 
@@ -417,7 +420,8 @@ format.
   records it already admitted before it exits (#6687).
 - datasvc enforces its RBAC role list, and a rule can limit an
   identity to KV key prefixes (#6690); the log collector reads only
-  Zen rule bundles (#6696).
+  Zen rule bundles (#6696). The chart's datasvc rules match on
+  certificate common name (#6705).
 
 **Remote access**
 
@@ -446,6 +450,9 @@ format.
 - A Recording & Storage settings page for NVR status, archive
   settings, retained blocks and recording history (#6662, #6694).
 - Media storage can use a node-installed seccomp profile (#6607, #6610).
+- The camera storage service drains a refused upload body, up to the
+  route's size limit, before it answers, so an uploader reads the 400
+  instead of a connection reset (#6701).
 - The demo values enable the NVR recorder and ingest (#6629).
 
 **Helm**
