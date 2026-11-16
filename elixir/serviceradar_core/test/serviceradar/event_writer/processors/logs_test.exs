@@ -685,6 +685,43 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.source_ip == nil
       assert row.scope_attributes == %{}
     end
+
+    test "protobuf source_ip accepts only attribute values that parse as an IP" do
+      row_for = fn attributes ->
+        request = %ExportLogsServiceRequest{
+          resource_logs: [
+            %ResourceLogs{
+              scope_logs: [
+                %ScopeLogs{
+                  log_records: [
+                    %LogRecord{
+                      time_unix_nano: 1_705_315_800_000_000_000,
+                      body: %AnyValue{value: {:string_value, "sender"}},
+                      attributes:
+                        Enum.map(attributes, fn {key, value} ->
+                          %KeyValue{key: key, value: %AnyValue{value: {:string_value, value}}}
+                        end)
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+
+        [row] =
+          Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+        row
+      end
+
+      # A sender-supplied value that is not an address is not stored.
+      assert row_for.([{"source_ip", "not-an-ip"}]).source_ip == nil
+      # The receiver-style `_remote_addr` key carries "ip:port"; only the address is kept.
+      assert row_for.([{"_remote_addr", "198.51.100.7:5140"}]).source_ip == "198.51.100.7"
+      # The camelCase key the JSON path accepts is honoured here too.
+      assert row_for.([{"sourceIp", "2001:db8::5"}]).source_ip == "2001:db8::5"
+    end
   end
 
   describe "parse_message/1 ingest attribution" do
