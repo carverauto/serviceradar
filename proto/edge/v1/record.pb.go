@@ -502,6 +502,10 @@ const (
 	EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED     EdgeLateDecisionReason = 4
 	EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW   EdgeLateDecisionReason = 5
 	EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED     EdgeLateDecisionReason = 6
+	// The record is older than the event ledger's complete coverage
+	// (ledger_complete_since plus clock tolerance), so an earlier application
+	// could have been pruned: it is stored for audit, never projected.
+	EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED EdgeLateDecisionReason = 7
 )
 
 // Enum value maps for EdgeLateDecisionReason.
@@ -514,6 +518,7 @@ var (
 		4: "EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED",
 		5: "EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW",
 		6: "EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED",
+		7: "EDGE_LATE_DECISION_REASON_LEDGER_PRUNED",
 	}
 	EdgeLateDecisionReason_value = map[string]int32{
 		"EDGE_LATE_DECISION_REASON_UNSPECIFIED":          0,
@@ -523,6 +528,7 @@ var (
 		"EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED":     4,
 		"EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW":   5,
 		"EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED":     6,
+		"EDGE_LATE_DECISION_REASON_LEDGER_PRUNED":        7,
 	}
 )
 
@@ -4562,7 +4568,7 @@ const file_edge_v1_record_proto_rawDesc = "" +
 	"\x13EdgeLatePublication\x12%\n" +
 	"!EDGE_LATE_PUBLICATION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dEDGE_LATE_PUBLICATION_PRIMARY\x10\x01\x12\x1f\n" +
-	"\x1bEDGE_LATE_PUBLICATION_AUDIT\x10\x02*\xe0\x02\n" +
+	"\x1bEDGE_LATE_PUBLICATION_AUDIT\x10\x02*\x8d\x03\n" +
 	"\x16EdgeLateDecisionReason\x12)\n" +
 	"%EDGE_LATE_DECISION_REASON_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"EDGE_LATE_DECISION_REASON_ADMITTED\x10\x01\x122\n" +
@@ -4570,7 +4576,8 @@ const file_edge_v1_record_proto_rawDesc = "" +
 	")EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN\x10\x03\x12.\n" +
 	"*EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED\x10\x04\x120\n" +
 	",EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW\x10\x05\x12.\n" +
-	"*EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED\x10\x06*\x8c\x02\n" +
+	"*EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED\x10\x06\x12+\n" +
+	"'EDGE_LATE_DECISION_REASON_LEDGER_PRUNED\x10\a*\x8c\x02\n" +
 	"\x15EdgeCapabilityPurpose\x12'\n" +
 	"#EDGE_CAPABILITY_PURPOSE_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"EDGE_CAPABILITY_PURPOSE_PRODUCTION\x10\x01\x12\"\n" +

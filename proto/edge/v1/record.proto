@@ -250,6 +250,10 @@ enum EdgeLateDecisionReason {
   EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED = 4;
   EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW = 5;
   EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 6;
+  // The record is older than the event ledger's complete coverage
+  // (ledger_complete_since plus clock tolerance), so an earlier application
+  // could have been pruned: it is stored for audit, never projected.
+  EDGE_LATE_DECISION_REASON_LEDGER_PRUNED = 7;
 }
 
 // EdgeDeliveryLateAdmissionV1 is core's production-time decision for one late
