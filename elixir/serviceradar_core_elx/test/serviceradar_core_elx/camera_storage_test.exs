@@ -674,6 +674,18 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
   end
 
   @tag kind: :media
+  test "an unauthenticated upload is refused without reading its declared body", ctx do
+    # Declares a full media body and sends none of it. Reading even one body
+    # byte would hold the 401 until the client sent the rest or the deadline.
+    socket = upload_socket(ctx, 16_777_216, "", token: String.duplicate("x", 40))
+
+    assert {:ok, "HTTP/1.1 401 " <> _} = :ssl.recv(socket, 0, 1_000)
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/prepare" end)
+  end
+
+  @tag kind: :media
   test "oversize ingress closes without draining an unadmitted body", ctx do
     socket = upload_socket(ctx, 16_777_217)
 
@@ -1006,7 +1018,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     assert :ok =
              :ssl.send(socket, [
                "POST /v1/#{ctx.kind}-uploads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ",
-               @recorder_token,
+               Keyword.get(opts, :token, @recorder_token),
                "\r\nContent-Type: ",
                content_type,
                "\r\nContent-Length: ",
