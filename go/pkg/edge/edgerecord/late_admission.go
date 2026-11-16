@@ -309,6 +309,7 @@ func knownLateDecisionReason(r edgev1.EdgeLateDecisionReason) bool {
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN,
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED,
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
+		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED,
 		edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED:
 		return true
 	case edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_UNSPECIFIED:
@@ -339,6 +340,7 @@ func validateLateAdmissionClaims(late *edgev1.EdgeDeliveryLateAdmissionV1) error
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
+			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED:
 		case edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_UNSPECIFIED,
 			edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_ADMITTED:

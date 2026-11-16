@@ -212,6 +212,25 @@ func TestValidateLateFrameSignedQuarantinesBeforeAnyGrant(t *testing.T) {
 	}
 }
 
+// A record older than the event ledger's complete coverage is stored for audit,
+// never projected (design Decision 5, reason ledger_pruned). A phase-1 agent and
+// gateway must accept that decision as AUDIT: treating it as malformed would
+// withhold the record forever, which is the stranding this change removes.
+func TestValidateLateFrameSignedAcceptsALedgerPrunedAuditDecision(t *testing.T) {
+	f := newLateFixture(t)
+	principal := f.record.GetProducerContext().GetOriginPrincipalId()
+	pruned := f.grant(f.late(edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_AUDIT, edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED))
+	d, err := ValidateLateFrameSigned(f.frameFor(pruned), principal, f.policy)
+	if err != nil || d.Publication != FramePublicationAudit {
+		t.Fatalf("AUDIT ledger_pruned decision = (%+v, %v), want Audit", d, err)
+	}
+	// ledger_pruned is an audit reason only: it can never ride a PRIMARY decision.
+	primary := f.grant(f.late(edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_PRIMARY, edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED))
+	if _, err := ValidateLateFrameSigned(f.frameFor(primary), principal, f.policy); !errors.Is(err, ErrDeliveryClaims) {
+		t.Fatalf("PRIMARY ledger_pruned decision = %v, want ErrDeliveryClaims", err)
+	}
+}
+
 // Core's PRIMARY/AUDIT choice is covered by the delivery signature, so it cannot be
 // flipped beside a valid signature.
 func TestLateAdmissionDecisionIsSigned(t *testing.T) {
