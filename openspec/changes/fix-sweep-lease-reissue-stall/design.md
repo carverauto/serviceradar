@@ -86,18 +86,25 @@ re-assert core's own records.
     unknown-field tolerance; the old gateway does not forward it); full
     re-issue. The agent never waits for or depends on a skip.
 
-### 3. Batching: build all entries, commit in 256-entry chunks
+### 3. Batching: build all entries, commit in 64-entry chunks
 
 `record_mappings` keeps its per-slot evidence construction (including every
 `verify_issuance` check) but returns entries instead of committing per slot;
-a new step commits the concatenated entries in 256-entry chunks through the
+a new step commits the concatenated entries in 64-entry chunks through the
 existing `commit_issuance` (whose 4,096-entry cap is now just an upper bound),
-so a 2,015-slot window commits in ~16 transactions instead of ~2,015. Chunks
-stay small enough that every commit fits the checkout timeout even on a loaded
-executor — CI proved a whole-window single transaction does not fit. A
-conflicting entry still halts the push before `record_push` and the send,
-exactly as today; partial-chunk commits resolve `:committed` on retry through
-the untouched replay path.
+so a 2,015-slot window (4,030 entries) commits in 63 transactions instead of
+~2,015. The chunk bounds how long one transaction holds its connection, and
+that has to fit the 15 s checkout timeout with headroom on a slow database:
+`commit_issuance` runs seven sequential statements per entry (key
+ensure and lock, issuance record and read-back, candidate read with its
+issuance load, then the replay decision read or the candidate append and
+projection update). CI proved a whole-window single transaction does not fit,
+and later proved 256-entry chunks (1,792 statements) do not either: on a
+contended executor one chunk ran past 15 s and failed the push, and against a
+10 ms round trip every such chunk took 24 s on average. 64-entry chunks are
+448 statements, about a quarter of that. A conflicting entry still halts the push
+before `record_push` and the send, exactly as today; partial-chunk commits
+resolve `:committed` on retry through the untouched replay path.
 
 `mark_carried` is already a bulk update and stays as-is. The per-slot
 `source_authorizations` signatures stay per-slot (CPU-cheap, no round trips).
