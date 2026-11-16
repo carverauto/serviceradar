@@ -1265,7 +1265,88 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert {:error, {:nvr_ingest_refused, %{status: 422, recorder_epoch: 2}}} = second
   end
 
-  test "NVRCapture refuses a clean seal when the relay drain fails after a bound and keeps the recorder fence",
+  test "NVRCapture treats a capture Core aborts before the end marker as definite, releasing the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    # The viewer keeps the relay open after the released recorder detaches.
+    {:ok, _viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    nvr = fake_nvr_member(ctx, "aborted", &start_reading_tls_peer/1)
+    [first_unit, second_unit, third_unit, fourth_unit | _] = ctx.media.units
+
+    first = capture_with_backwards_unit(ctx, owner, nvr, first_unit, second_unit)
+    assert {:error, {:nvr_ingest_aborted, details}} = first
+    assert details.reason == :non_monotonic_timestamp
+    assert details.storage_id == nvr.storage_id
+    assert details.member == "serviceradar-nvr-0"
+    assert details.recorder_epoch == 1
+    assert details.relay_session_id == ctx.relay.id
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :released
+    assert claim.recorder_epoch == 1
+
+    assert [%{id: block_id, state: :open_local}] = recording_blocks(ctx)
+    assert block_id == details.recording_block_id
+
+    # Inside the first claim's 30s lease, a retained fence would refuse this
+    # capture with :recorder_already_owned before it reached the NVR.
+    second = capture_with_backwards_unit(ctx, owner, nvr, third_unit, fourth_unit)
+
+    assert {:error, {:nvr_ingest_aborted, %{reason: :non_monotonic_timestamp, recorder_epoch: 2}}} =
+             second
+  end
+
+  test "NVRCapture keeps a capture Core aborts after the end marker uncertain, holding the recorder fence",
+       ctx do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "late-abort", &start_sealing_tls_peer(&1, self()))
+    task = start_fake_nvr_capture(ctx, nvr, 3)
+    worker = await_nvr_worker_attached(owner)
+    %{block: %{block_key: block_key}} = :sys.get_state(worker)
+    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
+
+    # The peer has read the end marker, so the worker handed its sender `:eof`.
+    assert_receive :nvr_sealing_peer_request_complete, 5_000
+
+    # Closing the relay pipeline stops the stream from Core's side while the
+    # seal answer is outstanding.
+    :ok = PipelineManager.close_session(ctx.relay.id)
+
+    await_capture(
+      fn ->
+        if :sys.get_state(worker).abort_reason == :ingest_stopped,
+          do: {:ready, :ok},
+          else: :waiting
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+
+    # The end marker went out, so the NVR may have sealed; here it has.
+    seal =
+      Jason.encode!(%{
+        "version" => 1,
+        "status" => "sealed_local",
+        "storage_id" => nvr.storage_id,
+        "block_ids" => [block_key]
+      })
+
+    send(nvr.peer, {:seal, seal})
+
+    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
+    assert details.reason == :ingest_stopped
+    assert details.frames_sent == 3
+
+    claim = recorder_claim(ctx)
+    assert claim.state == :active
+    assert claim.recorder_epoch == 1
+  end
+
+  test "NVRCapture refuses a clean seal when the relay drain fails after a bound and releases the recorder fence",
        ctx do
     owner = owner(ctx, 30_000)
     nvr = setup_nvr_release(ctx.tmp_dir)
@@ -1295,12 +1376,15 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         :sys.resume(ctx.pipeline)
       end
 
-    assert {:error, {:nvr_ingest_uncertain, details}} = result
+    # The drain failed before the worker handed its sender `:eof`, so no end
+    # marker went out and the NVR sealed nothing: a definite failure.
+    assert {:error, {:nvr_ingest_aborted, details}} = result
+    assert details.reason == :recording_drain_failed
     assert details.storage_id == nvr.storage_id
     assert details.recorder_epoch == 1
 
     claim = recorder_claim(ctx)
-    assert claim.state == :active
+    assert claim.state == :released
     assert claim.storage_id == nvr.storage_id
     assert claim.recorder_epoch == 1
 
@@ -1755,11 +1839,28 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         end
       end)
 
+    {await_stopped_nvr_capture(task, owner, worker, worker_ref), unsent}
+  end
+
+  # Starts a capture against `nvr`, feeds `unit`, then `next` with its timestamp
+  # moved before `unit`'s, as a fresh relay can deliver, and returns the result.
+  defp capture_with_backwards_unit(ctx, owner, nvr, unit, next) do
+    task = start_fake_nvr_capture(ctx, nvr, 60)
+    worker = await_nvr_worker_attached(owner)
+    worker_ref = Process.monitor(worker)
+    backwards_pts = unit.pts - 3_000
+    send(ctx.pipeline, {:media_chunk, unit})
+    send(ctx.pipeline, {:media_chunk, %{next | pts: backwards_pts, dts: backwards_pts}})
+    await_stopped_nvr_capture(task, owner, worker, worker_ref)
+  end
+
+  # Returns the capture result once its worker has stopped and left the
+  # registry, which drops a stopped worker asynchronously: the next capture's
+  # attach check must not find this one.
+  defp await_stopped_nvr_capture(task, owner, worker, worker_ref) do
     result = Task.await(task, 10_000)
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
 
-    # The registry drops a stopped worker asynchronously; the next capture's
-    # attach check must not find this one.
     await_capture(
       fn ->
         case Registry.lookup(
@@ -1773,7 +1874,47 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       System.monotonic_time(:millisecond) + 5_000
     )
 
-    {result, unsent}
+    result
+  end
+
+  defp start_fake_nvr_capture(ctx, nvr, max_frames) do
+    Task.async(fn ->
+      NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
+        actor: ctx.actor,
+        config_file: nvr.config_file,
+        token_file: nvr.token_file,
+        timeout_ms: 8_000,
+        bounds: %{max_frames: max_frames, max_bytes: 8_388_608, max_duration_ms: 6_000}
+      )
+    end)
+  end
+
+  # Writes synthetic mTLS material and a client config naming one NVR member,
+  # served by the TLS peer `start_peer` starts on those certificates.
+  defp fake_nvr_member(ctx, name, start_peer) do
+    abs_tmp = Path.expand(ctx.tmp_dir)
+    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "#{name}-certs"))
+    {port, peer} = start_peer.(certs)
+    storage_id = Ecto.UUID.generate()
+    token_file = Path.join(abs_tmp, "#{name}-token")
+    config_file = Path.join(abs_tmp, "#{name}-client.json")
+    File.write!(token_file, "synthetic-nvr-#{name}-token-0123456789")
+
+    File.write!(
+      config_file,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => port,
+        "ca_file" => certs.client_ca,
+        "cert_file" => certs.client_cert,
+        "key_file" => certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
+      })
+    )
+
+    %{peer: peer, storage_id: storage_id, config_file: config_file, token_file: token_file}
   end
 
   defp setup_nvr_release(base_dir) do
@@ -2121,6 +2262,30 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       holding_peer_read(ssl_sock)
       _ = :ssl.close(ssl_sock)
       refusing_peer_loop(listen, notify_pid)
+    end
+  end
+
+  # Reads each connection it accepts until the client closes and never answers,
+  # so only the client can end a request.
+  defp start_reading_tls_peer(certs) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> reading_peer_loop(listen) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    {port, pid}
+  end
+
+  defp reading_peer_loop(listen) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         {:ok, ssl_sock} <- :ssl.handshake(transport, 5_000) do
+      holding_peer_read(ssl_sock)
+      _ = :ssl.close(ssl_sock)
+      reading_peer_loop(listen)
     end
   end
 

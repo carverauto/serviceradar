@@ -25,6 +25,23 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   once. The reserved `RecordingBlock` row stays `:open_local`, as after any
   other failure; the NVR keeps the block's unsealed journal.
 
+  Core can also stop the stream itself: a unit that fails order validation, a
+  failed relay drain, a stopped relay pipeline or a failed fence renewal. The
+  NVR client sends the end marker only after the sender has pulled `:eof`, so a
+  Core abort before the worker hands out `:eof` cannot have requested a seal of
+  the block the NVR had open. That is a definite failure too: the worker reports
+  `{:nvr_ingest_aborted, details}` with the abort `reason` and the correlation
+  fields and releases the recorder claim. A Core abort after `:eof` stays
+  uncertain, because the end marker may have gone out and the NVR may have
+  sealed. On an NVR whose block limit a capture can exceed, the NVR may already
+  have rotated and sealed an earlier block of an aborted or refused capture. It
+  keeps that block, but reports mid-stream seals only in a 200 receipt, so Core
+  never learns its ID.
+
+  `frames_sent` and `bytes_sent` count the units the sender pulled for the NVR
+  client, not the units accepted from the relay. On a failure they are an upper
+  bound on what reached the NVR.
+
   A capture stops at the first of its frame, byte and media-duration bounds
   (defaults 240 frames, 8 MiB, 6 s). The ceilings are 8,100 frames, 12 MiB and
   270 s: about 4.5 minutes at 30 fps. The byte ceiling stays below the NVR's
@@ -115,6 +132,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         bound_reached?: false,
         drain_reason: nil,
         abort_reason: nil,
+        eof_replied?: false,
         queue: :queue.new(),
         waiting_puller: nil,
         sender_pid: nil,
@@ -570,7 +588,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp eof_or_abort(state) do
     case drain_usable(state) do
       :ok ->
-        {:eof, state}
+        {:eof, %{state | eof_replied?: true}}
 
       {:error, reason} ->
         abort = state.abort_reason || reason
@@ -607,6 +625,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     expected_storage = state.storage_id
 
     capture_status = check_capture(state.capture)
+    eof_replied? = state.eof_replied?
 
     case {state.abort_reason, capture_status, state.frames_sent > 0, check_recovery_gate(), send_result} do
       {nil, :ok, true, {:ok, _gate},
@@ -626,6 +645,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
           |> Map.put(:status, status)
 
         stop_failed(state, {:nvr_ingest_refused, refusal})
+
+      # Core stopped the stream before the sender pulled `:eof`, so the client
+      # never sent the end marker and the NVR sealed nothing it had open,
+      # whatever the client returned.
+      {abort_reason, _capture_status, _has_frames, {:ok, _gate}, _result}
+      when not is_nil(abort_reason) and not eof_replied? ->
+        abort =
+          state
+          |> correlation_fields()
+          |> Map.put(:reason, abort_reason)
+
+        stop_failed(state, {:nvr_ingest_aborted, abort})
 
       {abort_reason, capture_status, _has_frames, _gate_status, other_result} ->
         reason = classify_send_failure(abort_reason || capture_error(capture_status), state.frames_sent, other_result)
