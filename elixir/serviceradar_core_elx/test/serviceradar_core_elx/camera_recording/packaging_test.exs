@@ -224,6 +224,38 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     end)
   end
 
+  test "a unit dropped before the first keyframe may share that keyframe's timestamp", ctx do
+    # A source that opens mid-GOP can stamp its leading frame and its first
+    # keyframe alike. Frame 30 is an IDR; frame 29 cannot be decoded without frame 0.
+    [leading, keyframe, following | rest] = Enum.drop(ctx.baseline.units, 29)
+    leading = %{leading | pts: keyframe.pts, dts: keyframe.dts}
+
+    {:ok, pipeline} = Packaging.start(clock: @clock, wait_for_keyframe?: true)
+    on_exit(fn -> Packaging.stop(pipeline) end)
+    assert {:ok, []} = Packaging.push(pipeline, leading)
+    events = push_all(pipeline, [keyframe, following | rest])
+    assert {:ok, tail} = Packaging.finish(pipeline)
+    assert [{:init, _init} | media] = events ++ tail
+    fragments = Enum.map(media, fn {:fragment, fragment} -> fragment end)
+    assert Enum.sum(Enum.map(fragments, & &1.sample_count)) == 45
+    assert hd(fragments).start_ns == 3_000_000_000
+
+    # Time still never runs backwards while waiting, and never repeats once recording.
+    {:ok, backwards} = Packaging.start(clock: @clock, wait_for_keyframe?: true)
+    on_exit(fn -> Packaging.stop(backwards) end)
+    assert {:ok, []} = Packaging.push(backwards, leading)
+
+    assert {:error, :non_monotonic_timestamp} =
+             Packaging.push(backwards, %{keyframe | pts: keyframe.pts - 1, dts: keyframe.dts - 1})
+
+    {:ok, recording} = Packaging.start(clock: @clock, wait_for_keyframe?: true)
+    on_exit(fn -> Packaging.stop(recording) end)
+    assert {:ok, _events} = Packaging.push(recording, keyframe)
+
+    assert {:error, :non_monotonic_timestamp} =
+             Packaging.push(recording, %{following | pts: keyframe.pts, dts: keyframe.dts})
+  end
+
   test "initial dropped units still consume byte, sample and media-time budgets", ctx do
     [first, second | _] = Enum.drop(ctx.baseline.units, 1)
 
