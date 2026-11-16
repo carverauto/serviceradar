@@ -28,8 +28,8 @@
       `rtsps://` path or alias outside `source_url` and `source_url_override`, that those two
       columns hold it, and that a report arriving after a scrub pass that left in-scope
       `pending/0` at zero leaves it at zero (D2 Stage 1 ingest rule; fixtures use
-      `192.0.2.0/24` and `example.com`); a scrub worker test covering the D7 job rules: the
-      repeat-until-zero branch, a target held while an older or unresponsive node is
+      `192.0.2.0/24` and `example.com`); a scrub worker test covering the D7 job rules: a pass
+      that changed rows snoozes the same job and inserts none, the max-passes error, a target held while an older or unresponsive node is
       connected, and a stage 3 job run by stage 1 code snoozed and not completed; and a
       web-ng test asserting that assigns hold no address.
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through

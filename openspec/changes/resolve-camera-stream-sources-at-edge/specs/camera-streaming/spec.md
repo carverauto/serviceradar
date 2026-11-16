@@ -68,7 +68,7 @@ When opening a camera relay, Core SHALL send the discovering plugin assignment i
 - **AND** the failure detail contains no address or credential
 
 ### Requirement: Existing stream secrets are removed
-The system SHALL remove every stored stream address, path alias and URL userinfo from camera inventory, device metadata and plugin status rows by an Oban job that a migration enqueues. Each job SHALL name the stage it must complete, and SHALL complete only on a pass run by code at or above that stage, with every connected Core node at or above that stage, that scrubbed every target of that stage and changed nothing, as defined in design D7. Code below the job's stage SHALL snooze the job and SHALL NOT complete it.
+The system SHALL remove every stored stream address, path alias and URL userinfo from camera inventory, device metadata and plugin status rows by an Oban job that a migration enqueues. Each job SHALL name the stage it must complete, and SHALL complete only on a pass run by code at or above that stage, with every connected Core node at or above that stage, that scrubbed every target of that stage and changed nothing, as defined in design D7. Until then the job SHALL be snoozed and continued as the same job, never by inserting a follow-up job, as defined in design D7.
 
 #### Scenario: Rolling upgrade
 - **WHEN** an old Core replica writes a copy after the job's first pass

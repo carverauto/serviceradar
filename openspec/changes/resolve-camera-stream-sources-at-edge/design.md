@@ -331,19 +331,23 @@ Jobs and termination. Each scrub job names the stage it must complete in its
 args, with string keys (`{"stage": 1}`, `{"stage": 3}`), and is unique per
 stage. The Stage 1 migration enqueues the stage 1 job; the Stage 3 migration
 enqueues a new stage 3 job, not a re-enqueue of the stage 1 job. A job's targets
-are those tagged with a stage at or below its own. A worker whose code stage is
-lower than the job's stage returns Oban's snooze result
-(`camera_stream_scrub_repass_seconds`) and never completes the job, so a newer
-node picks it up; the Stage 1 worker already carries this rule. Otherwise a pass
-scrubs a job target only while every connected Core node reports, over `:erpc`,
-a scrub stage no lower than that target's stage (the stage of the code the node
-runs; a node without the worker, or one that does not answer, counts as stage
-0), and skips it otherwise. After each pass that changed rows or skipped a
-target, the worker schedules another pass `camera_stream_scrub_repass_seconds`
-later (runtime setting, code default 600). A job completes only on a pass run by
-code at or above the job's stage, with every connected node at or above that
-stage, that scrubbed every target of the job and changed nothing. Without these
-rules an older replica still running during the rollout can write a copy after
+are those tagged with a stage at or below its own. A pass scrubs a job target
+only while every connected Core node reports, over `:erpc`, a scrub stage no
+lower than that target's stage (the stage of the code the node runs; a node
+without the worker, or one that does not answer, counts as stage 0), and skips
+it otherwise. The job has exactly one continuation: it returns
+`{:snooze, camera_stream_scrub_repass_seconds}` (runtime setting, code default
+600) on the same job whenever it is not complete, that is when the worker's
+code stage is below the job's stage (it then runs no pass), when a connected
+node is below the job's stage, or when the pass changed any row. The worker
+never inserts a follow-up job; the Stage 1 worker already carries this rule.
+The job returns `:ok` only on a pass run by code at or above the job's stage,
+with every connected node at or above that stage, that scrubbed every target of
+the job and changed nothing. After `camera_stream_scrub_max_passes` snoozed
+passes (runtime setting, code default 1000, about a week at the default
+interval) the job returns `{:error, pending}` with the per-target pending
+counts, so a stuck cleanup is visible and is never reported as success.
+Without these rules an older replica still running during the rollout can write a copy after
 the last zero pass, or finish a later-stage job while its targets still hold
 addresses: a node from before Stage 1 writes every copy, and a Stage 1 node
 writes the two columns that Stage 3 brings into scope and cannot scrub them.
@@ -359,8 +363,8 @@ Operator verification. The worker exposes `pending/0`, which returns two
 things:
 
 - `in_scope`: per in-scope target, the count of rows that count against it
-  under the rule above. Completion means every one is zero, and the worker's
-  last-pass check is this same count.
+  under the rule above. The worker's last-pass check is this same count; the
+  job completes only under the D7 completion rule above.
 - `at_rest_until_stage_3`: while targets 5 and 7 are not yet in scope, the
   count of rows with a non-null `source_url` and with a non-null
   `source_url_override`, reported by column name. It never blocks completion;
