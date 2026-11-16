@@ -110,7 +110,7 @@ therefore always fits in one block.
 | Object capacity | Optional object budget with watermarks and a recorded policy, `reap_oldest` (deletes only the archive copies of the oldest unheld blocks; local copies stay, local only after archive reaping, kind (a) of the C1 table) or `stop_archiving`; effective object retention computed and shown (C3a) |
 | SaaS | One storage entitlement per deployment pushed at runtime on the private listener (no Helm value), bounding the object budget, policy, retention and cameras; shared retention formula with test vectors; usage report pulled by control; Cloud credentials into the CNPG inventory (F) |
 | Delete vs lifecycle | ServiceRadar deletes expired objects itself with a separate delete-capable retention role; provider lifecycle only for incomplete uploads and probe residue |
-| Catalog shape | Freeze the existing `RecordingBlock` under the original recorder fence, plus a separate `RecordingCatalogEntry` projection for copy location and retention |
+| Catalog shape | Freeze the existing `RecordingBlock` under the original recorder fence or by the reconciler's historical freeze (R3), plus a separate `RecordingCatalogEntry` projection for copy location and retention |
 | Time mapping | `time_basis = received`: wall-clock positions from Core's receipt of the first access unit, spacing from media timestamps; uncertainty reported as unmeasured. Camera-reported time (RTCP) is a later basis |
 | Media compression | No zstd or other general-purpose compression of media objects |
 
@@ -214,11 +214,12 @@ verified quarantine-destination receipt ends the drain of footage owed a copy
 (the owner's standing rule), and footage
 nobody can attribute must not exist only on one volume.
 
-**PD10. Footage owed an archive copy waits for a destination.** When archiving
-is enabled and an entry is owed a copy but no `ArchiveBinding` is active, the
-entry is `awaiting_binding` (archive state machine, A6) instead of being
-treated as local-only. Assigning the first binding to it later is not a rebind
-(R8): it never had one. Rationale: with object storage enabled, an entry owed
+**PD10. Footage owed an archive copy waits for a destination.** Footage
+registered while archiving is enabled and no `ArchiveBinding` is active is
+`awaiting_binding` (archive state machine, A6) instead of being treated as
+local-only. Assigning a binding to its owed copy later is not a rebind (R8):
+that binding was NULL. Ending a binding never moves an entry that recorded it
+into `awaiting_binding` (A6 transition 3). Rationale: with object storage enabled, an entry owed
 a copy ends its drain only at a verified archive receipt or, when quarantined,
 a verified quarantine-destination receipt; `awaiting_binding` does not, and
 footage the operator asked to archive must not silently become local-only
@@ -504,14 +505,14 @@ written, including the quarantine variants their cells name. Indexes over
 | `archive_state` | Entry condition | Binding | Job | Alarm (R5) | Pin (C1) | Drain | Admission-stop cause (C5) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `not_required` | not owed a copy: archiving not enabled, or policy `local_only` (PD8) | kept if one was recorded, otherwise NULL | none | none | kind (b) | terminal: the local catalog entry with its index receipt, or for a quarantined entry its local quarantine receipt | local-only footage under `stop_when_full` |
-| `awaiting_binding` | owed a copy, no `ArchiveBinding` active (PD10) | owed copy's binding not yet assigned (NULL); a binding recorded earlier is kept | none | "archive enabled but no destination" | kind (c) | open | upload backlog |
-| `pending` | owed a copy, a binding active | the active binding, assigned on entry when none is assigned; changed only by transition 3's quarantine re-target | one `ArchiveBlockJob`, held while archiving is paused (below) | oldest unarchived over 1 h | kind (c) | open | upload backlog |
+| `awaiting_binding` | owed a copy, the owed copy's binding not yet assigned (NULL), and no `ArchiveBinding` active (PD10) | owed copy's binding NULL; any other recorded binding is kept | none | "archive enabled but no destination" | kind (c) | open | upload backlog |
+| `pending` | owed a copy, and the owed copy's binding recorded or a binding active | the recorded binding, or the active binding assigned on entry when none is recorded; changed only by transition 3's quarantine re-target | one `ArchiveBlockJob`, held while archiving is paused (below) | oldest unarchived over 1 h | kind (c) | open | upload backlog |
 | `failed_retryable` | job hit a provider error or unknown outcome | recorded | retried with backoff, held while archiving is paused (below) | oldest unarchived over 1 h | kind (c) | open | upload backlog |
 | `failed_terminal` | job hit 409 `archive_receipt_conflict` or 422 (archive object limit) | recorded | none; an operator resolves | `failed_terminal` entry | kind (c) | open | upload backlog |
-| `verified` | archive receipt recorded, or for a quarantined entry its quarantine-destination receipt | recorded | none | none | kind (a) | terminal | none |
+| `verified` | archive receipt recorded, or for a quarantined entry its quarantine-destination receipt; also a retention or reaper DELETE refused by a provider object lock or legal hold (`blocked_by_provider`, transition 7) | recorded | none; a `blocked_by_provider` delete is retried daily | "archive delete blocked by provider" when `blocked_by_provider` for over 24 h | kind (a) | terminal | none |
 | `deleting` | object retention or the reaper deleting (C3, C3a) | recorded | `ArchiveRetentionJob` | none | kind (c) | already terminal | archive deleting |
 | `deleted` | absence confirmed | recorded | none | none | kind (a) | already terminal | none |
-| `missing` | archive copy found changed or absent | recorded | none; an operator decides | `held_archive_missing` when held | kind (c) | already terminal | archive missing |
+| `missing` | archive copy found changed or absent | recorded | none; an operator decides | `archive_missing` until an operator resolves the entry, plus `held_archive_missing` when held | kind (c) | already terminal | archive missing |
 
 Held jobs: while archiving is stopped by `stop_archiving` (C3a, including its
 non-reapable-bytes pause), while a hosted install awaits its first
@@ -530,9 +531,13 @@ Transitions:
    binding as the owed copy's binding and enqueues one job.
 2. **A binding becomes active**: each `NVRReconcileJob` pass assigns it to
    every `awaiting_binding` entry, moves the entry to `pending` and enqueues
-   its job. The owed copy never had a binding, so nothing is replaced (R8).
-3. **A binding ends**: entries keep the binding they recorded and archive
-   under it. Only an entry that archives under (a) and is not yet `verified`,
+   its job. It writes only the owed copy's binding column, which was NULL
+   (`quarantine_binding_id` under A6 (b)), and never clears or replaces
+   `archive_binding_id`, so nothing is replaced (R8).
+3. **A binding ends**: entries keep the binding they recorded, stay in their
+   current state and archive under it, including when no binding remains
+   active; only footage registered while no binding is active enters
+   `awaiting_binding`. Only an entry that archives under (a) and is not yet `verified`,
    whose recorded `archive_binding_id` is absent from retained history or was
    ended for a compromise-class reason, is quarantined (R4 step 1), keeping
    that binding, and then follows transition 1 for its quarantine copy; it is
@@ -560,7 +565,12 @@ Transitions:
 6. **Each reconciler pass** re-enqueues any `pending` or `failed_retryable`
    entry that has no job (R5).
 7. **Retention**: `verified` to `deleting` to `deleted` (C3, C3a; a crash in
-   `deleting` resumes, C1); a HEAD mismatch makes the copy `missing`.
+   `deleting` resumes, C1); a HEAD mismatch makes the copy `missing`. A DELETE
+   refused by a provider object lock or legal hold returns the entry to
+   `verified`, never leaves it in `deleting`, and records
+   `archive_last_error_class = blocked_by_provider`; until a daily retry
+   succeeds its bytes are non-reapable (C3a), the reaper skips it and its
+   local copy stays kind (a).
 
 The `ArchiveBlockJob` (unique per catalog entry, queue `nvr_archive`):
 
@@ -1217,8 +1227,8 @@ re-archived (C6). A kind (c) block in `deleting` resumes after a crash: each
 retention pass re-enqueues `ArchiveRetentionJob` for every entry in `deleting`
 without a job, which repeats the idempotent versioned DELETE and the HEAD 404
 check (C3) and then moves the entry to `deleted`. A `missing` archive copy's
-local copy is never evicted, because retention refused that delete; it raises
-an alert until an operator resolves the entry. Evicting it, or evicting kind (b), removes the last copy; the
+local copy is never evicted, because retention refused that delete; its
+alarm is the A6 table's. Evicting it, or evicting kind (b), removes the last copy; the
 recorded object retention or `reap_oldest` selection (C3, C3a), or the recorded
 full policy and local-only maximum age (C2), is the authority. This is
 policy-authorized retention after hold checks, which the plane allows
@@ -1433,7 +1443,8 @@ deletes the only copy. It happens only under an explicitly selected policy,
   evicted in C1's single oldest-first order with any kind (a) copies on the
   member, down to low water, with disposition reason `local_only_overwrite`.
   It never selects kind (c). In a deployment with no object storage every
-  block is kind (b), so this is the plain ring buffer.
+  reconciled, non-quarantined block is kind (b), so this is the plain ring
+  buffer; row (q) and unreconciled bytes stay pinned.
 - `stop_when_full`: nothing is evicted for space. When the budget is reached
   the NVR's admission refuses (`capacity.ex:348-353`), recording stops with a
   `nvr_refused` gap, and a critical alert is raised. Kind (b) is deleted only
@@ -1544,7 +1555,8 @@ Versioned and locked buckets:
 - If HEAD shows a different ETag or length than the receipt, the job does not
   delete and marks `archive_state = missing` with class `object_changed`.
 - A provider refusal from object lock or a legal hold is reported as
-  `blocked_by_provider` and retried daily, not hot.
+  `blocked_by_provider` and retried daily, not hot; the entry stays `verified`
+  (A6 transition 7).
 
 Verified absence: after DELETE, HEAD must answer 404 for the deleted key (or
 for the deleted version on versioned buckets). Only then does the entry move to
@@ -1606,8 +1618,9 @@ it. Probe residue (settings change D12) is negligible and excluded.
 
 **`reap_oldest`.** When usage reaches object high water (of the hard limit),
 Core deletes archive copies of the oldest blocks first, down to object low
-water. Candidates are blocks whose archive copy is `verified`, cataloged,
-reconciled, unheld and not quarantined (R2). The reaper deletes only the archive copy: each deletion
+water. Candidates are blocks whose archive copy is `verified`, not
+`blocked_by_provider` (A6 transition 7), cataloged, reconciled, unheld and not
+quarantined (R2). The reaper deletes only the archive copy: each deletion
 uses the retention credential (C3: versioned delete, HEAD 404 re-check) and is
 an audited disposition of the archive copy with reason `object_capacity`. Each
 pass is bounded (500 blocks) and re-reads usage. Time-based archive retention
@@ -1667,7 +1680,8 @@ until the local budget fills, then stops with a gap with reason
 
 **Held and non-reapable bytes reach high water.** Holds pin verified archive
 copies (PD5) and the reaper never deletes them. Non-reapable bytes are held archive
-bytes plus uploads in flight plus quarantine objects (R2); this is the one
+bytes plus uploads in flight plus quarantine objects (R2) plus archive copies
+whose delete is `blocked_by_provider` (A6 transition 7); this is the one
 definition. When they alone reach object high water, nothing
 can be reaped: new archive uploads pause (as in `stop_archiving`), recording
 continues locally, and a critical alert names the held bytes and holds. Between
@@ -1745,7 +1759,8 @@ projection is the time until the measured archived-bytes rate (`rate_c`
 below) fills the hard limit. That retention is shorter than configured is the
 separate `object_capacity_binds` notice.
 
-`held_archive_missing` (C8) also applies.
+`held_archive_missing`, `archive_missing` and `archive_delete_blocked` (C8)
+also apply.
 
 Each reaper pass that deletes anything also publishes one OCSF event through
 `ServiceRadar.Events.OcsfEventPublisher.publish/2`
@@ -1920,7 +1935,9 @@ job each pass:
 | `archive_backlog_age` | oldest unarchived block older than 1 h (R5) | warning; critical when `ttf` is also below 4 h |
 | `local_only_target` | local-only effective window (C1a, lower end) below `local_only_retention_target_seconds` | warning |
 | `held_bytes_fill` | P3 + P4 of the C1a pinned bytes above local high water (unreconciled bytes have their own R5 alarm and admission-stop cause) | warning; critical at the budget |
+| `archive_missing` | any entry in `archive_state = missing` (A6), until an operator resolves it | warning |
 | `held_archive_missing` | a held archive copy failed its re-check (C4) | critical |
+| `archive_delete_blocked` | "archive delete blocked by provider": an archive delete `blocked_by_provider` for over 24 h (A6 transition 7) | warning |
 | object-tier checks | see C3a (`storage.recordings.*`) | |
 
 Section R5's reconciliation alarms use the same mechanism. Each check carries
@@ -2270,7 +2287,7 @@ Deployment-wide, on `RecordingArchiveSettings` (singleton, PaperTrail audited):
 
 | Setting | Default | Bounds | Unlimited / off allowed | Applied |
 | --- | --- | --- | --- | --- |
-| `archive_enabled` | false | can be enabled only while an `ArchiveBinding` is active; ending the only active binding while it is enabled warns that footage owed an archive copy will wait in `awaiting_binding` (PD10, A6) | n/a | next block registration and archive job |
+| `archive_enabled` | false | can be enabled only while an `ArchiveBinding` is active; ending the only active binding while it is enabled warns that footage registered while no binding is active will wait in `awaiting_binding`; footage that recorded the ended binding keeps archiving under it (PD10, A6) | n/a | next block registration and archive job |
 | `local_high_water_percent` | 90 | 50 to 95 of the member's applied budget | no | next retention pass |
 | `local_low_water_percent` | 80 | 40 to high water minus 5 | no | next retention pass |
 | `max_local_age_mode` + `max_local_age_seconds` | `limited`, 86,400 | 3,600 to 315,360,000 (10 years) when limited | yes, `unlimited` | next retention pass |

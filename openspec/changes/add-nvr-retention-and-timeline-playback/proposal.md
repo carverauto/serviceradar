@@ -55,7 +55,8 @@ product owner's decisions of 2026-11-15 are recorded in
   Sealed blocks are archived automatically with retry and backlog reporting.
   Blocks above 16 MiB wait for multipart upload.
 - **B. Core catalog of NVR blocks.** One `RecordingCatalogEntry` per block:
-  a sealed entry, created only under the original recorder fence, with media
+  a sealed entry, created under the original recorder fence or by the
+  reconciler's historical freeze (R3), with media
   and timeline ranges, a labelled time basis (received time, never presented
   as capture time) and where each copy lives; or a quarantined entry, never
   played, for a block whose seal cannot be verified or recovered, a block with
