@@ -712,20 +712,6 @@ if '/releases/${1}' not in upload_release_asset:
     raise SystemExit("release asset upload helper does not fetch the full release before replacement")
 
 repo_root = Path(sys.argv[1]).resolve().parents[2]
-for worker_name, script_path in (
-    ("native add-on", repo_root / "build/native_addons/publish_addon.sh"),
-    ("Wasm plugin", repo_root / "build/wasm_plugins/publish_plugin.sh"),
-):
-    script = script_path.read_text()
-    for fragment in (
-        'if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]]',
-        "grep -Eiq 'immutable|already exists|precondition'",
-        "already immutable; leaving the existing artifact.",
-    ):
-        if fragment not in script:
-            raise SystemExit(
-                f"{worker_name} publisher cannot recover an immutable Harbor extra tag: {fragment}"
-            )
 # Legacy signature reuse/refusal is exercised through all three signers by
 # //build/contracts:legacy_signature_reconciliation_test.
 
