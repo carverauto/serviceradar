@@ -9,7 +9,6 @@ templates:
   - templates/datasvc.yaml
   - templates/serviceradar-config.yaml
   - templates/log-collector.yaml
-  - templates/log-collector-tcp.yaml
   - templates/flow-collector.yaml
   - templates/flow-collector-bootstrap-job.yaml
   - templates/bmp-collector.yaml
@@ -284,15 +283,6 @@ tests:
           path: kind
           value: ConfigMap
 
-  - it: gives the TCP log collector the events owner size
-    template: templates/log-collector-tcp.yaml
-    documentSelector:
-      path: kind
-      value: Deployment
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EVENTS_MAX_BYTES, value: "2147483648"}
 
   - it: gives flow-collector the flows size in its environment and its JSON
     set:

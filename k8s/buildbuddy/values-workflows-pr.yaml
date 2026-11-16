@@ -1,0 +1,161 @@
+# Executor pool `workflows-pr`: the pull-request BazelCI actions (BazelCI, BazelCI Core
+# Integration, BazelCI Web-NG DB). Deployed on the carverauto cluster (kube context
+# `carverauto`, namespace `buildbuddy`) as its OWN helm release, `buildbuddy-workflows-pr`,
+# chart `buildbuddy/buildbuddy-executor` 0.0.461. This file is the live release's values as of
+# 2026-11-15 with the API key removed, plus the placement rules below. The rationale for the
+# shared keys (OCI mounts, private-IP allowlist, runner recycling, hostPath ownership) is in
+# ./values-workflows.yaml and is not repeated here. See "Dedicated LargeIngestionGate pool" in
+# ./README.md for the install command and the release-name/`-f` pairing warning.
+#
+# PLACEMENT. A workflow runner is started by the executor outside the executor pod's cgroup, so
+# the pod's CPU requests and limits do not bound it: Core Integration's eight lane BEAMs see all
+# 64 vCPUs of the node and the scheduler sees almost nothing. Kubernetes therefore packed these
+# executors next to the RBE executors (32-CPU limit), StarRocks and the srql-fixture primary, and
+# Core Integration lanes stalled for seconds on the busiest nodes. The rules below:
+#   - required: one executor per node (the release's original rule; the hostPath caches would
+#     collide otherwise);
+#   - required: not on k8s-cp3-worker3. Its executor failed 8 of its 11 Core Integration runs
+#     (the other three: 2/7, 4/9, 3/9). That VM has the most KSM-merged memory and memory-stall
+#     time on its Proxmox host. Drop this term once that host's memory overcommit is fixed;
+#   - preferred: away from the RBE executors (release `buildbuddy`) and StarRocks pods.
+#     Preferred, not required: four executors plus at least three RBE executors do not fit on
+#     six worker nodes one-per-node. Existing pods' preferred anti-affinity is scored for new
+#     pods too, so KEDA's RBE scale-ups also lean away from these executors.
+# Changing any of this changes the pod template, which rolls all four executors. Each drains
+# its running task first (max_shutdown_duration below), and a moved executor starts with a cold
+# hostPath cache on its new node.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: NotIn
+              values:
+                - k8s-cp3-worker3
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/instance: buildbuddy-workflows-pr
+        topologyKey: kubernetes.io/hostname
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: buildbuddy
+          topologyKey: kubernetes.io/hostname
+      - weight: 50
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - cn
+                  - fe
+          namespaces:
+            - starrocks
+          topologyKey: kubernetes.io/hostname
+autoscaler:
+  enabled: false
+config:
+  executor:
+    # Never committed. Supplied at install time with --set; see ./README.md.
+    api_key: ""
+    app_target: grpcs://carverauto.buildbuddy.io:443
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+    default_isolation_type: oci
+    default_task_size:
+      estimated_memory_bytes: 2147483648
+      estimated_milli_cpu: 2000
+    enable_local_snapshot_sharing: true
+    enable_oci: true
+    image_pull_timeout: 15m
+    local_cache_directory: /cache
+    local_cache_size_bytes: 100000000000
+    oci:
+      dns: 10.43.0.10
+      mounts:
+        - destination: /bazel-cache
+          options:
+            - rbind
+            - rw
+          source: /bazel-caches
+          type: bind
+    root_directory: /cache/remotebuilds/
+    runner_pool:
+      max_runner_count: 1
+      max_runner_disk_size_bytes: 100000000000
+      max_runner_memory_usage_bytes: -1
+    startup_warmup_max_wait_secs: 300
+    task_allowed_private_ips:
+      - 10.42.0.0/16
+      - 10.43.0.0/16
+      - 192.168.6.87/32
+    warmup_additional_images:
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5
+    warmup_timeout_secs: 300
+  max_shutdown_duration: 3570s
+extraInitContainers:
+  - command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
+        # Repair entries a root run left behind (issue 4855): a hosted-Bazel dispatch that ran
+        # as root wrote root:root files into these shared caches and broke every later runner
+        # with Permission denied. -xdev and ! -user keep this from becoming the blanket
+        # `chown -R` the comment above rejects; on a healthy volume the find matches nothing.
+        # Lands on every fleet deploying these values at its next executor rollout:
+        # buildbuddy-workflows, buildbuddy-workflows-2, and farm01's workflow replicas.
+        find /bazel-caches -xdev ! -user 1001 -exec chown -h 1001:1001 {} +
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    name: bazel-cache-perms
+    securityContext:
+      runAsUser: 0
+    volumeMounts:
+      - mountPath: /bazel-caches
+        name: bazel-cache-volume
+extraVolumeMounts:
+  - mountPath: /cache
+    name: cache-volume
+  - mountPath: /bazel-caches
+    name: bazel-cache-volume
+  - mountPath: /root/.docker
+    name: dockerhub-auth
+    readOnly: true
+extraVolumes:
+  - hostPath:
+      path: /mnt/buildbuddy/cache-workflows-pr
+      type: DirectoryOrCreate
+    name: cache-volume
+  - hostPath:
+      path: /mnt/buildbuddy/bazel-caches-workflows-pr
+      type: DirectoryOrCreate
+    name: bazel-cache-volume
+  - name: dockerhub-auth
+    secret:
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+      secretName: dockerhub-auth
+image:
+  imagePullPolicy: IfNotPresent
+  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
+  tag: enterprise-v2.290.0
+poolName: workflows-pr
+replicas: 4
+resources:
+  limits:
+    cpu: "12"
+    ephemeral-storage: 50Gi
+    memory: 40Gi
+  requests:
+    cpu: "8"
+    ephemeral-storage: 45Gi
+    memory: 32Gi
+terminationGracePeriodSeconds: 3600

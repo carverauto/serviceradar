@@ -3,13 +3,10 @@ defmodule ServiceRadar.Observability.Zen.Normalizer do
   In-process Zen rule normalization for core EventWriter ingestion.
   """
 
-  import Ash.Expr
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.Zen.Native
-  alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadar.Observability.Zen.RuleBundle
 
-  require Ash.Query
   require Logger
 
   @rule_groups %{
@@ -144,28 +141,10 @@ defmodule ServiceRadar.Observability.Zen.Normalizer do
 
   defp load_runtime_rules_from_db(subject) do
     if repo_enabled?() do
-      ZenRule
-      |> Ash.Query.for_read(:active, %{})
-      |> Ash.Query.filter(expr(subject == ^subject and stream_name == "events"))
-      |> Ash.Query.sort(order: :asc, inserted_at: :asc)
-      |> Ash.read(actor: SystemActor.system(:zen_normalizer))
-      |> case do
-        {:ok, rules} -> encode_runtime_rules(rules)
-        {:error, reason} -> {:error, reason}
-      end
+      RuleBundle.effective_rules("events", subject, actor: SystemActor.system(:zen_normalizer))
     else
       {:error, :repo_unavailable}
     end
-  end
-
-  defp encode_runtime_rules(rules) do
-    rules
-    |> Enum.map(fn %ZenRule{name: name, compiled_jdm: compiled_jdm} ->
-      with {:ok, encoded} <- Jason.encode(compiled_jdm) do
-        {:ok, {name, encoded}}
-      end
-    end)
-    |> collect_rules()
   end
 
   defp repo_enabled? do

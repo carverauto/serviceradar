@@ -5,7 +5,7 @@ use crate::flowgger::encoder::Encoder;
 #[cfg(feature = "capnp-recompile")]
 use crate::flowgger::splitter::CapnpSplitter;
 use crate::flowgger::splitter::{LineSplitter, NulSplitter, Splitter, SyslenSplitter};
-use std::io::BufReader;
+use std::io::{BufReader, ErrorKind};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::SyncSender;
 use std::thread;
@@ -35,17 +35,55 @@ impl Input for TcpInput {
         decoder: Box<dyn Decoder + Send>,
         encoder: Box<dyn Encoder + Send>,
     ) {
-        let listener = TcpListener::bind(&self.listen as &str).unwrap();
-        for client in listener.incoming().flatten() {
+        let listener = TcpListener::bind(&self.listen as &str)
+            .unwrap_or_else(|err| panic!("Unable to listen to {}: {err}", self.listen));
+        for client in listener.incoming() {
+            let client = match client {
+                Ok(client) => client,
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::Interrupted | ErrorKind::ConnectionAborted
+                    ) =>
+                {
+                    continue;
+                }
+                Err(err) if listener_unusable(&err) => {
+                    panic!("Unable to accept TCP connection on {}: {err}", self.listen)
+                }
+                Err(err) => {
+                    eprintln!("Unable to accept TCP connection on {}: {err}", self.listen);
+                    thread::sleep(ACCEPT_RETRY_DELAY);
+                    continue;
+                }
+            };
             let _ = client.set_read_timeout(self.timeout);
             let tx = tx.clone();
             let tcp_config = self.tcp_config.clone();
             let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
-            thread::spawn(move || {
+            if let Err(err) = thread::Builder::new().spawn(move || {
                 handle_client(client, tx, decoder, encoder, tcp_config);
-            });
+            }) {
+                eprintln!(
+                    "Unable to start TCP connection handler on {}: {err}",
+                    self.listen
+                );
+                thread::sleep(ACCEPT_RETRY_DELAY);
+            }
         }
     }
+}
+
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+#[cfg(target_os = "linux")]
+const ENOTSOCK: i32 = 88;
+#[cfg(not(target_os = "linux"))]
+const ENOTSOCK: i32 = 38;
+const EBADF: i32 = 9;
+
+fn listener_unusable(err: &std::io::Error) -> bool {
+    err.kind() == ErrorKind::InvalidInput || matches!(err.raw_os_error(), Some(EBADF | ENOTSOCK))
 }
 
 #[cfg(feature = "capnp-recompile")]

@@ -7,6 +7,12 @@ format = "auto"
 # IANA timezone assumed for senders without a zone; set this to their timezone.
 rfc3164_timezone = "UTC"
 
+[[inputs]]
+type = "tcp"
+listen = "0.0.0.0:514"
+format = "auto"
+framing = "line"
+
 [output]
 type = "nats"
 format = "gelf"

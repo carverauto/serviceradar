@@ -1,79 +1,200 @@
-suite: syslog collector format defaults
+suite: unified syslog collector
 templates:
   - templates/log-collector.yaml
-  - templates/log-collector-tcp.yaml
+  - templates/network-policy.yaml
 tests:
-  - it: defaults the UDP collector to auto format detection
+  - it: configures UDP and TCP listeners with one shared output and OTLP enabled
     template: templates/log-collector.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-config
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}
     asserts:
       - matchRegex:
           path: data["flowgger.toml"]
-          pattern: '(?m)^format = "auto"$'
-      - matchRegex:
-          path: data["flowgger.toml"]
-          pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'
-
-  - it: defaults the TCP collector to auto format detection
-    template: templates/log-collector-tcp.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-tcp-config
-    set:
-      logCollector.tcpCollector.enabled: true
-    asserts:
-      - matchRegex:
-          path: data["flowgger.toml"]
-          pattern: '(?m)^format = "auto"$'
-      - matchRegex:
-          path: data["flowgger.toml"]
-          pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'
-
-  - it: defaults the UDP collector to UTC for timestamps without a zone
-    template: templates/log-collector.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-config
-    asserts:
+          pattern: '(?s)\[input\].*type = "udp".*\[\[inputs\]\]\ntype = "tcp"\nlisten = "0.0.0.0:514"\nformat = "auto"\nframing = "line".*\[output\]'
       - matchRegex:
           path: data["flowgger.toml"]
           pattern: '(?m)^rfc3164_timezone = "UTC"$'
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'
+      - matchRegex:
+          path: data["log-collector.toml"]
+          pattern: '\[otel\]\nenabled = true'
 
-  - it: applies the configured sender timezone to UDP
+  - it: applies the configured timezone and TCP codec to the unified config
     template: templates/log-collector.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-config
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}
     set:
       logCollector.rfc3164Timezone: America/New_York
+      logCollector.tcpCollector.format: rfc5424
+      logCollector.tcpCollector.framing: syslen
     asserts:
       - matchRegex:
           path: data["flowgger.toml"]
           pattern: '(?m)^rfc3164_timezone = "America/New_York"$'
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?s)\[\[inputs\]\].*format = "rfc5424"\nframing = "syslen"'
 
-  - it: applies the configured sender timezone to TCP
-    template: templates/log-collector-tcp.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-tcp-config
+  - it: uses the primary workload budget and labels pods that listen for TCP
+    template: templates/log-collector.yaml
+    documentSelector: {path: kind, value: Deployment}
     set:
-      logCollector.tcpCollector.enabled: true
-      logCollector.rfc3164Timezone: America/New_York
+      logCollector.replicaCount: 2
+      logCollector.tcpCollector.replicaCount: 7
+      logCollector.resources.requests.cpu: 200m
+      logCollector.tcpCollector.resources.requests.cpu: 900m
+    asserts:
+      - equal: {path: metadata.name, value: serviceradar-log-collector}
+      - equal: {path: spec.replicas, value: 2}
+      - equal: {path: 'spec.template.metadata.labels["serviceradar.io/syslog-tcp"]', value: "true"}
+      - equal: {path: "spec.template.spec.containers[0].resources.requests.cpu", value: 200m}
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: syslog-tcp, containerPort: 514, protocol: TCP}
+
+  - it: exposes both syslog protocols on the primary service
+    template: templates/log-collector.yaml
+    documentSelector: {path: "spec.ports[0].name", value: syslog}
+    asserts:
+      - contains:
+          path: spec.ports
+          content: {name: syslog, port: 514, targetPort: 514, protocol: UDP}
+      - contains:
+          path: spec.ports
+          content: {name: syslog-tcp, port: 514, targetPort: syslog-tcp, protocol: TCP}
+
+  - it: routes both service names to an explicitly configured TCP listener port
+    template: templates/log-collector.yaml
+    set:
+      logCollector.tcpCollector.listen: "0.0.0.0:1514"
+      logCollector.tcpCollector.service.ports.syslog.targetPort: 1514
     asserts:
       - matchRegex:
           path: data["flowgger.toml"]
-          pattern: '(?m)^rfc3164_timezone = "America/New_York"$'
+          pattern: 'listen = "0.0.0.0:1514"'
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: syslog-tcp, containerPort: 1514, protocol: TCP}
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.ports
+          content: {name: syslog-tcp, port: 514, targetPort: syslog-tcp, protocol: TCP}
+        documentSelector: {path: "spec.ports[0].name", value: syslog}
+      - equal:
+          path: spec.ports
+          value: [{name: syslog-tcp, port: 514, targetPort: 1514, protocol: TCP}]
+        documentSelector: {path: metadata.name, value: serviceradar-log-collector-tcp}
 
-  - it: defaults the TCP collector to UTC for timestamps without a zone
-    template: templates/log-collector-tcp.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-log-collector-tcp-config
+  - it: rejects an invalid TCP listener target before emitting a Deployment
+    template: templates/log-collector.yaml
     set:
-      logCollector.tcpCollector.enabled: true
+      logCollector.tcpCollector.service.ports.syslog.targetPort: 0
     asserts:
-      - matchRegex:
+      - failedTemplate:
+          errorMessage: logCollector.tcpCollector.service.ports.syslog.targetPort must be a numeric listener port between 1 and 65535
+
+  - it: points the legacy TCP name only at pods advertising a TCP listener
+    template: templates/log-collector.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-tcp}
+    asserts:
+      - isKind: {of: Service}
+      - equal:
+          path: spec.selector
+          value: {app: serviceradar-log-collector, serviceradar.io/syslog-tcp: "true"}
+      - equal:
+          path: spec.ports
+          value: [{name: syslog-tcp, port: 514, targetPort: 514, protocol: TCP}]
+
+  - it: disables the TCP listener and label without disabling UDP
+    template: templates/log-collector.yaml
+    set:
+      logCollector.tcpCollector.enabled: false
+      logCollector.tcpCollector.externalService.enabled: true
+    asserts:
+      - notMatchRegex:
           path: data["flowgger.toml"]
-          pattern: '(?m)^rfc3164_timezone = "UTC"$'
+          pattern: '\[\[inputs\]\]'
+        documentSelector: {path: kind, value: ConfigMap}
+      - notExists:
+          path: 'spec.template.metadata.labels["serviceradar.io/syslog-tcp"]'
+        documentSelector: {path: kind, value: Deployment}
+      - notContains:
+          path: spec.ports
+          content: {name: syslog-tcp, port: 514, targetPort: syslog-tcp, protocol: TCP}
+        documentSelector: {path: "spec.ports[0].name", value: syslog}
+      - hasDocuments: {count: 4}
+
+  - it: rejects a divergent subject on the shared output
+    template: templates/log-collector.yaml
+    set:
+      logCollector.tcpCollector.subject: logs.other
+    asserts:
+      - failedTemplate:
+          errorMessage: logCollector.tcpCollector.subject must be logs.syslog for the shared output
+
+  - it: publishes UDP and TCP on one external service when both ports are enabled
+    template: templates/log-collector.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-external}
+    set:
+      logCollector.externalService.enabled: true
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - {name: syslog, port: 514, targetPort: 514, protocol: UDP}
+            - {name: syslog-tcp, port: 514, targetPort: 514, protocol: TCP}
+
+  - it: keeps external UDP independently enabled
+    template: templates/log-collector.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-external}
+    set:
+      logCollector.externalService.enabled: true
+      logCollector.externalService.ports.syslogTcp.enabled: false
+    asserts:
+      - equal:
+          path: spec.ports
+          value: [{name: syslog, port: 514, targetPort: 514, protocol: UDP}]
+
+  - it: folds the legacy external TCP endpoint into the unified service
+    template: templates/log-collector.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-external}
+    set:
+      logCollector.externalService.enabled: false
+      logCollector.tcpCollector.externalService.enabled: true
+      logCollector.tcpCollector.externalService.loadBalancerIP: 192.0.2.25
+      logCollector.tcpCollector.externalService.ports.syslog.port: 1514
+    asserts:
+      - equal: {path: spec.selector.app, value: serviceradar-log-collector}
+      - equal: {path: spec.loadBalancerIP, value: 192.0.2.25}
+      - equal:
+          path: spec.ports
+          value: [{name: syslog-tcp, port: 1514, targetPort: 514, protocol: TCP}]
+
+  - it: rejects conflicting pinned external addresses
+    template: templates/log-collector.yaml
+    set:
+      logCollector.externalService.enabled: true
+      logCollector.externalService.loadBalancerIP: 192.0.2.25
+      logCollector.tcpCollector.externalService.enabled: true
+      logCollector.tcpCollector.externalService.loadBalancerIP: 192.0.2.26
+    asserts:
+      - failedTemplate:
+          errorMessage: logCollector.externalService.loadBalancerIP and logCollector.tcpCollector.externalService.loadBalancerIP must match for the unified syslog Service
+
+  - it: admits external TCP to the unified pods on the container port
+    template: templates/network-policy.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-external}
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.logCollectorExternal.allowedCIDRs: [192.0.2.0/24]
+      logCollector.externalService.enabled: false
+      logCollector.tcpCollector.externalService.enabled: true
+      logCollector.tcpCollector.externalService.ports.syslog.port: 1514
+    asserts:
+      - equal: {path: spec.podSelector.matchLabels.app, value: serviceradar-log-collector}
+      - equal:
+          path: spec.ingress
+          value:
+            - from: [{ipBlock: {cidr: 192.0.2.0/24}}]
+              ports: [{protocol: TCP, port: 514}]

@@ -3,7 +3,7 @@
 The system SHALL support running stateless observability ingest services with multiple replicas when they only accept network traffic and publish into shared NATS streams without requiring shared node-local durable state.
 
 #### Scenario: Replicated trap and syslog ingestion remain routable
-- **GIVEN** `trapd`, `log-collector`, or `log-collector-tcp` are configured with more than one replica
+- **GIVEN** `trapd` or the unified `log-collector` are configured with more than one replica
 - **WHEN** ingress traffic arrives through their Kubernetes service
 - **THEN** any healthy replica MAY accept the traffic
 - **AND** the service SHALL continue publishing events into the shared platform NATS streams without requiring a single owning pod

@@ -30,7 +30,7 @@ use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
 use std::sync::mpsc::SyncSender;
 
-pub trait Input {
+pub trait Input: Send {
     fn accept(
         &self,
         tx: SyncSender<Vec<u8>>,

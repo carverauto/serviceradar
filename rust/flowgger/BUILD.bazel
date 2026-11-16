@@ -72,7 +72,39 @@ rust_test(
         "tls",
     ],
     # Config::from_path tests read these fixtures by relative path.
-    data = glob(["tests/resources/*.toml"]),
+    data = glob(["tests/resources/*.toml"]) + ["//third_party/binaries:nats_server_linux_amd64"],
+    env = {
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)
+
+# The managed certificate policy loader accepts only a root-owned file under
+# root-owned directories. flowgger_lib_test skips this case whenever its action
+# is not uid 0; this target asks for uid 0, and here a skip is a failure.
+rust_test(
+    name = "flowgger_managed_policy_test",
+    args = ["revoked_broker_certificate_fails_the_publisher"],
+    crate = ":flowgger_lib",
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    data = ["//third_party/binaries:nats_server_linux_amd64"],
+    env = {
+        "FLOWGGER_REQUIRE_MANAGED_POLICY_TEST": "1",
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
+    exec_properties = {"test.dockerUser": "0"},
+    target_compatible_with = ["@platforms//os:linux"],
     deps = all_crate_deps(
         cargo_only = True,
         normal_dev = True,

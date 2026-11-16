@@ -33,7 +33,7 @@ dnsConfig:
     - name: single-request-reopen
 ```
 Apply unconditionally to all 36 pod-bearing manifests in `helm/serviceradar`:
-- **Deployments (19)**: `agent.yaml`, `agent-gateway.yaml`, `archive-reader.yaml`, `bmp-collector.yaml`, `core.yaml`, `datasvc.yaml`, `dev/faker.yaml`, `flow-collector.yaml`, `gobgp.yaml`, `k8s-inventory.yaml`, `log-collector.yaml`, `log-collector-tcp.yaml`, `media-storage.yaml`, `rperf-checker.yaml`, `trapd.yaml`, `trivy-sidecar.yaml`, `web.yaml`, `webrtc-turn-server.yaml`, and `files/serviceradar-tools.yaml`.
+- **Deployments (18)**: `agent.yaml`, `agent-gateway.yaml`, `archive-reader.yaml`, `bmp-collector.yaml`, `core.yaml`, `datasvc.yaml`, `dev/faker.yaml`, `flow-collector.yaml`, `gobgp.yaml`, `k8s-inventory.yaml`, `log-collector.yaml`, `media-storage.yaml`, `rperf-checker.yaml`, `trapd.yaml`, `trivy-sidecar.yaml`, `web.yaml`, `webrtc-turn-server.yaml`, and `files/serviceradar-tools.yaml`.
 - **StatefulSets (2)**: `nats.yaml`, `nvr.yaml`.
 - **Jobs (15)**: `cert-generator-job.yaml`, `cert-regenerator-job.yaml`, `checker-templates-kv-bootstrap-job.yaml`, `cnpg-client-ca-job.yaml`, `cnpg-client-ca-secret-job.yaml`, `cnpg-extension-update-job.yaml`, `core-migrations-job.yaml`, `dgraph-acl-bootstrap-job.yaml`, `dgraph-schema-job.yaml`, `flow-collector-bootstrap-job.yaml`, `nats-creds-generator.yaml`, `secret-generator-job.yaml`, `starrocks-catalog-job.yaml`, `starrocks-catalog-reader-job.yaml`, and `starrocks-storage-volume-job.yaml`.
 - **Edge chart Deployment (1)**: `helm/serviceradar-k8s-edge/templates/deployment.yaml`.

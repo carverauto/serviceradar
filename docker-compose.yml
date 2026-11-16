@@ -872,6 +872,7 @@ services:
       dockerfile: docker/compose/Dockerfile.log-collector
     ports:
       - "514:514/udp"
+      - "514:514/tcp"
       - "4317:4317"
       - "50044:50044"
     volumes:

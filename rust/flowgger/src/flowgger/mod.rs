@@ -31,6 +31,8 @@ mod splitter;
 mod tls_utils;
 mod utils;
 
+#[cfg(all(test, feature = "syslog", feature = "gelf"))]
+mod listener_tests;
 #[cfg(test)]
 mod test_fuzzer;
 
@@ -104,6 +106,7 @@ use self::output::TlsOutput;
 use self::output::{DebugOutput, Output};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
+use std::{collections::HashSet, panic, thread};
 
 const DEFAULT_INPUT_FORMAT: &str = "auto";
 const DEFAULT_INPUT_TYPE: &str = "syslog-tls";
@@ -437,44 +440,8 @@ fn start_with_grpc(config_file: &str, grpc_enabled: bool) {
         Ok(config) => config,
         Err(e) => panic!("Unable to read the config file [{}]: {}", config_file, e),
     };
-    if grpc_enabled {
-        grpc::maybe_spawn(&config);
-    }
-    let input_format = config
-        .lookup("input.format")
-        .map_or(DEFAULT_INPUT_FORMAT, |x| {
-            x.as_str().expect("input.format must be a string")
-        });
-    let input_type = config.lookup("input.type").map_or(DEFAULT_INPUT_TYPE, |x| {
-        x.as_str().expect("input.type must be a string")
-    });
-    let input = get_input(input_type, &config);
-    let decoder = match input_format {
-        _ if input_format == "capnp" => {
-            Box::new(InvalidDecoder::new(&config)) as Box<dyn Decoder + Send>
-        }
-        "gelf" => get_gelf_decoder(&config),
-        "ltsv" => get_ltvs_decoder(&config),
-        "rfc5424" => get_decoder_rfc5424(&config),
-        "rfc3164" => get_decoder_rfc3164(&config),
-        "auto" => get_decoder_auto(&config),
-        _ => panic!("Unknown input format: {}", input_format),
-    };
-
-    let output_format = config
-        .lookup("output.format")
-        .map_or(DEFAULT_OUTPUT_FORMAT, |x| {
-            x.as_str().expect("output.format must be a string")
-        });
-    let encoder = match output_format {
-        "capnp" => get_capnp_encoder(&config),
-        "gelf" | "json" => get_gelf_encoder(&config),
-        "ltsv" => get_ltvs_encoder(&config),
-        "rfc3164" => get_encoder_rfc3164(&config),
-        "rfc5424" => get_encoder_rfc5424(&config),
-        "passthrough" => get_encoder_passthrough(&config),
-        _ => panic!("Unknown output format: {}", output_format),
-    };
+    let listeners = configured_listeners(&config);
+    let output_format = output_format(&config);
     let output_type = config
         .lookup("output.type")
         .map_or(DEFAULT_OUTPUT_TYPE, |x| {
@@ -507,8 +474,137 @@ fn start_with_grpc(config_file: &str, grpc_enabled: bool) {
     let (tx, rx): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = sync_channel(queue_size);
     let arx = Arc::new(Mutex::new(rx));
 
+    if grpc_enabled {
+        grpc::maybe_spawn(&config);
+    }
     output.start(arx, merger);
-    input.accept(tx, decoder, encoder);
+    run_listeners(listeners, tx);
+}
+
+struct Listener {
+    name: String,
+    input: Box<dyn Input>,
+    decoder: Box<dyn Decoder + Send>,
+    encoder: Box<dyn Encoder + Send>,
+}
+
+fn configured_listeners(config: &Config) -> Vec<Listener> {
+    let mut sockets = HashSet::new();
+    config
+        .input_configs()
+        .expect("Invalid listener configuration")
+        .into_iter()
+        .map(|config| {
+            let input_type = config.lookup("input.type").map_or(DEFAULT_INPUT_TYPE, |x| {
+                x.as_str().expect("input.type must be a string")
+            });
+            let input = get_input(input_type, &config);
+            let socket =
+                match input_type {
+                    "udp" => Some(("udp", "0.0.0.0:514")),
+                    "tcp" | "syslog-tcp" | "tcp_co" | "tcpco" | "syslog-tcp_co"
+                    | "syslog-tcpco" => Some(("tcp", "0.0.0.0:514")),
+                    "tls" | "syslog-tls" | "tls_co" | "tlsco" | "syslog-tls_co"
+                    | "syslog-tlsco" => Some(("tcp", "0.0.0.0:6514")),
+                    _ => None,
+                };
+            let name = if let Some((transport, default_listen)) = socket {
+                let listen = config.lookup("input.listen").map_or(default_listen, |x| {
+                    x.as_str().expect("input.listen must be an ip:port string")
+                });
+                assert!(
+                    sockets.insert((transport.to_owned(), listen.to_owned())),
+                    "Duplicate input listener: {transport} {listen}"
+                );
+                format!("{input_type} {listen}")
+            } else {
+                input_type.to_owned()
+            };
+            Listener {
+                name,
+                input,
+                decoder: configured_decoder(&config),
+                encoder: configured_encoder(&config),
+            }
+        })
+        .collect()
+}
+
+fn configured_decoder(config: &Config) -> Box<dyn Decoder + Send> {
+    let input_format = config
+        .lookup("input.format")
+        .map_or(DEFAULT_INPUT_FORMAT, |x| {
+            x.as_str().expect("input.format must be a string")
+        });
+    match input_format {
+        _ if input_format == "capnp" => {
+            Box::new(InvalidDecoder::new(config)) as Box<dyn Decoder + Send>
+        }
+        "gelf" => get_gelf_decoder(config),
+        "ltsv" => get_ltvs_decoder(config),
+        "rfc5424" => get_decoder_rfc5424(config),
+        "rfc3164" => get_decoder_rfc3164(config),
+        "auto" => get_decoder_auto(config),
+        _ => panic!("Unknown input format: {}", input_format),
+    }
+}
+
+fn output_format(config: &Config) -> &str {
+    config
+        .lookup("output.format")
+        .map_or(DEFAULT_OUTPUT_FORMAT, |x| {
+            x.as_str().expect("output.format must be a string")
+        })
+}
+
+fn configured_encoder(config: &Config) -> Box<dyn Encoder + Send> {
+    match output_format(config) {
+        "capnp" => get_capnp_encoder(config),
+        "gelf" | "json" => get_gelf_encoder(config),
+        "ltsv" => get_ltvs_encoder(config),
+        "rfc3164" => get_encoder_rfc3164(config),
+        "rfc5424" => get_encoder_rfc5424(config),
+        "passthrough" => get_encoder_passthrough(config),
+        other => panic!("Unknown output format: {other}"),
+    }
+}
+
+fn run_listeners(mut listeners: Vec<Listener>, tx: SyncSender<Vec<u8>>) {
+    if listeners.len() == 1 {
+        let listener = listeners.pop().unwrap();
+        listener
+            .input
+            .accept(tx, listener.decoder, listener.encoder);
+        return;
+    }
+
+    // Forward any listener failure to the pipeline owner. A detached panic would leave
+    // the other listeners and the embedding application's health endpoint running.
+    let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+    for (index, listener) in listeners.into_iter().enumerate() {
+        let tx = tx.clone();
+        let completed_tx = completed_tx.clone();
+        thread::Builder::new()
+            .name(format!("flowgger-input-{index}"))
+            .spawn(move || {
+                let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                    listener
+                        .input
+                        .accept(tx, listener.decoder, listener.encoder);
+                }));
+                let _ = completed_tx.send((listener.name, result));
+            })
+            .expect("Unable to start input listener");
+    }
+    drop(tx);
+    drop(completed_tx);
+    let (name, result) = completed_rx
+        .recv()
+        .expect("Input listener supervisor stopped");
+    match result {
+        Ok(()) => panic!("Input listener {name} exited unexpectedly"),
+        Err(cause) => panic::resume_unwind(cause),
+    }
 }
 
 #[cfg(test)]

@@ -39,8 +39,8 @@ All paths under `docs/docs/` unless noted. Each accuracy fix cites the proving c
   the real top-level keys (`stream_subjects`, `stream_max_bytes`, `stream_replicas`,
   `pending_flows`).
 - [x] 2.4 `syslog.md` — remove the RELP recommendation (flowgger inputs are udp/tcp/tls/
-  file/redis/stdin only); document the TCP syslog collector (`log-collector-tcp`,
-  `helm/.../templates/log-collector-tcp.yaml`).
+  file/redis/stdin only); document the TCP syslog listener in the unified `log-collector`
+  (`helm/.../templates/log-collector.yaml`) and its compatibility Service.
 - [x] 2.5 `snmp.md` — reframe SNMP polling as an embedded agent service, not a "gateway"
   function (`go/pkg/agent/snmp_service.go`); remove the `curl http://agent:8080/status`
   step (no such HTTP endpoint); verify local-override config keys against the agent struct;

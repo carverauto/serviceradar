@@ -19,6 +19,7 @@ members = [
     "rust/kvutil",
     "rust/config-bootstrap",
     "rust/cert-policy",
+    "rust/zen-normalize",
     "rust/dgraph-migrate",
     "rust/network-config-downparser",
     "rust/dgraph-topology",
@@ -72,7 +73,7 @@ arancini-lib = "=0.7.6"
 arrow-array = "60.1"
 arrow-ipc = "60.1"
 arrow-schema = "60.1"
-async-nats = "0.50.0"
+async-nats = "0.52.0"
 async-trait = "0.1"
 # Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
 # they opt in only to extras like "ws" / "macros".
@@ -217,6 +218,7 @@ uuid = { version = "1", default-features = false, features = ["std"] }
 which = "8.0"
 x509-cert = { version = "=0.2.5", default-features = false, features = ["std"] }
 zen-engine = "2.0"
+zen-expression = "2.0"
 zeroize = { version = "1", default-features = false }
 
 [profile.release]

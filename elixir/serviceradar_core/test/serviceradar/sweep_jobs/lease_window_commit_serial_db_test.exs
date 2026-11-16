@@ -5,10 +5,11 @@ defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
   process filter would pollute the count. A full 7-day horizon on a 5-minute
   schedule holds ~2,016 slots; the measured push is a refresh that re-pushes
   the whole carried window at once. Evidence entries are built for every slot
-  but committed in `commit_issuance/1`'s 256-entry chunks — a bounded handful
+  but committed in `commit_issuance/1`'s 64-entry chunks — a bounded number
   of transactions for the whole window — instead of one transaction per slot
   (~2,020 commits on the old path). Chunks stay small enough that every commit
-  fits the checkout timeout even on a loaded executor.
+  fits the checkout timeout on a slow database: 256-entry chunks (1,792
+  statements each) overran it.
 
   The test is unboxed (`sandbox: :unboxed`) so every `Repo.transaction` is a
   real commit, and it deletes every row it creates in `on_exit`. Counting is
@@ -204,10 +205,10 @@ defmodule ServiceRadar.SweepJobs.LeaseWindowCommitSerialDbTest do
     :telemetry.detach(handler_id)
     commits = :counters.get(counter, 1)
 
-    # Sixteen commits for the issuance entries (4,032 entries in 256-entry
-    # chunks), plus the pass's own bookkeeping transactions (record_push,
-    # mark_delivered). The old per-slot path commits ~2,020 here.
-    assert commits <= 24
+    # Sixty-three commits for the issuance entries (4,032 entries in 64-entry
+    # chunks), plus up to eight of the pass's own bookkeeping transactions
+    # (record_push, mark_delivered). The old per-slot path commits ~2,020 here.
+    assert commits <= 71
   end
 
   defp mint_window(group, now, delivery, agent, attempts) do

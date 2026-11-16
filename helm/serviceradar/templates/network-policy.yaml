@@ -102,27 +102,14 @@
 {{- end -}}
 {{- $hasFlowCollectorExternalPorts := gt (len $flowCollectorExternalPorts) 0 -}}
 {{- $logCollector := default (dict) .Values.logCollector -}}
-{{- $logCollectorExternalService := default (dict) $logCollector.externalService -}}
-{{- $logCollectorExternalServiceEnabled := default false $logCollectorExternalService.enabled -}}
-{{- $logCollectorExternalServiceType := default "LoadBalancer" $logCollectorExternalService.type -}}
-{{- $logCollectorExternalServicePorts := default (dict) $logCollectorExternalService.ports -}}
-{{- $logCollectorExternalSyslogPort := default (dict) $logCollectorExternalServicePorts.syslog -}}
+{{- $logCollectorExternalSyslog := include "serviceradar.logCollectorExternalSyslog" . | fromJson -}}
+{{- $logCollectorExternalServiceEnabled := $logCollectorExternalSyslog.enabled -}}
+{{- $logCollectorExternalServiceType := $logCollectorExternalSyslog.type -}}
 {{- $logCollectorExternalPorts := list -}}
-{{- if include "serviceradar.boolDefaultTrue" (list $logCollectorExternalSyslogPort "enabled") | eq "true" -}}
-  {{- $logCollectorExternalPorts = append $logCollectorExternalPorts (dict "protocol" (default "UDP" $logCollectorExternalSyslogPort.protocol) "port" (default 514 $logCollectorExternalSyslogPort.port)) -}}
-{{- end -}}
-{{- $logCollectorTcp := default (dict) $logCollector.tcpCollector -}}
-{{- $logCollectorTcpExternalService := default (dict) $logCollectorTcp.externalService -}}
-{{- $logCollectorTcpExternalServiceEnabled := default false $logCollectorTcpExternalService.enabled -}}
-{{- $logCollectorTcpExternalServiceType := default "LoadBalancer" $logCollectorTcpExternalService.type -}}
-{{- $logCollectorTcpExternalServicePorts := default (dict) $logCollectorTcpExternalService.ports -}}
-{{- $logCollectorTcpExternalSyslogPort := default (dict) $logCollectorTcpExternalServicePorts.syslog -}}
-{{- $logCollectorTcpExternalPorts := list -}}
-{{- if include "serviceradar.boolDefaultTrue" (list $logCollectorTcpExternalSyslogPort "enabled") | eq "true" -}}
-  {{- $logCollectorTcpExternalPorts = append $logCollectorTcpExternalPorts (dict "protocol" (default "TCP" $logCollectorTcpExternalSyslogPort.protocol) "port" (default 514 $logCollectorTcpExternalSyslogPort.port)) -}}
+{{- range $port := $logCollectorExternalSyslog.ports -}}
+  {{- $logCollectorExternalPorts = append $logCollectorExternalPorts (dict "protocol" $port.protocol "port" $port.targetPort) -}}
 {{- end -}}
 {{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
-{{- $hasLogCollectorTcpExternalPorts := gt (len $logCollectorTcpExternalPorts) 0 -}}
 {{- $logCollectorOtlp := default (dict) $logCollector.otlp -}}
 {{- $logCollectorOtlpService := default (dict) $logCollectorOtlp.service -}}
 {{- $logCollectorOtlpServiceEnabled := default false $logCollectorOtlpService.enabled -}}
@@ -505,29 +492,6 @@ spec:
             cidr: {{ $cidr | quote }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $logCollectorExternalPorts | trim | nindent 8 }}
-{{- end }}
-{{- end }}
-{{- if and $logCollectorTcpExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorTcpExternalPorts (ne $logCollectorTcpExternalServiceType "ClusterIP") }}
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "serviceradar.fullname" . }}-log-collector-tcp-external
-  labels:
-    app.kubernetes.io/part-of: serviceradar
-spec:
-  podSelector:
-    matchLabels:
-      app: serviceradar-log-collector-tcp
-  policyTypes:
-    - Ingress
-  ingress:
-{{- range $cidr := $logCollectorExternalCIDRs }}
-    - from:
-        - ipBlock:
-            cidr: {{ $cidr | quote }}
-      ports:
-{{- include "serviceradar.networkPolicyPorts" $logCollectorTcpExternalPorts | trim | nindent 8 }}
 {{- end }}
 {{- end }}
 {{- if and $logCollectorOtlpServiceEnabled $otlpExternalEnabled $hasOtlpExternalCIDRs $hasLogCollectorOtlpPorts (ne $logCollectorOtlpServiceType "ClusterIP") }}

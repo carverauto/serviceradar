@@ -2166,33 +2166,33 @@ http_file(
 
 http_file(
     name = "alpine_3_24_postgresql18_client_apk",
-    sha256 = "7c1926e910c680312135e0ffe37f624ae9f00ba95c1c1a34bfadce0d9bea3e2d",
+    sha256 = "3b38acc6756b651cfe7108da1f8c139c5bfe04fef91ee98a832bc6eca143a9c3",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.7-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_postgresql18_client_apk_arm64",
-    sha256 = "8a2b694ac3615150725c98adffa3b539641eda33a11cefd015cb595dfa7481aa",
+    sha256 = "8e78f7ad203d3d3636d8a87f277ef8166803f7d6833b1f4021be77dd73baa233",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.7-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libpq_apk",
-    sha256 = "a48a15bc7f09bb7a6eeea86f326eec007ea02e626fefdd098034096b6e70489b",
+    sha256 = "b91369ece17e3863a7a737b2e6e9b21c94853bcc2fe38cde2a4e9a0253da9ad7",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.7-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libpq_apk_arm64",
-    sha256 = "b70f46c6095d498ad4b1eb8dc7c439a287f6e9bc2954ac1d925acc11bb34a13f",
+    sha256 = "4d02ac1cdb14e783c6b943a73f23b032afb8ef932aa675c83f81be4a9ff1dcef",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.7-r0.apk",
     ],
 )
 

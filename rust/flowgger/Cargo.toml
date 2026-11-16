@@ -42,6 +42,11 @@ tonic-prost = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
+rcgen = { workspace = true }
+
+[[example]]
+name = "publish_window_bench"
+required-features = ["nats-output"]
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

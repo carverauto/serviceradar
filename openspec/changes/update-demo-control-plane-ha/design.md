@@ -69,7 +69,7 @@ Consequences:
 The next HA slice includes observability ingest services that only receive traffic and publish into shared NATS streams. Those services can scale independently as long as they do not depend on shared node-local state or singleton durable-consumer ownership.
 
 Consequences:
-- `trapd`, `log-collector`, `log-collector-tcp`, and `flow-collector` can use standard multi-replica `Deployment` semantics in `demo`.
+- `trapd`, `log-collector` (UDP and TCP), and `flow-collector` can use standard multi-replica `Deployment` semantics in `demo`.
 - JetStream-backed workers such as `zen` and `db-event-writer` can scale by sharing one durable pull consumer across replicas instead of switching to push queue subscriptions.
 - Replica-safe shared pull consumers still require non-consumer runtime work to be stateless: pod-local scratch storage, no singleton migration work, and startup that tolerates concurrent durable creation.
 - `datasvc` can scale in Kubernetes when its file-backed resolver paths remain unset and its `/var/lib/serviceradar` mount is treated as pod-local scratch instead of authoritative storage.

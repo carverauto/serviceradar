@@ -1905,7 +1905,7 @@ logCollector:
     limits:
       memory: "512Mi"
       cpu: "500m"
-  # External service configuration for syslog/NetFlow ingestion from outside the cluster.
+  # External service configuration shared by UDP and TCP syslog.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
     enabled: false
@@ -1926,6 +1926,12 @@ logCollector:
         port: 514          # External port
         targetPort: 514    # Container port
         protocol: UDP
+      # Enabled only when externalService and the TCP listener are enabled.
+      syslogTcp:
+        enabled: true
+        port: 514
+        targetPort: 514
+        protocol: TCP
       netflow:
         enabled: false
         port: 2055
@@ -2045,15 +2051,19 @@ logCollector:
       # namespace). Used by the otlp-gateway NetworkPolicy to admit gateway
       # traffic to 4317/4318 without opening 0.0.0.0/0.
       envoyGatewayNamespace: "envoy-gateway-system"
+  # TCP listener in the same Deployment and process as UDP and OTLP.
   tcpCollector:
     enabled: true
+    # Deprecated workload settings are ignored; use logCollector settings.
     replicaCount: 3
-    # TCP syslog also publishes into the shared "events" stream.
     streamReplicas: 3
     listen: "0.0.0.0:514"
     format: "auto"
     framing: "line"
     subject: "logs.syslog"
+    # Match listen's port with service.ports.syslog.targetPort (numeric).
+    # Match external Service targetPort too when exposing a custom listener.
+    # Compatibility Service selecting only pods with the TCP listener.
     service:
       type: ClusterIP
       annotations: {}
@@ -2061,10 +2071,9 @@ logCollector:
       externalTrafficPolicy: Cluster
       ports:
         syslog:
-          enabled: true
           port: 514
           targetPort: 514
-          protocol: TCP
+    # Legacy settings enable TCP on logCollector.externalService.
     externalService:
       enabled: false
       type: LoadBalancer
@@ -2077,6 +2086,7 @@ logCollector:
           port: 514
           targetPort: 514
           protocol: TCP
+    # Deprecated; use logCollector.resources for the unified workload.
     resources:
       requests:
         memory: "256Mi"

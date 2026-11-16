@@ -45,7 +45,7 @@ Provision these only for deployments that ingest telemetry directly from routers
 | Purpose | Public Port | Protocol | Kubernetes Backend | Cloud Resource Shape | Isolation Note |
 |---|---:|---|---|---|---|
 | Syslog UDP | 514 | UDP | `serviceradar-log-collector:514` | UDP Gateway listener or dedicated UDP load balancer | UDP has no hostname/SNI. Use a deployment-specific IP or a deployment-specific port when multiple deployments share infrastructure. |
-| Syslog TCP | 514 | TCP | `serviceradar-log-collector-tcp:514` | TCP load balancer or Gateway TCP listener | Optional. Enable only when the deployment needs TCP syslog. |
+| Syslog TCP | 514 | TCP | `serviceradar-log-collector:514` | TCP load balancer or Gateway TCP listener | Controlled by `logCollector.tcpCollector.enabled`; the old `serviceradar-log-collector-tcp` name is a compatibility Service for the same pods. |
 | NetFlow | 2055 | UDP | `serviceradar-flow-collector:2055` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | Template-free v5 by default; v9/IPFIX template traffic needs native IPFIX-over-TLS (4740) or an explicit insecure opt-in. Keep exporter affinity stable. |
 | sFlow | 6343 | UDP | `serviceradar-flow-collector:6343` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | Often shares the same collector address as NetFlow. |
 | IPFIX alternate port | 4739 | UDP | `serviceradar-flow-collector:4739` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | Optional. Enable only when exporters require the conventional IPFIX port. |

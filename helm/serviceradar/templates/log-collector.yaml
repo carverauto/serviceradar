@@ -5,6 +5,22 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate13 := default (dict) .Values.logCollector -}}
 {{- if or (not (hasKey $gate13 "enabled")) $gate13.enabled }}
+{{- $tcpCollector := default (dict) .Values.logCollector.tcpCollector -}}
+{{- $tcpEnabled := default false $tcpCollector.enabled -}}
+{{- $tcpCollectorService := default (dict) $tcpCollector.service -}}
+{{- $tcpCollectorServicePorts := default (dict) $tcpCollectorService.ports -}}
+{{- $tcpServicePort := default (dict) $tcpCollectorServicePorts.syslog -}}
+{{- $tcpTargetPort := 514 -}}
+{{- if hasKey $tcpServicePort "targetPort" -}}
+{{- $tcpTargetPort = $tcpServicePort.targetPort -}}
+{{- end -}}
+{{- if and $tcpEnabled (or (not (regexMatch "^[0-9]+$" (toString $tcpTargetPort))) (lt (int $tcpTargetPort) 1) (gt (int $tcpTargetPort) 65535)) -}}
+{{- fail "logCollector.tcpCollector.service.ports.syslog.targetPort must be a numeric listener port between 1 and 65535" -}}
+{{- end -}}
+{{- if and (hasKey $tcpCollector "subject") (ne $tcpCollector.subject "logs.syslog") -}}
+{{- fail "logCollector.tcpCollector.subject must be logs.syslog for the shared output" -}}
+{{- end -}}
+{{- $externalSyslog := include "serviceradar.logCollectorExternalSyslog" . | fromJson -}}
 {{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
 {{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
 {{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
@@ -41,6 +57,14 @@ data:
     listen = "0.0.0.0:514"
     format = "auto"
 
+{{- if $tcpEnabled }}
+    [[inputs]]
+    type = "tcp"
+    listen = {{ default "0.0.0.0:514" $tcpCollector.listen | quote }}
+    format = {{ default "auto" $tcpCollector.format | quote }}
+    framing = {{ default "line" $tcpCollector.framing | quote }}
+
+{{- end }}
     [output]
     type = "nats"
     format = "gelf"
@@ -156,6 +180,9 @@ spec:
     metadata:
       labels:
         app: serviceradar-log-collector
+        {{- if $tcpEnabled }}
+        serviceradar.io/syslog-tcp: "true"
+        {{- end }}
         app.kubernetes.io/part-of: serviceradar
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
@@ -220,6 +247,11 @@ spec:
         - name: syslog
           containerPort: 514
           protocol: UDP
+        {{- if $tcpEnabled }}
+        - name: syslog-tcp
+          containerPort: {{ int $tcpTargetPort }}
+          protocol: TCP
+        {{- end }}
         - name: otel-grpc
           containerPort: 4317
           protocol: TCP
@@ -322,6 +354,12 @@ spec:
     port: 514
     targetPort: 514
     protocol: UDP
+  {{- if $tcpEnabled }}
+  - name: syslog-tcp
+    port: 514
+    targetPort: syslog-tcp
+    protocol: TCP
+  {{- end }}
   - name: otel-grpc
     port: 4317
     targetPort: 4317
@@ -331,6 +369,35 @@ spec:
     targetPort: 50044
     protocol: TCP
   type: ClusterIP
+{{- if $tcpEnabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-log-collector-tcp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with $tcpCollectorService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    app: serviceradar-log-collector
+    serviceradar.io/syslog-tcp: "true"
+  type: {{ default "ClusterIP" $tcpCollectorService.type }}
+  {{- if and $tcpCollectorService.externalTrafficPolicy (ne (default "ClusterIP" $tcpCollectorService.type) "ClusterIP") }}
+  externalTrafficPolicy: {{ $tcpCollectorService.externalTrafficPolicy }}
+  {{- end }}
+  {{- if and $tcpCollectorService.loadBalancerIP (eq (default "ClusterIP" $tcpCollectorService.type) "LoadBalancer") }}
+  loadBalancerIP: {{ $tcpCollectorService.loadBalancerIP }}
+  {{- end }}
+  ports:
+  - name: syslog-tcp
+    port: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).port) }}
+    targetPort: {{ int $tcpTargetPort }}
+    protocol: TCP
+{{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -338,40 +405,30 @@ metadata:
   name: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) }}
   labels:
     app.kubernetes.io/part-of: serviceradar
-{{- if (default (dict) .Values.logCollector).externalService }}
-{{- if .Values.logCollector.externalService.enabled }}
+{{- if $externalSyslog.enabled }}
 ---
-# External LoadBalancer service for syslog ingestion from outside the cluster
 apiVersion: v1
 kind: Service
 metadata:
   name: serviceradar-log-collector-external
   labels:
     app.kubernetes.io/part-of: serviceradar
-  {{- with .Values.logCollector.externalService.annotations }}
+  {{- with $externalSyslog.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.logCollector.externalService.type | default "LoadBalancer" }}
-  {{- with .Values.logCollector.externalService.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ . }}
+  type: {{ $externalSyslog.type }}
+  {{- if and $externalSyslog.externalTrafficPolicy (ne $externalSyslog.type "ClusterIP") }}
+  externalTrafficPolicy: {{ $externalSyslog.externalTrafficPolicy }}
   {{- end }}
-  {{- if .Values.logCollector.externalService.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.logCollector.externalService.loadBalancerIP }}
+  {{- if and $externalSyslog.loadBalancerIP (eq $externalSyslog.type "LoadBalancer") }}
+  loadBalancerIP: {{ $externalSyslog.loadBalancerIP }}
   {{- end }}
   selector:
     app: serviceradar-log-collector
     app.kubernetes.io/part-of: serviceradar
   ports:
-  {{- if (default (dict) .Values.logCollector.externalService.ports).syslog }}
-  {{- if .Values.logCollector.externalService.ports.syslog.enabled }}
-  - name: syslog
-    port: {{ .Values.logCollector.externalService.ports.syslog.port | default 514 }}
-    targetPort: {{ .Values.logCollector.externalService.ports.syslog.targetPort | default 514 }}
-    protocol: {{ .Values.logCollector.externalService.ports.syslog.protocol | default "UDP" }}
-  {{- end }}
-  {{- end }}
-{{- end }}
+    {{- toYaml $externalSyslog.ports | nindent 4 }}
 {{- end }}
 {{- end }}
