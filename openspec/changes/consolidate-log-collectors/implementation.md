@@ -9,26 +9,34 @@ Branch: `feat/log-collector-pipeline`. Continue in the existing integration
 worktree; the main checkout does not contain these changes. Integration base:
 `1bc5ffe88321795f5cfabc72ef22fa24c63ca702`.
 
-Committed foundations:
+Committed foundations, identified by commit subject because SHAs change on
+every rebase:
 
-- `2071fdadb3`: four approved proposals and supporting research.
-- `1866c7b0eb`: concurrent UDP/TCP listeners with independent codecs and one
-  logical output; listener failures terminate the collector.
-- `05ad9704f6`: consolidated Helm deployment and Compose listeners, compatibility
-  TCP Service, custom target ports, documentation and chart regression coverage.
-- `24c987ddaf`: count/byte-bounded concurrent JetStream publication, stable retry
-  IDs, persistent queue handoff and source-close draining under retry policy.
-
-- `d3dbb52142`: publisher tests for shared reconnect ownership and fail-closed
-  certificate policy configuration; synthetic publish-window benchmark example
-  and its first loopback measurement.
-- `944957d5d1`: `rust/zen-normalize`, the shared ordered-rule normalization
-  crate, with conformance cases whose expected records came from the JSON-text
+- "docs: specify scalable log ingestion implementation contracts": four
+  approved proposals and supporting research.
+- "feat(flowgger): run syslog listeners through one output": concurrent
+  UDP/TCP listeners with independent codecs and one logical output; listener
+  failures terminate the collector.
+- "feat(helm): consolidate syslog listeners in one log collector":
+  consolidated Helm deployment and Compose listeners, compatibility TCP
+  Service, custom target ports, documentation and chart regression coverage.
+- "perf(flowgger): pipeline bounded JetStream acknowledgments": count/byte-
+  bounded concurrent JetStream publication, stable retry IDs, persistent queue
+  handoff and source-close draining under retry policy.
+- "test(flowgger): cover shared reconnect and fail-closed policy; add publish
+  window benchmark": publisher tests for shared reconnect ownership and
+  fail-closed certificate policy configuration; synthetic publish-window
+  benchmark example and its first loopback measurement.
+- "feat(zen-normalize): share ordered Zen rule normalization as a Rust crate":
+  `rust/zen-normalize`, the shared ordered-rule normalization crate, with
+  conformance cases whose expected records came from the JSON-text
   implementation.
-- `6573ffe9e7`: the core Zen NIF evaluates through that crate.
-- `a9b2c288e2`: the versioned rule bundle. Core publishes it from
-  `ZenRuleSync`, and `rust/zen-normalize` verifies its digest and compiles it.
-  Both sides assert the same frozen digests.
+- "refactor(zen-nif): evaluate rules through the shared normalization crate":
+  the core Zen NIF evaluates through that crate.
+- "feat(zen): publish a digest-identified rule bundle for collectors": the
+  versioned rule bundle. Core publishes it from `ZenRuleSync`, and
+  `rust/zen-normalize` verifies its digest and compiles it. Both sides assert
+  the same frozen digests.
 
 JSON remains the wire format. Flowgger does not call the shared Zen crate yet;
 binary transport, stream sharding and specialized receivers are design
@@ -55,7 +63,7 @@ pushed or deployed.
   ignored; `serviceradar-zen-normalize` 5 passed; `zen_nif` builds; Clippy and
   rustfmt clean on all three. Each new publisher and normalization test was
   seen to fail against a mutated owner.
-- Remote, at `a9b2c288e2`: BuildBuddy invocation
+- Remote, at the rule bundle commit: BuildBuddy invocation
   `8c84ca18-6f0f-4329-b292-0e3a5dc6fcd7` passed Flowgger, zen-normalize, both
   log-collector tests, the full Helm unit suite, the pod DNS test and the
   component gates, and built the Zen NIF. Invocation
@@ -114,8 +122,11 @@ pushed or deployed.
 Read this handoff, tasks, choices and the three companion proposals. First run
 combined remote Flowgger, zen-normalize, Zen NIF, log-collector and Helm checks
 when the shared Bazel limit permits. Preserve Build-volume worktree and
-remote-rc requirements. Then publish versioned rules through datasvc (2.3) and
-consume them in the collector (2.4, 2.2a), in parallel with binary-reader
+remote-rc requirements. Core already publishes the versioned rule bundle
+through datasvc (accelerate-log-ingestion 2.3 is done). Next, implement the
+collector-side rule fetch and activation: bounded fetch/watch/reconnect and
+atomic activation of the bundle (accelerate-log-ingestion 2.4), then call the
+shared rule set from Flowgger (2.2a), in parallel with binary-reader
 field/persistence parity where ownership permits. Deploy readers
 before enabling normalized protobuf producers. Keep JSON compatibility until
 that transition is verified. Do not mark live rollout complete from unit tests.
