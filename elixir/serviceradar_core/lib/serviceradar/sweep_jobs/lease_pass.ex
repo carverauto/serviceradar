@@ -685,16 +685,18 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       lease_id: lease_id
     ]
 
-    {scheduled, errors} =
+    wanted =
       desired
       |> Enum.reject(&MapSet.member?(present, key(&1.start)))
       |> Enum.take(@max_new_slots_per_assignment)
-      |> Enum.reduce({0, 0}, fn slot, {ok, failed} ->
-        case ExecutionSlots.schedule(assignment, slot.start, slot.expires, opts) do
-          {:ok, _slot} -> {ok + 1, failed}
-          {:error, _reason} -> {ok, failed + 1}
-        end
-      end)
+
+    # One bulk insert per fixed batch of rows. An insert error aborts this planning
+    # transaction, so roll it back with the reason rather than counting it.
+    {scheduled, errors} =
+      case ExecutionSlots.schedule_many(assignment, wanted, opts) do
+        {:ok, scheduled, failed} -> {scheduled, failed}
+        {:error, reason} -> Repo.rollback(reason)
+      end
 
     %{empty() | leases: 1, scheduled: scheduled, dropped: dropped, errors: errors}
   end

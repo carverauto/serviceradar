@@ -70,6 +70,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   @capability "sweep_lease_v1"
   @ack_grace_seconds 600
+  @issuance_chunk_entries 512
 
   @type authority :: %{key: IssuerKey.t(), contract: SweepContract.t()}
   @type sender :: (String.t(), Ecto.UUID.t(), binary() -> :ok | {:error, term()})
@@ -565,16 +566,15 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   # Builds the mapping evidence entries for every slot first (keeping every per-slot
   # verification `RecoveryAssignmentEvidence.sweep/3` performs), then commits the
-  # concatenated entries in `commit_issuance/1`'s 64-entry chunks: a bounded number of
-  # transactions for a whole window instead of one per slot. A chunk holds one connection
-  # for its whole transaction, under the 15s checkout timeout, and `commit_issuance/1`
-  # issues seven sequential statements per entry, so a chunk's duration is entries x 7 x
-  # the statement round trip. 256 entries (1,792 statements) overran that timeout on a
-  # slow database; 64 entries (448 statements) keep each commit well inside it. A
-  # whole-window single transaction does not fit at all. A conflicting entry still halts
-  # the push before `record_push` and the send, exactly as the per-slot commits did;
-  # entries a halted chunk already committed resolve `:committed` on retry through the
-  # untouched issuance replay path.
+  # concatenated entries in chunks of `@issuance_chunk_entries`. `commit_issuance/1` is
+  # set-based: a chunk is one transaction of a fixed handful of statements whatever its
+  # size, so the chunk is sized by rows, not round trips. It bounds the evidence bytes
+  # (up to 32 KiB per entry) and the key row locks one transaction carries, and moving
+  # that evidence is what a chunk's duration now depends on (512 entries measured under
+  # a second against the fixture database, 1,024 up to 10 s under load); a full 7-day
+  # window of ~4,032 entries commits in eight transactions. A conflicting entry
+  # still halts the push before `record_push` and the send; entries an earlier chunk
+  # already committed resolve `:committed` on retry through issuance replay.
   defp record_mappings(nil, [], _key), do: :ok
 
   defp record_mappings(capability, slots, key) do
@@ -595,7 +595,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp commit_entry_chunks(entries) do
     entries
-    |> Enum.chunk_every(64)
+    |> Enum.chunk_every(@issuance_chunk_entries)
     |> Enum.reduce_while(:ok, fn batch, :ok ->
       case RecoveryAssignments.commit_issuance(batch) do
         {:ok, :committed} -> {:cont, :ok}
