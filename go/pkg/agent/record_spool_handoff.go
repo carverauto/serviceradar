@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -117,7 +118,7 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 	// pass holds both copies of the whole tail until it finishes. Copy nothing
 	// unless that room is free; reclaiming a resolved prefix mid-pass is deferred
 	// to its own change.
-	needed := lateCopyCharge(pending)
+	needed := s.lateCopyCharge(pending)
 	if usage := s.allocator.Usage(); needed > usage.OrdinaryCeiling-min(usage.OrdinaryCeiling, usage.OrdinaryUsed) {
 		report.Reason, report.CapacityNeeded = legacyHandoffInsufficientCapacity, needed
 		return ErrLegacyHandoffInsufficientCapacity
@@ -160,19 +161,58 @@ func (s *RecordSpool) handOffFlat(report *LegacyHandoff) error {
 }
 
 // lateCopyCharge bounds the ordinary room late admission needs for records: each
-// append, plus one new generation per destination and one per rotation, which
-// comes no sooner than spool.MaxSegmentKeys records.
-func lateCopyCharge(records []spool.Record) uint64 {
-	var needed uint64
-	destinations := make(map[string]bool)
-	for _, rec := range records {
-		needed += spool.AttributedAppendCharge(len(rec.Body))
-		if record, err := edgerecord.DecodeRecord(rec.Body); err == nil {
-			destinations[fmt.Sprintf("%x/%d/%d", record.GetProducerContext().GetOriginPrincipalId(), record.GetRouteProfile(), record.GetTrafficClass())] = true
+// append the pass still makes (the first record may already be in late storage
+// after a crash), one new generation for each destination lane without an open
+// generation under the record's identity, and one per rotation, which comes no
+// sooner than spool.MaxSegmentKeys appended records.
+func (s *RecordSpool) lateCopyCharge(records []spool.Record) uint64 {
+	var agentID []byte
+	if s.trust != nil {
+		if snapshot := s.trust(); snapshot != nil {
+			agentID = snapshot.AuthenticatedAgent()
 		}
 	}
-	generations := uint64(len(destinations)) + uint64(len(records))/spool.MaxSegmentKeys
-	return needed + generations*spool.GenerationMetadataCharge
+	var needed, appended uint64
+	billed := make(map[string]bool)
+	for i, rec := range records {
+		record, err := edgerecord.DecodeRecord(rec.Body)
+		if err != nil {
+			needed += spool.AttributedAppendCharge(len(rec.Body))
+			appended++
+			continue
+		}
+		origin := record.GetProducerContext().GetOriginPrincipalId()
+		key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
+		set := s.late.existingSet(origin, agentID != nil && bytes.Equal(origin, agentID))
+		if i == 0 && set != nil {
+			if _, held, holdErr := holdsRecord(set, key, record.GetEventId(), rec.Body); holdErr == nil && held {
+				continue
+			}
+		}
+		needed += spool.AttributedAppendCharge(len(rec.Body))
+		appended++
+		destination := fmt.Sprintf("%x/%d/%d", origin, key.RouteProfile, key.TrafficClass)
+		if billed[destination] {
+			continue
+		}
+		billed[destination] = true
+		if !hasOpenGeneration(set, key, spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: origin}) {
+			needed += spool.GenerationMetadataCharge
+		}
+	}
+	return needed + appended/spool.MaxSegmentKeys*spool.GenerationMetadataCharge
+}
+
+func hasOpenGeneration(set *spool.LaneSet, key spool.LaneKey, identity spool.Identity) bool {
+	if set == nil {
+		return false
+	}
+	open, ok := set.OpenGeneration(key)
+	if !ok {
+		return false
+	}
+	frozen := open.Identity().Identity
+	return bytes.Equal(frozen.NetworkScopeID, identity.NetworkScopeID) && bytes.Equal(frozen.AgentID, identity.AgentID)
 }
 
 // resolveHandedOff persists the layout's local custody transfer for one record.

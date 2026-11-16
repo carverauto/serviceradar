@@ -128,6 +128,8 @@ func inspectLegacyEntry(root, name string) (empty, recognized bool, err error) {
 		return true, true, nil
 	case name == segmentFile:
 		return info.Size() == 0, info.Mode().IsRegular(), nil
+	case isTerminalEvidence(name):
+		return false, info.Mode().IsRegular(), nil
 	case strings.HasSuffix(name, checkpointSuffix):
 		_, ok := dataBase(strings.TrimSuffix(name, checkpointSuffix))
 		return true, ok && info.Mode().IsRegular(), nil
@@ -261,4 +263,9 @@ func retirementOrder(entries []string) []string {
 	ordered := append([]string(nil), entries...)
 	sort.SliceStable(ordered, func(i, j int) bool { return rank(ordered[i]) < rank(ordered[j]) })
 	return ordered
+}
+
+func isTerminalEvidence(name string) bool {
+	_, ok := terminalSequence(name)
+	return ok
 }

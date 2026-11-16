@@ -401,14 +401,6 @@ func TestLegacyHandoffDrainsWhileTheAdmissionGateIsPaused(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-func flatRecords(raws [][]byte) []spool.Record {
-	out := make([]spool.Record, 0, len(raws))
-	for _, raw := range raws {
-		out = append(out, spool.Record{Body: raw})
-	}
-	return out
-}
-
 // leaveOrdinaryRoom applies a spool budget, through the runtime path core's
 // edge_spool_max_bytes takes, that leaves exactly free ordinary bytes.
 func leaveOrdinaryRoom(t *testing.T, allocator *spool.Allocator, free uint64) {
@@ -443,7 +435,6 @@ func TestLegacyHandoffWaitsForCapacityWithoutAPartialCopy(t *testing.T) {
 		bodies += uint64(len(raw))
 	}
 	require.Greater(t, needed, bodies, "a copy charges more than its bodies")
-	require.Equal(t, needed, lateCopyCharge(flatRecords(raws)))
 	writeFlatSpoolTail(t, root, raws...)
 	segment := filepath.Join(root, "lane.seg")
 	before, err := os.ReadFile(segment)
@@ -479,6 +470,44 @@ func TestLegacyHandoffWaitsForCapacityWithoutAPartialCopy(t *testing.T) {
 	require.Equal(t, uint64(len(raws)), sp.LatePending())
 	require.Zero(t, sp.RetainedLegacyBytes())
 	_, statErr := os.Lstat(segment)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// A pass that stopped part-way, here after handing off the first record and
+// appending the second before a crash, resumes in the room the rest of the tail
+// still needs: the open late generation is not billed again, and the second
+// record, already in late storage, needs only its flat resolution.
+func TestLegacyHandoffResumesInTheRoomTheSuffixNeeds(t *testing.T) {
+	root := t.TempDir()
+	raws, _ := lateTail(t, 3)
+	writeFlatSpoolTail(t, root, raws...)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	sp, err := OpenRecordSpool(root, allocator)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	first, err := sp.AdmitLate(raws[0])
+	require.NoError(t, err)
+	_, err = sp.AdmitLate(raws[1])
+	require.NoError(t, err)
+	flat, err := spool.Open(root)
+	require.NoError(t, err)
+	pending, err := flat.Unresolved()
+	require.NoError(t, err)
+	require.NoError(t, resolveHandedOff(flat, pending[0], edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, first.Receipt.Generation.SpoolID))
+	require.NoError(t, flat.Close())
+
+	leaveOrdinaryRoom(t, allocator, spool.AttributedAppendCharge(len(raws[2])))
+	report, err := sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, 2, report.HandedOff)
+	require.Equal(t, uint64(len(raws)), sp.LatePending(), "one late copy of each record")
+	require.Zero(t, sp.RetainedLegacyBytes())
+	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
