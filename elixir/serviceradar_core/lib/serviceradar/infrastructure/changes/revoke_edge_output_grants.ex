@@ -14,7 +14,7 @@ defmodule ServiceRadar.Infrastructure.Changes.RevokeEdgeOutputGrants do
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_action(changeset, fn _changeset, agent ->
-      case OutputGrants.revoke_agent(agent.uid) do
+      case OutputGrants.revoke_agent(agent.uid, :identity_superseded) do
         {:ok, _count} -> {:ok, agent}
         {:error, reason} -> {:error, reason}
       end

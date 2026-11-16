@@ -99,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
           bytes_per_row: 16_384
         )
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())

@@ -527,7 +527,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   # successor was observed (`revoke_certificate/3` from the renewal lifecycle) is a renewal,
   # not a revocation of the agent, and keeps them.
   defp revoke_agent_grants(%ManagedComponent{component_type: "agent", component_id: agent_id}) do
-    with {:ok, _revoked} <- OutputGrants.revoke_agent(agent_id), do: :ok
+    with {:ok, _revoked} <- OutputGrants.revoke_agent(agent_id, :certificate_revoked), do: :ok
   end
 
   defp revoke_agent_grants(_component), do: :ok

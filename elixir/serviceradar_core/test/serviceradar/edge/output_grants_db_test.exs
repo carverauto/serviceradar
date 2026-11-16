@@ -90,9 +90,9 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
 
     assert id == grant.id
 
-    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent, :identity_superseded)
     assert {:ok, %{state: :revoked, authority_epoch: 2}} = OutputGrants.get(ctx.agent, @contract)
-    assert {:ok, 0} = OutputGrants.revoke_agent(ctx.agent)
+    assert {:ok, 0} = OutputGrants.revoke_agent(ctx.agent, :identity_superseded)
     assert {:ok, %{authority_epoch: 2}} = OutputGrants.get(ctx.agent, @contract)
 
     assert {:ok, %{id: ^id, state: :active, authority_epoch: 3}} =
@@ -181,7 +181,7 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert {:not_scheduled, %{"reason" => "standing_output_grant"}} =
              RecoveryAssignments.lookup(claims.network_scope_id, ctx.agent, span)
 
-    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent, :identity_superseded)
 
     assert {:not_scheduled, _} =
              RecoveryAssignments.lookup(claims.network_scope_id, ctx.agent, span)
@@ -286,7 +286,7 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert Enum.find(document["scopes"], &(&1["agent_id"] == ctx.agent)) ==
              %{"agent_id" => ctx.agent, "network_scope_ids" => [encoded_scope]}
 
-    {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
+    {:ok, 1} = OutputGrants.revoke_agent(ctx.agent, :identity_superseded)
     assert {:ok, revoked} = RecordTrust.snapshot(ctx.key)
     fence = Enum.find(revoked["fences"], &(&1["producer_assignment_id"] == encoded_grant))
     assert fence["authority_epoch"] == 2

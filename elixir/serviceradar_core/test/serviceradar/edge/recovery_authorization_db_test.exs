@@ -123,7 +123,7 @@ defmodule ServiceRadar.Edge.RecoveryAuthorizationDbTest do
              |> EdgeRecordV1.encode()
              |> RecordValidate.validate_bytes()
 
-    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent, :identity_superseded)
 
     assert {:error, :production_authority_refused} =
              RecoveryControl.authorize(ctx.agent, ctx.request)

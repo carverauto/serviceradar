@@ -690,7 +690,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
         actor
       )
 
-    assert {:ok, _revoked_count} = OutputGrants.revoke_agent(agent_id)
+    assert {:ok, _revoked_count} = OutputGrants.revoke_agent(agent_id, :identity_superseded)
     ledger_before_revoked = ledger_rows_for_scope(network_scope_id)
     revoked_acks = stream_raw_frame!(revoked_frame, revoked_spool, 1)
 

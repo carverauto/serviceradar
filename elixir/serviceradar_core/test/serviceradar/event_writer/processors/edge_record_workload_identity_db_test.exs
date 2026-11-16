@@ -210,7 +210,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
 
     frame = build_frame(ctx, snap, 1)
 
-    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent_id)
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent_id, :identity_superseded)
 
     assert {:error, :output_grant_not_current} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())

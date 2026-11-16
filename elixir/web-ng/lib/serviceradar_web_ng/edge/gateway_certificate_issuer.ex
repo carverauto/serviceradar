@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   # The agent's standing edge output grants end with its certificate: revoking them moves
   # their epochs, so every gateway's next trust document fences the records signed before.
   defp revoke_output_grants(agent_id) do
-    case OutputGrants.revoke_agent(agent_id) do
+    case OutputGrants.revoke_agent(agent_id, :certificate_revoked) do
       {:ok, _revoked} ->
         :ok
 

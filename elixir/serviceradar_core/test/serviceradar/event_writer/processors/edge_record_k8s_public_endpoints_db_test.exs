@@ -327,7 +327,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
         1
       )
 
-    {:ok, 1} = OutputGrants.revoke_agent(agent_id)
+    {:ok, 1} = OutputGrants.revoke_agent(agent_id, :identity_superseded)
 
     assert {:ok, 0} = EdgeRecord.process_batch([message])
     assert {:error, :output_grant_not_current} = EdgeRecord.ingest(bytes, headers, Repo)

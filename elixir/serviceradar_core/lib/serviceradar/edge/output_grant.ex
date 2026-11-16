@@ -41,11 +41,20 @@ defmodule ServiceRadar.Edge.OutputGrant do
       description "Revoke a grant and fence every record of its old epochs"
       accept []
 
+      # The cause is recorded because late admission treats the two differently: records of an
+      # interval ended by `certificate_revoked` are never backfilled (security quarantine), while
+      # an identity superseded by re-enrollment ends its interval normally. The authority-history
+      # trigger copies it into `edge_authority_history.ended_reason`.
+      argument :cause, :atom do
+        allow_nil? false
+        constraints one_of: [:identity_superseded, :certificate_revoked]
+      end
+
       change atomic_update(:authority_epoch, expr(authority_epoch + 1))
       change atomic_update(:epoch_changed_at, expr(now()))
       change set_attribute(:state, :revoked)
       change set_attribute(:revoked_at, &DateTime.utc_now/0)
-      change set_attribute(:epoch_reason, :revoked)
+      change set_attribute(:epoch_reason, arg(:cause))
     end
 
     update :reactivate do
@@ -112,7 +121,14 @@ defmodule ServiceRadar.Edge.OutputGrant do
       allow_nil? false
       default :created
       public? true
-      constraints one_of: [:created, :revoked, :reactivated]
+      # `:revoked` remains for rows revoked before the cause was recorded.
+      constraints one_of: [
+                    :created,
+                    :revoked,
+                    :identity_superseded,
+                    :certificate_revoked,
+                    :reactivated
+                  ]
     end
 
     attribute :epoch_changed_at, :utc_datetime_usec do

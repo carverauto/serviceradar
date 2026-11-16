@@ -1128,7 +1128,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and not published" do
       frame = build_metrics_frame()
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -1365,7 +1365,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and routes nothing" do
       frame = build_telemetry_frame([metrics_telemetry_record()])
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -1595,7 +1595,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_plugin_result_frame([plugin_result_item("synthetic-revoked-check")])
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -1765,7 +1765,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_unleased_sweep_frame()
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
@@ -1777,7 +1777,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     test "a refused record is failed for the dead-letter on its first delivery, not acknowledged" do
       frame = build_unleased_sweep_frame()
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       message = %{
         data: frame.record_bytes,
@@ -2227,7 +2227,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "revoked grants, missing partitions, and malformed batch bounds are refused without publishing" do
       frame = build_flow_attribution_frame()
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
@@ -2507,7 +2507,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       revoked_frame = build_otlp_relay_frame()
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(revoked_frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(revoked_frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(revoked_frame.record_bytes, revoked_frame.headers, Repo,
@@ -2636,7 +2636,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
 
-      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id, :identity_superseded)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
