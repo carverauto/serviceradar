@@ -1,14 +1,14 @@
 defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   @moduledoc """
-  Configures TimescaleDB compression and retention for `platform.timeseries_metrics`.
+  Configures TimescaleDB compression for `platform.timeseries_metrics`.
 
   serviceradar:allow-startup-maintenance - Timescale policy setup runs as
   privileged database maintenance, like the other hypertable policy migrations.
 
-  ## Why this table had no policy
+  ## Why this table needs compression
 
-  The table was created as a hypertable without compression or retention, so data
-  accumulates uncompressed indefinitely and can fill the database volume.
+  The table was created as a hypertable without compression, so data accumulates
+  uncompressed and can fill the database volume.
 
   ## Segment-by choice
 
@@ -26,12 +26,9 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   `DataRetentionWorker` reconciles it to the operator-configured lag
   (default 2 hours) on its next cron run (03:17 by default).
 
-  `retention_days` is 30 — enough to cover dashboards' last_30d windows
-  while preventing unbounded growth.
-
   Rollback is explicitly irreversible and raises `Ecto.MigrationError`. The
-  compression and retention policies may predate this migration, and removing
-  either would leave the database unprotected until maintenance reconciliation.
+  compression configuration and policy may predate this migration, and removing
+  them would leave the database unprotected until maintenance reconciliation.
 
   Hand-written, matching the hypertable policy pattern in this directory.
   Every step is guarded on the TimescaleDB extension and hypertable existing,
@@ -43,22 +40,19 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   @segmentby "device_id, metric_type, metric_name"
   @orderby ~s("timestamp" DESC, "gateway_id", "series_key")
   @compression_after "6 days"
-  @retention_days 30
   @lock_timeout "3s"
 
   def up do
     set_compression(@table, @segmentby, @orderby)
     add_compression_policy(@table, @compression_after)
-    add_retention_policy(@table, @retention_days)
   end
 
   def down do
     raise Ecto.MigrationError,
       message:
-        "cannot roll back timeseries_metrics policy configuration: the compression policy " <>
-          "may predate this migration (migration 20261006160000) and DataRetentionWorker may " <>
-          "have installed the retention policy; removing either would leave the database without " <>
-          "compression or retention protection until maintenance reconciliation"
+        "cannot roll back timeseries_metrics compression configuration: compression and its " <>
+          "policy may predate this migration (migration 20261006160000); removing them would " <>
+          "leave the database without compression protection until maintenance reconciliation"
   end
 
   defp schema, do: "platform"
@@ -112,13 +106,6 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
     timescale_policy(
       table_name,
       "add_compression_policy(%L::regclass, INTERVAL ''#{interval}'', if_not_exists => true)"
-    )
-  end
-
-  defp add_retention_policy(table_name, days) do
-    timescale_policy(
-      table_name,
-      "add_retention_policy(%L::regclass, INTERVAL ''#{days} days'', if_not_exists => true)"
     )
   end
 
