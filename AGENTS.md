@@ -341,6 +341,14 @@ on the PR. Verify with
 as a commit STATUS, not a check-run, so it is absent from
 `gh api .../check-runs` output entirely.
 
+A docs-only change runs no heavy CI. `build/ci/detect_docs_only.py` defines it:
+`CHANGELOG`, Markdown, `docs/**` and `openspec/**`, minus the paths a build or test
+reads. The three required BazelCI statuses still post success after skipping, the
+GitHub workflows' `paths:` filters are derived from that file (checked by
+`//build/contracts:docs_only_ci_contract_test`), and LargeIngestionGate still runs
+on every staging push. When a build or test starts reading a Markdown file, add it
+to `BUILD_INPUT_PATTERNS` there.
+
 ## When Updating This File
 
 - Add new build/test commands when tooling changes.

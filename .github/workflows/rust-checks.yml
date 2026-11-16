@@ -40,6 +40,22 @@ on:
       - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
       - 'scripts/ci/rustsec-audit.sh'
+      # Docs-only changes skip this workflow: Markdown is docs unless a build reads it.
+      # Derived from build/ci/detect_docs_only.py (--print-github-paths <these paths>) and
+      # checked by //build/contracts:docs_only_ci_contract_test.
+      - '!**/*.md'
+      - 'docs/sigstore/**/*.md'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**/*.md'
+      - '**/vendor/**/*.md'
+      - 'swift/FieldSurvey/LocalPackages/**/*.md'
+      - '**/priv/**/*.md'
+      - '**/testdata/**/*.md'
+      - 'js/cli/templates/**/*.md'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
   pull_request:
     branches: [staging, main]
     paths:
@@ -49,6 +65,22 @@ on:
       - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
       - 'scripts/ci/rustsec-audit.sh'
+      # Docs-only changes skip this workflow: Markdown is docs unless a build reads it.
+      # Derived from build/ci/detect_docs_only.py (--print-github-paths <these paths>) and
+      # checked by //build/contracts:docs_only_ci_contract_test.
+      - '!**/*.md'
+      - 'docs/sigstore/**/*.md'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**/*.md'
+      - '**/vendor/**/*.md'
+      - 'swift/FieldSurvey/LocalPackages/**/*.md'
+      - '**/priv/**/*.md'
+      - '**/testdata/**/*.md'
+      - 'js/cli/templates/**/*.md'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
   schedule:
     # Mondays 05:17 UTC. Off the hour so it does not pile onto every other cron.
     #
