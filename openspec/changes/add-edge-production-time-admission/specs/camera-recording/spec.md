@@ -18,10 +18,13 @@ SHALL NOT be deleted before one of those receipts. In local-only mode a
 verified local-retention publication means the block is published into the
 qualified durable local archive and its central index receipt is persisted;
 that publication ends the drainer for the block, and local deletion then
-follows the retention and hold policy, never before that publication. A
-placement in a quarantine partition or flag of the qualified durable local archive ends the drainer for the block too, but
-the quarantined block SHALL NOT be indexed for playback and SHALL be excluded
-from retention-policy deletion: it is never auto-deleted.
+follows the retention and hold policy, never before that publication. In
+local-only mode only, a block whose seal cannot be verified is placed in a
+quarantine partition or flag of the qualified durable local archive; that
+placement ends the drainer for the block, and permits removing the recorder
+spool copy, only once its central index receipt is persisted. The quarantined
+block SHALL NOT be indexed for playback and SHALL be excluded from
+retention-policy deletion: it is never auto-deleted.
 
 #### Scenario: A sealed NVR block drains without an operator
 - **GIVEN** an NVR holding a sealed block with no archive receipt
@@ -75,3 +78,4 @@ drainer. No separate store SHALL be introduced for it.
 - **WHEN** a sealed block's seal names a generation that retained history does not hold
 - **THEN** the block SHALL be placed in a quarantine partition or flag of the qualified durable local archive with its central index receipt persisted, and the drainer SHALL stop for it
 - **AND** it SHALL be counted and reported, SHALL NOT be indexed for playback and SHALL NOT be deleted by the retention policy
+- **AND** the recorder SHALL remove its spool copy only after the placement and its persisted central index receipt

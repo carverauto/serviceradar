@@ -501,9 +501,11 @@ undelivered entry.
   local deletion. In local-only mode (no archive destination configured),
   publishing the block into the qualified durable local archive with its
   central index receipt persisted is terminal, and local deletion then follows
-  the retention and hold policy; a bad seal goes to a quarantine partition or
-  flag of that same archive, retained, counted and reported, never indexed
-  for playback and never auto-deleted. No new store is introduced. A dispatch with an unknown
+  the retention and hold policy; a bad seal is placed in a quarantine
+  partition or flag of that same archive, and that placement is terminal, and
+  permits removing the recorder spool copy, only once its central index
+  receipt is persisted. The quarantined block is retained, counted and
+  reported, never indexed for playback and never auto-deleted. No new store is introduced. A dispatch with an unknown
   outcome is reconciled automatically by idempotent read-back (no-clobber put,
   HEAD and ranged verify), not left for an operator.
 
@@ -596,5 +598,8 @@ An old agent never asks for late grants and its lane opens carry no
   for a sealed media block.
 - The media seal-quarantine rule is approved. In local-only mode, publication
   into the qualified durable local archive with its central index receipt is
-  terminal, and a bad seal goes to a quarantine partition or flag of that
-  archive, never indexed for playback and never auto-deleted.
+  terminal, and a bad seal's placement in a quarantine partition or flag of
+  that archive is terminal once its central index receipt is persisted; it is
+  never indexed for playback and never auto-deleted. With an archive
+  destination configured, only a verified archive or quarantine-destination
+  receipt ends the drainer.
