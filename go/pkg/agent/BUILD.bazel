@@ -24,6 +24,7 @@ go_test(
     size = "medium",
     srcs = [
         "camera_rtsp_recording_fixture_test.go",
+        "camera_rtsp_synthetic_server_test.go",
         "camera_shared_runtime_test.go",
     ],
     args = [
@@ -52,7 +53,10 @@ go_test(
 # RTSP receiver without adding a production API solely for fixture capture.
 go_test(
     name = "camera_rtsp_capture_test",
-    srcs = ["camera_rtsp_recording_fixture_test.go"],
+    srcs = [
+        "camera_rtsp_recording_fixture_test.go",
+        "camera_rtsp_synthetic_server_test.go",
+    ],
     embed = [":agent"],
     gotags = ["camera_recording_fixture"],
     tags = ["manual"],
@@ -64,7 +68,10 @@ go_test(
     name = "camera_rtcp_clock_test",
     size = "small",
     timeout = "short",
-    srcs = ["camera_rtsp_recording_fixture_test.go"],
+    srcs = [
+        "camera_rtsp_recording_fixture_test.go",
+        "camera_rtsp_synthetic_server_test.go",
+    ],
     args = [
         "-test.run=^TestCameraRTCPClockEvidence$$",
         "-test.v",
@@ -391,7 +398,9 @@ go_test(
         "banner_grab_handler_test.go",
         "bumblebee_config_test.go",
         "bumblebee_spool_service_test.go",
+        "camera_relay_rtsp_test.go",
         "camera_relay_test.go",
+        "camera_rtsp_synthetic_server_test.go",
         "cert_renewal_test.go",
         "config_section_state_test.go",
         "control_stream_config_push_test.go",
@@ -570,6 +579,10 @@ go_test(
         "//proto/metric/v1:metricpb",
         "@com_github_bluenviron_gortsplib_v5//:gortsplib",
         "@com_github_bluenviron_gortsplib_v5//pkg/base",
+        "@com_github_bluenviron_gortsplib_v5//pkg/description",
+        "@com_github_bluenviron_gortsplib_v5//pkg/format",
+        "@com_github_bluenviron_gortsplib_v5//pkg/format/rtph264",
+        "@com_github_bluenviron_mediacommon_v2//pkg/codecs/h264",
         "@com_github_google_uuid//:uuid",
         "@com_github_gorilla_websocket//:websocket",
         "@com_github_rs_zerolog//:zerolog",
