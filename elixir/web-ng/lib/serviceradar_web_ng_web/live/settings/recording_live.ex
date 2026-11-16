@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadarWebNG.CameraRecordingRuntime
   alias ServiceRadarWebNG.CameraRecordingSettings
   alias ServiceRadarWebNG.RBAC
@@ -25,6 +27,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     scope = socket.assigns[:current_scope]
 
     if scope != nil and RBAC.can_any?(scope, @recording_permissions) do
+      default_settings = RecordingArchiveSettings.default_settings()
+      default_usage = CameraRecordingSettings.default_usage_summary(default_settings)
+      default_projection = RetentionCalculator.project_settings(default_settings, %{camera_count: 0})
+
       socket =
         socket
         |> assign(:page_title, "Recording & Storage")
@@ -36,13 +42,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:runtime, initial_runtime())
         |> assign(:bindings, [])
         |> assign(:credentials, [])
+        |> assign(:settings_record, nil)
+        |> assign(:settings_struct, default_settings)
         |> assign(:settings_form, CameraRecordingSettings.default_settings_form())
+        |> assign(:retention_form, CameraRecordingSettings.default_retention_form())
+        |> assign(:simulator_form, CameraRecordingSettings.default_simulator_form())
+        |> assign(:retention_errors, %{})
+        |> assign(:usage_summary, default_usage)
+        |> assign(:retention_projection, default_projection)
         |> assign(:destination_form, CameraRecordingSettings.default_destination_form())
         |> assign(:destination_errors, %{})
         |> assign(:storage_mode, :local_only)
         |> assign(:active_binding_id, nil)
         |> assign(:selected_writer_label, "None selected")
         |> assign(:selected_reader_label, "Use writer credential (reader role)")
+        |> assign(:selected_retention_label, "None selected (object retention not enforced)")
+        |> assign(:object_retention_enforced?, false)
         |> assign(:credential_issue, nil)
         |> assign(:sources, [])
         |> assign(:profiles, [])
@@ -212,6 +227,38 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     end
   end
 
+  def handle_event("validate_archive_settings", %{"settings" => settings_params}, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.manage"
+         ) do
+      {:ok, scope} ->
+        can_manage_creds? =
+          match?(
+            {:ok, _},
+            dependencies.authorize_current.(scope, "settings.credentials.manage")
+          )
+
+        next_form =
+          CameraRecordingSettings.normalize_archive_settings_form(
+            settings_params,
+            socket.assigns.settings_form,
+            can_manage_creds?
+          )
+
+        {:noreply,
+         socket
+         |> refresh_scope_flags(scope)
+         |> assign(:can_manage_credentials?, can_manage_creds?)
+         |> assign(:settings_form, next_form)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Not authorized to manage archive settings")}
+    end
+  end
+
   def handle_event("save_archive_settings", %{"settings" => settings_params}, socket) do
     dependencies = deps(socket)
 
@@ -248,6 +295,92 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     end
   end
 
+  def handle_event("preview_retention_settings", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.manage"
+         ) do
+      {:ok, scope} ->
+        retention_params = Map.get(params, "retention", %{})
+        simulator_params = Map.get(params, "simulator", %{})
+
+        preview =
+          CameraRecordingSettings.preview_retention_settings(
+            retention_params,
+            simulator_params,
+            prev_form: socket.assigns.retention_form,
+            prev_simulator: socket.assigns.simulator_form,
+            usage_summary: socket.assigns.usage_summary,
+            existing: socket.assigns.settings_record,
+            storage_mode: socket.assigns.storage_mode,
+            scope: scope
+          )
+
+        {:noreply,
+         socket
+         |> refresh_scope_flags(scope)
+         |> assign(:retention_form, preview.retention_form)
+         |> assign(:simulator_form, preview.simulator_form)
+         |> assign(:retention_errors, preview.errors)
+         |> assign(:retention_projection, preview.projection)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Not authorized to manage retention settings")}
+    end
+  end
+
+  def handle_event("save_retention_settings", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.manage"
+         ) do
+      {:ok, scope} ->
+        retention_params = Map.get(params, "retention", %{})
+        simulator_params = Map.get(params, "simulator", %{})
+
+        case dependencies.save_retention_settings.(scope, retention_params) do
+          {:ok, _updated} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> assign(:retention_errors, %{})
+             |> load_archive_data()
+             |> put_flash(:info, "Retention settings saved")}
+
+          {:error, field_errors} ->
+            preview =
+              CameraRecordingSettings.preview_retention_settings(
+                retention_params,
+                simulator_params,
+                prev_form: socket.assigns.retention_form,
+                prev_simulator: socket.assigns.simulator_form,
+                usage_summary: socket.assigns.usage_summary,
+                existing: socket.assigns.settings_record,
+                storage_mode: socket.assigns.storage_mode,
+                scope: scope
+              )
+
+            merged_errors = Map.merge(preview.errors, field_errors)
+
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> assign(:retention_form, preview.retention_form)
+             |> assign(:simulator_form, preview.simulator_form)
+             |> assign(:retention_errors, merged_errors)
+             |> assign(:retention_projection, preview.projection)
+             |> put_flash(:error, first_error_message(merged_errors))}
+        end
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Not authorized to manage retention settings")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -267,8 +400,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             <h1 class="text-xl font-semibold text-sr-ink">Recording &amp; Storage</h1>
             <p class="mt-1 text-sm text-sr-muted">
               Inspect NVR installation and deployment recovery gate state, run local-only recording or
-              configure immutable S3-compatible archive destinations and credentials, and review
-              per-camera block locations.
+              configure immutable S3-compatible archive destinations and credentials, manage local and
+              object retention settings, and review per-camera block locations.
             </p>
           </div>
 
@@ -295,6 +428,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             destination_errors={@destination_errors}
             selected_writer_label={@selected_writer_label}
             selected_reader_label={@selected_reader_label}
+            selected_retention_label={@selected_retention_label}
+            object_retention_enforced?={@object_retention_enforced?}
             credential_issue={@credential_issue}
             active_binding_id={@active_binding_id}
           />
@@ -317,9 +452,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
 
           <Components.policy_blocked_panel :if={@active_tab == "policy"} />
 
-          <Components.retention_blocked_panel
+          <Components.retention_panel
             :if={@active_tab == "retention"}
             storage_mode={@storage_mode}
+            can_manage?={@can_manage?}
+            settings_record={@settings_record}
+            settings_struct={@settings_struct}
+            retention_form={@retention_form}
+            simulator_form={@simulator_form}
+            retention_errors={@retention_errors}
+            usage_summary={@usage_summary}
+            projection={@retention_projection}
+            object_retention_enforced?={@object_retention_enforced?}
+            selected_retention_label={@selected_retention_label}
+            timezone={user_timezone(@current_scope)}
           />
 
           <Components.health_blocked_panel :if={@active_tab == "health"} />
@@ -343,8 +489,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       list_archive_bindings: &CameraRecordingSettings.list_archive_bindings/1,
       list_enabled_s3_credentials: &CameraRecordingSettings.list_enabled_s3_credentials/1,
       load_archive_settings_view: &CameraRecordingSettings.load_archive_settings_view/1,
+      load_retention_usage_summary: &CameraRecordingSettings.load_retention_usage_summary/1,
       register_operator_destination: &CameraRecordingSettings.register_operator_destination/2,
       save_archive_settings: &CameraRecordingSettings.save_archive_settings/3,
+      save_retention_settings: &CameraRecordingSettings.save_retention_settings/2,
       list_camera_sources: &CameraRecordingSettings.list_camera_sources/1,
       list_relay_profiles: &CameraRecordingSettings.list_relay_profiles/2,
       list_camera_blocks_page: &CameraRecordingSettings.list_camera_blocks_page/3
@@ -378,15 +526,61 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     bindings = dependencies.list_archive_bindings.(scope)
     credentials = dependencies.list_enabled_s3_credentials.(scope)
     settings_view = dependencies.load_archive_settings_view.(scope)
+    usage_summary = dependencies.load_retention_usage_summary.(scope)
+
+    settings_struct =
+      Map.get(settings_view, :settings) ||
+        Map.get(settings_view, :record) ||
+        RecordingArchiveSettings.default_settings()
+
+    storage_mode = Map.get(settings_view, :storage_mode, :local_only)
+
+    retention_form =
+      Map.get_lazy(settings_view, :retention_form, fn ->
+        CameraRecordingSettings.retention_form_from_settings(settings_struct)
+      end)
+
+    object_retention_enforced? =
+      Map.get(
+        settings_view,
+        :object_retention_enforced?,
+        Map.get(usage_summary, :object_retention_enforced?, false)
+      )
+
+    preview =
+      CameraRecordingSettings.preview_retention_settings(
+        %{},
+        socket.assigns.simulator_form,
+        prev_form: retention_form,
+        prev_simulator: socket.assigns.simulator_form,
+        usage_summary: usage_summary,
+        existing: Map.get(settings_view, :record),
+        storage_mode: storage_mode,
+        scope: scope
+      )
 
     socket
     |> assign(:bindings, bindings)
     |> assign(:credentials, credentials)
-    |> assign(:storage_mode, Map.get(settings_view, :storage_mode, :local_only))
+    |> assign(:settings_record, Map.get(settings_view, :record))
+    |> assign(:settings_struct, settings_struct)
+    |> assign(:storage_mode, storage_mode)
     |> assign(:settings_form, settings_view.form)
+    |> assign(:retention_form, retention_form)
+    |> assign(:usage_summary, usage_summary)
+    |> assign(:retention_projection, preview.projection)
     |> assign(:active_binding_id, settings_view.active_binding_id)
     |> assign(:selected_writer_label, settings_view.selected_writer_label)
     |> assign(:selected_reader_label, settings_view.selected_reader_label)
+    |> assign(
+      :selected_retention_label,
+      Map.get(
+        settings_view,
+        :selected_retention_label,
+        "None selected (object retention not enforced)"
+      )
+    )
+    |> assign(:object_retention_enforced?, object_retention_enforced?)
     |> assign(:credential_issue, settings_view.credential_issue)
   end
 
@@ -489,6 +683,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     |> assign(:can_manage?, RBAC.can?(scope, "settings.recording.manage"))
     |> assign(:can_operate?, RBAC.can?(scope, "settings.recording.operate"))
     |> assign(:can_manage_credentials?, RBAC.can?(scope, "settings.credentials.manage"))
+  end
+
+  defp first_error_message(errors) when is_map(errors) do
+    case Map.get(errors, :base) do
+      msg when is_binary(msg) and msg != "" ->
+        msg
+
+      _ ->
+        case Enum.at(errors, 0) do
+          {field, msg} -> "#{field}: #{msg}"
+          nil -> "Invalid retention settings"
+        end
+    end
   end
 
   defp normalize_tab(tab) when tab in @supported_tabs, do: tab

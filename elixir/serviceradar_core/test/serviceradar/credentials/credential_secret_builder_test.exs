@@ -474,7 +474,13 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
     test "builds opaque JSON access-key credentials with public access_key_id and rotates legacy opaque records" do
       profile = NativeDescriptors.s3_compatible()
       assert profile["supports_rules"] == false
-      assert profile["purposes"] == ["camera_archive_write", "camera_archive_read"]
+
+      assert profile["purposes"] == [
+               "camera_archive_write",
+               "camera_archive_read",
+               "camera_archive_retention"
+             ]
+
       synthetic_secret = String.duplicate("s", 24)
       rotated_secret = String.duplicate("r", 24)
 

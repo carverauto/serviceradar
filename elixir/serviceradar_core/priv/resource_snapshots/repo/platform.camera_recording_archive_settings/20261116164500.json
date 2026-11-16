@@ -1,0 +1,554 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "\"deployment\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_archive_settings_active_binding_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_archive_bindings"
+      },
+      "scale": null,
+      "size": null,
+      "source": "active_archive_binding_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_archive_settings_writer_secret_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "network_credential_secrets"
+      },
+      "scale": null,
+      "size": null,
+      "source": "writer_credential_secret_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_archive_settings_reader_secret_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "network_credential_secrets"
+      },
+      "scale": null,
+      "size": null,
+      "source": "reader_credential_secret_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_archive_settings_retention_secret_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "network_credential_secrets"
+      },
+      "scale": null,
+      "size": null,
+      "source": "retention_credential_secret_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_enabled",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "90",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_high_water_percent",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "80",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_low_water_percent",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"limited\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "max_local_age_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "86400",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "max_local_age_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"enabled\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_window_alert_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "3600",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_window_alert_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_full_policy",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_full_policy_confirmed_by_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_full_policy_confirmed_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"target\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_target_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "604800",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_retention_target_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"unlimited\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_max_age_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_only_max_age_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"limited\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_retention_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "30",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_retention_days",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"unlimited\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_budget_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_budget_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "90",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_high_water_percent",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "80",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_low_water_percent",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_capacity_policy",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_capacity_policy_confirmed_by_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "object_capacity_policy_confirmed_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "id"
+      ],
+      "base_filter": null,
+      "check": "id = 'deployment'",
+      "name": "camera_recording_archive_settings_singleton"
+    },
+    {
+      "attribute": [
+        "local_high_water_percent"
+      ],
+      "base_filter": null,
+      "check": "local_high_water_percent BETWEEN 50 AND 95 AND\nlocal_low_water_percent >= 40 AND\nlocal_low_water_percent <= local_high_water_percent - 5\n",
+      "name": "camera_archive_settings_local_watermarks"
+    },
+    {
+      "attribute": [
+        "max_local_age_seconds"
+      ],
+      "base_filter": null,
+      "check": "(max_local_age_mode = 'limited' AND max_local_age_seconds IS NOT NULL AND max_local_age_seconds BETWEEN 3600 AND 315360000) OR\n(max_local_age_mode = 'unlimited' AND max_local_age_seconds IS NULL)\n",
+      "name": "camera_archive_settings_max_local_age"
+    },
+    {
+      "attribute": [
+        "local_window_alert_seconds"
+      ],
+      "base_filter": null,
+      "check": "(local_window_alert_mode = 'enabled' AND local_window_alert_seconds IS NOT NULL AND local_window_alert_seconds BETWEEN 60 AND 31536000) OR\n(local_window_alert_mode = 'disabled' AND local_window_alert_seconds IS NULL)\n",
+      "name": "camera_archive_settings_local_window_alert"
+    },
+    {
+      "attribute": [
+        "local_only_full_policy"
+      ],
+      "base_filter": null,
+      "check": "(local_only_full_policy IS NULL AND\n local_only_full_policy_confirmed_by_id IS NULL AND\n local_only_full_policy_confirmed_at IS NULL) OR\n(local_only_full_policy IS NOT NULL AND\n local_only_full_policy IN ('overwrite_oldest', 'stop_when_full') AND\n local_only_full_policy_confirmed_by_id IS NOT NULL AND\n btrim(local_only_full_policy_confirmed_by_id) <> '' AND\n local_only_full_policy_confirmed_at IS NOT NULL)\n",
+      "name": "camera_archive_settings_local_only_full_policy"
+    },
+    {
+      "attribute": [
+        "local_only_retention_target_seconds"
+      ],
+      "base_filter": null,
+      "check": "(local_only_target_mode = 'target' AND local_only_retention_target_seconds IS NOT NULL AND local_only_retention_target_seconds BETWEEN 3600 AND 315360000) OR\n(local_only_target_mode = 'none' AND local_only_retention_target_seconds IS NULL)\n",
+      "name": "camera_archive_settings_local_only_target"
+    },
+    {
+      "attribute": [
+        "local_only_max_age_seconds"
+      ],
+      "base_filter": null,
+      "check": "(local_only_max_age_mode = 'limited' AND local_only_max_age_seconds IS NOT NULL AND local_only_max_age_seconds BETWEEN 3600 AND 315360000) OR\n(local_only_max_age_mode = 'unlimited' AND local_only_max_age_seconds IS NULL)\n",
+      "name": "camera_archive_settings_local_only_max_age"
+    },
+    {
+      "attribute": [
+        "archive_retention_days"
+      ],
+      "base_filter": null,
+      "check": "(archive_retention_mode = 'limited' AND archive_retention_days IS NOT NULL AND archive_retention_days BETWEEN 1 AND 3650) OR\n(archive_retention_mode = 'unlimited' AND archive_retention_days IS NULL)\n",
+      "name": "camera_archive_settings_archive_retention"
+    },
+    {
+      "attribute": [
+        "object_budget_bytes"
+      ],
+      "base_filter": null,
+      "check": "(object_budget_mode = 'limited' AND object_budget_bytes IS NOT NULL AND object_budget_bytes >= 1073741824) OR\n(object_budget_mode = 'unlimited' AND object_budget_bytes IS NULL)\n",
+      "name": "camera_archive_settings_object_budget"
+    },
+    {
+      "attribute": [
+        "object_high_water_percent"
+      ],
+      "base_filter": null,
+      "check": "object_high_water_percent BETWEEN 50 AND 95 AND\nobject_low_water_percent >= 40 AND\nobject_low_water_percent <= object_high_water_percent - 5\n",
+      "name": "camera_archive_settings_object_watermarks"
+    },
+    {
+      "attribute": [
+        "object_capacity_policy"
+      ],
+      "base_filter": null,
+      "check": "((object_capacity_policy IS NULL AND\n  object_capacity_policy_confirmed_by_id IS NULL AND\n  object_capacity_policy_confirmed_at IS NULL) OR\n (object_capacity_policy IS NOT NULL AND\n  object_capacity_policy IN ('reap_oldest', 'stop_archiving') AND\n  object_capacity_policy_confirmed_by_id IS NOT NULL AND\n  btrim(object_capacity_policy_confirmed_by_id) <> '' AND\n  object_capacity_policy_confirmed_at IS NOT NULL)) AND\n(object_budget_mode = 'unlimited' OR object_capacity_policy IS NOT NULL)\n",
+      "name": "camera_archive_settings_object_capacity_policy"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "DC3D3C2F71E2710F4944F9238E4E7997F3CDFD8F339C54E1E595BDFA99C2D9EE",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_recording_archive_settings",
+  "temporal": null
+}
