@@ -8,8 +8,11 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 
 - [ ] 1.1 Add `EdgeDeliveryLateAdmissionV1`, `EdgeLatePublication`,
       `EdgeLateDecisionReason` (including `LEDGER_PRUNED`),
-      `EdgeRecordLaneOpen.admission` and the `late_admission_required`
-      rejection code to `proto/edge/v1/record.proto`. Regenerate the Go and
+      `EdgeRecordLaneOpen.admission` and the `LATE_ADMISSION_REQUIRED`
+      rejection code (carried on a `REJECTED_PERMANENT` disposition) to
+      `proto/edge/v1/record.proto`, and `uint32
+      edge_late_admission_protocol_version` to `AgentHelloRequest`; an agent
+      that implements the late generation advertises 1. Regenerate the Go and
       Elixir bindings together (`make verify-proto-edge-elixir` stays green).
       Older peers fail closed on the unknown oneof member. The provenance
       `LATE_ADMISSION` delivery mode (`DeliveryModeLateAdmission = 5`, the
@@ -32,9 +35,12 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `(assignment, epoch)` in the trust snapshot's terminal-interval list
       (regardless of any grant), decided before the missing-grant withhold, a
       retryable withhold for any other frame without a grant (including one
-      in core's future), and `late_admission_required` for any live-lane
-      record with a stale or missing fence, whatever its production window, or
-      a foreign origin principal.
+      in core's future, unless a quarantine class applies first), and
+      `LATE_ADMISSION_REQUIRED` (`REJECTED_PERMANENT`) for any live-lane record
+      with a stale or missing fence, whatever its production window, or a
+      foreign origin principal, only when the session's hello advertised
+      `edge_late_admission_protocol_version >= 1`; otherwise today's live
+      dispositions.
 - [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
       and per-principal holds keyed by `(lane key, origin principal)`
       (`<root>/late/<lane>/principal/<origin principal>/`).
@@ -57,9 +63,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       agent's own late records only; send hold frames, `HISTORICALLY_REVOKED`
       frames and frames core refused as `certificate_revoked_interval` without
       waiting for a grant. On
-      `late_admission_required`, append the exact record bytes durably to the
+      `LATE_ADMISSION_REQUIRED`, append the exact record bytes durably to the
       lane key's late generation, or to the `(lane key, origin principal)` hold
-      for a foreign origin, before persisting the live resolution. Report
+      for a foreign origin, before persisting the live resolution, and never
+      copy it into the evicting local quarantine. Report
       `late_pending_gateway_support`.
 - [ ] 1.8 Write fail-first tests:
   - a days-old flat-spool record, refused by live admission, handed off and
@@ -73,7 +80,7 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
   - a refused rejection-evidence write that leaves the legacy record unresolved;
   - a foreign-principal record routed to its hold while the agent's own records
     hand off past it, and never published PRIMARY even with a grant;
-  - a `late_admission_required` live record appended durably to the late
+  - a `LATE_ADMISSION_REQUIRED` live record appended durably to the late
     generation before the live resolution is persisted;
   - a LATE lane open refused by a phase 1 gateway;
   - a flat record whose assignment was deleted (no fence entry or scope
@@ -81,7 +88,7 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
   - a hold frame without a grant that is quarantined and does not stall the
     agent's own late records behind it;
   - a live record with a stale fence and a still-open production window
-    resolved as `late_admission_required`;
+    resolved as `LATE_ADMISSION_REQUIRED`;
   - a `produced_at` ahead of the local clock, and an epoch ahead of the known
     fence, appended to the late generation without stopping the handoff.
 - [ ] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta and
@@ -115,7 +122,8 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 2.3 Add `late_admission_max_age_seconds` to `PipelineSettings` with a
       code default of 14 days. Raise `EdgeLedgerRetentionWorker`'s horizon to
       at least that age. Persist a monotonic `ledger_complete_since`, seeded
-      as "nothing pruned" (the earliest representable time), that advances
+      at migration with the retention cutoff already in force (migration time
+      minus the `EdgeLedgerRetentionWorker` horizon then), that advances
       only when pruning deletes rows, to that batch's `inserted_at` cutoff.
       PRIMARY requires `produced_at >= ledger_complete_since + clock
       tolerance`. Add bounded pruning of history.
@@ -135,7 +143,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
       resolve any live record with a stale or missing fence, whatever its
       production window, or with a foreign origin principal (in place of
-      `identity_conflict`), as `late_admission_required`. On a late session
+      `identity_conflict`), as `LATE_ADMISSION_REQUIRED` on a
+      `REJECTED_PERMANENT` disposition, but only on sessions whose hello
+      advertised `edge_late_admission_protocol_version >= 1`; keep today's
+      live dispositions for older agents. On a late session
       publish foreign-principal frames to security quarantine before the
       identity rejection, and `HISTORICALLY_REVOKED` and
       terminal-interval frames before the missing-grant withhold, recording the
@@ -156,8 +167,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       are immutable, a same-principal record naming a `certificate_revoked`
       interval gets no grant (`certificate_revoked_interval`), primary versus `fenced_at_production` versus
       `history_unknown` versus `compromise_ended` versus `beyond_late_window`
-      versus `ledger_pruned`, an unpruned ledger leaves the upgrade tail
-      PRIMARY-eligible, a `produced_at` within the clock tolerance after the
+      versus `ledger_pruned`, the migration seed leaves the upgrade tail
+      PRIMARY-eligible while a record older than the seed stays AUDIT after a
+      late-age raise, a `produced_at` within the clock tolerance after the
       prune cutoff stays AUDIT, `ledger_complete_since` never moves backward and
       a raised late age after pruning stays AUDIT, a deleted assignment still
       decides, and a replay is idempotent.
@@ -178,7 +190,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       reconciliation of `:prepared` dispatches by idempotent read-back.
 - [ ] 4.3 Keep retained recovery-generation and archive-binding history, judge
       sealed blocks by the generation they were sealed under, and quarantine a
-      seal with no history.
+      seal with no history. A verified quarantine-destination archive receipt
+      is terminal: it ends the drainer for that block and permits local
+      deletion.
 - [ ] 4.4 Add start-up reconciliation of unsealed and interrupted blocks, and
       owner reconciliation of leftover upload scratch.
 - [ ] 4.5 Cross-reference or move these tasks into `add-edge-recording-archive`,

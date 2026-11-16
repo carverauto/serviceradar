@@ -131,10 +131,13 @@ including a record whose origin principal is not the requesting agent
 `certificate_revoked` or `revoked_cause_unknown` (`certificate_revoked_interval`); such a
 frame SHALL NOT be rejected, and the gateway SHALL publish it to security
 quarantine without a grant. Core SHALL also issue no grant yet for a record
-whose `produced_at` is ahead of core's clock; that frame SHALL be withheld as
-retryable, SHALL NOT be rejected or quarantined, and SHALL wait in the late
-generation until core's clock passes `produced_at` minus the tolerance, when
-core SHALL judge it normally.
+whose `produced_at` is ahead of core's clock. A `produced_at` ahead of core's
+clock SHALL NOT itself be a reason to reject or quarantine: unless one of the
+quarantine classes applies first (an interval in the trust snapshot's
+terminal-interval list, a foreign origin principal, or a `HISTORICALLY_REVOKED`
+key), the frame SHALL be withheld as retryable and wait in the late generation
+until core's clock passes `produced_at` minus the tolerance, when core SHALL
+judge it normally.
 
 #### Scenario: A record produced while its epoch was live is applied after the epoch moved
 - **GIVEN** an output grant whose epoch 4 was live from day 1 to day 5 and whose epoch 5 is live now
@@ -352,9 +355,12 @@ Core SHALL bound late PRIMARY publication by `late_admission_max_age_seconds`, a
 The edge ledger retention horizon SHALL be at least the configured late age.
 Core SHALL persist `ledger_complete_since`, a monotonic timestamp such that
 every event-ledger row with `inserted_at` at or after it is still retained. It
-SHALL start as "nothing pruned" (the earliest representable time), SHALL
-advance only when pruning deletes rows, to that batch's `inserted_at` cutoff,
-and SHALL NOT move backward. A late record SHALL receive PRIMARY publication
+SHALL be seeded at migration with the retention cutoff already in force (the
+migration time minus the `EdgeLedgerRetentionWorker` retention horizon in force
+then), SHALL advance only when pruning deletes rows, to that batch's
+`inserted_at` cutoff, and SHALL NOT move backward. Raising
+`late_admission_max_age_seconds` afterwards SHALL NOT make a record produced
+before that seed PRIMARY. A late record SHALL receive PRIMARY publication
 only when its `produced_at` is at or after `ledger_complete_since` plus the
 clock tolerance; an older record SHALL be delivered as AUDIT
 (`ledger_pruned`). A record older
@@ -378,10 +384,15 @@ issued in batches within the existing request bounds.
 - **WHEN** an operator raises `late_admission_max_age_seconds`
 - **THEN** the ledger retention horizon SHALL be at least the new value
 
-#### Scenario: The upgrade tail is PRIMARY-eligible before any pruning
-- **GIVEN** a deployment whose ledger has never been pruned
+#### Scenario: The upgrade tail is PRIMARY-eligible after the seed
+- **GIVEN** a migration that seeded `ledger_complete_since` at the migration time minus a 30-day retention horizon
 - **WHEN** a late record produced five days ago arrives within the late age with a live authority interval
 - **THEN** core SHALL NOT issue AUDIT `ledger_pruned` for it
+
+#### Scenario: Rows pruned before the migration are covered by the seed
+- **GIVEN** a migration that seeded `ledger_complete_since` at the migration time minus a 30-day retention horizon, because the retention worker already deleted older rows
+- **WHEN** an operator later raises `late_admission_max_age_seconds` to 90 days and a late record produced 40 days before the migration arrives
+- **THEN** core SHALL issue a grant with AUDIT publication and reason `ledger_pruned`
 
 #### Scenario: Producer clock skew cannot pass a pruned duplicate
 - **GIVEN** `ledger_complete_since` at cutoff C after pruning rows with `inserted_at` before C
@@ -414,11 +425,16 @@ than the state it holds; time-series rows SHALL be written at their own time.
 - **THEN** the stored state SHALL remain the day 5 state and the late record SHALL be retained as history
 
 ### Requirement: A live-lane record that needs late admission moves to the late generation
-The gateway SHALL immediately resolve any live-lane record whose fence is stale or missing at the gateway, or whose origin principal is not the authenticated agent, with the rejection code `late_admission_required`, whatever its production window and in place of `identity_conflict`, and the agent SHALL append the exact record bytes durably to the late generation for that lane key, or to the hold for `(lane key, origin principal)` when the origin principal is not the authenticated agent, before it persists that resolution.
+On a live session whose agent hello advertised `edge_late_admission_protocol_version >= 1`, the gateway SHALL immediately resolve any live-lane record whose fence is stale or missing at the gateway, or whose origin principal is not the authenticated agent, with a `REJECTED_PERMANENT` disposition carrying rejection code `LATE_ADMISSION_REQUIRED`, whatever its production window and in place of `identity_conflict`, and the agent SHALL append the exact record bytes durably to the late generation for that lane key, or to the hold for `(lane key, origin principal)` when the origin principal is not the authenticated agent, before it persists that resolution.
 
-`late_admission_required` SHALL be a resolving disposition: the gateway SHALL
-NOT withhold the frame and SHALL NOT reject it as `fence_stale` into the local
-quarantine. The live lane SHALL NOT wait on a late grant, and a late grant
+The disposition kind alone resolves the slot; the rejection code is the
+annotation that tells the capable agent to move the bytes. The gateway SHALL
+NOT withhold the frame and SHALL NOT reject it as `fence_stale`, and the agent
+SHALL NOT copy the record into the evicting local quarantine. Agents implementing the
+late generation SHALL advertise `edge_late_admission_protocol_version = 1` in
+`AgentHelloRequest`. For a session whose hello advertised no version or 0, the
+gateway SHALL keep today's live dispositions unchanged, so an older agent's
+records follow today's paths. The live lane SHALL NOT wait on a late grant, and a late grant
 SHALL be accepted only on a late session. If the late append is not durable,
 the agent SHALL NOT persist the resolution (resolved prefix or reclaim) and
 SHALL retry. The late session and core's authority history then decide the
@@ -427,23 +443,29 @@ record's publication.
 #### Scenario: A missing fence no longer wedges a lane
 - **GIVEN** a live-lane record whose producer assignment was deleted after the record was produced during a live epoch
 - **WHEN** the sender delivers it on the live session
-- **THEN** the gateway SHALL resolve it with `late_admission_required`
+- **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED`
 - **AND** SHALL NOT withhold it for a missing fence
 - **AND** the live lane SHALL continue with the records behind it
 
 #### Scenario: A stale fence resolves while the production window is still open
 - **GIVEN** a live-lane record whose assignment was revoked the same day, so its fence is stale while its signed production window still contains now
 - **WHEN** the sender delivers it on the live session
-- **THEN** the gateway SHALL resolve it with `late_admission_required` and SHALL NOT reject it as `fence_stale`
+- **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED` and SHALL NOT reject it as `fence_stale`
 - **AND** the agent SHALL append it to the late generation, where core decides it from authority history
 
 #### Scenario: A foreign-origin live record is held, not identity-rejected
 - **WHEN** a live-session frame's origin principal is not the authenticated agent
-- **THEN** the gateway SHALL resolve it with `late_admission_required` and SHALL NOT resolve it as `identity_conflict`
+- **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED` and SHALL NOT resolve it as `identity_conflict`
 - **AND** the agent SHALL append it durably to the hold for `(lane key, origin principal)` before persisting the resolution
 
+#### Scenario: An older agent keeps today's live dispositions
+- **GIVEN** a live session whose agent hello did not advertise `edge_late_admission_protocol_version`
+- **WHEN** a live-lane record arrives whose fence is missing at the gateway
+- **THEN** the gateway SHALL NOT emit `LATE_ADMISSION_REQUIRED`
+- **AND** SHALL apply today's live disposition for that record
+
 #### Scenario: The late append precedes the live resolution
-- **GIVEN** a live-lane record the gateway resolved with `late_admission_required`
+- **GIVEN** a live-lane record the gateway resolved with `LATE_ADMISSION_REQUIRED`
 - **WHEN** the agent crashes after the gateway response and before the late append is durable
 - **THEN** the record SHALL remain unresolved in the live lane after restart
 - **AND** the agent SHALL append it to the late generation before persisting the resolution
@@ -593,3 +615,70 @@ it.
 - **THEN** its transport provenance SHALL carry `DeliveryModeLateAdmission = 5`
 - **AND** its `delivery_proof_digest` SHALL be computed over the `EdgeDeliveryLateAdmissionV1` transition
 - **AND** a late-admission proof paired with any other delivery mode SHALL be rejected
+
+### Requirement: The service-ingress publication slot is a frozen wire identity
+A service-originated record SHALL bind to the frozen `service_slot` tuple, which SHALL play the same wire role for service records that `edge_slot` plays for agent records.
+
+`service_slot = (network_scope_id, authenticated_service_id, publication_lane_id,
+publication_sequence)`, carrying its own domain-separation tag and its own
+`record_sha256` binding as a compared value. It is source-neutral because a
+cluster-local producer has no agent spool coordinates, and it SHALL NOT claim agent
+provenance. It plays the same role in the delivery id, transport-provenance header,
+partition bucket, and SQL uniqueness that `edge_slot` plays.
+
+`publication_lane_id` SHALL be a 16-byte UUIDv7 and `publication_sequence` SHALL
+start at 1 and increase monotonically. A `publication_sequence` of 0, or a
+`publication_lane_id` that is not a 16-byte UUIDv7, SHALL be rejected fail-closed.
+
+WHEN a lane id is allocated, how a sequence is journaled, and how a retry, timeout,
+or restart reuses `(publication_lane_id, publication_sequence)` are DURABLE
+ALLOCATION LIFECYCLE and are owned downstream. What is frozen here is the tuple's
+shape and validity.
+
+Service-ingress v1 is FRESH-ONLY: a `service_slot` participates in NO delivery grant,
+renewal, or rollover; delivery grants apply to agent `edge_slot`s only. Late-delivery
+or recovery of a service-ingress record SHALL require a FUTURE VERSION.
+
+The path SHALL define service variants of the three transport transcripts over
+`service_slot` in place of agent spool coordinates: a `Nats-Msg-Id` variant under
+domain tag `serviceradar.edge.msgid.service` framing the attested service principal,
+`network_scope_id`, `publication_lane_id`, `publication_sequence`,
+`semantic_envelope_sha256`, and `record_sha256`; a `Sr-Edge-Delivery-Id` variant
+under `serviceradar.edge.delivery-id.service` framing the `service_slot` tuple; and
+a `Sr-Edge-Transport-Provenance` envelope whose slot-kind discriminant is
+`service-ingress` and which carries the `service_slot` tuple.
+
+`delivery_proof_digest` SHALL be OPTIONAL and ABSENT for FRESH and service-ingress
+records -- present only for late-delivery, renewal, rollover, or late-admission
+records carrying a delivery capability -- and the provenance presence byte SHALL
+mark its absence. A late-admission record (`DeliveryModeLateAdmission`) carries
+the digest over its `EdgeDeliveryLateAdmissionV1` transition. Service-ingress v1
+stays FRESH-only and carries no late-admission proof. A
+missing delivery proof on a fresh or service-ingress record SHALL NOT be poison.
+
+WHO allocates, journals, publishes, acknowledges, seals, or drains these slots, and
+which credential may publish where, is downstream runtime behaviour over this
+contract.
+
+#### Scenario: Service-ingress fresh record omits delivery proof
+- **WHEN** an `Sr-Edge-Transport-Provenance` envelope carries slot-kind
+  `service-ingress`, the `service_slot` tuple, and an absent `delivery_proof_digest`
+  marked by the presence byte
+- **THEN** the envelope SHALL decode as VALID provenance
+- **AND** the missing delivery proof SHALL NOT be poison
+
+#### Scenario: A malformed publication slot is refused
+- **WHEN** a service record carries `publication_sequence` 0, or a
+  `publication_lane_id` that is not a 16-byte UUIDv7
+- **THEN** it SHALL be rejected fail-closed
+
+#### Scenario: A service record claims a delivery grant
+- **WHEN** a `service_slot` record carries a delivery capability, renewal, or
+  rollover
+- **THEN** it SHALL be rejected: service-ingress v1 is fresh-only and that
+  capability requires a future version
+
+#### Scenario: A late-admission record carries its delivery proof
+- **WHEN** an agent `edge_slot` record is published under a late-admission delivery grant
+- **THEN** its `Sr-Edge-Transport-Provenance` SHALL carry a present `delivery_proof_digest` over the `EdgeDeliveryLateAdmissionV1` transition
+- **AND** a service-ingress record SHALL still carry no delivery proof

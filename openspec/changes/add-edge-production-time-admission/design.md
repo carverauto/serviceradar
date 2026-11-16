@@ -40,7 +40,7 @@ No agent re-signs anything, and no new record field is needed:
 | Signing key | `production_capability.issuer_id` and `issuer_key_id`. Any `source_authorization.capability` names its own. |
 | Grant and its version | Production claims: `producer_assignment_id`, `effective_grant_sha256`, `registry_epoch`, `contract_bundle_sha256`, `registry_snapshot_sha256`, cost ceiling. |
 | Fence epoch | `producer_context.authority_epoch`, bound by validation to the claims' `authority_epoch`. |
-| Producer identity (SVID principal) | `producer_context.origin_principal_id`. The claims bind it to the grant. The gateway binds it to the authenticated mTLS principal; a mismatch no longer resolves as `identity_conflict`: on a late session the frame goes to security quarantine with both principals recorded, before the identity rejection and any grant check, and on a live session it resolves as `late_admission_required` so the agent holds the bytes first (Decision 7). |
+| Producer identity (SVID principal) | `producer_context.origin_principal_id`. The claims bind it to the grant. The gateway binds it to the authenticated mTLS principal; a mismatch no longer resolves as `identity_conflict`: on a late session the frame goes to security quarantine with both principals recorded, before the identity rejection and any grant check, and on a live session it resolves as `LATE_ADMISSION_REQUIRED` so the agent holds the bytes first (Decision 7). |
 | `produced_at` | The UUIDv7 time in `event_id`. `validateIdentityTime` already requires it to lie inside the signed production window, and inside the source collection window when one is present. |
 
 So a record cannot claim a production time outside a window that core
@@ -71,7 +71,7 @@ explicit, owner-approved byte budget already governs, as with the OTel spool's
 - **Late admission** uses the production-time rule (Decision 3). A committed
   record is admitted late when its live admission is no longer possible: a
   legacy layout, authority that lapsed before admission, or a live-lane record
-  the gateway resolved as `late_admission_required` because its fence is stale
+  the gateway resolved as `LATE_ADMISSION_REQUIRED` because its fence is stale
   or missing (Decision 7).
 
 Late records go into a dedicated **late generation** per lane key, stored
@@ -184,10 +184,12 @@ withhold, so it never waits. The gateway does not remember RPC refusals: it
 recognizes a foreign origin from the frame and authenticated identity, and a
 revoked interval from the terminal-interval list in its trust snapshot
 (Decision 4). A record whose `produced_at` is still in core's future is
-different: core answers "not yet", issues no grant, and the frame is withheld
-as retryable, never rejected and never quarantined. The record waits in the
-late generation until core's clock passes `produced_at` minus the tolerance,
-and is then judged normally.
+different: core answers "not yet" and issues no grant. A future `produced_at`
+is not itself a reason to reject or quarantine, and it does not suppress the
+three quarantine classes (a terminal interval in the snapshot, a foreign
+origin, a `HISTORICALLY_REVOKED` key), which still apply first. Otherwise the
+frame is withheld as retryable and waits in the late generation until core's
+clock passes `produced_at` minus the tolerance, and is then judged normally.
 
 The agent cannot fake checks 6 to 8. They read core-owned history and core's
 clock, and the record's `produced_at` is already bound inside a window that
@@ -277,9 +279,11 @@ Compromised keys stay as `historically_revoked` for good.
   at least `late_admission_max_age`.
 - **Ledger coverage.** Core persists `ledger_complete_since`, a monotonic
   timestamp: every ledger row with `inserted_at` at or after it is still
-  retained. It starts as "nothing pruned" (the earliest representable time),
-  so coverage is complete and the upgrade tail is PRIMARY-eligible. It
-  advances only when pruning deletes rows, to that batch's `inserted_at`
+  retained. The migration seeds it with the retention cutoff already in force
+  (the migration time minus the `EdgeLedgerRetentionWorker` retention horizon
+  in force then), because rows older than that may already be gone. That
+  horizon is at least the output-grant lifetime, so the upgrade tail stays
+  PRIMARY-eligible. It advances only when pruning deletes rows, to that batch's `inserted_at`
   cutoff, and it never moves backward. Retention prunes by `inserted_at` while
   the check uses `produced_at`, and a producer's clock may run ahead of core's
   by up to the clock tolerance, so a row's `inserted_at` is at least
@@ -287,8 +291,8 @@ Compromised keys stay as `historically_revoked` for good.
   ledger_complete_since + clock tolerance`, which guarantees any earlier
   application of the record is still in the ledger; an older record gets AUDIT
   (`ledger_pruned`). Raising `late_admission_max_age_seconds` is therefore
-  safe: rows already pruned keep their records on AUDIT, and no duplicate is
-  ever projected.
+  safe: rows pruned before or after the migration keep their records on AUDIT,
+  and no duplicate is ever projected.
 - **Volume.** Late sessions get their own credit budget, at most one late
   session per lane key (which also drains that lane key's per-principal
   holds), and lower scheduling priority than live sessions. Late
@@ -392,8 +396,13 @@ own time. Every late record gets an audit row in the ledger: admission `late`,
 **In-lane records.** A record already in a live lane whose fence is stale or
 missing at the gateway cannot be delivered live, whatever its production
 window (expired or still current), and the live lane never waits on a late
-grant. The gateway resolves that live slot immediately with the rejection code
-`late_admission_required`. The gateway resolves a live frame whose origin
+grant. On a session whose agent hello advertised
+`edge_late_admission_protocol_version >= 1`, the gateway resolves that live
+slot immediately with a `REJECTED_PERMANENT` disposition carrying rejection
+code `LATE_ADMISSION_REQUIRED`; the kind alone resolves the slot, as for every
+permanent rejection, and the capable agent does not copy the record into the
+evicting local quarantine. For an older agent, which advertises no version,
+the gateway keeps today's live dispositions. The gateway resolves a live frame whose origin
 principal is not the authenticated agent the same way, in place of
 `identity_conflict`. That is a resolving disposition: it neither
 withholds the frame nor sends it to the `fence_stale` quarantine. Before the
@@ -481,7 +490,8 @@ undelivered entry.
   generation and binding history. It is not refused because the current
   generation moved. A seal with no retained history, or one ended for a
   compromise-class reason, is archived to a quarantine destination and never
-  published for playback (approved by the owner). A dispatch with an unknown
+  published for playback (approved by the owner); its verified quarantine
+  receipt is terminal and permits local deletion. A dispatch with an unknown
   outcome is reconciled automatically by idempotent read-back (no-clobber put,
   HEAD and ranged verify), not left for an operator.
 
@@ -500,8 +510,10 @@ undelivered entry.
 
 ## Rollout
 
-1. **Phase 1, edge (Go).** Agents hand off legacy layouts into late
-   generations and per-principal holds, and resolve `late_admission_required`
+1. **Phase 1, edge (Go).** `AgentHelloRequest` gains `uint32
+   edge_late_admission_protocol_version`; an agent that implements the late
+   generation advertises 1. Agents hand off legacy layouts into late
+   generations and per-principal holds, and resolve `LATE_ADMISSION_REQUIRED`
    live slots into late generations. They open late sessions only when the
    gateway advertises `late_admission_v1`; until then late records stay on
    disk, accounted and reported as `late_pending_gateway_support`. Because the
@@ -519,7 +531,9 @@ undelivered entry.
 
 Runtime settings have code defaults. There are no Helm-only knobs and no bypass
 switch. Mixed versions fail closed. An old gateway never sees a late session.
-An old agent never asks for late grants, and its records follow today's paths.
+An old agent never asks for late grants and never advertises
+`edge_late_admission_protocol_version`, so the gateway never sends it
+`LATE_ADMISSION_REQUIRED`, and its records follow today's paths.
 
 ## Owner decisions (2026-11-15)
 
@@ -530,7 +544,7 @@ An old agent never asks for late grants, and its records follow today's paths.
 - The implementation is split: phase 1 edge Go, phase 2 core and gateway, with
   the gateway's refusal of late lane opens in phase 1 (see Rollout).
 - Any live-lane record whose fence is stale or missing is resolved
-  immediately as `late_admission_required`, whatever its production window,
+  immediately as `LATE_ADMISSION_REQUIRED`, whatever its production window,
   and moved to the late generation; there is no late grant on a live session.
 - Records of a different, revoked or superseded origin principal are presented
   by the host's current agent for security quarantine only, through a hold
@@ -550,8 +564,14 @@ An old agent never asks for late grants, and its records follow today's paths.
   handled like `certificate_revoked`; neither is ever pruned. A current
   revocation state beats an already-issued late grant at publication.
 - An origin-principal mismatch replaces `identity_conflict`: security
-  quarantine on a late session, `late_admission_required` on a live one.
-- Ledger coverage is tracked by a monotonic `ledger_complete_since` that starts
-  as "nothing pruned", with PRIMARY requiring `produced_at` at or after it plus
-  the clock tolerance, and reason `ledger_pruned`.
+  quarantine on a late session, `LATE_ADMISSION_REQUIRED` on a live one.
+- `LATE_ADMISSION_REQUIRED` is a `REJECTED_PERMANENT` rejection code sent only
+  to agents whose hello advertises `edge_late_admission_protocol_version >= 1`;
+  older agents keep today's live dispositions.
+- Ledger coverage is tracked by a monotonic `ledger_complete_since` seeded at
+  migration with the retention cutoff then in force, with PRIMARY requiring
+  `produced_at` at or after it plus the clock tolerance, and reason
+  `ledger_pruned`.
+- A verified quarantine-destination archive receipt is a terminal disposition
+  for a sealed media block.
 - The media seal-quarantine rule is approved.

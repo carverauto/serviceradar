@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Sealed media always has an automatic drainer
-Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block holds a verified archive receipt or a verified local-retention publication.
+Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block holds a verified archive receipt, a verified quarantine-destination archive receipt, or a verified local-retention publication.
 
 A manual command SHALL NOT be the only drain path. A dispatch whose outcome is
 unknown SHALL be reconciled automatically through idempotent read-back
@@ -11,7 +11,9 @@ unknown SHALL be reconciled automatically through idempotent read-back
 require operator reconciliation. Unsealed or interrupted blocks SHALL be
 recovered by the recorder's own startup reconciliation. Leftover upload scratch
 from a crash SHALL be reconciled by the service that owns it, and SHALL NOT halt
-other uploads. Sealed media SHALL NOT be deleted before its archive receipt.
+other uploads. Sealed media SHALL NOT be deleted before its archive receipt or its verified
+quarantine-destination archive receipt; either is a terminal disposition that
+ends the drainer for that block.
 
 #### Scenario: A sealed NVR block drains without an operator
 - **GIVEN** an NVR holding a sealed block with no archive receipt
@@ -40,3 +42,4 @@ recorder.
 - **WHEN** a block's seal names a generation that retained history does not hold
 - **THEN** the block SHALL be archived to the quarantine destination and reported
 - **AND** SHALL NOT be published for playback
+- **AND** once its quarantine receipt is verified the drainer SHALL stop retrying it and the recorder MAY delete its local copy
