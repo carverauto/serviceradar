@@ -1,0 +1,88 @@
+## 1. Containment (Stage 1; Core and web-ng only)
+
+- [ ] 1.0a Verify that the installed Ash version supports `select_by_default? false` on an
+      attribute. If it does not, 1.1 must instead remove the two attributes from every read
+      action's default select explicitly.
+- [ ] 1.0b Verify how a `service_status` row stored before Stage 1 behaves when the same plugin
+      result is redelivered after D7 reduced its details and recomputed its payload digest: no
+      duplicate row and no resurrection of the unreduced payload. If either occurs, the D2
+      digest and the D7 scrub must be changed so a redelivery matches the reduced row before
+      1.3 and 1.5 land.
+- [ ] 1.1 `Source.source_url` and `StreamProfile.source_url_override`: `public? false`,
+      `sensitive? true`, `select_by_default? false`; `RelaySourceResolver` selects them
+      explicitly (D4).
+- [ ] 1.2 Add the `source_scheme` calculation; switch the device camera panel and the God View
+      payload and JS to it; drop `source_url` and full profile structs from device assigns.
+- [ ] 1.3 Add `ServiceRadar.Camera.StreamAddressReduction` (D2) and apply it at both
+      `PluginResultIngestor` entry points, exempting only the descriptor fields that feed the two
+      columns; digest the reduced payload.
+- [ ] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
+      the allowlist.
+- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list (Stage 1 targets in scope), plus the migration that
+      enqueues it; bump `core.migrations.expectedVersion`; run
+      `scripts/db/check-migration-startup-safety.sh`.
+- [ ] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
+      asserting that no stored status, state, device or profile row holds an invented `rtsps://`
+      path or alias (fixtures use `192.0.2.0/24` and `example.com`); a scrub worker test covering
+      the repeat-until-zero and old-node termination branches; and a web-ng test asserting that
+      assigns hold no address.
+- [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
+      it and through the worker's scrub of the same in-scope target and asserts they agree: an
+      origin only (not pending); `rtsps://` with a path; `rtsp://` with userinfo; `https://`
+      with userinfo; an alias key in profile, source and device metadata; a path and a
+      userinfo written with JSON solidus escapes (`\/`, `\u002f`, `\u0040`); a URL and an
+      alias key inside a double-encoded JSON string; and a value nested beyond the D2 depth
+      (each pending, and clean after one pass, the last replaced by the D2 marker). The same
+      test asserts that a path left in `source_url_override` or `source_url` appears only in
+      `at_rest_until_stage_3` and does not block completion.
+
+## 2. Edge resolution (Stage 2)
+
+- [ ] 2.0 Verify that the agent's on-demand plugin call for an assignment
+      (`RunPluginVerbForAssignment`) receives the same params and standing credential broker
+      grants as a scheduled run of that assignment. If it does not, the resolver cannot
+      authenticate, and Stage 2 must add that first.
+- [ ] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
+      `serviceradar.camera_source_resolution{_request}.v1`; release, then re-vendor in both
+      plugins.
+- [ ] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
+      second), never creating streams; results carry `source_origin` and no `cameras[].channels`
+      aliases, `streams[].url` or `source_url*`.
+- [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
+      userinfo; results carry the origin only.
+- [ ] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
+      params and standing grants; capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
+      persist it or enqueue it as a result;
+      advertise `camera_source_resolution`; add the D5 classes; confirm that no log line,
+      command result or error carries the resolved URL or its userinfo.
+- [ ] 2.5 Tests: plugin resolver tables against fake controllers; an agent test showing the
+      address reaches the reader and nothing else, and that each D5 class is produced.
+
+## 3. Core cutover (Stage 3)
+
+- [ ] 3.1 Remove both attributes from the resources; add `source_origin` and
+      `discovery_assignment_id` (migration); the ingestor records provenance `assignment_id`.
+- [ ] 3.2 `RelaySourceResolver` builds `source_resolver`; the capability gate produces
+      `agent_upgrade_required`; `source_resolver_missing`.
+- [ ] 3.3 D2 with no exemption; delete the descriptor URL handling in `InventoryIngestor`.
+- [ ] 3.4 Enqueue the scrub worker again with the D7 Stage 3 targets in scope; bump
+      `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
+      URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
+      and assert `at_rest_until_stage_3` is absent.
+- [ ] 3.5 Web-ng operator sentences for the D5 classes.
+- [ ] 3.6 DB-backed tests in the Core Integration lanes; every unboxed test deletes its rows.
+
+## 4. Contract (Stage 4, next release)
+
+- [ ] 4.1 Migration that drops `camera_sources.source_url` and
+      `camera_stream_profiles.source_url_override` and removes D7 targets 5 and 7; refresh the
+      baseline.
+- [ ] 4.2 Remove the agent's legacy `source_url` branch.
+
+## 5. Docs
+
+- [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order; regenerate
+      aliases after upgrading.
+- [ ] 5.2 `docs/docs/srql-language-reference.md` `camera_sources` paragraph.
+- [ ] 5.3 Runbook under `docs/`: the `pending/0` verification command defined in design D7, the
+      DLQ purge, backup expiry.
