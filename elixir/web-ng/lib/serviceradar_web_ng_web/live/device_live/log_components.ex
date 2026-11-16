@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Logging.SecretRedaction
+
   # ---------------------------------------------------------------------------
   # Logs Tab Content
   # ---------------------------------------------------------------------------
@@ -168,6 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
     log
     |> first_present(["body", "message", "short_message"])
     |> present_or_dash()
+    |> SecretRedaction.redact_text()
     |> String.slice(0, 300)
   end
 

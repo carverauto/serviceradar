@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
@@ -10763,8 +10764,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     case message do
       nil -> "—"
       "" -> "—"
-      v when is_binary(v) -> String.slice(v, 0, 300)
-      v -> v |> to_string() |> String.slice(0, 300)
+      v when is_binary(v) -> v |> SecretRedaction.redact_text() |> String.slice(0, 300)
+      v -> v |> to_string() |> SecretRedaction.redact_text() |> String.slice(0, 300)
     end
   end
 
