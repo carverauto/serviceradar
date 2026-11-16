@@ -62,10 +62,11 @@ product owner's decisions of 2026-11-15 are recorded in
 - **R. Reconciliation: no stranded footage.** A periodic reconciler adopts
   sealed blocks only under Core's retained reservation authority (rotated
   blocks only on proof that they continue a reserved block), recovers
-  incomplete journals, quarantines unrecoverable or unattributable footage with
-  a gap (kept until an operator disposes of it), retries archive
-  until it succeeds for blocks that archive (archiving enabled and policy
-  `local_and_archive`), and alarms on anything it cannot attribute.
+  incomplete journals, quarantines unrecoverable or unattributable footage
+  (kept until an operator disposes of it, with a gap where its camera and
+  interval are known), retries archive until it succeeds for every entry the
+  one archive predicate selects (design A6), and alarms on anything it cannot
+  attribute.
 - **C. Retention and reclaim.** The local tier is a capacity-driven cache:
   budget derived from the volume and editable per member at runtime, high and
   low water marks, and a maximum local age (24 h by default, up to 10 years, or
