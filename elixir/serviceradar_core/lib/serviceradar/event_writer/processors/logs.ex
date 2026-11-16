@@ -505,29 +505,36 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          metadata
        ) do
     {scope_name, scope_version} = parse_scope(scope)
+    scope_attributes = protobuf_scope_attributes(scope)
 
     Enum.flat_map(log_records, fn log_record ->
-      log_attributes = key_values_to_map(log_record.attributes)
-      log_attributes = attach_ingest_metadata(log_attributes, metadata)
+      record_attributes = key_values_to_map(log_record.attributes)
+      log_attributes = attach_ingest_metadata(record_attributes, metadata)
       log_id = generated_uuid()
       source = source_kind(metadata[:subject])
       {severity_text, severity_number} = protobuf_log_severity(log_record)
+      trace_id = OtelId.normalize_trace_id(log_record.trace_id)
 
       [
         %{
           id: log_id,
           timestamp: parse_otel_timestamp(log_record),
-          trace_id: OtelId.normalize_trace_id(log_record.trace_id),
+          observed_timestamp: protobuf_observed_timestamp(log_record) || metadata[:received_at],
+          trace_id: trace_id,
           span_id: OtelId.normalize_span_id(log_record.span_id),
+          trace_flags: protobuf_trace_flags(log_record, trace_id),
           severity_text: severity_text,
           severity_number: severity_number,
           body: any_value_to_body(log_record.body),
+          event_name: protobuf_event_name(log_record),
           source: source,
+          source_ip: normalize_source_ip(record_attributes),
           service_name: service_name,
           service_version: service_version,
           service_instance: service_instance,
           scope_name: scope_name,
           scope_version: scope_version,
+          scope_attributes: scope_attributes,
           attributes: log_attributes,
           resource_attributes: resource_attributes,
           created_at: DateTime.utc_now()
@@ -564,6 +571,30 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
+
+  defp protobuf_scope_attributes(%InstrumentationScope{attributes: attributes}),
+    do: key_values_to_map(attributes)
+
+  defp protobuf_scope_attributes(_), do: %{}
+
+  defp protobuf_observed_timestamp(%LogRecord{observed_time_unix_nano: observed})
+       when is_integer(observed) and observed > 0, do: FieldParser.parse_timestamp(observed)
+
+  defp protobuf_observed_timestamp(_), do: nil
+
+  # OTLP carries the W3C trace flags in the low byte of `flags`. proto3 cannot
+  # tell an unset field from zero, so flags are recorded only with a trace.
+  defp protobuf_trace_flags(_log_record, nil), do: nil
+
+  defp protobuf_trace_flags(%LogRecord{flags: flags}, _trace_id) when is_integer(flags),
+    do: Bitwise.band(flags, 0xFF)
+
+  defp protobuf_trace_flags(_log_record, _trace_id), do: nil
+
+  defp protobuf_event_name(%LogRecord{event_name: name}) when is_binary(name) and name != "",
+    do: name
+
+  defp protobuf_event_name(_), do: nil
 
   defp parse_otel_timestamp(%LogRecord{time_unix_nano: time, observed_time_unix_nano: observed}) do
     cond do
