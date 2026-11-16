@@ -378,8 +378,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
     do: "Ready; #{bytes} unsupported legacy bytes retained"
 
   defp spool_state(%{spool: %{late_pending_records: pending, late_pending_reason: "late_pending_gateway_support"}})
-       when pending > 0,
-       do: "Ready; #{pending} late records awaiting gateway support"
+       when pending > 0, do: "Ready; #{pending} late records awaiting gateway support"
 
   defp spool_state(%{spool: %{health_available: true}}), do: "Ready"
   defp spool_state(_row), do: "Health not reported"
