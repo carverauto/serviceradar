@@ -1,7 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperJobSNMPCredentialBackfillWorker do
   @moduledoc """
   One-off backfill of mapper jobs' SNMP credentials, enqueued once by migration
-  `20261115170000_add_mapper_job_snmp_credential`
+  `20261116014509_add_mapper_job_snmp_credential`
   (`decouple-mapper-discovery-credential`).
 
   Before that change a mapper job had no SNMP credential of its own. For every
