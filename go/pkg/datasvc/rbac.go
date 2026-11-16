@@ -77,6 +77,11 @@ func (s *Server) RBACStreamInterceptor(
 	}
 
 	if len(rule.KeyPrefixes) > 0 {
+		if info.FullMethod != "/proto.KVService/Watch" {
+			return status.Errorf(codes.PermissionDenied,
+				"identity %s is limited to key prefixes and cannot access %s", rule.Identity, info.FullMethod)
+		}
+
 		// A stream's request arrives after the handler starts, so the key
 		// check runs on each message the handler receives.
 		ss = &keyLimitedStream{ServerStream: ss, rule: rule, method: info.FullMethod}

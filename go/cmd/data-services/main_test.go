@@ -230,6 +230,22 @@ func firstDownloadChunk(ctx context.Context, data proto.DataServiceClient) error
 	return err
 }
 
+func uploadObject(ctx context.Context, data proto.DataServiceClient, key string) error {
+	stream, err := data.UploadObject(ctx)
+	if err != nil {
+		return err
+	}
+
+	_ = stream.Send(&proto.ObjectUploadChunk{
+		Metadata: &proto.ObjectMetadata{Key: key},
+		Data:     []byte("payload"),
+		IsFinal:  true,
+	})
+	_, err = stream.CloseAndRecv()
+
+	return err
+}
+
 // TestDatasvcServerEnforcesRBAC drives the server main builds with real mTLS
 // clients. The expected outcomes come from the documented role contract:
 // readers read, writers write, unlisted identities reach nothing in the KV or
@@ -241,6 +257,7 @@ func TestDatasvcServerEnforcesRBAC(t *testing.T) {
 		{Identity: "CN=writer01,O=Example", Role: datasvc.RoleWriter},
 		{Identity: "CN=reader01,O=Example", Role: datasvc.RoleReader},
 		{Identity: "CN=rules-reader,O=Example", Role: datasvc.RoleReader, KeyPrefixes: []string{"zen/rulesets/"}},
+		{Identity: "CN=rules-writer,O=Example", Role: datasvc.RoleWriter, KeyPrefixes: []string{"zen/rulesets/"}},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -297,6 +314,7 @@ func TestDatasvcServerEnforcesRBAC(t *testing.T) {
 	_, denied["GetObjectInfo"] = objects.GetObjectInfo(ctx, &proto.GetObjectInfoRequest{Key: rulesKey})
 	_, denied["ListObjects"] = objects.ListObjects(ctx, &proto.ListObjectsRequest{})
 	denied["DownloadObject"] = firstDownloadChunk(ctx, objects)
+	denied["UploadObject as a key-limited writer"] = uploadObject(ctx, proto.NewDataServiceClient(dial(t, ca, addr, "rules-writer")), rulesKey)
 
 	for name, err := range denied {
 		assert.Equal(t, codes.PermissionDenied, status.Code(err), "limited identity %s: %v", name, err)
