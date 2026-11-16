@@ -11,7 +11,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
   holds its exact bundle (`ServiceRadar.Edge.OutputContract.current/1`), and the agent's
   partition has a row.
 
-  `revoke_agent/1` revokes every grant of an agent whose identity is superseded or whose
+  `revoke_agent/2` revokes every grant of an agent whose identity is superseded or whose
   certificate is revoked. Revoking moves a grant's epoch, so the gateway refuses records signed
   before it. The agent's next config, which it can only fetch after authenticating again (a
   revived identity, a new certificate), reactivates the grant under a new epoch, as does moving

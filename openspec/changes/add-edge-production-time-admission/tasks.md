@@ -102,14 +102,14 @@ Status: implemented in PR #6692 except where a task says otherwise.
 
 ## 2. Core and gateway (Elixir), phase 2. Deploy before late sessions do anything; until then late records stay on disk, accounted and reported.
 
-- [ ] 2.1 Migration: `platform.edge_authority_history`, its triggers on
+- [x] 2.1 Migration: `platform.edge_authority_history`, its triggers on
       `sweep_producer_assignments` and `edge_output_grants` (insert opens;
       update closes and opens; delete only closes with `deleted`), an
       immutability guard, and seeding from current rows, with already-revoked
       output grants ended `revoked_cause_unknown` and already-revoked sweep
       assignments keeping their normal reason. Never prune
       `certificate_revoked` or `revoked_cause_unknown` intervals.
-- [ ] 2.2 Make `OutputGrants.revoke_agent` record its cause:
+- [x] 2.2 Make `OutputGrants.revoke_agent` record its cause:
       `identity_superseded` or `certificate_revoked`, on every revocation path
       including an operator-request certificate revocation that leaves the
       principal able to authenticate. A `certificate_revoked` interval routes
