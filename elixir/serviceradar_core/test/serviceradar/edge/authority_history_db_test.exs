@@ -62,6 +62,30 @@ defmodule ServiceRadar.Edge.AuthorityHistoryDbTest do
              {1, false, "certificate_revoked"},
              {3, false, "identity_superseded"}
            ]
+
+    # Revoking and reactivating in one transaction reads one now(); the successor must still
+    # start no earlier than its predecessor ended, or one production time would match two epochs.
+    assert_half_open(grant.id)
+  end
+
+  defp assert_half_open(grant_id) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT active_from, active_until
+          FROM platform.edge_authority_history
+         WHERE assignment_id = $1
+         ORDER BY id
+        """,
+        [Ecto.UUID.dump!(grant_id)]
+      )
+
+    rows
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.each(fn [[_from, until], [next_from, _next_until]] ->
+      refute DateTime.before?(next_from, until),
+             "interval starting #{next_from} overlaps one ending #{until}"
+    end)
   end
 
   test "a write that bypasses Ash and a delete are recorded, and a delete opens no successor",

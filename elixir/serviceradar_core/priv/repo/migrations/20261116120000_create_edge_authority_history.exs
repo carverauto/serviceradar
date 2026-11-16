@@ -122,6 +122,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
       reason text;
       open_id bigint;
       open_from timestamptz;
+      last_until timestamptz;
     BEGIN
       IF TG_OP = 'DELETE' THEN
         SELECT id, active_from INTO open_id, open_from
@@ -186,6 +187,17 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
       END IF;
 
       IF NEW.state::text = 'active' THEN
+        -- A successor never starts before an earlier interval of the same assignment ended
+        -- (reactivating a revoked row in the transaction that revoked it reads the same
+        -- now()), so intervals stay half-open and no produced_at matches two epochs.
+        SELECT max(active_until) INTO last_until
+          FROM #{schema}.#{@table}
+         WHERE assignment_id = NEW.id;
+
+        IF last_until IS NOT NULL AND last_until > at THEN
+          at := last_until;
+        END IF;
+
         INSERT INTO #{schema}.#{@table}
           (assignment_id, assignment_kind, agent_id, network_scope_id, run_shard,
            authority_epoch, active_from)
@@ -207,14 +219,22 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
       """)
     end
 
+    # Hold both source tables until commit so no write lands between the seed snapshot and the
+    # moment the triggers become visible to other sessions (CREATE TRIGGER already takes this
+    # lock; stating it keeps the guarantee if the statements are ever reordered).
+    execute("""
+    LOCK TABLE #{schema}.sweep_producer_assignments, #{schema}.edge_output_grants
+      IN SHARE ROW EXCLUSIVE MODE
+    """)
+
     execute("""
     INSERT INTO #{schema}.#{@table}
       (assignment_id, assignment_kind, agent_id, network_scope_id, run_shard,
        authority_epoch, active_from, active_until, ended_reason)
     SELECT id, kind, agent_id, network_scope_id, run_shard,
            CASE WHEN state::text = 'active' THEN authority_epoch ELSE authority_epoch - 1 END,
-           LEAST(COALESCE(CASE WHEN state::text = 'active' THEN epoch_changed_at END, inserted_at),
-                 COALESCE(revoked_at, now())),
+           CASE WHEN state::text = 'active' THEN COALESCE(epoch_changed_at, inserted_at)
+                ELSE LEAST(inserted_at, COALESCE(revoked_at, inserted_at)) END,
            CASE WHEN state::text = 'active' THEN NULL ELSE COALESCE(revoked_at, epoch_changed_at, now()) END,
            CASE WHEN state::text = 'active' THEN NULL
                 WHEN kind = 'output_grant' THEN 'revoked_cause_unknown'
