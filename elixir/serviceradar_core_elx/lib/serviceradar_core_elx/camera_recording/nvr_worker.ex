@@ -14,7 +14,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   production immediately without sending the clean wire EOF marker, never retry
   against the same or another replica, never bump `recorder_epoch`, and leave
   the reserved block and active recorder fence intact for operator inspection or
-  recovery. Only a lost, cut-short or unreadable NVR answer is uncertain.
+  recovery. A lost, cut-short or unreadable NVR answer is uncertain, and so is
+  a non-200 answer read after the end marker, which can follow a seal.
 
   An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
   refused the unfinished stream and sealed nothing it had open. That is a
