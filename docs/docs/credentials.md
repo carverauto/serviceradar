@@ -888,6 +888,14 @@ only devices that have their own credential; the Discovery list marks it
 **No SNMP credential**. A credential referenced by a discovery job cannot be
 deleted while that reference exists.
 
+On upgrade, a one-off background job gives each existing discovery job the
+credential it was already using: the agent host's credential, the first SNMP
+rule scoped to its agent or partition, or the default profile's credential.
+Inline profile or device-override values are first saved as a reusable
+credential. A job whose agents resolved different credentials, or none, is left
+without one and shows **No SNMP credential**; select one on the job form. The
+job never revisits a discovery job, so a later choice is not overwritten.
+
 Resolved credentials are delivered by target IP. A credential-store read
 failure fails mapper config generation, and the agent keeps its running
 config. A broker refusal for one target, or two device records that resolve
