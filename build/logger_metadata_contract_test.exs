@@ -2,9 +2,9 @@ ExUnit.start()
 
 elixir_root = Path.expand("../elixir", __DIR__)
 
-Code.require_file(
-  Path.join(elixir_root, "serviceradar_core/lib/serviceradar/logging/console_formatter.ex")
-)
+for source <- ~w(secret_redaction.ex console_formatter.ex) do
+  Code.require_file(Path.join(elixir_root, "serviceradar_core/lib/serviceradar/logging/#{source}"))
+end
 
 defmodule ServiceRadar.LoggerMetadataContractTest.RawEventHandler do
   @moduledoc false
@@ -113,6 +113,35 @@ defmodule ServiceRadar.LoggerMetadataContractTest do
 
       assert format_reason(value) ==
                "reason=#{kept}...[truncated, #{byte_size(value)} bytes] [warning] probe failed\n"
+    end
+
+    test "a crash report rendering a credential-holding struct prints no credential" do
+      # What Elixir's translator renders for a crashed TURN client: the
+      # password as a string and the derived HMAC key as raw bytes.
+      message = """
+      GenServer #PID<0.1.0> terminating
+      ** (MatchError) no match of right hand side value:
+
+          {:ok,
+           %SyntheticTurnClient{
+             username: "1700000000:synthetic-user",
+             password: "synthetic-console-password",
+             key: <<203, 17, 254, 8, 99, 140, 31, 77, 2, 160, 211, 45, 6, 190, 73,
+               12>>,
+             state: :error
+           }}
+      """
+
+      line =
+        %{level: :error, msg: {:string, message}, meta: %{time: 0}}
+        |> ConsoleFormatter.format(%{format: "[$level] $message\n"})
+        |> IO.chardata_to_string()
+
+      refute line =~ "synthetic-console-password"
+      refute line =~ "203, 17, 254"
+      assert line =~ ~s(password: "[REDACTED]")
+      assert line =~ "key: [REDACTED]"
+      assert line =~ ~s(username: "1700000000:synthetic-user")
     end
 
     defp format_reason(value) do

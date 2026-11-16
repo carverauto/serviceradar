@@ -35,17 +35,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.EventWriter.StableId
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
   require Logger
 
-  @redacted "[REDACTED]"
-  @sensitive_log_keys ~w(
-    authorization api_key apikey bearer cookie credential credentials jwt password
-    private_key secret secret_key seed signing_key token nkey_seed nkey
-  )
   @common_insert_placeholders %{
     trace_id: :logs_trace_id,
     span_id: :logs_span_id,
@@ -708,71 +704,19 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp redact_text_field(row, key) do
     case Map.get(row, key) do
-      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
+      value when is_binary(value) -> Map.put(row, key, SecretRedaction.redact_text(value))
       _ -> row
     end
   end
 
   defp redact_metadata_field(row, key) do
     case Map.get(row, key) do
-      value when is_map(value) or is_list(value) -> Map.put(row, key, redact_secret_value(value))
-      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
-      _ -> row
+      value when is_map(value) or is_list(value) or is_binary(value) ->
+        Map.put(row, key, SecretRedaction.redact_value(value))
+
+      _ ->
+        row
     end
-  end
-
-  defp redact_secret_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested} ->
-      if sensitive_log_key?(key) do
-        {key, @redacted}
-      else
-        {key, redact_secret_value(nested)}
-      end
-    end)
-  end
-
-  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
-  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
-  defp redact_secret_value(value), do: value
-
-  defp redact_secret_text(value) when is_binary(value) do
-    value
-    |> redact_erlang_secret("nkey_seed")
-    |> redact_erlang_secret("jwt")
-    |> redact_json_secret("nkey_seed")
-    |> redact_json_secret("jwt")
-    |> redact_json_secret("token")
-    |> redact_json_secret("password")
-    |> redact_json_secret("secret")
-    |> redact_json_secret("api_key")
-    |> redact_assignment_secret("authorization")
-    |> redact_assignment_secret("token")
-    |> redact_assignment_secret("password")
-    |> redact_assignment_secret("secret")
-    |> redact_assignment_secret("api_key")
-  end
-
-  defp redact_erlang_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*=>\s*<<")[^"]*(">>)/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_json_secret(value, key) do
-    Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_assignment_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
-  end
-
-  defp sensitive_log_key?(key) do
-    key
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]+/, "_")
-    |> then(fn normalized ->
-      normalized in @sensitive_log_keys or
-        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
-    end)
   end
 
   # A message that came from JetStream gets row ids derived from its identity
