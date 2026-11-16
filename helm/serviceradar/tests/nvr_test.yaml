@@ -38,6 +38,32 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: nvr.recovery.existingConfigMap must name operator-owned recovery state
+  - it: refuses a block fragment limit below the service range
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxBlockFragments: 7
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxBlockFragments must be from 8 through 256
+  - it: refuses a block fragment limit above the service range
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxBlockFragments: 257
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxBlockFragments must be from 8 through 256
   - it: retains per-replica volumes through scale-down and workload deletion
     template: templates/nvr.yaml
     set:
@@ -77,6 +103,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_NVR_RESERVE_BYTES, value: "134217728"}
+      # A 270-second Core capture must fit one session and one block.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_DURATION_MS, value: "300000"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS, value: "150"}
       - contains:
           path: spec.template.spec.containers[0].env
           content:

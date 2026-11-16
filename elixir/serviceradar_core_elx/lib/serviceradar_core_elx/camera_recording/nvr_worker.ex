@@ -15,6 +15,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   against the same or another replica, never bump `recorder_epoch`, and leave
   the reserved block and active recorder fence intact for operator inspection or
   recovery.
+
+  A capture stops at the first of its frame, byte and media-duration bounds
+  (defaults 240 frames, 8 MiB, 6 s). The ceilings are 8,100 frames, 12 MiB and
+  270 s: about 4.5 minutes at 30 fps. The byte ceiling stays below the NVR's
+  16 MiB block, and with the NVR's default 150-fragment block limit and 2 s
+  fragments a 270 s capture needs about 136 fragments, so a capture fits one
+  NVR block. The receipt must name exactly that block; any other receipt is
+  treated as uncertain. A 270 s capture needs a `timeout_ms` of about 295,000,
+  within the 300,000 ms ceiling, and an NVR `SERVICERADAR_NVR_MAX_DURATION_MS`
+  long enough to cover the request and its seal.
   """
 
   use GenServer, restart: :temporary
@@ -40,9 +50,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     max_bytes: 8_388_608,
     max_duration_ms: 6_000
   }
-  @max_frames_ceiling 1_800
+  @max_frames_ceiling 8_100
   @max_bytes_ceiling 12_582_912
-  @max_duration_ms_ceiling 25_000
+  @max_duration_ms_ceiling 270_000
 
   def start_link(opts) do
     owner = Keyword.fetch!(opts, :owner)

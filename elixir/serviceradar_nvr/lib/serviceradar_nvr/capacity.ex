@@ -2,13 +2,15 @@ defmodule ServiceRadarNVR.Capacity do
   @moduledoc "Serializes volume reservations; retained bytes remain charged after worker exit."
   use GenServer
 
+  alias ServiceRadarNVR.Config
   alias ServiceRadarNVR.Disk
   alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
   alias ServiceRadarRecordingControl.RecoveryGate
 
-  @limits %{max_block_bytes: 16_777_216, max_fragments: 8, max_fragment_bytes: 4_194_304}
+  # Fixed: the archive uploads each block object in a single PUT of at most 16 MiB.
+  @block_bytes %{max_block_bytes: 16_777_216, max_fragment_bytes: 4_194_304}
   @probe_interval_ms 1000
   @publication_timeout 30_000
 
@@ -37,11 +39,17 @@ defmodule ServiceRadarNVR.Capacity do
 
   @impl true
   def init(config) do
-    {:ok, bytes} = Spool.reservation_bytes(@limits)
+    # Writers rotate at the configured fragment count. Reads, recovery and
+    # publication accept the configured ceiling instead, so lowering the setting
+    # never strands a block written before the change.
+    limits = Map.put(@block_bytes, :max_fragments, config.max_block_fragments)
+    {:ok, bytes} = Spool.reservation_bytes(limits)
 
     {:ok,
      %{
        config: config,
+       limits: limits,
+       read_limits: Map.put(@block_bytes, :max_fragments, Config.block_fragments_ceiling()),
        storage: nil,
        reservations: %{},
        block_bytes: bytes,
@@ -59,7 +67,7 @@ defmodule ServiceRadarNVR.Capacity do
       token = Process.monitor(owner)
       reservations = Map.put(state.reservations, token, owner)
 
-      {:reply, {:ok, token, storage, @limits},
+      {:reply, {:ok, token, storage, state.limits},
        %{
          state
          | storage: storage,
@@ -120,7 +128,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   def handle_call(:recovery_storage, _from, state) do
     case storage(state) do
-      {:ok, storage} -> {:reply, {:ok, storage, @limits}, %{state | storage: storage}}
+      {:ok, storage} -> {:reply, {:ok, storage, state.read_limits}, %{state | storage: storage}}
       {:error, _} = error -> {:reply, error, state}
     end
   end
@@ -144,7 +152,7 @@ defmodule ServiceRadarNVR.Capacity do
           with {:ok, _inventory} <- Disk.inventory(storage),
                {:ok, free} <- Disk.available_bytes(storage.root),
                :ok <- writable(free, state.config.reserve_bytes) do
-            Spool.recover_sealed(storage, block_id, identity, @limits)
+            Spool.recover_sealed(storage, block_id, identity, state.read_limits)
           end
 
         {:reply, result, %{state | storage: storage, probe: nil}}
@@ -161,7 +169,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   def handle_call({:publication, block_id, kind, payload}, from, state) do
     with {:ok, storage} <- storage(state),
-         {:ok, publication} <- start_publication(storage, block_id, kind, payload, from) do
+         {:ok, publication} <- start_publication(storage, block_id, kind, payload, state.read_limits, from) do
       {:noreply, %{state | storage: storage, publication: publication}}
     else
       {:error, _} = error -> {:reply, error, state}
@@ -226,13 +234,13 @@ defmodule ServiceRadarNVR.Capacity do
     {:noreply, %{state | reservations: reservations, probe: nil}}
   end
 
-  defp start_publication(storage, block_id, kind, payload, from) do
+  defp start_publication(storage, block_id, kind, payload, limits, from) do
     owner = self()
     token = make_ref()
 
     case Task.Supervisor.start_child(ServiceRadarNVR.PublicationTasks, fn ->
            receive do
-             {:publication_start, ^token} -> publish(owner, token, storage, block_id, kind, payload)
+             {:publication_start, ^token} -> publish(owner, token, storage, block_id, kind, payload, limits)
            end
          end) do
       {:ok, pid} ->
@@ -259,14 +267,14 @@ defmodule ServiceRadarNVR.Capacity do
     :exit, _ -> {:error, :nvr_publication_unavailable}
   end
 
-  defp publish(owner, token, storage, block_id, kind, payload) do
+  defp publish(owner, token, storage, block_id, kind, payload, limits) do
     # The task's own deadline survives loss of the requesting caller. Timeout
     # and crash are unknown outcomes; immutable files are preserved for retry.
     {:ok, timer} = :timer.exit_after(@publication_timeout, {:shutdown, :nvr_publication_timeout})
 
     try do
       result =
-        with {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
+        with {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, limits),
              :ok <- GenServer.call(owner, {:publication_write, kind, additional}, :infinity),
              :ok <- Publication.persist(storage, block_id, kind, bytes) do
           {:ok, bytes}

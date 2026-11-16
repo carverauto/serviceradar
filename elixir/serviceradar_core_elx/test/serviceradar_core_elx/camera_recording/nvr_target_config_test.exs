@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
   alias ServiceRadarCoreElx.CameraRecording.NVRCapture
   alias ServiceRadarCoreElx.CameraRecording.NVRTargetConfig
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
+  alias ServiceRadarNVRClient.Config, as: ClientConfig
 
   @moduletag :tmp_dir
 
@@ -159,6 +160,36 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
              )
 
     refute_received :unexpected_relay_open
+  end
+
+  test "worker admits capture bounds at their ceilings and refuses one past each before claiming" do
+    Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
+
+    opts = [
+      owner: %{id: Ecto.UUID.generate(), epoch: 1},
+      media_ingest_id: "synthetic-media-ingest",
+      member: "serviceradar-nvr-0",
+      storage_id: "00000000-0000-4000-8000-000000000011",
+      client_config: %ClientConfig{
+        host: "serviceradar-nvr-0.serviceradar-nvr.example.svc.cluster.local",
+        port: 8_443,
+        ca: "ca.pem",
+        cert: "client.pem",
+        key: "client-key.pem",
+        token: "synthetic-nvr-client-token-0123456789"
+      }
+    ]
+
+    # 270 s at 30 fps, below one 16 MiB NVR block.
+    ceilings = %{max_frames: 8_100, max_bytes: 12_582_912, max_duration_ms: 270_000}
+
+    # Bounds are checked before the caller, so a missing caller is the next refusal.
+    assert {:error, :invalid_capture} = RecordingSupervisor.start_nvr_recorder(Keyword.put(opts, :bounds, ceilings))
+
+    for {bound, value} <- [max_frames: 8_101, max_bytes: 12_582_913, max_duration_ms: 270_001] do
+      assert {:error, :invalid_capture_bounds} =
+               RecordingSupervisor.start_nvr_recorder(Keyword.put(opts, :bounds, Map.put(ceilings, bound, value)))
+    end
   end
 
   defp write_client_fixture(dir) do
