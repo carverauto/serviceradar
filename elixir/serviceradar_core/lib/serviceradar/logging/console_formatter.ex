@@ -34,13 +34,22 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
   as `\\n` so one event stays one line. Values that are not strings, numbers or
   atoms are printed with a depth-limited `inspect/2`.
 
-  Only the console rendering is bounded. The log event itself is never
-  modified: the message text is formatted by `Logger.Formatter` exactly as
-  before, and every other handler, including the OTLP log handler that
-  `ServiceRadar.Telemetry.OtelSetup` registers, receives the full metadata.
+  ## Redacted secrets
+
+  Each printed metadata value goes through
+  `ServiceRadar.Logging.SecretRedaction.redact_text/1` before it is cut, so a
+  cut can never leave the prefix of a secret behind, and the whole formatted
+  line is redacted again. A crash report that renders a struct holding a
+  password or key material prints `[REDACTED]` in place of the value.
+
+  Only the console rendering is bounded and redacted. The log event itself is
+  never modified here; the OTLP log handler that `ServiceRadar.Telemetry.OtelSetup`
+  registers applies the same redaction through its own filter.
   """
 
   @behaviour :logger_formatter
+
+  alias ServiceRadar.Logging.SecretRedaction
 
   @default_template "$time $metadata[$level] $message\n"
   @max_value_bytes 512
@@ -133,7 +142,10 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
   @impl :logger_formatter
   def format(%{meta: meta} = event, config) do
     {Logger.Formatter, formatter_config} = formatter(config)
-    Logger.Formatter.format(%{event | meta: bound_printed_values(meta)}, formatter_config)
+
+    %{event | meta: bound_printed_values(meta)}
+    |> Logger.Formatter.format(formatter_config)
+    |> SecretRedaction.redact_chardata()
   end
 
   # `Logger.Formatter.new/1` compiles the template, so build it once per
@@ -189,6 +201,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
   end
 
   defp bound(text) do
+    text = SecretRedaction.redact_text(text)
     size = byte_size(text)
 
     text =

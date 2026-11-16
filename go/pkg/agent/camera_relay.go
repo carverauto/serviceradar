@@ -176,7 +176,9 @@ func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *camer
 		sessions:        make(map[string]*cameraRelayHandle),
 		sources:         make(map[cameraRelaySourceKey]*cameraRelayHandle),
 		gateway:         gateway,
-		sourceFactory:   defaultCameraRelaySource,
+		sourceFactory: func(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+			return defaultCameraRelaySource(spec, log)
+		},
 		logger:          log,
 		uploadBatchSize: defaultCameraRelayUploadBatch,
 	}

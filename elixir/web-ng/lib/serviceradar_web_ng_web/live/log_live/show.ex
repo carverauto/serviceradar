@@ -6,17 +6,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
-  @redacted "[REDACTED]"
-  @sensitive_log_keys ~w(
-    authorization api_key apikey bearer cookie credential credentials jwt password
-    private_key secret secret_key seed signing_key token nkey_seed nkey
-  )
   # Side stream only — must not drive the main Observability logs list limit.
   @stream_page_size 10
   # Matches LogLive.Index / SRQL bar defaults when running a query from detail.
@@ -976,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # Every rendered copy of the body (page title, header headline, side-stream
   # preview, message hero) goes through the same redaction, so a credential
   # in the body cannot reach the page through a summary of it.
-  defp display_message(log), do: log |> log_message() |> redact_secret_text()
+  defp display_message(log), do: log |> log_message() |> SecretRedaction.redact_text()
 
   defp message_is_json?(body) when is_binary(body) do
     t = String.trim(body)
@@ -1823,46 +1819,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if map_size(result) > 0, do: result
   end
 
-  defp redact_secret_text(value) when is_binary(value) do
-    value
-    |> redact_erlang_secret("nkey_seed")
-    |> redact_erlang_secret("jwt")
-    |> redact_json_secret("nkey_seed")
-    |> redact_json_secret("jwt")
-    |> redact_json_secret("token")
-    |> redact_json_secret("password")
-    |> redact_json_secret("secret")
-    |> redact_json_secret("api_key")
-    |> redact_json_secret("authorization")
-    |> redact_authorization_secret()
-    |> redact_assignment_secret("token")
-    |> redact_assignment_secret("password")
-    |> redact_assignment_secret("secret")
-    |> redact_assignment_secret("api_key")
-  end
-
-  defp redact_secret_text(value), do: value
-
-  defp redact_erlang_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*=>\s*<<")[^"]*(">>)/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_json_secret(value, key) do
-    Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
-  end
-
-  defp redact_authorization_secret(value) do
-    Regex.replace(
-      ~r/(authorization\s*[=:]\s*)(?:"(?:Bearer\s+)?[^"]*"|'(?:Bearer\s+)?[^']*'|(?:Bearer\s+)?[^\s,}\]]+)/i,
-      value,
-      "\\1#{@redacted}"
-    )
-  end
-
-  defp redact_assignment_secret(value, key) do
-    Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
-  end
-
   defp flatten_attribute_values(values) when is_map(values) do
     values
     |> Enum.flat_map(fn
@@ -1879,12 +1835,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp flatten_attribute_values(_), do: []
 
   defp format_attribute_value(key, value) when is_binary(key) do
-    if sensitive_log_key?(key), do: @redacted, else: format_attribute_value(value)
+    if SecretRedaction.sensitive_key?(key),
+      do: SecretRedaction.redacted(),
+      else: format_attribute_value(value)
   end
 
   defp format_attribute_value(_key, value), do: format_attribute_value(value)
 
-  defp format_attribute_value(value) when is_binary(value), do: redact_secret_text(value)
+  defp format_attribute_value(value) when is_binary(value), do: SecretRedaction.redact_text(value)
   defp format_attribute_value(value) when is_number(value), do: to_string(value)
   defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
 
@@ -1897,7 +1855,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> normalize_metadata_value()
     |> redact_secret_value()
     |> case do
-      normalized when is_binary(normalized) -> redact_secret_text(normalized)
+      normalized when is_binary(normalized) -> SecretRedaction.redact_text(normalized)
       normalized -> Jason.encode!(normalized)
     end
   end
@@ -1906,40 +1864,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp format_attribute_value(value), do: inspect(value)
 
   defp redact_secret_value(nil), do: nil
-
-  defp redact_secret_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested} ->
-      if sensitive_log_key?(key) do
-        {key, @redacted}
-      else
-        {key, redact_secret_value(nested)}
-      end
-    end)
-  end
-
-  defp redact_secret_value(value) when is_list(value) do
-    if printable_charlist?(value) do
-      text = List.to_string(value)
-      redacted = redact_secret_text(text)
-      if redacted == text, do: value, else: redacted
-    else
-      Enum.map(value, &redact_secret_value/1)
-    end
-  end
-
-  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
-  defp redact_secret_value(value), do: value
-
-  defp sensitive_log_key?(key) do
-    key
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]+/, "_")
-    |> then(fn normalized ->
-      normalized in @sensitive_log_keys or
-        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
-    end)
-  end
+  defp redact_secret_value(value), do: SecretRedaction.redact_value(value)
 
   defp blank_value?(nil), do: true
   defp blank_value?(""), do: true

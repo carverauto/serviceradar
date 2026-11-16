@@ -295,20 +295,27 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
     query =
       Ash.Query.filter(
         RecordingArchiveSettings,
-        writer_credential_secret_id in ^ids or reader_credential_secret_id in ^ids
+        writer_credential_secret_id in ^ids or reader_credential_secret_id in ^ids or
+          retention_credential_secret_id in ^ids
       )
 
     with {:ok, rows} <-
            read_selected(
              RecordingArchiveSettings,
              query,
-             [:id, :writer_credential_secret_id, :reader_credential_secret_id]
+             [
+               :id,
+               :writer_credential_secret_id,
+               :reader_credential_secret_id,
+               :retention_credential_secret_id
+             ]
            ) do
       {:ok,
        Enum.flat_map(rows, fn row ->
          [
            {row.writer_credential_secret_id, "Camera archive (writer)", :writer},
-           {row.reader_credential_secret_id, "Camera archive (reader)", :reader}
+           {row.reader_credential_secret_id, "Camera archive (reader)", :reader},
+           {row.retention_credential_secret_id, "Camera archive (retention)", :retention}
          ]
          |> Enum.filter(fn {secret_id, _label, _slot} ->
            not is_nil(secret_id) and MapSet.member?(id_set, to_string(secret_id))

@@ -88,6 +88,7 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
                {:outbound_mail_settings, ids.outbound_mail_settings, :password},
                {:plugin_repository, ids.plugin_repository, nil},
                {:recording_archive_settings, ids.recording_archive_settings, :reader},
+               {:recording_archive_settings, ids.recording_archive_settings, :retention},
                {:recording_archive_settings, ids.recording_archive_settings, :writer},
                {:snmp_profile, ids.snmp_profile, nil},
                {:snmp_target, ids.snmp_target, nil}
@@ -142,13 +143,14 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
            ]
   end
 
-  test "camera archive writer and reader slots report separate labels and block secret deletion" do
+  test "camera archive writer, reader, and retention slots report separate labels and block secret deletion" do
     writer = secret_fixture("camera-writer")
     reader = secret_fixture("camera-reader")
+    retention = secret_fixture("camera-retention")
 
     sql!(
-      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $2, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id",
-      [dump(writer.id), dump(reader.id)]
+      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, retention_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $2, $3, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id, retention_credential_secret_id = EXCLUDED.retention_credential_secret_id",
+      [dump(writer.id), dump(reader.id), dump(retention.id)]
     )
 
     assert {:ok, %Result{consumers: [writer_consumer]}} =
@@ -171,7 +173,17 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
              slot: :reader
            }
 
-    for secret <- [writer, reader] do
+    assert {:ok, %Result{consumers: [retention_consumer]}} =
+             CredentialUsage.for_secret(retention.id, actor: @manager)
+
+    assert retention_consumer == %Consumer{
+             kind: :recording_archive_settings,
+             id: "deployment",
+             label: "Camera archive (retention)",
+             slot: :retention
+           }
+
+    for secret <- [writer, reader, retention] do
       assert {:error, error} =
                secret
                |> Ash.Changeset.for_destroy(:destroy_permanently, %{confirm_secret_id: secret.id})
@@ -327,7 +339,7 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     )
 
     sql!(
-      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $1, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id",
+      "INSERT INTO platform.camera_recording_archive_settings (id, writer_credential_secret_id, reader_credential_secret_id, retention_credential_secret_id, archive_enabled, inserted_at, updated_at) VALUES ('deployment', $1, $1, $1, false, now(), now()) ON CONFLICT (id) DO UPDATE SET writer_credential_secret_id = EXCLUDED.writer_credential_secret_id, reader_credential_secret_id = EXCLUDED.reader_credential_secret_id, retention_credential_secret_id = EXCLUDED.retention_credential_secret_id",
       [dump(secret_id)]
     )
 

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
   alias ServiceRadar.Camera.IngestOwner
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
@@ -82,7 +83,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(view, "#block-inserted-#{fixture.receipt_block_id}")
     assert render(view) =~ "version synth-ver-db-01"
 
-    # Filtering by the relay-eligible stream profile exercises Enum.any?/2 on real StreamProfile structs.
     view
     |> element("#recording-camera-picker-form")
     |> render_change(%{
@@ -95,7 +95,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
              "#recording-profile-select option[value='#{fixture.eligible_profile.id}'][selected]"
            )
 
-    # Reset profile filter and advance keyset page against real RecordingBlocks.operator_page/3.
     view
     |> element("#recording-camera-picker-form")
     |> render_change(%{"camera_source_id" => fixture.source.id, "stream_profile_id" => ""})
@@ -110,18 +109,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(view, "#block-inserted-#{fixture.oldest_block_id}")
   end
 
-  test "archive tab registers an operator destination and saves active archive settings against Postgres without stubs",
-       %{conn: conn, scope: scope, actor: actor} do
+  test "archive and retention tabs persist E1 retention settings, retention delete credential, and render real CNPG usage and calculated holds figures end-to-end",
+       %{conn: conn, user: user, scope: scope, actor: actor} do
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Archive Writer")
+    retention_secret = create_synthetic_s3_secret(actor, "Synthetic Archive Retention")
     slug = "synthetic-#{System.unique_integer([:positive])}"
 
     {:ok, view, html} = live(conn, ~p"/settings/recording?tab=archive")
 
     assert has_element?(view, "#register-archive-destination-form")
     assert html =~ "Local only: no object storage configured"
-
-    {:ok, retention_view, _retention_html} = live(conn, ~p"/settings/recording?tab=retention")
-    assert has_element?(retention_view, "#recording-retention-blocked-panel")
 
     view
     |> element("#register-archive-destination-form")
@@ -141,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert binding.generation == 1
     assert has_element?(view, "#archive-binding-#{binding.id}")
 
+    # Save with writer credential only first: object retention must report unenforced
     view
     |> element("#recording-archive-settings-form")
     |> render_submit(%{
@@ -148,7 +146,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
         "active_archive_binding_id" => binding.id,
         "archive_enabled" => "true",
         "writer_credential_secret_id" => writer_secret.id,
-        "reader_credential_secret_id" => ""
+        "reader_credential_secret_id" => "",
+        "retention_credential_secret_id" => ""
+      }
+    })
+
+    assert has_element?(view, "#archive-retention-unenforced-notice")
+    assert render(view) =~ "Object retention not enforced: no delete credential"
+
+    {:ok, retention_unenforced_view, retention_unenforced_html} =
+      live(conn, ~p"/settings/recording?tab=retention")
+
+    assert has_element?(retention_unenforced_view, "#recording-tab-panel-retention")
+    refute has_element?(retention_unenforced_view, "#recording-retention-blocked-panel")
+    assert retention_unenforced_html =~ "Object retention not enforced: no delete credential"
+
+    # Now bind the retention delete credential on the Archive tab
+    view
+    |> element("#recording-archive-settings-form")
+    |> render_submit(%{
+      "settings" => %{
+        "active_archive_binding_id" => binding.id,
+        "archive_enabled" => "true",
+        "writer_credential_secret_id" => writer_secret.id,
+        "reader_credential_secret_id" => "",
+        "retention_credential_secret_id" => retention_secret.id
       }
     })
 
@@ -157,7 +179,190 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert overview.active_binding_id == binding.id
     assert overview.form["archive_enabled"] == "true"
     assert overview.selected_writer_label == writer_secret.name
+    assert overview.selected_retention_label == retention_secret.name
+    assert overview.object_retention_enforced? == true
     refute has_element?(view, "#archive-local-only-banner")
+    refute has_element?(view, "#archive-retention-unenforced-notice")
+
+    # Seed real recent RecordingBlocks and NVRArchiveReceipts spanning > 24h on the active binding
+    seed_recent_blocks_and_receipts(actor, binding)
+
+    {:ok, ret_view, ret_html} = live(conn, ~p"/settings/recording?tab=retention")
+
+    refute has_element?(ret_view, "#retention-unenforced-banner")
+    assert ret_html =~ "200 MiB"
+    assert ret_html =~ "2 blocks (2 objects)"
+    assert ret_html =~ "24h: 100 MiB/day"
+    assert ret_html =~ "Object archive holds about 30 days"
+    assert ret_html =~ "configured 30 days, effective about 30 days (time binds)"
+    assert ret_html =~ "Local storage holds about"
+    assert ret_html =~ "at the current rate"
+
+    # Pre-save phx-change what-if with a 1 GiB (1,073,741,824 B) object budget:
+    # 80% low water = 858,993,459 B / 104,857,600 B/day = ~8.2 days (capacity binds)
+    changed_html =
+      ret_view
+      |> element("#recording-retention-settings-form")
+      |> render_change(%{
+        "retention" => %{
+          "object_budget_mode" => "limited",
+          "object_budget_bytes" => "1073741824",
+          "object_high_water_percent" => "90",
+          "object_low_water_percent" => "80",
+          "object_capacity_policy" => "reap_oldest"
+        }
+      })
+
+    assert changed_html =~ "Object archive holds about 8.2 days"
+    assert changed_html =~ "configured 30 days, effective about 8.2 days (capacity binds)"
+
+    # Persist E1 retention settings with explicit confirmations for overwrite_oldest and reap_oldest
+    saved_html =
+      ret_view
+      |> element("#recording-retention-settings-form")
+      |> render_submit(%{
+        "retention" => %{
+          "local_high_water_percent" => "85",
+          "local_low_water_percent" => "75",
+          "max_local_age_mode" => "limited",
+          "max_local_age_seconds" => "172800",
+          "local_window_alert_mode" => "enabled",
+          "local_window_alert_seconds" => "1800",
+          "local_only_full_policy" => "overwrite_oldest",
+          "confirm_local_only_overwrite" => "true",
+          "local_only_target_mode" => "target",
+          "local_only_retention_target_seconds" => "604800",
+          "local_only_max_age_mode" => "limited",
+          "local_only_max_age_seconds" => "259200",
+          "archive_retention_mode" => "limited",
+          "archive_retention_days" => "30",
+          "object_budget_mode" => "limited",
+          "object_budget_bytes" => "1073741824",
+          "object_high_water_percent" => "90",
+          "object_low_water_percent" => "80",
+          "object_capacity_policy" => "reap_oldest",
+          "confirm_reap_oldest" => "true"
+        }
+      })
+
+    assert saved_html =~ "Confirmed: overwrite_oldest"
+    assert saved_html =~ "Confirmed: reap_oldest"
+    assert saved_html =~ "configured 30 days, effective about 8.2 days (capacity binds)"
+
+    {:ok, persisted} = RecordingArchiveSettings.get_settings(actor: actor)
+    assert persisted.retention_credential_secret_id == retention_secret.id
+    assert persisted.local_high_water_percent == 85
+    assert persisted.local_low_water_percent == 75
+    assert persisted.max_local_age_seconds == 172_800
+    assert persisted.local_window_alert_seconds == 1_800
+    assert persisted.local_only_full_policy == :overwrite_oldest
+    assert persisted.local_only_full_policy_confirmed_by_id == to_string(user.id)
+    assert %DateTime{} = persisted.local_only_full_policy_confirmed_at
+    assert persisted.local_only_max_age_mode == :limited
+    assert persisted.local_only_max_age_seconds == 259_200
+    assert persisted.object_budget_mode == :limited
+    assert persisted.object_budget_bytes == 1_073_741_824
+    assert persisted.object_capacity_policy == :reap_oldest
+    assert persisted.object_capacity_policy_confirmed_by_id == to_string(user.id)
+    assert %DateTime{} = persisted.object_capacity_policy_confirmed_at
+  end
+
+  defp seed_recent_blocks_and_receipts(actor, binding) do
+    opts = [actor: actor]
+    key = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    {:ok, source} =
+      Source.create_source(
+        %{
+          device_uid: "sr:synthetic-ret-cam-#{key}",
+          vendor: "synthetic",
+          vendor_camera_id: key,
+          display_name: "Synthetic Retention Camera #{System.unique_integer([:positive])}",
+          assigned_agent_id: "agent-example",
+          assigned_gateway_id: "gateway-example"
+        },
+        opts
+      )
+
+    {:ok, profile} =
+      StreamProfile.create_profile(
+        %{
+          camera_source_id: source.id,
+          profile_name: "main-retention",
+          codec_hint: "h264",
+          relay_eligible: true
+        },
+        opts
+      )
+
+    {:ok, session} =
+      RelaySessionManager.request_open(source.id, profile.id,
+        actor: actor,
+        control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
+        dispatch_open: fn _agent, _payload, open_opts, _requester ->
+          {:ok, open_opts[:command_id]}
+        end
+      )
+
+    assignment =
+      Map.take(session, [:agent_id, :gateway_id, :camera_source_id, :stream_profile_id])
+
+    {:ok, session} =
+      RelaySessionLifecycle.activate_session(
+        session.id,
+        "synthetic-ret-ingest-#{key}",
+        assignment,
+        opts
+      )
+
+    {:ok, owner} =
+      IngestOwner
+      |> Ash.Query.filter(camera_source_id == ^source.id and stream_profile_id == ^profile.id)
+      |> Ash.read_one(opts)
+
+    claim =
+      RecorderClaim
+      |> Ash.Changeset.for_create(:initialize, %{ingest_owner_id: owner.id}, opts)
+      |> Ash.create!(opts)
+
+    old_ts = DateTime.shift(now, hour: -26)
+    recent_ts = DateTime.shift(now, minute: -2)
+
+    block_old = insert_synthetic_block_at(source.id, profile.id, owner, session, claim.id, 0, old_ts)
+    block_recent = insert_synthetic_block_at(source.id, profile.id, owner, session, claim.id, 1, recent_ts)
+
+    for {blk, verified_dt, idx} <- [{block_old, old_ts, 1}, {block_recent, recent_ts, 2}] do
+      object_sha =
+        Base.encode16(:crypto.hash(:sha256, "synthetic-ret-payload-#{idx}"), case: :lower)
+
+      receipt_bytes =
+        Jason.encode!(%{
+          "version" => 2,
+          "storage_id" => @storage_id,
+          "block_key" => blk.block_key,
+          "destination_sha256" => binding.destination_sha256,
+          "verified_at_ms" => DateTime.to_unix(verified_dt, :millisecond),
+          "objects" => [
+            %{
+              "name" => "media.m4s",
+              "key" => "recordings/v1/#{@storage_id}/#{blk.block_key}/media.m4s",
+              "length" => 104_857_600,
+              "sha256" => object_sha,
+              "etag" => "\"synthetic-ret-etag-#{idx}\"",
+              "version_id" => "synth-ret-ver-0#{idx}"
+            }
+          ]
+        })
+
+      {:ok, _receipt} =
+        NVRArchiveReceipt.record(
+          binding.id,
+          receipt_bytes,
+          %{recording_block_id: blk.id},
+          actor: actor
+        )
+    end
   end
 
   defp create_camera_with_profiles_and_blocks(actor, total_blocks) do
@@ -203,7 +408,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
       RelaySessionManager.request_open(source.id, eligible_profile.id,
         actor: actor,
         control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
-        dispatch_open: fn _agent, _payload, open_opts, _requester -> {:ok, open_opts[:command_id]} end
+        dispatch_open: fn _agent, _payload, open_opts, _requester ->
+          {:ok, open_opts[:command_id]}
+        end
       )
 
     assignment =
@@ -229,7 +436,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
 
     inserted =
       for seq <- 0..(total_blocks - 1) do
-        insert_synthetic_block(source.id, eligible_profile.id, owner, session, claim.id, seq)
+        insert_synthetic_block_at(
+          source.id,
+          eligible_profile.id,
+          owner,
+          session,
+          claim.id,
+          seq,
+          DateTime.shift(~U[2026-11-15 12:00:00.000000Z], second: seq)
+        )
       end
 
     oldest = hd(inserted)
@@ -285,15 +500,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     }
   end
 
-  defp insert_synthetic_block(source_id, profile_id, owner, session, claim_id, sequence) do
+  defp insert_synthetic_block_at(source_id, profile_id, owner, session, claim_id, sequence, inserted_at) do
     block_id = Ash.UUIDv7.generate()
 
     block_key =
       :sha256
       |> :crypto.hash("synthetic-web-ng-block:#{claim_id}:#{sequence}")
       |> Base.encode16(case: :lower)
-
-    inserted_at = DateTime.shift(~U[2026-11-15 12:00:00.000000Z], second: sequence)
 
     SQL.query!(
       Repo,

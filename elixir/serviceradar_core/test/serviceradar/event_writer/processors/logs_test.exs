@@ -82,6 +82,54 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.attributes["safe"] == "kept"
     end
 
+    test "redacts a crash report's TURN and ICE credentials in every rendering" do
+      # Invented values in the shape of a crashed TURN client: its password,
+      # the HMAC key derived from it, and an ICE agent's passwords.
+      key = :crypto.hash(:md5, "1700000000:synthetic-user:realm.example.com:synthetic-pass")
+      [k1, k2, k3 | _] = :binary.bin_to_list(key)
+
+      client = %{
+        username: "1700000000:synthetic-user",
+        password: "synthetic-turn-password",
+        key: key,
+        transactions: %{1 => %{integrity: {true, key}}},
+        ice: %{local_pwd: "synthetic-local-pwd", remote_pwd: "synthetic-remote-pwd"}
+      }
+
+      erlang = IO.chardata_to_string(:io_lib.format(~c"~0tp", [{:badmatch, {:ok, client}}]))
+      elixir = inspect({:ok, client}, pretty: true, limit: :infinity)
+
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "severity_text" => "ERROR",
+          "body" => "GenServer terminating\n" <> elixir,
+          "attributes" => %{
+            "crash_reason" => erlang,
+            "reason" => erlang,
+            "elixir_translation" => elixir
+          }
+        })
+
+      result = Logs.parse_message(%{data: json_data, metadata: %{subject: "logs.otel"}})
+      stored = Jason.encode!([result.body, result.attributes])
+
+      for secret <- [
+            "synthetic-turn-password",
+            "synthetic-local-pwd",
+            "synthetic-remote-pwd",
+            "#{k1}, #{k2}, #{k3}",
+            "#{k1},#{k2},#{k3}"
+          ] do
+        refute stored =~ secret
+      end
+
+      refute stored =~ "[REDACTED]]"
+      assert result.attributes["crash_reason"] =~ ~s(password => <<"[REDACTED]">>)
+      assert result.body =~ ~s(password: "[REDACTED]")
+      assert result.attributes["crash_reason"] =~ "1700000000:synthetic-user"
+    end
+
     test "parses camelCase fields" do
       json_data =
         Jason.encode!(%{
