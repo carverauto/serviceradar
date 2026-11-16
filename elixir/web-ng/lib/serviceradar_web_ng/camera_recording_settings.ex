@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
@@ -256,7 +257,16 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       settings: base,
       archive: %{
         active_archive_binding_id: Map.get(base, :active_archive_binding_id),
+        active_bucket: nil,
+        same_bucket_binding_ids: [],
+        same_bucket_binding_count: 0,
         archive_used_bytes: 0,
+        verified_and_deleting_bytes: 0,
+        uploads_in_flight_bytes: 0,
+        uploads_in_flight_count: 0,
+        quarantine_object_bytes: 0,
+        blocked_by_provider_bytes: 0,
+        catalog_non_reapable_bytes: 0,
         archived_block_count: 0,
         archived_object_count: 0,
         oldest_verified_at: nil,
@@ -265,6 +275,9 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         trailing_24h_bytes: 0,
         trailing_7d_bytes: 0,
         trailing_7d_daily_mean_bytes: 0.0,
+        other_buckets: [],
+        other_buckets_count: 0,
+        other_buckets_used_bytes: 0,
         measured_rate_bytes_per_day: projected.rate.bytes_per_day,
         rate_basis: projected.rate.basis
       },
@@ -273,7 +286,23 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         trailing_15m_blocks: 0,
         trailing_6h_blocks: 0,
         history_seconds: 0,
-        by_storage: %{}
+        by_storage: %{},
+        cataloged_block_count: 0,
+        local_present_blocks: 0,
+        local_present_bytes: 0,
+        unarchived_local_count: 0,
+        unarchived_local_bytes: 0,
+        kind_b_local_only_bytes: 0,
+        quarantined_local_count: 0,
+        quarantined_local_bytes: 0,
+        local_only_after_archive_count: 0,
+        local_only_after_archive_bytes: 0,
+        oldest_local_only_after_archive_at: nil,
+        trailing_15m_catalog_bytes: 0,
+        trailing_6h_catalog_bytes: 0,
+        catalog_r15m_bytes_per_sec: 0.0,
+        catalog_r6h_bytes_per_sec: 0.0,
+        catalog_history_seconds: 0
       },
       object_projection: projected.object_projection,
       local_projection: projected.local_projection,
@@ -517,8 +546,9 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   @doc """
   Loads a bounded page of NVR block reservations for `camera_source_id` (and
-  optional `stream_profile_id`), decorating each row with honest local-unknown
-  status and any Core `NVRArchiveReceipt` record.
+  optional `stream_profile_id`), joining `RecordingCatalogEntry` copy states and
+  time basis alongside `NVRArchiveReceipt` records while preserving honest
+  local-unknown status for uncataloged reservations.
   """
   @spec list_camera_blocks_page(map(), String.t() | nil, keyword()) ::
           {:ok, %{rows: [map()], next_cursor: term()}}
@@ -530,15 +560,15 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   def list_camera_blocks_page(scope, camera_source_id, opts) do
     page_opts = maybe_put_opt([limit: @block_page_size], :after, Keyword.get(opts, :cursor))
-
     profile_filter = blank_to_nil(Keyword.get(opts, :stream_profile_id))
 
-    case RecordingBlocks.operator_page(camera_source_id, page_opts, actor_opts(scope)) do
+    case load_operator_blocks_page(scope, camera_source_id, page_opts, opts) do
       {:ok, page} ->
         {blocks, next_cursor} = unpack_operator_page(page)
         filtered = filter_blocks_by_profile(blocks, profile_filter)
-        receipts_by_key = load_receipts_for_blocks(filtered)
-        rows = Enum.map(filtered, &decorate_block_row(&1, receipts_by_key))
+        receipts_by_key = load_receipts_for_blocks(filtered, opts)
+        catalog_by_key = load_catalog_for_blocks(filtered, scope, opts)
+        rows = Enum.map(filtered, &decorate_block_row(&1, receipts_by_key, catalog_by_key))
         {:ok, %{rows: rows, next_cursor: next_cursor}}
 
       {:error, _reason} ->
@@ -1190,9 +1220,17 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
     default_cameras =
       if Map.get(local_blocks, :total_reserved_blocks, 0) > 0 or
-           Map.get(archive, :archived_block_count, 0) > 0,
+           Map.get(local_blocks, :cataloged_block_count, 0) > 0 or
+           Map.get(archive, :archived_block_count, 0) > 0 or
+           Map.get(archive, :uploads_in_flight_count, 0) > 0,
          do: 1,
          else: 0
+
+    local_history_sec =
+      max(
+        Map.get(local_blocks, :history_seconds, 0),
+        Map.get(local_blocks, :catalog_history_seconds, 0)
+      )
 
     %{
       storage_mode: storage_mode,
@@ -1202,7 +1240,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       trailing_7d_daily_mean_bytes:
         if(sim_override_active?, do: 0.0, else: Map.get(archive, :trailing_7d_daily_mean_bytes, 0.0)),
       history_seconds: if(sim_override_active?, do: 0, else: Map.get(archive, :history_seconds, 0)),
-      local_history_seconds: if(sim_override_active?, do: 0, else: Map.get(local_blocks, :history_seconds, 0)),
+      local_history_seconds: if(sim_override_active?, do: 0, else: local_history_sec),
       r15m_bytes_per_sec: if(sim_override_active?, do: 0.0, else: Map.get(local_proj, :rate_bytes_per_sec, 0.0)),
       r6h_bytes_per_sec: 0.0,
       camera_count:
@@ -1433,9 +1471,29 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end)
   end
 
-  defp load_receipts_for_blocks([]), do: %{}
+  defp load_operator_blocks_page(scope, camera_source_id, page_opts, opts) do
+    case opts |> Keyword.get(:loaders, %{}) |> Map.get(:blocks_page_loader) do
+      loader when is_function(loader, 2) ->
+        loader.(camera_source_id, page_opts)
 
-  defp load_receipts_for_blocks(blocks) do
+      _ ->
+        RecordingBlocks.operator_page(camera_source_id, page_opts, actor_opts(scope))
+    end
+  end
+
+  defp load_receipts_for_blocks([], _opts), do: %{}
+
+  defp load_receipts_for_blocks(blocks, opts) do
+    case opts |> Keyword.get(:loaders, %{}) |> Map.get(:receipts_for_blocks_loader) do
+      loader when is_function(loader, 1) ->
+        loader.(blocks)
+
+      _ ->
+        fetch_receipts_for_blocks(blocks)
+    end
+  end
+
+  defp fetch_receipts_for_blocks(blocks) do
     block_keys =
       for block <- blocks, key = Map.get(block, :block_key), is_binary(key), uniq: true, do: key
 
@@ -1450,7 +1508,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       |> Ash.read(actor: actor)
       |> case do
         {:ok, receipts} ->
-          Map.new(receipts, fn r -> {{to_string(r.storage_id), to_string(r.block_key)}, r} end)
+          index_receipts_for_blocks(receipts)
 
         {:error, _} ->
           %{}
@@ -1458,27 +1516,299 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
+  defp index_receipts_for_blocks(receipts) do
+    Enum.reduce(receipts, %{}, fn r, acc ->
+      pair_key = {to_string(r.storage_id), to_string(r.block_key)}
+
+      acc = Map.put(acc, pair_key, r)
+
+      case Map.get(r, :id) do
+        nil -> acc
+        id -> Map.put(acc, {:receipt_id, to_string(id)}, r)
+      end
+    end)
+  end
+
+  defp load_catalog_for_blocks([], _scope, _opts), do: %{}
+
+  defp load_catalog_for_blocks(blocks, scope, opts) do
+    case RecordingCatalogEntry.for_blocks(blocks, actor_opts(scope) ++ opts) do
+      {:ok, entries_by_key} when is_map(entries_by_key) -> entries_by_key
+      _ -> %{}
+    end
+  end
+
   @doc false
-  @spec decorate_block_row(map(), map()) :: map()
-  def decorate_block_row(block, receipts_by_key \\ %{}) do
+  @spec decorate_block_row(map(), map(), map()) :: map()
+  def decorate_block_row(block, receipts_by_key \\ %{}, catalog_by_key \\ %{}) do
     storage_id = to_string(Map.get(block, :storage_id) || "—")
     block_key = to_string(Map.get(block, :block_key) || Map.get(block, :id))
-    receipt = Map.get(receipts_by_key, {storage_id, block_key})
+    block_id = Map.get(block, :id)
+    catalog_entry = resolve_catalog_entry(catalog_by_key, storage_id, block_key, block_id)
+    receipt = resolve_block_receipt(receipts_by_key, storage_id, block_key, catalog_entry)
     raw_state = Map.get(block, :state)
 
-    %{
-      id: to_string(Map.get(block, :id) || block_key),
+    base = %{
+      id: to_string(block_id || block_key),
       block_key: block_key,
       storage_id: storage_id,
       stream_profile_id: Map.get(block, :stream_profile_id),
       inserted_at: Map.get(block, :inserted_at),
-      core_state_label: core_reservation_label(raw_state),
-      local_copy_label: "Unknown (NVR lookup unavailable)",
-      archive_copy_label: if(receipt, do: "Verified receipt", else: "No receipt in Core"),
       receipt: receipt,
       receipt_objects: if(receipt, do: List.wrap(Map.get(receipt, :objects)), else: [])
     }
+
+    if is_nil(catalog_entry) do
+      Map.merge(base, decorate_uncataloged_block_row(raw_state, receipt))
+    else
+      Map.merge(base, decorate_cataloged_block_row(catalog_entry, receipt))
+    end
   end
+
+  defp resolve_catalog_entry(catalog_by_key, storage_id, block_key, block_id) when is_map(catalog_by_key) do
+    case Map.get(catalog_by_key, {storage_id, block_key}) do
+      nil when not is_nil(block_id) ->
+        block_id_str = to_string(block_id)
+
+        catalog_by_key
+        |> Map.values()
+        |> Enum.find(fn entry ->
+          is_map(entry) and to_string(Map.get(entry, :recording_block_id)) == block_id_str
+        end)
+
+      entry ->
+        entry
+    end
+  end
+
+  defp resolve_block_receipt(receipts_by_key, storage_id, block_key, catalog_entry) when is_map(receipts_by_key) do
+    receipt_id = catalog_entry && Map.get(catalog_entry, :nvr_archive_receipt_id)
+
+    if not is_nil(receipt_id) and Map.has_key?(receipts_by_key, {:receipt_id, to_string(receipt_id)}) do
+      Map.get(receipts_by_key, {:receipt_id, to_string(receipt_id)})
+    else
+      Map.get(receipts_by_key, {storage_id, block_key})
+    end
+  end
+
+  defp decorate_uncataloged_block_row(raw_state, receipt) do
+    %{
+      cataloged?: false,
+      catalog_entry_id: nil,
+      core_state_label: core_reservation_label(raw_state),
+      core_state_variant: "ghost",
+      local_state: nil,
+      local_copy_label: "Unknown (NVR lookup unavailable)",
+      local_copy_variant: "warning",
+      local_copy_note: nil,
+      archive_state: nil,
+      archive_copy_label: if(receipt, do: "Verified receipt", else: "No receipt in Core"),
+      archive_copy_variant: if(receipt, do: "success", else: "ghost"),
+      archive_copy_note: nil,
+      time_basis: nil,
+      time_basis_label: nil,
+      timeline_start_at: nil,
+      timeline_end_at: nil,
+      time_uncertainty_label: nil,
+      reanchored?: false,
+      media_bytes: nil,
+      fragment_count: nil
+    }
+  end
+
+  defp decorate_cataloged_block_row(entry, _receipt) do
+    local_state = normalize_state_atom(Map.get(entry, :local_state))
+    archive_state = normalize_state_atom(Map.get(entry, :archive_state))
+    deleted_reason = normalize_state_atom(Map.get(entry, :archive_deleted_reason))
+    quarantine_reason = normalize_state_atom(Map.get(entry, :quarantine_reason))
+
+    {core_label, core_variant} =
+      format_catalog_core_state(local_state, Map.get(entry, :recording_block_id))
+
+    {local_label, local_variant, local_note} =
+      format_catalog_local_state(local_state, archive_state, deleted_reason, quarantine_reason, entry)
+
+    {archive_label, archive_variant, archive_note} =
+      format_catalog_archive_state(archive_state, deleted_reason, entry)
+
+    time_fields = format_catalog_time_fields(entry)
+
+    Map.merge(
+      %{
+        cataloged?: true,
+        catalog_entry_id: entry |> Map.get(:id) |> to_string_or_nil(),
+        core_state_label: core_label,
+        core_state_variant: core_variant,
+        local_state: local_state,
+        local_copy_label: local_label,
+        local_copy_variant: local_variant,
+        local_copy_note: local_note,
+        archive_state: archive_state,
+        archive_copy_label: archive_label,
+        archive_copy_variant: archive_variant,
+        archive_copy_note: archive_note,
+        media_bytes: Map.get(entry, :media_bytes),
+        fragment_count: Map.get(entry, :fragment_count)
+      },
+      time_fields
+    )
+  end
+
+  defp format_catalog_core_state(:quarantined, nil), do: {"Cataloged (quarantined)", "error"}
+  defp format_catalog_core_state(:quarantined, _block_id), do: {"Cataloged · Sealed (quarantined)", "error"}
+  defp format_catalog_core_state(_local_state, _block_id), do: {"Cataloged · Sealed", "success"}
+
+  defp format_catalog_local_state(:present, archive_state, deleted_reason, _q_reason, entry) do
+    registered? = Map.get(entry, :local_copy_registered?) == true
+    label = if registered?, do: "present", else: "present (provisional)"
+    variant = if registered?, do: "success", else: "info"
+    note = local_only_after_archive_note(archive_state, deleted_reason)
+    {label, variant, note}
+  end
+
+  defp format_catalog_local_state(:reclaimed, _archive_state, _deleted_reason, _q_reason, _entry) do
+    {"reclaimed", "ghost", nil}
+  end
+
+  defp format_catalog_local_state(:reclaiming, _archive_state, _deleted_reason, _q_reason, _entry) do
+    {"reclaiming", "warning", nil}
+  end
+
+  defp format_catalog_local_state(:missing, _archive_state, _deleted_reason, _q_reason, _entry) do
+    {"missing", "error", nil}
+  end
+
+  defp format_catalog_local_state(:quarantined, _archive_state, _deleted_reason, q_reason, _entry) do
+    note = if q_reason, do: "Reason: #{q_reason}"
+    {"quarantined", "error", note}
+  end
+
+  defp format_catalog_local_state(other, _archive_state, _deleted_reason, _q_reason, _entry) do
+    {to_string(other || "unknown"), "warning", nil}
+  end
+
+  defp local_only_after_archive_note(:deleted, :object_capacity), do: "Local only after archive reaping"
+
+  defp local_only_after_archive_note(:deleted, :object_retention), do: "Local only after archive expiry"
+
+  defp local_only_after_archive_note(:deleted, _reason), do: "Local only after archive deletion"
+
+  defp local_only_after_archive_note(_archive_state, _reason), do: nil
+
+  defp format_catalog_archive_state(archive_state, deleted_reason, entry) do
+    {label, variant} = catalog_archive_badge(archive_state)
+    err_class = Map.get(entry, :archive_last_error_class)
+    attempts = Map.get(entry, :archive_attempts, 0)
+    note = catalog_archive_note(archive_state, deleted_reason, err_class, attempts)
+    {label, variant, note}
+  end
+
+  defp catalog_archive_badge(:not_required), do: {"not_required (local only)", "ghost"}
+  defp catalog_archive_badge(:awaiting_binding), do: {"awaiting_binding", "warning"}
+  defp catalog_archive_badge(:pending), do: {"pending", "info"}
+  defp catalog_archive_badge(:failed_retryable), do: {"failed_retryable", "warning"}
+  defp catalog_archive_badge(:failed_terminal), do: {"failed_terminal", "error"}
+  defp catalog_archive_badge(:verified), do: {"verified", "success"}
+  defp catalog_archive_badge(:deleting), do: {"deleting", "warning"}
+  defp catalog_archive_badge(:deleted), do: {"deleted", "ghost"}
+  defp catalog_archive_badge(:missing), do: {"missing", "error"}
+  defp catalog_archive_badge(other), do: {to_string(other || "unknown"), "ghost"}
+
+  defp catalog_archive_note(:deleted, reason, _err_class, _attempts) when not is_nil(reason) do
+    "Deleted (#{reason})"
+  end
+
+  defp catalog_archive_note(_state, _reason, "blocked_by_provider", _attempts) do
+    "Delete blocked by provider"
+  end
+
+  defp catalog_archive_note(_state, _reason, err_class, attempts)
+       when is_binary(err_class) and err_class != "" and is_integer(attempts) and attempts > 0 do
+    "Error: #{err_class} (attempt #{attempts})"
+  end
+
+  defp catalog_archive_note(_state, _reason, err_class, _attempts) when is_binary(err_class) and err_class != "" do
+    "Error: #{err_class}"
+  end
+
+  defp catalog_archive_note(_state, _reason, _err_class, _attempts), do: nil
+
+  defp format_catalog_time_fields(entry) do
+    time_basis = normalize_state_atom(Map.get(entry, :time_basis))
+    start_us = Map.get(entry, :timeline_start_us)
+    end_us = Map.get(entry, :timeline_end_us)
+    uncertainty_us = Map.get(entry, :time_uncertainty_us)
+
+    %{
+      time_basis: time_basis,
+      time_basis_label: if(time_basis, do: Atom.to_string(time_basis)),
+      timeline_start_at: unix_us_to_datetime(start_us),
+      timeline_end_at: unix_us_to_datetime(end_us),
+      time_uncertainty_label: format_time_uncertainty(time_basis, uncertainty_us),
+      reanchored?: Map.get(entry, :reanchored) == true
+    }
+  end
+
+  defp format_time_uncertainty(nil, _uncertainty_us), do: nil
+  defp format_time_uncertainty(_basis, nil), do: "Uncertainty: unmeasured"
+
+  defp format_time_uncertainty(_basis, us) when is_integer(us) and us >= 1_000_000 do
+    seconds = Float.round(us / 1_000_000.0, 2)
+    "Uncertainty: ±#{seconds} s"
+  end
+
+  defp format_time_uncertainty(_basis, us) when is_integer(us) and us >= 1_000 do
+    ms = Float.round(us / 1_000.0, 1)
+    "Uncertainty: ±#{ms} ms"
+  end
+
+  defp format_time_uncertainty(_basis, us) when is_integer(us) and us >= 0 do
+    "Uncertainty: ±#{us} µs"
+  end
+
+  defp format_time_uncertainty(_basis, _other), do: "Uncertainty: unmeasured"
+
+  defp unix_us_to_datetime(us) when is_integer(us) do
+    case DateTime.from_unix(us, :microsecond) do
+      {:ok, dt} -> dt
+      _ -> nil
+    end
+  end
+
+  defp unix_us_to_datetime(_), do: nil
+
+  @known_catalog_atoms %{
+    "present" => :present,
+    "quarantined" => :quarantined,
+    "reclaiming" => :reclaiming,
+    "reclaimed" => :reclaimed,
+    "missing" => :missing,
+    "not_required" => :not_required,
+    "awaiting_binding" => :awaiting_binding,
+    "pending" => :pending,
+    "failed_retryable" => :failed_retryable,
+    "failed_terminal" => :failed_terminal,
+    "verified" => :verified,
+    "deleting" => :deleting,
+    "deleted" => :deleted,
+    "received" => :received,
+    "camera_reported" => :camera_reported,
+    "object_retention" => :object_retention,
+    "object_capacity" => :object_capacity,
+    "operator" => :operator,
+    "unrecoverable_journal" => :unrecoverable_journal,
+    "unattributable" => :unattributable,
+    "binding_without_history" => :binding_without_history,
+    "binding_compromised" => :binding_compromised
+  }
+
+  defp normalize_state_atom(nil), do: nil
+  defp normalize_state_atom(val) when is_atom(val), do: val
+  defp normalize_state_atom(val) when is_binary(val), do: Map.get(@known_catalog_atoms, val)
+  defp normalize_state_atom(_), do: nil
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(val), do: to_string(val)
 
   defp core_reservation_label(state) when state in [:open_local, "open_local"], do: "Core reservation"
 
