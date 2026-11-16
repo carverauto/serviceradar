@@ -137,6 +137,49 @@ class HarborPublishTest(unittest.TestCase):
                     self.assertEqual(observed, ["capacity"] if "CAPACITY_EXIT" in override else [])
                     events.touch()
 
+    def test_bundle_publishers_give_the_commit_and_release_tags_one_digest(self):
+        # Promotion refuses a release whose sha-<commit> and release tags name
+        # different manifests. A real `oras push` stamps each manifest with its
+        # own org.opencontainers.image.created time, so this registry gives every
+        # push a fresh digest; only a single push carrying both tags agrees.
+        registry = self.root / "registry.json"
+        self.fake("oras", f"""
+assert sys.argv[1] == "push", sys.argv
+reference = next(arg for arg in sys.argv[2:] if arg.startswith("registry.example/"))
+repository, tags = reference.rsplit(":", 1)
+state = json.loads(pathlib.Path({str(registry)!r}).read_text())
+digest = "sha256:%064x" % (len(state) + 1)
+for tag in tags.split(","):
+    state[repository + ":" + tag] = digest
+pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
+""")
+        self.fake("git", "print('a' * 40)\n")
+        self.fake("signature", "pathlib.Path(sys.argv[sys.argv.index('--out') + 1]).write_text('{}')\n")
+        bundle = self.root / "example.zip"
+        bundle.write_bytes(b"synthetic bundle")
+        metadata = self.root / "example.metadata.json"
+        metadata.write_text(json.dumps({"addon_id": "example", "plugin_id": "example",
+                                       "repository_name": "example", "artifact_type": "application/example",
+                                       "bundle_media_type": "application/zip",
+                                       "upload_signature_media_type": "application/example-signature"}))
+        env = self.env | {"OCI_REGISTRY": "registry.example", "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY": "synthetic",
+                          "HOME": str(self.root)}
+        env.pop("OCI_PROJECT", None)
+        for script, signing_flag in (("native_addons/publish_addon.sh", "--artifact-signature-tool"),
+                                     ("wasm_plugins/publish_plugin.sh", "--upload-signature-tool")):
+            with self.subTest(script=script):
+                registry.write_text("{}")
+                result = subprocess.run(
+                    ["bash", str(REPO / "build" / script), "--bundle", str(bundle), "--metadata", str(metadata),
+                     "--oras", str(self.bin / "oras"), signing_flag, str(self.bin / "signature"),
+                     "--tag", "v9.9.9"],
+                    cwd=self.root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                state = json.loads(registry.read_text())
+                repository = "registry.example/serviceradar-builds/example"
+                self.assertEqual(sorted(state), [repository + ":sha-" + "a" * 40, repository + ":v9.9.9"])
+                self.assertEqual(len(set(state.values())), 1, state)
+
     def test_signers_refuse_protected_writes_and_missing_capacity_tool(self):
         calls = self.root / "calls"
         for tool in ("cosign", "oras", "curl"):
