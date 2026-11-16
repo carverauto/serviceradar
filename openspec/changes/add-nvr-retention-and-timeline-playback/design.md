@@ -191,6 +191,21 @@ whatever the bucket's size; the bucket bounds only the archive copies, and a
 reaped archive copy no longer strands its local copy, because that copy stays
 evictable.
 
+**PD8. The per-camera storage choice decides when the drain ends.** This is an
+explicit refinement of
+[add-edge-production-time-admission](../add-edge-production-time-admission/design.md)
+Decision 10 ("other queues", NVR/VMS media), which says that once an archive
+destination is configured only a verified archive receipt or a verified
+quarantine-destination receipt ends the drainer. Refined: that rule applies to
+blocks whose policy archives (A6). A block whose camera policy is `local_only`,
+including while a destination is configured for other cameras, and a block
+moved to `not_required` because archiving was turned off, ends at its local
+catalog entry with its index receipt, or, for a bad seal, at its local
+quarantine receipt (R2). Rationale: an operator's explicit `local_only` policy
+is not an undelivered archive; treating it as one would keep the drainer
+retrying an upload the operator chose not to make. Task R.7c asks that change
+to amend its text so the two agree.
+
 ## A. Continuous recording that fits the volume
 
 ### A1. Block sizing
@@ -460,6 +475,12 @@ with `archive_state = not_required` and nothing is enqueued. The job:
    stays on the health tab until an operator resolves it (R5); it is never a
    silent end state.
 
+For an entry with `local_state = quarantined` (R2) the same job copies the
+quarantined files, unindexed and with their per-file digests, to the
+`_quarantine/` prefix through the NVR's quarantine archive route, verifies them
+by read-back, and records the receipt; retries, backoff and terminal classes are
+unchanged.
+
 Every sealed block that archives (above) is archived. Dual write here means
 "kept locally and copied after sealing", not a synchronous write to two places (settings change D13).
 
@@ -635,7 +656,7 @@ are never left as unexplained local bytes.
 | Field | Notes |
 | --- | --- |
 | `id` | UUID |
-| `recording_block_id` | FK restrict, unique; the frozen block |
+| `recording_block_id` | FK restrict, unique; the frozen block; NULL only for a quarantined entry whose block was never frozen (R2) |
 | `camera_source_id`, `stream_profile_id`, `policy_id` | Denormalized for indexes |
 | `storage_id`, `block_key` | Unique pair; the NVR copy identity |
 | `clock_epoch`, `run_id` | Run grouping for continuity |
@@ -645,7 +666,8 @@ are never left as unexplained local bytes.
 | `time_basis`, `time_uncertainty_us`, `anchor_id` | `received` now; NULL uncertainty means unmeasured |
 | `contiguous_with_previous` | True when sequence-contiguous with the previous block of the run |
 | `fragment_count`, `media_bytes`, `init_sha256`, `descriptor_sha256` | From the frozen descriptor |
-| `local_state`, `local_state_at` | `present`, `reclaiming`, `reclaimed`, `missing` |
+| `local_state`, `local_state_at` | `present`, `quarantined`, `reclaiming`, `reclaimed`, `missing` |
+| `quarantine_reason`, `quarantine_receipt` | Set exactly when `local_state = quarantined` (R2): reason class (`unrecoverable_journal`, `unattributable`, `binding_without_history`) and the receipt (the NVR's confirmed partition path, per-file length and SHA-256, bytes, placed-at) |
 | `archive_state`, `archive_state_at` | `not_required`, `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
 | `archive_deleted_reason` | Set once when `archive_state` becomes `deleted`: `object_retention`, `object_capacity` or `operator`; with `local_state = present` the entry is local only after archive expiry or reaping (C3, C3a) |
 | `archive_binding_id` | FK restrict; for a block that archives (A6), the binding active when the entry is registered, never changed afterwards (R8) |
@@ -723,38 +745,48 @@ For every block directory on an NVR volume, within a bounded time after its
 writer retires, the reconciler works it until it reaches one of the drain's
 terminal outcomes. This is the one list; nothing else ends the drain:
 
-| Mode | Terminal outcomes |
+| Block | Terminal outcomes |
 | --- | --- |
-| Local-only (the block does not archive, A6) | Catalogued in the local archive with its index receipt persisted: the catalog entry (B3) with `archive_state = not_required`; or a quarantine receipt recorded (below) |
-| With object storage (the block archives, A6) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); or quarantine receipt recorded |
+| Does not archive: its camera policy is `local_only` (including while a destination is configured for other cameras), or it was moved to `not_required` because archiving was turned off (A6) | Its catalog entry (B3) with `archive_state = not_required` and its index receipt persisted; or, for a bad seal, its quarantined catalog entry with its local quarantine receipt |
+| Archives (A6), or is quarantined while archiving is enabled and its policy is not `local_only` (or is unknown) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); or, for a bad seal, its quarantined entry with `archive_state = verified` for the `_quarantine/` copy (the quarantine-destination receipt). A local catalog entry or a local quarantine placement does not end the drain for these |
 
-A block that reaches an outcome may later be tombstoned by retention through an
-audited disposition (C6); that ends its life, not its drain. An interval with no
+This is the one statement of the drain's terminal outcomes; it refines
+add-edge-production-time-admission Decision 10 as recorded in PD8. A block that
+reaches an outcome may later be tombstoned by retention through an audited
+disposition (C6); that ends its life, not its drain. An interval with no
 recoverable media is recorded as a `RecordingGap` with a reason, alongside the
 outcome of whatever bytes remain.
 
 **Quarantine.** A block or journal whose seal cannot be verified or recovered
-(recovery fails, R4 step 5) or that has no Core authority (R4 step 6) is moved
-by the NVR into a quarantine partition on the same volume (a known root entry
-beside the block directories, accepted by inventory and the ledger like the
-disposition journal, C6). It is retained and counted in volume usage and in a
-quarantined-bytes figure on the health tab; it is never playable or indexed for
-the timeline; budget, age, the full policy and the reaper never select it; and
-it is removed only by an explicit, audited operator disposition (reason
-`operator_quarantine`, C7). The quarantine receipt is a row in the catalog's
-quarantine table (`platform.camera_recording_quarantine`: storage, block key or
-journal name, reservation when one exists, reason class, bytes, placed-at and
-the NVR's confirmation of the move). With object storage, the quarantine
-receipt also records the verified quarantine-destination archive receipt that
-add-edge-production-time-admission requires: the block is copied, unindexed, to
-a `_quarantine/` prefix of the current destination, which object retention and
-the reaper never touch; those objects count in object usage as non-reapable
-bytes (C3a). The lost interval is a gap with reason `quarantined` and the
-verification class. Quarantined bytes are pinned (C1, C1a P5).
+(R4 step 5), that has no Core authority (R4 step 6), or whose registered
+binding is absent from retained history (R8) is moved by the NVR into the
+quarantine partition on the same volume (`.quarantine/<block_key>/`, a known
+root entry, C6) and gets a catalog entry (B3) with `local_state = quarantined`,
+its reason and its quarantine receipt. That entry is the one record every rule
+acts on:
+
+- it is row (q) of the C1 table: never space- or age-evictable, always pinned,
+  and exactly one term (P5) of the C1a pinned bytes;
+- when it archives (table above) its `archive_state` starts `pending` and the
+  A6 job copies it to the `_quarantine/` prefix of its binding, retried like
+  any other until verified; those objects count in object usage and as
+  non-reapable bytes (C3a), and object retention and the reaper never select
+  them; otherwise its `archive_state` is `not_required`;
+- it is never playable: timeline coverage, playlists and fragment routes
+  exclude quarantined entries (D);
+- it is counted in volume usage, in the ledger and in a quarantined-bytes
+  figure on the health tab, and it raises the R5 alarm;
+- it is removed only by an explicit, audited operator disposition (reason
+  `operator_quarantine`, C7) that targets the catalog entry: the NVR reclaim
+  route deletes the partition entry against the receipt's per-file digests,
+  and the retention job deletes any `_quarantine/` objects.
+
+The lost interval is a gap with reason `quarantined` and the verification
+class.
 
 Any state other than an outcome above (unreconciled, not yet adopted, or
-archive still pending or failed) is in progress: the reconciler keeps working the block and the alarms of R5 report
-it.
+archive still pending or failed) is in progress: the reconciler keeps working
+the block and the alarms of R5 report it.
 
 ### R3. Adoption authority
 
@@ -832,14 +864,16 @@ descriptor SHA-256. For each block:
    with reason `incomplete_tail` and its exact media duration when known.
 4. **Rotated block**: apply the derived authority in R3, then as 2 or 3.
 5. **Unrecoverable**: if recovery fails (`empty_block`, identity mismatch,
-   corrupt or missing committed data), quarantine the block or journal (R2),
-   record its quarantine receipt, and record a `RecordingGap` with reason
+   corrupt or missing committed data), quarantine the block or journal (R2)
+   with its quarantined catalog entry and receipt, and record a `RecordingGap` with reason
    `quarantined`, the verification class and the interval known from the
    reservation (the run's timeline when available, otherwise the receipt time
    of the capture). Nothing is removed automatically.
 6. **Unattributable**: no Core authority. Quarantine it (R2) with reason class
    `unattributable`, raise an alarm and list it with the evidence on the
-   health tab; never adopt it. The operator's options are an audited
+   health tab; never adopt it. When its journal identity names a known camera
+   and its media interval is readable, record a `RecordingGap` with reason
+   `quarantined` for that interval. The operator's options are an audited
    disposition or an export for inspection.
 
 Core reservations with no block on the volume (a reserved row whose key is
@@ -864,8 +898,9 @@ Archive retry is the A6 job: jittered exponential backoff (30 s doubling to
 30 min) for as long as the block exists. The reconciler enqueues archive for
 every cataloged block whose archive state is `pending` or `failed_retryable`,
 that still archives (A6) and has no job, so a lost job or an outage cannot
-strand a block; such an entry that no longer archives moves to `not_required`
-as in A6 step 1.
+strand a block; quarantined entries are included, so their `_quarantine/` copy
+is retried the same way. An entry that no longer archives moves to
+`not_required` as in A6 step 1.
 
 Exposed to the settings `health` tab per member and in total: unarchived block
 count and bytes, oldest unarchived age, archive goodput against capture,
@@ -877,7 +912,8 @@ Alarms (through the deduplicated, auto-clearing health-check path in C8, not jus
 
 - oldest unarchived block older than 1 hour (code default);
 - any `failed_terminal` archive entry;
-- any quarantined block, until an operator disposes of it or acknowledges it;
+- any quarantined block, until an audited disposition removes it (it clears
+  only when the condition no longer holds, like every other alarm);
 - a block unreconciled for longer than 2 reconciler intervals plus the writer
   retirement time;
 - reconciliation paused because the recovery gate is closed or history is
@@ -890,14 +926,14 @@ A block is never reclaimed while it is unreconciled:
 - Retention selects catalog entries only (C1-C3), so a block with no catalog
   entry is never a candidate.
 - The NVR reclaim endpoint (C6) requires a Core operation bound to a catalog
-  entry and the frozen descriptor digest, so it cannot target an unadopted
-  block.
+  entry and the frozen descriptor digest, or for a quarantined entry the
+  receipt's per-file digests, so it cannot target a block with no catalog
+  entry.
 - Unreconciled blocks are pinned for capacity eviction (C1, C5): budget and
   age eviction never select them, and if they fill the volume, admission stops
   with a gap.
-- The only deletion of footage outside the catalog entries is an operator's
-  explicit, audited disposition of a quarantined block (`operator_quarantine`),
-  recorded in `RecordingDisposition`.
+- A quarantined entry is deleted only by an operator's explicit, audited
+  disposition (`operator_quarantine`), recorded in `RecordingDisposition`.
 
 ### R7. Relation to the pending define-nvr-* changes
 
@@ -1019,12 +1055,12 @@ archive copy was deleted is "local only after archive expiry or reaping".
 | (a) | `verified`, or `deleted` for any `archive_deleted_reason` (`object_retention`, `object_capacity`, `operator`; C3, C3a) | yes | `max_local_age` when limited | `budget`, `max_local_age` |
 | (b) local-only footage | `not_required` | only when `local_only_full_policy = overwrite_oldest` is recorded; otherwise pinned | `local_only_max_age` when limited, whatever the full policy | `local_only_overwrite`, `local_only_max_age` |
 | (c) pinned by archive state | `pending`, `failed_retryable`, `failed_terminal` (unarchived); `deleting` (until the retention job confirms absence and moves the entry to `deleted`); `missing` (archive copy found changed or absent, an operator decides) | never; always pinned | never | none |
+| (q) quarantined | any; the entry has `local_state = quarantined` (R2) | never; always pinned | never | `operator_quarantine` only |
 
-| (q) quarantined | none: a quarantine receipt (R2), no catalog entry | never; always pinned | never | `operator_quarantine` only |
-
-These rows cover every `archive_state` of B3 exactly once, plus quarantined
-blocks. Any future
-`archive_state` must be added to this table before it can be written; a state
+Row (q) applies whenever `local_state = quarantined`, whatever the
+`archive_state`; rows (a) to (c) apply to every other entry. Together they cover
+every `archive_state` of B3 exactly once. Any future `archive_state` or
+`local_state` must be added to this table before it can be written; a state
 outside the table is a defect, not an implicit kind.
 
 Every row also requires that the block is cataloged and reconciled (section R;
@@ -1101,13 +1137,22 @@ window_k = min(age_k, T_low) to min(age_k, T_high)
   end, exceed the volume's block cap (A5), admission stops at the cap and
   nothing is deleted (1.1, C5). The binding bound is then "block cap", the
   footage is kept, the byte window is not shown as reachable, and the page
-  shows time until admission stops,
-  `(block_cap - blocks_retained) / block_rate`, as its own figure, the way
-  `stop_when_full` separates time-to-full from the window. Worked example
-  (assumed figures): a 1 TiB volume (budget about 0.84 TiB) with one 120 kbit/s
-  camera (15 kB/s, 320 blocks per day) has a byte window of about 570 to 641
-  days, but 131,072 blocks are reached after about 410 days, so the bound is
-  the block cap and admission stops at about 410 days from empty.
+  shows time until admission stops as its own figure, the way
+  `stop_when_full` separates time-to-full from the window. It is the earliest
+  `t` at which `sum_k min(blocks_k + block_rate_k * t, plateau_k)` reaches the
+  block cap, where `blocks_k` are the blocks of kind k retained now and
+  `plateau_k = block_rate_k * window_k` for a kind evicted by space or age; for
+  a pinned kind (P1, P3, P5) the plateau is unbounded. Only kinds still
+  accumulating add to the count, so a kind recycled at its age ceiling stops
+  counting once it plateaus. Worked examples (assumed figures): a 1 TiB volume
+  (budget about 0.84 TiB) with one 120 kbit/s camera (15 kB/s, 320 blocks per
+  day) has a byte window of about 570 to 641 days, but 131,072 blocks are
+  reached after about 410 days, so the bound is the block cap and admission
+  stops at about 410 days from empty. Adding a 4 Mbit/s archived camera (about
+  3,400 blocks per day, 24 h age ceiling) under `stop_when_full` adds a plateau
+  of about 3,400 blocks, not a rate: admission stops after about
+  (131,072 - 3,400) / 320, about 400 days, not the 35 days an aggregate rate
+  would give.
 - **Threshold comparisons.** Every comparison of a window with a threshold or
   target (the what-if warning, `local_window_low`, `local_only_target`, C8)
   uses the lower, low-water end of the range: the history still present right
@@ -1124,7 +1169,8 @@ window_k = min(age_k, T_low) to min(age_k, T_high)
   - P4: held local copies that are the hold's pinned copy (C4) and are not in
     P1 or P3: held kind (a) whose archive copy had already been deleted when
     the hold was placed, and held kind (b) under `overwrite_oldest`.
-  - P5: quarantined bytes (R2).
+  - P5: row (q), quarantined entries (R2); they have catalog entries, so
+    they are never in P2, and row (q) excludes them from P1.
   A held block whose verified archive copy is the pin adds nothing. Unheld
   kind (a) copies, including those local only after archive expiry or reaping,
   are evictable bytes.
@@ -1310,7 +1356,7 @@ Also for local-only:
 ### C3. Object retention: ServiceRadar deletes, provider lifecycle does not
 
 An archive copy is due for deletion when `archived_at + archive_retention_days
-<= now()` and no hold covers it. Default 30 days.
+<= now()`, no hold covers it and its entry is not quarantined (R2). Default 30 days.
 
 Options considered:
 
@@ -1428,7 +1474,7 @@ it. Probe residue (settings change D12) is negligible and excluded.
 **`reap_oldest`.** When usage reaches object high water (of the hard limit),
 Core deletes archive copies of the oldest blocks first, down to object low
 water. Candidates are blocks whose archive copy is `verified`, cataloged,
-reconciled and unheld. The reaper deletes only the archive copy: each deletion
+reconciled, unheld and not quarantined (R2). The reaper deletes only the archive copy: each deletion
 uses the retention credential (C3: versioned delete, HEAD 404 re-check) and is
 an audited disposition of the archive copy with reason `object_capacity`. Each
 pass is bounded (500 blocks) and re-reads usage. Time-based archive retention
@@ -1545,11 +1591,16 @@ retention tab. They fire before reaping starts:
 page and the spec use it:
 
 ```
-reap_oldest, or no budget pressure:
+object budget unlimited (no hard limit):
+  days_to_capacity = "not filling"
+recorded policy reap_oldest:
   days_to_capacity = (high_water_bytes - non_reapable_bytes) / non_reapable_growth
-stop_archiving:
+recorded policy stop_archiving, or no policy recorded (behaves as stop_archiving):
   days_to_capacity = (hard_limit_bytes - usage_bytes) / sum_c rate_c
 ```
+
+The branch depends only on the budget mode and the recorded policy, never on
+current usage.
 
 `non_reapable_bytes` are as defined above;
 `non_reapable_growth` is their growth per day over the trailing 7 days, and
@@ -1679,8 +1730,10 @@ copy, and how each is closed:
 
 Inventory accepts only `.storage-id` and 64-character block directories at the
 volume root (`disk.ex:19`, `disk.ex:61`) and a fixed file list inside each block
-(`disk.ex:9`). The disposition journal is a new known root entry, added to that
-check and to the ledger, so a tombstone never makes inventory fail.
+(`disk.ex:9`). Two new known root entries are added to that check and to the
+ledger: the disposition journal, so a tombstone never makes inventory fail, and
+the quarantine partition (`.quarantine/`, R2), whose entries the ledger counts
+in charged bytes and against the block cap.
 
 Re-checks:
 
