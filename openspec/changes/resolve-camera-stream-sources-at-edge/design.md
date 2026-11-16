@@ -127,6 +127,10 @@ The open flow:
    it in memory and never queues it as a plugin result.
 4. The native reader opens the stream with it as its `SourceURL`.
 
+That in-memory URL, for the life of one relay, is the only place a full stream
+address exists. Nothing in Core, the credential store or the agent's disk holds
+one.
+
 `discovery_assignment_id` is the host-stamped assignment id from the result's
 provenance (`PluginResultProvenance`). The ingestor records it on the source.
 
@@ -157,8 +161,20 @@ The rule, `ServiceRadar.Camera.StreamAddressReduction`:
 - Keys named `rtsp_alias`, `rtsps_alias`, `rtspAlias` or `rtspsAlias` (any case)
   are removed.
 
-It walks the payload recursively and decodes and re-encodes the JSON `details`
-string inside it.
+It walks the payload recursively, and for every string value:
+
+1. If the string itself parses as JSON (an object, array or string), it is
+   decoded, the decoded value is reduced by this same rule, and the result is
+   re-encoded in place. Nesting is followed to a depth of 4; a value still
+   JSON-encoded beyond that depth is replaced by the marker `"[reduced]"`, never
+   left unreduced.
+2. Then the URL rules above are applied to the string. For detection, JSON
+   solidus escapes (`\/`, `\u002f`, `\u003a`, `\u0040`, in any letter case)
+   are first normalised to `/`, `:` and `@`. A reduced URL is written back in
+   unescaped form.
+
+This is the only definition of "reduced"; the ingest path, the D7 scrub and
+`pending/0` all call the same function.
 
 `PluginResultIngestor.ingest_durable/3` and `ingest/2` apply the rule before
 anything else. Everything downstream (status rows, service state, every handler,
@@ -317,7 +333,8 @@ off and on in Protect.
 - Opening a stream adds one controller round trip. This is acceptable for
   user-initiated and recording opens.
 - A recursive walk runs on every plugin result. It is bounded by result size and
-  skips strings without `://`.
+  the D2 nesting depth, and skips strings that contain neither `:` nor a
+  backslash and do not start with `{`, `[` or `"`.
 
 ## Open Questions
 

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Stream address reduction at Core entry
-Core SHALL apply one stream address reduction to every plugin result before persisting it or passing it to any handler, on the durable edge-record path and on the legacy status path. The reduction SHALL replace every `rtsp://` and `rtsps://` URL with its origin (scheme, host, port), SHALL remove userinfo from every other URL, and SHALL remove keys named `rtsp_alias`, `rtsps_alias`, `rtspAlias` or `rtspsAlias` in any letter case, including inside JSON-encoded string fields.
+Core SHALL apply one stream address reduction to every plugin result before persisting it or passing it to any handler, on the durable edge-record path and on the legacy status path. The reduction SHALL replace every `rtsp://` and `rtsps://` URL with its origin (scheme, host, port), SHALL remove userinfo from every other URL, and SHALL remove keys named `rtsp_alias`, `rtsps_alias`, `rtspAlias` or `rtspsAlias` in any letter case. It SHALL apply these rules inside strings that are themselves JSON, to a bounded nesting depth beyond which the value is replaced by a marker, and to URLs written with JSON solidus escapes, as defined once in design D2.
 
 #### Scenario: Un-upgraded plugin reports an alias URL
 - **WHEN** a plugin result contains `rtsps://192.0.2.10:7441/AbCdEf` and a profile metadata key `rtsps_alias`

@@ -29,8 +29,10 @@
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
       it and through the D2 reduction and asserts they agree: an origin only (not pending);
       `rtsps://` with a path; `rtsp://` with userinfo; `https://` with userinfo; an alias key in
-      profile, source and device metadata; and a verbatim URL in `source_origin` (each pending,
-      and clean after one pass).
+      profile, source and device metadata; a verbatim URL in `source_origin`; a path and a
+      userinfo written with JSON solidus escapes (`\/`, `\u002f`, `\u0040`); a URL and an
+      alias key inside a double-encoded JSON string; and a value nested beyond the D2 depth
+      (each pending, and clean after one pass, the last replaced by the D2 marker).
 
 ## 2. Edge resolution (Stage 2)
 
