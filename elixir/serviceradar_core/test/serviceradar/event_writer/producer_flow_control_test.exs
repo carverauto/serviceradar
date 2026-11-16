@@ -250,7 +250,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
 
       {:noreply, [message], _state} = Producer.handle_info({:msg, msg}, state)
 
-      assert message.metadata.broker_subject == "logs.syslog"
+      assert message.metadata.subject == "logs.syslog"
     end
 
     test "exposure failures remain retryable beyond the ordinary delivery limit" do

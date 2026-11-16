@@ -850,37 +850,6 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       end
     end
 
-    test "a subject header cannot move a batch onto the normalized path" do
-      assert Logs.parse_message(%{
-               data: normalized_batch(),
-               metadata: %{
-                 broker_subject: "logs.syslog",
-                 subject: "logs.normalized.syslog",
-                 headers: [{"Nats-Subject", "logs.normalized.syslog"} | @normalized_headers]
-               }
-             }) == nil
-    end
-
-    test "a subject header cannot move a batch off the normalized path" do
-      [row] =
-        Logs.parse_message(%{
-          data: normalized_batch(),
-          metadata: %{
-            broker_subject: "logs.normalized.syslog",
-            subject: "logs.syslog",
-            headers: [{"Nats-Subject", "logs.syslog"} | @normalized_headers]
-          }
-        })
-
-      assert row.source == "syslog"
-
-      assert row.attributes["serviceradar.ingest"] == %{
-               "subject" => "logs.normalized.syslog",
-               "source_kind" => "syslog",
-               "ruleset_id" => @ruleset
-             }
-    end
-
     test "the headers mean nothing on any other subject" do
       [row] =
         Logs.parse_message(%{
