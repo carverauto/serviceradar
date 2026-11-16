@@ -579,17 +579,28 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       log_record = %LogRecord{
         time_unix_nano: 1_705_315_800_000_000_000,
+        observed_time_unix_nano: 1_705_315_801_000_000_000,
         severity_number: :SEVERITY_NUMBER_INFO,
         severity_text: "INFO",
         body: %AnyValue{value: {:string_value, "protobuf log"}},
         trace_id: trace_id,
         span_id: span_id,
+        # Only the low byte is the W3C trace flags.
+        flags: 0x101,
+        event_name: "session.start",
         attributes: [
-          %KeyValue{key: "custom", value: %AnyValue{value: {:string_value, "value"}}}
+          %KeyValue{key: "custom", value: %AnyValue{value: {:string_value, "value"}}},
+          %KeyValue{key: "source_ip", value: %AnyValue{value: {:string_value, "192.0.2.10"}}}
         ]
       }
 
-      scope = %InstrumentationScope{name: "scope", version: "1.2.3"}
+      scope = %InstrumentationScope{
+        name: "scope",
+        version: "1.2.3",
+        attributes: [
+          %KeyValue{key: "scope.kind", value: %AnyValue{value: {:string_value, "library"}}}
+        ]
+      }
 
       scope_logs = %ScopeLogs{
         scope: scope,
@@ -630,6 +641,49 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.span_id == Base.encode16(span_id, case: :lower)
       assert row.attributes["custom"] == "value"
       assert row.id
+
+      # The columns a JSON log row carries are filled from their OTLP fields.
+      assert DateTime.compare(row.observed_timestamp, ~U[2024-01-15 10:50:01Z]) == :eq
+      assert row.trace_flags == 1
+      assert row.event_name == "session.start"
+      assert row.source_ip == "192.0.2.10"
+      assert row.scope_attributes == %{"scope.kind" => "library"}
+    end
+
+    test "protobuf record without a trace, event name or observed time" do
+      request = %ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{
+            scope_logs: [
+              %ScopeLogs{
+                log_records: [
+                  %LogRecord{
+                    time_unix_nano: 1_705_315_800_000_000_000,
+                    flags: 1,
+                    body: %AnyValue{value: {:string_value, "bare"}}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      received_at = ~U[2024-01-15 10:50:05Z]
+
+      [row] =
+        Logs.parse_message(%{
+          data: ExportLogsServiceRequest.encode(request),
+          metadata: %{received_at: received_at}
+        })
+
+      # Like a JSON row, a record with no observed time takes the receive time.
+      assert row.observed_timestamp == received_at
+      # Flags describe a trace; without one they say nothing.
+      assert row.trace_flags == nil
+      assert row.event_name == nil
+      assert row.source_ip == nil
+      assert row.scope_attributes == %{}
     end
   end
 
