@@ -1,3 +1,119 @@
+# ServiceRadar v1.5.5
+
+This is the first published release that contains everything listed
+under v1.5.4 below. The v1.5.4 tag exists, but v1.5.4 was never
+published: its native add-on and Wasm plugin bundles were pushed once
+per tag with differing timestamps, so promotion refused the two
+digests (fixed in #6717), and promotion of the Helm chart failed with
+an unsupported media type (fixed in carverauto/gitops#201 and pinned
+in #6719). v1.5.5 also adds NVR retention settings, credential
+redaction in crash logs, an append-only history of edge producer
+authority, and fixes for camera live view and relays.
+
+## Upgrade Notes
+
+- **Upgrading from v1.5.3 or earlier: read the v1.5.4 upgrade notes
+  below first.** They all apply to v1.5.5, including the agent package
+  upgrade for systemd add-ons, the cold telemetry tier removal, the
+  baseline repair and its retention and compression changes, the
+  SNMP credential changes, datasvc RBAC enforcement and the log
+  collector consolidation. They are not repeated here.
+- **Crash logs no longer carry credential values.** Camera live-view
+  WebRTC crash reports could contain TURN passwords and keys and ICE
+  passwords in clear text, in the stored log body and attributes and
+  in pod console output. Logs are now redacted before OTLP export,
+  on the console, at ingest and on every web-ng log view. Rows stored
+  before this release are not rewritten, but web-ng redacts them when
+  displayed; copies already sent to an external log forwarder still
+  hold them. These TURN credentials expire about ten minutes after
+  they are issued, so no rotation is needed (#6708).
+- **Producer authority history.** Migration `20261116180000` creates
+  `platform.edge_authority_history` and triggers on
+  `sweep_producer_assignments` and `edge_output_grants` that record
+  every authority interval and its end cause. While it runs, the
+  migration holds a lock that blocks writes, not reads, to those two
+  tables until it commits. It waits at most 5 s for the lock and
+  otherwise fails cleanly and is retried; once it holds the lock, the
+  wait lasts as long as a single seed insert over both tables. Grant
+  revocation now records whether the agent identity was superseded or
+  its certificate revoked. During a rolling upgrade, core pods still
+  on the old release can fail to read output grants that upgraded pods
+  revoked with the new causes, until the rollout completes (#6712).
+- **NVR retention settings (stored, not yet enforced).** Settings >
+  Recording & Storage gains a live retention tab: local watermarks,
+  maximum local age, local-only full policy, archive retention, an
+  object budget and capacity policy, each with a what-if calculator,
+  and a dedicated retention credential slot (DELETE and HEAD) on the
+  archive tab. Migration `20261116164500` adds these columns with
+  check constraints. In this release the settings are saved and
+  validated only; the local eviction and archive reaper jobs that act
+  on them are not included yet (#6707).
+- **NATS `allowOvercommit` now reaches the server.** Setting
+  `nats.jetstream.allowOvercommit` now also writes
+  `allow_overcommit: true` into the NATS JetStream config, so the
+  server stops enforcing file-store reservation accounting, not only
+  the chart's render-time budget check (#6711).
+- **Logs: protobuf is accepted only on OTLP subjects.** A protobuf log
+  body is now read only on `logs.otel`, `logs.otel.*` and the new
+  `logs.normalized.*`; on any other `logs.` subject, such as
+  `logs.syslog` or `logs.snmp`, a non-JSON body is refused, so it can
+  no longer skip that subject's Zen rules. `logs.normalized.<kind>`
+  carries collector-normalized OTLP logs with an
+  `Sr-Log-Schema: otlp-normalized-v1` header; batches without it are
+  refused. In the chart only the log collector may publish there, and
+  core, the agent, tools and the catch-all user are denied it. If you
+  manage NATS users outside the chart, grant the log collector publish
+  on `logs.normalized.>` and deny it to the others (#6718).
+- **New migrations:** `20261116164500`, `20261116180000`. Helm
+  `core.migrations.expectedVersion` is `20261116180000`.
+
+## Whats New
+
+**Release**
+
+- Native add-on and Wasm plugin bundles are pushed once for all tags
+  (#6717), and Helm chart promotion accepts chart manifests that omit
+  `mediaType` (carverauto/gitops#201, pinned by #6719).
+
+**Camera and NVR**
+
+- Camera relays start at a keyframe on a single timeline, and a relay
+  that gets no keyframe within 30 s fails with its real error (#6704).
+- An NVR capture skips a fence renewal that could not finish before
+  its capture deadline when the lease it holds already covers the
+  deadline and teardown, instead of running it with a sub-second
+  database budget (#6720).
+- One refused TURN peer no longer crashes a camera viewer: the
+  `ex_turn` pin moves to a commit that gives in-flight ChannelBinds
+  distinct channel numbers and keeps the allocation when one peer is
+  refused (#6714).
+- NVR retention settings, a shared retention calculator and the live
+  retention tab (#6707).
+
+**Core and logging**
+
+- A shared secret redactor covers crash reports at the log source, on
+  the console, at ingest and in web-ng (#6708).
+- EventWriter reads collector-normalized logs from
+  `logs.normalized.<kind>`, a subject only the log collector may
+  publish, without running Zen rules a second time (#6718).
+- Append-only producer authority history with revocation cause
+  (#6712).
+- A deleted dashboard package no longer crash-loops the first-party
+  package loader (#6711).
+
+**Specifications**
+
+- OpenSpec proposals: NVR retention, reconciliation and unified
+  timeline playback (#6710), and resolving camera stream sources at
+  the edge so Core stops storing stream addresses (#6715), with its
+  stage ordering, plugin cutover and scrub completion rule settled
+  (#6721, #6722).
+
+**CI**
+
+- Docs-only changes skip heavy CI in every CI system (#6713).
+
 # ServiceRadar v1.5.4
 
 This release fixes native add-on installs and agent release updates on
