@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Sealed media always has an automatic drainer
-Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block reaches a terminal disposition: with an archive destination configured, a verified archive receipt or a verified quarantine-destination archive receipt; in local-only mode (no archive destination configured), a verified local-retention publication.
+Every recorder spool that holds sealed media SHALL have an automatic drainer that starts with the recorder, rescans its spool on start, and retries until each sealed block reaches a terminal disposition: with an archive destination configured, a verified archive receipt or a verified quarantine-destination archive receipt; in local-only mode (no archive destination configured), a verified local-retention publication or, for a block whose seal cannot be verified, a placement in a quarantine partition or flag of the qualified durable local archive with its central index receipt persisted.
 
 A manual command SHALL NOT be the only drain path. A dispatch whose outcome is
 unknown SHALL be reconciled automatically through idempotent read-back
@@ -18,7 +18,10 @@ SHALL NOT be deleted before one of those receipts. In local-only mode a
 verified local-retention publication means the block is published into the
 qualified durable local archive and its central index receipt is persisted;
 that publication ends the drainer for the block, and local deletion then
-follows the retention and hold policy, never before that publication.
+follows the retention and hold policy, never before that publication. A
+placement in a quarantine partition or flag of the qualified durable local archive ends the drainer for the block too, but
+the quarantined block SHALL NOT be indexed for playback and SHALL be excluded
+from retention-policy deletion: it is never auto-deleted.
 
 #### Scenario: A sealed NVR block drains without an operator
 - **GIVEN** an NVR holding a sealed block with no archive receipt
@@ -50,8 +53,7 @@ or one ended for a compromise-class reason, SHALL never be published for
 playback and SHALL never be left in the recorder spool. With an archive
 destination configured it SHALL be archived to a quarantine destination and
 reported; its verified quarantine-destination receipt is terminal. In
-local-only mode it SHALL be placed in a quarantine partition (or carry a
-quarantine flag) of the same qualified durable local archive: retained,
+local-only mode it SHALL be placed in a quarantine partition or flag of the qualified durable local archive: retained,
 counted and reported, never indexed for playback and never auto-deleted. That
 placement, with its central index receipt persisted, is terminal for the
 drainer. No separate store SHALL be introduced for it.
@@ -62,13 +64,14 @@ drainer. No separate store SHALL be introduced for it.
 - **THEN** the block SHALL still be archived under its generation 7 seal
 
 #### Scenario: A seal with no retained history is quarantined
+- **GIVEN** an NVR with an archive destination configured
 - **WHEN** a block's seal names a generation that retained history does not hold
 - **THEN** the block SHALL be archived to the quarantine destination and reported
 - **AND** SHALL NOT be published for playback
-- **AND** once its quarantine receipt is verified the drainer SHALL stop retrying it and the recorder MAY delete its local copy
+- **AND** once its quarantine receipt is verified the drainer SHALL stop retrying it and the recorder SHALL remove its spool copy
 
 #### Scenario: A local-only recorder quarantines a seal with no retained history
 - **GIVEN** an NVR in local-only mode with no archive destination configured
 - **WHEN** a sealed block's seal names a generation that retained history does not hold
-- **THEN** the block SHALL be placed in the quarantine partition of the qualified durable local archive with its central index receipt persisted, and the drainer SHALL stop for it
-- **AND** it SHALL be counted and reported, SHALL NOT be indexed for playback and SHALL NOT be auto-deleted
+- **THEN** the block SHALL be placed in a quarantine partition or flag of the qualified durable local archive with its central index receipt persisted, and the drainer SHALL stop for it
+- **AND** it SHALL be counted and reported, SHALL NOT be indexed for playback and SHALL NOT be deleted by the retention policy

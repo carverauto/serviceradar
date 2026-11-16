@@ -196,7 +196,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       local publication; in local-only mode it stops on a verified
       local-retention publication (published into the qualified durable local
       archive with its central index receipt persisted), after which local
-      deletion follows the retention and hold policy.
+      deletion follows the retention and hold policy, or, for a block whose
+      seal cannot be verified, on its placement in a quarantine partition or
+      flag of that archive with its central index receipt persisted, which is
+      never playback-indexed and excluded from retention deletion.
 - [ ] 4.2 Add an automatic core-local camera spool uploader, and automatic
       reconciliation of `:prepared` dispatches by idempotent read-back.
 - [ ] 4.3 Keep retained recovery-generation and archive-binding history, judge
@@ -204,10 +207,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       seal with no history. With an archive destination configured, a
       verified quarantine-destination archive receipt is terminal: it ends the
       drainer for that block and permits local deletion. In local-only mode
-      the bad seal goes to a quarantine partition (or flag) of the qualified
+      the bad seal goes to a quarantine partition or flag of the qualified
       durable local archive with its central index receipt persisted, which
       is terminal; it is retained, counted and reported, never indexed for
-      playback and never auto-deleted. No new store.
+      playback and excluded from retention-policy deletion. No new store.
 - [ ] 4.4 Add start-up reconciliation of unsealed and interrupted blocks, and
       owner reconciliation of leftover upload scratch.
 - [ ] 4.5 Cross-reference or move these tasks into `add-edge-recording-archive`,
