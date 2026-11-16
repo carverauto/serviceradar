@@ -57,4 +57,5 @@ state.
   `mtr_hops`, `mtr_traces`, `bmp_routing_events` and the four `survey_*`
   hypertables that `DataRetentionWorker` does not reconcile. Change
   `fix-baseline-replay-parity` closes that path for new installs by making the
-  baseline carry TimescaleDB policy state.
+  baseline carry TimescaleDB policy state, and repairs databases already
+  created from an older baseline with `BaselineInstallRepairWorker`.

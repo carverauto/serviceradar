@@ -18,11 +18,17 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   and reusable from Mix tasks.
   """
 
+  alias ServiceRadar.Postgres.SchemaSql
+
   require Logger
 
   @baseline_dir "priv/repo/baseline"
   @baseline_metadata_file "metadata.json"
   @default_search_path "platform, public"
+  @baseline_section_headers %{
+    timescaledb_policies: "-- ServiceRadar: restore TimescaleDB compression and retention.",
+    seed_data: "-- ServiceRadar: seed data left by the migrations."
+  }
 
   @type state :: :empty | :migrated | {:ambiguous, map()}
 
@@ -212,6 +218,35 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   end
 
   @doc """
+  The statements of one generated section of the committed baseline, in file order.
+
+  `//build/schema_baseline:generate` writes the state a schema-only dump cannot carry as
+  sections headed by these comments, in this order: `:timescaledb_policies` (compression
+  settings, compression and retention policies), then `:seed_data` (the rows covered migrations
+  seed). A section runs to the next section's header or the end of the file. A baseline without
+  the section returns `[]`.
+  """
+  @spec baseline_section_statements!(:timescaledb_policies | :seed_data) :: [String.t()]
+  def baseline_section_statements!(section) do
+    header = Map.fetch!(@baseline_section_headers, section)
+    following = @baseline_section_headers |> Map.values() |> List.delete(header)
+
+    metadata = baseline_metadata!()
+    body = metadata |> baseline_schema_file!() |> File.read!()
+
+    case String.split(body, header, parts: 2) do
+      [_before, rest] ->
+        rest
+        |> String.split(following, parts: 2)
+        |> hd()
+        |> SchemaSql.split()
+
+      [_no_section] ->
+        []
+    end
+  end
+
+  @doc """
   The baseline's metadata, as committed alongside the schema file.
   """
   @spec baseline_metadata!() :: map()
@@ -310,7 +345,7 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
 
   defp run_schema_file!(repo, schema_file) do
     statements =
-      ServiceRadar.Postgres.SchemaSql.load_statements(schema_file,
+      SchemaSql.load_statements(schema_file,
         normalize_timescaledb_schema?: true,
         timescaledb_search_path: search_path(),
         # The baseline is a superuser's dump; the role applying it here is the ordinary

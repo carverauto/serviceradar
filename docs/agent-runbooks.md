@@ -913,3 +913,6 @@ Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.
   or policies are missing from the baseline, and the bootstrap integration test compares a
   baseline-created database's policy state with the lane's replayed one. Never seed rows in
   `SchemaBootstrap`; a seed belongs in a migration, and the next regeneration carries it.
+  Databases created before the baseline carried this state are repaired after startup by
+  `ServiceRadar.Repo.BaselineInstallRepairWorker`, which applies the current baseline's own
+  policy and seed sections where state is missing.
