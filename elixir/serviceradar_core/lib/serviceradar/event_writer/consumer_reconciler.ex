@@ -523,8 +523,8 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
   # A failure is logged as an error once: on its first attempt, unless it is a transient NATS
   # condition (`ConsumerSetup.transient_reason?/1`), which is an error only on the attempt that
-  # crosses its bound or once it turns into a failure that is not transient. Every other retry that still fails is
-  # a warning.
+  # crosses its bound or once it turns into a failure that is not transient. Every other retry
+  # that still fails is a warning.
   defp log_retry_failure(config, %{stream: stream, attempt: attempt} = entry, reason) do
     if Map.get(entry, :error_logged?, true) do
       log_still_failing(stream, attempt, reason)

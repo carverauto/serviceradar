@@ -426,7 +426,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     {level, text, metadata} =
       case batch_failure_level(reason) do
         :transient ->
-          case LogRateLimit.admit({:transient_batch_failure, batcher}, @transient_log_interval_ms) do
+          case LogRateLimit.admit(
+                 {:transient_batch_failure, batcher},
+                 @transient_log_interval_ms
+               ) do
             {:log, suppressed} ->
               {:warning, "Batch holds edge records that failed transiently; redelivering them",
                [suppressed_batches: suppressed]}
