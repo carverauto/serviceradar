@@ -312,7 +312,10 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert agent_id == ctx.agent
     assert document["keys"] == [IssuerKey.trust_entry(ctx.key)]
 
-    grant |> Ash.Changeset.for_update(:revoke, %{}, actor: ctx.actor) |> Ash.update!()
+    grant
+    |> Ash.Changeset.for_update(:revoke, %{cause: :identity_superseded}, actor: ctx.actor)
+    |> Ash.update!()
+
     assert {:ok, revoked} = RecordTrust.agent_snapshot(ctx.agent, ctx.partition.slug, ctx.key)
 
     assert [%{"producer_assignment_id" => ^encoded_grant, "authority_epoch" => 2}] =

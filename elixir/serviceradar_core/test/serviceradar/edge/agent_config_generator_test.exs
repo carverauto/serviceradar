@@ -76,7 +76,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert {:ok, before} = AgentConfigGenerator.generate_config(agent, @default_partition)
       assert before.edge_record_trust_document != <<>>
 
-      historical |> Ash.Changeset.for_update(:revoke, %{}, actor: actor) |> Ash.update!()
+      historical
+      |> Ash.Changeset.for_update(:revoke, %{cause: :identity_superseded}, actor: actor)
+      |> Ash.update!()
 
       assert {:ok, after_change} =
                AgentConfigGenerator.get_config_if_changed(
