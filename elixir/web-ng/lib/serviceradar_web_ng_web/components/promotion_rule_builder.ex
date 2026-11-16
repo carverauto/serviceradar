@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       case match["attribute_equals"] do
         %{} = attrs when map_size(attrs) > 0 ->
           [{k, v} | _] = Map.to_list(attrs)
-          {k, stringify(v)}
+          {k, v |> stringify() |> SecretRedaction.redact_text()}
 
         _ ->
           {"", ""}
@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     %{
       "name" => rule.name,
-      "body_contains" => match["body_contains"] || "",
+      "body_contains" => SecretRedaction.redact_text(match["body_contains"] || ""),
       "body_contains_enabled" => match["body_contains"] != nil,
       "severity_text" => match["severity_text"] || "",
       "severity_enabled" => match["severity_text"] != nil,

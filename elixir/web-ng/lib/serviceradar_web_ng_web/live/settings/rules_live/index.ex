@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   alias Datasvc.KV
   alias ServiceRadar.Cluster.ClusterStatus
+  alias ServiceRadar.Logging.SecretRedaction
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.ZenRule
@@ -1124,10 +1125,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
     conditions =
       if match["body_contains"] do
-        [
-          {"hero-chat-bubble-bottom-center", "body: #{truncate(match["body_contains"], 15)}"}
-          | conditions
-        ]
+        body = SecretRedaction.redact_text(match["body_contains"])
+        [{"hero-chat-bubble-bottom-center", "body: #{truncate(body, 15)}"} | conditions]
       else
         conditions
       end
