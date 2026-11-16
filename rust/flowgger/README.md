@@ -54,6 +54,10 @@ Closing the input queue drains pending publishes before flushing. An ambiguous
 ACK failure is retried only within the stream's duplicate window; send failures
 before possible persistence retain the configured connection retry policy.
 
+A fatal output error still stops the collector. Records already admitted get one
+`output.nats_timeout` to be acknowledged first; the error then reports how many
+were abandoned. Records still in the input queue are not published.
+
 To compare windows on a workstation, run the synthetic benchmark once per
 window. It needs `nats-server` on `PATH` or in `NATS_SERVER_BIN`, and reports
 the time until the broker has stored every record:

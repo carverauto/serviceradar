@@ -489,3 +489,90 @@ fn revoked_broker_certificate_fails_the_publisher_with_acknowledgments_pending()
         assert_eq!(stream.info().await.unwrap().state.messages, 2);
     });
 }
+
+#[cfg(unix)]
+fn signal_broker(broker: &Broker, signal: &str) {
+    let status = Command::new("kill")
+        .args([signal, &broker.process.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success(), "kill {signal} failed");
+}
+
+#[cfg(unix)]
+#[test]
+fn fatal_error_waits_one_publish_timeout_for_admitted_records() {
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        for broker_resumes in [true, false] {
+            let mut broker = Broker::start();
+            let js = broker.connect().await;
+            let mut stream = js
+                .create_stream(jetstream::stream::Config {
+                    name: "SYNTHETIC_LOGS".into(),
+                    subjects: vec!["synthetic.logs".into()],
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            let (worker, tx) = worker_with(&broker.url, 4, 256, 2_000, "");
+            let publishing = tokio::spawn(worker.run());
+            tx.send(vec![b'a'; 64]).unwrap();
+            timeout(Duration::from_secs(5), async {
+                while stream.info().await.unwrap().state.messages < 1 {
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("publisher did not connect and publish");
+
+            // A stopped broker acknowledges nothing, so the next two records
+            // stay pending when the record over the byte budget arrives.
+            signal_broker(&broker, "-STOP");
+            tx.send(vec![b'b'; 64]).unwrap();
+            tx.send(vec![b'c'; 64]).unwrap();
+            tx.send(vec![b'x'; 257]).unwrap();
+            let failed = Instant::now();
+            sleep(Duration::from_millis(300)).await;
+            assert!(
+                !publishing.is_finished(),
+                "publisher abandoned its admitted records at once"
+            );
+
+            if broker_resumes {
+                signal_broker(&broker, "-CONT");
+                let error = timeout(Duration::from_millis(1_500), publishing)
+                    .await
+                    .expect("publisher kept waiting after its records were acknowledged")
+                    .unwrap()
+                    .unwrap_err();
+                assert!(
+                    error.contains("exceeding output.nats_max_inflight_bytes=256")
+                        && !error.contains("abandoned"),
+                    "{error}"
+                );
+                assert_eq!(stream.info().await.unwrap().state.messages, 3);
+            } else {
+                let error = timeout(Duration::from_secs(10), publishing)
+                    .await
+                    .expect("publisher never gave up on a broker that stopped answering")
+                    .unwrap()
+                    .unwrap_err();
+                assert!(
+                    error.contains("exceeding output.nats_max_inflight_bytes=256")
+                        && error.contains("abandoned 2 pending and 0 staged"),
+                    "{error}"
+                );
+                assert!(
+                    failed.elapsed() >= Duration::from_millis(1_900),
+                    "publisher gave up after {:?}, before one publish timeout",
+                    failed.elapsed()
+                );
+            }
+            drop(tx);
+        }
+    });
+}
