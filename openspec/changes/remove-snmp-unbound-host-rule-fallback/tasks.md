@@ -28,3 +28,17 @@
 
 - [x] 4.1 Focused DB tests on a srql-fixtures scratch database
 - [x] 4.2 `openspec validate remove-snmp-unbound-host-rule-fallback --strict`
+
+## 5. Follow-up: explicit targets on a host that belongs to a device
+
+- [x] 5.1 Fail-first tests in `snmp_compiler_test.exs`: a device override beats
+      a matching rule and the target's own credential; a matching rule beats
+      the target's own credential; a target no rule selects is polled with its
+      own credential, else its profile's, on a device or on no device
+- [x] 5.2 `CredentialResolver.resolve_for_target/4` over the shared
+      `resolve_for_devices/3` pipeline, the target and its profile as ordered
+      fallbacks; delete `resolve_for_host/3`; the compiler takes the resolved
+      credential whatever its source
+- [x] 5.3 Read-only demo impact check: which explicit targets change
+      credential, compared by credential identity without decrypting
+- [x] 5.4 Docs: manual SNMP target credentials state the full order

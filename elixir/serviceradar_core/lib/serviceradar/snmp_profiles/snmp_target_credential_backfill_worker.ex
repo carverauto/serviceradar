@@ -7,7 +7,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTargetCredentialBackfillWorker do
   Before that change, an explicit target whose host belongs to no device was
   polled with the first enabled SNMP monitoring rule scoped to the compiling
   agent or its partition, whatever that rule's target query. Now no rule applies
-  to such a target: it is polled with its own credential or not at all.
+  to such a target: it is polled with its own credential, else its profile's,
+  or not at all.
 
   A target with a credential of its own is left alone; it is now polled with
   what was configured for it. A target with none, on a host no device holds,

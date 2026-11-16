@@ -9,8 +9,12 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   3. Profile credentials (SRQL targeting + default fallback)
   4. None
 
+  An explicit SNMP target (`resolve_for_target/4`) takes its own credential
+  after the rule, and the profile it belongs to in place of step 3.
+
   `resolve_for_devices/3` is the one implementation of that order;
-  `resolve_for_device/3` is the same resolution for a single device.
+  `resolve_for_device/3` and `resolve_for_target/4` are the same resolution
+  for a single device or explicit target.
   """
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
@@ -21,6 +25,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
@@ -84,10 +89,11 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   `opts` takes `:agent_id` and `:partition` (the credential rule scopes),
   `:fallback_profile`: a profile whose own credential is used for a device
-  that resolves no credential, reported with source `:fallback_profile`, and
-  `:bulk_audit`: the handle `with_bulk_audit/2` yields. Without that handle
-  every brokered resolution writes its own audit row, as a single resolution
-  does.
+  that resolves no credential, reported with source `:fallback_profile`,
+  `:snmp_target`: the explicit target the devices are polled through (see
+  `resolve_for_target/4`), and `:bulk_audit`: the handle `with_bulk_audit/2`
+  yields. Without that handle every brokered resolution writes its own audit
+  row, as a single resolution does.
   """
   @spec resolve_for_devices([String.t()], map(), keyword()) ::
           %{
@@ -262,7 +268,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         overridden
         |> Map.new(&{&1, override_result(Map.fetch!(overrides, &1), &1, actor, build_opts)})
         |> Map.merge(resolve_rules_and_profiles(others, actor, opts, build_opts))
-        |> apply_fallback_profile(Keyword.get(opts, :fallback_profile), actor, build_opts)
+        |> apply_fallbacks(fallbacks(opts), actor, build_opts)
 
       {:error, reason} ->
         put_all(%{}, device_uids, {:error, reason})
@@ -319,7 +325,13 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
     # A device whose rule credential failed never reaches profile resolution.
     pending = Enum.reject(device_uids, &match?({:error, _}, Map.fetch!(rule_credentials, &1)))
-    profiles = resolve_profiles(pending, actor)
+
+    # No profile's target query selected an explicit target: the profile it
+    # belongs to is one of its fallbacks instead.
+    profiles =
+      if Keyword.has_key?(opts, :snmp_target),
+        do: Map.new(pending, &{&1, nil}),
+        else: resolve_profiles(pending, actor)
 
     build_opts =
       put_loaded_secrets(build_opts, profiles |> Map.values() |> Enum.filter(&is_struct/1), actor)
@@ -381,65 +393,114 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp with_rule({:ok, credential}, rule), do: {:ok, credential, rule}
   defp with_rule(other, _rule), do: other
 
-  defp apply_fallback_profile(results, nil, _actor, _build_opts), do: results
-
-  defp apply_fallback_profile(results, fallback, actor, build_opts) do
-    build_opts =
+  # The records whose own credential a device that resolved none falls back
+  # to, in order: an explicit target, then the profile it was compiled under.
+  defp fallbacks(opts) do
+    Enum.reject(
       [
-        consumer_id: "snmp_profile:#{fallback.id}",
-        target_kind: "snmp_profile",
-        target_id: fallback.id
-      ] ++ put_loaded_secrets(build_opts, [fallback], actor)
+        {Keyword.get(opts, :snmp_target), :snmp_target, "snmp_target"},
+        {Keyword.get(opts, :fallback_profile), :fallback_profile, "snmp_profile"}
+      ],
+      fn {record, _source, _kind} -> is_nil(record) end
+    )
+  end
 
-    Map.new(results, fn
-      {device_uid, {:ok, %{credential: credential} = resolution}} when not is_map(credential) ->
-        case build_credential(fallback, actor, for_device(build_opts, device_uid)) do
-          {:error, reason} ->
-            {device_uid, {:error, reason}}
+  defp apply_fallbacks(results, [], _actor, _build_opts), do: results
 
-          credential when is_map(credential) ->
-            {device_uid,
-             {:ok,
-              %{
-                resolution
-                | credential: credential,
-                  source: :fallback_profile,
-                  source_record: fallback
-              }}}
+  defp apply_fallbacks(results, fallbacks, actor, build_opts) do
+    build_opts = put_loaded_secrets(build_opts, Enum.map(fallbacks, &elem(&1, 0)), actor)
 
-          _no_credential ->
-            {device_uid, {:ok, resolution}}
-        end
-
-      resolved ->
-        resolved
+    Map.new(results, fn {device_uid, resolution} ->
+      {device_uid,
+       fallback_resolution(resolution, fallbacks, actor, for_device(build_opts, device_uid))}
     end)
   end
 
+  defp fallback_resolution(
+         {:ok, %{credential: credential} = resolution},
+         fallbacks,
+         actor,
+         build_opts
+       )
+       when not is_map(credential) do
+    Enum.reduce_while(fallbacks, {:ok, resolution}, fn {record, source, kind}, unresolved ->
+      audit = [consumer_id: "#{kind}:#{record.id}", target_kind: kind, target_id: record.id]
+
+      case build_credential(record, actor, audit ++ build_opts) do
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        credential when is_map(credential) ->
+          if credential_present?(credential) do
+            {:halt,
+             {:ok, %{resolution | credential: credential, source: source, source_record: record}}}
+          else
+            {:cont, unresolved}
+          end
+
+        nil ->
+          {:cont, unresolved}
+      end
+    end)
+  end
+
+  defp fallback_resolution(resolution, _fallbacks, _actor, _build_opts), do: resolution
+
   @doc """
-  Resolve credentials for a target host (IP/hostname/device UID).
+  Resolve the credential an explicit SNMP target is polled with.
 
-  A host that belongs to a device resolves as that device does
-  (`resolve_for_device/3`). A host that belongs to no device resolves to no
-  credential: credential rules select devices with their target queries, so
-  none of them selects an address no device holds, whatever its scope or
-  priority.
+  A host that belongs to a device (`device_uid_for_host/2`) resolves as that
+  device does in `resolve_for_devices/3`: its SNMP override, then a credential
+  rule whose target query selects it. After those come the target's own
+  credential and then `profile`'s, the profile the target belongs to, in place
+  of the profile whose target query selects the device. A host that belongs to
+  no device has no override and is selected by no rule, whatever the rule's
+  scope or priority, so it starts at the target's own credential.
+
+  `source` is `:device_override`, `:credential_rule`, `:snmp_target`,
+  `:fallback_profile` or `:none`. `opts` takes `:agent_id` and `:partition`,
+  the credential rule scopes.
   """
-  @spec resolve_for_host(String.t() | nil, map(), keyword()) ::
+  @spec resolve_for_target(SNMPTarget.t(), SNMPProfile.t() | nil, map(), keyword()) ::
           {:ok,
-           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
+           %{
+             credential: credential_map() | nil,
+             profile: SNMPProfile.t() | nil,
+             source: atom(),
+             source_record: struct() | nil
+           }}
           | {:error, term()}
-  def resolve_for_host(host, actor, opts \\ [])
+  def resolve_for_target(%{host: host} = target, profile, actor, opts \\ []) do
+    opts = Keyword.merge(opts, snmp_target: target, fallback_profile: profile)
 
-  def resolve_for_host(nil, _actor, _opts),
-    do: {:ok, %{credential: nil, profile: nil, source: :none}}
-
-  def resolve_for_host(host, actor, opts) when is_binary(host) do
     case device_uid_for_host(host, actor) do
-      {:ok, device_uid} -> resolve_for_device(device_uid, actor, opts)
-      {:error, :device_not_found} -> {:ok, %{credential: nil, profile: nil, source: :none}}
-      {:error, reason} -> {:error, reason}
+      {:ok, device_uid} ->
+        [device_uid] |> resolve_for_devices(actor, opts) |> Map.fetch!(device_uid)
+
+      {:error, :device_not_found} ->
+        resolve_without_device(actor, opts)
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp resolve_without_device(actor, opts) do
+    with_collected_audits(fn audit_sink ->
+      fallbacks = fallbacks(opts)
+
+      build_opts = [
+        loaded_secrets: load_secrets(%{}, Enum.map(fallbacks, &elem(&1, 0)), actor),
+        audit_sink: audit_sink
+      ]
+
+      fallback_resolution(
+        {:ok, %{credential: nil, profile: nil, source: :none, source_record: nil}},
+        fallbacks,
+        actor,
+        build_opts
+      )
+    end)
   end
 
   @doc """

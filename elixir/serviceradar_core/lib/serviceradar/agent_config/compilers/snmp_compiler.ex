@@ -1196,7 +1196,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if oids == [] do
       {:ok, nil}
     else
-      case profile_target_credential(target, actor, opts) do
+      case profile_target_credential(target, profile, actor, opts) do
         {:error, reason} ->
           if CredentialResolver.credential_read_failure?(reason) do
             Logger.error(
@@ -1261,39 +1261,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if WarningLedger.changed?({:snmp_target_without_credential, target.id, agent_id}, true) do
       Logger.warning(
         "SNMPCompiler: SNMP target \"#{target.name}\" in profile \"#{profile.name}\" " <>
-          "has no usable credential, so it is not polled. A credential rule applies to " <>
-          "it only when the rule's target query selects the device at the target's " <>
-          "host; otherwise the target must carry a credential of its own."
+          "has no usable credential, so it is not polled. It is polled with the SNMP " <>
+          "override of the device at its host, else a credential rule whose target " <>
+          "query selects that device, else its own credential, else its profile's."
       )
     end
   end
 
-  # The credential rule whose target query selects the device at the target's
-  # host, else the target's own credential. A host no device holds is selected
-  # by no rule (`CredentialResolver.resolve_for_host/3`).
-  defp profile_target_credential(target, actor, opts) do
-    case CredentialResolver.resolve_for_host(target.host, actor, opts) do
-      {:ok, %{credential: rule_cred, source: :credential_rule}} when is_map(rule_cred) ->
-        rule_cred
+  # The device override, a rule whose target query selects the device at the
+  # target's host, the target's own credential, then the profile's
+  # (`CredentialResolver.resolve_for_target/4`).
+  defp profile_target_credential(target, profile, actor, opts) do
+    rule_scopes = Keyword.take(opts, [:agent_id, :partition])
 
-      {:error, reason} = error ->
-        if CredentialResolver.credential_read_failure?(reason) do
-          error
-        else
-          target_record_credential(target, actor)
-        end
-
-      _ ->
-        target_record_credential(target, actor)
+    case CredentialResolver.resolve_for_target(target, profile, actor, rule_scopes) do
+      {:ok, %{credential: credential}} -> credential
+      {:error, _reason} = error -> error
     end
-  end
-
-  defp target_record_credential(target, actor) do
-    CredentialResolver.build_credential(target, actor,
-      consumer_id: "snmp_target:#{target.id}",
-      target_kind: "snmp_target",
-      target_id: target.id
-    )
   end
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
