@@ -58,7 +58,7 @@ gate.
 ### serviceradar_core
 - [ ] R.1 `RecordingBlocks.freeze_historical/3` (system actor, reconciler only): every live-freeze check except claim liveness, replaced by writer retirement; same row lock as the live freeze; catalog insert in the same transaction (design R3).
 - [ ] R.2 Rotated-block adoption: create the missing `RecordingBlock` row from the reserved predecessor when the capture identity is unallocated, advance the claim's `next_block_sequence` when it is the same epoch, then R.1 (design R3).
-- [ ] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or `unrecoverable_journal` is not re-examined; `RecordingOrphan` record for unattributable blocks with evidence and operator disposition.
+- [ ] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantine receipts carry the evidence for unattributable and unrecoverable blocks (design R2).
 
 ### serviceradar_nvr and serviceradar_nvr_client
 - [ ] R.4 Inventory page reports block state (`sealed`, `incomplete`, `tombstoned`) and descriptor digest for sealed blocks (extends the settings change's `GET /v1/blocks` page); client function.
@@ -66,15 +66,17 @@ gate.
 
 ### serviceradar_core_elx
 - [ ] R.6 `NVRReconcileJob` per member (every 5 minutes and after each uncertain capture): page inventory, classify each block (design R4 steps 1-6), adopt, recover, record gaps, enqueue archive only for blocks that archive (archiving enabled and policy `local_and_archive`; otherwise `not_required`) and for every pending or retryable entry without a job that still archives, moving one that no longer archives to `not_required`.
-- [ ] R.7 Residue disposal for `unrecoverable_journal` after the 7-day grace, unless held, through `RecordingDisposition` and the NVR reclaim endpoint (C.6).
-- [ ] R.8 Alarms through `TripwireHealth.record/4` (design R5, C8): oldest unarchived over 1 hour, any `failed_terminal`, any unattributable block, block unreconciled past its bound, reconciliation paused over 1 hour.
-- [ ] R.9 Backlog figures (unarchived count, bytes, oldest unarchived age, unreconciled and unattributable counts) published through the settings change's JetStream backlog telemetry.
+- [ ] R.7 Quarantine (design R2): NVR quarantine partition on the same volume, accepted by inventory and the ledger; move an unrecoverable or unattributable block or journal there; `platform.camera_recording_quarantine` receipt in Core; with object storage, the unindexed `_quarantine/` copy and its verified receipt; gap with reason `quarantined`; never playable, never selected by budget, age, full policy or reaper; removed only by an audited `operator_quarantine` disposition. No automatic removal.
+- [ ] R.7a Rebinding rule (design R8): set `archive_binding_id` at registration for blocks that archive; archive to that binding; quarantine when it is absent from retained history or ended for a compromise-class reason.
+- [ ] R.7b File follow-ups against add-edge-recording-archive for the three older-path stranding paths in design R8 (unknown dispatch outcome left `:reconciliation_required`, permanent `:archive_binding_conflict`, leftover storage-service scratch halting uploads); this change implements none of them.
+- [ ] R.8 Alarms through `TripwireHealth.record/4` (design R5, C8): oldest unarchived over 1 hour, any `failed_terminal`, any quarantined block, block unreconciled past its bound, reconciliation paused over 1 hour.
+- [ ] R.9 Backlog figures (unarchived count, bytes, oldest unarchived age, unreconciled count, quarantined blocks and bytes) published through the settings change's JetStream backlog telemetry.
 
 ### web-ng
-- [ ] R.10 Settings `health` tab: the R.9 figures and alarms per member; unattributable list with operator actions (audited delete, export), gated by `settings.recording.operate`.
+- [ ] R.10 Settings `health` tab: the R.9 figures and alarms per member; quarantine list with operator actions (audited disposition, export), gated by `settings.recording.operate`.
 
 ### Verification
-- [ ] R.11 Synthetic cases through the real NVR and Core paths: uncertain capture later reconciled; rotated second block adopted; mismatched identity or clock epoch stays unattributable; concurrent live and historical freeze yield one entry; archive outage then catch-up with no reclaim before verification; incomplete journal recovered with an `incomplete_tail` gap; unrecoverable journal becomes a gap and is disposed after grace; reconciliation pauses while history is unresolved.
+- [ ] R.11 Synthetic cases through the real NVR and Core paths: uncertain capture later reconciled; rotated second block adopted; mismatched identity or clock epoch is quarantined, never adopted; concurrent live and historical freeze yield one entry; archive outage then catch-up with no reclaim before verification; incomplete journal recovered with an `incomplete_tail` gap; unrecoverable journal is quarantined with a `quarantined` gap and stays until an operator disposes of it; each block ends in exactly one terminal outcome of design R2; an archive binding change does not stop pending blocks archiving to their registered binding; reconciliation pauses while history is unresolved.
 
 ## A. Continuous recording that fits the volume (design A)
 
@@ -146,7 +148,7 @@ gate.
 ### Object-tier capacity (design C3a)
 - [ ] C.19 serviceradar_core: object budget, watermarks and `object_capacity_policy` (with confirming actor and time, or the entitlement revision; the recorded `reap_oldest` selection states that it also authorizes later local eviction of blocks whose archive copy was reaped) on `RecordingArchiveSettings`; catalog-derived object usage per binding including uploads in flight; non-reapable bytes (held archive bytes plus uploads in flight).
 - [ ] C.20 serviceradar_core_elx: object reaper in the retention job (archive copies only, oldest unheld blocks first; a remaining local copy is kept and the entry recorded as local only after archive reaping, never re-archived; audited dispositions with reason `object_capacity` recording whether the local copy remained; at most 500 blocks per pass, usage re-read each pass); `stop_archiving` pause of archive jobs with blocks kept pending; non-reapable-bytes stop; gap reason `archive_capacity_exhausted` when the local tier then fills.
-- [ ] C.21 serviceradar_core_elx: health checks `storage.recordings.object_capacity_binds`, `object_days_to_high_water`, `object_used_percent`, `object_overage_active`, `object_held_exceeds`, `object_archive_paused_capacity`, plus `held_archive_missing`; one OCSF event per reaper pass that deletes, through `OcsfEventPublisher.publish/2` (family `:camera`). The calculation itself is F.1.
+- [ ] C.21 serviceradar_core_elx: health checks `storage.recordings.object_capacity_binds`, `object_days_to_capacity` (design C3a `days_to_capacity`), `object_used_percent`, `object_overage_active`, `object_held_exceeds`, `object_archive_paused_capacity`, plus `held_archive_missing`; one OCSF event per reaper pass that deletes, through `OcsfEventPublisher.publish/2` (family `:camera`). The calculation itself is F.1.
 - [ ] C.22 web-ng: `retention` tab object budget, watermarks and policy with the "can delete the last copy, including by later local eviction of blocks whose archive copy was reaped" statement before confirmation; effective object retention beside configured retention; how much footage exists only on local storage and from when; read-only when a storage entitlement is applied (F.5).
 
 ### Verification

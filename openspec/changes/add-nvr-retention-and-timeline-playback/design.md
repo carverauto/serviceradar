@@ -129,8 +129,8 @@ amendment to the recording plane's local publication contract, whose
 acceptance table rejects "a new recorder freezing an unknown older block" and
 leaves blocks without established authority unresolved until plane task 1.3.
 The amendment covers only this continuation case; every other unknown block
-stays rejected. When the proof fails, the block is unattributable: an alarm is
-raised and an operator decides (R4 step 6). Rationale: the rotated block was
+stays rejected. When the proof fails, the block is unattributable: it is
+quarantined (R4 step 6), never adopted or played, and an alarm is raised. Rationale: the rotated block was
 written by the same writer, in the same request, under the same claim and clock
 epoch as a block Core did authorize; refusing it would strand real footage
 that the product rule says must not be stranded, while the proof keeps
@@ -471,7 +471,7 @@ item, not part of Stage A. Throughput must exceed capture: each block costs
 about twice its bytes of provider traffic (upload plus full readback), and each
 request opens its own client session. Whether one serial slot keeps up with a
 member's assigned cameras (for example 16 cameras at 4 Mbit/s is 64 Mbit/s of
-capture, needing well over 128 Mbit/s of effective archive throughput) must be
+capture, needing well over 128 Mbit/s of provider throughput, defined below) must be
 measured; the backlog reporting below shows a non-draining backlog when it does
 not.
 
@@ -624,8 +624,8 @@ entry. An exact retry returns the existing entry; a different descriptor is
 Blocks whose original claim is gone (uncertain outcomes, a crashed
 coordinator, blocks recorded before this change, or a block the NVR rotated
 into) cannot be frozen by this path. The reconciler (section R) adopts them
-under the authority stated there, or records them as gaps or unattributable
-blocks. They are never left as unexplained local bytes.
+under the authority stated there, or quarantines them with a gap (R4). They
+are never left as unexplained local bytes.
 
 ### B3. Resources
 
@@ -648,7 +648,8 @@ blocks. They are never left as unexplained local bytes.
 | `local_state`, `local_state_at` | `present`, `reclaiming`, `reclaimed`, `missing` |
 | `archive_state`, `archive_state_at` | `not_required`, `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
 | `archive_deleted_reason` | Set once when `archive_state` becomes `deleted`: `object_retention`, `object_capacity` or `operator`; with `local_state = present` the entry is local only after archive expiry or reaping (C3, C3a) |
-| `archive_binding_id`, `nvr_archive_receipt_id` | FK restrict, set at `verified` |
+| `archive_binding_id` | FK restrict; for a block that archives (A6), the binding active when the entry is registered, never changed afterwards (R8) |
+| `nvr_archive_receipt_id` | FK restrict, set at `verified` |
 | `archive_attempts`, `archive_last_error_class` | Bounded class, no provider text |
 | `sealed_at`, `archived_at` | Database time |
 
@@ -675,8 +676,15 @@ above.
 
 Product rule (recorded 2026-11-15): footage captured at the edge must never be
 left stranded on disk. "Kept on the volume and flagged" is not an acceptable end
-state. Everything recorded ends up cataloged (and archived when the block
-archives, A6), or is explicitly accounted for as a gap.
+state. Every block ends in one of the drain's terminal outcomes (R2), and any
+interval it does not cover is recorded as a gap. The authority under which an
+old block is adopted or re-delivered is the production-time rule of
+[add-edge-production-time-admission](../add-edge-production-time-admission/proposal.md):
+a sealed block is judged against the recovery generation, archive binding and
+recorder grant valid when it was sealed, verified against retained history,
+and is not refused only because the current generation or binding changed.
+The reservation authority in R3 is how this change applies that rule to NVR
+blocks.
 
 ### R1. How footage is stranded today
 
@@ -712,18 +720,41 @@ now in review, and every capture that rotated did.
 ### R2. Invariant
 
 For every block directory on an NVR volume, within a bounded time after its
-writer retires, exactly one of these holds:
+writer retires, the reconciler works it until it reaches one of the drain's
+terminal outcomes. This is the one list; nothing else ends the drain:
 
-| End state | Meaning |
+| Mode | Terminal outcomes |
 | --- | --- |
-| Cataloged | A catalog entry exists (B3); if the block archives (A6: archiving enabled and policy `local_and_archive`), the archive copy is verified or being retried with backlog reporting and alarms (R5); otherwise `archive_state = not_required` |
-| Gap | The block could not be recovered; a `RecordingGap` with reason `unrecoverable_journal` covers its interval and the residue is disposed through an audited disposition (R4) |
-| Tombstoned | Deleted by retention through an audited disposition (C6) |
-| Unattributable | No Core authority covers the block; an alarm is raised and an operator decision is required (R3, last row) |
+| Local-only (the block does not archive, A6) | Catalogued in the local archive with its index receipt persisted: the catalog entry (B3) with `archive_state = not_required`; or a quarantine receipt recorded (below) |
+| With object storage (the block archives, A6) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); or quarantine receipt recorded |
 
-"Unattributable" is the only state that keeps bytes without Core accounting, and
-it is an alarm, not an end state. It exists because adopting bytes that no Core
-reservation covers would trust whatever is on disk.
+A block that reaches an outcome may later be tombstoned by retention through an
+audited disposition (C6); that ends its life, not its drain. An interval with no
+recoverable media is recorded as a `RecordingGap` with a reason, alongside the
+outcome of whatever bytes remain.
+
+**Quarantine.** A block or journal whose seal cannot be verified or recovered
+(recovery fails, R4 step 5) or that has no Core authority (R4 step 6) is moved
+by the NVR into a quarantine partition on the same volume (a known root entry
+beside the block directories, accepted by inventory and the ledger like the
+disposition journal, C6). It is retained and counted in volume usage and in a
+quarantined-bytes figure on the health tab; it is never playable or indexed for
+the timeline; budget, age, the full policy and the reaper never select it; and
+it is removed only by an explicit, audited operator disposition (reason
+`operator_quarantine`, C7). The quarantine receipt is a row in the catalog's
+quarantine table (`platform.camera_recording_quarantine`: storage, block key or
+journal name, reservation when one exists, reason class, bytes, placed-at and
+the NVR's confirmation of the move). With object storage, the quarantine
+receipt also records the verified quarantine-destination archive receipt that
+add-edge-production-time-admission requires: the block is copied, unindexed, to
+a `_quarantine/` prefix of the current destination, which object retention and
+the reaper never touch; those objects count in object usage as non-reapable
+bytes (C3a). The lost interval is a gap with reason `quarantined` and the
+verification class. Quarantined bytes are pinned (C1, C1a P5).
+
+Any state other than an outcome above (unreconciled, not yet adopted, or
+archive still pending or failed) is in progress: the reconciler keeps working the block and the alarms of R5 report
+it.
 
 ### R3. Adoption authority
 
@@ -801,16 +832,15 @@ descriptor SHA-256. For each block:
    with reason `incomplete_tail` and its exact media duration when known.
 4. **Rotated block**: apply the derived authority in R3, then as 2 or 3.
 5. **Unrecoverable**: if recovery fails (`empty_block`, identity mismatch,
-   corrupt or missing committed data), record a `RecordingGap` with reason
-   `unrecoverable_journal`, the verification class and the interval known from
-   the reservation (the run's timeline when available, otherwise the receipt
-   time of the capture). After the gap commits and a 7-day grace (so an
-   operator can place a hold and inspect), the residue is disposed through an
-   audited disposition with reason `unrecoverable` (C6, C7). A hold extends
-   this indefinitely.
-6. **Unattributable**: no Core authority. Raise an alarm, list it with the
-   evidence on the health tab, never adopt or delete automatically. The
-   operator's options are an audited delete or an export for inspection.
+   corrupt or missing committed data), quarantine the block or journal (R2),
+   record its quarantine receipt, and record a `RecordingGap` with reason
+   `quarantined`, the verification class and the interval known from the
+   reservation (the run's timeline when available, otherwise the receipt time
+   of the capture). Nothing is removed automatically.
+6. **Unattributable**: no Core authority. Quarantine it (R2) with reason class
+   `unattributable`, raise an alarm and list it with the evidence on the
+   health tab; never adopt it. The operator's options are an audited
+   disposition or an export for inspection.
 
 Core reservations with no block on the volume (a reserved row whose key is
 absent and whose writer is retired) become gaps with reason `block_absent`, and
@@ -839,15 +869,15 @@ as in A6 step 1.
 
 Exposed to the settings `health` tab per member and in total: unarchived block
 count and bytes, oldest unarchived age, archive goodput against capture,
-unreconciled block count (found on disk, not yet in an end state), unattributable
-count, and gaps by reason. These are published through the settings change's
+unreconciled block count (found on disk, not yet at a terminal outcome),
+quarantined blocks and bytes, and gaps by reason. These are published through the settings change's
 JetStream backlog telemetry.
 
 Alarms (through the deduplicated, auto-clearing health-check path in C8, not just a page badge):
 
 - oldest unarchived block older than 1 hour (code default);
 - any `failed_terminal` archive entry;
-- any unattributable block;
+- any quarantined block, until an operator disposes of it or acknowledges it;
 - a block unreconciled for longer than 2 reconciler intervals plus the writer
   retirement time;
 - reconciliation paused because the recovery gate is closed or history is
@@ -865,9 +895,9 @@ A block is never reclaimed while it is unreconciled:
 - Unreconciled blocks are pinned for capacity eviction (C1, C5): budget and
   age eviction never select them, and if they fill the volume, admission stops
   with a gap.
-- The only deletions of footage outside the catalog are the audited
-  `unrecoverable` residue disposal (R4 step 5) and an operator's explicit delete
-  of an unattributable block, both recorded in `RecordingDisposition`.
+- The only deletion of footage outside the catalog entries is an operator's
+  explicit, audited disposition of a quarantined block (`operator_quarantine`),
+  recorded in `RecordingDisposition`.
 
 ### R7. Relation to the pending define-nvr-* changes
 
@@ -890,10 +920,25 @@ A block is never reclaimed while it is unreconciled:
   freezing an unknown block: Core's own reservation is the established
   authority. Adoption of a rotated block is the narrow amendment to the plane's
   local publication contract recorded in PD1; when its proof fails the block is
-  unattributable.
+  unattributable and quarantined.
 - **Decided (PD2).** Unregistered local copies play labelled "provisional",
   with fallback to the verified archive copy; the label is removed once
   local-copy registration exists for the copy's storage lifetime.
+
+### R8. Stranding paths in the older upload path
+
+A survey found three stranding paths. All three are in the older
+`ArchiveUploads` and media-storage path, which this change does not build on;
+`RecordingBlocks.acquire_upload/4` refuses NVR blocks (B1, B.4). They are
+recorded as referenced follow-ups for
+[add-edge-recording-archive](../add-edge-recording-archive/proposal.md), and the
+NVR archive path's own rule for each is stated here:
+
+| Path | Older path, verified in source | NVR archive path (this change) |
+| --- | --- | --- |
+| Unknown dispatch outcome | A dispatch observed as `:prepared` (`archive_uploads.ex:1157`) makes `publication_phase/2` return `:reconciliation_required` (`archive_uploads.ex:1231`, `1237`), and `ArchivePublication` stops with `:archive_reconciliation_required` (`archive_publication.ex:42`, `79`); nothing rearms it. Follow-up for add-edge-recording-archive | Rearmed: an unknown outcome is `failed_retryable` and A6 retries it; the retry verifies retained objects by read-back and never overwrites (A6 step 4). R5 re-enqueues any entry left without a job, so no state needs an operator |
+| Changed archive binding | `bind_archive/4` returns `:archive_binding_conflict` when a block already has another binding (`recording_blocks.ex:113-122`), permanently for existing blocks. Follow-up for add-edge-recording-archive | Rebinding rule: an entry archives to the `archive_binding_id` recorded at registration (B3), the binding valid when it was sealed, per the production-time rule; a later binding change applies only to entries registered afterwards and never conflicts with pending ones. If that binding is absent from retained history or ended for a compromise-class reason, the block is quarantined (R2) |
+| Leftover scratch after a crash | `staging_root/1` refuses an existing `vms-media-staging` root (`session.ex:330-346`), so `init/1` stops with `:storage_scratch_reconciliation_required` (`session.ex:49`) and the router answers 503 for every upload (`router.ex:95-96`). Follow-up for add-edge-recording-archive: the owning service reconciles its own scratch and does not halt other uploads | Not affected: the NVR archive holds the block in memory and writes no scratch (`archive.ex:36-42`); the only file it writes is the bounded receipt, which retries treat as retained evidence |
 
 ## C. Retention and reclaim
 
@@ -975,7 +1020,10 @@ archive copy was deleted is "local only after archive expiry or reaping".
 | (b) local-only footage | `not_required` | only when `local_only_full_policy = overwrite_oldest` is recorded; otherwise pinned | `local_only_max_age` when limited, whatever the full policy | `local_only_overwrite`, `local_only_max_age` |
 | (c) pinned by archive state | `pending`, `failed_retryable`, `failed_terminal` (unarchived); `deleting` (until the retention job confirms absence and moves the entry to `deleted`); `missing` (archive copy found changed or absent, an operator decides) | never; always pinned | never | none |
 
-These rows cover every `archive_state` of B3 exactly once. Any future
+| (q) quarantined | none: a quarantine receipt (R2), no catalog entry | never; always pinned | never | `operator_quarantine` only |
+
+These rows cover every `archive_state` of B3 exactly once, plus quarantined
+blocks. Any future
 `archive_state` must be added to this table before it can be written; a state
 outside the table is a defect, not an implicit kind.
 
@@ -1022,7 +1070,7 @@ object retention (C3a), applied to the space-evictable kinds:
 ```
 rate_k   = max(r15m_k, r6h_k)    bytes/s sealed by the policies of kind k
 age_k    = the kind's age ceiling from C1 (infinite when unlimited)
-pinned   = P1 + P2 + P3 + P4       (defined below; the one definition)
+pinned   = P1 + P2 + P3 + P4 + P5  (defined below; the one definition)
 solve      sum_k rate_k * min(age_k, T_w) = water_bytes - pinned
            over the space-evictable kinds k, once with low water (T_low)
            and once with high water (T_high)
@@ -1048,6 +1096,22 @@ window_k = min(age_k, T_low) to min(age_k, T_high)
   pinned bytes lie between low and high water the range is 0 to
   `min(age_k, T_high)`; the window is a single 0 only when pinned bytes are at
   or above high water.
+- **Block cap.** The byte window assumes admission continues. When the blocks
+  the window would retain, `sum_k block_rate_k * window_k` at the high-water
+  end, exceed the volume's block cap (A5), admission stops at the cap and
+  nothing is deleted (1.1, C5). The binding bound is then "block cap", the
+  footage is kept, the byte window is not shown as reachable, and the page
+  shows time until admission stops,
+  `(block_cap - blocks_retained) / block_rate`, as its own figure, the way
+  `stop_when_full` separates time-to-full from the window. Worked example
+  (assumed figures): a 1 TiB volume (budget about 0.84 TiB) with one 120 kbit/s
+  camera (15 kB/s, 320 blocks per day) has a byte window of about 570 to 641
+  days, but 131,072 blocks are reached after about 410 days, so the bound is
+  the block cap and admission stops at about 410 days from empty.
+- **Threshold comparisons.** Every comparison of a window with a threshold or
+  target (the what-if warning, `local_window_low`, `local_only_target`, C8)
+  uses the lower, low-water end of the range: the history still present right
+  after eviction. A range whose lower end is 0 is below any threshold.
 - **Pinned bytes** are the bytes eviction cannot free: the size of the union
   of every non-evictable local copy, computed as a disjoint partition so each
   block is counted once. This is the one definition; the window, the
@@ -1060,6 +1124,7 @@ window_k = min(age_k, T_low) to min(age_k, T_high)
   - P4: held local copies that are the hold's pinned copy (C4) and are not in
     P1 or P3: held kind (a) whose archive copy had already been deleted when
     the hold was placed, and held kind (b) under `overwrite_oldest`.
+  - P5: quarantined bytes (R2).
   A held block whose verified archive copy is the pin adds nothing. Unheld
   kind (a) copies, including those local only after archive expiry or reaping,
   are evictable bytes.
@@ -1090,7 +1155,7 @@ the projected provider throughput needed (about twice the archived capture
 rate, A6) against measured provider throughput (A6), projected blocks per day
 against the block cap, and projected sessions against `SERVICERADAR_NVR_MAX_SESSIONS`.
 It warns, but does not block, when the projected window is below the alert
-threshold (C8).
+threshold (C8), compared as above.
 
 **Worked examples** for a 100 GiB volume (84.0 GiB budget, low water 67.2 GiB,
 high water 75.6 GiB). Bitrates are assumed, not measured:
@@ -1133,8 +1198,9 @@ ingest gives under 4 hours, although the archived camera's copies keep being
 evicted at 24 h.
 
 The same twenty cameras on a 20 GiB volume (16.8 GiB budget) hold about 48 to
-54 minutes. On today's defaults (1 GiB budget), they would hold about 3.6
-minutes, and one 4 Mbit/s camera about 36 minutes.
+54 minutes. On today's defaults (1 GiB budget, so low and high water at 80% and
+90% of it), they would hold about 2.9 to 3.2 minutes, and one 4 Mbit/s camera
+about 29 to 32 minutes.
 
 Where the block cap binds: at 4,096 blocks with blocks of at most 12 MiB, the
 NVR can never use more than about 48 GiB, so on a 100 GiB volume the count binds
@@ -1352,7 +1418,8 @@ object tier gets a byte budget symmetric with the local tier.
 
 **Usage** is what ServiceRadar wrote: the sum of object lengths in the receipts
 of archive copies that are `verified` or `deleting`, for the active binding,
-plus the bytes of uploads in flight, maintained in the catalog. It does not
+plus the bytes of uploads in flight and of quarantine objects (R2), maintained
+in the catalog. It does not
 list the bucket (costly, and providers report usage differently); in SaaS the
 control plane compares it with the provider's own bucket size (stage F). A
 self-hosted bucket shared with other data needs a budget that leaves room for
@@ -1421,7 +1488,8 @@ until the local budget fills, then stops with a gap with reason
 
 **Held and non-reapable bytes reach high water.** Holds pin verified archive
 copies (PD5) and the reaper never deletes them. Non-reapable bytes are held archive
-bytes plus uploads in flight. When they alone reach object high water, nothing
+bytes plus uploads in flight plus quarantine objects (R2); this is the one
+definition. When they alone reach object high water, nothing
 can be reaped: new archive uploads pause (as in `stop_archiving`), recording
 continues locally, and a critical alert names the held bytes and holds. Between
 object low water and high water the calculated T is already 0 (no reapable
@@ -1467,11 +1535,31 @@ retention tab. They fire before reaping starts:
 | Check | Unhealthy when | Severity |
 | --- | --- | --- |
 | `object_capacity_binds` | effective retention below configured retention for any policy | warning (before the first capacity deletion) |
-| `object_days_to_high_water` | projected days until object high water below 7 | warning; critical below 2 |
+| `object_days_to_capacity` | `days_to_capacity` (below) under 7 | warning; critical below 2 |
 | `object_used_percent` | usage at or above 75% of the hard limit | warning; critical at 90% |
 | `object_overage_active` | usage above `allocation_bytes` with metered overage (stage F) | warning (billing applies) |
 | `object_held_exceeds` | non-reapable bytes at or above object high water | critical (archiving paused) |
 | `object_archive_paused_capacity` | new uploads paused for capacity | critical |
+
+`days_to_capacity` is the one projection of object capacity; the checks, the
+page and the spec use it:
+
+```
+reap_oldest, or no budget pressure:
+  days_to_capacity = (high_water_bytes - non_reapable_bytes) / non_reapable_growth
+stop_archiving:
+  days_to_capacity = (hard_limit_bytes - usage_bytes) / sum_c rate_c
+```
+
+`non_reapable_bytes` are as defined above;
+`non_reapable_growth` is their growth per day over the trailing 7 days, and
+the figure is "not filling" when that growth is at or below zero. Under
+`reap_oldest` the healthy sawtooth between low and high water never raises
+this check, because reaping keeps usage down; only bytes the reaper cannot
+delete bring capacity closer. Under `stop_archiving` nothing is reaped, so the
+projection is the time until the measured archived-bytes rate (`rate_c`
+below) fills the hard limit. That retention is shorter than configured is the
+separate `object_capacity_binds` notice.
 
 `held_archive_missing` (C8) also applies.
 
@@ -1560,8 +1648,9 @@ footage that cannot be evicted.
   every 30 s, and a critical alert says "recording stopped: local storage
   full" and names each pinned cause with its blocks and bytes, largest first:
   upload backlog (`pending` or `failed_*`), archive deleting, archive missing,
-  unreconciled, held pins, and local-only footage under `stop_when_full` (the
-  C1a parts). When the cause clears (the archive recovers and verified blocks
+  unreconciled, quarantined, held pins, and local-only footage under
+  `stop_when_full` (the C1a parts), or the block cap when `:nvr_inventory_limit`
+  stopped it. When the cause clears (the archive recovers and verified blocks
   become evictable, a deletion completes, a hold is released), eviction frees
   space at the next pass and recording resumes; the gap closes.
 - **Never**: evict the pinned bytes of C1a, shorten the
@@ -1609,7 +1698,7 @@ Re-checks:
 `platform.camera_recording_dispositions`, append-only (no update, no destroy):
 operation ID, catalog entry, copy (`local` or `archive`), reason
 (`budget`, `max_local_age`, `local_only_overwrite`, `local_only_max_age`,
-`object_retention`, `object_capacity`, `unrecoverable`, `operator_unattributable`),
+`object_retention`, `object_capacity`, `operator_quarantine`),
 the settings revision and the effective values used, the hold check result,
 for an archive-copy deletion whether the local copy remained,
 then one row per step: `requested`, `executed`, `verified_absent`, `failed`
@@ -1639,10 +1728,10 @@ job each pass:
 | Check | Unhealthy when | Severity |
 | --- | --- | --- |
 | `local_high_water_pinned` | usage is above high water and nothing is evictable | warning; critical at the budget |
-| `local_window_low` | effective window (C1a) below `local_window_alert_seconds` (default 1 h) with archiving on | warning |
+| `local_window_low` | effective window (C1a, lower end) below `local_window_alert_seconds` (default 1 h) with archiving on | warning |
 | `time_to_full` | `ttf` below 4 h | warning; critical below 1 h and when admission has stopped |
 | `archive_backlog_age` | oldest unarchived block older than 1 h (R5) | warning; critical when `ttf` is also below 4 h |
-| `local_only_target` | local-only effective window below `local_only_retention_target_seconds` | warning |
+| `local_only_target` | local-only effective window (C1a, lower end) below `local_only_retention_target_seconds` | warning |
 | `held_bytes_fill` | P3 + P4 of the C1a pinned bytes above local high water (unreconciled bytes have their own R5 alarm and admission-stop cause) | warning; critical at the budget |
 | `held_archive_missing` | a held archive copy failed its re-check (C4) | critical |
 | object-tier checks | see C3a (`storage.recordings.*`) | |
@@ -2073,7 +2162,7 @@ On `/settings/recording`:
   configured" as a normal state, not an error.
 - `health` tab: archive backlog (that change's requirement) with unarchived
   count, bytes and oldest unarchived age; reconciliation status (unreconciled,
-  unattributable, last pass, paused reason) and alarms (R5); retention status
+  quarantined blocks and bytes, last pass, paused reason) and alarms (R5); retention status
   (blocks due, blocks blocked by holds, last pass, failures); per member
   "local storage holds about N hours (or minutes) at the current rate" with the
   binding bound (budget, maximum age or block cap), used and pinned bytes
@@ -2247,7 +2336,7 @@ The product exposes, under the `entitlements` purpose:
 - `GET /v1/storage/usage?from=<YYYY-MM-DD>`: per consumer, per closed UTC day:
   `retained_bytes_end`, `retained_bytes_max`, `added_bytes`, `deleted_bytes`
   by reason (`object_retention`, `object_capacity`, `operator`), `held_bytes`,
-  `non_reapable_bytes` (held archive bytes plus uploads in flight), `object_count`
+  `non_reapable_bytes` (C3a), `object_count`
   (three objects per block, from receipts), `requests` (PUT, GET, HEAD, DELETE
   issued by NVR members and core-elx), `archive_read_bytes`, `rates` (a list of
   `{policy_ref, bytes_per_day, basis}` with opaque policy references and no
@@ -2264,7 +2353,7 @@ shown, and the report route simply has no caller.
 
 ### F6. Alerts before reaping, and the reaper event
 
-The C3a checks (`object_capacity_binds`, `object_days_to_high_water`,
+The C3a checks (`object_capacity_binds`, `object_days_to_capacity`,
 `object_used_percent`, `object_overage_active`, `object_held_exceeds`,
 `object_archive_paused_capacity`) and the per-pass OCSF reaper event apply
 unchanged under an entitlement. `object_overage_active` is meaningful only with
@@ -2392,7 +2481,7 @@ All additions. New tables (`camera_recording_catalog`, `camera_recording_gaps`,
 credential role and a receipt version 2 that v1 readers keep accepting. NVR
 bounds change behind the existing install values. Blocks recorded before this
 change, including those stranded by uncertain captures and rotation, are
-adopted, recorded as gaps or raised as unattributable by the reconciler's first
+adopted or quarantined with gaps by the reconciler's first
 passes (section R). Retention is inert until a policy and settings exist; object retention is
 inert until a retention credential is selected; the object reaper is inert until
 a budget and `reap_oldest` are recorded or an entitlement supplies them. A

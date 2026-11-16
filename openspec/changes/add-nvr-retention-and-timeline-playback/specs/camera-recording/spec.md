@@ -108,14 +108,14 @@ Catalog registration SHALL be create-only per storage identity and block key. A 
 - **GIVEN** a block on an NVR volume that matches no Core reservation and no reserved predecessor
 - **WHEN** the reconciler examines it
 - **THEN** the system SHALL NOT freeze, catalog or play it
-- **AND** SHALL raise an alarm and list it as unattributable for an operator decision
+- **AND** SHALL quarantine it with a recorded quarantine receipt, raise an alarm and list it for an operator decision
 
 #### Scenario: Legacy upload path
 - **WHEN** the older archive upload path requests a lease on a block stored on an NVR member
 - **THEN** the request SHALL be refused
 
 ### Requirement: No stranded NVR footage
-The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to exactly one accounted end state: cataloged (and, when archiving is enabled and its policy stores `local_and_archive`, archived or under retried archive with backlog reporting and alarms), recorded as a gap with a reason, or tombstoned by an audited disposition. A block with no Core authority SHALL raise an operator alarm and SHALL NOT be adopted or deleted automatically.
+The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to a terminal outcome of the drain, and the reconciler SHALL keep working a block until it reaches one: in local-only mode, catalogued in the local archive with its index receipt persisted, or a quarantine receipt recorded; with object storage (archiving enabled and the policy stores `local_and_archive`), an archive receipt recorded, or a quarantine receipt recorded. Nothing else SHALL end the drain. A block or journal whose seal cannot be verified or recovered, or that has no Core authority, SHALL be quarantined: moved to a quarantine partition on the same volume, retained, counted in usage and in a quarantined-bytes figure, never playable, never selected by budget, age, full policy or reaper, and removed only by an explicit audited operator disposition; with object storage its quarantine receipt SHALL also record a verified copy in a quarantine prefix of the destination that retention and the reaper never delete. The interval it fails to cover SHALL be recorded as a gap with reason `quarantined`. A sealed block SHALL be judged against the generation, archive binding and recorder grant valid when it was sealed, as add-edge-production-time-admission defines, and SHALL NOT be refused only because the current binding or generation changed.
 A periodic reconciler SHALL compare each member's inventory with the Core catalog and SHALL adopt a block only under Core's retained reservation authority: the reservation row created under the live recorder fence before the block existed, matching storage identity, block key and verified journal identity including the clock, unchanged fence history, retired writer, and a ready recovery state. A block the NVR rotated into without a reservation SHALL be adopted only when its reserved predecessor in the same recorder epoch and clock epoch is adopted, its sequence was never allocated, and its journal identity differs from the predecessor's only in sequence. Incomplete journals SHALL be recovered through the existing explicit recovery to their last committed fragment before adoption. A block SHALL NOT be reclaimed while it is unreconciled.
 
 #### Scenario: Uncertain capture later reconciled
@@ -143,10 +143,18 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **THEN** it SHALL recover the block to its last committed fragment through the existing explicit recovery and catalog it
 - **AND** SHALL record the lost tail as a gap with reason `incomplete_tail`
 
-#### Scenario: Unrecoverable journal becomes an explicit gap
+#### Scenario: Unrecoverable journal is quarantined
 - **WHEN** explicit recovery of a reserved block fails verification
-- **THEN** the system SHALL record a gap with reason `unrecoverable_journal`, the verification class and the reserved interval
-- **AND** after the grace period, and only if no hold covers it, SHALL dispose of the residue through an audited disposition
+- **THEN** the system SHALL quarantine the block or journal and record its quarantine receipt
+- **AND** SHALL record a gap with reason `quarantined`, the verification class and the reserved interval
+- **AND** SHALL raise an alarm and show the quarantined bytes on the health tab
+- **AND** SHALL NOT play it or remove it until an operator records an audited disposition, at any usage
+
+#### Scenario: Archive binding changes while blocks are pending
+- **GIVEN** cataloged blocks pending archive under the binding active when they were registered
+- **WHEN** an operator changes the archive binding
+- **THEN** those blocks SHALL still be archived under their registered binding
+- **AND** only blocks registered afterwards SHALL use the new binding
 
 #### Scenario: Unreconciled block under disk pressure
 - **WHEN** a member is under storage pressure and holds unreconciled blocks
@@ -218,7 +226,7 @@ When usage reaches the high-water mark the system SHALL evict the space-evictabl
 - **AND** recording SHALL resume once archived blocks become evictable
 
 ### Requirement: Effective local window projection
-The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water bytes less pinned bytes for the lower end, and equal to the high-water bytes less pinned bytes for the upper end, and show each kind's window as the range between the smaller of its age ceiling and each T, a single 0 only when pinned bytes are at or above high water, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be the bytes of the union of every local copy eviction cannot free, each block counted once, as partitioned in the design's effective-window definition (C1a); every other use of pinned bytes in this specification refers to that definition. Time-to-full SHALL be reported as not filling when pinned bytes do not grow, or when every growing part has a limited age ceiling and its projected peak fits under the budget; otherwise it SHALL divide the budget less pinned bytes by the current growth rate of pinned bytes, never by ingest that eviction frees.
+The system SHALL compute and display, per NVR member and per kind of the local eviction table, how long local storage holds at the current recording rate, stating which bound applies: for the space-evictable kinds it SHALL solve the sum over kinds of rate times the smaller of the kind's age ceiling and T equal to the low-water bytes less pinned bytes for the lower end, and equal to the high-water bytes less pinned bytes for the upper end, and show each kind's window as the range between the smaller of its age ceiling and each T, a single 0 only when pinned bytes are at or above high water, where each rate is the larger of the trailing 15-minute and 6-hour sealed-byte rates of that kind. Pinned bytes SHALL be the bytes of the union of every local copy eviction cannot free, each block counted once, as partitioned in the design's effective-window definition (C1a); every other use of pinned bytes in this specification refers to that definition. When the blocks the window would retain exceed the volume's block cap, the system SHALL name the block cap as the binding bound, keep the footage, and show the time until admission stops as a separate figure. Every comparison of a window with an alert threshold or target SHALL use the lower, low-water end of the range. Time-to-full SHALL be reported as not filling when pinned bytes do not grow, or when every growing part has a limited age ceiling and its projected peak fits under the budget; otherwise it SHALL divide the budget less pinned bytes by the current growth rate of pinned bytes, never by ingest that eviction frees.
 Before an operator saves a change to recording policies, profiles, member assignment or watermarks, the system SHALL show the projected window, the provider throughput needed against measured provider throughput (archive upload plus readback, about twice the media bytes verified), projected blocks per day against the block cap, and projected sessions against the member's session limit.
 
 #### Scenario: Twenty cameras shrink the window and the operator is told before saving
@@ -251,6 +259,13 @@ Before an operator saves a change to recording policies, profiles, member assign
 - **GIVEN** the same member with 75 GB pinned
 - **WHEN** the window is computed
 - **THEN** the archived footage's window SHALL be 0 to about 3.4 hours, not a single 0
+- **AND** a 1 hour window alert threshold SHALL be reported as not met, because the lower end is 0
+
+#### Scenario: Block cap binds before the byte window
+- **GIVEN** a 1 TiB volume with one 120 kbit/s camera, a byte window of about 570 to 641 days and a block cap of 131,072 blocks at 320 blocks per day
+- **WHEN** the window is shown
+- **THEN** the binding bound SHALL be the block cap and the time until admission stops SHALL be about 410 days from empty
+- **AND** no block SHALL be deleted to stay under the cap
 
 #### Scenario: Archived window kept while pinned bytes are small
 - **GIVEN** the same member with 20 GB pinned
@@ -343,7 +358,7 @@ The applied budget SHALL NOT exceed the install ceiling or the measured volume c
 - **THEN** it SHALL apply the install values, report the persisted setting as refused with the reason, and the view SHALL show the difference
 
 ### Requirement: Deduplicated storage alerts
-The system SHALL raise NVR storage conditions through the platform's existing deduplicated, auto-clearing health-check path, per member: usage above high water with nothing evictable, effective window below the configured threshold, projected time-to-full below 4 hours (critical below 1 hour or when admission has stopped), oldest unarchived footage older than 1 hour when archiving is on, local-only retention target not met, held local copies that are the pinned copy or local-only footage that cannot be evicted filling the local budget, a held archive copy failing its re-check, effective object retention below configured retention, projected days until object high water below 7, object usage at 75% and 90% of the hard limit, metered overage active, non-reapable bytes at object high water, and archive uploads paused for capacity; object checks SHALL fire before the first capacity deletion. Each object reaper run that deletes footage SHALL also publish an event with the bytes deleted and the resulting effective object retention.
+The system SHALL raise NVR storage conditions through the platform's existing deduplicated, auto-clearing health-check path, per member: usage above high water with nothing evictable, effective window below the configured threshold, projected time-to-full below 4 hours (critical below 1 hour or when admission has stopped), oldest unarchived footage older than 1 hour when archiving is on, local-only retention target not met, held local copies that are the pinned copy or local-only footage that cannot be evicted filling the local budget, a held archive copy failing its re-check, effective object retention below configured retention, projected days to object capacity below 7 (days until non-reapable bytes reach object high water under `reap_oldest`, or until usage reaches the hard limit at the measured archived-bytes rate under `stop_archiving`), quarantined blocks, object usage at 75% and 90% of the hard limit, metered overage active, non-reapable bytes at object high water, and archive uploads paused for capacity; object checks SHALL fire before the first capacity deletion. Each object reaper run that deletes footage SHALL also publish an event with the bytes deleted and the resulting effective object retention.
 Each condition SHALL clear when it no longer holds, and repeated evaluation of an unchanged condition SHALL NOT raise duplicates.
 
 #### Scenario: Condition persists and then clears
@@ -406,7 +421,7 @@ With `reap_oldest`, the system SHALL delete only archive copies, oldest first, e
 #### Scenario: Stop archiving when the bucket is full
 - **GIVEN** the object budget is limited and the policy is `stop_archiving` or none has been recorded
 - **WHEN** archiving the next block would exceed the object budget
-- **THEN** archive jobs SHALL pause with blocks kept pending, recording SHALL continue locally, and an alert SHALL report usage and projected days to full
+- **THEN** archive jobs SHALL pause with blocks kept pending, recording SHALL continue locally, and an alert SHALL report usage and the projected days to object capacity
 - **AND** no archived footage SHALL be deleted for capacity
 
 #### Scenario: Held archive bytes alone exceed the budget
