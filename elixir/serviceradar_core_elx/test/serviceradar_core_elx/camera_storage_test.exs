@@ -547,13 +547,16 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
   test "wrong staged bytes and duplicate lease fields cannot consume a provider grant", ctx do
     assert {:ok, %{status: 503}} = raw_upload(ctx, bytes: :binary.copy("x", byte_size(ctx.bytes)))
     duplicate = @lease |> Jason.encode!() |> String.replace("{", ~s({"id":"duplicate",), global: false)
-    # A body at the route's 16 MiB limit cannot sit in the socket buffers. The
-    # client reads each refusal only because the server drains the body first.
-    refused = :binary.copy("r", 16_777_216)
-    assert {:ok, %{status: 400}} = raw_upload(ctx, lease: duplicate, bytes: refused)
+    assert {:ok, %{status: 400}} = raw_upload(ctx, lease: duplicate)
 
     assert {:ok, %{status: 400}} =
-             raw_upload(ctx, bytes: refused, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
+             raw_upload(ctx, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
+
+    # The headers alone provoke each refusal. The client writes the whole 16 MiB
+    # body before it reads, as a recorder does, and no socket buffer holds that
+    # much: it reads the 400 only if the server takes the body before closing.
+    assert {:ok, "HTTP/1.1 400 " <> _} = write_then_read(ctx, [duplicate])
+    assert {:ok, "HTTP/1.1 400 " <> _} = write_then_read(ctx, [Jason.encode!(@lease), Jason.encode!(@lease)])
 
     assert Agent.get(ctx.store, & &1.provider) == []
     refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
@@ -1014,6 +1017,45 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
              ])
 
     socket
+  end
+
+  # Sends the request headers, then the body in 1 MiB writes, and only then
+  # reads the response to the close. A transport failure at either step is
+  # returned with the step it hit.
+  defp write_then_read(ctx, leases) do
+    options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
+    assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
+    on_exit(fn -> :ssl.close(socket) end)
+    chunk = :binary.copy("r", 1_048_576)
+
+    head = [
+      "POST /v1/media-uploads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ",
+      @recorder_token,
+      "\r\nContent-Type: application/octet-stream\r\nContent-Length: 16777216",
+      Enum.map(leases, &["\r\nX-ServiceRadar-Upload-Lease: ", &1]),
+      "\r\n\r\n"
+    ]
+
+    with :ok <- send_all(socket, [head | List.duplicate(chunk, 16)]) do
+      read_to_close(socket, [])
+    end
+  end
+
+  defp send_all(_socket, []), do: :ok
+
+  defp send_all(socket, [data | rest]) do
+    case :ssl.send(socket, data) do
+      :ok -> send_all(socket, rest)
+      {:error, reason} -> {:error, {:send, reason}}
+    end
+  end
+
+  defp read_to_close(socket, acc) do
+    case :ssl.recv(socket, 0, 10_000) do
+      {:ok, data} -> read_to_close(socket, [acc, data])
+      {:error, :closed} when acc != [] -> {:ok, IO.iodata_to_binary(acc)}
+      {:error, reason} -> {:error, {:recv, reason}}
+    end
   end
 
   defp as_role(ctx, kind) do
