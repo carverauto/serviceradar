@@ -363,10 +363,14 @@ enum EdgeLateDecisionReason {
   EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN = 3;
   EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED = 4;
   EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW = 5;
-  EDGE_LATE_DECISION_REASON_LEDGER_PRUNED = 6;
-  EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 7;
+  EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED = 6;
+  EDGE_LATE_DECISION_REASON_LEDGER_PRUNED = 7;
 }
 ```
+
+Phase 1 shipped `CONTRACT_RETIRED = 6`, so `LEDGER_PRUNED` takes 7: the
+numbering follows the proto wire-compatibility gate, which forbids renaming a
+released enum value.
 
 The claims still bind `event_id`, `record_sha256`, `spool_id` and `sequence`.
 The grant is short-lived and signed by the issuer key for the `delivery`
