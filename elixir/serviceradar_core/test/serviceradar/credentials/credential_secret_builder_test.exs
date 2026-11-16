@@ -564,6 +564,8 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
   end
 
   describe "build_rotation/4" do
+    alias ServiceRadar.Credentials.NativeDescriptors
+
     test "defaults AWX token next_rotation_due_at to 90 days on build and rotation when omitted" do
       now = ~U[2026-10-25 12:00:00.000000Z]
       expected_due = DateTime.shift(now, day: 90)

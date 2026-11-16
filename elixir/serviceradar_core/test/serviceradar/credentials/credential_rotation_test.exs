@@ -289,7 +289,9 @@ defmodule ServiceRadar.Credentials.CredentialRotationTest do
         end,
         load_secret: fn @secret_id, _actor -> {:ok, secret} end,
         profile_for: fn "example-network", %{role: :system} -> {:ok, profile} end,
-        build_rotation: fn ^secret, ^profile, _submitted_values, [] -> {:ok, attrs} end,
+        build_rotation: fn ^secret, ^profile, _submitted_values, [current_payload: _] ->
+          {:ok, attrs}
+        end,
         start_rotation: fn ^secret, _actor ->
           {:ok, Map.put(secret, :rotation_state, :rotating)}
         end,
