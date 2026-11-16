@@ -369,6 +369,38 @@ func TestLegacyHandoffWaitsForTrustWithoutTouchingTheTail(t *testing.T) {
 	require.Equal(t, 1, report.HandedOff)
 }
 
+// The producer admission gate pauses new live records while the bulk backlog
+// sits above its low water. Handing off the flat tail is that backlog draining,
+// so a paused gate must not hold it: the tail moves to late storage, the flat
+// spool is retired, and its retained charge is released.
+func TestLegacyHandoffDrainsWhileTheAdmissionGateIsPaused(t *testing.T) {
+	root := t.TempDir()
+	raws := [][]byte{
+		daysOldRelayRecord(t, time.Now().Add(-6*24*time.Hour)),
+		daysOldRelayRecord(t, time.Now().Add(-5*24*time.Hour)),
+	}
+	writeFlatSpoolTail(t, root, raws...)
+
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: 1 << 30, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: spool.DefaultRecoveryFootprint()})
+	require.NoError(t, err)
+	paused := func(string, uint64) bool { return false }
+	sp, err := OpenRecordSpool(root, allocator, spool.WithAdmissionGate(paused))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+	require.NotZero(t, sp.RetainedLegacyBytes())
+
+	report, err := sp.HandOffLegacy()
+	require.NoError(t, err)
+	require.Equal(t, len(raws), report.HandedOff)
+	require.Zero(t, report.Pending)
+	require.Equal(t, uint64(len(raws)), sp.LatePending())
+	require.Zero(t, sp.RetainedLegacyBytes())
+	_, statErr := os.Lstat(filepath.Join(root, "lane.seg"))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 // A crash after the late append and before the flat spool recorded the handoff
 // leaves the record in both; the next pass recognizes it and keeps one copy.
 func TestLegacyHandoffAfterACrashKeepsOneCopy(t *testing.T) {

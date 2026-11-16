@@ -94,7 +94,7 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 	if err != nil {
 		return nil, err
 	}
-	late, err := openLateStore(root, taxonomy, allocator, common)
+	late, err := openLateStore(root, taxonomy, allocator, append(append([]spool.Option{}, common...), spool.WithAdmissionGate(nil)))
 	if err != nil {
 		_ = lanes.Close()
 		return nil, err
