@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Only the log collector may publish already-normalized log batches.
+"""What each built-in NATS identity may publish and subscribe.
+
+The oracle is NATS subject matching applied to each user's allow and deny
+lists, with the broker's rule that an empty allow list means every subject.
 
 EventWriter stores a batch from logs.normalized.> without running Zen rules, so
-the broker has to refuse that subject to every other identity. The oracle is
-NATS subject matching applied to each built-in user's allow and deny lists.
+the broker has to refuse that subject to every identity but the log collector.
+An identity whose feature is off must be refused everything.
 """
 
 from pathlib import Path
@@ -111,13 +114,63 @@ def covers(pattern: str, subject: str) -> bool:
     return len(pattern_tokens) == len(subject_tokens)
 
 
-def may_publish(user: dict, subject: str) -> bool:
+def may(user: dict, direction: str, subject: str) -> bool:
     """Static NATS semantics: a missing or empty allow list permits every subject, then deny applies."""
-    publish = user.get("publish") or {}
-    allow = publish.get("allow") or []
+    block = user.get(direction) or {}
+    allow = block.get("allow") or []
     allowed = not allow or any(covers(pattern, subject) for pattern in allow)
-    denied = any(covers(pattern, subject) for pattern in publish.get("deny") or [])
+    denied = any(covers(pattern, subject) for pattern in block.get("deny") or [])
     return allowed and not denied
+
+
+def may_publish(user: dict, subject: str) -> bool:
+    return may(user, "publish", subject)
+
+
+# No identity is granted this subject by name, so only an identity allowed
+# every subject can reach it.
+UNLISTED_SUBJECT = "unlisted.synthetic.subject"
+
+# The identities the chart means to leave open: the operator tools pod, the
+# legacy organization-wide certificate, and the gateway's subscriptions.
+OPEN = {
+    ("CN=serviceradar-tools", "publish"),
+    ("CN=serviceradar-tools", "subscribe"),
+    ("O=ServiceRadar", "publish"),
+    ("O=ServiceRadar", "subscribe"),
+    ("CN=serviceradar-agent-gateway", "subscribe"),
+}
+
+# Identities that exist only for a feature the default rendering leaves off.
+DISABLED_BY_DEFAULT = (
+    "CN=serviceradar-flow-collector",
+    "CN=serviceradar-netflow-collector",
+    "CN=serviceradar-k8s-inventory",
+)
+
+
+class OpenIdentityTest(unittest.TestCase):
+    def test_only_the_intended_identities_reach_a_subject_nobody_listed(self):
+        for rendering, values in RENDERINGS.items():
+            with self.subTest(rendering=rendering):
+                reached = {
+                    (user["user"].split(",")[0], direction)
+                    for user in render_static_users(values)
+                    for direction in ("publish", "subscribe")
+                    if may(user, direction, UNLISTED_SUBJECT)
+                }
+                self.assertEqual(reached, OPEN)
+
+    def test_an_identity_whose_feature_is_off_is_refused_everything(self):
+        users = {user["user"].split(",")[0]: user for user in render_static_users()}
+        for name in DISABLED_BY_DEFAULT:
+            for direction in ("publish", "subscribe"):
+                for subject in (
+                    UNLISTED_SUBJECT, "flows.raw.netflow", "inventory.k8s.nodes",
+                    "_INBOX.reply", "$JS.API.INFO", "$SYS.REQ.SERVER.PING",
+                ):
+                    with self.subTest(user=name, direction=direction, subject=subject):
+                        self.assertFalse(may(users[name], direction, subject))
 
 
 class NormalizedLogSubjectTest(unittest.TestCase):

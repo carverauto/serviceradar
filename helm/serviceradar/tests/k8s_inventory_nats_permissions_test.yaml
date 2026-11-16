@@ -55,7 +55,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}\s+subscribe: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}'
 
   - it: grants no permissions in stdout mode and ignores dormant NATS values
     template: templates/nats.yaml
@@ -70,7 +70,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}\s+subscribe: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}'
 
   - it: rejects wildcard subjects in NATS mode
     template: templates/nats.yaml

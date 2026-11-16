@@ -44,6 +44,16 @@
 {{- /* Every built-in client identity and its permissions, shared with the
      certificate authorization callout (templates/_nats_static_users.tpl). */ -}}
 {{- $staticUsers := include "serviceradar.natsStaticUsers" . | fromYamlArray -}}
+{{- /* NATS reads an empty allow list as every subject. A block must name what
+     it allows, or deny everything. */ -}}
+{{- range $user := $staticUsers -}}
+  {{- range $direction := list "publish" "subscribe" -}}
+    {{- $block := default (dict) (index $user $direction) -}}
+    {{- if and (not $block.allow) (not (has ">" (default (list) $block.deny))) -}}
+      {{- fail (printf "NATS user %q has an empty %s allow list, which NATS reads as every subject; list the subjects or deny \">\"" $user.user $direction) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
 {{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
 {{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}

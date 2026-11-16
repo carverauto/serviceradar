@@ -89,8 +89,8 @@ py_test(
 )
 
 py_test(
-    name = "nats_normalized_log_subject_test",
-    srcs = ["nats_normalized_log_subject_test.py"],
+    name = "nats_static_user_permissions_test",
+    srcs = ["nats_static_user_permissions_test.py"],
     data = [
         ":chart_files",
         ":helm_unittest_binary",

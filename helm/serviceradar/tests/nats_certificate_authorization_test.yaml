@@ -15,7 +15,7 @@ tests:
           pattern: auth_callout
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{.*?subscribe: \{\s+allow: \[\]\s+deny: \["\\\$SYS\.>", "flow\.attributed\.>", "flow\.host-slice\.>"\]'
+          pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{.*?subscribe: \{\s+allow: \[">"\]\s+deny: \["\\\$SYS\.>", "flow\.attributed\.>", "flow\.host-slice\.>"\]'
 
   - it: refuses callout before infrastructure adoption
     template: templates/nats.yaml
