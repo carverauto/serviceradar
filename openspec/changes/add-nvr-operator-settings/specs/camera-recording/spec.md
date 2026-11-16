@@ -40,9 +40,14 @@ The settings view SHALL NOT open, close or otherwise change the deployment recov
 - **AND** the other members SHALL still be shown with their reported state
 
 #### Scenario: Local retention is not yet enforced
-- **GIVEN** hot local retention has not been implemented
+- **GIVEN** local capacity and age retention have not been implemented
 - **WHEN** the recorders tab shows capacity
-- **THEN** the view SHALL state that local blocks are not reclaimed and that capture is refused when capacity is exhausted
+- **THEN** the view SHALL state that local blocks are not reclaimed by byte budget or maximum local age and that capture is refused when capacity is exhausted
+
+#### Scenario: Local-only mode with no object storage configured
+- **GIVEN** the NVR is installed and `archive_enabled` is false or no active archive destination is selected
+- **WHEN** an operator opens the archive or recorders tab
+- **THEN** the view SHALL report "Local only: no object storage configured" as a normal operating state rather than an error, warning or incomplete setup
 
 ### Requirement: Operator archive destinations
 The system SHALL let a user with `settings.recording.manage` register an S3-compatible archive destination (endpoint, region, bucket and key prefix) as an immutable destination generation and select one active destination for new archive operations.
@@ -152,7 +157,7 @@ The system SHALL NOT infer that a copy is absent from an unreachable or refusing
 - **GIVEN** the owning NVR reports the block sealed and Core holds its receipt
 - **WHEN** the camera's block list renders
 - **THEN** the block SHALL be shown as local and archived
-- **AND** the receipt's object keys, lengths, SHA-256 values, ETags and verification time SHALL be available
+- **AND** the receipt's object keys, lengths, SHA-256 values, ETags, optional object version IDs and verification time SHALL be available
 
 #### Scenario: Owning NVR is unreachable
 - **WHEN** the owning member does not answer the block lookup
@@ -179,19 +184,24 @@ The system SHALL let a user with `settings.recording.operate` verify the local c
 - **AND** the view SHALL NOT report the copy as retrievable
 
 ### Requirement: Runtime recording policy and hot retention settings
-The system SHALL store per-camera recording policy and the hot local retention window as CNPG runtime settings with code defaults, a 24-hour retention default, and no Helm-only configuration.
-Hot retention SHALL reclaim a local block only after its retention window has elapsed and a verified archive copy, the recording-plane reclamation proofs, and the absence of holds and pending exports are established. A block without a verified archive copy SHALL never be reclaimed by age.
+The system SHALL store per-camera recording policy and local retention choices as CNPG runtime settings with code defaults, a 24-hour default maximum local age ceiling (`max_local_age_mode = limited`, `max_local_age_seconds = 86400`, bounds 1 hour to 10 years, or `unlimited`), and no Helm-only configuration.
+With archiving enabled, local storage SHALL operate as a byte-budget cache that evicts the oldest cataloged, reconciled, archive-verified local blocks when usage reaches the high-water mark down to the low-water mark or when a block exceeds a limited maximum local age ceiling, whichever comes first. Unarchived and unreconciled blocks SHALL NOT be evicted. Once a block's archive copy is verified, any hold SHALL pin the archive copy and the local copy SHALL remain evictable; before archive verification, or in local-only mode, a hold SHALL pin the local copy. In local-only mode, space eviction SHALL occur only under an explicitly confirmed `local_only_full_policy` (`overwrite_oldest` or `stop_when_full`, behaving as `stop_when_full` when unset) rather than reusing `max_local_age_seconds`.
 
-#### Scenario: Archive is failing past the retention window
-- **GIVEN** a camera records with local plus archive storage and uploads have failed for longer than the retention window
+#### Scenario: Archive is failing past the maximum local age
+- **GIVEN** a camera records with local plus archive storage and uploads have failed past the maximum local age ceiling or into high-water usage
 - **WHEN** retention evaluates its local blocks
 - **THEN** unarchived blocks SHALL be retained
 - **AND** the view SHALL report the retained backlog and the archive failure
 
-#### Scenario: Local-only storage
-- **GIVEN** a camera records with local-only storage
-- **WHEN** the operator edits the retention window
-- **THEN** the view SHALL state that the window deletes the only copy
+#### Scenario: Hold on archive-verified block keeps local copy evictable
+- **GIVEN** a block has a verified archive copy and an active hold
+- **WHEN** local retention evaluates byte-budget watermarks or the maximum local age ceiling
+- **THEN** the hold SHALL pin the archive copy and the local copy MAY be evicted
+
+#### Scenario: Local-only full policy confirmation
+- **GIVEN** a deployment records in local-only mode
+- **WHEN** the operator configures local-only retention
+- **THEN** `overwrite_oldest` SHALL state that eviction deletes the only copy and require explicit confirmation, and an unrecorded selection SHALL behave as `stop_when_full`
 
 #### Scenario: Policy edit
 - **WHEN** an operator changes a camera's recording destination
@@ -207,7 +217,7 @@ The system SHALL report pending archive block count, oldest pending age, archive
 - **AND** SHALL NOT show a recovery estimate
 
 ### Requirement: Source-forced recorded playback
-The system SHALL let a user with recording-read permission force recorded playback to the local copy or to the archive copy, and SHALL report the forced source as unavailable rather than falling back to the other copy.
+The system SHALL let a user with recording-read permission force recorded playback on the per-camera timeline playback routes (`/api/cameras/:id/timeline/...`, defined by `add-nvr-retention-and-timeline-playback`, never `/recordings/:id`) to the local copy or to the archive copy, and SHALL report the forced source as unavailable rather than falling back to the other copy.
 
 #### Scenario: Forced archive playback with local copy present
 - **GIVEN** a block exists locally and in the archive

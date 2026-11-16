@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert cameras_doc |> LazyHTML.query("#camera-recording-blocks-empty") |> Enum.count() == 0
     end
 
-    test "distinguishes closed recovery gate from not_configured and states hot retention is not enforced" do
+    test "distinguishes closed recovery gate from not_configured and states local retention is not enforced" do
       runtime = %{
         recovery_gate: %{state: :closed, generation: "00000000-0000-4000-8000-000000000011"},
         core_elx: %{
@@ -149,9 +149,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert html =~ "Closed"
       assert html =~ "00000000"
       assert html =~ "Core deployment recovery gate is closed."
-      assert html =~ "local blocks are not reclaimed by age"
+      assert html =~ "local blocks are not reclaimed by byte budget or maximum local age"
       assert html =~ "refused when recorder"
+      assert html =~ "recording-member-budgets-section"
+      assert html =~ "Local only: no object storage configured"
       refute html =~ "NVR is not installed"
+    end
+
+    test "default local-only archive state renders 'Local only: no object storage configured' as a normal state without alerts or warning styles" do
+      socket =
+        ["settings.recording.view"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime())
+        |> assign(:active_tab, "archive")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      banner = LazyHTML.query(doc, "#archive-local-only-banner")
+      assert Enum.count(banner) == 1
+      assert LazyHTML.text(banner) =~ "Local only: no object storage configured"
+      assert LazyHTML.attribute(banner, "role") == []
+
+      [banner_classes] = LazyHTML.attribute(banner, "class")
+      refute banner_classes =~ "amber"
+      refute banner_classes =~ "rose"
+
+      assert doc |> LazyHTML.query("#archive-credential-unavailable-banner") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#recording-tab-panel-archive [role='alert']") |> Enum.count() == 0
     end
 
     test "unreachable core-elx renders unknown state rather than absent or not_installed" do
@@ -226,6 +250,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         scope
         |> mounted_with_runtime(runtime)
         |> assign(:active_tab, "archive")
+        |> assign(:storage_mode, settings_view.storage_mode)
         |> assign(:bindings, [binding])
         |> assign(:settings_form, settings_view.form)
         |> assign(:active_binding_id, settings_view.active_binding_id)
@@ -258,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
              |> LazyHTML.attribute("href") == ["/settings/networks/credentials"]
     end
 
-    test "policy and health tabs render explicit Stage B blocked panels naming prerequisites" do
+    test "policy, retention, and health tabs render explicit Stage B blocked panels naming aligned prerequisites" do
       socket =
         mounted_with_runtime(
           scope_with_permissions(["settings.recording.view"]),
@@ -271,7 +296,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       policy_html = render_mounted(policy_socket)
       assert policy_html =~ "recording-policy-blocked-panel"
       assert policy_html =~ "CameraRecordingPolicy"
-      assert policy_html =~ "86,400 s"
+
+      {:noreply, retention_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "retention"},
+          "/settings/recording?tab=retention",
+          socket
+        )
+
+      retention_html = render_mounted(retention_socket)
+      assert retention_html =~ "recording-retention-blocked-panel"
+      assert retention_html =~ "max_local_age_seconds"
+      assert retention_html =~ "86,400 s"
+      assert retention_html =~ "RecordingHold"
+      assert retention_html =~ "local_only_full_policy"
+      assert retention_html =~ "Local only: no object storage configured"
 
       {:noreply, health_socket} =
         RecordingLive.handle_params(%{"tab" => "health"}, "/settings/recording?tab=health", socket)
@@ -280,6 +319,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert health_html =~ "recording-health-blocked-panel"
       assert health_html =~ "metrics.timeseries.recording.*"
       assert health_html =~ "EventWriter"
+      assert health_html =~ "NVRReconcileJob"
     end
   end
 
@@ -635,7 +675,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
             "key" => "recordings/v1/#{storage_id}/#{block_key_1}/media.m4s",
             "length" => 4096,
             "sha256" => String.duplicate("d", 64),
-            "etag" => "\"etag-1\""
+            "etag" => "\"etag-1\"",
+            "version_id" => "synth-ver-0001"
           }
         ]
       }
@@ -712,6 +753,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert html =~ "Unknown (NVR lookup unavailable)"
       assert html =~ "Verified receipt"
       assert html =~ "media.m4s"
+      assert html =~ "version synth-ver-0001"
       assert html =~ "next-camera-blocks-page"
 
       {:noreply, page2_socket} =
@@ -883,6 +925,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   defp default_overview do
     %{
       record: nil,
+      storage_mode: :local_only,
       form: CameraRecordingSettings.default_settings_form(),
       active_binding_id: nil,
       selected_writer_label: "None selected",

@@ -1277,7 +1277,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           tab: "recorders",
           title: "Recorders",
           route: "/settings/recording?tab=recorders",
-          keywords: ["recorders", "nvr", "recovery gate", "capacity", "hot storage"],
+          keywords: [
+            "recorders",
+            "nvr",
+            "recovery gate",
+            "capacity",
+            "budget",
+            "spool",
+            "reserve",
+            "hot storage"
+          ],
           permission: [
             "settings.recording.view",
             "settings.recording.manage",
@@ -1289,7 +1298,15 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           tab: "archive",
           title: "Archive",
           route: "/settings/recording?tab=archive",
-          keywords: ["archive", "object storage", "s3", "bucket", "longshore", "credentials"],
+          keywords: [
+            "archive",
+            "object storage",
+            "s3",
+            "bucket",
+            "longshore",
+            "credentials",
+            "local-only"
+          ],
           permission: [
             "settings.recording.view",
             "settings.recording.manage",
@@ -1311,9 +1328,30 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         %{
           id: :policy,
           tab: "policy",
-          title: "Policy & Retention",
+          title: "Policy",
           route: "/settings/recording?tab=policy",
-          keywords: ["policy", "retention", "hot storage", "dual-write"],
+          keywords: ["policy", "continuous", "dual-write", "stream profile", "assignment"],
+          permission: [
+            "settings.recording.view",
+            "settings.recording.manage",
+            "settings.recording.operate"
+          ]
+        },
+        %{
+          id: :retention,
+          tab: "retention",
+          title: "Retention",
+          route: "/settings/recording?tab=retention",
+          keywords: [
+            "retention",
+            "hot storage",
+            "watermarks",
+            "local age",
+            "overwrite",
+            "local-only",
+            "object budget",
+            "reaper"
+          ],
           permission: [
             "settings.recording.view",
             "settings.recording.manage",
@@ -1323,9 +1361,17 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         %{
           id: :health,
           tab: "health",
-          title: "Archive Health",
+          title: "Health",
           route: "/settings/recording?tab=health",
-          keywords: ["health", "backlog", "goodput", "archive"],
+          keywords: [
+            "health",
+            "backlog",
+            "goodput",
+            "archive",
+            "reconciliation",
+            "gaps",
+            "alerts"
+          ],
           permission: [
             "settings.recording.view",
             "settings.recording.manage",

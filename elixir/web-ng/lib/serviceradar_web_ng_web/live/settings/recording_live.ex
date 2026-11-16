@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   @path "/settings/recording"
-  @supported_tabs ~w(recorders archive cameras policy health)
+  @supported_tabs ~w(recorders archive cameras policy retention health)
   @recording_permissions [
     "settings.recording.view",
     "settings.recording.manage",
@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:settings_form, CameraRecordingSettings.default_settings_form())
         |> assign(:destination_form, CameraRecordingSettings.default_destination_form())
         |> assign(:destination_errors, %{})
+        |> assign(:storage_mode, :local_only)
         |> assign(:active_binding_id, nil)
         |> assign(:selected_writer_label, "None selected")
         |> assign(:selected_reader_label, "Use writer credential (reader role)")
@@ -265,8 +266,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
           <div>
             <h1 class="text-xl font-semibold text-sr-ink">Recording &amp; Storage</h1>
             <p class="mt-1 text-sm text-sr-muted">
-              Inspect NVR installation and deployment recovery gate state, manage immutable S3-compatible
-              archive destinations and credentials, and review per-camera block locations.
+              Inspect NVR installation and deployment recovery gate state, run local-only recording or
+              configure immutable S3-compatible archive destinations and credentials, and review
+              per-camera block locations.
             </p>
           </div>
 
@@ -274,11 +276,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
 
           <Components.tab_bar active_tab={@active_tab} />
 
-          <Components.recorders_panel :if={@active_tab == "recorders"} runtime={@runtime} />
+          <Components.recorders_panel
+            :if={@active_tab == "recorders"}
+            runtime={@runtime}
+            storage_mode={@storage_mode}
+          />
 
           <Components.archive_panel
             :if={@active_tab == "archive"}
             runtime={@runtime}
+            storage_mode={@storage_mode}
             bindings={@bindings}
             credentials={@credentials}
             can_manage?={@can_manage?}
@@ -309,6 +316,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
           />
 
           <Components.policy_blocked_panel :if={@active_tab == "policy"} />
+
+          <Components.retention_blocked_panel
+            :if={@active_tab == "retention"}
+            storage_mode={@storage_mode}
+          />
 
           <Components.health_blocked_panel :if={@active_tab == "health"} />
         </section>
@@ -370,6 +382,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     socket
     |> assign(:bindings, bindings)
     |> assign(:credentials, credentials)
+    |> assign(:storage_mode, Map.get(settings_view, :storage_mode, :local_only))
     |> assign(:settings_form, settings_view.form)
     |> assign(:active_binding_id, settings_view.active_binding_id)
     |> assign(:selected_writer_label, settings_view.selected_writer_label)

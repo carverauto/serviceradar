@@ -46,8 +46,11 @@ and one view `:camera_recording` ("Recording & Storage", route
 `/settings/recording`, `has_own_stats: true`, permission
 `["settings.recording.view", "settings.recording.manage", "settings.recording.operate"]`).
 Tabs are `?tab=` sub-entries, each listed in the LiveView's `supported_tabs/0`:
-`recorders`, `archive`, `cameras` (Stage A) and `policy`, `health` (Stage B,
-rendered as blocked until their prerequisites exist). Keywords: camera, cameras,
+`recorders`, `archive`, `cameras` (Stage A) and `policy`, `retention`, `health`
+(Stage B, rendered as blocked until their prerequisites exist). The `recorders`
+tab also carries each member's local byte budget and reserve slot (desired
+versus applied once `NVRStorageSettings` lands, install values read-only before
+then). Keywords: camera, cameras,
 nvr, vms, recording, recorder, footage, archive, object storage, s3, bucket,
 longshore, retention, hot storage, dual-write, playback.
 
@@ -88,7 +91,7 @@ resources and the core-elx facade re-check against the actor they receive.
 | Recovery gate state | deployment control outside GitOps rollback | see D4 |
 | `camera_recording_enabled` on core-elx | chart / env | installs the capture supervisor |
 | Active destination, credential selection, archive on/off | CNPG `RecordingArchiveSettings` | operator changes at runtime; SaaS renders tenant values |
-| Per-camera policy, hot retention window (Stage B) | CNPG, code default 86 400 s | same |
+| Per-camera policy, local watermarks, `max_local_age_mode` + `max_local_age_seconds` ceiling (default `limited` / 86,400 s, 1 h..10 y or `unlimited`), `local_only_full_policy`, archive retention and object budget, per-member `NVRStorageSettings` budget/reserve (Stage B/C) | CNPG, code defaults | same |
 
 No runtime choice gets a Helm value. A code default applies when no row exists.
 
@@ -142,7 +145,7 @@ moduledoc already requires. Add singleton `ServiceRadar.Camera.RecordingArchiveS
 - `active_archive_binding_id` (FK restrict, nullable)
 - `writer_credential_secret_id` (FK restrict to `network_credential_secrets`, nullable)
 - `reader_credential_secret_id` (FK restrict, nullable; nil means use the writer credential with the `:reader` role)
-- `archive_enabled` (default false; Stage A gates the manual archive action, Stage B gates automatic archive)
+- `archive_enabled` (default false; Stage A gates the manual archive action, Stage B gates automatic archive; when false or when no active destination is selected, local-only recording is a normal first-class state shown as "Local only: no object storage configured", never an error or warning)
 
 This is a new direct credential reference, so it carries everything the
 credential rule in AGENTS.md requires: a restrictive foreign key, a loader in
@@ -199,7 +202,9 @@ Add `ServiceRadar.Camera.NVRArchiveReceipt`: `storage_id`, `block_key`,
 `archive_binding_id` (FK restrict), `destination_sha256`, `recording_block_id`
 (nullable FK restrict, set when a Core block row matches), canonical
 `receipt_bytes` (at most 8 KiB), `receipt_sha256`, parsed `objects` (name, key,
-length, sha256, etag), `verified_at` (from `verified_at_ms`) and `recorded_at`.
+length, sha256, etag, and optional/nullable `version_id` for receipt version 2;
+receipt versions 1 and 2 are both accepted), `verified_at` (from
+`verified_at_ms`) and `recorded_at`.
 Identity `(storage_id, block_key, archive_binding_id)`. Create only: identical
 bytes return the existing row, different bytes are refused and the conflict is
 logged. No update, no destroy.
@@ -239,7 +244,7 @@ Core's `open_local` state is shown as "Core reservation" and is not presented as
 seal state. The NVR is authoritative for local seal state until local-copy
 registration lands.
 
-### D11. Stage A proves retrieval by bytes; Stage B proves it by playback
+### D11. Stage A proves retrieval by bytes; timeline playback owns forced-source reads
 
 - Local check: the NVR re-verifies the sealed block (`sealed_block/1`), reads
   every byte through `read_block/3` in its bounded read slots, and returns length
@@ -253,9 +258,11 @@ registration lands.
 - A mismatch, missing object or provider error is reported per object and never
   falls back to the other copy.
 
-Stage B adds forced-source playback through the existing `CameraArchivePlayer`
-hook: `source=local` or `source=archive` on the playlist, and when forced, an
-unavailable source is an error, not a silent fallback.
+Forced-source playback (`source=local` or `source=archive`, where an
+unavailable forced source is an error rather than a silent fallback) is owned by
+[add-nvr-retention-and-timeline-playback](../add-nvr-retention-and-timeline-playback/design.md)
+(section D1) on the per-camera timeline routes (`/api/cameras/:id/timeline/...`),
+never on the `ArchiveUploads`-bound `/recordings/:id` playlist route.
 
 ### D12. Destination test writes one deterministic probe object
 
@@ -282,11 +289,23 @@ cannot overwrite it. A policy edit is a recording-plane assignment transition
 shown as "Local + archive". Every sealed block is kept locally and archived after
 sealing. It is not a synchronous write to two places.
 
-Hot retention (code default 86 400 s) means "reclaim a local block once it is
-older than the window and has a verified archive copy, no hold and no pending
-export". A block that has not been archived is never reclaimed by age. In
-local-only mode the same field is the archive retention itself, and the UI words
-it as permanent deletion.
+With archiving enabled, local storage is a capacity-driven cache with high and
+low watermarks (`local_high_water_percent = 90`, `local_low_water_percent = 80`)
+that evicts the oldest cataloged, reconciled, archive-verified local blocks
+first, plus a maximum local age ceiling (`max_local_age_mode` `limited |
+unlimited`, `max_local_age_seconds` default `86,400`, bounds `3,600..315,360,000`
+or 1 hour to 10 years when limited) meaning "keep at most this long locally",
+not a minimum floor and not `hot_retention_seconds`. Unarchived and unreconciled
+blocks are never evicted. Holds keep at least one verified copy
+([add-nvr-retention-and-timeline-playback](../add-nvr-retention-and-timeline-playback/design.md)
+PD5 / C4): once a block's archive copy is verified, a hold pins the archive copy
+and the local copy stays evictable; holds pin the local copy only in local-only
+mode or before archive verification. Local-only mode does not reuse
+`max_local_age_seconds`; it uses an explicit confirmed `local_only_full_policy`
+(`overwrite_oldest` confirmed with actor, or `stop_when_full` when unset),
+`local_only_target_mode` (7-day alert target or `none`), and
+`local_only_max_age_mode` (`unlimited` keep-until-full default, or 1 h..10 y
+ceiling).
 
 ## Stage A backend surface
 
@@ -351,9 +370,13 @@ core-elx:
 | --- | --- | --- |
 | Continuous recording policy | recording-plane 2.2 (pools, assignment), 2.4 (recording without viewers), 2.5 (handoff) | `CameraRecordingPolicy` resource; assignment transition API; policy tab |
 | Automatic archive of every sealed block | 3.2 (continuous sealing, journal/outbox), 3.4 (multipart, recoverable manifests) | NVR archive scheduler driven by the active destination; credential operation grants bounded per recording-plane section 6 |
-| Hot retention and reclamation status | 3.4 (receipt-based reclamation), VMS holds/exports, 3.3 for local-only | `hot_retention_seconds` on settings (code default 86 400); NVR reclamation status in `/v1/status` and lookup |
-| Backlog and archive health | 3.2, 3.5 (`U <= R`, non-draining backlog) | NVR publishes backlog and goodput to JetStream (`metrics.timeseries.recording.*`), persisted by EventWriter; the health tab reads the telemetry store. Point-in-time values may come from `/v1/status` |
-| Forced-source playback | 3.3 (local registration, owner-aware local range service), 3.7 (bounded S3 fragment delivery), catalog publication of NVR archives through the VMS catalog | `source=local\|archive` on the playlist route; reader that works with the NVR absent |
+| Local and object retention, holds and per-member budgets | `add-nvr-retention-and-timeline-playback` Stage B, R, C (`RecordingCatalogEntry`, reconciler, `RecordingHold`, `RecordingDisposition`, `NVRStorageSettings`) | `retention` tab (`max_local_age_mode` + `max_local_age_seconds` ceiling default 86,400 s, 1 h..10 y or `unlimited`, local watermarks, `local_only_full_policy`, archive retention and object budget) and per-member desired-vs-applied budget on `recorders` |
+| Backlog and recording health | 3.2, 3.5 (`U <= R`, non-draining backlog) and `add-nvr-retention-and-timeline-playback` R5, C8 | Backlog, reconciliation and goodput published to JetStream (`metrics.timeseries.recording.*`), persisted by EventWriter, plus deduplicated `TripwireHealth` storage alerts on the `health` tab |
+
+Forced-source playback (`source=local|archive`) moved out of this change's Stage
+B to the new timeline routes (`/api/cameras/:id/timeline/...`) defined in
+`add-nvr-retention-and-timeline-playback` section D1, leaving `/recordings/:id`
+bound strictly to `ArchiveUploads`.
 
 ## Risks / Trade-offs
 
@@ -398,16 +421,18 @@ design follows until answered.
 5. **Probe residue.** Is one small probe object per member per credential
    generation under `<prefix>/_probe/` acceptable? The writer credential has no
    delete authority by design.
-6. **Hot retention scope.** Is the 24-hour window deployment-wide or per camera,
-   and what are its bounds? Default: deployment-wide, 1 hour to 30 days, code
-   default 24 hours.
+6. **Hot retention scope (resolved in `add-nvr-retention-and-timeline-playback`).**
+   Deployment-wide watermarks and `max_local_age_mode` + `max_local_age_seconds`
+   ceiling (default 24 hours, bounds 1 hour to 10 years when limited, or
+   `unlimited`), with per-member byte budgets in `NVRStorageSettings`.
 7. **Navigation placement.** System > Camera Recording (default) or Network
    Services?
 8. **Who operates.** Admin-only defaults for all three new keys, or should
    operators get `settings.recording.view` and `settings.recording.operate`?
-9. **Converging the recordings views.** Confirm Stage B publishes NVR archives
-   through the VMS catalog so `/cameras/:id/recordings` becomes the single
-   playback surface.
+9. **Converging the recordings views (resolved in `add-nvr-retention-and-timeline-playback` D1).**
+   `/cameras/:camera_source_id/recordings` gains a catalog-backed Timeline mode
+   on `/api/cameras/:id/timeline/...` while keeping the `ArchiveUploads` list
+   separate until migrated or retired.
 10. **Engineering: key prefix in the archive slice.** The slice passes
     `key_prefix` separately from the binding. Confirm it uses `binding.namespace`
     so v1 blocks land under `recordings/v1/<storage_id>/<block_id>/` and v2 works

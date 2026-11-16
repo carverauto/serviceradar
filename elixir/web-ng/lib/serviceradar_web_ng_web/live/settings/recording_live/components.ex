@@ -6,8 +6,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
     %{id: "recorders", label: "Recorders", stage_b?: false},
     %{id: "archive", label: "Archive", stage_b?: false},
     %{id: "cameras", label: "Cameras", stage_b?: false},
-    %{id: "policy", label: "Policy & Retention", stage_b?: true},
-    %{id: "health", label: "Archive Health", stage_b?: true}
+    %{id: "policy", label: "Policy", stage_b?: true},
+    %{id: "retention", label: "Retention", stage_b?: true},
+    %{id: "health", label: "Health", stage_b?: true}
   ]
 
   attr :runtime, :map, required: true
@@ -144,6 +145,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   attr :runtime, :map, required: true
+  attr :storage_mode, :atom, default: :local_only
+  attr :members, :list, default: []
 
   def recorders_panel(assigns) do
     ~H"""
@@ -192,14 +195,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         id="recording-recorders-status-panel"
         class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-4"
       >
-        <div>
-          <h2 class="text-base font-semibold text-sr-ink">Recorder Runtime &amp; Spool Policy</h2>
-          <p class="mt-1 text-sm text-sr-muted">
-            Per-member readiness, member recovery gate state, and spool capacity are reported as
-            <strong>unknown</strong>
-            until the NVR member status endpoint answers; unreachable or unexposed members are never
-            rendered as an empty recorder list.
-          </p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-sr-ink">Recorder Runtime &amp; Spool Policy</h2>
+            <p class="mt-1 text-sm text-sr-muted">
+              Per-member readiness, member recovery gate state, and spool capacity are reported as
+              <strong>unknown</strong>
+              until the NVR member status endpoint answers; unreachable or unexposed members are never
+              rendered as an empty recorder list.
+            </p>
+          </div>
+          <.ui_badge
+            id="recorders-storage-mode-badge"
+            size="xs"
+            variant={if(@storage_mode == :local_and_archive, do: "success", else: "ghost")}
+          >
+            {if @storage_mode == :local_and_archive,
+              do: "Local + archive",
+              else: "Local only: no object storage configured"}
+          </.ui_badge>
         </div>
 
         <div
@@ -221,12 +235,35 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         </div>
 
         <div
+          id="recording-member-budgets-section"
+          class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 space-y-1.5"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-xs font-semibold text-sr-ink">
+              Per-Member Local Byte Budget &amp; Reserve
+            </h3>
+            <.ui_badge size="xs" variant="ghost">Desired vs applied</.ui_badge>
+          </div>
+          <p :if={@members == []} class="text-xs text-sr-muted">
+            Per-member local byte budget (<code class="font-mono">budget_bytes</code>), free-space
+            reserve (<code class="font-mono">reserve_bytes</code>), install ceiling
+            (<code class="font-mono">nvr.maxSpoolBytes</code>) and floor
+            (<code class="font-mono">nvr.reserveBytes</code>), volume capacity, and effective local
+            window are reported as <strong>unknown</strong>
+            until the NVR member <code class="font-mono">GET /v1/status</code>
+            endpoint answers, and remain read-only
+            install values until runtime <code class="font-mono">NVRStorageSettings</code>
+            synchronization lands.
+          </p>
+        </div>
+
+        <div
           id="recording-local-retention-notice"
           class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 text-xs text-sr-muted"
         >
-          <strong class="text-sr-ink">Hot local retention is not yet enforced:</strong>
-          local blocks are not reclaimed by age, and new bounded captures are refused when recorder
-          spool capacity is exhausted.
+          <strong class="text-sr-ink">Local retention and capacity eviction are not yet enforced:</strong>
+          local blocks are not reclaimed by byte budget or maximum local age, and new bounded captures
+          are refused when recorder spool capacity is exhausted.
         </div>
       </section>
     </div>
@@ -234,6 +271,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   attr :runtime, :map, required: true
+  attr :storage_mode, :atom, default: :local_only
   attr :bindings, :list, required: true
   attr :credentials, :list, required: true
   attr :can_manage?, :boolean, required: true
@@ -258,6 +296,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         <p class="font-semibold">Archive unavailable due to credential state</p>
         <p class="mt-1 text-xs text-sr-muted">{@credential_issue}</p>
       </div>
+
+      <section
+        :if={
+          @runtime.core_elx.nvr_installation != :not_installed and
+            @storage_mode == :local_only
+        }
+        id="archive-local-only-banner"
+        class="rounded-xl border border-sr-line bg-sr-subtle/40 p-4 space-y-1.5"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <.ui_badge id="archive-mode-badge" size="xs" variant="ghost">Local only</.ui_badge>
+          <p id="archive-local-only-heading" class="text-sm font-semibold text-sr-ink">
+            Local only: no object storage configured
+          </p>
+        </div>
+        <p class="text-xs text-sr-muted">
+          Local-only recording is a complete operating mode on NVR storage with no S3 bucket or
+          archive credentials required. Register and select an S3-compatible destination below and
+          enable archive operations only when you want sealed blocks copied to object storage.
+        </p>
+      </section>
 
       <section
         :if={@runtime.core_elx.nvr_installation == :not_installed}
@@ -323,9 +382,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         <div>
           <h2 class="text-base font-semibold text-sr-ink">Active Archive Configuration</h2>
           <p class="mt-1 text-xs text-sr-muted">
-            Select the active immutable destination generation, enable or pause operator archive
-            uploads, and bind reusable <code class="font-mono">s3_compatible</code> credentials by
-            identifier. Secret key material is never entered or displayed here.
+            Run in local-only mode with no bucket, or select an immutable destination generation,
+            enable archive operations, and bind reusable <code class="font-mono">s3_compatible</code>
+            credentials by identifier. Secret key material is never entered or displayed here.
           </p>
         </div>
         <.link
@@ -354,7 +413,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
             >
               <option value="" selected={@settings_form["active_archive_binding_id"] in [nil, ""]}>
-                None selected
+                None (local-only mode)
               </option>
               <option
                 :for={binding <- @bindings}
@@ -512,12 +571,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         class="text-xs text-sr-muted"
       >
         No enabled <code class="font-mono">s3_compatible</code>
-        credentials exist yet. Create one in <.link
+        credentials exist. Credentials are not
+        required in local-only mode; create one in
+        <.link
           navigate={~p"/settings/networks/credentials"}
           class="underline"
         >
           Credentials settings
-        </.link>.
+        </.link>
+        only when enabling object-storage archiving.
       </p>
 
       <ul
@@ -716,7 +778,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         id="archive-bindings-empty"
         class="text-sm text-sr-muted"
       >
-        No archive destination generations have been registered yet.
+        No archive destination generations registered. Local-only recording requires no object-storage
+        destination.
       </p>
 
       <div :if={@bindings != []} class="overflow-x-auto">
@@ -943,12 +1006,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                     </.ui_badge>
                     <div :if={row.receipt} class="text-[11px] text-sr-muted space-y-0.5">
                       <div :for={obj <- row.receipt_objects} class="font-mono">
-                        {obj["name"] || obj[:name]}: {obj["key"] || obj[:key]} ({obj["length"] ||
-                          obj[:length]} B, sha256 {String.slice(
-                          to_string(obj["sha256"] || obj[:sha256]),
-                          0,
-                          12
-                        )}…)
+                        {format_receipt_object(obj)}
                       </div>
                     </div>
                   </div>
@@ -992,26 +1050,102 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       <div class="flex items-center gap-2">
         <.ui_badge size="xs" variant="warning">Blocked — Stage B</.ui_badge>
         <h2 class="text-base font-semibold text-sr-ink">
-          Recording Policy &amp; Hot Retention Prerequisite Gate
+          Continuous Recording Policy Prerequisite Gate
         </h2>
       </div>
       <p class="text-sm text-sr-muted">
-        Continuous per-camera recording policy and hot local retention reclamation are blocked until
-        their recording-plane prerequisites land:
+        Per-camera continuous recording policy and pre-save capacity projection are blocked until
+        their recording-plane and coordinator prerequisites land:
       </p>
       <ul class="list-disc pl-5 text-xs text-sr-muted space-y-1">
         <li>
           <strong>Continuous recording policy (<code class="font-mono">CameraRecordingPolicy</code>):</strong>
-          requires recorder pools and placement (<code class="font-mono">add-scalable-camera-recording-plane</code>
-          2.2),
-          viewerless continuous capture (2.4), and assignment transition handoff (2.5).
+          per-camera mode (<code class="font-mono">off | continuous</code>), relay-eligible stream
+          profile with observed bitrate and estimated bytes/blocks per day, explicit NVR member
+          assignment transitions, storage mode (<code class="font-mono">local_and_archive | local_only</code>),
+          and optional per-policy archive retention override (<code class="font-mono">add-scalable-camera-recording-plane</code>
+          2.2, 2.4, 2.5 and <code class="font-mono">add-nvr-retention-and-timeline-playback</code>
+          Stage A).
         </li>
         <li>
-          <strong>Automatic archive &amp; hot local retention (24-hour / 86,400 s CNPG default):</strong>
-          requires continuous sealing and journal/outbox (3.2), local block registration (3.3),
-          receipt-based reclamation proofs (3.4), and VMS holds/exports
-          (<code class="font-mono">add-vms-storage-playback-engine</code>). Unarchived blocks are never
-          reclaimed by age.
+          <strong>Pre-save what-if projection:</strong>
+          projected effective local window, required archive throughput against measured goodput,
+          blocks per day against the volume block cap, and active sessions against the member session
+          limit (<code class="font-mono">add-nvr-retention-and-timeline-playback</code>
+          C1a, E1).
+        </li>
+      </ul>
+    </section>
+    """
+  end
+
+  attr :storage_mode, :atom, default: :local_only
+
+  def retention_blocked_panel(assigns) do
+    ~H"""
+    <section
+      id="recording-retention-blocked-panel"
+      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-3"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <.ui_badge size="xs" variant="warning">Blocked — Stage B</.ui_badge>
+          <h2 class="text-base font-semibold text-sr-ink">
+            Local &amp; Object Retention Prerequisite Gate
+          </h2>
+        </div>
+        <.ui_badge
+          size="xs"
+          variant={if(@storage_mode == :local_and_archive, do: "success", else: "ghost")}
+        >
+          {if @storage_mode == :local_and_archive,
+            do: "Local + archive",
+            else: "Local only: no object storage configured"}
+        </.ui_badge>
+      </div>
+      <p class="text-sm text-sr-muted">
+        Deployment-wide local and object-storage retention settings are blocked until catalog,
+        reconciliation, hold, and disposition prerequisites land
+        (<code class="font-mono">add-nvr-retention-and-timeline-playback</code> Stage B, R, C):
+      </p>
+      <ul class="list-disc pl-5 text-xs text-sr-muted space-y-1">
+        <li>
+          <strong>Capacity-driven local tier &amp; maximum local age ceiling:</strong>
+          high/low byte-budget watermarks (default 90% / 80%) evicting the oldest cataloged,
+          reconciled, archive-verified local blocks first, plus
+          <code class="font-mono">max_local_age_mode</code>
+          and <code class="font-mono">max_local_age_seconds</code>
+          as a ceiling (default 24 hours /
+          86,400 s, bounds 1 hour to 10 years, or <code class="font-mono">unlimited</code>).
+          Unarchived and unreconciled blocks are never evicted.
+        </li>
+        <li>
+          <strong>Holds pin one verified copy (<code class="font-mono">RecordingHold</code>):</strong>
+          once a block's archive copy is verified, a hold pins the archive copy and the local copy
+          stays evictable; holds pin the local copy only in local-only mode or before archive
+          verification.
+        </li>
+        <li>
+          <strong>Local-only retention (usable with archiving off):</strong>
+          explicit confirmed <code class="font-mono">local_only_full_policy</code>
+          (<code class="font-mono">overwrite_oldest</code>
+          or <code class="font-mono">stop_when_full</code>, behaving as
+          <code class="font-mono">stop_when_full</code>
+          when unset), 7-day retention alert target, and
+          optional <code class="font-mono">local_only_max_age_mode</code>
+          (<code class="font-mono">unlimited</code>
+          keep-until-full default, or 1 hour to 10 years). When archiving is off, archive retention
+          fields read <code class="font-mono">not used: local only</code>.
+        </li>
+        <li>
+          <strong>Application-managed object retention &amp; object budget:</strong>
+          <code class="font-mono">archive_retention_mode</code>
+          + <code class="font-mono">archive_retention_days</code>
+          (default 30 days, 1 to 3,650 days, or <code class="font-mono">unlimited</code>) enforced with a delete-capable
+          <code class="font-mono">:retention</code>
+          credential role, plus optional object byte budget
+          (<code class="font-mono">reap_oldest</code>
+          whole blocks local-copy-first, or <code class="font-mono">stop_archiving</code>).
         </li>
       </ul>
     </section>
@@ -1027,31 +1161,54 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       <div class="flex items-center gap-2">
         <.ui_badge size="xs" variant="warning">Blocked — Stage B</.ui_badge>
         <h2 class="text-base font-semibold text-sr-ink">
-          Archive Backlog &amp; Goodput Health Prerequisite Gate
+          Recording, Reconciliation &amp; Archive Health Prerequisite Gate
         </h2>
       </div>
       <p class="text-sm text-sr-muted">
-        Per-recorder pending archive backlog, oldest pending age, and goodput-vs-capture
-        (<code class="font-mono">U &lt;= R</code> non-draining backlog) reporting are blocked until
-        their recording-plane telemetry prerequisites land:
+        Per-recorder pending archive backlog, oldest pending age, goodput-vs-capture
+        (<code class="font-mono">U &lt;= R</code> non-draining backlog), reconciliation status,
+        effective local window, and deduplicated storage alerts are blocked until their telemetry and
+        reconciler prerequisites land:
       </p>
       <ul class="list-disc pl-5 text-xs text-sr-muted space-y-1">
         <li>
-          <strong>Continuous block sealing &amp; archive outbox:</strong>
+          <strong>Continuous block sealing, reconciler &amp; archive outbox:</strong>
           requires <code class="font-mono">add-scalable-camera-recording-plane</code>
-          task 3.2.
+          task 3.2 and <code class="font-mono">add-nvr-retention-and-timeline-playback</code>
+          Stage R
+          (<code class="font-mono">NVRReconcileJob</code>
+          unreconciled and unattributable reporting).
         </li>
         <li>
-          <strong>JetStream recording telemetry:</strong>
-          requires NVR backlog and goodput publication to NATS JetStream
+          <strong>JetStream recording telemetry &amp; deduplicated alerts:</strong>
+          requires backlog and goodput publication to NATS JetStream
           (<code class="font-mono">metrics.timeseries.recording.*</code>, task 3.5) persisted by
           <code class="font-mono">EventWriter</code>
-          into the telemetry store.
+          into the telemetry store, plus <code class="font-mono">TripwireHealth</code>
+          storage checks, 24-hour gap summaries, and
+          inventory ledger status.
         </li>
       </ul>
     </section>
     """
   end
+
+  defp format_receipt_object(obj) when is_map(obj) do
+    name = obj["name"] || obj[:name]
+    key = obj["key"] || obj[:key]
+    len = obj["length"] || obj[:length]
+    sha_prefix = obj["sha256"] |> Kernel.||(obj[:sha256]) |> to_string() |> String.slice(0, 12)
+
+    version_suffix =
+      case obj["version_id"] || obj[:version_id] do
+        v when is_binary(v) and v != "" -> ", version #{v}"
+        _ -> ""
+      end
+
+    "#{name}: #{key} (#{len} B, sha256 #{sha_prefix}…#{version_suffix})"
+  end
+
+  defp format_receipt_object(_), do: ""
 
   defp nvr_install_label(:installed), do: "Installed"
   defp nvr_install_label(:not_installed), do: "Not installed"

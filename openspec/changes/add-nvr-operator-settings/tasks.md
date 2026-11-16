@@ -12,8 +12,9 @@ recording-plane tasks and stay unchecked until those land.
       `ServiceRadar.Identity.RBAC.Catalog`.
 - [x] A0.2 Add parent group `:sys_recording` and view `:camera_recording`
       (`/settings/recording`, tabs `recorders`, `archive`, `cameras`, `policy`,
-      `health`, keywords per design D1) to `ServiceRadarWebNGWeb.Settings.Catalog`;
-      route in the existing authenticated settings `live_session`.
+      `retention`, `health`, keywords per design D1) to
+      `ServiceRadarWebNGWeb.Settings.Catalog`; route in the existing
+      authenticated settings `live_session`.
 - [x] A0.3 New LiveView `ServiceRadarWebNGWeb.Settings.RecordingLive` with
       `supported_tabs/0`; no database reads in disconnected mount; every
       `handle_event` re-authorizes with `RBAC.authorize_current/2`.
@@ -79,7 +80,7 @@ recording-plane tasks and stay unchecked until those land.
       archive retrieval checks, operation history.
 - [ ] A2.10 Per-camera block list with streams and the location table of design
       D10, including receipt details (objects, keys, lengths, SHA-256, ETag,
-      verified at).
+      optional version ID, verified at).
 - [ ] A2.11 Tests through real boundaries: NVR endpoint release tests with
       synthetic media (invented hosts such as `objects.example.com`, bucket
       `example-archive`); core-elx facade against a test NVR; LiveView tests for
@@ -96,16 +97,20 @@ recording-plane tasks and stay unchecked until those land.
 
 ## Stage B (blocked)
 
-- [ ] B.1 BLOCKED on recording-plane 2.2, 2.4, 2.5: `CameraRecordingPolicy`
-      resource and policy tab (design D13).
-- [ ] B.2 BLOCKED on 3.2, 3.4: automatic archive of every sealed block to the
-      active destination when `archive_enabled`.
-- [ ] B.3 BLOCKED on 3.4, VMS holds/exports (and 3.3 for local-only):
-      `hot_retention_seconds` (code default 86 400) and reclamation status.
-- [ ] B.4 BLOCKED on 3.2, 3.5: backlog and archive health via JetStream telemetry
-      and the health tab.
-- [ ] B.5 BLOCKED on 3.3, 3.7 and VMS catalog publication of NVR archives:
-      forced-source playback (`source=local|archive`) in the existing player.
+- [ ] B.1 BLOCKED on recording-plane 2.2, 2.4, 2.5 and `add-nvr-retention-and-timeline-playback` Stage A:
+      `CameraRecordingPolicy` resource and `policy` tab (design D13).
+- [ ] B.2 BLOCKED on 3.2, 3.4 and `add-nvr-retention-and-timeline-playback` Stage A/B:
+      automatic archive of every sealed block to the active destination when
+      `archive_enabled`.
+- [ ] B.3 BLOCKED on `add-nvr-retention-and-timeline-playback` Stage B, R, C:
+      `retention` tab (`max_local_age_mode` + `max_local_age_seconds` ceiling
+      default 86,400 s, 1 h..10 y or `unlimited`, local watermarks, explicit
+      `local_only_full_policy`, holds pinning the verified archive copy, archive
+      retention and object budget) and per-member desired-vs-applied budget on
+      `recorders`.
+- [ ] B.4 BLOCKED on 3.2, 3.5 and `add-nvr-retention-and-timeline-playback` R5, C8:
+      backlog, reconciliation and storage health via JetStream telemetry and the
+      `health` tab.
 
 ## Validation
 

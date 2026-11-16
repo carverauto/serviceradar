@@ -113,7 +113,7 @@ default to `admin` and can be assigned individually through custom role profiles
 | Permission | Grants | Default roles |
 | --- | --- | --- |
 | `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, immutable archive destination generations, selected credential names, per-camera block locations, archive receipts, and operation history. | `admin` |
-| `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, and (once the recording-plane policy tasks land) edit recording policy and hot retention. | `admin` |
+| `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, and (once the recording-plane and retention tasks land) edit recording policy, retention, and per-member local budgets. | `admin` |
 | `settings.recording.operate` | Start supervised recorder operations (bounded camera captures, block archive uploads, destination connectivity tests, and local or archive retrieval checks). | `admin` |
 
 Selecting or changing the writer or optional reader `s3_compatible` archive

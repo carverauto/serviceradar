@@ -508,6 +508,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
         assert "camera" in recording_entry.keywords
         assert "nvr" in recording_entry.keywords
         assert "s3" in recording_entry.keywords
+
+        assert Enum.any?(
+                 palette,
+                 &(&1.route == "/settings/recording?tab=retention" and
+                     &1.view_title == "Recording & Storage › Retention")
+               )
       end
     end
   end

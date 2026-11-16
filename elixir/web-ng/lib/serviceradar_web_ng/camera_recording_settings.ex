@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   """
   @spec load_archive_settings_view(map(), keyword()) :: %{
           record: RecordingArchiveSettings.t() | nil,
+          storage_mode: :local_only | :local_and_archive,
           form: map(),
           active_binding_id: String.t() | nil,
           selected_writer_label: String.t(),
@@ -76,6 +77,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       {:error, _reason} ->
         %{
           record: nil,
+          storage_mode: :local_only,
           form: default_settings_form(),
           active_binding_id: nil,
           selected_writer_label: "None selected",
@@ -317,8 +319,16 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         "reader"
       )
 
+    storage_mode =
+      Map.get_lazy(overview, :storage_mode, fn ->
+        if settings.archive_enabled == true and not is_nil(active_binding_id),
+          do: :local_and_archive,
+          else: :local_only
+      end)
+
     %{
       record: if(overview.persisted?, do: settings),
+      storage_mode: storage_mode,
       form: %{
         "active_archive_binding_id" => to_string_or_empty(active_binding_id),
         "archive_enabled" => to_string(settings.archive_enabled == true),
