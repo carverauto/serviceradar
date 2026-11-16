@@ -3,10 +3,17 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
   use Plug.Router
 
   alias ServiceRadar.JSONDocument
+  alias ServiceRadarCoreElx.CameraStorage.RefusedBody
   alias ServiceRadarCoreElx.CameraStorage.Session
 
   @body_limit 1_400_000
   @lease_fields ~w(id upload_token upload_epoch descriptor_sha256)
+  @staging_unavailable [
+    :storage_busy,
+    :storage_scratch_reconciliation_required,
+    :storage_preparation_refused,
+    :storage_operation_failed
+  ]
 
   plug(:authenticate)
   plug(:match)
@@ -25,7 +32,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
       end
     else
       {:error, reason} when is_atom(reason) -> respond(conn, 503, %{"error" => Atom.to_string(reason)})
-      _ -> respond(conn, 400, %{"error" => "invalid_request"})
+      _ -> refuse_invalid(conn, @body_limit, deadline)
     end
   end
 
@@ -60,13 +67,23 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
     end
   end
 
+  # The body's size limits run first. Only a body whose declared length is
+  # within the route's limit is ever read, staged or discarded.
   defp receive_staged(conn, kind) do
     deadline = ingress_deadline(conn, kind)
 
-    with ["application/octet-stream"] <- get_req_header(conn, "content-type"),
-         [] <- get_req_header(conn, "transfer-encoding"),
+    with [] <- get_req_header(conn, "transfer-encoding"),
          [length] <- get_req_header(conn, "content-length"),
-         {:ok, length} <- staged_length(length, kind),
+         {:ok, length} <- staged_length(length, kind) do
+      admit_staged(conn, kind, length, deadline)
+    else
+      {:error, :request_too_large} -> respond(conn, 413, %{"error" => "request_too_large"})
+      _ -> respond(conn, 400, %{"error" => "invalid_request"})
+    end
+  end
+
+  defp admit_staged(conn, kind, length, deadline) do
+    with ["application/octet-stream"] <- get_req_header(conn, "content-type"),
          [lease_header] <- get_req_header(conn, "x-serviceradar-upload-lease"),
          {:ok, lease} <- JSONDocument.decode_object(lease_header, 1024),
          true <- valid_lease?(lease),
@@ -86,23 +103,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
         Session.release(stage.token)
       end
     else
-      {:error, :request_too_large} ->
-        respond(conn, 413, %{"error" => "request_too_large"})
-
-      {:error, :storage_busy} ->
-        respond(conn, 503, %{"error" => "storage_busy"})
-
-      {:error, :storage_scratch_reconciliation_required} ->
-        respond(conn, 503, %{"error" => "storage_scratch_reconciliation_required"})
-
-      {:error, :storage_preparation_refused} ->
-        respond(conn, 503, %{"error" => "storage_preparation_refused"})
-
-      {:error, :storage_operation_failed} ->
-        respond(conn, 503, %{"error" => "storage_operation_failed"})
+      {:error, reason} when reason in @staging_unavailable ->
+        respond(conn, 503, %{"error" => Atom.to_string(reason)})
 
       _ ->
-        respond(conn, 400, %{"error" => "invalid_request"})
+        refuse_invalid(conn, length, deadline)
     end
   end
 
@@ -111,7 +116,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
       {
         Bandit,
         # Bandit's keepalive path drains unread bodies after Plug returns. This
-        # private one-shot listener must close rejected ingress without draining.
+        # private one-shot listener closes instead; only a 4xx refusal drains,
+        # and only within the route's body limit (`RefusedBody`).
         plug: {__MODULE__, config},
         scheme: :https,
         port: config.port,
@@ -247,6 +253,12 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
     else
       _ -> {:error, 400, "#{stage.kind}_staging_refused", conn}
     end
+  end
+
+  # Drains a refused body within the route's limit first (see `RefusedBody`).
+  # A 503 and a failed authentication still close without reading it.
+  defp refuse_invalid(conn, limit, deadline) do
+    conn |> RefusedBody.discard(limit, deadline) |> respond(400, %{"error" => "invalid_request"})
   end
 
   defp respond(conn, status, body) do
