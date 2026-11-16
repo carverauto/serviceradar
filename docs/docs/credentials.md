@@ -948,12 +948,18 @@ own credential added before its profile's. A rule outranks the target's own
 credential; to give one device a credential ahead of every rule, set that
 device's SNMP override. A host that belongs to no device has no override and is
 selected by no rule, whatever the rule's scope or priority, so it starts at the
-target's own credential. If the secret broker refuses the override's or the
-rule's credential, the target is skipped rather than polled with a later one.
+target's own credential. If the secret broker refuses the override's, the
+rule's or the target's own credential, the target is skipped rather than polled
+with a later one.
 A target with no usable credential is not polled; the compiler logs a warning
 and emits `[:serviceradar, :snmp, :target_without_credential]`, and the
 profile's list of manual targets marks a target **No credential** when neither
 it nor its profile has one.
+
+A manual target that resolves a credential, its own or one inherited from its
+profile, is the operator's explicit choice for its host: it replaces a
+query-selected target for the same host, and the device is polled only with
+the manual target's OIDs, not the profile template's.
 
 Before this, an explicit target on a host that belongs to a device ignored the
 device's override and its profile's credential: it was polled with a matching

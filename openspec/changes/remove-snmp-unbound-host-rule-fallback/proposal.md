@@ -69,9 +69,12 @@ then profile credentials.
   before this change, so no target that resolved to a rule moves to its own
   credential. A credential meant for one device ahead of every rule is that
   device's SNMP override, which now applies to explicit targets too.
-- **A refused override or rule credential skips the target**, as it does for a
-  query-selected device, instead of falling through to the target's own
-  credential.
+- **A refused override, rule or target credential skips the target**, as it
+  does for a query-selected device, instead of falling through to a
+  lower-precedence credential.
+- **A manual target that resolves a credential replaces a query-selected
+  target for the same host**, including when the credential is inherited from
+  its profile, so that host is polled only with the manual target's OIDs.
 - **No backfill for the follow-up.** Only targets whose device has an override
   change credential, to the one the operator configured for that device;
   targets that had no credential and no rule start polling with their

@@ -3,7 +3,7 @@
 ### Requirement: Explicit SNMP target credentials
 An explicit SNMP target SHALL be polled with the first usable credential in this order: the SNMP override of the device that the target's host belongs to; an SNMP monitoring credential rule whose edge scope covers the compiling agent and whose target query selects that device; the target's own credential (its referenced reusable credential, else its inline material); the credential of the profile the target belongs to (its referenced reusable credential, else its inline material).
 A host belongs to a device when it is the device's uid, a confirmed IP alias of the device, or the device's IP, hostname or name. A device override and a rule apply only through that device: neither MUST apply to a target whose host belongs to no device, whatever the rule's scope or priority. Such a target starts at its own credential.
-A matching rule SHALL take precedence over the target's own credential. A credential meant for one device in preference to every rule is that device's SNMP override, which outranks rules for explicit and query-selected targets alike. An override or rule whose credential the secret broker refuses SHALL compile no poller target for the target rather than fall through to a lower-precedence credential, as for a query-selected device.
+A matching rule SHALL take precedence over the target's own credential. A credential meant for one device in preference to every rule is that device's SNMP override, which outranks rules for explicit and query-selected targets alike. An override, rule or target's own credential that the secret broker refuses SHALL compile no poller target for the target rather than fall through to a lower-precedence credential, as for a query-selected device.
 A target with no usable credential SHALL compile no poller target and SHALL be reported on every compile that skips it.
 
 #### Scenario: A host no device holds gets no rule
@@ -42,6 +42,15 @@ A target with no usable credential SHALL compile no poller target and SHALL be r
 - **WHEN** P is compiled for agent A
 - **THEN** the first target SHALL be polled with C
 - **AND** the other two SHALL be polled with R
+
+#### Scenario: An explicit target replaces a query-selected target for the same host
+- **GIVEN** a profile P referencing reusable SNMP credential R, whose target query selects a device with IP `192.0.2.55` and no SNMP override
+- **AND** on P, an explicit target with host `192.0.2.55`, its own OID configs, and no credential of its own
+- **AND** no rule selects the device
+- **WHEN** P is compiled for agent A
+- **THEN** exactly one poller target SHALL be compiled for host `192.0.2.55`
+- **AND** it SHALL be the explicit target, polled with R and only the explicit target's OID configs, not the query-selected target or its template OIDs
+- **AND** the same SHALL hold when the explicit target has a credential of its own
 
 #### Scenario: Upgrade keeps polling a target only the old fallback served
 - **GIVEN** an explicit target with no credential of its own on a host no device holds
