@@ -55,7 +55,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     after_prune_edges age_bound_seconds agent_id agent_scope agent_uid agent_uids alert_id
     applied_days args assessment_id assignment_id attempt attempt_id attempted_at attempts
     awx_job_id awx_template_id batch_count batch_index batch_number batch_run_count batch_size
-    batcher batches binding_id body_partition bytes caller caller_pid cancelled_jobs
+    batcher batches binding_id block_key body_partition bytes caller caller_pid cancelled_jobs
     candidate_assignment_ids cap_dropped cause certificate_partition_id check check_id
     checker_id chunk chunk_hours chunks cluster_id cn cnpg_export_enabled collection_id column
     command_id command_type compress_after_hours config_version configured_days constraint
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     since snapshot_id source source_id sqlstate stale stale_conflict_cutoff_seconds
     stale_executing_minutes stale_job_count stale_oban_job_id stale_run_cutoff_seconds
     stale_threshold_minutes starvation_threshold_minutes state stats status step step_number
-    stream subject subject_partition success sweep_group_execution_id sweep_group_id
+    storage_id stream subject subject_partition success sweep_group_execution_id sweep_group_id
     sweep_group_name table tables target_count target_id target_key threshold
     threshold_per_minute timeout_ms token_type topic total_spans transition_class trigger_mode
     type unexported_chunks update_kind updated_count upto url usage_pct user_id version view

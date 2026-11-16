@@ -67,7 +67,7 @@ credential creation surface accepts internal encrypted material only. See
 for the proposed runtime integration and the separate runner credential handoff.
 
 Not every provider takes a rule. A provider's descriptor declares
-`supports_rules`, and two of the providers on this page are credential-only:
+`supports_rules`, and several providers on this page are credential-only:
 
 | Provider | Rule? | Where the credential is bound instead |
 | --- | --- | --- |
@@ -75,6 +75,7 @@ Not every provider takes a rule. A provider's descriptor declares
 | NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.49 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
+| S3-Compatible Object Storage (`s3_compatible`) | No | **Settings -> System -> Camera Recording -> Recording & Storage** (`/settings/recording?tab=archive`), writer and optional reader slots; see [Camera archive storage](#camera-archive-storage) |
 | SNMP | Yes | The rule itself. A profile can bind the same credential; see [SNMP](#snmp) |
 
 ## Broker grant logs and history
@@ -134,8 +135,9 @@ digest from the devices the profile or rule selected at the time.
 
 The provider list, the auth methods, the credential fields, the purposes, and the
 form's defaults are all read from approved, signed plugin package manifests
-(`integrations.credential_profiles`), merged with two descriptors the platform
-owns because they have no package: SNMP and VulnCheck.
+(`integrations.credential_profiles`), merged with native descriptors the platform
+owns because they have no package, including SNMP, VulnCheck, and S3-Compatible
+Object Storage (`s3_compatible`).
 
 Nothing is hardcoded in the web UI. If a provider is missing from the **New Rule**
 dropdown, either its package is not imported and approved yet -- see
@@ -205,6 +207,7 @@ declared per provider by the package, not chosen from a global list:
 | `netbox` | `inventory_sync` (from `<first-release>`; see [NetBox](#netbox)) |
 | `awx` | `automation_execution` |
 | `vulncheck` | `vulnerability_feed_download` |
+| `s3_compatible` | `camera_archive_write`, `camera_archive_read` |
 | `snmp` | `snmp_monitoring` |
 
 A rule can carry more than one purpose, and each purpose materialises its own
@@ -801,6 +804,63 @@ The message is recorded, inside the inspected error tuple, in the feed row's
 Attach the credential *before* upgrading a deployment that still relied on the
 old environment variables: after the upgrade those variables are read by nothing,
 and the feed fails until a credential is selected.
+
+### Camera archive storage
+
+S3-Compatible Object Storage (`s3_compatible`) is a platform-owned,
+credential-only native descriptor (`supports_rules: false`, `scope_types: []`,
+`credential_kind: opaque`). Credential rules are not used because an immutable
+`ArchiveBinding` destination (for example `https://objects.example.com`, region
+`example-1`, bucket `example-archive`, and key prefix) together with the
+`RecordingArchiveSettings` singleton defines the scope rather than a device SRQL
+query.
+
+1. **Create the credential.** **New Credential** ->
+   `S3-Compatible Object Storage - Access key`. Enter the access key ID (up to
+   256 bytes, stored as the public identity so operators can identify it in
+   selectors without decrypting) and the secret access key (up to 512 bytes,
+   encrypted at rest and never re-rendered). Create a second credential if you
+   separate write and read IAM keys.
+2. **Bind it on the recording archive settings.** **Settings -> System -> Camera
+   Recording -> Recording & Storage** (`/settings/recording?tab=archive`) ->
+   select the **Writer credential** (`writer_credential_secret_id`) and,
+   optionally, the **Reader credential** (`reader_credential_secret_id`). When
+   the reader slot is left unset, read operations reuse the writer credential
+   under a read-only `:reader` broker grant.
+
+No Helm value, Kubernetes Secret, mounted file, or environment variable supplies
+camera archive bucket keys. At use time, `ArchiveCredentialResolver` resolves the
+referenced secret into a short-lived broker grant locked to `https` on port
+`443`, the active binding's host, and `/<bucket>/<prefix>/*` (`PUT`, `HEAD`, and
+`GET` for `:writer`; `HEAD` and `GET` for `:reader`). Rotating a credential or
+switching `RecordingArchiveSettings` to another credential record does not alter
+the immutable `ArchiveBinding` `destination_sha256`.
+
+Three guardrails apply to bound archive credentials:
+
+- **Split-duty authorization.** Editing archive settings requires
+  `settings.recording.manage`, and selecting or changing the writer or reader
+  credential additionally requires `settings.credentials.manage` (see
+  [Roles & Permissions](./rbac-and-roles.md#camera-recording-and-storage-settings)).
+  An administrator with `settings.recording.manage` alone sees only the bound
+  credential's redacted name and a disabled selector explaining the missing
+  permission.
+- **Validation and disabled state.** `RecordingArchiveSettings` enforces
+  restrictive foreign keys (`on_delete: :restrict`) and requires referenced
+  secrets to be enabled, undeleted `s3_compatible` records of kind `opaque`. If a
+  bound credential is later disabled, `/settings/recording?tab=archive` reports
+  archive operations unavailable and refuses to dispatch work to an NVR.
+- **Usage inventory and guarded deletion.** Bound credentials appear in the
+  **Usage** column on `/settings/networks/credentials` as
+  `Camera archive (writer)` and `Camera archive (reader)`, each linking to
+  `/settings/recording?tab=archive`. `GuardCredentialDestroy` refuses deletion
+  with `credential_in_use` while either slot references the credential or a
+  broker grant remains active; clear or replace the reference on
+  `/settings/recording?tab=archive` and wait for active grants to expire first.
+
+For NVR workload identity, local spool durability, and the deployment recovery
+gate, see
+[NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md).
 
 ### SNMP
 

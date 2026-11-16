@@ -6,11 +6,16 @@ defmodule ServiceRadar.Camera do
   use Ash.Domain,
     extensions: [
       AshJsonApi.Domain,
-      AshAdmin.Domain
+      AshAdmin.Domain,
+      AshPaperTrail.Domain
     ]
 
   admin do
     show?(true)
+  end
+
+  paper_trail do
+    include_versions? true
   end
 
   resources do
@@ -21,9 +26,12 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.ConsumerLease
     resource ServiceRadar.Camera.RecorderClaim
     resource ServiceRadar.Camera.RecordingControlState
+    resource ServiceRadar.Camera.RecordingArchiveSettings
     resource ServiceRadar.Camera.LocalPublicationIntent
     resource ServiceRadar.Camera.RecordingBlock
     resource ServiceRadar.Camera.ArchiveBinding
+    resource ServiceRadar.Camera.NVRArchiveReceipt
+    resource ServiceRadar.Camera.RecordingOperation
     resource ServiceRadar.Camera.LocalStorageBinding
     resource ServiceRadar.Camera.LocalStorageHistoryGenesis
     resource ServiceRadar.Camera.LocalStorageBootstrapInstallation

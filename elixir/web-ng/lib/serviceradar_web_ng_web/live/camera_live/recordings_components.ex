@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :error, :string, default: nil
   attr :loading, :boolean, default: false
   attr :timezone, :string, required: true
+  attr :can_view_recording_settings, :boolean, default: false
 
   def recordings(assigns) do
     ~H"""
@@ -22,10 +23,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           <p class="mt-2 text-sm text-sr-muted">
             Browse published recordings. Publication time is not capture time.
           </p>
+          <p id="camera-recordings-source-label" class="mt-1 text-xs text-sr-muted">
+            Source: <code class="font-mono">ArchiveUploads</code>
+            published catalog, distinct from NVR archive receipts tracked in Recording &amp; Storage settings.
+          </p>
         </div>
-        <.link :if={@source} navigate={~p"/devices/#{@source.device_uid}"} class="sr-ops-button">
-          Back to device
-        </.link>
+        <div class="flex flex-wrap items-center gap-2">
+          <.link
+            :if={@can_view_recording_settings}
+            id="camera-recording-settings-link"
+            navigate={~p"/settings/recording"}
+            class="sr-ops-button"
+          >
+            Recording &amp; storage
+          </.link>
+          <.link :if={@source} navigate={~p"/devices/#{@source.device_uid}"} class="sr-ops-button">
+            Back to device
+          </.link>
+        </div>
       </header>
 
       <div

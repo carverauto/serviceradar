@@ -6,8 +6,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadarWebNG.CameraArchiveWindow
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
+
+  @recording_settings_permissions [
+    "settings.recording.view",
+    "settings.recording.manage",
+    "settings.recording.operate"
+  ]
 
   @impl true
   def mount(%{"camera_source_id" => source_id}, _session, socket) do
@@ -42,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         error={@error}
         loading={@loading}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
+        can_view_recording_settings={can_view_recording_settings?(@current_scope)}
       />
     </Layouts.app>
     """
@@ -120,4 +128,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     do: "This recording window cannot be played within the current playback limits."
 
   defp message(_), do: "Camera recordings are temporarily unavailable. Try refreshing."
+
+  defp can_view_recording_settings?(scope) do
+    RBAC.can_any?(scope, @recording_settings_permissions)
+  end
 end

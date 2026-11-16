@@ -217,6 +217,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/camera_recorder_ownership_integration_test.exs": 1,
     "test/integration/camera_recording_blocks_integration_test.exs": 1,
     "test/integration/camera_archive_uploads_integration_test.exs": 1,
+    "test/integration/camera_nvr_operator_settings_integration_test.exs": 1,
     "test/integration/camera_recording_worker_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 1,
