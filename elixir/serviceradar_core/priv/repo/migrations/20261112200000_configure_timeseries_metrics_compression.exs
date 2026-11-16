@@ -44,6 +44,7 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   @orderby ~s("timestamp" DESC, "gateway_id", "series_key")
   @compression_after "6 days"
   @retention_days 30
+  @lock_timeout "3s"
 
   def up do
     set_compression(@table, @segmentby, @orderby)
@@ -67,6 +68,7 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
     DO $$
     DECLARE
       ts_schema text;
+      compression_enabled boolean;
     BEGIN
       SELECT n.nspname
       INTO ts_schema
@@ -78,24 +80,29 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
         RETURN;
       END IF;
 
-      IF EXISTS (
-        SELECT 1
-        FROM timescaledb_information.hypertables
-        WHERE hypertable_schema = '#{schema()}'
-          AND hypertable_name = '#{table_name}'
-      ) THEN
-        EXECUTE format(
-          'ALTER TABLE %I.%I SET (
-             timescaledb.compress,
-             timescaledb.compress_segmentby = %L,
-             timescaledb.compress_orderby = %L
-           )',
-          '#{schema()}',
-          '#{table_name}',
-          '#{segmentby}',
-          '#{orderby}'
-        );
+      SELECT h.compression_enabled
+      INTO compression_enabled
+      FROM timescaledb_information.hypertables h
+      WHERE h.hypertable_schema = '#{schema()}'
+        AND h.hypertable_name = '#{table_name}';
+
+      IF NOT FOUND OR compression_enabled THEN
+        RETURN;
       END IF;
+
+      PERFORM set_config('lock_timeout', '#{@lock_timeout}', true);
+
+      EXECUTE format(
+        'ALTER TABLE %I.%I SET (
+           timescaledb.compress,
+           timescaledb.compress_segmentby = %L,
+           timescaledb.compress_orderby = %L
+         )',
+        '#{schema()}',
+        '#{table_name}',
+        '#{segmentby}',
+        '#{orderby}'
+      );
     END;
     $$;
     """)
