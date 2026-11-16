@@ -206,6 +206,18 @@ is not an undelivered archive; treating it as one would keep the drainer
 retrying an upload the operator chose not to make. Task R.7c asks that change
 to amend its text so the two agree.
 
+**PD9. A block with no known camera policy follows the deployment.** A
+quarantined block whose camera policy is not known (unattributable, or its
+policy cannot be determined) is treated as archiving for quarantine purposes
+when archiving is enabled for the deployment: it is quarantined locally and
+copied to the `_quarantine/` prefix, and only the verified
+quarantine-destination receipt ends its drain, with the archive job retried
+like any other. When archiving is not enabled, it ends at its local quarantine
+receipt. Rationale: with object storage configured only an archive receipt or a
+quarantine receipt ends the drain (the owner's standing rule), and footage
+nobody can attribute must not exist only on one volume. R2 states the rule in
+its terminal-outcome table.
+
 ## A. Continuous recording that fits the volume
 
 ### A1. Block sizing
@@ -529,6 +541,8 @@ inferred by the UI. Reasons:
 | `nvr_refused` | Admission refused, with class (`nvr_inventory_limit`, `nvr_spool_budget_exhausted`, `nvr_storage_pressure`, `nvr_recovery_closed`) |
 | `block_absent` | Uncertain block resolved as absent |
 | `run_stopped` | Run stopped for an unresolved block, claim loss or gate closure |
+| `incomplete_tail` | Media after the last committed fragment of a recovered journal (R4 step 3) |
+| `quarantined` | Interval of a quarantined block or journal, when its camera and interval are known (R2, R4) |
 | `archive_capacity_exhausted` | Local tier full of unarchived footage because archiving is paused for object capacity (C3a) |
 
 "Recording off" (policy disabled or outside its schedule) is not a gap; the
@@ -654,16 +668,20 @@ owner of block state that every other section follows:
 - **Sealed entry**: created only by `freeze_and_catalog/6` or the reconciler's
   historical freeze (R3), in the transaction that freezes the descriptor; it
   carries the media and timeline ranges and is playable.
-- **Quarantined entry** (`local_state = quarantined`): created by the
-  reconciler for a block or journal whose seal cannot be verified or
-  recovered, that has no Core authority, or whose registered binding has no
-  retained history (R2, R4, R8), after the NVR confirms the move into its
-  quarantine partition. It carries the reason, the quarantine receipt, the
-  bytes and, when the block archives, the `archive_state` of its
-  quarantine-destination copy. Nothing is frozen or played; the receipt, not
-  a descriptor, is the evidence, and it is still one create-only row per
-  `(storage_id, block_key)`. Its lost interval is a gap with reason
-  `quarantined` (B3 `RecordingGap`).
+- **Quarantined entry** (`local_state = quarantined`), reached in one of two
+  ways after the NVR confirms the move into its quarantine partition:
+  created by the reconciler as a new row for a block or journal whose seal
+  cannot be verified or recovered or that has no Core authority (R4 steps 5
+  and 6), with identity and timeline fields filled only where the
+  reservation or journal provides them; or set on an existing sealed entry
+  whose registered binding is absent from retained history or ended for a
+  compromise-class reason (R4 step 1, R8), which keeps its frozen descriptor
+  and identity. It carries the reason, the quarantine receipt, the bytes and,
+  when it archives (R2, PD9), the `archive_state` of its
+  quarantine-destination copy. Nothing new is frozen and it is never played;
+  there is still one row per `(storage_id, block_key)`. Its lost interval is
+  a gap with reason `quarantined` when its camera and interval are known
+  (R4); otherwise it is listed on the health tab.
 
 ### B3. Resources
 
@@ -674,10 +692,10 @@ owner of block state that every other section follows:
 | --- | --- |
 | `id` | UUID |
 | `recording_block_id` | FK restrict, unique; the frozen block; NULL only for a quarantined entry whose block was never frozen (R2) |
-| `camera_source_id`, `stream_profile_id`, `policy_id` | Denormalized for indexes |
+| `camera_source_id`, `stream_profile_id`, `policy_id` | Denormalized for indexes; NULL only for a quarantined entry whose reservation and journal do not provide them |
 | `storage_id`, `block_key` | Unique pair; the NVR copy identity |
-| `clock_epoch`, `run_id` | Run grouping for continuity |
-| `media_start_ns`, `media_end_ns` | From the descriptor's first and last fragment; NULL for a quarantined entry, as are the time, run and descriptor fields below |
+| `clock_epoch`, `run_id` | Run grouping for continuity; NULL only for a quarantined entry whose reservation and journal do not provide them |
+| `media_start_ns`, `media_end_ns` | From the descriptor's first and last fragment; NULL only for a never-frozen quarantined entry, as are the time and descriptor fields below |
 | `first_unit_pts`, `first_unit_received_at` | Raw observation for the time basis |
 | `timeline_start_us`, `timeline_end_us` | Derived wall-clock range (UTC microseconds) |
 | `time_basis`, `time_uncertainty_us`, `anchor_id` | `received` now; NULL uncertainty means unmeasured |
@@ -687,7 +705,7 @@ owner of block state that every other section follows:
 | `quarantine_reason`, `quarantine_receipt`, `quarantined_bytes` | Set exactly when `local_state = quarantined` (R2): reason class (`unrecoverable_journal`, `unattributable`, `binding_without_history`), the receipt (the NVR's confirmed partition path, per-file length and SHA-256, placed-at) and the bytes; its quarantine-destination copy uses the `archive_state` and receipt fields below |
 | `archive_state`, `archive_state_at` | `not_required`, `pending`, `failed_retryable`, `failed_terminal`, `verified`, `deleting`, `deleted`, `missing` |
 | `archive_deleted_reason` | Set once when `archive_state` becomes `deleted`: `object_retention`, `object_capacity` or `operator`; with `local_state = present` the entry is local only after archive expiry or reaping (C3, C3a) |
-| `archive_binding_id` | FK restrict; for a block that archives (A6), the binding active when the entry is registered, never changed afterwards (R8) |
+| `archive_binding_id` | FK restrict; for a block that archives (A6), the binding active when the entry is registered; changed only by the quarantine transition (R8), to the binding active then, for its `_quarantine/` copy |
 | `nvr_archive_receipt_id` | FK restrict, set at `verified` |
 | `archive_attempts`, `archive_last_error_class` | Bounded class, no provider text |
 | `sealed_at`, `archived_at` | Database time |
@@ -764,8 +782,8 @@ terminal outcomes. This is the one list; nothing else ends the drain:
 
 | Block | Terminal outcomes |
 | --- | --- |
-| Does not archive: its camera policy is `local_only` (including while a destination is configured for other cameras), or it was moved to `not_required` because archiving was turned off (A6) | Its catalog entry (B3) with `archive_state = not_required` and its index receipt persisted; or, for a bad seal, its quarantined catalog entry with its local quarantine receipt |
-| Archives (A6), or is quarantined while archiving is enabled and its policy is not `local_only` (or is unknown) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); or, for a bad seal, its quarantined entry with `archive_state = verified` for the `_quarantine/` copy (the quarantine-destination receipt). A local catalog entry or a local quarantine placement does not end the drain for these |
+| Does not archive: its camera policy is `local_only` (including while a destination is configured for other cameras), it was moved to `not_required` because archiving was turned off (A6), or it is quarantined with no known camera policy while archiving is not enabled (PD9) | Its catalog entry (B3) with `archive_state = not_required` and its index receipt persisted; or, for a bad seal, its quarantined catalog entry with its local quarantine receipt |
+| Archives (A6); or is quarantined with no known camera policy (unattributable, or the policy cannot be determined) while archiving is enabled for the deployment (PD9) | Archive receipt recorded (`NVRArchiveReceipt`, `archive_state = verified`); or, for a bad seal, its quarantined entry with `archive_state = verified` for the `_quarantine/` copy (the quarantine-destination receipt). A local catalog entry or a local quarantine placement does not end the drain for these |
 
 This is the one statement of the drain's terminal outcomes; it refines
 add-edge-production-time-admission Decision 10 as recorded in PD8. A block that
@@ -869,7 +887,10 @@ change's `GET /v1/blocks?after=&limit=` endpoint, extended to report each
 block's state (`sealed`, `incomplete`, `tombstoned`) and, for sealed blocks, the
 descriptor SHA-256. For each block:
 
-1. **Cataloged**: check the archive state; nothing else.
+1. **Cataloged**: check the archive state. When the entry's registered
+   binding is absent from retained history or ended for a compromise-class
+   reason (R8), have the NVR move the block into its quarantine partition and
+   set the same row to quarantined (B2), keeping its frozen descriptor.
 2. **Reserved row, sealed block**: fetch the descriptor, historical freeze,
    create the catalog entry, and enqueue archive only when the block archives
    (A6: archiving enabled and policy `local_and_archive`); otherwise the entry
@@ -1186,8 +1207,9 @@ window_k = min(age_k, T_low) to min(age_k, T_high)
   - P4: held local copies that are the hold's pinned copy (C4) and are not in
     P1 or P3: held kind (a) whose archive copy had already been deleted when
     the hold was placed, and held kind (b) under `overwrite_oldest`.
-  - P5: row (q), quarantined entries (R2); they have catalog entries, so
-    they are never in P2, and row (q) excludes them from P1.
+  - P5: row (q), the sum of `quarantined_bytes` of quarantined entries (B3,
+    R2); they have catalog entries, so they are never in P2, and row (q)
+    excludes them from P1.
   A held block whose verified archive copy is the pin adds nothing. Unheld
   kind (a) copies, including those local only after archive expiry or reaping,
   are evictable bytes.

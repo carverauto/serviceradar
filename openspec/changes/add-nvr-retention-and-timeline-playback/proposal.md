@@ -54,10 +54,11 @@ product owner's decisions of 2026-11-15 are recorded in
   fragments per block, 16 MiB block limit). An incremental inventory ledger raises the per-volume block cap.
   Sealed blocks are archived automatically with retry and backlog reporting.
   Blocks above 16 MiB wait for multipart upload.
-- **B. Core catalog of NVR blocks.** One `RecordingCatalogEntry` per sealed
-  block, created only under the original recorder fence, with media and
-  timeline ranges, a labelled time basis (received time, never presented as
-  capture time) and where each copy lives.
+- **B. Core catalog of NVR blocks.** One `RecordingCatalogEntry` per block:
+  a sealed entry, created only under the original recorder fence, with media
+  and timeline ranges, a labelled time basis (received time, never presented
+  as capture time) and where each copy lives; or a quarantined entry for a
+  block whose seal cannot be verified, which is never played.
 - **R. Reconciliation: no stranded footage.** A periodic reconciler adopts
   sealed blocks only under Core's retained reservation authority (rotated
   blocks only on proof that they continue a reserved block), recovers
