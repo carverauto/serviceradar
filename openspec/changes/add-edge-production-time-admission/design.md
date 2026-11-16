@@ -402,23 +402,23 @@ grant. On a live session whose `EdgeRecordLaneOpen` carried
 slot immediately with a `REJECTED_PERMANENT` disposition carrying rejection
 code `LATE_ADMISSION_REQUIRED`; the kind alone resolves the slot, as for every
 permanent rejection, and the capable agent does not copy the record into the
-evicting local quarantine. For an older agent, whose lane open carries no
-version (absent or 0),
-the gateway keeps today's live dispositions. On a live session whose lane
-open carried `late_admission_protocol_version >= 1`, the gateway resolves a
-live frame whose origin principal is not the authenticated agent the same way,
-in place of `identity_conflict`; with version 0 or none it keeps today's
-disposition. That is a resolving disposition: it neither
-withholds the frame nor sends it to the `fence_stale` quarantine. Before the
-agent persists the resolution (resolved prefix or reclaim), it appends the
+evicting local quarantine. On the same sessions the gateway resolves a live
+frame whose origin principal is not the authenticated agent the same way, in
+place of `identity_conflict`. `LATE_ADMISSION_REQUIRED` neither withholds the
+frame nor sends it to the `fence_stale` quarantine. For an older agent, whose
+lane open carries no version (absent or 0), the gateway keeps today's live
+dispositions unchanged: a missing fence is still withheld, a stale fence is
+still `fence_stale`, and an origin mismatch is still `identity_conflict`.
+Before the capable agent persists the resolution (resolved prefix or reclaim), it appends the
 exact record bytes to the late generation for that lane key, or, when the
 record's origin principal is not the authenticated agent, to the hold for
 `(lane key, origin principal)`, exactly as the handoff does, and waits for the
 append to be durable. If the append fails, the resolution is not persisted and
 the record stays in the live lane for retry. The late session and core's
 authority history then decide the record. The gateway never accepts a late
-grant on a live session. This replaces the forever-withhold on a missing fence
-and the `fence_stale` dead end.
+grant on a live session. For sessions whose lane open carried
+`late_admission_protocol_version >= 1`, this replaces the forever-withhold on a
+missing fence and the `fence_stale` dead end.
 
 ## Decision 8: upgrade-time handoff
 

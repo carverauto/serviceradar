@@ -191,7 +191,12 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 
 - [ ] 4.1 Add an automatic NVR archive drainer: start-up rescan, a production
       caller for block archive, writing the first publication intent, and
-      persistent retries.
+      persistent retries. With an archive destination configured it stops only
+      on a verified archive or quarantine-destination receipt, never on a
+      local publication; in local-only mode it stops on a verified
+      local-retention publication (published into the qualified durable local
+      archive with its central index receipt persisted), after which local
+      deletion follows the retention and hold policy.
 - [ ] 4.2 Add an automatic core-local camera spool uploader, and automatic
       reconciliation of `:prepared` dispatches by idempotent read-back.
 - [ ] 4.3 Keep retained recovery-generation and archive-binding history, judge
