@@ -50,8 +50,9 @@ defmodule ServiceRadar.Repo.BaselineInstallRepairWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     if baseline_install?() do
-      with :ok <-
-             repair_policies(SchemaBootstrap.baseline_section_statements!(:timescaledb_policies)) do
+      policies = SchemaBootstrap.baseline_section_statements!(:timescaledb_policies)
+
+      with :ok <- repair_policies(policies) do
         repair_seed_rows(SchemaBootstrap.baseline_section_statements!(:seed_data))
       end
     else
