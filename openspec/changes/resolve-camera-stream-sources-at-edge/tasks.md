@@ -1,5 +1,13 @@
 ## 1. Containment (Stage 1; Core and web-ng only)
 
+- [ ] 1.0a Verify that the installed Ash version supports `select_by_default? false` on an
+      attribute. If it does not, 1.1 must instead remove the two attributes from every read
+      action's default select explicitly.
+- [ ] 1.0b Verify how a `service_status` row stored before Stage 1 behaves when the same plugin
+      result is redelivered after D7 reduced its details and recomputed its payload digest: no
+      duplicate row and no resurrection of the unreduced payload. If either occurs, the D2
+      digest and the D7 scrub must be changed so a redelivery matches the reduced row before
+      1.3 and 1.5 land.
 - [ ] 1.1 `Source.source_url` and `StreamProfile.source_url_override`: `public? false`,
       `sensitive? true`, `select_by_default? false`; `RelaySourceResolver` selects them
       explicitly (D4).
@@ -21,18 +29,23 @@
 
 ## 2. Edge resolution (Stage 2)
 
+- [ ] 2.0 Verify that the agent's on-demand plugin call for an assignment
+      (`RunPluginVerbForAssignment`) receives the same params and standing credential broker
+      grants as a scheduled run of that assignment. If it does not, the resolver cannot
+      authenticate, and Stage 2 must add that first.
 - [ ] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
       `serviceradar.camera_source_resolution{_request}.v1`; release, then re-vendor in both
       plugins.
 - [ ] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
       second), never creating streams; results carry `source_origin` and no `cameras[].channels`
       aliases, `streams[].url` or `source_url*`.
-- [ ] 2.3 Axis plugin: a resolver that rebuilds the URL and returns plugin credentials; results
-      carry the origin only.
+- [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
+      userinfo; results carry the origin only.
 - [ ] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
-      params and standing grants; capture output in memory, never enqueue it as a result;
-      advertise `camera_source_resolution`; add the D5 classes; confirm that no log line or
-      command result carries the resolved address.
+      params and standing grants; capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
+      persist it or enqueue it as a result;
+      advertise `camera_source_resolution`; add the D5 classes; confirm that no log line,
+      command result or error carries the resolved URL or its userinfo.
 - [ ] 2.5 Tests: plugin resolver tables against fake controllers; an agent test showing the
       address reaches the reader and nothing else, and that each D5 class is produced.
 
@@ -58,4 +71,5 @@
 - [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order; regenerate
       aliases after upgrading.
 - [ ] 5.2 `docs/docs/srql-language-reference.md` `camera_sources` paragraph.
-- [ ] 5.3 Runbook under `docs/`: the D7 verification queries, the DLQ purge, backup expiry.
+- [ ] 5.3 Runbook under `docs/`: reference the operator verification queries defined in design
+      D7, the DLQ purge, backup expiry.

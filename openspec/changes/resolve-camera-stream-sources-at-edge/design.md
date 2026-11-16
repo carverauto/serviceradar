@@ -108,22 +108,24 @@ re-derive it.
   the bootstrap `channels[].rtspAlias`.
   `resolveProtectStreamSourceURL` (`protect_streams.go:10-45`) already does this
   re-derivation for the Wasm stream path.
-- Axis. The address carries no secret. The resolver rebuilds it and returns the
-  plugin's username and password with it.
+- Axis. The address carries no secret. The resolver rebuilds it and puts the
+  plugin's credentials in the URL userinfo, which the native reader already
+  uses for RTSP authentication.
 
 The open flow:
 
 1. Core sends `source_resolver = {plugin_assignment_id, vendor_camera_id,
-   vendor_profile_id, profile_name}` and no `source_url`.
+   vendor_profile_id}` and no `source_url`.
 2. The agent calls the assignment's plugin on demand. It uses the existing
    on-demand execution path (`PluginManager.RunPluginVerbForAssignment`,
    `plugin_runtime_manager.go:1391`), with the assignment's own params and
    standing grants, and a request document
    `serviceradar.camera_source_resolution_request.v1`.
 3. The plugin returns `serviceradar.camera_source_resolution.v1`
-   (`{url, username?, password?}` or `{failure_class, failure_detail}`). The
-   agent captures it in memory and never queues it as a plugin result.
-4. The native reader opens the stream with it.
+   (`{url}` or `{failure_class, failure_detail}`). `url` is the only channel
+   for the address and any credential; it may carry userinfo. The agent captures
+   it in memory and never queues it as a plugin result.
+4. The native reader opens the stream with it as its `SourceURL`.
 
 `discovery_assignment_id` is the host-stamped assignment id from the result's
 provenance (`PluginResultProvenance`). The ingestor records it on the source.
@@ -190,9 +192,9 @@ the Context section.
 Once the columns are gone and D2 is in place, Core holds nothing that could be
 exposed. Until then (Stage 1), both columns are `public? false`,
 `sensitive? true` and `select_by_default? false`, and only the relay resolver
-selects them explicitly. Readers use `source_scheme`. The agent never logs the
-resolved address or the credentials and never puts them in a command result or
-an error. Failure detail goes through PR #6703's sanitizer.
+selects them explicitly. Readers use `source_scheme`. The agent never persists
+or logs the resolved URL (including its userinfo) and never puts it in a command
+result or an error. Failure detail goes through PR #6703's sanitizer.
 
 ### D5. Failure modes
 
@@ -234,8 +236,9 @@ operator as sentences:
   and bumps `core.migrations.expectedVersion`.
 - The worker applies the D2 rule in Elixir, so the cleanup and the runtime cannot
   drift.
-- It works in primary-key batches, `(timestamp, service_id)` for the hypertable,
-  one row per statement. It skips rows that changed since it read them, and it
+- It works in primary-key batches, `(timestamp, gateway_id, service_name)` for
+  the `service_status` hypertable and `id` for every other table, one row per
+  statement. It skips rows that changed since it read them, and it
   is idempotent.
 
 Targets:
@@ -265,7 +268,9 @@ and emits one completion event.
 Following "close the path before deleting", the reduction ships in the same
 stage as each cleanup run.
 
-Operator verification (each query must return 0):
+Operator verification. These queries cover every column the targets above
+scrub, and are the single definition the spec and the runbook refer to. Each
+must return 0:
 
 ```sql
 SELECT count(*) FROM platform.camera_stream_profiles
@@ -277,7 +282,8 @@ SELECT count(*) FROM platform.ocsf_devices
 SELECT count(*) FROM platform.service_status
  WHERE details ~* 'rtsps?://[^"/\\]*[@/]' OR details ~* 'rtsps?_?alias';
 SELECT count(*) FROM platform.service_state
- WHERE message ~* 'rtsps?://[^"/\\]*[@/]' OR message ~* 'rtsps?_?alias';
+ WHERE message ~* 'rtsps?://[^"/\\]*[@/]' OR message ~* 'rtsps?_?alias'
+    OR details ~* 'rtsps?://[^"/\\]*[@/]' OR details ~* 'rtsps?_?alias';
 ```
 
 The `source_url_override` and `source_url` predicates are dropped after Stage 4.

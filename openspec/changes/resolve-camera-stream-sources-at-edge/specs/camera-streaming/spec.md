@@ -25,7 +25,7 @@ Camera inventory SHALL store only non-secret stream facts: the profile `source_o
 - **THEN** the returned metadata contains no `camera_source_url` and no stream path
 
 ### Requirement: Stream sources resolve at the edge at open time
-When opening a camera relay, Core SHALL send the discovering plugin assignment id and the vendor camera and profile ids, and SHALL NOT send a stream address. The agent SHALL obtain the address from that assignment's plugin resolver when the stream opens, SHALL hold it only in memory for the session, and SHALL NOT log it, return it in a command result or include it in an error. Core SHALL NOT dispatch to an agent that lacks the `camera_source_resolution` capability.
+When opening a camera relay, Core SHALL send the discovering plugin assignment id and the vendor camera and profile ids, and SHALL NOT send a stream address. The agent SHALL obtain the address from that assignment's plugin resolver when the stream opens as a single URL, which is the only channel for the address and any stream credential and may carry userinfo. The agent SHALL hold that URL only in memory for the session, SHALL pass it to the native reader, and SHALL NOT persist it, log it, return it in a command result or include it in an error. Core SHALL NOT dispatch to an agent that lacks the `camera_source_resolution` capability.
 
 #### Scenario: Upgraded agent opens a Protect stream
 - **WHEN** an operator opens a Protect camera profile on an agent advertising `camera_source_resolution`
@@ -52,4 +52,4 @@ The system SHALL remove every stored stream address, path alias and URL userinfo
 
 #### Scenario: Operator verification
 - **WHEN** the job reports completion
-- **THEN** each verification query in the operator runbook returns 0
+- **THEN** each operator verification query defined in design D7 returns 0
