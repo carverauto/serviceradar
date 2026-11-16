@@ -24,14 +24,14 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
 
   `compression_after` is 6 days — a conservative initial value. The
   `DataRetentionWorker` reconciles it to the operator-configured lag
-  (default 2 hours) on startup, so the effective window is short-lived.
+  (default 2 hours) on its next cron run (03:17 by default).
 
   `retention_days` is 30 — enough to cover dashboards' last_30d windows
   while preventing unbounded growth.
 
-  Rollback removes both policies but leaves compression enabled. Disabling it
-  would require decompressing every compressed chunk, which is not safe to do
-  automatically during a migration rollback.
+  Rollback is explicitly irreversible and raises `Ecto.MigrationError`. The
+  compression and retention policies may predate this migration, and removing
+  either would leave the database unprotected until maintenance reconciliation.
 
   Hand-written, matching the hypertable policy pattern in this directory.
   Every step is guarded on the TimescaleDB extension and hypertable existing,
@@ -112,20 +112,6 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
     timescale_policy(
       table_name,
       "add_retention_policy(%L::regclass, INTERVAL ''#{days} days'', if_not_exists => true)"
-    )
-  end
-
-  defp remove_compression_policy(table_name) do
-    timescale_policy(
-      table_name,
-      "remove_compression_policy(%L::regclass, if_exists => true)"
-    )
-  end
-
-  defp remove_retention_policy(table_name) do
-    timescale_policy(
-      table_name,
-      "remove_retention_policy(%L::regclass, if_exists => true)"
     )
   end
 
