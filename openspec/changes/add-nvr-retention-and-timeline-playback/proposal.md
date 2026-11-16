@@ -84,7 +84,8 @@ product owner's decisions of 2026-11-15 are recorded in
   after archive reaping, until the local eviction rules evict it, which can delete the last copy; or stop
   archiving) keeps fixed-size buckets working, with calculated effective
   retention. Object retention and the reaper delete only archive copies, so a
-  large local volume keeps its history whatever the bucket's size. Unarchived and unreconciled footage is never evicted;
+  large local volume keeps its history whatever the bucket's size. Footage pinned by archive state (kind (c) of the eviction table), quarantined
+  footage and unreconciled footage are never evicted;
   every deletion is audited and re-checked; storage alerts are deduplicated and
   auto-clearing.
 - **D. Unified timeline playback.** One playback surface per camera by
