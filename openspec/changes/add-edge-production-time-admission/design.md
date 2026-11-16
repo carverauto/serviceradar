@@ -79,8 +79,11 @@ Late records go into a dedicated **late generation** per lane key, stored
 under `<root>/late/`, and are sent on their own **late session**. The record's
 route profile and traffic class are immutable signed fields, so "the recovery
 lane" means a separate generation and session for the same lane key, not a
-different route. The late session opens with `EdgeRecordLaneOpen.admission =
-LATE`. The gateway applies the late rule only on late sessions and never
+different route. The late session opens with `EdgeRecordLaneOpen.late_admission =
+true`, a bool rather than an enum: the frozen enum-policy guards refuse an enum's
+zero member, which every older agent's lane open would carry. The agent sets it,
+and `late_admission_protocol_version`, only when the gateway's Hello advertised
+late admission, because an older gateway rejects unknown lane-open fields. The gateway applies the late rule only on late sessions and never
 accepts a late grant on a live session, so a late record can never pass as
 live. The late session has its own credits and runs concurrently below live
 priority, so a late tail waiting for grants never blocks live delivery.
@@ -535,9 +538,12 @@ undelivered entry.
    live slots into late generations. They open late sessions only when the
    gateway advertises `late_admission_v1`; until then late records stay on
    disk, accounted and reported as `late_pending_gateway_support`. Because the
-   regenerated Elixir bindings decode `EdgeRecordLaneOpen.admission`, phase 1
-   also makes the gateway refuse a lane open with `admission = LATE` until
-   phase 2 implements the late path.
+   regenerated Elixir bindings decode `EdgeRecordLaneOpen.late_admission`, phase 1
+   also makes the gateway refuse a lane open with `late_admission = true` until
+   phase 2 implements the late path. A legacy handoff copies nothing while free
+   ordinary capacity does not cover the tail and reports `insufficient_capacity`;
+   releasing a resolved prefix while records remain unresolved (partial-prefix
+   reclaim) is deferred to its own change.
 2. **Phase 2, core and gateway (Elixir):** authority history, ledger coverage,
    late grants, late sessions, EventWriter and projectors. The gateway then
    advertises `late_admission_v1`. Phase 2 must be deployed before late

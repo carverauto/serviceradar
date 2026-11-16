@@ -25,7 +25,7 @@ authority SHALL NOT be evicted to free space.
 - **THEN** the agent SHALL leave the entry untouched, keep it charged to the storage budget and report it as unsupported legacy storage
 
 ### Requirement: Late admission is a separate generation and session
-The agent SHALL admit a committed record whose live admission is no longer possible only into a dedicated late generation for the record's lane key or, for a foreign origin principal, into the hold for `(lane key, origin principal)`, and SHALL deliver both only on the lane key's late session opened with `EdgeRecordLaneOpen.admission = LATE`.
+The agent SHALL admit a committed record whose live admission is no longer possible only into a dedicated late generation for the record's lane key or, for a foreign origin principal, into the hold for `(lane key, origin principal)`, and SHALL deliver both only on the lane key's late session opened with `EdgeRecordLaneOpen.late_admission = true`.
 
 The live rule (production authority current now, fence current) SHALL remain
 the only rule for live generations. A late record SHALL NOT be re-signed,
