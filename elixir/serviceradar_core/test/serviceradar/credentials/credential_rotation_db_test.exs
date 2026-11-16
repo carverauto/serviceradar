@@ -15,6 +15,8 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.ReusableCredential
 
   @moduletag :integration
 
@@ -138,6 +140,41 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
              SecretBroker.resolve_network_credential_secret(secret.id, actor: @system_actor)
 
     assert_ciphertext_and_audits_are_redacted!(secret.id, password_marker, legacy_password)
+  end
+
+  test "rotating an SNMPv1 community keeps v1 unless the rotation names a version" do
+    suffix = Integer.to_string(System.unique_integer([:positive, :monotonic]))
+    scope = suffix |> credential_manager!() |> human_actor()
+
+    {:ok, secret} =
+      ReusableCredential.create(:v1, "rotation-v1-#{suffix}", %{community: "v1-before"},
+        actor: @system_actor
+      )
+
+    assert {:ok, _rotated} =
+             CredentialRotation.rotate(
+               secret,
+               %{"community" => "v1-after", "version" => ""},
+               scope
+             )
+
+    assert %{version: :v1, community: "v1-after"} = job_reference_credential(secret)
+
+    assert {:ok, _rotated} =
+             CredentialRotation.rotate(
+               secret,
+               %{"community" => "v2c-after", "version" => "v2c"},
+               scope
+             )
+
+    assert %{version: :v2c, community: "v2c-after"} = job_reference_credential(secret)
+  end
+
+  defp job_reference_credential(secret) do
+    CredentialResolver.build_credential(
+      %{version: nil, credential_secret_id: secret.id},
+      @system_actor
+    )
   end
 
   test "awx.ping records token expiry, fires rotation reminder when near expiry, and reports auth_failed when expired" do

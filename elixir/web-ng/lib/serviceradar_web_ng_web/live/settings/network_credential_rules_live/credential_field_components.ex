@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
   attr :form_name, :string, required: true
   attr :values, :map, default: %{}
   attr :errors, :map, default: %{}
+  attr :rotation, :boolean, default: false
   attr :rest, :global
 
   def descriptor_fields(assigns) do
@@ -52,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
         label={field["label"]}
         options={select_options(field)}
         value={Map.get(@values, field["id"], "")}
-        prompt={select_prompt(field, @values)}
+        prompt={select_prompt(field, @values, @rotation)}
         required={required?}
         errors={field_errors(@errors, field)}
         {@rest}
@@ -141,13 +142,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialFie
   # A select shows "nothing chosen" only when that is true: a new credential
   # starts on the descriptor's default, a rotation starts blank. A kept value
   # that is not an option counts as nothing chosen, so a rejected name is not
-  # displayed as though the first option had been picked.
-  defp select_prompt(field, values) do
+  # displayed as though the first option had been picked. In a rotation, a
+  # field that keeps its stored value when left blank says so.
+  defp select_prompt(field, values, rotation?) do
     current = Map.get(values, field["id"], "")
 
     offered = Enum.map(field["options"] || [], & &1["value"])
 
-    if current not in offered, do: "Choose..."
+    if current not in offered do
+      (rotation? && field["rotation_blank_label"]) || "Choose..."
+    end
   end
 
   defp field_errors(errors, field), do: errors |> Map.get(field["id"]) |> List.wrap()

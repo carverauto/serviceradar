@@ -7,6 +7,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MapperParams do
     |> normalize_integer("concurrency")
     |> normalize_integer("retries")
     |> drop_blank(~w(agent_id))
+    |> blank_to_nil("snmp_credential_secret_id")
+  end
+
+  # The select's empty option means "no SNMP credential". The attribute is a
+  # UUID, which does not cast "" to nil, so send nil explicitly.
+  def blank_to_nil(params, key) do
+    case Map.get(params, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: Map.put(params, key, nil), else: params
+
+      _ ->
+        params
+    end
   end
 
   def normalize_unifi_params(params) do

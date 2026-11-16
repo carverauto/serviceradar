@@ -120,9 +120,9 @@ device. The row's `metadata` says what it stands for:
 | `run_id` | One value shared by every row the same compile wrote |
 | `partition` | The partition the compile was for, when it has one |
 
-The consumer columns name the profile, credential rule or device override
-whose credential was resolved, and `agent_id` names the agent the configuration
-was compiled for. A row whose resolutions each targeted a device has
+The consumer columns name the profile, credential rule, device override or
+discovery job whose credential was resolved, and `agent_id` names the agent
+the configuration was compiled for. A row whose resolutions each targeted a device has
 `target_kind` `device_set` and the digest as its `target_id`. A row with no
 `resolution_count` stands for exactly one resolution.
 
@@ -808,7 +808,10 @@ SNMP is a protocol ServiceRadar speaks itself, so its descriptor is
 platform-owned rather than package-published. It supports rules, scoped to
 agents, with one purpose (`snmp_monitoring`) and two auth methods:
 
-- `community` -- a community string, for v1/v2c.
+- `community` -- a community string, and an optional **SNMP version** (`v1`
+  or `v2c`, default `v2c`). A credential stored without a version is used as
+  v2c. The version travels with the credential, so a discovery job that
+  references it sends v1 when the credential says v1.
 - `v3` -- username, security level, and the authentication and privacy
   protocol and password that level uses.
 
@@ -830,7 +833,9 @@ protocol outside the list is refused with the field named.
 
 Rotating a credential replaces it completely. The stored level and protocols are
 not loaded into the rotation form, so choose them again along with the new
-passwords. Credentials saved before the lists existed keep working in whatever
+passwords. The one exception is the community SNMP version: left on
+**Keep current version**, the rotation keeps the stored version; choosing `v1`
+or `v2c` replaces it. Credentials saved before the lists existed keep working in whatever
 spelling they were typed (`SHA-256`, `auth_priv`); a rotation rewrites them in
 the listed spelling.
 
@@ -871,16 +876,32 @@ credentials from the file. Do not add new deployments to this path.
 Mapper uses the shared SNMP resolver for known inventory devices named by job
 seeds (IP, hostname, or device UID) and known devices matching enabled SNMP rules
 in the compiling agent's agent or partition scope. This includes known neighbors
-that discovery may encounter later; unknown addresses retain the collector's
-fallback credentials. A collector can therefore keep a v2c fallback while
-matching switches use scoped v3 credentials.
+that discovery may encounter later. Every other address, including seeds and
+newly found neighbours without a device credential, uses the job's own **SNMP
+Credential**, a reusable SNMP credential selected on the discovery job form. A
+job can therefore keep a v2c credential while matching switches use scoped v3
+credentials. The job credential never comes from the default SNMP profile, the
+mapper host's credential, or a monitoring rule.
+
+An SNMP discovery job without a credential still saves and runs, but probes
+only devices that have their own credential; the Discovery list marks it
+**No SNMP credential**. A credential referenced by a discovery job cannot be
+deleted while that reference exists.
+
+On upgrade, a one-off background job gives each existing discovery job the
+credential it was already using: the agent host's credential, the first SNMP
+rule scoped to its agent or partition, or the default profile's credential.
+Inline profile or device-override values are first saved as a reusable
+credential. A job whose agents resolved different credentials, or none, is left
+without one and shows **No SNMP credential**; select one on the job form. The
+job never revisits a discovery job, so a later choice is not overwritten.
 
 Resolved credentials are delivered by target IP. A credential-store read
 failure fails mapper config generation, and the agent keeps its running
 config. A broker refusal for one target, or two device records that resolve
 to the same IP with conflicting credentials, suppresses SNMP for that
 address before connecting or authenticating. That address is not retried
-with the collector fallback. Other targets and API discovery stay in the
+with the job credential. Other targets and API discovery stay in the
 compiled config. The mapper compiler logs the read failure, the refusal,
 or the conflict.
 

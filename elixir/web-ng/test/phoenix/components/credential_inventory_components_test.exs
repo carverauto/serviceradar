@@ -67,6 +67,24 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
            ]
   end
 
+  test "a discovery job consumer links to that job's edit form" do
+    document =
+      render_inventory(
+        usage_by_id: %{
+          "credential-1" => usage([consumer(:mapper_job, "job-1", "Site 01 core")])
+        }
+      )
+
+    link =
+      LazyHTML.query(
+        document,
+        ~s(#credential-usage-credential-1 a[href="/settings/networks/discovery/job-1/edit"])
+      )
+
+    assert link |> LazyHTML.text() |> normalize_text() == "1 discovery job · Site 01 core"
+    assert LazyHTML.attribute(link, "aria-label") == ["Edit discovery job Site 01 core"]
+  end
+
   test "zero and unavailable usage remain distinct" do
     zero_document =
       render_inventory(usage_by_id: %{"credential-1" => usage([])})

@@ -2,12 +2,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Credentials.CredentialSecretBuilder
-  alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SNMPProfiles.MissingOIDs
-  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -206,60 +203,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
         {"#{secret.name} (#{secret.provider})", secret.id}
       end)
   end
-
-  @doc """
-  Creates a reusable SNMP credential from the credential fields already on the
-  profile form.
-
-  The operator types the community string or v3 user exactly as before; ticking
-  "save as reusable" additionally stores it in the shared inventory and binds
-  the profile to it, instead of encrypting a private copy onto the profile.
-
-  The values are routed through `CredentialSecretBuilder` against the native
-  SNMP descriptor rather than being assembled here, so a shared SNMP credential
-  is validated, encoded, fingerprinted and redacted by exactly the same code as
-  a package-owned one. Choosing the auth method from the SNMP version is the
-  only SNMP-specific decision, and it is the same decision the form already
-  makes when it picks which fields to show.
-  """
-  def create_snmp_credential(scope, version, name, field_values) do
-    auth_method = if to_string(version) in ["v1", "v2c"], do: "community", else: "v3"
-
-    values =
-      field_values
-      |> Enum.reject(fn {_key, value} -> is_nil(value) or String.trim(to_string(value)) == "" end)
-      |> Map.new(fn {key, value} -> {to_string(key), to_string(value)} end)
-      |> Map.new(fn {key, value} -> {key, stored_snmp_name(key, value)} end)
-
-    with {:ok, descriptor} <- NativeDescriptors.fetch("snmp"),
-         {:ok, attrs} <-
-           CredentialSecretBuilder.build(descriptor, auth_method, values, %{
-             name: name,
-             description: "Created from SNMP profile #{name}"
-           }),
-         {:ok, secret} <-
-           NetworkCredentialSecret
-           |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-           |> Ash.create(scope: scope) do
-      {:ok, secret}
-    else
-      :error -> {:error, :snmp_descriptor_unavailable}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # A profile holds its protocols as attribute names (`sha256`); a credential
-  # stores the spelling the credential form offers (`SHA256`). A name the
-  # formatter does not know is passed through for the builder to reject, rather
-  # than dropped here.
-  #
-  # The profile's security level is deliberately not promoted. A profile left
-  # on its no-auth default still has its level inferred from the passwords
-  # (see `CredentialResolver`); writing that default into the credential would
-  # make it explicit and discard the passwords.
-  defp stored_snmp_name("auth_protocol", value), do: ProtocolFormatter.auth_protocol_value(value) || value
-  defp stored_snmp_name("priv_protocol", value), do: ProtocolFormatter.priv_protocol_value(value) || value
-  defp stored_snmp_name(_field, value), do: value
 
   # The agent selector ships a hidden empty entry so unchecking every box still
   # submits the field. Strip blanks so the persisted array is clean ([] = legacy

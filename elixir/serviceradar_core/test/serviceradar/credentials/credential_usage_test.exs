@@ -81,6 +81,7 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
                {:credential_rule, ids.credential_rule, nil},
                {:device_snmp_credential, ids.device_snmp_credential, nil},
                {:integration_source, ids.integration_source, nil},
+               {:mapper_job, ids.mapper_job, nil},
                {:mapper_mikrotik_controller, ids.mapper_mikrotik_controller, nil},
                {:mapper_unifi_controller, ids.mapper_unifi_controller, nil},
                {:outbound_mail_settings, ids.outbound_mail_settings, :api_key},
@@ -228,13 +229,14 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
 
     sql!("INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [device_id])
 
-    sql!("INSERT INTO platform.mapper_jobs (id, name) VALUES ($1, $2)", [
-      dump(mapper_job_id),
-      unique("Usage mapper job")
-    ])
+    sql!(
+      "INSERT INTO platform.mapper_jobs (id, name, snmp_credential_secret_id) VALUES ($1, $2, $3)",
+      [dump(mapper_job_id), unique("Usage mapper job"), dump(secret_id)]
+    )
 
     ids = %{
       credential_rule: insert_rule(secret_id, "Usage credential rule"),
+      mapper_job: mapper_job_id,
       snmp_profile: snmp_profile_id,
       snmp_target: uuid(),
       device_snmp_credential: uuid(),

@@ -64,6 +64,20 @@
 - [ ] 3.2a Add `:complete_snmp_credential_backfill` to the `DependencyCatalog`
       `mapper_job_config` `action_names`, with a test that a committed bind
       invalidates mapper config
+- [ ] 3.2b Optional SNMP `version` (`v1`/`v2c`) on the native community
+      credential descriptor and in `ReusableCredential`; the backfill stores `v1`
+      when it promotes or copies a v1 community, rebinds sources with the
+      system-only `:bind_reusable_credential` action (no target-limit or SRQL
+      re-check), and suffixes a taken credential name; tests: inline v1 promoted
+      and compiled as v1, versionless v1 secret copied with v1, versionless job
+      credential compiles v2c, taken name suffixed, rebind refused for non-system
+      actors
+- [ ] 3.2c Rotation keeps a community credential's stored version when the
+      submission leaves it blank (descriptor `keep_on_rotation`, payload read
+      server-side and audited only in that case); an explicit version wins; the
+      rotate form labels the blank choice "Keep current version"; the backfill
+      reports `no_legacy_credential` only when every agent resolves nothing, and
+      `agents_disagree` for a mix
 - [ ] 3.3 CHANGELOG: discovery fallback is now the job's credential; the
       default-profile flag and unmatched monitoring rules no longer affect it
 

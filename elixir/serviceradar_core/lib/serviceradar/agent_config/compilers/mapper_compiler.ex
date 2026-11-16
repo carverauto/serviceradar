@@ -58,24 +58,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   @impl true
   def compile(partition, agent_id, opts \\ []) do
     actor = opts[:actor] || SystemActor.system(:mapper_compiler)
-    device_uid = opts[:device_uid]
 
     jobs = load_jobs(partition, agent_id, actor)
 
-    # A failed credential read fails the compile: falling back to the default
-    # credential would deliver a config that differs from what the data says
-    # (the mapper host may have its own scoped credential), and ConfigServer
-    # would cache it.
-    with {:ok, base_credentials} <-
-           resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition),
+    # A failed credential read fails the compile: delivering a config that
+    # differs from what the data says would be cached by ConfigServer.
+    with {:ok, base_credentials} <- job_base_credentials(jobs, actor),
          {:ok, target_specific} <-
            target_specific_credentials(jobs, partition, agent_id, actor),
          {:ok, mikrotik_controllers} <- load_mikrotik_controllers(jobs, actor),
          {:ok, unifi_controllers} <- load_unifi_controllers(jobs, actor),
          {:ok, proxmox_candidate_probe?} <-
            proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
-      credentials = Map.put(base_credentials, "target_specific", target_specific)
-
       config = %{
         "workers" => @default_workers,
         "timeout" => @default_timeout,
@@ -83,7 +77,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
         "max_active_jobs" => @default_max_active_jobs,
         "result_retention" => @default_result_retention,
         "scheduled_jobs" =>
-          Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
+          Enum.map(jobs, fn job ->
+            credentials =
+              base_credentials
+              |> Map.fetch!(job.id)
+              |> Map.put("target_specific", target_specific)
+
+            compile_job(job, credentials, proxmox_candidate_probe?)
+          end),
         "mikrotik_apis" => mikrotik_controllers,
         "unifi_apis" => unifi_controllers
       }
@@ -317,60 +318,68 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp string_or_empty(value) when is_binary(value), do: value
   defp string_or_empty(value), do: to_string(value)
 
-  # A failed credential read fails the compile: falling back to the default
-  # credential would deliver a config that differs from what the data says
-  # (the mapper host may have its own scoped credential), and ConfigServer
-  # would cache it. A deterministic SecretBroker refusal keeps the documented
-  # default-credential fallback so a misconfigured credential cannot freeze
-  # the mapper config.
-  defp resolve_credentials(device_uid, actor, opts) do
-    case CredentialResolver.resolve_for_device(device_uid, actor, opts) do
-      {:ok, %{credential: nil}} ->
-        resolve_default_credentials(actor, opts)
+  # Each job's base credential is the SNMP credential the job references, and
+  # nothing else: it is what the mapper uses for every address that has no
+  # per-device credential. A job without one, and an API-only job, gets `{}`,
+  # which the mapper refuses to speak SNMP with - never a v2c credential with no
+  # community. A failed credential read fails the compile; a deterministic
+  # refusal (broker policy, unknown security level) leaves only that job without
+  # a usable credential.
+  defp job_base_credentials(jobs, actor) do
+    Enum.reduce_while(jobs, {:ok, %{}}, fn job, {:ok, acc} ->
+      case job_base_credential(job, actor) do
+        {:ok, encoded} -> {:cont, {:ok, Map.put(acc, job.id, encoded)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
-      {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+  defp job_base_credential(
+         %{discovery_mode: mode, snmp_credential_secret_id: secret_id} = job,
+         actor
+       )
+       when mode in [:snmp, :snmp_api] and is_binary(secret_id) do
+    %{version: nil, credential_secret_id: secret_id}
+    |> CredentialResolver.build_credential(actor,
+      consumer_id: "mapper_job:#{job.id}",
+      target_kind: "mapper_job",
+      target_id: to_string(job.id),
+      purpose: "mapper_discovery"
+    )
+    |> encode_job_credential(job)
+  end
 
-      {:error, reason} ->
-        if CredentialResolver.credential_read_failure?(reason) do
-          Logger.error(
-            "MapperCompiler: SNMP credential read failed for discovery jobs - #{inspect(reason)}"
-          )
+  defp job_base_credential(_job, _actor), do: {:ok, %{}}
 
-          {:error, {:credential_resolution_failed, reason}}
-        else
-          Logger.warning(
-            "MapperCompiler: SNMP credential resolution refused for discovery jobs - #{inspect(reason)}; using default credentials"
-          )
+  defp encode_job_credential({:error, reason}, job) do
+    if CredentialResolver.credential_read_failure?(reason) do
+      Logger.error(
+        "MapperCompiler: SNMP credential read failed for discovery job #{job.name} - #{inspect(reason)}"
+      )
 
-          resolve_default_credentials(actor, opts)
-        end
+      {:error, {:credential_resolution_failed, reason}}
+    else
+      Logger.warning(
+        "MapperCompiler: SNMP credential refused for discovery job #{job.name} - #{inspect(reason)}; not probing addresses without a device credential"
+      )
+
+      {:ok, %{}}
     end
   end
 
-  defp resolve_default_credentials(actor, opts) do
-    case CredentialResolver.resolve_default(actor, opts) do
-      {:ok, %{credential: nil}} ->
-        Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
-        {:ok, %{"version" => "v2c"}}
+  defp encode_job_credential(nil, _job), do: {:ok, %{}}
 
-      {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+  defp encode_job_credential(credential, job) when is_map(credential) do
+    case CredentialResolver.to_mapper_credentials(credential) do
+      {:ok, encoded} ->
+        {:ok, encoded}
 
       {:error, reason} ->
-        if CredentialResolver.credential_read_failure?(reason) do
-          Logger.error(
-            "MapperCompiler: default SNMP credential read failed for discovery jobs - #{inspect(reason)}"
-          )
+        Logger.warning(
+          "MapperCompiler: refusing SNMP credential with unknown security level for discovery job #{job.name} - #{inspect(reason)}"
+        )
 
-          {:error, {:credential_resolution_failed, reason}}
-        else
-          Logger.warning(
-            "MapperCompiler: default SNMP credential resolution refused for discovery jobs - #{inspect(reason)}"
-          )
-
-          {:ok, %{"version" => "v2c"}}
-        end
+        {:ok, %{}}
     end
   end
 
@@ -384,7 +393,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   # Rules describe monitored devices, not the device hosting the mapper. Include
   # known matching targets so API/LLDP-discovered neighbours get the same scoped
-  # credentials as explicitly configured seeds, without changing the fallback.
+  # credentials as explicitly configured seeds; addresses no rule or device
+  # credential covers use the job's own credential.
   defp target_credentials(jobs, partition, agent_id, actor) do
     seeds = Enum.flat_map(jobs, fn job -> Enum.map(job.seeds || [], & &1.seed) end)
 
@@ -488,7 +498,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   # but the failure is logged so a credential DB outage is visible instead of
   # silently narrowing discovery. This is a deliberate degrade: the SNMP compiler
   # fails closed on the same read, but mapper discovery still has the seed
-  # devices and the default credential fallback to work with.
+  # devices and each job's own credential to work with.
   defp credential_rule_devices(rule, actor) do
     case SNMPCompiler.reduce_target_pages(rule.target_query, actor, [], fn page, devices ->
            {:cont, Enum.reduce(page, devices, &[%{uid: &1.uid, ip: &1.ip} | &2])}

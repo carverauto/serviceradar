@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
   use ServiceRadarWebNGWeb, :live_view
 
   alias AshPhoenix.Form
+  alias ServiceRadar.SNMPProfiles.ReusableCredential
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
 
@@ -213,7 +214,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
           "priv_password"
         ])
 
-      case Data.create_snmp_credential(scope, params["version"] || "v2c", name, values) do
+      case ReusableCredential.create(params["version"] || "v2c", name, values,
+             description: "Created from SNMP profile #{name}",
+             scope: scope
+           ) do
         {:ok, secret} ->
           # Bind the profile to the new credential and drop the values that were
           # just promoted. Leaving them would encrypt a second private copy onto

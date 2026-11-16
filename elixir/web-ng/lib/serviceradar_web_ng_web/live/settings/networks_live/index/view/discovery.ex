@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
   attr :mikrotik, :map, default: %{}
+  attr :snmp_credential_options, :list, default: []
   attr :mapper_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
   attr :timezone, :string, required: true
@@ -51,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
           mikrotik={@mikrotik}
+          snmp_credential_options={@snmp_credential_options}
         />
       <% else %>
         <div class="sr-ui-table-shell">
@@ -86,7 +88,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
                     </button>
                   </td>
                   <td>
-                    <div class="font-medium">{job.name}</div>
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium">{job.name}</span>
+                      <!--
+                      Without its own SNMP credential the job probes only
+                      devices that have a device credential; every other address
+                      is skipped. Shown persistently so it is not missed.
+                      -->
+                      <.ui_badge
+                        :if={job.snmp_credential_missing}
+                        id={"mapper-job-#{job.id}-snmp-credential-missing"}
+                        variant="warning"
+                        size="xs"
+                        title="No SNMP credential: only devices with their own SNMP credential are probed. Edit the job to choose one."
+                      >
+                        No SNMP credential
+                      </.ui_badge>
+                    </div>
                     <p :if={job.description} class="text-xs text-sr-muted truncate max-w-xs">
                       {job.description}
                     </p>

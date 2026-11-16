@@ -13,6 +13,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
+  alias ServiceRadar.NetworkDiscovery.Validations.SNMPCredential
 
   postgres do
     table "mapper_jobs"
@@ -22,6 +23,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
     custom_indexes do
       index [:partition], name: "mapper_jobs_partition_idx"
       index [:agent_id], where: "agent_id IS NOT NULL", name: "mapper_jobs_agent_idx"
+
+      index [:snmp_credential_secret_id],
+        where: "snmp_credential_secret_id IS NOT NULL",
+        name: "mapper_jobs_snmp_credential_secret_idx"
+    end
+
+    references do
+      reference :snmp_credential_secret, on_delete: :restrict
     end
   end
 
@@ -41,10 +50,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :concurrency,
         :timeout,
         :retries,
-        :options
+        :options,
+        :snmp_credential_secret_id
       ]
 
       validate AgentAssignment
+      validate SNMPCredential
     end
 
     update :update do
@@ -60,10 +71,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :concurrency,
         :timeout,
         :retries,
-        :options
+        :options,
+        :snmp_credential_secret_id
       ]
 
       validate AgentAssignment
+      validate SNMPCredential
+    end
+
+    update :complete_snmp_credential_backfill do
+      description "Backfill only: bind the pre-upgrade fallback credential, if any, and clear the mark"
+      accept [:snmp_credential_secret_id]
+      change set_attribute(:snmp_credential_backfill_pending, false)
+      validate SNMPCredential
     end
 
     update :record_run do
@@ -103,6 +123,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
 
     system_bypass()
     operator_action_type([:create, :update])
+
+    policy action(:complete_snmp_credential_backfill) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     admin_action_type(:destroy)
     read_all()
   end
@@ -193,6 +218,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
       description "Additional discovery options"
     end
 
+    # The credential the mapper uses for every address that has no per-device
+    # credential: seeds and neighbours the inventory does not know yet. Nil on an
+    # SNMP-mode job means those addresses are not probed with SNMP; the job is
+    # shown as missing its SNMP credential.
+    attribute :snmp_credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Reusable SNMP credential used for addresses without a per-device credential"
+    end
+
+    # Set on jobs that existed before the job carried its own SNMP credential,
+    # until MapperJobSNMPCredentialBackfillWorker has visited them. No action
+    # accepts it; only the backfill's own action clears it.
+    attribute :snmp_credential_backfill_pending, :boolean do
+      allow_nil? false
+      public? false
+      default false
+    end
+
     attribute :last_run_at, :utc_datetime do
       allow_nil? true
       public? true
@@ -223,6 +267,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   end
 
   relationships do
+    belongs_to :snmp_credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :snmp_credential_secret_id
+      destination_attribute :id
+    end
+
     has_many :seeds, ServiceRadar.NetworkDiscovery.MapperSeed do
       destination_attribute :mapper_job_id
     end
@@ -233,6 +285,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
 
     has_many :mikrotik_controllers, ServiceRadar.NetworkDiscovery.MapperMikrotikController do
       destination_attribute :mapper_job_id
+    end
+  end
+
+  calculations do
+    # The one definition of "this job has no SNMP fallback credential", shared by
+    # the discovery list badge and the job form warning.
+    calculate :snmp_credential_missing,
+              :boolean,
+              expr(discovery_mode in [:snmp, :snmp_api] and is_nil(snmp_credential_secret_id)) do
+      public? true
     end
   end
 

@@ -44,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
             mikrotik={@mapper_mikrotik}
+            snmp_credential_options={@mapper_snmp_credential_options}
             mapper_command_statuses={@mapper_command_statuses}
             can_manage_networks={@can_manage_networks}
             timezone={@current_scope.user.timezone || "Etc/UTC"}

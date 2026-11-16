@@ -76,8 +76,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
   Builds a complete replacement for one descriptor-backed internal credential.
 
   The current approved profile must match the credential's stored provider,
-  kind, and authentication method. Existing plaintext is never loaded or
-  merged; all required values must be present in `submitted_values`.
+  kind, and authentication method. All required values must be present in
+  `submitted_values`. Existing material is never merged, except that a field
+  declaring `"keep_on_rotation" => true` and submitted blank keeps its value from
+  the current payload, read through the `:current_payload` option (a function
+  returning `{:ok, payload}`) only in that case.
   """
   @spec build_rotation(map(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def build_rotation(secret, profile, submitted_values, opts)
@@ -89,9 +92,10 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
          %{} = method <- find_method(profile, auth_method),
          {:ok, method_kind} <- credential_kind(method["credential_kind"]),
          :ok <- validate_rotation_kind(secret, method_kind),
+         {:ok, values} <-
+           keep_current_values(method, submitted_values, Keyword.get(opts, :current_payload)),
          rotated_at = Keyword.get(opts, :now, DateTime.utc_now()),
-         {:ok, attrs} <-
-           build(profile, auth_method, submitted_values, %{last_rotated_at: rotated_at}) do
+         {:ok, attrs} <- build(profile, auth_method, values, %{last_rotated_at: rotated_at}) do
       {:ok,
        attrs
        |> Map.take(@rotation_attributes)
@@ -104,6 +108,49 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
 
   def build_rotation(_secret, _profile, _submitted_values, _opts),
     do: {:error, :invalid_credential_rotation}
+
+  defp keep_current_values(method, values, current_payload) do
+    case Enum.filter(method["fields"] || [], &kept_on_rotation?(&1, values)) do
+      [] ->
+        {:ok, values}
+
+      kept ->
+        with {:ok, current} <- current_payload_values(current_payload) do
+          {:ok,
+           Enum.reduce(kept, values, fn %{"id" => id}, acc ->
+             case Map.get(current, id) do
+               value when is_binary(value) and value != "" -> Map.put(acc, id, value)
+               _absent -> acc
+             end
+           end)}
+        end
+    end
+  end
+
+  defp kept_on_rotation?(%{"keep_on_rotation" => true, "id" => id}, values) do
+    case Map.get(values, id) do
+      nil -> true
+      value when is_binary(value) -> String.trim(value) == ""
+      _other -> false
+    end
+  end
+
+  defp kept_on_rotation?(_field, _values), do: false
+
+  defp current_payload_values(load) when is_function(load, 0) do
+    case load.() do
+      {:ok, payload} when is_binary(payload) ->
+        case Jason.decode(payload) do
+          {:ok, %{} = decoded} -> {:ok, decoded}
+          _not_an_object -> {:ok, %{}}
+        end
+
+      _failed ->
+        {:error, :invalid_credential_rotation}
+    end
+  end
+
+  defp current_payload_values(_load), do: {:error, :invalid_credential_rotation}
 
   @doc """
   The fields of `method` that the submitted `values` call for, each paired with
