@@ -48,7 +48,14 @@ impl Input for TcpInput {
                 {
                     continue;
                 }
-                Err(err) => panic!("Unable to accept TCP connection on {}: {err}", self.listen),
+                Err(err) if listener_unusable(&err) => {
+                    panic!("Unable to accept TCP connection on {}: {err}", self.listen)
+                }
+                Err(err) => {
+                    eprintln!("Unable to accept TCP connection on {}: {err}", self.listen);
+                    thread::sleep(ACCEPT_RETRY_DELAY);
+                    continue;
+                }
             };
             let _ = client.set_read_timeout(self.timeout);
             let tx = tx.clone();
@@ -59,6 +66,18 @@ impl Input for TcpInput {
             });
         }
     }
+}
+
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+#[cfg(target_os = "linux")]
+const ENOTSOCK: i32 = 88;
+#[cfg(not(target_os = "linux"))]
+const ENOTSOCK: i32 = 38;
+const EBADF: i32 = 9;
+
+fn listener_unusable(err: &std::io::Error) -> bool {
+    err.kind() == ErrorKind::InvalidInput || matches!(err.raw_os_error(), Some(EBADF | ENOTSOCK))
 }
 
 #[cfg(feature = "capnp-recompile")]
