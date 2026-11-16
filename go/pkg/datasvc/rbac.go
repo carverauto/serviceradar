@@ -32,12 +32,23 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-// rbacInterceptor enforces RBAC for unary RPCs.
-func (s *Server) rbacInterceptor(
+// rbacEnforced reports whether a method belongs to a service whose RBAC this
+// server enforces. Other services on the same gRPC server, such as health,
+// reflection and NATS account management, are not governed by these roles.
+func rbacEnforced(method string) bool {
+	return strings.HasPrefix(method, "/proto.KVService/") || strings.HasPrefix(method, "/proto.DataService/")
+}
+
+// RBACUnaryInterceptor enforces RBAC for unary KV and object-store RPCs.
+func (s *Server) RBACUnaryInterceptor(
 	ctx context.Context,
 	req interface{},
 	info *ggrpc.UnaryServerInfo,
 	handler ggrpc.UnaryHandler) (interface{}, error) {
+	if !rbacEnforced(info.FullMethod) {
+		return handler(ctx, req)
+	}
+
 	rule, err := s.authorize(ctx, info.FullMethod)
 	if err != nil {
 		return nil, err
@@ -50,12 +61,16 @@ func (s *Server) rbacInterceptor(
 	return handler(ctx, req)
 }
 
-// rbacStreamInterceptor enforces RBAC for streaming RPCs.
-func (s *Server) rbacStreamInterceptor(
+// RBACStreamInterceptor enforces RBAC for streaming KV and object-store RPCs.
+func (s *Server) RBACStreamInterceptor(
 	srv interface{},
 	ss ggrpc.ServerStream,
 	info *ggrpc.StreamServerInfo,
 	handler ggrpc.StreamHandler) error {
+	if !rbacEnforced(info.FullMethod) {
+		return handler(srv, ss)
+	}
+
 	rule, err := s.authorize(ss.Context(), info.FullMethod)
 	if err != nil {
 		return err
@@ -167,8 +182,10 @@ func (rule RBACRule) allowsKey(key string) bool {
 	return false
 }
 
-// requestKeys returns every KV key a request addresses. The second result is
-// false for a message that is not addressed by KV key.
+// requestKeys returns every KV key a request addresses; for ListKeys that is
+// the requested prefix, so a limited identity may list only inside its own
+// prefixes. The second result is false for a message that is not addressed by
+// KV key.
 func requestKeys(req interface{}) ([]string, bool) {
 	switch r := req.(type) {
 	case *proto.GetRequest:
@@ -190,6 +207,8 @@ func requestKeys(req interface{}) ([]string, bool) {
 		return []string{r.GetKey()}, true
 	case *proto.DeleteRequest:
 		return []string{r.GetKey()}, true
+	case *proto.ListKeysRequest:
+		return []string{r.GetPrefix()}, true
 	default:
 		return nil, false
 	}
@@ -236,6 +255,7 @@ func (*Server) authorizeMethod(method string, role Role) error {
 		"/proto.KVService/BatchGet":         {RoleReader, RoleWriter},
 		"/proto.KVService/Watch":            {RoleReader, RoleWriter},
 		"/proto.KVService/Info":             {RoleReader, RoleWriter},
+		"/proto.KVService/ListKeys":         {RoleReader, RoleWriter},
 		"/proto.KVService/Put":              {RoleWriter},
 		"/proto.KVService/PutIfAbsent":      {RoleWriter},
 		"/proto.KVService/PutMany":          {RoleWriter},
@@ -250,7 +270,7 @@ func (*Server) authorizeMethod(method string, role Role) error {
 
 	allowedRoles, ok := permissions[method]
 	if !ok {
-		return status.Errorf(codes.Unimplemented, "method %s not recognized", method)
+		return status.Errorf(codes.PermissionDenied, "method %s is not permitted for any role", method)
 	}
 
 	for _, r := range allowedRoles {

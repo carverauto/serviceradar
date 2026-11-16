@@ -87,8 +87,7 @@ func TestAuthorizeMethod(t *testing.T) {
 	t.Run("UnknownMethod", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Unknown", RoleWriter)
 		require.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
-		assert.Contains(t, err.Error(), "method /proto.KVService/Unknown not recognized")
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 }
 
@@ -265,7 +264,7 @@ func TestRBACInterceptor(t *testing.T) {
 			return s.Get(ctx, req.(*proto.GetRequest))
 		}
 
-		resp, err := s.rbacInterceptor(
+		resp, err := s.RBACUnaryInterceptor(
 			ctx,
 			&proto.GetRequest{Key: "test-key"},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Get"},
@@ -293,7 +292,7 @@ func TestRBACInterceptor(t *testing.T) {
 			return nil, nil // Shouldn’t reach here
 		}
 
-		_, err := s.rbacInterceptor(
+		_, err := s.RBACUnaryInterceptor(
 			ctx,
 			&proto.PutRequest{Key: "test-key", Value: []byte("value")},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Put"},
@@ -329,7 +328,7 @@ func TestRBACStreamInterceptor(t *testing.T) {
 			return s.Watch(&proto.WatchRequest{Key: "test-key"}, stream)
 		}
 
-		err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Watch"}, handler)
+		err := s.RBACStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Watch"}, handler)
 		require.NoError(t, err)
 	})
 
@@ -347,7 +346,7 @@ func TestRBACStreamInterceptor(t *testing.T) {
 			return nil // Shouldn’t reach here
 		}
 
-		err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Put"}, handler)
+		err := s.RBACStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Put"}, handler)
 		require.Error(t, err)
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
@@ -428,7 +427,7 @@ func TestKeyLimitedIdentityReachesOnlyItsKeyPrefixes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, ctx := keyLimitedServer("zen/rulesets/")
 			reached := false
-			_, err := s.rbacInterceptor(ctx, tc.req, &ggrpc.UnaryServerInfo{FullMethod: tc.method},
+			_, err := s.RBACUnaryInterceptor(ctx, tc.req, &ggrpc.UnaryServerInfo{FullMethod: tc.method},
 				func(context.Context, interface{}) (interface{}, error) {
 					reached = true
 					return nil, nil
@@ -456,7 +455,7 @@ func TestKeyLimitedIdentityReachesOnlyItsKeyPrefixes(t *testing.T) {
 			s, ctx := keyLimitedServer("zen/rulesets/")
 			reached := false
 			stream := &requestStream{mockWatchServer: mockWatchServer{ctx: ctx}, key: tc.key}
-			err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: tc.method},
+			err := s.RBACStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: tc.method},
 				func(_ interface{}, ss ggrpc.ServerStream) error {
 					if err := ss.RecvMsg(tc.request); err != nil {
 						return err

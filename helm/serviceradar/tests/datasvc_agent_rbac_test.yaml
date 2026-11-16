@@ -19,6 +19,14 @@ tests:
       - notMatchRegex:
           path: data["datasvc.json"]
           pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "writer"'
+  - it: lets web-ng and agent-gateway write the KV and object stores they upload to
+    asserts:
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "CN=serviceradar-web-ng,[^"]+", "role": "writer"'
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "CN=serviceradar-agent-gateway,[^"]+", "role": "writer"'
   - it: authorizes the neutral agent account under the neutral trust domain
     set:
       trustDomain: synthetic.example.test

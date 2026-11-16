@@ -68,6 +68,10 @@ type ServerOptions struct {
 	Logger               logger.Logger // Optional: if provided, uses this logger instead of creating a new one
 	DisableTelemetry     bool
 	TelemetryFilter      grpc.TelemetryFilter
+	// UnaryInterceptors and StreamInterceptors run after the shared logging
+	// and recovery interceptors, in the order given.
+	UnaryInterceptors  []ggrpc.UnaryServerInterceptor
+	StreamInterceptors []ggrpc.StreamServerInterceptor
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
@@ -146,6 +150,14 @@ func setupGRPCServer(ctx context.Context, opts *ServerOptions, log logger.Logger
 
 	if opts.TelemetryFilter != nil {
 		serverOpts = append(serverOpts, grpc.WithTelemetryFilter(opts.TelemetryFilter))
+	}
+
+	if len(opts.UnaryInterceptors) > 0 {
+		serverOpts = append(serverOpts, grpc.WithServerOptions(ggrpc.ChainUnaryInterceptor(opts.UnaryInterceptors...)))
+	}
+
+	if len(opts.StreamInterceptors) > 0 {
+		serverOpts = append(serverOpts, grpc.WithServerOptions(ggrpc.ChainStreamInterceptor(opts.StreamInterceptors...)))
 	}
 
 	grpcServer := grpc.NewServer(opts.ListenAddr, log, serverOpts...)
