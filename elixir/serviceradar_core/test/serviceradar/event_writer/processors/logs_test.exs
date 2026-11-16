@@ -772,6 +772,127 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
     end
   end
 
+  describe "parse_message/1 normalized log subject" do
+    @ruleset "sha256:578cb4621ff7758cbcec93bfcb0208ddce0a52cb01011eb5b28f15332d4d70b4"
+    @normalized_headers [{"Sr-Log-Schema", "otlp-normalized-v1"}, {"Sr-Ruleset-Id", @ruleset}]
+
+    defp normalized_batch do
+      ExportLogsServiceRequest.encode(%ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{
+            scope_logs: [
+              %ScopeLogs{
+                log_records: [
+                  %LogRecord{
+                    time_unix_nano: 1_705_315_800_000_000_000,
+                    severity_text: "WARN",
+                    body: %AnyValue{value: {:string_value, "link down"}}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+    end
+
+    test "stores a collector-normalized batch as its source kind, with its ruleset" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{subject: "logs.normalized.syslog", headers: @normalized_headers}
+        })
+
+      assert row.body == "link down"
+      assert row.source == "syslog"
+
+      assert row.attributes["serviceradar.ingest"] == %{
+               "subject" => "logs.normalized.syslog",
+               "source_kind" => "syslog",
+               "ruleset_id" => @ruleset
+             }
+    end
+
+    test "refuses a batch whose schema it does not know" do
+      for headers <- [[], [{"Sr-Log-Schema", "otlp-normalized-v2"}]] do
+        assert Logs.parse_message(%{
+                 data: normalized_batch(),
+                 metadata: %{subject: "logs.normalized.syslog", headers: headers}
+               }) == nil
+      end
+    end
+
+    test "never reads a JSON log from the normalized subject" do
+      json = Jason.encode!(%{"short_message" => "claims to be normalized", "host" => "host01"})
+
+      result =
+        Logs.parse_message(%{
+          data: json,
+          metadata: %{subject: "logs.normalized.syslog", headers: @normalized_headers}
+        })
+
+      assert result in [nil, []]
+    end
+
+    test "a protobuf batch is read only where protobuf is the subject's format" do
+      # Rules for these subjects run on JSON logs; protobuf would skip them.
+      for subject <- ["logs.syslog", "logs.snmp", "logs.internal.audit", "logs.otelx"] do
+        assert Logs.parse_message(%{
+                 data: normalized_batch(),
+                 metadata: %{subject: subject, headers: @normalized_headers}
+               }) == nil,
+               "stored a protobuf log from #{subject}"
+      end
+
+      for subject <- ["logs.otel", "logs.otel.gateway"] do
+        assert [%{body: "link down"}] =
+                 Logs.parse_message(%{data: normalized_batch(), metadata: %{subject: subject}})
+      end
+    end
+
+    test "a subject header cannot move a batch onto the normalized path" do
+      assert Logs.parse_message(%{
+               data: normalized_batch(),
+               metadata: %{
+                 broker_subject: "logs.syslog",
+                 subject: "logs.normalized.syslog",
+                 headers: [{"Nats-Subject", "logs.normalized.syslog"} | @normalized_headers]
+               }
+             }) == nil
+    end
+
+    test "a subject header cannot move a batch off the normalized path" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{
+            broker_subject: "logs.normalized.syslog",
+            subject: "logs.syslog",
+            headers: [{"Nats-Subject", "logs.syslog"} | @normalized_headers]
+          }
+        })
+
+      assert row.source == "syslog"
+
+      assert row.attributes["serviceradar.ingest"] == %{
+               "subject" => "logs.normalized.syslog",
+               "source_kind" => "syslog",
+               "ruleset_id" => @ruleset
+             }
+    end
+
+    test "the headers mean nothing on any other subject" do
+      [row] =
+        Logs.parse_message(%{
+          data: normalized_batch(),
+          metadata: %{subject: "logs.otel", headers: @normalized_headers}
+        })
+
+      assert row.source == "otel"
+      refute Map.has_key?(row.attributes["serviceradar.ingest"], "ruleset_id")
+    end
+  end
+
   describe "parse_message/1 ingest attribution" do
     @sr_headers [
       {"Sr-Ingest-Identity", "spiffe://serviceradar/gateway/gw-1"},

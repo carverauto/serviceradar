@@ -15,9 +15,10 @@
 - [ ] 2.4 Implement bounded fetch/watch/reconnect, atomic activation, cold start, empty snapshots and invalid/stale updates.
 
 ## 3. Binary and consumers
-- [ ] 3.1 Specify metadata fields and complete OTLP/JSON field parity.
+- [ ] 3.1 Specify metadata fields and complete OTLP/JSON field parity. OTLP protobuf rows now fill observed_timestamp, trace_flags, event_name, source_ip and scope_attributes like JSON rows (#6699). Still open: the collector-authenticated source identity and the syslog fallback fields on the binary path.
+- [ ] 3.1a Decide whether Zen rules configured for `logs.otel` should apply to protobuf OTLP logs. Today they do not: protobuf is that subject's format and is stored without rules. Applying them means running Zen on every OTLP log.
 - [ ] 3.2 Implement byte/count/age batches with fixed retry bytes and one route/ruleset.
-- [ ] 3.3 Adapt dual-format EventWriter consumption preserving all required side effects.
+- [ ] 3.3 Adapt dual-format EventWriter consumption preserving all required side effects. EventWriter reads collector-normalized OTLP batches from `logs.normalized.<kind>` without running Zen again, requires `Sr-Log-Schema: otlp-normalized-v1`, records `Sr-Ruleset-Id`, and never reads JSON there. Only the log collector's NATS user may publish that subject. Protobuf is refused on every other `logs.` subject except `logs.otel`, so switching format cannot skip a subject's rules. Still open: side-effect parity checks against a producer, which does not exist yet.
 - [ ] 3.4 Verify persistence-before-ACK, partial failure/replay and StarRocks/CNPG parity.
 - [ ] 3.5 Roll readers before opt-in producers; verify legacy retained-message draining.
 

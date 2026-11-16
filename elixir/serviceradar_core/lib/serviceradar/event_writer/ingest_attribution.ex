@@ -56,6 +56,17 @@ defmodule ServiceRadar.EventWriter.IngestAttribution do
   end
 
   @doc """
+  Reads one NATS header from Broadway message metadata, matched
+  case-insensitively. An absent or unusable header is `""`.
+  """
+  @spec header(term(), String.t()) :: String.t()
+  def header(metadata, name) when is_map(metadata) and is_binary(name) do
+    header_value(Map.get(metadata, :headers), String.downcase(name))
+  end
+
+  def header(_metadata, _name), do: ""
+
+  @doc """
   Merges the attribution columns into a row, a list of rows, or `nil`
   (pass-through), matching processor `parse_message/1` return shapes.
   """

@@ -44,9 +44,15 @@ Add or change a built-in identity's subjects only here.
      is honored as a fallback for releases that only set it under .agent. It
      MUST match SERVICERADAR_OTX_PARTITION on the core-elx runtime config. */ -}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" }}
+{{- /* logs.normalized.> carries log batches the log collector has already
+     normalized, which EventWriter stores without running Zen rules. Only the
+     log collector may publish there, so every identity whose allow list would
+     otherwise cover it, including one whose allow list is empty in some
+     rendering, denies it. */}}
 - user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: [">"]
+    deny: ["logs.normalized.>"]
   subscribe:
     allow: [">"]
 {{- /* Web-NG owns browser/API-facing object-store workflows such as plugin
@@ -210,6 +216,7 @@ Add or change a built-in identity's subjects only here.
       - "_INBOX.>"
     deny:
       - "$SYS.>"
+      - "logs.normalized.>"
       - "$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY"
       - "$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"
       - "$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"
@@ -304,7 +311,7 @@ Add or change a built-in identity's subjects only here.
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
-    deny: ["$SYS.>", "flow.attributed.>"]
+    deny: ["$SYS.>", "flow.attributed.>", "logs.normalized.>"]
   subscribe:
     allow:
       - "config.agent.>"
@@ -315,7 +322,7 @@ Add or change a built-in identity's subjects only here.
     deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
 - user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["logs.syslog", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
   subscribe:
     allow: ["$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
@@ -340,6 +347,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
@@ -353,6 +361,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
@@ -388,6 +397,7 @@ Add or change a built-in identity's subjects only here.
     {{- else }}
     allow: []
     {{- end }}
+    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $k8sInventoryNatsEnabled }}
     allow: ["_INBOX.>"]
@@ -397,6 +407,7 @@ Add or change a built-in identity's subjects only here.
 - user: "O=ServiceRadar"
   publish:
     allow: [">"]
+    deny: ["logs.normalized.>"]
   subscribe:
     allow: [">"]
 {{- end -}}

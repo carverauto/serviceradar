@@ -11,7 +11,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   Supports:
   - JSON log records (OTEL-style fields)
-  - OTLP protobuf `ExportLogsServiceRequest`
+  - OTLP protobuf `ExportLogsServiceRequest`, read only on `logs.otel`,
+    `logs.otel.*` and `logs.normalized.*`; on any other `logs.` subject a
+    protobuf body is refused
+  - Collector-normalized OTLP batches on `logs.normalized.<kind>`, which
+    require the `Sr-Log-Schema: otlp-normalized-v1` header and are stored
+    without running Zen rules again
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -92,9 +97,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attribution = IngestAttribution.from_metadata(metadata)
 
     case_result =
-      case Jason.decode(data) do
-        {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
-        {:error, _} = error -> parse_log_payload(error, data, metadata)
+      if normalized_subject?(delivered_subject(metadata)) do
+        parse_normalized_log(data, metadata)
+      else
+        case Jason.decode(data) do
+          {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
+          {:error, _} = error -> parse_log_payload(error, data, metadata)
+        end
       end
 
     case_result
@@ -159,6 +168,41 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {:ok, count}
   end
 
+  # Subjects under `logs.normalized.` carry OTLP log batches a log collector
+  # has already run through its Zen rules. The broker lets only the log
+  # collector publish there, so these batches are stored without running the
+  # rules again. A JSON body is never read from these subjects, and a batch in
+  # a schema this release does not know is refused instead of being guessed at.
+  @normalized_subject_prefix "logs.normalized."
+  @normalized_schema "otlp-normalized-v1"
+
+  defp delivered_subject(metadata) do
+    case Map.fetch(metadata, :broker_subject) do
+      {:ok, subject} -> subject
+      :error -> metadata[:subject]
+    end
+  end
+
+  defp normalized_subject?(subject) when is_binary(subject),
+    do: String.starts_with?(subject, @normalized_subject_prefix)
+
+  defp normalized_subject?(_subject), do: false
+
+  defp parse_normalized_log(data, metadata) do
+    case IngestAttribution.header(metadata, "sr-log-schema") do
+      @normalized_schema ->
+        parse_protobuf_log(data, metadata)
+
+      schema ->
+        Logger.warning("Refusing normalized log batch with unsupported schema",
+          subject: delivered_subject(metadata),
+          schema: schema
+        )
+
+        nil
+    end
+  end
+
   defp parse_log_payload({:ok, json}, _data, metadata) do
     json
     |> normalize_json_log(metadata)
@@ -166,8 +210,28 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_log_payload({:error, _}, data, metadata) do
-    parse_protobuf_log(data, metadata)
+    if protobuf_subject?(delivered_subject(metadata)) do
+      parse_protobuf_log(data, metadata)
+    else
+      Logger.debug("Refusing non-JSON log on a JSON log subject",
+        subject: delivered_subject(metadata)
+      )
+
+      nil
+    end
   end
+
+  # Zen rules run on JSON logs only, so a protobuf body is read only where
+  # protobuf is the subject's format: OTLP logs, and collector-normalized
+  # batches handled above. Anywhere else under `logs.` it would reach storage
+  # without that subject's rules, so it is refused. A message with no subject
+  # keeps the older behavior.
+  defp protobuf_subject?(subject) when is_binary(subject) do
+    subject == "logs.otel" or String.starts_with?(subject, "logs.otel.") or
+      not String.starts_with?(subject, "logs.")
+  end
+
+  defp protobuf_subject?(_subject), do: true
 
   defp normalize_json_log(json, metadata) when is_map(json) do
     case ZenNormalizer.normalize_json(metadata[:subject], json) do
@@ -190,7 +254,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
-    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
+
+    source =
+      FieldParser.get_field(json, "source", "source") || source_kind(delivered_subject(metadata))
+
     scope_attributes = parse_scope_attributes(json)
     {severity_text, severity_number} = log_severity(json)
     source_ip = normalize_source_ip(json)
@@ -507,7 +574,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       record_attributes = key_values_to_map(log_record.attributes)
       log_attributes = attach_ingest_metadata(record_attributes, metadata)
       log_id = generated_uuid()
-      source = source_kind(metadata[:subject])
+      source = source_kind(delivered_subject(metadata))
       {severity_text, severity_number} = protobuf_log_severity(log_record)
       trace_id = OtelId.normalize_trace_id(log_record.trace_id)
 
@@ -659,10 +726,21 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp build_ingest_metadata(metadata) do
     %{}
-    |> maybe_put_ingest(:subject, metadata[:subject])
+    |> maybe_put_ingest(:subject, delivered_subject(metadata))
     |> maybe_put_ingest(:reply_to, metadata[:reply_to])
     |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
-    |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
+    |> maybe_put_ingest(:source_kind, source_kind(delivered_subject(metadata)))
+    |> maybe_put_ingest(:ruleset_id, normalized_ruleset_id(metadata))
+  end
+
+  # The digest of the rule bundle the collector normalized the batch with.
+  defp normalized_ruleset_id(metadata) do
+    with true <- normalized_subject?(delivered_subject(metadata)),
+         ruleset_id when ruleset_id != "" <- IngestAttribution.header(metadata, "sr-ruleset-id") do
+      ruleset_id
+    else
+      _ -> nil
+    end
   end
 
   defp merge_ingest_metadata(attributes, ingest) do
@@ -681,8 +759,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp source_kind(subject) when is_binary(subject) do
     subject
     |> String.trim()
-    |> String.split(".", parts: 3)
+    |> String.split(".", parts: 4)
     |> case do
+      # `logs.normalized.syslog` is syslog, normalized by the collector.
+      ["logs", "normalized", source | _] when source != "" -> source
       ["logs", source | _] when source != "" -> source
       _ -> nil
     end
