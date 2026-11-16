@@ -906,9 +906,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   defp log_body(log) do
-    SecretRedaction.redact_text(
-      non_empty(Map.get(log, "body")) || non_empty(Map.get(log, "message")) || "—"
-    )
+    SecretRedaction.redact_text(non_empty(Map.get(log, "body")) || non_empty(Map.get(log, "message")) || "—")
   end
 
   # ----------------------------------------------------------------------
