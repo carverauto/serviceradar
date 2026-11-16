@@ -33,7 +33,8 @@ re-wrapped or appended to a live generation. A late session SHALL have its own
 credit budget and lower scheduling priority than live sessions, and at most one
 late session per lane key SHALL be open; the lane key's hold generations share
 that session. The agent SHALL open late sessions only
-when the gateway advertises `late_admission_v1`; until then late generations
+when the gateway advertises `late_admission_v1`, that is
+`AgentHelloResponse.edge_late_admission_protocol_version >= 1`; until then late generations
 SHALL be retained, accounted and reported as `late_pending_gateway_support`.
 
 #### Scenario: A late tail does not block live delivery
@@ -425,15 +426,16 @@ than the state it holds; time-series rows SHALL be written at their own time.
 - **THEN** the stored state SHALL remain the day 5 state and the late record SHALL be retained as history
 
 ### Requirement: A live-lane record that needs late admission moves to the late generation
-On a live session whose agent hello advertised `edge_late_admission_protocol_version >= 1`, the gateway SHALL immediately resolve any live-lane record whose fence is stale or missing at the gateway, or whose origin principal is not the authenticated agent, with a `REJECTED_PERMANENT` disposition carrying rejection code `LATE_ADMISSION_REQUIRED`, whatever its production window and in place of `identity_conflict`, and the agent SHALL append the exact record bytes durably to the late generation for that lane key, or to the hold for `(lane key, origin principal)` when the origin principal is not the authenticated agent, before it persists that resolution.
+On a live session whose `EdgeRecordLaneOpen.late_admission_protocol_version` is at least 1, the gateway SHALL immediately resolve any live-lane record whose fence is stale or missing at the gateway, or whose origin principal is not the authenticated agent, with a `REJECTED_PERMANENT` disposition carrying rejection code `LATE_ADMISSION_REQUIRED`, whatever its production window and in place of `identity_conflict`, and the agent SHALL append the exact record bytes durably to the late generation for that lane key, or to the hold for `(lane key, origin principal)` when the origin principal is not the authenticated agent, before it persists that resolution.
 
 The disposition kind alone resolves the slot; the rejection code is the
 annotation that tells the capable agent to move the bytes. The gateway SHALL
 NOT withhold the frame and SHALL NOT reject it as `fence_stale`, and the agent
 SHALL NOT copy the record into the evicting local quarantine. Agents implementing the
-late generation SHALL advertise `edge_late_admission_protocol_version = 1` in
-`AgentHelloRequest`. For a session whose hello advertised no version or 0, the
-gateway SHALL keep today's live dispositions unchanged, so an older agent's
+late generation SHALL send `late_admission_protocol_version = 1` in every
+`EdgeRecordLaneOpen`, the session input the gateway's authorization already
+holds. For a session whose lane open carried no version or 0, the gateway SHALL
+keep today's live dispositions unchanged, so an older agent's
 records follow today's paths. The live lane SHALL NOT wait on a late grant, and a late grant
 SHALL be accepted only on a late session. If the late append is not durable,
 the agent SHALL NOT persist the resolution (resolved prefix or reclaim) and
@@ -441,31 +443,32 @@ SHALL retry. The late session and core's authority history then decide the
 record's publication.
 
 #### Scenario: A missing fence no longer wedges a lane
-- **GIVEN** a live-lane record whose producer assignment was deleted after the record was produced during a live epoch
+- **GIVEN** a live session whose lane open carried `late_admission_protocol_version = 1`, and a live-lane record whose producer assignment was deleted after the record was produced during a live epoch
 - **WHEN** the sender delivers it on the live session
 - **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED`
 - **AND** SHALL NOT withhold it for a missing fence
 - **AND** the live lane SHALL continue with the records behind it
 
 #### Scenario: A stale fence resolves while the production window is still open
-- **GIVEN** a live-lane record whose assignment was revoked the same day, so its fence is stale while its signed production window still contains now
+- **GIVEN** a live session whose lane open carried `late_admission_protocol_version = 1`, and a live-lane record whose assignment was revoked the same day, so its fence is stale while its signed production window still contains now
 - **WHEN** the sender delivers it on the live session
 - **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED` and SHALL NOT reject it as `fence_stale`
 - **AND** the agent SHALL append it to the late generation, where core decides it from authority history
 
 #### Scenario: A foreign-origin live record is held, not identity-rejected
+- **GIVEN** a live session whose lane open carried `late_admission_protocol_version = 1`
 - **WHEN** a live-session frame's origin principal is not the authenticated agent
 - **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED` and SHALL NOT resolve it as `identity_conflict`
 - **AND** the agent SHALL append it durably to the hold for `(lane key, origin principal)` before persisting the resolution
 
 #### Scenario: An older agent keeps today's live dispositions
-- **GIVEN** a live session whose agent hello did not advertise `edge_late_admission_protocol_version`
+- **GIVEN** a live session whose `EdgeRecordLaneOpen` carried `late_admission_protocol_version = 0` or none
 - **WHEN** a live-lane record arrives whose fence is missing at the gateway
 - **THEN** the gateway SHALL NOT emit `LATE_ADMISSION_REQUIRED`
 - **AND** SHALL apply today's live disposition for that record
 
 #### Scenario: The late append precedes the live resolution
-- **GIVEN** a live-lane record the gateway resolved with `LATE_ADMISSION_REQUIRED`
+- **GIVEN** a live-lane record the gateway resolved with `LATE_ADMISSION_REQUIRED` on a session whose lane open carried `late_admission_protocol_version = 1`
 - **WHEN** the agent crashes after the gateway response and before the late append is durable
 - **THEN** the record SHALL remain unresolved in the live lane after restart
 - **AND** the agent SHALL append it to the late generation before persisting the resolution

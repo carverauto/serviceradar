@@ -40,7 +40,7 @@ No agent re-signs anything, and no new record field is needed:
 | Signing key | `production_capability.issuer_id` and `issuer_key_id`. Any `source_authorization.capability` names its own. |
 | Grant and its version | Production claims: `producer_assignment_id`, `effective_grant_sha256`, `registry_epoch`, `contract_bundle_sha256`, `registry_snapshot_sha256`, cost ceiling. |
 | Fence epoch | `producer_context.authority_epoch`, bound by validation to the claims' `authority_epoch`. |
-| Producer identity (SVID principal) | `producer_context.origin_principal_id`. The claims bind it to the grant. The gateway binds it to the authenticated mTLS principal; a mismatch no longer resolves as `identity_conflict`: on a late session the frame goes to security quarantine with both principals recorded, before the identity rejection and any grant check, and on a live session it resolves as `LATE_ADMISSION_REQUIRED` so the agent holds the bytes first (Decision 7). |
+| Producer identity (SVID principal) | `producer_context.origin_principal_id`. The claims bind it to the grant. The gateway binds it to the authenticated mTLS principal; a mismatch no longer resolves as `identity_conflict`: on a late session the frame goes to security quarantine with both principals recorded, before the identity rejection and any grant check, and on a live session whose lane open advertised `late_admission_protocol_version >= 1` it resolves as `LATE_ADMISSION_REQUIRED` so the agent holds the bytes first (Decision 7). |
 | `produced_at` | The UUIDv7 time in `event_id`. `validateIdentityTime` already requires it to lie inside the signed production window, and inside the source collection window when one is present. |
 
 So a record cannot claim a production time outside a window that core
@@ -72,7 +72,8 @@ explicit, owner-approved byte budget already governs, as with the OTel spool's
   record is admitted late when its live admission is no longer possible: a
   legacy layout, authority that lapsed before admission, or a live-lane record
   the gateway resolved as `LATE_ADMISSION_REQUIRED` because its fence is stale
-  or missing (Decision 7).
+  or missing, on a session whose lane open advertised the late-admission
+  protocol (Decision 7).
 
 Late records go into a dedicated **late generation** per lane key, stored
 under `<root>/late/`, and are sent on their own **late session**. The record's
@@ -396,12 +397,13 @@ own time. Every late record gets an audit row in the ledger: admission `late`,
 **In-lane records.** A record already in a live lane whose fence is stale or
 missing at the gateway cannot be delivered live, whatever its production
 window (expired or still current), and the live lane never waits on a late
-grant. On a session whose agent hello advertised
-`edge_late_admission_protocol_version >= 1`, the gateway resolves that live
+grant. On a live session whose `EdgeRecordLaneOpen` carried
+`late_admission_protocol_version >= 1`, the gateway resolves that live
 slot immediately with a `REJECTED_PERMANENT` disposition carrying rejection
 code `LATE_ADMISSION_REQUIRED`; the kind alone resolves the slot, as for every
 permanent rejection, and the capable agent does not copy the record into the
-evicting local quarantine. For an older agent, which advertises no version,
+evicting local quarantine. For an older agent, whose lane open carries no
+version (absent or 0),
 the gateway keeps today's live dispositions. The gateway resolves a live frame whose origin
 principal is not the authenticated agent the same way, in place of
 `identity_conflict`. That is a resolving disposition: it neither
@@ -510,9 +512,12 @@ undelivered entry.
 
 ## Rollout
 
-1. **Phase 1, edge (Go).** `AgentHelloRequest` gains `uint32
-   edge_late_admission_protocol_version`; an agent that implements the late
-   generation advertises 1. Agents hand off legacy layouts into late
+1. **Phase 1, edge (Go).** `EdgeRecordLaneOpen` gains `uint32
+   late_admission_protocol_version`; an agent that implements the late
+   generation sends 1 on every lane open, so the gateway that authorizes the
+   session sees it. `AgentHelloResponse` gains `uint32
+   edge_late_admission_protocol_version`, through which the gateway advertises
+   `late_admission_v1` (value >= 1, set in phase 2). Agents hand off legacy layouts into late
    generations and per-principal holds, and resolve `LATE_ADMISSION_REQUIRED`
    live slots into late generations. They open late sessions only when the
    gateway advertises `late_admission_v1`; until then late records stay on
@@ -531,8 +536,8 @@ undelivered entry.
 
 Runtime settings have code defaults. There are no Helm-only knobs and no bypass
 switch. Mixed versions fail closed. An old gateway never sees a late session.
-An old agent never asks for late grants and never advertises
-`edge_late_admission_protocol_version`, so the gateway never sends it
+An old agent never asks for late grants and its lane opens carry no
+`late_admission_protocol_version`, so the gateway never sends it
 `LATE_ADMISSION_REQUIRED`, and its records follow today's paths.
 
 ## Owner decisions (2026-11-15)
@@ -543,7 +548,8 @@ An old agent never asks for late grants and never advertises
   and never overwrites newer state.
 - The implementation is split: phase 1 edge Go, phase 2 core and gateway, with
   the gateway's refusal of late lane opens in phase 1 (see Rollout).
-- Any live-lane record whose fence is stale or missing is resolved
+- On a live session whose lane open advertised the late-admission protocol,
+  any live-lane record whose fence is stale or missing is resolved
   immediately as `LATE_ADMISSION_REQUIRED`, whatever its production window,
   and moved to the late generation; there is no late grant on a live session.
 - Records of a different, revoked or superseded origin principal are presented
@@ -566,8 +572,10 @@ An old agent never asks for late grants and never advertises
 - An origin-principal mismatch replaces `identity_conflict`: security
   quarantine on a late session, `LATE_ADMISSION_REQUIRED` on a live one.
 - `LATE_ADMISSION_REQUIRED` is a `REJECTED_PERMANENT` rejection code sent only
-  to agents whose hello advertises `edge_late_admission_protocol_version >= 1`;
-  older agents keep today's live dispositions.
+  on live sessions whose `EdgeRecordLaneOpen.late_admission_protocol_version`
+  is at least 1; older agents (absent or 0) keep today's live dispositions.
+  The gateway's own capability is advertised in
+  `AgentHelloResponse.edge_late_admission_protocol_version`.
 - Ledger coverage is tracked by a monotonic `ledger_complete_since` seeded at
   migration with the retention cutoff then in force, with PRIMARY requiring
   `produced_at` at or after it plus the clock tolerance, and reason

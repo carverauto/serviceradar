@@ -11,8 +11,12 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `EdgeRecordLaneOpen.admission` and the `LATE_ADMISSION_REQUIRED`
       rejection code (carried on a `REJECTED_PERMANENT` disposition) to
       `proto/edge/v1/record.proto`, and `uint32
-      edge_late_admission_protocol_version` to `AgentHelloRequest`; an agent
-      that implements the late generation advertises 1. Regenerate the Go and
+      late_admission_protocol_version` to `EdgeRecordLaneOpen` (absent or 0
+      means today's live dispositions); an agent that implements the late
+      generation sends 1 on every lane open. Add `uint32
+      edge_late_admission_protocol_version` to `AgentHelloResponse`, through
+      which the gateway advertises `late_admission_v1` (value >= 1, set only
+      in phase 2). Regenerate the Go and
       Elixir bindings together (`make verify-proto-edge-elixir` stays green).
       Older peers fail closed on the unknown oneof member. The provenance
       `LATE_ADMISSION` delivery mode (`DeliveryModeLateAdmission = 5`, the
@@ -38,9 +42,8 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       in core's future, unless a quarantine class applies first), and
       `LATE_ADMISSION_REQUIRED` (`REJECTED_PERMANENT`) for any live-lane record
       with a stale or missing fence, whatever its production window, or a
-      foreign origin principal, only when the session's hello advertised
-      `edge_late_admission_protocol_version >= 1`; otherwise today's live
-      dispositions.
+      foreign origin principal, only when the session's `EdgeRecordLaneOpen.late_admission_protocol_version >= 1`;
+      otherwise today's live dispositions.
 - [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
       and per-principal holds keyed by `(lane key, origin principal)`
       (`<root>/late/<lane>/principal/<origin principal>/`).
@@ -88,7 +91,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
   - a hold frame without a grant that is quarantined and does not stall the
     agent's own late records behind it;
   - a live record with a stale fence and a still-open production window
-    resolved as `LATE_ADMISSION_REQUIRED`;
+    resolved as `LATE_ADMISSION_REQUIRED` on a lane open with
+    `late_admission_protocol_version = 1`, and today's disposition for the
+    same record on a lane open with version 0;
   - a `produced_at` ahead of the local clock, and an epoch ahead of the known
     fence, appended to the late generation without stopping the handoff.
 - [ ] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta and
@@ -144,9 +149,9 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       resolve any live record with a stale or missing fence, whatever its
       production window, or with a foreign origin principal (in place of
       `identity_conflict`), as `LATE_ADMISSION_REQUIRED` on a
-      `REJECTED_PERMANENT` disposition, but only on sessions whose hello
-      advertised `edge_late_admission_protocol_version >= 1`; keep today's
-      live dispositions for older agents. On a late session
+      `REJECTED_PERMANENT` disposition, but only on live sessions whose
+      `EdgeRecordLaneOpen.late_admission_protocol_version >= 1`; keep today's
+      live dispositions for older agents (absent or 0). On a late session
       publish foreign-principal frames to security quarantine before the
       identity rejection, and `HISTORICALLY_REVOKED` and
       terminal-interval frames before the missing-grant withhold, recording the
@@ -157,7 +162,8 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       the provenance `LATE_ADMISSION` delivery mode (grammar-8 transport
       provenance, `DeliveryModeLateAdmission = 5`, with a delivery proof over
       the `EdgeDeliveryLateAdmissionV1` transition) in Go and Elixir together, and advertise
-      `late_admission_v1`.
+      `late_admission_v1` through
+      `AgentHelloResponse.edge_late_admission_protocol_version = 1`.
 - [ ] 2.7 EventWriter: accept `LATE_ADMISSION` on the primary and audit routes,
       add audit-trail columns to the ledger, let projectors authorize from the
       grant decision, and make current-state projectors apply by
