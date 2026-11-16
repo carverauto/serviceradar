@@ -61,8 +61,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         actor: actor
       )
 
-    # An unboxed test commits its rows; delete them by the source they all hang off.
-    if ctx[:sandbox] == :unboxed, do: on_exit(fn -> Fixtures.cleanup(source.id) end)
+    # An unboxed test commits its rows: delete them by the source they all hang
+    # off, and restore the deployment recording-control row that admission
+    # initializes.
+    if ctx[:sandbox] == :unboxed do
+      Fixtures.preserve_recording_control()
+      on_exit(fn -> Fixtures.cleanup(source.id) end)
+    end
 
     {:ok, profile} =
       StreamProfile.create_profile(%{camera_source_id: source.id, profile_name: "main"},
