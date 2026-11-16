@@ -217,8 +217,11 @@ after the end marker following a seal: a 503 when recovery closes after
 sealing, or a 422 when sealing outlasts the deadline. Those stay unknown.
 
 Incomplete work retains its journal and completed blocks. A stream longer than
-one block seals each full block as it goes, so a later refusal leaves those
-earlier blocks sealed. The request never repairs, deletes or adopts retained
+one block seals each full block as it goes. A capture at the default
+`nvr.maxBlockFragments` of 150 fits one block and cannot rotate, but on a
+deployment configured with a small fragment limit a capture can still rotate,
+and a later refusal then leaves the earlier block sealed while Core releases
+the recorder claim. The request never repairs, deletes or adopts retained
 storage. It cannot bypass current recovery state, the bootstrap/history
 barrier, source/profile exclusion, capacity checks or write-time disk guards.
 Closing recovery during work withholds success even if some bytes have already
