@@ -209,6 +209,26 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     assert PipelineReadiness.spool_alert_conditions(healthy) == []
   end
 
+  test "late records waiting for gateway support are visible but not alertable" do
+    spool = %{
+      available: true,
+      health_available: true,
+      late_pending_records: 4,
+      late_pending_reason: "late_pending_gateway_support"
+    }
+
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: spool})}})
+
+    assert [%{reason: :late_pending_gateway_support, detail: ^spool}] =
+             PipelineReadiness.conditions(agent(), live)
+
+    assert PipelineReadiness.spool_alert_conditions(spool) == []
+
+    draining = Map.put(spool, :late_pending_reason, "")
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: draining})}})
+    assert PipelineReadiness.conditions(agent(), live) == []
+  end
+
   test "a stuck or full spool reports spool_stuck or spool_backpressure and is alertable" do
     stuck = %{
       available: true,

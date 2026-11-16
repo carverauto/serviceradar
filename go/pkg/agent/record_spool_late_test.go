@@ -675,6 +675,43 @@ func TestLegacyHandoffFillsADestinationSegmentWithinTheReportedNeed(t *testing.T
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
+// The handoff and live relocation admit concurrently into the same late LaneSet,
+// which holds one session at a time. Records of two network scopes admitted at
+// once must each land under their own scope.
+func TestConcurrentLateAdmissionsOfTwoScopesAllLand(t *testing.T) {
+	sp, err := openTestRecordSpool(t, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	const perScope = 8
+	base := time.Now().Add(-6 * 24 * time.Hour)
+	scopes := [][]byte{testNetworkScopeID[:], lateTestOtherScope}
+	errs := make(chan error, len(scopes)*perScope)
+	var wg sync.WaitGroup
+	for s, scope := range scopes {
+		raws := make([][]byte, perScope)
+		for i := range raws {
+			raws[i] = daysOldRelayRecordIn(t, base.Add(time.Duration(s*perScope+i)*time.Minute), sysmonEdgeAgentID, scope)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, raw := range raws {
+				_, admitErr := sp.AdmitLate(raw)
+				errs <- admitErr
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for admitErr := range errs {
+		require.NoError(t, admitErr)
+	}
+	require.Equal(t, uint64(len(scopes)*perScope), sp.LatePending())
+}
+
 // A LATE_ADMISSION_REQUIRED acknowledgement relocates at most one credit window
 // of records, each charged no more than spool.AttributedAppendCharge (plus the
 // late generation they open), so a window relocates into exactly that much room

@@ -371,8 +371,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   defp spool_state(%{spool: %{health_error: error}}) when error != "", do: "Health read failed: #{error}"
   defp spool_state(%{spool: %{health_available: true, admission_paused: true}}), do: "Admission paused"
 
+  defp spool_state(%{spool: %{legacy_handoff_pending_records: pending}}) when pending > 0,
+    do: "Ready; #{pending} legacy records pending handoff"
+
   defp spool_state(%{spool: %{retained_legacy_bytes: bytes}}) when bytes > 0,
     do: "Ready; #{bytes} unsupported legacy bytes retained"
+
+  defp spool_state(%{spool: %{late_pending_records: pending, late_pending_reason: "late_pending_gateway_support"}})
+       when pending > 0,
+       do: "Ready; #{pending} late records awaiting gateway support"
 
   defp spool_state(%{spool: %{health_available: true}}), do: "Ready"
   defp spool_state(_row), do: "Health not reported"

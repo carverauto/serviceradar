@@ -80,6 +80,11 @@ type lateStore struct {
 	mu    sync.Mutex
 	own   *spool.LaneSet
 	holds map[string]*spool.LaneSet // keyed by origin principal bytes
+
+	// admitMu makes one admission's duplicate check, session activation and append
+	// atomic: a LaneSet has a single session, and the handoff and relocation admit
+	// concurrently.
+	admitMu sync.Mutex
 }
 
 func openLateStore(root string, taxonomy *fairsched.LaneTaxonomy, allocator *spool.Allocator, options []spool.Option) (*lateStore, error) {
@@ -217,6 +222,8 @@ func (s *RecordSpool) admitLate(raw []byte, checkDuplicate bool) (LateReceipt, e
 		destination, outcome = LateDestinationHold, edgerecord.LateAdmissibleSecurity
 	}
 	key := spool.LaneKey{RouteProfile: record.GetRouteProfile(), TrafficClass: record.GetTrafficClass()}
+	s.late.admitMu.Lock()
+	defer s.late.admitMu.Unlock()
 	if checkDuplicate {
 		for i, held := range s.late.sets() {
 			existing, found, holdErr := holdsRecord(held, key, record.GetEventId(), raw)
