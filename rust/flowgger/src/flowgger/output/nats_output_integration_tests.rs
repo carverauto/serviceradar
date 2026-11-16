@@ -381,6 +381,9 @@ fn revoked_broker_certificate_fails_the_publisher_with_acknowledgments_pending()
         return;
     };
 
+    // The log collector binary selects this provider at startup.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let mut authority = CertificateParams::default();
     authority.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let authority = Certificate::from_params(authority).unwrap();

@@ -64,6 +64,12 @@ pushed or deployed.
   from Elixir; a rerun of the observability shard reported 604 tests, 0
   failures. Its output does not list files, so the new bundle test is known to
   be in the shard's glob, not seen by name.
+- Remote, after the field-removal fix and the revocation test: invocation
+  `084f8b0c-b4ec-4e79-9c68-88a0c798b450` passed zen-normalize and the core
+  observability (604 tests) and event-writer (582 tests) shards. Invocation
+  `dd117274-86b0-4d49-b8a3-3ee80d2a8d38` passed both Flowgger targets; the
+  revocation case ran, not skipped, in each. It has not been run against a
+  mutated publisher.
 - Nothing has exercised bundle publication against a database or datasvc.
 - The publish-window benchmark ran on a shared workstation over loopback. It
   shows serial publishing as the limit at window 1 and the listener and codec

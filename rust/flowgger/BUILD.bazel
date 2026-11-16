@@ -83,8 +83,8 @@ rust_test(
 )
 
 # The managed certificate policy loader accepts only a root-owned file under
-# root-owned directories, and the RBE action user is not uid 0 unless the test
-# asks for it. flowgger_lib_test skips this case; here a skip is a failure.
+# root-owned directories. flowgger_lib_test skips this case whenever its action
+# is not uid 0; this target asks for uid 0, and here a skip is a failure.
 rust_test(
     name = "flowgger_managed_policy_test",
     args = ["revoked_broker_certificate_fails_the_publisher"],
