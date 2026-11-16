@@ -71,7 +71,8 @@ explicit, owner-approved byte budget already governs, as with the OTel spool's
 - **Late admission** uses the production-time rule (Decision 3). A committed
   record is admitted late when its live admission is no longer possible: a
   legacy layout, authority that lapsed before admission, or a live-lane record
-  the gateway resolved as `late_admission_required` (Decision 7).
+  the gateway resolved as `late_admission_required` because its fence is stale
+  or missing (Decision 7).
 
 Late records go into a dedicated **late generation** per lane key, stored
 under `<root>/late/`, and are sent on their own **late session**. The record's
@@ -84,10 +85,15 @@ live. The late session has its own credits and runs concurrently below live
 priority, so a late tail waiting for grants never blocks live delivery.
 
 A record whose origin principal is not the authenticated agent goes into a
-**per-principal hold**: a separate late generation keyed by that origin
-principal, under `<root>/late/principal/<origin principal>/`. Its records are
-delivered on their own late session for security quarantine only (Decision 6).
-The hold never blocks the in-order handoff of the host's own records.
+**per-principal hold**: a separate late generation keyed by `(lane key, origin
+principal)`, under `<root>/late/<lane>/principal/<origin principal>/`. Hold
+generations share their lane key's single late session, so the route profile
+and traffic class still match. Hold frames, and frames whose key is
+`HISTORICALLY_REVOKED`, are sent without waiting for a grant; the gateway
+resolves them to security quarantine (Decision 6) before it would withhold a
+frame for a missing grant. They therefore never stall the host's own late
+records, and the hold never blocks the in-order handoff of the host's own
+records.
 
 Rejected alternatives:
 
@@ -122,15 +128,17 @@ grouped by who can decide them.
      local dead end.
 3. **Time sanity.** `produced_at <= now + clock tolerance`. A record from the
    future is not late; it is refused as not yet valid and retried.
-4. **Identity.** The record's origin principal equals the authenticated agent,
-   and its network scope is bound to that agent in the trust snapshot. A
-   missing scope binding is retried, because it may arrive later. A different
-   origin principal (a revoked or superseded predecessor on the same host) is
-   not retryable: the record is appended to the per-principal hold for that
-   origin principal and is delivered for security quarantine only.
-5. **Fence.** An unavailable fence, or an epoch ahead of the known fence, is
-   retried. Current and stale fences are both admissible. Only core holds the
-   history needed to judge a stale epoch.
+4. **Identity.** A trust snapshot must be loaded; until it is, the record is
+   retried. The record's origin principal must equal the authenticated agent.
+   A different origin principal (a revoked or superseded predecessor on the
+   same host) is not retryable: the record is appended to the per-principal
+   hold for `(lane key, origin principal)` and is delivered for security
+   quarantine only. Once the snapshot is loaded, an absent scope binding is
+   admissible: core decides from retained history, or `history_unknown`.
+5. **Fence.** With a loaded snapshot, a current fence, a stale fence and an
+   absent fence entry (for example, a deleted assignment) are all admissible.
+   Only core holds the history needed to judge them. An epoch ahead of a
+   present fence is retried.
 
 The agent does not apply the maximum late age. Core owns that bound
 (Decision 5), so a record too old to project still leaves the edge, as audit.
@@ -143,11 +151,14 @@ The agent does not apply the maximum late age. Core owns that bound
    `active_from - tolerance <= produced_at < coalesce(active_until, +inf) +
    tolerance`. In other words, the epoch the record names was the live epoch
    of that assignment when the record was produced.
-7. **Not compromise-ended.** The interval did not end for a compromise-class
-   reason: `certificate_revoked` or an explicit `compromised`.
+7. **Not compromise-ended.** The interval did not end for an explicit
+   `compromised` reason. An interval ended by `certificate_revoked` is never
+   presented by its own principal, because revocation denylists it; its
+   records reach security quarantine through the per-principal hold
+   (Decision 6) and never receive a grant.
 8. **Age and ledger coverage.** `now - produced_at <=
-   late_admission_max_age`, and `produced_at >= ledger_complete_since`
-   (Decision 5).
+   late_admission_max_age`, and `produced_at >= ledger_complete_since + clock
+   tolerance` (Decision 5).
 9. **Contract.** The record's registry epoch is still admitted. This is the
    existing registry rule, and late admission adds no schema bypass.
 
@@ -155,9 +166,10 @@ If all of checks 6 to 9 pass, core issues a grant with **PRIMARY** publication.
 If the record verified but any of checks 6 to 9 fails, core issues a grant with
 **AUDIT** publication and states the reason: `fenced_at_production`,
 `history_unknown`, `compromise_ended`, `beyond_late_window`, `ledger_pruned`
-or `contract_retired`. Core never refuses a verified record outright. Refusal is
-reserved for an item that does not bind to the requesting agent, which is a
-permanent rejection of that frame.
+or `contract_retired`. Core never refuses a verified record outright. Core
+issues no grant only for an item that does not bind to the requesting agent,
+such as a foreign origin principal. That frame is not rejected: the gateway
+publishes it to security quarantine without a grant.
 
 The agent cannot fake checks 6 to 8. They read core-owned history and core's
 clock, and the record's `produced_at` is already bound inside a window that
@@ -222,24 +234,31 @@ Compromised keys stay as `historically_revoked` for good.
   was lost before the upgrade. So `EdgeLedgerRetentionWorker`'s horizon SHALL be
   at least `late_admission_max_age`.
 - **Ledger coverage.** Core persists `ledger_complete_since`, a monotonic
-  timestamp: every ledger row written at or after it is still retained. Only
-  ledger pruning advances it, to the cutoff of the batch it pruned, and it never
-  moves backward. A ledger row is written no earlier than its record's
-  `produced_at`, so a record with `produced_at >= ledger_complete_since` has any
-  earlier application still in the ledger. Late PRIMARY requires that; an older
-  record gets AUDIT (`ledger_pruned`). Raising `late_admission_max_age_seconds`
-  is therefore safe: rows already pruned keep their records on AUDIT, and no
-  duplicate is ever projected.
+  timestamp: every ledger row with `inserted_at` at or after it is still
+  retained. It starts as "nothing pruned" (the earliest representable time),
+  so coverage is complete and the upgrade tail is PRIMARY-eligible. It
+  advances only when pruning deletes rows, to that batch's `inserted_at`
+  cutoff, and it never moves backward. Retention prunes by `inserted_at` while
+  the check uses `produced_at`, and a producer's clock may run ahead of core's
+  by up to the clock tolerance, so a row's `inserted_at` is at least
+  `produced_at - tolerance`. Late PRIMARY therefore requires `produced_at >=
+  ledger_complete_since + clock tolerance`, which guarantees any earlier
+  application of the record is still in the ledger; an older record gets AUDIT
+  (`ledger_pruned`). Raising `late_admission_max_age_seconds` is therefore
+  safe: rows already pruned keep their records on AUDIT, and no duplicate is
+  ever projected.
 - **Volume.** Late sessions get their own credit budget, at most one late
-  session per lane key, and lower scheduling priority than live sessions. Late
+  session per lane key (which also drains that lane key's per-principal
+  holds), and lower scheduling priority than live sessions. Late
   grants are issued in bounded batches, using the existing 64-item and 2 MiB
   request bounds.
 
 ## Decision 6: revocation and compromise never backfill
 
 - **Compromised issuer key** (`HISTORICALLY_REVOKED`). The record never applies.
-  The agent admits it to the late generation, and the gateway publishes it to
-  security quarantine without a grant. That path already exists in
+  The agent admits it to the late generation and sends it without waiting for
+  a grant, and the gateway publishes it to security quarantine without a
+  grant. That path already exists in
   `ValidateFrameSigned` and `authorize_frame`, and it matches the frozen rule
   that this status is "reachable as audit/quarantine evidence; NEVER a
   permanent reject".
@@ -249,11 +268,14 @@ Compromised keys stay as `historically_revoked` for good.
   hold (Decision 2). The gateway publishes such a record, after signature
   verification, to security quarantine only, with or without a grant. It is
   never projected and never PRIMARY or AUDIT-applied, and the quarantine row
-  records both the origin principal and the presenting principal. Grant
-  intervals ended by `certificate_revoked` resolve to AUDIT
-  (`compromise_ended`) for every late record that names them, even one produced
-  before the revocation: the compromise time is unknown, so the conservative
-  answer is never to backfill.
+  records both the origin principal and the presenting principal. This holds
+  for every record of the revoked principal, even one produced before the
+  revocation: the compromise time is unknown, so the conservative answer is
+  never to backfill. Core issues no grant for these records.
+- **Explicitly compromised interval.** An interval ended for an explicit
+  `compromised` reason, whose principal still authenticates and presents its
+  own records, resolves to AUDIT (`compromise_ended`) for every late record
+  that names it.
 - **Superseded identity.** Records whose origin principal was superseded by
   re-enrollment are foreign to the new principal, so they follow the same
   per-principal hold and security quarantine. No principal ever obtains PRIMARY
@@ -300,9 +322,10 @@ follows:
 - **AUDIT** goes to the audit route, with the same mode and the reason.
 - **Security quarantine** is the outcome for a compromise-revoked key, as
   today, and for every frame whose origin principal is not the authenticated
-  agent, whatever grant it carries.
-- **A frame without a valid late grant** on a late session is withheld (retry).
-  It is never rejected for that reason alone.
+  agent, whatever grant it carries. The gateway decides it before the
+  missing-grant check, so these frames never wait for a grant.
+- **A frame without a valid late grant** on a late session, other than those
+  above, is withheld (retry). It is never rejected for that reason alone.
 
 EventWriter accepts `LATE_ADMISSION` on both routes. Projectors use the grant's
 historical decision in place of `OutputGrants.check_current` for a late
@@ -311,14 +334,16 @@ newer than the stored state, by `produced_at`. Time-series rows append at their
 own time. Every late record gets an audit row in the ledger: admission `late`,
 `produced_at`, publication, reason, grant issuer key id and receiving gateway.
 
-**In-lane records.** A record already in a live lane whose production
-authority has expired and whose fence is stale or missing at the gateway
-cannot be delivered live, and the live lane never waits on a late grant. The
-gateway resolves that live slot with the rejection code
+**In-lane records.** A record already in a live lane whose fence is stale or
+missing at the gateway cannot be delivered live, whatever its production
+window (expired or still current), and the live lane never waits on a late
+grant. The gateway resolves that live slot immediately with the rejection code
 `late_admission_required`. That is a resolving disposition: it neither
 withholds the frame nor sends it to the `fence_stale` quarantine. Before the
 agent persists the resolution (resolved prefix or reclaim), it appends the
-exact record bytes to the late generation for that lane key and waits for the
+exact record bytes to the late generation for that lane key, or, when the
+record's origin principal is not the authenticated agent, to the hold for
+`(lane key, origin principal)`, exactly as the handoff does, and waits for the
 append to be durable. If the append fails, the resolution is not persisted and
 the record stays in the live lane for retry. The late session and core's
 authority history then decide the record. The gateway never accepts a late
@@ -344,7 +369,7 @@ single spool. For each layout present:
      `handed_off` disposition for that sequence in the legacy layout's own
      evidence, through its resolve path.
    - **Foreign origin principal**: append it to the per-principal hold for
-     that principal, wait for the append to be durable, then resolve it. The
+     `(lane key, origin principal)`, wait for the append to be durable, then resolve it. The
      pass continues with the host's own records.
    - **Permanently invalid** (structure, body, or `INVALID` key): write it to
      the rejection evidence (Decision 9), then resolve it. An evidence write
@@ -406,10 +431,10 @@ undelivered entry.
 | --- | --- | --- |
 | Lapsed producer does new work | Refused | Still refused. Live admission is unchanged, and a late record must have `produced_at` inside a signed window. |
 | Backdating: a host forges records "produced" in the past | Not possible | The record still needs a production capability that core actually signed for that principal, assignment and epoch, with `produced_at` inside its window. Core checks that the epoch was live at that time. The exposure is bounded by real grant windows, the late age, and AUDIT for anything outside the history. |
-| Stolen agent SVID used to backfill | Can inject live data under current grants | It can also inject late data under grants it held, within the late age. Certificate revocation turns every interval of that agent into AUDIT, so it never projects. Live injection was already possible, so the new exposure is time, not authority. |
+| Stolen agent SVID used to backfill | Can inject live data under current grants | It can also inject late data under grants it held, within the late age. Certificate revocation denylists the principal, so its records are presented only by another principal and reach security quarantine only; they never project. Live injection was already possible, so the new exposure is time, not authority. |
 | An agent presents another principal's records | Rejected (origin binding) | Security quarantine only, with both principals recorded. The records must still verify, never project, and are bounded by late-session credits. The exposure is quarantine volume, not authority. |
 | Compromised issuer key | Security quarantine | Security quarantine. It never backfills. |
-| Replay or duplicate of a delivered record | Ledger idempotency | Ledger idempotency, with retention extended to cover the late window. A record older than `ledger_complete_since` is AUDIT (`ledger_pruned`), so raising the late age never projects a duplicate. |
+| Replay or duplicate of a delivered record | Ledger idempotency | Ledger idempotency, with retention extended to cover the late window. A record produced before `ledger_complete_since` plus the clock tolerance is AUDIT (`ledger_pruned`), so raising the late age never projects a duplicate. |
 | Fenced-out producer replays old epoch data | Rejected or audit | AUDIT (`fenced_at_production`). It never applies. |
 | Agent clock skew | Tolerance | Tolerance. `produced_at` is bounded by the signed window, so skew cannot widen authority. |
 
@@ -444,12 +469,18 @@ An old agent never asks for late grants, and its records follow today's paths.
   and never overwrites newer state.
 - The implementation is split: phase 1 edge Go, phase 2 core and gateway, with
   the gateway's refusal of late lane opens in phase 1 (see Rollout).
-- Live-lane records with expired authority and a stale or missing fence are
-  resolved as `late_admission_required` and moved to the late generation; there
-  is no late grant on a live session.
+- Any live-lane record whose fence is stale or missing is resolved
+  immediately as `late_admission_required`, whatever its production window,
+  and moved to the late generation; there is no late grant on a live session.
 - Records of a different, revoked or superseded origin principal are presented
-  by the host's current agent for security quarantine only, through a
-  per-principal hold.
-- Ledger coverage is tracked by a monotonic `ledger_complete_since`, with
-  reason `ledger_pruned`.
+  by the host's current agent for security quarantine only, through a hold
+  keyed by `(lane key, origin principal)`. A `certificate_revoked` interval
+  yields no AUDIT path; AUDIT `compromise_ended` remains only for an explicit
+  `compromised` interval its own principal still presents.
+- With a loaded trust snapshot, an absent fence entry or scope binding is
+  admissible late; only an unloaded snapshot, or an epoch ahead of a present
+  fence, is retryable.
+- Ledger coverage is tracked by a monotonic `ledger_complete_since` that starts
+  as "nothing pruned", with PRIMARY requiring `produced_at` at or after it plus
+  the clock tolerance, and reason `ledger_pruned`.
 - The media seal-quarantine rule is approved.

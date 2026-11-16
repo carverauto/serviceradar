@@ -10,8 +10,8 @@ spool is `flat_v1`. For each layout present, the agent SHALL inspect it
 read-only, read committed records above the resolved watermark in sequence
 order, and for each record either append it to the late generation and wait
 for the append to become durable before resolving it in the legacy layout, or
-append it durably to the per-principal hold before resolving it when its origin
-principal is not the authenticated agent, or write it to rejection evidence and
+append it durably to the hold for `(lane key, origin principal)` before
+resolving it when its origin principal is not the authenticated agent, or write it to rejection evidence and
 resolve it when it is permanently invalid. A rejection-evidence write that is
 paused or refused SHALL be retryable, and the legacy record SHALL stay
 unresolved until that write succeeds. A retryable refusal SHALL stop the pass

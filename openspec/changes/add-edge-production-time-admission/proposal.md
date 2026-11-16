@@ -59,8 +59,8 @@ instead of trusting it.
   layout left behind, the flat spool included, through the late generation
   under the new rule. Only unrecognizable bytes stay retained and flagged.
 - **Other stranding paths.** These are in-lane records whose fence is missing
-  or stale (resolved as `late_admission_required` and moved to the late
-  generation), records left by a revoked or superseded principal (security
+  or stale, whatever their production window (resolved immediately as
+  `late_admission_required` and moved to the late generation), records left by a revoked or superseded principal (security
   quarantine only), the evicting local rejection quarantine, the OTel add-on spool
   across a directory or backend change, and the NVR/VMS media path. Each gets
   a requirement and a task phase here.

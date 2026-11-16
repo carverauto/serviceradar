@@ -15,20 +15,26 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `LATE_ADMISSION` delivery mode is not added here (task 2.6).
 - [ ] 1.2 Add `edgerecord.ValidateRecordProduced` (Decision 3, agent checks 1
       to 5) and `RecordLateAttribution`. Classify the outcome as admissible,
-      admissible-security, retryable or permanent. The live
+      admissible-security, foreign-principal, retryable or permanent. With a
+      loaded trust snapshot, an absent fence entry or scope binding is
+      admissible; only an unloaded snapshot or an epoch ahead of a present
+      fence is retryable. The live
       `ValidateRecordSigned` is unchanged.
 - [ ] 1.3 Extend `ValidateFrameSigned`, the Go oracle of the gateway decision,
       with the late transition: late-session acceptance only, the binding of
       `produced_at` and epoch, grant-decided publication, security quarantine
-      for a foreign origin principal, and `late_admission_required` for a
-      live-lane record with expired authority and a stale or missing fence.
+      for a foreign origin principal or `HISTORICALLY_REVOKED` key decided
+      before the missing-grant withhold, and `late_admission_required` for any
+      live-lane record with a stale or missing fence, whatever its production
+      window.
 - [ ] 1.4 Add late generations to the spool (`<root>/late/<lane>/<generation>`)
-      and per-principal holds (`<root>/late/principal/<origin principal>/`).
+      and per-principal holds keyed by `(lane key, origin principal)`
+      (`<root>/late/<lane>/principal/<origin principal>/`).
       They use the shared allocator, frozen identity, event-id deduplication on
       append, and the existing reclaim path.
 - [ ] 1.5 Add `RecordSpool.AdmitLate`, which validates with
       `ValidateRecordProduced` and appends to the late generation, or to the
-      per-principal hold for a foreign origin principal. It never falls back to
+      hold for `(lane key, origin principal)` for a foreign origin principal. It never falls back to
       live admission.
 - [ ] 1.6 Hand off legacy layouts in `OpenRecordSpool`: a `flat_v1` reader,
       in-order handoff, durable append before the legacy resolve, foreign
@@ -36,12 +42,16 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       a paused or refused evidence write treated as retryable, retirement through
       `RetireDrainedLegacyFlat`, and the readiness condition
       `legacy_storage_handoff_pending`.
-- [ ] 1.7 Sender: open a late session per lane key and per principal hold with
-      late admission and separate credits, gated on the gateway advertising
-      `late_admission_v1`. Request late grants in place of renewals for late
-      generations only. On `late_admission_required`, append the exact record
-      bytes durably to the lane key's late generation before persisting the
-      live resolution. Report `late_pending_gateway_support`.
+- [ ] 1.7 Sender: open at most one late session per lane key, which drains the
+      lane key's late generation and its per-principal holds, with late
+      admission and separate credits, gated on the gateway advertising
+      `late_admission_v1`. Request late grants in place of renewals for the
+      agent's own late records only; send hold frames and
+      `HISTORICALLY_REVOKED` frames without waiting for a grant. On
+      `late_admission_required`, append the exact record bytes durably to the
+      lane key's late generation, or to the `(lane key, origin principal)` hold
+      for a foreign origin, before persisting the live resolution. Report
+      `late_pending_gateway_support`.
 - [ ] 1.8 Write fail-first tests:
   - a days-old flat-spool record, refused by live admission, handed off and
     delivered on the late session to a Go gateway oracle that applies the late
@@ -57,6 +67,12 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
   - a `late_admission_required` live record appended durably to the late
     generation before the live resolution is persisted;
   - a LATE lane open refused by a phase 1 gateway;
+  - a flat record whose assignment was deleted (no fence entry or scope
+    binding in a loaded snapshot) that is admissible late, not retried;
+  - a hold frame without a grant that is quarantined and does not stall the
+    agent's own late records behind it;
+  - a live record with a stale fence and a still-open production window
+    resolved as `late_admission_required`;
   - a future `produced_at` that is refused.
 - [ ] 1.9 Amend the `add-edge-spool-recovery-coordinator` delta and
       `legacy-recovery-decision.md` so the "SHALL NOT migrate, drain" sentence
@@ -76,22 +92,27 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       `identity_superseded` or `certificate_revoked`.
 - [ ] 2.3 Add `late_admission_max_age_seconds` to `PipelineSettings` with a
       code default of 14 days. Raise `EdgeLedgerRetentionWorker`'s horizon to
-      at least that age. Persist a monotonic `ledger_complete_since` that only
-      ledger pruning advances, to the cutoff it pruned. Add bounded pruning of
-      history.
+      at least that age. Persist a monotonic `ledger_complete_since`, seeded
+      as "nothing pruned" (the earliest representable time), that advances
+      only when pruning deletes rows, to that batch's `inserted_at` cutoff.
+      PRIMARY requires `produced_at >= ledger_complete_since + clock
+      tolerance`. Add bounded pruning of history.
 - [ ] 2.4 Keep issuer key history: retired keys stay `valid` in the trust
       document for at least `late_admission_max_age_seconds` after their last
       window.
 - [ ] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/…` with the history
       decision (Decision 3, checks 6 to 9, including `ledger_pruned`), reasons
-      and refusal for non-owners, no grant for a foreign origin principal,
+      no grant for non-owners or a foreign origin principal (the gateway
+      quarantines those), no grant path for a `certificate_revoked` interval,
       plus a gateway RPC for late grants within the existing batch bounds.
 - [ ] 2.6 Gateway: add late sessions (`admission = LATE`), replacing the
       phase 1 refusal, and late-grant verification in
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
-      resolve live records with expired authority and a stale or missing fence
-      as `late_admission_required`. Publish foreign-principal frames to security
-      quarantine only, recording the origin and presenting principals. Assign
+      resolve any live record with a stale or missing fence, whatever its
+      production window, as `late_admission_required`. Publish
+      foreign-principal and `HISTORICALLY_REVOKED` frames to security
+      quarantine before the missing-grant withhold, recording the origin and
+      presenting principals. Assign
       the provenance `LATE_ADMISSION` delivery mode (grammar-8 transport
       provenance, value 5) in Go and Elixir together, and advertise
       `late_admission_v1`.
@@ -102,8 +123,10 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
 - [ ] 2.8 Write database tests on srql-fixtures: a raw upsert records history,
       history rows are immutable, primary versus `fenced_at_production` versus
       `history_unknown` versus `compromise_ended` versus `beyond_late_window`
-      versus `ledger_pruned`, `ledger_complete_since` never moves backward and a
-      raised late age after pruning stays AUDIT, a deleted assignment still
+      versus `ledger_pruned`, an unpruned ledger leaves the upgrade tail
+      PRIMARY-eligible, a `produced_at` within the clock tolerance after the
+      prune cutoff stays AUDIT, `ledger_complete_since` never moves backward and
+      a raised late age after pruning stays AUDIT, a deleted assignment still
       decides, and a replay is idempotent.
 
 ## 3. Other edge queues, phase 3
