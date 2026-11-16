@@ -604,7 +604,7 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_nvr_operator_settings_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_archive_bindings/20261115210000.json": ":generated_camera_nvr_operator_settings/binding.json",
         "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261115210000.json": ":generated_camera_nvr_operator_settings/block.json",
@@ -613,6 +613,32 @@ write_source_files(
         "priv/resource_snapshots/repo/platform.camera_nvr_archive_receipts/20261115210000.json": ":generated_camera_nvr_operator_settings/receipt.json",
         "priv/resource_snapshots/repo/platform.camera_recording_operations/20261115210000.json": ":generated_camera_nvr_operator_settings/operation.json",
         "priv/repo/migrations/20261115210000_add_camera_nvr_operator_settings.exs": ":generated_camera_nvr_operator_settings/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "camera_nvr_retention_settings_schema",
+    srcs = [
+        "priv/resource_snapshots/repo/platform.camera_recording_archive_settings/20261115210000.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_archive_settings_versions/20261115210000.json",
+    ],
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_nvr_retention_settings/settings.json",
+        "generated_camera_nvr_retention_settings/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_nvr_retention_settings_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_nvr_retention_settings_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_archive_settings/20261116164500.json": ":generated_camera_nvr_retention_settings/settings.json",
+        "priv/repo/migrations/20261116164500_add_camera_nvr_retention_settings.exs": ":generated_camera_nvr_retention_settings/migration.exs",
     },
 )
 

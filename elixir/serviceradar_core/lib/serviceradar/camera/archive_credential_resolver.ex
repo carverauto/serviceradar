@@ -24,7 +24,7 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolver do
   @default_ttl_seconds 900
   @max_generation 9_223_372_036_854_775_807
 
-  @type role :: :writer | :reader
+  @type role :: :writer | :reader | :retention
 
   @doc """
   Builds scoped `CredentialBrokerGrant` attributes locked to `binding`'s HTTPS host and bucket.
@@ -172,6 +172,7 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolver do
 
   defp role_policy(:writer), do: {:ok, "camera_archive_write", ["PUT", "HEAD", "GET"]}
   defp role_policy(:reader), do: {:ok, "camera_archive_read", ["HEAD", "GET"]}
+  defp role_policy(:retention), do: {:ok, "camera_archive_retention", ["DELETE", "HEAD"]}
   defp role_policy(_), do: {:error, :invalid_archive_credential_role}
 
   defp normalize_secret_identity(value) when is_binary(value) do

@@ -2,9 +2,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   @moduledoc """
   Context helpers for the Recording & Storage settings view.
 
-  Wraps Core reads and Stage A1 mutations for archive bindings, archive settings,
-  reusable `s3_compatible` credentials, camera/profile pickers, and per-camera
-  block reservations while keeping secret material out of `web-ng`.
+  Wraps Core reads and mutations for archive bindings, archive & E1 retention
+  settings, reusable `s3_compatible` credentials, CNPG usage & retention
+  calculators, camera/profile pickers, and per-camera block reservations while
+  keeping secret material out of `web-ng`.
   """
 
   alias Ash.Error.Forbidden
@@ -14,6 +15,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -23,7 +25,40 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   @archive_provider "s3_compatible"
   @block_page_size 25
+  @bytes_per_gib 1_073_741_824
   @operator_name_pattern ~r/\A[a-z0-9][a-z0-9-]{0,62}\z/
+
+  @retention_form_keys [
+    "local_high_water_percent",
+    "local_low_water_percent",
+    "max_local_age_mode",
+    "max_local_age_seconds",
+    "local_window_alert_mode",
+    "local_window_alert_seconds",
+    "local_only_full_policy",
+    "confirm_local_only_overwrite",
+    "local_only_target_mode",
+    "local_only_retention_target_seconds",
+    "local_only_max_age_mode",
+    "local_only_max_age_seconds",
+    "archive_retention_mode",
+    "archive_retention_days",
+    "object_budget_mode",
+    "object_budget_bytes",
+    "object_high_water_percent",
+    "object_low_water_percent",
+    "object_capacity_policy",
+    "confirm_reap_oldest"
+  ]
+
+  @mode_value_pairs [
+    {"max_local_age_mode", "max_local_age_seconds", "limited", "86400"},
+    {"local_window_alert_mode", "local_window_alert_seconds", "enabled", "3600"},
+    {"local_only_target_mode", "local_only_retention_target_seconds", "target", "604800"},
+    {"local_only_max_age_mode", "local_only_max_age_seconds", "limited", "86400"},
+    {"archive_retention_mode", "archive_retention_days", "limited", "30"},
+    {"object_budget_mode", "object_budget_bytes", "limited", "10737418240"}
+  ]
 
   @doc """
   Lists immutable `ArchiveBinding` generations newest first under `scope`.
@@ -57,38 +92,49 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   @doc """
   Loads the deployment `RecordingArchiveSettings` singleton overview and resolves
-  redacted credential display labels and credential availability warnings
-  without exposing secret payloads or requiring `settings.credentials.manage`.
+  redacted credential display labels, availability warnings, and E1 retention
+  draft defaults without exposing secret payloads or requiring
+  `settings.credentials.manage`.
   """
-  @spec load_archive_settings_view(map(), keyword()) :: %{
-          record: RecordingArchiveSettings.t() | nil,
-          storage_mode: :local_only | :local_and_archive,
-          form: map(),
-          active_binding_id: String.t() | nil,
-          selected_writer_label: String.t(),
-          selected_reader_label: String.t(),
-          credential_issue: String.t() | nil
-        }
+  @spec load_archive_settings_view(map(), keyword()) :: map()
   def load_archive_settings_view(scope, opts \\ []) do
     case RecordingArchiveSettings.get_overview(actor_opts(scope) ++ opts) do
       {:ok, overview} ->
         build_archive_settings_view_from_overview(overview, opts)
 
       {:error, _reason} ->
-        %{
-          record: nil,
-          storage_mode: :local_only,
-          form: default_settings_form(),
-          active_binding_id: nil,
-          selected_writer_label: "None selected",
-          selected_reader_label: "Use writer credential (reader role)",
-          credential_issue: nil
-        }
+        default_archive_settings_view()
     end
   end
 
   @doc """
-  Default form values for `RecordingArchiveSettings`.
+  Default overview structure used before connected mount or on fallback.
+  """
+  @spec default_archive_settings_view() :: map()
+  def default_archive_settings_view do
+    defaults = RecordingArchiveSettings.default_settings()
+
+    %{
+      record: nil,
+      settings: defaults,
+      storage_mode: :local_only,
+      form: default_settings_form(),
+      retention_form: default_retention_form(),
+      active_binding_id: nil,
+      selected_writer_label: "None selected",
+      selected_reader_label: "Use writer credential (reader role)",
+      selected_retention_label: "None selected (object retention not enforced)",
+      object_retention_enforced?: false,
+      shorter_archive_than_local?: false,
+      effective_local_only_full_policy: :stop_when_full,
+      effective_object_capacity_policy: :stop_archiving,
+      credential_issue: nil
+    }
+  end
+
+  @doc """
+  Default form values for archive destination and credential selection on
+  `RecordingArchiveSettings`.
   """
   @spec default_settings_form() :: map()
   def default_settings_form do
@@ -96,8 +142,261 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       "active_archive_binding_id" => "",
       "archive_enabled" => "false",
       "writer_credential_secret_id" => "",
-      "reader_credential_secret_id" => ""
+      "reader_credential_secret_id" => "",
+      "retention_credential_secret_id" => ""
     }
+  end
+
+  @doc """
+  Default form values for E1 retention settings on `RecordingArchiveSettings`.
+  Preselects `overwrite_oldest` in the draft when unset while keeping confirmation
+  unchecked until the operator confirms it.
+  """
+  @spec default_retention_form() :: map()
+  def default_retention_form do
+    %{
+      "local_high_water_percent" => "90",
+      "local_low_water_percent" => "80",
+      "max_local_age_mode" => "limited",
+      "max_local_age_seconds" => "86400",
+      "local_window_alert_mode" => "enabled",
+      "local_window_alert_seconds" => "3600",
+      "local_only_full_policy" => "overwrite_oldest",
+      "confirm_local_only_overwrite" => "false",
+      "local_only_target_mode" => "target",
+      "local_only_retention_target_seconds" => "604800",
+      "local_only_max_age_mode" => "unlimited",
+      "local_only_max_age_seconds" => "",
+      "archive_retention_mode" => "limited",
+      "archive_retention_days" => "30",
+      "object_budget_mode" => "unlimited",
+      "object_budget_bytes" => "",
+      "object_high_water_percent" => "90",
+      "object_low_water_percent" => "80",
+      "object_capacity_policy" => "",
+      "confirm_reap_oldest" => "false"
+    }
+  end
+
+  @doc """
+  Default interactive What-If simulator form values (never persisted).
+  """
+  @spec default_simulator_form() :: map()
+  def default_simulator_form do
+    %{
+      "camera_count" => "",
+      "nominal_bitrate_kbps" => "",
+      "local_budget_gib" => ""
+    }
+  end
+
+  @doc """
+  Builds the retention form map from a `RecordingArchiveSettings` struct or map.
+  """
+  @spec retention_form_from_settings(map()) :: map()
+  def retention_form_from_settings(settings) when is_map(settings) do
+    local_policy = Map.get(settings, :local_only_full_policy)
+    object_mode = Map.get(settings, :object_budget_mode, :unlimited)
+    object_policy = Map.get(settings, :object_capacity_policy)
+
+    {draft_local_policy, local_confirmed} =
+      case local_policy do
+        p when p in [:overwrite_oldest, "overwrite_oldest"] -> {"overwrite_oldest", "true"}
+        p when p in [:stop_when_full, "stop_when_full"] -> {"stop_when_full", "false"}
+        _ -> {"overwrite_oldest", "false"}
+      end
+
+    {draft_object_policy, reap_confirmed} =
+      case object_policy do
+        p when p in [:reap_oldest, "reap_oldest"] ->
+          {"reap_oldest", "true"}
+
+        p when p in [:stop_archiving, "stop_archiving"] ->
+          {"stop_archiving", "false"}
+
+        _ ->
+          preselect = if object_mode in [:limited, "limited"], do: "reap_oldest", else: ""
+          {preselect, "false"}
+      end
+
+    %{
+      "local_high_water_percent" => to_string(Map.get(settings, :local_high_water_percent, 90)),
+      "local_low_water_percent" => to_string(Map.get(settings, :local_low_water_percent, 80)),
+      "max_local_age_mode" => to_string(Map.get(settings, :max_local_age_mode, :limited)),
+      "max_local_age_seconds" => to_string_or_empty(Map.get(settings, :max_local_age_seconds, 86_400)),
+      "local_window_alert_mode" => to_string(Map.get(settings, :local_window_alert_mode, :enabled)),
+      "local_window_alert_seconds" => to_string_or_empty(Map.get(settings, :local_window_alert_seconds, 3_600)),
+      "local_only_full_policy" => draft_local_policy,
+      "confirm_local_only_overwrite" => local_confirmed,
+      "local_only_target_mode" => to_string(Map.get(settings, :local_only_target_mode, :target)),
+      "local_only_retention_target_seconds" =>
+        to_string_or_empty(Map.get(settings, :local_only_retention_target_seconds, 604_800)),
+      "local_only_max_age_mode" => to_string(Map.get(settings, :local_only_max_age_mode, :unlimited)),
+      "local_only_max_age_seconds" => to_string_or_empty(Map.get(settings, :local_only_max_age_seconds)),
+      "archive_retention_mode" => to_string(Map.get(settings, :archive_retention_mode, :limited)),
+      "archive_retention_days" => to_string_or_empty(Map.get(settings, :archive_retention_days, 30)),
+      "object_budget_mode" => to_string(object_mode),
+      "object_budget_bytes" => to_string_or_empty(Map.get(settings, :object_budget_bytes)),
+      "object_high_water_percent" => to_string(Map.get(settings, :object_high_water_percent, 90)),
+      "object_low_water_percent" => to_string(Map.get(settings, :object_low_water_percent, 80)),
+      "object_capacity_policy" => draft_object_policy,
+      "confirm_reap_oldest" => reap_confirmed
+    }
+  end
+
+  @doc """
+  DB-free baseline usage summary for disconnected mount and unit tests.
+  """
+  @spec default_usage_summary(map() | nil) :: map()
+  def default_usage_summary(settings \\ nil) do
+    base = settings || RecordingArchiveSettings.default_settings()
+    projected = RetentionCalculator.project_settings(base, %{camera_count: 0})
+
+    %{
+      settings: base,
+      archive: %{
+        active_archive_binding_id: Map.get(base, :active_archive_binding_id),
+        archive_used_bytes: 0,
+        archived_block_count: 0,
+        archived_object_count: 0,
+        oldest_verified_at: nil,
+        newest_verified_at: nil,
+        history_seconds: 0,
+        trailing_24h_bytes: 0,
+        trailing_7d_bytes: 0,
+        trailing_7d_daily_mean_bytes: 0.0,
+        measured_rate_bytes_per_day: projected.rate.bytes_per_day,
+        rate_basis: projected.rate.basis
+      },
+      local_blocks: %{
+        total_reserved_blocks: 0,
+        trailing_15m_blocks: 0,
+        trailing_6h_blocks: 0,
+        history_seconds: 0,
+        by_storage: %{}
+      },
+      object_projection: projected.object_projection,
+      local_projection: projected.local_projection,
+      shorter_archive_than_local?: projected.shorter_archive_than_local?,
+      object_retention_enforced?: not is_nil(Map.get(base, :retention_credential_secret_id))
+    }
+  end
+
+  @doc """
+  Loads real CNPG usage and calculated retention summary under `scope`.
+  """
+  @spec load_retention_usage_summary(map(), keyword()) :: map()
+  def load_retention_usage_summary(scope, opts \\ []) do
+    case RecordingArchiveSettings.usage_summary(actor_opts(scope) ++ opts) do
+      {:ok, summary} -> summary
+      {:error, _reason} -> default_usage_summary()
+    end
+  end
+
+  @doc """
+  Normalizes archive settings draft parameters during `phx-change`, respecting
+  split-permission credential rules.
+  """
+  @spec normalize_archive_settings_form(map(), map(), boolean()) :: map()
+  def normalize_archive_settings_form(params, current_form, can_manage_credentials?)
+      when is_map(params) and is_map(current_form) do
+    allowed =
+      if can_manage_credentials? do
+        [
+          "active_archive_binding_id",
+          "archive_enabled",
+          "writer_credential_secret_id",
+          "reader_credential_secret_id",
+          "retention_credential_secret_id"
+        ]
+      else
+        ["active_archive_binding_id", "archive_enabled"]
+      end
+
+    merged = Map.merge(current_form, Map.take(params, allowed))
+
+    Map.put(
+      merged,
+      "archive_enabled",
+      to_string(truthy?(merged["archive_enabled"]))
+    )
+  end
+
+  @doc """
+  Pure pre-save validation and what-if recalculation for `phx-change="preview_retention_settings"`.
+  Performs zero database queries.
+  """
+  @spec preview_retention_settings(map(), map(), keyword()) :: %{
+          retention_form: map(),
+          simulator_form: map(),
+          errors: %{optional(atom()) => String.t()},
+          projection: map()
+        }
+  def preview_retention_settings(retention_params, simulator_params, opts \\ []) do
+    prev_form = Keyword.get(opts, :prev_form, default_retention_form())
+    prev_sim = Keyword.get(opts, :prev_simulator, default_simulator_form())
+    usage_summary = Keyword.get(opts, :usage_summary, default_usage_summary())
+    existing = Keyword.get(opts, :existing)
+    storage_mode = Keyword.get(opts, :storage_mode, :local_only)
+    scope = Keyword.get(opts, :scope)
+
+    next_form = merge_retention_preview_form(prev_form, retention_params)
+    next_sim = merge_simulator_form(prev_sim, simulator_params)
+
+    {attrs, parse_errors} = build_retention_attrs(next_form, %{}, existing, :preview)
+    changeset_errors = validate_preview_changeset(attrs, existing, scope)
+    errors = Map.merge(changeset_errors, parse_errors)
+
+    projection_attrs = build_safe_projection_attrs(next_form, existing)
+    sim_inputs = build_simulator_inputs(next_sim, usage_summary, storage_mode)
+    projection = RetentionCalculator.project_settings(projection_attrs, sim_inputs)
+
+    %{
+      retention_form: next_form,
+      simulator_form: next_sim,
+      errors: errors,
+      projection: projection
+    }
+  end
+
+  @doc """
+  Persists deployment-wide E1 retention settings on `RecordingArchiveSettings`
+  after enforcing explicit operator confirmations for `overwrite_oldest` and
+  `reap_oldest` and validating all mode+value bounds.
+  """
+  @spec save_retention_settings(map(), map(), keyword()) ::
+          {:ok, RecordingArchiveSettings.t()} | {:error, %{optional(atom()) => String.t()}}
+  def save_retention_settings(scope, params, opts \\ []) when is_map(params) do
+    existing =
+      case RecordingArchiveSettings.get_overview(actor_opts(scope) ++ opts) do
+        {:ok, %{persisted?: true, settings: settings}} -> settings
+        {:ok, %{settings: settings}} -> settings
+        {:error, _} -> nil
+      end
+
+    base_form =
+      if existing,
+        do: retention_form_from_settings(existing),
+        else: default_retention_form()
+
+    merged_form = merge_retention_submit_form(base_form, params)
+    {attrs, parse_errors} = build_retention_attrs(merged_form, params, existing, :submit)
+    gate_errors = confirmation_gate_errors(merged_form, existing)
+    pre_errors = Map.merge(parse_errors, gate_errors)
+
+    if pre_errors == %{} do
+      save_fn =
+        Keyword.get(opts, :save_fn, fn save_attrs ->
+          RecordingArchiveSettings.save_settings(save_attrs, actor_opts(scope) ++ opts)
+        end)
+
+      case save_fn.(attrs) do
+        {:ok, updated} -> {:ok, updated}
+        {:error, reason} -> {:error, extract_retention_errors(reason)}
+      end
+    else
+      {:error, pre_errors}
+    end
   end
 
   @doc """
@@ -143,10 +442,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   @doc """
-  Updates the `RecordingArchiveSettings` singleton. When `can_manage_credentials?`
-  is `false`, credential fields are omitted so existing credential bindings are
-  preserved; an attempt to supply new credential IDs without
-  `settings.credentials.manage` is rejected.
+  Updates the `RecordingArchiveSettings` singleton from the Archive tab. When
+  `can_manage_credentials?` is `false`, credential fields are omitted so existing
+  credential bindings are preserved; an attempt to supply new credential IDs
+  without `settings.credentials.manage` is rejected.
   """
   @spec save_archive_settings(map(), map(), boolean(), keyword()) ::
           {:ok, RecordingArchiveSettings.t()} | {:error, String.t()}
@@ -304,10 +603,11 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   defp build_archive_settings_view_from_overview(overview, opts) do
     settings = overview.settings
-    active_binding_id = blank_to_nil(settings.active_archive_binding_id)
+    active_binding_id = blank_to_nil(Map.get(settings, :active_archive_binding_id))
 
-    writer_summary = refine_credential_summary(overview.writer_credential, opts)
-    reader_summary = refine_credential_summary(overview.reader_credential, opts)
+    writer_summary = refine_credential_summary(Map.get(overview, :writer_credential), opts)
+    reader_summary = refine_credential_summary(Map.get(overview, :reader_credential), opts)
+    retention_summary = refine_credential_summary(Map.get(overview, :retention_credential), opts)
 
     {writer_label, writer_issue} =
       format_credential_summary(writer_summary, "None selected", "writer")
@@ -319,26 +619,43 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         "reader"
       )
 
+    {retention_label, retention_issue} =
+      format_retention_credential_summary(
+        retention_summary,
+        "None selected (object retention not enforced)"
+      )
+
     storage_mode =
       Map.get_lazy(overview, :storage_mode, fn ->
-        if settings.archive_enabled == true and not is_nil(active_binding_id),
+        if Map.get(settings, :archive_enabled) == true and not is_nil(active_binding_id),
           do: :local_and_archive,
           else: :local_only
       end)
 
+    object_retention_enforced? =
+      not is_nil(retention_summary) and retention_summary.status == :available
+
     %{
       record: if(overview.persisted?, do: settings),
+      settings: settings,
       storage_mode: storage_mode,
       form: %{
         "active_archive_binding_id" => to_string_or_empty(active_binding_id),
-        "archive_enabled" => to_string(settings.archive_enabled == true),
-        "writer_credential_secret_id" => to_string_or_empty(settings.writer_credential_secret_id),
-        "reader_credential_secret_id" => to_string_or_empty(settings.reader_credential_secret_id)
+        "archive_enabled" => to_string(Map.get(settings, :archive_enabled) == true),
+        "writer_credential_secret_id" => to_string_or_empty(Map.get(settings, :writer_credential_secret_id)),
+        "reader_credential_secret_id" => to_string_or_empty(Map.get(settings, :reader_credential_secret_id)),
+        "retention_credential_secret_id" => to_string_or_empty(Map.get(settings, :retention_credential_secret_id))
       },
+      retention_form: retention_form_from_settings(settings),
       active_binding_id: if(active_binding_id, do: to_string(active_binding_id)),
       selected_writer_label: writer_label,
       selected_reader_label: reader_label,
-      credential_issue: writer_issue || reader_issue
+      selected_retention_label: retention_label,
+      object_retention_enforced?: object_retention_enforced?,
+      shorter_archive_than_local?: RecordingArchiveSettings.shorter_archive_than_local?(settings),
+      effective_local_only_full_policy: RecordingArchiveSettings.effective_local_only_full_policy(settings),
+      effective_object_capacity_policy: RecordingArchiveSettings.effective_object_capacity_policy(settings),
+      credential_issue: writer_issue || reader_issue || retention_issue
     }
   end
 
@@ -362,7 +679,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         loader.(id)
 
       _ ->
-        NetworkCredentialSecret.get_by_id(id, actor: SystemActor.system(:camera_recording_settings))
+        NetworkCredentialSecret.get_by_id(
+          id,
+          actor: SystemActor.system(:camera_recording_settings)
+        )
     end
   end
 
@@ -378,16 +698,38 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   defp format_credential_summary(%{status: _status, name: name}, _empty_label, slot_label) do
-    display = if is_binary(name) and name != "", do: "#{name} (disabled)", else: "Disabled credential"
+    display =
+      if is_binary(name) and name != "", do: "#{name} (disabled)", else: "Disabled credential"
+
     named = if is_binary(name) and name != "", do: " \"#{name}\"", else: ""
 
     {display, "Selected #{slot_label} credential#{named} is disabled. Archive operations will not be sent to an NVR."}
   end
 
+  defp format_retention_credential_summary(nil, empty_label), do: {empty_label, nil}
+
+  defp format_retention_credential_summary(%{status: :available, name: name}, _empty_label) do
+    {name || "Selected credential", nil}
+  end
+
+  defp format_retention_credential_summary(%{status: :missing}, _empty_label) do
+    {"Deleted credential", "Selected retention credential is no longer available. Object retention is not enforced."}
+  end
+
+  defp format_retention_credential_summary(%{status: _status, name: name}, _empty_label) do
+    display =
+      if is_binary(name) and name != "", do: "#{name} (disabled)", else: "Disabled credential"
+
+    named = if is_binary(name) and name != "", do: " \"#{name}\"", else: ""
+
+    {display, "Selected retention credential#{named} is disabled. Object retention is not enforced."}
+  end
+
   defp ensure_credentials_rotation_active(attrs, opts) do
     slots = [
       {:writer, Map.get(attrs, :writer_credential_secret_id)},
-      {:reader, Map.get(attrs, :reader_credential_secret_id)}
+      {:reader, Map.get(attrs, :reader_credential_secret_id)},
+      {:retention, Map.get(attrs, :retention_credential_secret_id)}
     ]
 
     Enum.reduce_while(slots, :ok, fn {slot, id}, :ok ->
@@ -408,36 +750,36 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   defp build_archive_settings_attrs(params, existing, can_manage_credentials?) do
     base_attrs = %{
       active_archive_binding_id: blank_to_nil(params["active_archive_binding_id"]),
-      archive_enabled: params["archive_enabled"] in [true, "true", "on", "1"]
+      archive_enabled: truthy?(params["archive_enabled"])
     }
 
     if can_manage_credentials? do
       {:ok,
        Map.merge(base_attrs, %{
          writer_credential_secret_id: blank_to_nil(params["writer_credential_secret_id"]),
-         reader_credential_secret_id: blank_to_nil(params["reader_credential_secret_id"])
+         reader_credential_secret_id: blank_to_nil(params["reader_credential_secret_id"]),
+         retention_credential_secret_id: blank_to_nil(params["retention_credential_secret_id"])
        })}
     else
-      attempting_cred_change? =
-        credential_param_changed?(
-          params,
-          "writer_credential_secret_id",
-          existing,
-          :writer_credential_secret_id
-        ) or
-          credential_param_changed?(
-            params,
-            "reader_credential_secret_id",
-            existing,
-            :reader_credential_secret_id
-          )
-
-      if attempting_cred_change? do
+      if any_credential_param_changed?(params, existing) do
         {:error, "Changing archive credentials requires settings.credentials.manage."}
       else
         {:ok, base_attrs}
       end
     end
+  end
+
+  defp any_credential_param_changed?(params, existing) do
+    Enum.any?(
+      [
+        {"writer_credential_secret_id", :writer_credential_secret_id},
+        {"reader_credential_secret_id", :reader_credential_secret_id},
+        {"retention_credential_secret_id", :retention_credential_secret_id}
+      ],
+      fn {param_key, field_key} ->
+        credential_param_changed?(params, param_key, existing, field_key)
+      end
+    )
   end
 
   defp credential_param_changed?(params, param_key, existing, field_key) do
@@ -449,6 +791,468 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       false
     end
   end
+
+  defp merge_retention_preview_form(prev_form, params) when is_map(params) do
+    sanitized =
+      params
+      |> Map.take(@retention_form_keys)
+      |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+
+    merged = Map.merge(prev_form, sanitized)
+
+    merged =
+      Enum.reduce(@mode_value_pairs, merged, fn {mode_k, val_k, active_mode, default_str}, acc ->
+        apply_preview_mode_transition(acc, prev_form, sanitized, mode_k, val_k, active_mode, default_str)
+      end)
+
+    maybe_preselect_object_policy(merged, prev_form, sanitized)
+  end
+
+  defp merge_retention_preview_form(prev_form, _params), do: prev_form
+
+  defp apply_preview_mode_transition(acc, prev_form, sanitized, mode_k, val_k, active_mode, default_str) do
+    prev_mode = prev_form[mode_k]
+    next_mode = acc[mode_k]
+
+    cond do
+      next_mode != active_mode and prev_mode == active_mode ->
+        Map.put(acc, val_k, "")
+
+      next_mode == active_mode and prev_mode != active_mode and not Map.has_key?(sanitized, val_k) and
+          acc[val_k] in [nil, ""] ->
+        Map.put(acc, val_k, default_str)
+
+      true ->
+        acc
+    end
+  end
+
+  defp maybe_preselect_object_policy(merged, prev_form, sanitized) do
+    if prev_form["object_budget_mode"] != "limited" and
+         merged["object_budget_mode"] == "limited" and
+         not Map.has_key?(sanitized, "object_capacity_policy") and
+         merged["object_capacity_policy"] in [nil, ""] do
+      Map.put(merged, "object_capacity_policy", "reap_oldest")
+    else
+      merged
+    end
+  end
+
+  defp merge_retention_submit_form(base_form, params) do
+    sanitized =
+      params
+      |> Map.take(@retention_form_keys)
+      |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+
+    merged = Map.merge(base_form, sanitized)
+
+    Enum.reduce(@mode_value_pairs, merged, fn {mode_k, val_k, active_mode, _default_str}, acc ->
+      if acc[mode_k] != active_mode and not Map.has_key?(sanitized, val_k) do
+        Map.put(acc, val_k, "")
+      else
+        acc
+      end
+    end)
+  end
+
+  defp merge_simulator_form(prev_sim, sim_params) when is_map(sim_params) do
+    sanitized =
+      sim_params
+      |> Map.take(["camera_count", "nominal_bitrate_kbps", "local_budget_gib"])
+      |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+
+    Map.merge(prev_sim, sanitized)
+  end
+
+  defp merge_simulator_form(prev_sim, _sim_params), do: prev_sim
+
+  defp build_retention_attrs(form, raw_params, _existing, phase) do
+    errors = %{}
+
+    {local_high, errors} = parse_required_int(form, "local_high_water_percent", :local_high_water_percent, errors)
+    {local_low, errors} = parse_required_int(form, "local_low_water_percent", :local_low_water_percent, errors)
+    {obj_high, errors} = parse_required_int(form, "object_high_water_percent", :object_high_water_percent, errors)
+    {obj_low, errors} = parse_required_int(form, "object_low_water_percent", :object_low_water_percent, errors)
+
+    {max_local_mode, errors} = parse_mode(form["max_local_age_mode"], [:limited, :unlimited], :max_local_age_mode, errors)
+
+    {alert_mode, errors} =
+      parse_mode(form["local_window_alert_mode"], [:enabled, :disabled], :local_window_alert_mode, errors)
+
+    {target_mode, errors} = parse_mode(form["local_only_target_mode"], [:target, :none], :local_only_target_mode, errors)
+
+    {lo_max_mode, errors} =
+      parse_mode(form["local_only_max_age_mode"], [:limited, :unlimited], :local_only_max_age_mode, errors)
+
+    {arch_ret_mode, errors} =
+      parse_mode(form["archive_retention_mode"], [:limited, :unlimited], :archive_retention_mode, errors)
+
+    {obj_budget_mode, errors} =
+      parse_mode(form["object_budget_mode"], [:limited, :unlimited], :object_budget_mode, errors)
+
+    {max_local_sec, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "max_local_age_seconds",
+        :max_local_age_seconds,
+        max_local_mode == :limited,
+        phase,
+        errors
+      )
+
+    {alert_sec, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "local_window_alert_seconds",
+        :local_window_alert_seconds,
+        alert_mode == :enabled,
+        phase,
+        errors
+      )
+
+    {target_sec, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "local_only_retention_target_seconds",
+        :local_only_retention_target_seconds,
+        target_mode == :target,
+        phase,
+        errors
+      )
+
+    {lo_max_sec, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "local_only_max_age_seconds",
+        :local_only_max_age_seconds,
+        lo_max_mode == :limited,
+        phase,
+        errors
+      )
+
+    {arch_days, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "archive_retention_days",
+        :archive_retention_days,
+        arch_ret_mode == :limited,
+        phase,
+        errors
+      )
+
+    {obj_bytes, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "object_budget_bytes",
+        :object_budget_bytes,
+        obj_budget_mode == :limited,
+        phase,
+        errors
+      )
+
+    {local_policy, errors} =
+      parse_optional_policy(
+        form["local_only_full_policy"],
+        [:overwrite_oldest, :stop_when_full],
+        :local_only_full_policy,
+        errors
+      )
+
+    {object_policy, errors} =
+      parse_optional_policy(
+        form["object_capacity_policy"],
+        [:reap_oldest, :stop_archiving],
+        :object_capacity_policy,
+        errors
+      )
+
+    attrs = %{
+      local_high_water_percent: local_high,
+      local_low_water_percent: local_low,
+      max_local_age_mode: max_local_mode,
+      max_local_age_seconds: max_local_sec,
+      local_window_alert_mode: alert_mode,
+      local_window_alert_seconds: alert_sec,
+      local_only_full_policy: local_policy,
+      local_only_target_mode: target_mode,
+      local_only_retention_target_seconds: target_sec,
+      local_only_max_age_mode: lo_max_mode,
+      local_only_max_age_seconds: lo_max_sec,
+      archive_retention_mode: arch_ret_mode,
+      archive_retention_days: arch_days,
+      object_budget_mode: obj_budget_mode,
+      object_budget_bytes: obj_bytes,
+      object_high_water_percent: obj_high,
+      object_low_water_percent: obj_low,
+      object_capacity_policy: object_policy
+    }
+
+    {attrs, errors}
+  end
+
+  defp parse_required_int(form, key, field, errors) do
+    case Integer.parse(form[key] || "") do
+      {val, ""} -> {val, errors}
+      _ -> {nil, Map.put(errors, field, "must be a whole number")}
+    end
+  end
+
+  defp parse_paired_int(form, raw_params, key, field, active?, phase, errors) do
+    raw = form[key] || ""
+
+    cond do
+      not active? and phase == :preview ->
+        {nil, errors}
+
+      not active? and not explicit_non_empty_param?(raw_params, key) ->
+        {nil, errors}
+
+      raw == "" ->
+        {nil, errors}
+
+      true ->
+        case Integer.parse(raw) do
+          {val, ""} -> {val, errors}
+          _ -> {nil, Map.put(errors, field, "must be a whole number")}
+        end
+    end
+  end
+
+  defp explicit_non_empty_param?(raw_params, key) when is_map(raw_params) do
+    case Map.get(raw_params, key) do
+      val when is_binary(val) -> String.trim(val) != ""
+      val when is_integer(val) -> true
+      _ -> false
+    end
+  end
+
+  defp parse_mode(raw, allowed, field, errors) do
+    case Enum.find(allowed, &(Atom.to_string(&1) == raw)) do
+      nil -> {hd(allowed), Map.put(errors, field, "invalid selection")}
+      mode -> {mode, errors}
+    end
+  end
+
+  defp parse_optional_policy(raw, _allowed, _field, errors) when raw in [nil, "", "unset"] do
+    {nil, errors}
+  end
+
+  defp parse_optional_policy(raw, allowed, field, errors) do
+    case Enum.find(allowed, &(Atom.to_string(&1) == raw)) do
+      nil -> {nil, Map.put(errors, field, "invalid policy selection")}
+      pol -> {pol, errors}
+    end
+  end
+
+  defp confirmation_gate_errors(form, _existing) do
+    errors = %{}
+
+    errors =
+      if form["local_only_full_policy"] == "overwrite_oldest" and
+           not truthy?(form["confirm_local_only_overwrite"]) do
+        Map.put(
+          errors,
+          :local_only_full_policy,
+          "Confirm overwrite_oldest before saving, or choose stop_when_full / leave unset."
+        )
+      else
+        errors
+      end
+
+    if form["object_capacity_policy"] == "reap_oldest" and
+         not truthy?(form["confirm_reap_oldest"]) do
+      Map.put(
+        errors,
+        :object_capacity_policy,
+        "Confirm reap_oldest before saving, or choose stop_archiving."
+      )
+    else
+      errors
+    end
+  end
+
+  defp validate_preview_changeset(attrs, existing, scope) do
+    base_struct = coerce_settings_struct(existing)
+
+    preview_loaders = %{
+      binding_loader: fn id -> {:ok, %{id: id}} end,
+      secret_loader: fn id ->
+        {:ok,
+         %{
+           id: id,
+           name: "preview",
+           provider: @archive_provider,
+           credential_kind: :opaque,
+           rotation_state: :active,
+           enabled: true,
+           metadata: %{}
+         }}
+      end
+    }
+
+    opts =
+      if is_nil(scope),
+        do: [actor: SystemActor.system(:camera_recording_settings)],
+        else: actor_opts(scope)
+
+    changeset =
+      RecordingArchiveSettings.preview_changeset(
+        attrs,
+        opts
+        |> Keyword.put(:existing, base_struct)
+        |> Keyword.put(:loaders, preview_loaders)
+      )
+
+    extract_changeset_field_errors(changeset.errors)
+  end
+
+  defp coerce_settings_struct(%RecordingArchiveSettings{} = s), do: s
+
+  defp coerce_settings_struct(map) when is_map(map) do
+    defaults = RecordingArchiveSettings.default_settings()
+    allowed_keys = Map.keys(Map.from_struct(defaults))
+    taken = Map.take(map, allowed_keys)
+    struct(defaults, taken)
+  end
+
+  defp coerce_settings_struct(_), do: RecordingArchiveSettings.default_settings()
+
+  defp extract_retention_errors(%{errors: nested}) when is_list(nested) do
+    mapped = extract_changeset_field_errors(nested)
+    if mapped == %{}, do: %{base: format_ash_errors(nested)}, else: mapped
+  end
+
+  defp extract_retention_errors(err) when is_exception(err) do
+    %{base: Exception.message(err)}
+  end
+
+  defp extract_retention_errors(err) when is_binary(err), do: %{base: err}
+  defp extract_retention_errors(err), do: %{base: inspect(err)}
+
+  defp extract_changeset_field_errors(errors_list) when is_list(errors_list) do
+    Enum.reduce(errors_list, %{}, fn err, acc ->
+      field = Map.get(err, :field)
+      msg = Exception.message(err)
+
+      if is_atom(field) and not is_nil(field) do
+        Map.put_new(acc, field, msg)
+      else
+        Map.put_new(acc, :base, msg)
+      end
+    end)
+  end
+
+  defp build_safe_projection_attrs(form, existing) do
+    defaults = RecordingArchiveSettings.default_settings()
+
+    %{
+      active_archive_binding_id: existing && Map.get(existing, :active_archive_binding_id),
+      archive_enabled: existing != nil and Map.get(existing, :archive_enabled) == true,
+      local_high_water_percent: safe_int(form["local_high_water_percent"], defaults.local_high_water_percent),
+      local_low_water_percent: safe_int(form["local_low_water_percent"], defaults.local_low_water_percent),
+      max_local_age_mode: safe_mode(form["max_local_age_mode"], [:limited, :unlimited], :limited),
+      max_local_age_seconds: safe_optional_int(form["max_local_age_seconds"]),
+      local_window_alert_mode: safe_mode(form["local_window_alert_mode"], [:enabled, :disabled], :enabled),
+      local_window_alert_seconds: safe_optional_int(form["local_window_alert_seconds"]),
+      local_only_full_policy: safe_mode(form["local_only_full_policy"], [:overwrite_oldest, :stop_when_full], nil),
+      local_only_target_mode: safe_mode(form["local_only_target_mode"], [:target, :none], :target),
+      local_only_retention_target_seconds: safe_optional_int(form["local_only_retention_target_seconds"]),
+      local_only_max_age_mode: safe_mode(form["local_only_max_age_mode"], [:limited, :unlimited], :unlimited),
+      local_only_max_age_seconds: safe_optional_int(form["local_only_max_age_seconds"]),
+      archive_retention_mode: safe_mode(form["archive_retention_mode"], [:limited, :unlimited], :limited),
+      archive_retention_days: safe_optional_int(form["archive_retention_days"]),
+      object_budget_mode: safe_mode(form["object_budget_mode"], [:limited, :unlimited], :unlimited),
+      object_budget_bytes: safe_optional_int(form["object_budget_bytes"]),
+      object_high_water_percent: safe_int(form["object_high_water_percent"], defaults.object_high_water_percent),
+      object_low_water_percent: safe_int(form["object_low_water_percent"], defaults.object_low_water_percent),
+      object_capacity_policy: safe_mode(form["object_capacity_policy"], [:reap_oldest, :stop_archiving], nil)
+    }
+  end
+
+  defp build_simulator_inputs(sim_form, usage_summary, storage_mode) do
+    archive = Map.get(usage_summary, :archive, %{})
+    local_blocks = Map.get(usage_summary, :local_blocks, %{})
+    local_proj = Map.get(usage_summary, :local_projection, %{})
+    object_proj = Map.get(usage_summary, :object_projection, %{})
+
+    sim_cameras = safe_optional_int(sim_form["camera_count"])
+    sim_kbps = safe_optional_int(sim_form["nominal_bitrate_kbps"])
+    sim_gib = safe_optional_int(sim_form["local_budget_gib"])
+
+    sim_override_active? =
+      is_integer(sim_cameras) and sim_cameras > 0 and is_integer(sim_kbps) and sim_kbps > 0
+
+    default_cameras =
+      if Map.get(local_blocks, :total_reserved_blocks, 0) > 0 or
+           Map.get(archive, :archived_block_count, 0) > 0,
+         do: 1,
+         else: 0
+
+    %{
+      storage_mode: storage_mode,
+      archive_used_bytes: Map.get(archive, :archive_used_bytes, 0),
+      trailing_24h_bytes: if(sim_override_active?, do: 0, else: Map.get(archive, :trailing_24h_bytes, 0)),
+      trailing_7d_bytes: if(sim_override_active?, do: 0, else: Map.get(archive, :trailing_7d_bytes, 0)),
+      trailing_7d_daily_mean_bytes:
+        if(sim_override_active?, do: 0.0, else: Map.get(archive, :trailing_7d_daily_mean_bytes, 0.0)),
+      history_seconds: if(sim_override_active?, do: 0, else: Map.get(archive, :history_seconds, 0)),
+      local_history_seconds: if(sim_override_active?, do: 0, else: Map.get(local_blocks, :history_seconds, 0)),
+      r15m_bytes_per_sec: if(sim_override_active?, do: 0.0, else: Map.get(local_proj, :rate_bytes_per_sec, 0.0)),
+      r6h_bytes_per_sec: 0.0,
+      camera_count:
+        cond do
+          is_integer(sim_cameras) and sim_cameras >= 0 -> sim_cameras
+          is_integer(sim_kbps) and sim_kbps > 0 -> max(default_cameras, 1)
+          true -> default_cameras
+        end,
+      nominal_bitrate_bps: if(is_integer(sim_kbps) and sim_kbps > 0, do: sim_kbps * 1_000, else: 0),
+      local_budget_bytes:
+        if(is_integer(sim_gib) and sim_gib > 0,
+          do: sim_gib * @bytes_per_gib,
+          else: Map.get(local_proj, :effective_budget_bytes, @bytes_per_gib)
+        ),
+      pinned_bytes: Map.get(local_proj, :pinned_bytes, 0),
+      non_reapable_bytes: Map.get(object_proj, :non_reapable_bytes, 0)
+    }
+  end
+
+  defp safe_int(val, fallback) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} -> n
+      _ -> fallback
+    end
+  end
+
+  defp safe_int(val, _fallback) when is_integer(val), do: val
+  defp safe_int(_, fallback), do: fallback
+
+  defp safe_optional_int(val) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp safe_optional_int(val) when is_integer(val), do: val
+  defp safe_optional_int(_), do: nil
+
+  defp safe_mode(val, allowed, fallback) when is_binary(val) do
+    Enum.find(allowed, fallback, &(Atom.to_string(&1) == val))
+  end
+
+  defp safe_mode(val, allowed, fallback) when is_atom(val) do
+    if val in allowed, do: val, else: fallback
+  end
+
+  defp safe_mode(_, _allowed, fallback), do: fallback
+
+  defp truthy?(val), do: val in [true, "true", "on", "1"]
 
   defp put_nested_destination_error(err, acc) do
     field = err |> Map.get(:field) |> normalize_error_field()

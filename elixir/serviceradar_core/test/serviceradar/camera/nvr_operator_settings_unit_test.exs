@@ -13,6 +13,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
   @writer_id "00000000-0000-4000-8000-000000000013"
   @reader_id "00000000-0000-4000-8000-000000000014"
   @camera_id "00000000-0000-4000-8000-000000000015"
+  @retention_id "00000000-0000-4000-8000-000000000016"
   @block_key String.duplicate("a", 64)
   @dest_sha String.duplicate("b", 64)
 
@@ -117,6 +118,33 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
       assert is_nil(defaults.active_archive_binding_id)
       assert is_nil(defaults.writer_credential_secret_id)
       assert is_nil(defaults.reader_credential_secret_id)
+      assert is_nil(defaults.retention_credential_secret_id)
+      assert defaults.local_high_water_percent == 90
+      assert defaults.local_low_water_percent == 80
+      assert defaults.max_local_age_mode == :limited
+      assert defaults.max_local_age_seconds == 86_400
+      assert defaults.local_window_alert_mode == :enabled
+      assert defaults.local_window_alert_seconds == 3_600
+      assert is_nil(defaults.local_only_full_policy)
+      assert defaults.local_only_target_mode == :target
+      assert defaults.local_only_retention_target_seconds == 604_800
+      assert defaults.local_only_max_age_mode == :unlimited
+      assert is_nil(defaults.local_only_max_age_seconds)
+      assert defaults.archive_retention_mode == :limited
+      assert defaults.archive_retention_days == 30
+      assert defaults.object_budget_mode == :unlimited
+      assert is_nil(defaults.object_budget_bytes)
+      assert defaults.object_high_water_percent == 90
+      assert defaults.object_low_water_percent == 80
+      assert is_nil(defaults.object_capacity_policy)
+
+      assert RecordingArchiveSettings.effective_local_only_full_policy(defaults) ==
+               :stop_when_full
+
+      assert RecordingArchiveSettings.effective_object_capacity_policy(defaults) ==
+               :stop_archiving
+
+      assert RecordingArchiveSettings.shorter_archive_than_local?(defaults) == false
 
       # Unpermitted user cannot read overview.
       unpermitted = %{id: "user-none", role: :viewer, permissions: MapSet.new()}
@@ -507,12 +535,180 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
       assert {:error, :invalid_page_limit} =
                RecordingBlocks.operator_page(@camera_id, [limit: 0], actor: viewer)
 
-      assert {:error, :invalid_storage_id} =
-               RecordingBlocks.operator_page(
-                 @camera_id,
-                 [storage_ids: ["not-a-uuid"]],
-                 actor: viewer
+      {:error, :invalid_storage_id} =
+        RecordingBlocks.operator_page(
+          @camera_id,
+          [storage_ids: ["not-a-uuid"]],
+          actor: viewer
+        )
+    end
+  end
+
+  describe "RecordingArchiveSettings E1 mode+value, watermark, and confirmation validations" do
+    test "validates every E1 mode+value pair, watermarks, split-permission retention credential, and confirmation stamps" do
+      admin = %{
+        id: "admin-retention",
+        role: :admin,
+        permissions: MapSet.new(["settings.recording.manage", "settings.credentials.manage"])
+      }
+
+      recording_only = %{
+        id: "operator-retention",
+        role: :operator,
+        permissions: MapSet.new(["settings.recording.manage"])
+      }
+
+      loaders = %{
+        binding_loader: fn @binding_id -> {:ok, %{id: @binding_id}} end,
+        secret_loader: fn @retention_id ->
+          {:ok,
+           %{
+             id: @retention_id,
+             name: "Retention S3",
+             provider: "s3_compatible",
+             credential_kind: :opaque
+           }}
+        end
+      }
+
+      # Split-permission denial on retention_credential_secret_id without settings.credentials.manage
+      split_cs =
+        RecordingArchiveSettings.preview_changeset(
+          %{retention_credential_secret_id: @retention_id},
+          actor: recording_only,
+          loaders: loaders
+        )
+
+      refute split_cs.valid?
+      assert Enum.map(split_cs.errors, & &1.field) == [:retention_credential_secret_id]
+
+      # Enabling archive_enabled without an active binding is refused on :archive_enabled
+      no_binding_cs =
+        RecordingArchiveSettings.preview_changeset(
+          %{archive_enabled: true, active_archive_binding_id: nil},
+          actor: admin,
+          loaders: loaders
+        )
+
+      refute no_binding_cs.valid?
+      assert :archive_enabled in Enum.map(no_binding_cs.errors, & &1.field)
+
+      # Invalid watermark bounds (high out of 50..95; low > high - 5; low < 40)
+      for {bad_attrs, expected_field} <- [
+            {%{local_high_water_percent: 96}, :local_high_water_percent},
+            {%{local_high_water_percent: 85, local_low_water_percent: 81},
+             :local_low_water_percent},
+            {%{local_low_water_percent: 39}, :local_low_water_percent},
+            {%{object_high_water_percent: 49}, :object_high_water_percent},
+            {%{object_high_water_percent: 80, object_low_water_percent: 76},
+             :object_low_water_percent},
+            {%{max_local_age_mode: :limited, max_local_age_seconds: nil}, :max_local_age_seconds},
+            {%{max_local_age_mode: :limited, max_local_age_seconds: 3_599},
+             :max_local_age_seconds},
+            {%{max_local_age_mode: :unlimited, max_local_age_seconds: 86_400},
+             :max_local_age_seconds},
+            {%{local_window_alert_mode: :enabled, local_window_alert_seconds: 59},
+             :local_window_alert_seconds},
+            {%{local_window_alert_mode: :disabled, local_window_alert_seconds: 3_600},
+             :local_window_alert_seconds},
+            {%{local_only_target_mode: :target, local_only_retention_target_seconds: nil},
+             :local_only_retention_target_seconds},
+            {%{local_only_target_mode: :none, local_only_retention_target_seconds: 86_400},
+             :local_only_retention_target_seconds},
+            {%{local_only_max_age_mode: :limited, local_only_max_age_seconds: nil},
+             :local_only_max_age_seconds},
+            {%{local_only_max_age_mode: :unlimited, local_only_max_age_seconds: 7_200},
+             :local_only_max_age_seconds},
+            {%{archive_retention_mode: :limited, archive_retention_days: 0},
+             :archive_retention_days},
+            {%{archive_retention_mode: :limited, archive_retention_days: 3_651},
+             :archive_retention_days},
+            {%{archive_retention_mode: :unlimited, archive_retention_days: 30},
+             :archive_retention_days},
+            {%{
+               object_budget_mode: :limited,
+               object_budget_bytes: nil,
+               object_capacity_policy: :reap_oldest
+             }, :object_budget_bytes},
+            {%{
+               object_budget_mode: :limited,
+               object_budget_bytes: 1_073_741_823,
+               object_capacity_policy: :reap_oldest
+             }, :object_budget_bytes},
+            {%{object_budget_mode: :unlimited, object_budget_bytes: 1_073_741_824},
+             :object_budget_bytes},
+            {%{
+               object_budget_mode: :limited,
+               object_budget_bytes: 1_073_741_824,
+               object_capacity_policy: nil
+             }, :object_capacity_policy}
+          ] do
+        cs = RecordingArchiveSettings.preview_changeset(bad_attrs, actor: admin, loaders: loaders)
+        refute cs.valid?, "expected #{inspect(bad_attrs)} to be invalid"
+        assert expected_field in Enum.map(cs.errors, & &1.field)
+      end
+
+      # Shorter archive retention than max_local_age is ACCEPTED with advisory warning flag
+      now = ~U[2026-11-16 12:30:00.000000Z]
+
+      valid_cs =
+        RecordingArchiveSettings.preview_changeset(
+          %{
+            retention_credential_secret_id: @retention_id,
+            max_local_age_mode: :limited,
+            max_local_age_seconds: 172_800,
+            archive_retention_mode: :limited,
+            archive_retention_days: 1,
+            local_only_full_policy: :overwrite_oldest,
+            object_budget_mode: :limited,
+            object_budget_bytes: 10_737_418_240,
+            object_capacity_policy: :reap_oldest
+          },
+          actor: admin,
+          loaders: loaders,
+          now: now
+        )
+
+      assert valid_cs.valid?
+
+      assert Ash.Changeset.get_attribute(valid_cs, :local_only_full_policy_confirmed_by_id) ==
+               "admin-retention"
+
+      assert Ash.Changeset.get_attribute(valid_cs, :local_only_full_policy_confirmed_at) == now
+
+      assert Ash.Changeset.get_attribute(valid_cs, :object_capacity_policy_confirmed_by_id) ==
+               "admin-retention"
+
+      assert Ash.Changeset.get_attribute(valid_cs, :object_capacity_policy_confirmed_at) == now
+
+      assert RecordingArchiveSettings.shorter_archive_than_local?(%{
+               max_local_age_mode: :limited,
+               max_local_age_seconds: 172_800,
+               archive_retention_mode: :limited,
+               archive_retention_days: 1
+             }) == true
+
+      # get_overview exposes retention_credential and object_retention_enforced?
+      assert {:ok, enforced_overview} =
+               RecordingArchiveSettings.get_overview(
+                 actor: recording_only,
+                 loaders:
+                   Map.put(loaders, :settings_loader, fn ->
+                     {:ok,
+                      %{
+                        RecordingArchiveSettings.default_settings()
+                        | retention_credential_secret_id: @retention_id,
+                          max_local_age_mode: :limited,
+                          max_local_age_seconds: 172_800,
+                          archive_retention_mode: :limited,
+                          archive_retention_days: 1
+                      }}
+                   end)
                )
+
+      assert enforced_overview.object_retention_enforced? == true
+      assert enforced_overview.shorter_archive_than_local? == true
+      assert enforced_overview.retention_credential.name == "Retention S3"
     end
   end
 end

@@ -75,7 +75,7 @@ Not every provider takes a rule. A provider's descriptor declares
 | NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.49 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
-| S3-Compatible Object Storage (`s3_compatible`) | No | **Settings -> System -> Camera Recording -> Recording & Storage** (`/settings/recording?tab=archive`), writer and optional reader slots; see [Camera archive storage](#camera-archive-storage) |
+| S3-Compatible Object Storage (`s3_compatible`) | No | **Settings -> System -> Camera Recording -> Recording & Storage** (`/settings/recording?tab=archive`), writer, optional reader, and optional retention slots; see [Camera archive storage](#camera-archive-storage) |
 | SNMP | Yes | The rule itself. A profile can bind the same credential; see [SNMP](#snmp) |
 
 ## Broker grant logs and history
@@ -207,7 +207,7 @@ declared per provider by the package, not chosen from a global list:
 | `netbox` | `inventory_sync` (from `<first-release>`; see [NetBox](#netbox)) |
 | `awx` | `automation_execution` |
 | `vulncheck` | `vulnerability_feed_download` |
-| `s3_compatible` | `camera_archive_write`, `camera_archive_read` |
+| `s3_compatible` | `camera_archive_write`, `camera_archive_read`, `camera_archive_retention` |
 | `snmp` | `snmp_monitoring` |
 
 A rule can carry more than one purpose, and each purpose materialises its own
@@ -819,28 +819,39 @@ query.
    `S3-Compatible Object Storage - Access key`. Enter the access key ID (up to
    256 bytes, stored as the public identity so operators can identify it in
    selectors without decrypting) and the secret access key (up to 512 bytes,
-   encrypted at rest and never re-rendered). Create a second credential if you
-   separate write and read IAM keys.
+   encrypted at rest and never re-rendered). Create separate credentials if you
+   isolate write, read, and retention IAM keys, or reuse the same stored
+   credential when a single bucket key holds those permissions.
 2. **Bind it on the recording archive settings.** **Settings -> System -> Camera
    Recording -> Recording & Storage** (`/settings/recording?tab=archive`) ->
-   select the **Writer credential** (`writer_credential_secret_id`) and,
-   optionally, the **Reader credential** (`reader_credential_secret_id`). When
-   the reader slot is left unset, read operations reuse the writer credential
-   under a read-only `:reader` broker grant.
+   select the **Writer credential** (`writer_credential_secret_id`),
+   optionally the **Reader credential** (`reader_credential_secret_id`), and
+   optionally the **Retention delete credential**
+   (`retention_credential_secret_id`). When the reader slot is left unset, read
+   operations reuse the writer credential under a read-only `:reader` broker
+   grant. When the retention slot is left unset, object retention is not
+   enforced (`Object retention not enforced: no delete credential`) and
+   ServiceRadar deletes nothing from the bucket.
 
 No Helm value, Kubernetes Secret, mounted file, or environment variable supplies
 camera archive bucket keys. At use time, `ArchiveCredentialResolver` resolves the
 referenced secret into a short-lived broker grant locked to `https` on port
 `443`, the active binding's host, and `/<bucket>/<prefix>/*` (`PUT`, `HEAD`, and
-`GET` for `:writer`; `HEAD` and `GET` for `:reader`). Rotating a credential or
-switching `RecordingArchiveSettings` to another credential record does not alter
-the immutable `ArchiveBinding` `destination_sha256`.
+`GET` for `:writer` with purpose `camera_archive_write`; `HEAD` and `GET` for
+`:reader` with purpose `camera_archive_read`; `DELETE` and `HEAD` for
+`:retention` with purpose `camera_archive_retention`). ServiceRadar enforces
+object retention and capacity reaping itself with the `:retention` role so
+deletions stay serialized with CNPG catalog state and evidence holds; provider
+bucket lifecycle rules should be limited to incomplete multipart uploads and
+`_probe/` connectivity-test residue, never the recorded footage prefix. Rotating
+a credential or switching `RecordingArchiveSettings` to another credential
+record does not alter the immutable `ArchiveBinding` `destination_sha256`.
 
 Three guardrails apply to bound archive credentials:
 
 - **Split-duty authorization.** Editing archive settings requires
-  `settings.recording.manage`, and selecting or changing the writer or reader
-  credential additionally requires `settings.credentials.manage` (see
+  `settings.recording.manage`, and selecting or changing the writer, reader, or
+  retention credential additionally requires `settings.credentials.manage` (see
   [Roles & Permissions](./rbac-and-roles.md#camera-recording-and-storage-settings)).
   An administrator with `settings.recording.manage` alone sees only the bound
   credential's redacted name and a disabled selector explaining the missing
@@ -849,13 +860,15 @@ Three guardrails apply to bound archive credentials:
   restrictive foreign keys (`on_delete: :restrict`) and requires referenced
   secrets to be enabled, undeleted `s3_compatible` records of kind `opaque`. If a
   bound credential is later disabled, `/settings/recording?tab=archive` reports
-  archive operations unavailable and refuses to dispatch work to an NVR.
+  the credential issue and refuses to dispatch affected archive or retention
+  operations.
 - **Usage inventory and guarded deletion.** Bound credentials appear in the
   **Usage** column on `/settings/networks/credentials` as
-  `Camera archive (writer)` and `Camera archive (reader)`, each linking to
+  `Camera archive (writer)`, `Camera archive (reader)`, and
+  `Camera archive (retention)`, each linking to
   `/settings/recording?tab=archive`. `GuardCredentialDestroy` refuses deletion
-  with `credential_in_use` while either slot references the credential or a
-  broker grant remains active; clear or replace the reference on
+  with `credential_in_use` while any of the three slots references the
+  credential or a broker grant remains active; clear or replace the reference on
   `/settings/recording?tab=archive` and wait for active grants to expire first.
 
 For NVR workload identity, local spool durability, and the deployment recovery
