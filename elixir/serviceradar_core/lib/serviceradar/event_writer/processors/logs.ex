@@ -11,7 +11,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   Supports:
   - JSON log records (OTEL-style fields)
-  - OTLP protobuf `ExportLogsServiceRequest`
+  - OTLP protobuf `ExportLogsServiceRequest`, read only on `logs.otel`,
+    `logs.otel.*` and `logs.normalized.*`; on any other `logs.` subject a
+    protobuf body is refused
+  - Collector-normalized OTLP batches on `logs.normalized.<kind>`, which
+    require the `Sr-Log-Schema: otlp-normalized-v1` header and are stored
+    without running Zen rules again
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
