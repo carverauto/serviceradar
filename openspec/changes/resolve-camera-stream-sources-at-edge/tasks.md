@@ -26,6 +26,11 @@
       path or alias (fixtures use `192.0.2.0/24` and `example.com`); a scrub worker test covering
       the repeat-until-zero and old-node termination branches; and a web-ng test asserting that
       assigns hold no address.
+- [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
+      it and through the D2 reduction and asserts they agree: an origin only (not pending);
+      `rtsps://` with a path; `rtsp://` with userinfo; `https://` with userinfo; an alias key in
+      profile, source and device metadata; and a verbatim URL in `source_origin` (each pending,
+      and clean after one pass).
 
 ## 2. Edge resolution (Stage 2)
 
@@ -71,5 +76,5 @@
 - [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order; regenerate
       aliases after upgrading.
 - [ ] 5.2 `docs/docs/srql-language-reference.md` `camera_sources` paragraph.
-- [ ] 5.3 Runbook under `docs/`: reference the operator verification queries defined in design
-      D7, the DLQ purge, backup expiry.
+- [ ] 5.3 Runbook under `docs/`: the `pending/0` verification command defined in design D7, the
+      DLQ purge, backup expiry.

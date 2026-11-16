@@ -52,4 +52,4 @@ The system SHALL remove every stored stream address, path alias and URL userinfo
 
 #### Scenario: Operator verification
 - **WHEN** the job reports completion
-- **THEN** each operator verification query defined in design D7 returns 0
+- **THEN** the scrub worker's `pending/0` check defined in design D7 returns zero for every target

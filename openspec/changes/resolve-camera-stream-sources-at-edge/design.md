@@ -236,16 +236,17 @@ operator as sentences:
   and bumps `core.migrations.expectedVersion`.
 - The worker applies the D2 rule in Elixir, so the cleanup and the runtime cannot
   drift.
-- It works in primary-key batches, `(timestamp, gateway_id, service_name)` for
-  the `service_status` hypertable and `id` for every other table, one row per
-  statement. It skips rows that changed since it read them, and it
-  is idempotent.
+- It works in primary-key batches, one row per statement, keyed by each
+  table's real primary key: `id` for `camera_stream_profiles`, `camera_sources`
+  and `service_state`; `uid` for `ocsf_devices`; and
+  `(timestamp, gateway_id, service_name)` for the `service_status` hypertable.
+  It skips rows that changed since it read them, and it is idempotent.
 
 Targets:
 
 1. `camera_stream_profiles`: set `source_origin` from `source_url_override`,
-   then null `source_url_override`, and drop the alias keys and non-allowlisted
-   keys from `metadata`.
+   then null `source_url_override`, reduce `source_origin`, and drop the alias
+   keys and non-allowlisted keys from `metadata`.
 2. `camera_sources`: null `source_url` and reduce `metadata`.
 3. `ocsf_devices.metadata`: drop `camera_source_url` and reduce
    `camera_metadata`.
@@ -268,25 +269,20 @@ and emits one completion event.
 Following "close the path before deleting", the reduction ships in the same
 stage as each cleanup run.
 
-Operator verification. These queries cover every column the targets above
-scrub, and are the single definition the spec and the runbook refer to. Each
-must return 0:
+Operator verification. The worker exposes `pending/0`, which reads every
+target column above (including `source_origin` and every JSON path inside the
+metadata, details and message values), applies that target's scrub (the same D2
+reduction function the ingest path uses, plus the column and allowlist steps
+above), and returns, per target, the count of rows the scrub would still change.
+A row is clean exactly when the scrub is a no-op on it,
+so an origin never counts, and a path, userinfo on any scheme, or an alias key
+always does. Completion means `pending/0` returns zero for every target. The
+worker's last pass uses the same check, and the operator runs it with
+`bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.Camera.StreamSecretScrubWorker.pending())'`.
+This is the only verification the spec and the runbook refer to; there is no
+separate SQL proof. After Stage 4, `pending/0` no longer reads the two dropped
+columns.
 
-```sql
-SELECT count(*) FROM platform.camera_stream_profiles
- WHERE source_url_override IS NOT NULL OR metadata::text ~* 'rtsps?_?alias';
-SELECT count(*) FROM platform.camera_sources
- WHERE source_url IS NOT NULL OR metadata::text ~* 'rtsps?://[^"/\\]*[@/]';
-SELECT count(*) FROM platform.ocsf_devices
- WHERE metadata ? 'camera_source_url' OR metadata::text ~* 'rtsps?://[^"/\\]*[@/]';
-SELECT count(*) FROM platform.service_status
- WHERE details ~* 'rtsps?://[^"/\\]*[@/]' OR details ~* 'rtsps?_?alias';
-SELECT count(*) FROM platform.service_state
- WHERE message ~* 'rtsps?://[^"/\\]*[@/]' OR message ~* 'rtsps?_?alias'
-    OR details ~* 'rtsps?://[^"/\\]*[@/]' OR details ~* 'rtsps?_?alias';
-```
-
-The `source_url_override` and `source_url` predicates are dropped after Stage 4.
 Out of band, and documented for operators: JetStream source streams age out
 under their retention, DLQ entries for plugin-result batches must be purged by
 the operator, and backups expire under backup retention. Every Protect alias
