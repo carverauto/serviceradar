@@ -48,21 +48,23 @@ At the cap the NVR SHALL refuse new admission with a reported reason and SHALL N
 
 ### Requirement: Automatic archive of sealed NVR blocks
 The system SHALL archive every sealed block of a `local_and_archive` policy through the existing NVR archive contract when archiving is enabled, with bounded concurrency per member, retry with backoff for transient and unknown outcomes, and terminal reporting for conflicts.
-Archive SHALL keep the local copy. This requirement's archive state machine is the one normative statement of archive state; other requirements refer to it. An entry is owed a copy when (a) archiving is enabled, its policy stores `local_and_archive` and it is not quarantined, archived under its archive binding, or (b) it is quarantined, archiving is enabled and its camera policy is not `local_only`, including a block with no known policy, copying the files of its quarantine partition entry and a manifest of their lengths and SHA-256 to a quarantine prefix under its quarantine binding without a frozen descriptor, verified by read-back against that manifest. The binding is the archive binding under (a) and the quarantine binding under (b); a NULL binding SHALL mean not yet assigned and SHALL NOT be read as an absent binding. Each entry SHALL be in exactly one state of this table:
+Archive SHALL keep the local copy. This requirement's archive state machine is the one normative statement of archive state; other requirements refer to it. An entry SHALL be owed a copy when (a) archiving is enabled, its policy stores `local_and_archive` and it is not quarantined, the copy being the block archived under its archive binding; or (b) it is quarantined, archiving is enabled and its camera policy is not `local_only`, including a block with no known policy, the copy being the files of its quarantine partition entry and a manifest of their lengths and SHA-256, written to a quarantine prefix under its quarantine binding without a frozen descriptor and verified by read-back against that manifest. Being owed a copy follows from (a) or (b) and is never a precondition of either. The binding column means the binding of the owed copy: the archive binding under (a), the quarantine binding under (b). A NULL binding SHALL mean not yet assigned and nothing else, and SHALL NOT be read as an absent binding. An entry SHALL NOT lose a binding it has recorded, with one exception: the quarantine binding of a quarantine copy that is not yet `verified` SHALL be cleared when that binding is absent from retained history or was ended for a compromise-class reason; that is the only case in which a recorded binding is replaced, and it SHALL NOT apply to the archive binding. Every state whose drain is open SHALL be exempt from the bounded-time clause of the no-stranded requirement and bounded by its alarm instead, while its local copy stays pinned; an outage SHALL NOT violate that bound or delete a local copy. Quarantine SHALL override two columns: a quarantined entry is pinned as row (q) of the local eviction table and its admission-stop cause is quarantined, whatever its archive state; the other columns apply as written, including the quarantine variants their cells name. Each entry SHALL be in exactly one state of this table:
 
 | Archive state | Entry condition | Binding | Job | Alarm | Pin | Drain | Admission-stop cause |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `not_required` | not owed a copy: archiving not enabled, or policy `local_only` | NULL | none | none | local-only footage | terminal at the local catalog entry with its index receipt, or at the local quarantine receipt | local-only footage under `stop_when_full` |
-| `awaiting_binding` | owed a copy, no archive binding active | NULL | none | archive enabled but no destination | pinned | open, not terminal, excluded from the bounded-time clause | upload backlog |
-| `pending` | owed a copy, a binding active | recorded | one archive job | oldest unarchived over 1 hour | pinned | open | upload backlog |
-| `failed_retryable` | provider error or unknown outcome | recorded | retried with backoff | oldest unarchived over 1 hour | pinned | open | upload backlog |
-| `failed_terminal` | receipt conflict or archive object limit | recorded | none | failed archive entry | pinned | open | upload backlog |
-| `verified` | archive or quarantine-destination receipt recorded | recorded | none | none | evictable unless quarantined | terminal | none |
-| `deleting` | object retention or reaper deleting | recorded | retention job | none | pinned | already terminal | archive deleting |
-| `deleted` | absence confirmed | recorded | none | none | evictable unless quarantined | already terminal | none |
-| `missing` | archive copy found changed or absent | recorded | none | held archive copy missing when held | pinned | already terminal | archive missing |
+| `not_required` | not owed a copy: archiving not enabled, or policy `local_only` | kept if one was recorded, otherwise NULL | none | none | kind (b) | terminal: the local catalog entry with its index receipt, or for a quarantined entry its local quarantine receipt | local-only footage under `stop_when_full` |
+| `awaiting_binding` | owed a copy, no archive binding active | owed copy's binding not yet assigned (NULL); a binding recorded earlier is kept | none | archive enabled but no destination | kind (c) | open | upload backlog |
+| `pending` | owed a copy, a binding active | the active binding, assigned on entry when none is assigned; changed only by the quarantine re-target transition | one archive job, held while archiving is paused (below) | oldest unarchived over 1 hour | kind (c) | open | upload backlog |
+| `failed_retryable` | job hit a provider error or unknown outcome | recorded | retried with backoff, held while archiving is paused (below) | oldest unarchived over 1 hour | kind (c) | open | upload backlog |
+| `failed_terminal` | job hit a receipt conflict or the archive object limit | recorded | none; an operator resolves | failed archive entry | kind (c) | open | upload backlog |
+| `verified` | archive receipt recorded, or for a quarantined entry its quarantine-destination receipt | recorded | none | none | kind (a) | terminal | none |
+| `deleting` | object retention or the reaper deleting | recorded | retention job | none | kind (c) | already terminal | archive deleting |
+| `deleted` | absence confirmed | recorded | none | none | kind (a) | already terminal | none |
+| `missing` | archive copy found changed or absent | recorded | none; an operator decides | held archive copy missing when held | kind (c) | already terminal | archive missing |
 
-Transitions SHALL be: registration (at live seal, by sealed lookup or by reconciler adoption) and quarantine set `not_required`, `awaiting_binding`, or `pending` with the active binding recorded and one job, by the entry conditions; when a binding becomes active, the reconciler pass SHALL assign it to every `awaiting_binding` entry, make it `pending` and enqueue its job, which is not a rebind because the entry never had a binding; an entry SHALL keep a recorded binding, and a recorded binding absent from retained history or ended for a compromise-class reason SHALL quarantine the entry, never rebind it; an entry no longer owed a copy SHALL move from `awaiting_binding`, `pending` or `failed_retryable` to `not_required` and SHALL NOT be archived retroactively; archive SHALL be retried only from `pending` or `failed_retryable`.
+Held jobs: while archiving is stopped by `stop_archiving` (including when non-reapable bytes reach object high water), while a hosted install awaits its first entitlement, during suspension, or while Core is unavailable, the job or scheduled retry of a `pending` or `failed_retryable` entry SHALL be held, not removed; a held retry SHALL count as neither an attempt nor a failure, and its backoff SHALL resume from where it was when the hold ends; the entry SHALL keep its state, stay pinned as kind (c), and its alarm SHALL still apply.
+
+Transitions SHALL be: registration (at live seal, by sealed lookup or by reconciler adoption) and quarantine enter the state whose entry condition holds, and entering `pending` assigns the active binding and enqueues one job; when a binding becomes active, the reconciler pass SHALL assign it to every `awaiting_binding` entry, make it `pending` and enqueue its job, which is not a rebind because the owed copy never had a binding; an entry SHALL keep and archive under the binding it recorded, and only an entry that archives under (a) and is not yet `verified`, whose recorded archive binding is absent from retained history or was ended for a compromise-class reason, SHALL be quarantined keeping that binding, then follow the registration transition for its quarantine copy, and never be rebound; a `verified` entry SHALL NOT be quarantined for that reason or re-uploaded; a quarantined entry whose quarantine copy is not yet `verified` and whose recorded quarantine binding is absent from retained history or was ended for a compromise-class reason SHALL be re-targeted: its existing job or scheduled retry SHALL be cancelled first and a failed-entry alarm cleared, then that binding SHALL be cleared to not yet assigned and the entry SHALL re-enter the registration transition, so that at most one job exists per entry at any time, while one whose quarantine copy is `verified` SHALL be unaffected; an entry no longer owed a copy SHALL move from `awaiting_binding`, `pending`, `failed_retryable` or `failed_terminal` to `not_required`, keeping any recorded binding, with any job cancelled and a failed-entry alarm cleared, and SHALL NOT be archived retroactively, while `verified`, `deleting`, `deleted` and `missing` SHALL NOT move; archive SHALL be retried only from `pending` or `failed_retryable`.
 
 #### Scenario: Provider is unavailable
 - **WHEN** an archive attempt fails with a provider error or an unknown outcome
@@ -77,7 +79,26 @@ Transitions SHALL be: registration (at live seal, by sealed lookup or by reconci
 - **WHEN** the NVR reports a receipt for a different destination or the block exceeds the archive object limit
 - **THEN** the catalog entry SHALL be marked terminally failed with the error class
 - **AND** SHALL NOT be retried automatically
-- **AND** an operator-visible alarm SHALL be raised and remain until an operator resolves the entry
+- **AND** an operator-visible alarm SHALL be raised and remain until an operator resolves the entry or it is no longer owed a copy
+
+#### Scenario: Archiving turned off while an entry is pending
+- **GIVEN** an entry owed a copy is `pending` under archive binding B
+- **WHEN** archiving is disabled
+- **THEN** the entry SHALL move to `not_required` and keep B as its recorded archive binding
+- **AND** it SHALL NOT be archived if archiving is enabled again
+
+#### Scenario: Recorded binding loses its retained history
+- **GIVEN** two entries archive under (a) with archive binding B, one `pending` and one `verified`, and B is then found absent from retained history
+- **WHEN** the reconciler works them
+- **THEN** the `pending` entry SHALL be quarantined, keep B as its archive binding, and take the state the registration transition gives its quarantine copy
+- **AND** the `verified` entry SHALL stay playable and SHALL NOT be quarantined or archived again
+
+#### Scenario: Quarantine binding lost before the quarantine copy is verified
+- **GIVEN** archiving is enabled, two quarantined entries are owed a quarantine-destination copy under quarantine binding Q, one copy `pending` and one `verified`, and Q is then found absent from retained history
+- **WHEN** the reconciler works them
+- **THEN** the `pending` entry's existing job SHALL be cancelled before its quarantine binding is cleared, and it SHALL become `awaiting_binding` when no binding is active, or `pending` under the active binding with one job when one is
+- **AND** its archive binding, if recorded, SHALL be kept
+- **AND** the `verified` entry SHALL be unaffected
 
 ### Requirement: Recorded gaps with reasons
 The system SHALL record every interval in which an enabled continuous policy did not produce sealed footage as a gap row with its reason and time basis, and SHALL measure gaps inside one recording run exactly from relay sequence numbers and media timestamps.
@@ -111,7 +132,7 @@ With the `received` basis, a block's wall-clock position SHALL derive from Core'
 
 ### Requirement: Core catalog of sealed NVR blocks
 The system SHALL register each sealed NVR block as one catalog entry, created only in the same transaction that freezes the block's canonical descriptor, either under its original live recorder claim or by the reconciler's historical freeze under Core's retained reservation authority, and SHALL record the block's camera, profile, media and timeline ranges with their time basis and the state of its local and archive copies.
-Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged as sealed or playable on the strength of on-disk evidence alone. The catalog SHALL also admit a quarantined entry, after the NVR confirms the move into its quarantine partition: a new row for a block or journal whose seal cannot be verified or recovered or that has no Core authority, with camera, profile, policy and run fields empty where the reservation and journal do not provide them; or the existing sealed row of a block whose registered archive binding is absent from retained history or ended for a compromise-class reason, keeping its frozen descriptor. A quarantined entry SHALL carry the reason, the quarantine receipt, the bytes and, when it archives, the archive state of its quarantine-destination copy; it SHALL NOT be played, and a quarantined gap SHALL be recorded only when that block's camera and its own media interval are known; otherwise the entry SHALL appear only on the health tab's quarantine list. This is the one statement of the quarantined-gap rule.
+Catalog registration SHALL be create-only per storage identity and block key. A block SHALL NOT be cataloged as sealed or playable on the strength of on-disk evidence alone. The catalog SHALL also admit a quarantined entry, after the NVR confirms the move into its quarantine partition: a new row for a block or journal whose seal cannot be verified or recovered or that has no Core authority, with camera, profile, policy and run fields empty where the reservation and journal do not provide them; or the existing sealed row of a block that archives under (a) of the archive state machine, is not yet `verified`, and whose recorded archive binding is absent from retained history or was ended for a compromise-class reason, keeping its frozen descriptor and archive binding. A quarantined entry SHALL carry the reason, the quarantine receipt, the bytes, and the archive state and quarantine binding of its quarantine-destination copy per the archive state machine; it SHALL NOT be played, and a quarantined gap SHALL be recorded only when that block's camera and its own media interval are known; otherwise the entry SHALL appear only on the health tab's quarantine list. This is the one statement of the quarantined-gap rule.
 
 #### Scenario: Registration after seal
 - **WHEN** a continuous run or bounded capture receives a sealed result for its reserved block
@@ -129,14 +150,14 @@ Catalog registration SHALL be create-only per storage identity and block key. A 
 - **THEN** the request SHALL be refused
 
 ### Requirement: No stranded NVR footage
-The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to a terminal outcome of the drain, except a block in a drain-open state of that state machine, whose bound is its alarm, and the reconciler SHALL keep working a block until it reaches one. A block SHALL end its drain only at a terminal state of the archive state machine of the automatic-archive requirement: the local catalog entry or the local quarantine receipt when it is not owed a copy (including a camera whose policy is `local_only` while an archive destination is configured for other cameras), and otherwise the verified archive or quarantine-destination receipt. Nothing else SHALL end the drain. A block or journal whose seal cannot be verified or recovered, or that has no Core authority, SHALL be quarantined: moved to a quarantine partition on the same volume and given a catalog entry in the quarantined state with its reason and receipt, retained, counted in usage, in the inventory ledger and in a quarantined-bytes figure, never playable, never selected by budget, age, full policy, object retention or reaper, and removed only by an explicit audited operator disposition of that catalog entry; when it archives, an archive job SHALL copy it to a quarantine prefix of the destination and SHALL be retried until its quarantine-destination receipt is verified. Its interval SHALL follow the quarantined-gap rule of the catalog requirement. A sealed block SHALL be judged against the generation, archive binding and recorder grant valid when it was sealed, as add-edge-production-time-admission defines, and SHALL NOT be refused only because the current binding or generation changed.
+The system SHALL bring every block on an NVR volume, within a bounded time after its writer retires, to a state whose drain is terminal in the archive state machine of the automatic-archive requirement, except a state whose drain is open, which that requirement bounds by its alarm instead, and the reconciler SHALL keep working a block until it reaches one. Nothing else SHALL end the drain; in particular a local quarantine receipt SHALL end it only for an entry not owed a copy, which includes a camera whose policy is `local_only` while an archive destination is configured for other cameras. A block or journal whose seal cannot be verified or recovered, or that has no Core authority, SHALL be quarantined: moved to a quarantine partition on the same volume and given a catalog entry in the quarantined state with its reason and receipt, retained, counted in usage, in the inventory ledger and in a quarantined-bytes figure, never playable, never selected by budget, age, full policy, object retention or reaper, and removed only by an explicit audited operator disposition of that catalog entry; its archive state SHALL follow the archive state machine. Its interval SHALL follow the quarantined-gap rule of the catalog requirement. A sealed block SHALL be judged against the generation, archive binding and recorder grant valid when it was sealed, as add-edge-production-time-admission defines, and SHALL NOT be refused only because the current binding or generation changed.
 A periodic reconciler SHALL compare each member's inventory with the Core catalog and SHALL adopt a block only under Core's retained reservation authority: the reservation row created under the live recorder fence before the block existed, matching storage identity, block key and verified journal identity including the clock, unchanged fence history, retired writer, and a ready recovery state. A block the NVR rotated into without a reservation SHALL be adopted only when its reserved predecessor in the same recorder epoch and clock epoch is adopted, its sequence was never allocated, and its journal identity differs from the predecessor's only in sequence. Incomplete journals SHALL be recovered through the existing explicit recovery to their last committed fragment before adoption. A block SHALL NOT be reclaimed while it is unreconciled.
 
 #### Scenario: Uncertain capture later reconciled
 - **GIVEN** a capture ended uncertain, its reserved block row is `open_local` and its claim has expired
 - **WHEN** the reconciler finds that block sealed on the reserved storage with a journal identity equal to the row's identity
 - **THEN** it SHALL freeze the descriptor historically and create the catalog entry
-- **AND** it SHALL enqueue archive only when archiving is enabled, the block's policy stores `local_and_archive` and an archive binding is active; with archiving enabled and no binding active the entry SHALL be awaiting a binding with no job; otherwise the entry SHALL have archive state `not_required` and no archive job SHALL be enqueued
+- **AND** its archive state and any archive job SHALL be set by the registration transition of the archive state machine, so a `local_only` camera's block is `not_required` with no job even while archiving is enabled
 - **AND** a concurrent live freeze of the same block SHALL resolve as an exact retry or a conflict, never two entries
 
 #### Scenario: Second rotated block adopted
@@ -146,7 +167,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** a block whose identity or clock epoch does not match SHALL be treated as having no Core authority
 
 #### Scenario: Archive outage then catch-up
-- **GIVEN** the archive destination is unreachable for several hours while recording continues
+- **GIVEN** archiving is enabled, the recording cameras' policies store `local_and_archive`, an archive binding is active, and its destination is unreachable for several hours while recording continues
 - **WHEN** the destination becomes reachable again
 - **THEN** every cataloged unarchived block SHALL be archived by retried jobs without operator action
 - **AND** during the outage the settings view SHALL show the unarchived count, bytes and oldest unarchived age, and an alarm SHALL be raised once the oldest unarchived block exceeds the alarm threshold
@@ -166,7 +187,7 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** the alarm SHALL remain until that disposition removes it
 
 #### Scenario: Quarantine copy retried until verified
-- **GIVEN** archiving is enabled and a quarantined block's camera policy stores `local_and_archive`
+- **GIVEN** archiving is enabled, a quarantined block's camera policy stores `local_and_archive`, so it is owed a quarantine-destination copy, and an archive binding is active
 - **WHEN** its copy to the quarantine prefix fails
 - **THEN** the archive job SHALL retry it until the quarantine-destination receipt is verified
 - **AND** the drain SHALL NOT end at the local quarantine receipt
@@ -196,9 +217,9 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 - **AND** when a binding becomes active, the reconciler pass SHALL record it as the entry's quarantine binding, make the entry pending and enqueue its job, and the drain SHALL end only at the verified quarantine-destination receipt
 
 #### Scenario: Local-only camera ends at its local catalog entry while a destination exists
-- **GIVEN** archiving is enabled for other cameras and one camera's policy is `local_only`
+- **GIVEN** archiving is enabled for other cameras, one camera's policy is `local_only`, and an archive binding may or may not be active
 - **WHEN** that camera's sealed block is cataloged with its index receipt persisted
-- **THEN** the drain SHALL end for that block and no archive job SHALL be enqueued
+- **THEN** its archive state SHALL be `not_required`, never `awaiting_binding`, the drain SHALL end for that block and no archive job SHALL be enqueued
 - **AND** if that camera's block has a bad seal, its local quarantine receipt SHALL end the drain
 
 #### Scenario: Archive binding changes while blocks are pending
@@ -472,7 +493,7 @@ With `reap_oldest`, the system SHALL delete only archive copies, oldest first, e
 #### Scenario: Stop archiving when the bucket is full
 - **GIVEN** the object budget is limited and the policy is `stop_archiving` or none has been recorded
 - **WHEN** archiving the next block would exceed the object budget
-- **THEN** archive jobs SHALL pause with blocks kept pending, recording SHALL continue locally, and an alert SHALL report usage and the projected days to object capacity
+- **THEN** archive jobs SHALL be held as the archive state machine's held jobs, recording SHALL continue locally, and an alert SHALL report usage and the projected days to object capacity
 - **AND** no archived footage SHALL be deleted for capacity
 
 #### Scenario: Held archive bytes alone exceed the budget
@@ -524,7 +545,7 @@ The system SHALL NOT delete pinned bytes as defined for the effective local wind
 #### Scenario: Pressure with only pinned footage
 - **WHEN** headroom cannot be restored without deleting pinned bytes
 - **THEN** the NVR SHALL refuse admission
-- **AND** recording SHALL stop with a gap and an alert naming each pinned cause that filled the volume with its bytes: upload backlog (awaiting a binding, pending or failed, per the archive state machine), archive deleting, archive missing, unreconciled, quarantined, held pins, local-only footage under `stop_when_full`, or the block cap
+- **AND** recording SHALL stop with a gap and an alert naming each pinned cause that filled the volume with its bytes: each catalog entry's admission-stop cause from the archive state machine (upload backlog, archive deleting, archive missing, local-only footage under `stop_when_full`, and quarantined for every quarantined entry whatever its archive state), unreconciled, held pins, or the block cap
 
 ### Requirement: Safe and audited recording disposition
 The system SHALL perform every deletion of recorded footage as a Core-issued operation bound to one catalog entry and an append-only disposition record, SHALL verify absence in the storage before marking a copy deleted, and SHALL treat reclaimed and deleted copy states as terminal.
@@ -640,7 +661,7 @@ The system SHALL NOT apply general-purpose compression to recorded media objects
 
 ### Requirement: Storage entitlement consumed at runtime
 The system SHALL accept, on a hosted install, one storage entitlement document for this deployment over the private control-plane listener under a dedicated `entitlements` purpose token, with per-consumer allocation, overage policy and cap, capacity policy from plan terms, retention maximum and default, optional camera limit, an optional pending change with its effective time, and a strictly increasing revision; it SHALL store the applied document in CNPG and report the applied revision and digest. The system SHALL NOT model tenants, and no Helm value SHALL carry any entitlement field.
-An install without the hosted runtime contract SHALL have no entitlement and no object capacity bound from it. A hosted install SHALL hold archive admission, keeping blocks pending and recording locally, until an entitlement has been applied, and SHALL treat a consumer missing from the document as disabled.
+An install without the hosted runtime contract SHALL have no entitlement and no object capacity bound from it. A hosted install SHALL hold archive jobs as the archive state machine's held jobs, recording locally, until an entitlement has been applied, and SHALL treat a consumer missing from the document as disabled.
 
 #### Scenario: Revision ordering
 - **WHEN** the control plane pushes revision 7 after revision 7 has been applied with identical bytes
@@ -653,7 +674,7 @@ An install without the hosted runtime contract SHALL have no entitlement and no 
 
 #### Scenario: Hosted install before the first entitlement
 - **WHEN** a hosted deployment records footage before any entitlement has been applied
-- **THEN** blocks SHALL stay pending for archive, recording SHALL continue locally, and the settings page SHALL show that it is waiting for a storage entitlement
+- **THEN** archive jobs SHALL be held as the archive state machine's held jobs, recording SHALL continue locally, and the settings page SHALL show that it is waiting for a storage entitlement
 
 ### Requirement: Entitlement bounds recording settings
 When an entitlement is applied the system SHALL use its recordings hard limit (allocation, or the overage cap when metered) as the read-only object budget, SHALL use the capacity policy from the plan terms recorded with the entitlement revision, SHALL bound archive retention and every per-camera override by the plan maximum with "limited by your plan" and without an unlimited choice when a maximum is set, and SHALL bound enabled continuous recording policies by the plan's camera limit.
@@ -709,7 +730,7 @@ The system SHALL, under a durable recording stop set for suspension, stop new re
 
 #### Scenario: Suspended deployment
 - **WHEN** a hosted deployment is suspended
-- **THEN** recording and archive uploads SHALL stop, holds SHALL be kept, and retention SHALL keep running under the applied policy
+- **THEN** recording and archive uploads SHALL stop with archive jobs held as the archive state machine's held jobs, holds SHALL be kept, and retention SHALL keep running under the applied policy
 
 #### Scenario: Termination with holds
 - **WHEN** the control plane requests the held-object manifest during termination

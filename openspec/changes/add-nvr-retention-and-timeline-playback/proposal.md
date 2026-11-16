@@ -57,15 +57,18 @@ product owner's decisions of 2026-11-15 are recorded in
 - **B. Core catalog of NVR blocks.** One `RecordingCatalogEntry` per block:
   a sealed entry, created only under the original recorder fence, with media
   and timeline ranges, a labelled time basis (received time, never presented
-  as capture time) and where each copy lives; or a quarantined entry for a
-  block whose seal cannot be verified, which is never played.
+  as capture time) and where each copy lives; or a quarantined entry, never
+  played, for a block whose seal cannot be verified or recovered, a block with
+  no Core authority (unattributable), or a not yet archived block whose
+  recorded archive binding is absent from retained history or was ended as
+  compromised.
 - **R. Reconciliation: no stranded footage.** A periodic reconciler adopts
   sealed blocks only under Core's retained reservation authority (rotated
   blocks only on proof that they continue a reserved block), recovers
   incomplete journals, quarantines unrecoverable or unattributable footage
   (kept until an operator disposes of it, with a gap where its camera and
-  interval are known), retries archive until it succeeds for every entry the
-  one archive predicate selects (design A6), and alarms on anything it cannot
+  interval are known), retries archive until it is verified for every entry
+  the archive state machine owes a copy (design A6), and alarms on anything it cannot
   attribute.
 - **C. Retention and reclaim.** The local tier is a capacity-driven cache:
   budget derived from the volume and editable per member at runtime, high and
