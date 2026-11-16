@@ -14,18 +14,24 @@
 - [ ] 1.2 Add the `source_scheme` calculation; switch the device camera panel and the God View
       payload and JS to it; drop `source_url` and full profile structs from device assigns.
 - [ ] 1.3 Add `ServiceRadar.Camera.StreamAddressReduction` (D2) and apply it at both
-      `PluginResultIngestor` entry points, exempting only the descriptor fields that feed the two
+      `PluginResultIngestor` entry points under the D2 Stage 1 ingest rule: build every
+      persisted and passed-on value from the reduced result; add `RelayAddressExtract` and
+      `InventoryIngestor.put_relay_addresses/2` as the only source and setter of the two
       columns; digest the reduced payload.
 - [ ] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
       the allowlist.
-- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list (Stage 1 targets in scope), plus the migration that
-      enqueues it; bump `core.migrations.expectedVersion`; run
+- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list and job-stage rule, plus the migration
+      that enqueues the stage 1 job; bump `core.migrations.expectedVersion`; run
       `scripts/db/check-migration-startup-safety.sh`.
 - [ ] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
-      asserting that no stored status, state, device or profile row holds an invented `rtsps://`
-      path or alias (fixtures use `192.0.2.0/24` and `example.com`); a scrub worker test covering
-      the repeat-until-zero and old-node termination branches; and a web-ng test asserting that
-      assigns hold no address.
+      asserting that no stored status, state, device, source or profile row holds an invented
+      `rtsps://` path or alias outside `source_url` and `source_url_override`, that those two
+      columns hold it, and that a report arriving after a scrub pass that left in-scope
+      `pending/0` at zero leaves it at zero (D2 Stage 1 ingest rule; fixtures use
+      `192.0.2.0/24` and `example.com`); a scrub worker test covering the D7 job rules: a pass
+      that changed rows snoozes the same job and inserts none, the max-passes error, a target held while an older or unresponsive node is
+      connected, and a stage 3 job run by stage 1 code snoozed and not completed; and a
+      web-ng test asserting that assigns hold no address.
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
       it and through the worker's scrub of the same in-scope target and asserts they agree: an
       origin only (not pending); `rtsps://` with a path; `rtsp://` with userinfo; `https://`
@@ -43,20 +49,23 @@
       grants as a scheduled run of that assignment. If it does not, the resolver cannot
       authenticate, and Stage 2 must add that first.
 - [ ] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
-      `serviceradar.camera_source_resolution{_request}.v1`; release, then re-vendor in both
-      plugins.
+      `serviceradar.camera_source_resolution{_request}.v1`, and the D8 config key constant with
+      a helper that reports whether it is set; release, then re-vendor in both plugins.
 - [ ] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
-      second), never creating streams; results carry `source_origin` and no `cameras[].channels`
-      aliases, `streams[].url` or `source_url*`.
+      second), never creating streams; inventory results as D8 states (unchanged without the
+      key; with it, `source_origin` and no `cameras[].channels` aliases, `streams[].url` or
+      `source_url*`).
 - [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
-      userinfo; results carry the origin only.
+      userinfo; inventory results as D8 states.
 - [ ] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
       params and standing grants; capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
       persist it or enqueue it as a result;
       advertise `camera_source_resolution`; add the D5 classes; confirm that no log line,
       command result or error carries the resolved URL or its userinfo.
-- [ ] 2.5 Tests: plugin resolver tables against fake controllers; an agent test showing the
-      address reaches the reader and nothing else, and that each D5 class is produced.
+- [ ] 2.5 Tests: plugin resolver tables against fake controllers; plugin inventory tables with
+      and without the D8 key (without it, the descriptor address fields match the current
+      output); an agent test showing the address reaches the reader and nothing else, and that
+      each D5 class is produced.
 
 ## 3. Core cutover (Stage 3)
 
@@ -64,8 +73,13 @@
       `discovery_assignment_id` (migration); the ingestor records provenance `assignment_id`.
 - [ ] 3.2 `RelaySourceResolver` builds `source_resolver`; the capability gate produces
       `agent_upgrade_required`; `source_resolver_missing`.
-- [ ] 3.3 D2 with no exemption; delete the descriptor URL handling in `InventoryIngestor`.
-- [ ] 3.4 Enqueue the scrub worker again with the D7 Stage 3 targets in scope; bump
+- [ ] 3.3 Delete the D2 Stage 1 ingest rule (`RelayAddressExtract`,
+      `InventoryIngestor.put_relay_addresses/2`) so D2 applies alone; set `source_origin` as D2
+      states.
+- [ ] 3.3a `AgentConfigGenerator.build_plugin_assignment_config/2` delivers the D8 key to
+      `camera_inventory` assignments; tests for the three cutover combinations in the
+      camera-streaming spec delta.
+- [ ] 3.4 A migration enqueues the D7 stage 3 scrub job (a new job, not the stage 1 job); bump
       `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
       URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
       and assert `at_rest_until_stage_3` is absent.
@@ -81,8 +95,8 @@
 
 ## 5. Docs
 
-- [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order; regenerate
-      aliases after upgrading.
+- [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order (the D6
+      release-ordering rules); regenerate aliases after upgrading.
 - [ ] 5.2 `docs/docs/srql-language-reference.md` `camera_sources` paragraph.
 - [ ] 5.3 Runbook under `docs/`: the `pending/0` verification command defined in design D7, the
       DLQ purge, backup expiry.

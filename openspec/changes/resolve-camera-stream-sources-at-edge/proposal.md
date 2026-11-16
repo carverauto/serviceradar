@@ -35,24 +35,30 @@ the address from the controller or camera when a stream opens.
 - **BREAKING (version skew):** Core does not dispatch a relay to an agent that
   lacks the `camera_source_resolution` capability. The session fails with the
   classified reason `agent_upgrade_required`.
-- **Cleanup.** An Oban job, enqueued from a migration, removes every existing
-  copy. It repeats passes until a pass finds nothing, and that pass must start
-  after every Core node runs this change. Operators check the result with the
+- **Cleanup.** An Oban job per stage, enqueued from that stage's migration,
+  removes every existing copy. It completes only under the design D7 rule, so
+  code older than the job's stage cannot finish it. Operators check the result with the
   worker's `pending/0`, which must return zero for every target in scope for
   the running stage, and which reports separately the addresses still at rest
   until Stage 3.
 - **Containment first.** Stage 1 is a Core and web-ng change only, with no agent
   or plugin release. It hides the two columns from every reader except the relay
-  resolver and removes the other copies. It is not the fix: the addresses stay
-  at rest in those two columns until Stage 3.
+  resolver and removes the other copies; only those two columns are written from
+  the unreduced result (design D2, Stage 1 ingest rule). It is not the fix: the
+  addresses stay at rest in those two columns until Stage 3.
+- **Core-owned cutover.** Plugins keep reporting addresses until Core's Stage 3
+  release tells them, through a host-owned key in the plugin assignment config,
+  that it no longer accepts them (design D8). Stages 2 and 3 may ship together
+  or apart.
 
 ## Impact
 
-- Affected specs: `camera-streaming`, `unifi-protect-camera-plugin`.
+- Affected specs: `camera-streaming`, `unifi-protect-camera-plugin`,
+  `axis-camera-plugin`.
 - Affected code: `elixir/serviceradar_core/lib/serviceradar/camera/`
   (`inventory_ingestor.ex`, `relay_source_resolver.ex`, `source.ex`,
   `stream_profile.ex`), `observability/plugin_result_ingestor.ex`,
-  `edge/agent_command_bus.ex`, web-ng `device_live/camera_components.ex` and
+  `edge/agent_command_bus.ex`, `edge/agent_config_generator.ex`, web-ng `device_live/camera_components.ex` and
   `topology/god_view_stream.ex` with `rendering_selection_methods.js`,
   `go/pkg/agent/` (`camera_relay*.go`, `control_stream.go`,
   `plugin_runtime_manager.go`, `push_loop_capabilities.go`),
