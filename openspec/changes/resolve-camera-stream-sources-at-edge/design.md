@@ -259,7 +259,9 @@ operator as sentences:
 
 - Old agent, new Core: Core does not dispatch and reports
   `agent_upgrade_required`. Streaming on that agent pauses until it is upgraded.
-  This is a deliberate hard cut; see Open Questions.
+  This is a deliberate hard cut, decided by the product owner. Rejected
+  alternative: keep sending the stored address to agents that are not
+  upgraded, which keeps the secret at rest until the last camera agent upgrades.
 - New agent, old Core: the agent still accepts `source_url` when the command has
   no `source_resolver`. That legacy branch is removed together with the column
   drop (Stage 4).
@@ -279,8 +281,13 @@ operator as sentences:
 - During the Stage 3 rollout, a Stage 3 node already delivers the D8 key while a
   Stage 1 node may still ingest the resulting origin-only report and open relays
   from the two columns. For a camera whose report took that path, a relay opened
-  by a Stage 1 node finds no address until the rollout ends. No address is
-  written; streaming is interrupted for that window. See Open Questions.
+  by a Stage 1 node finds no address until the rollout ends. Decided by the
+  product owner: accept this brief interruption. During the Core upgrade that
+  performs the cutover, relay opens served by not-yet-upgraded Core nodes can
+  fail until the rollout completes; no address is written, and no cluster-wide
+  check is added to the config-compile path. Rejected alternative: deliver the
+  D8 key only once every connected Core node reports Stage 3 (the D7 `:erpc`
+  stage check), which adds that check for a window of minutes per upgrade.
 - Release ordering: camera plugins are upgraded before Core Stage 3; otherwise
   streams stop with `source_resolver_unsupported` until the plugin is upgraded.
 - Release ordering: a Stage 4 agent requires Core at Stage 3 or later, because
@@ -299,7 +306,11 @@ operator as sentences:
   table's real primary key: `id` for `camera_stream_profiles`, `camera_sources`
   and `service_state`; `uid` for `ocsf_devices`; and
   `(timestamp, gateway_id, service_name)` for the `service_status` hypertable.
-  It skips rows that changed since it read them, and it is idempotent.
+  Each target column (or JSON document) is written with its own compare-and-set
+  on that column's value as read, so a concurrent write to a different column
+  of the same row does not block it. A row is skipped only when the column
+  being scrubbed itself changed since it was read, and a skipped row makes the
+  pass not clean (completion condition (c) below). It is idempotent.
 
 Targets. This ordered list is the single definition of what the worker scrubs
 and what `pending/0` checks; each target is tagged with the stage that brings it
@@ -315,7 +326,10 @@ for it:
    `service_state.details`: reduce, and recompute the reported marker's payload
    digest with the ingest function.
 5. [Stage 3] `camera_stream_profiles.source_url_override`: set `source_origin`
-   from it with the D2 origin function, then null it.
+   from it with the D2 origin function only where `source_origin` is null, as
+   its own compare-and-set on `source_origin` being null, so a value written by
+   a newer Stage 3 report is never overwritten; then null `source_url_override`
+   with a separate compare-and-set on its value as read.
 6. [Stage 3] `camera_stream_profiles.source_origin`: reduce.
 7. [Stage 3] `camera_sources.source_url`: null.
 
@@ -335,26 +349,34 @@ are those tagged with a stage at or below its own. A pass scrubs a job target
 only while every connected Core node reports, over `:erpc`, a scrub stage no
 lower than that target's stage (the stage of the code the node runs; a node
 without the worker, or one that does not answer, counts as stage 0), and skips
-it otherwise. The job has exactly one continuation: it returns
+it otherwise. The completion rule: the job returns `:ok` only when all of
+these hold:
+
+- (a) the worker's code and every connected node are at or above the job's
+  stage;
+- (b) the pass scrubbed every target of the job;
+- (c) the pass changed no row and skipped no row;
+- (d) after the pass, `pending/0` reports zero for every target of the job.
+
+In every other case the job has exactly one continuation: it returns
 `{:snooze, camera_stream_scrub_repass_seconds}` (runtime setting, code default
-600) on the same job whenever it is not complete, that is when the worker's
-code stage is below the job's stage (it then runs no pass), when a connected
-node is below the job's stage, or when the pass changed any row. The worker
-never inserts a follow-up job; the Stage 1 worker already carries this rule.
-The job returns `:ok` only on a pass run by code at or above the job's stage,
-with every connected node at or above that stage, that scrubbed every target of
-the job and changed nothing. After `camera_stream_scrub_max_passes` snoozed
-passes (runtime setting, code default 1000, about a week at the default
-interval) the job returns `{:error, pending}` with the per-target pending
-counts, so a stuck cleanup is visible and is never reported as success.
-Without these rules an older replica still running during the rollout can write a copy after
-the last zero pass, or finish a later-stage job while its targets still hold
-addresses: a node from before Stage 1 writes every copy, and a Stage 1 node
-writes the two columns that Stage 3 brings into scope and cannot scrub them.
-Every rolling deploy goes through that window, so it is not a theoretical race.
-Holding targets 5 and 7 until no Stage 1 node remains also keeps a Stage 1 node
-from opening a relay from a column already nulled. The
-worker logs counts per pass and emits one completion event.
+600) on the same job. When (a) fails because the worker's own code is below the
+job's stage, it runs no pass. A pass that changed or skipped rows snoozes even
+when the count is already zero, so a confirming pass follows, and a pass that
+changed and skipped nothing still snoozes while the count is non-zero. The
+worker never inserts a follow-up job; the Stage 1 worker already carries this
+rule. After `camera_stream_scrub_max_passes` snoozed passes (runtime setting,
+code default 1000, about a week at the default interval) the job returns
+`{:error, pending}` with the per-target pending counts, so a stuck cleanup is
+visible and is never reported as success. Without these rules an older replica
+still running during the rollout can write a copy after the last zero pass, or
+finish a later-stage job while its targets still hold addresses: a node from
+before Stage 1 writes every copy, and a Stage 1 node writes the two columns
+that Stage 3 brings into scope and cannot scrub them. Every rolling deploy goes
+through that window, so it is not a theoretical race. Holding targets 5 and 7
+until no Stage 1 node remains also keeps a Stage 1 node from opening a relay
+from a column already nulled. The worker logs counts per pass and emits one
+completion event.
 
 Following "close the path before deleting", the reduction ships in the same
 stage as each cleanup run.
@@ -363,8 +385,7 @@ Operator verification. The worker exposes `pending/0`, which returns two
 things:
 
 - `in_scope`: per in-scope target, the count of rows that count against it
-  under the rule above. The worker's last-pass check is this same count; the
-  job completes only under the D7 completion rule above.
+  under the rule above. Completion condition (d) is this same count.
 - `at_rest_until_stage_3`: while targets 5 and 7 are not yet in scope, the
   count of rows with a non-null `source_url` and with a non-null
   `source_url_override`, reported by column name. It never blocks completion;
@@ -461,13 +482,4 @@ stream.
 
 ## Open Questions
 
-- Product owner: is the hard cut in D6 acceptable? The alternative is to keep
-  sending the stored address to agents that are not upgraded, which keeps the
-  secret at rest until the last camera agent upgrades. Decided: hard cut.
-- Product owner: is the Stage 1 to Stage 3 rolling-deploy window in D6
-  acceptable? Recommendation: accept the interruption. Relay opens served by
-  not-yet-upgraded Core nodes can fail for the duration of the rollout, no
-  address is written, and it clears when the rollout completes. The alternative,
-  delivering the D8 key only once every connected Core node reports Stage 3
-  (the D7 `:erpc` stage check), adds a cluster-wide check to the config-compile
-  path for a window of minutes per upgrade.
+None.

@@ -28,9 +28,13 @@
       `rtsps://` path or alias outside `source_url` and `source_url_override`, that those two
       columns hold it, and that a report arriving after a scrub pass that left in-scope
       `pending/0` at zero leaves it at zero (D2 Stage 1 ingest rule; fixtures use
-      `192.0.2.0/24` and `example.com`); a scrub worker test covering the D7 job rules: a pass
-      that changed rows snoozes the same job and inserts none, the max-passes error, a target held while an older or unresponsive node is
-      connected, and a stage 3 job run by stage 1 code snoozed and not completed; and a
+      `192.0.2.0/24` and `example.com`); a scrub worker test covering each condition of the D7
+      completion rule: a pass that changed rows snoozes the same job and inserts none, a
+      concurrent write to another column of a row does not block that row's scrub, a row whose
+      scrubbed column changed since it was read is skipped and the job snoozes, a pass that
+      changed and skipped nothing snoozes while `pending/0` is non-zero for a job target, the
+      max-passes error, a target held while an older or unresponsive node is connected, and a
+      stage 3 job run by stage 1 code snoozed and not completed; and a
       web-ng test asserting that assigns hold no address.
 - [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
       it and through the worker's scrub of the same in-scope target and asserts they agree: an
@@ -82,7 +86,8 @@
 - [ ] 3.4 A migration enqueues the D7 stage 3 scrub job (a new job, not the stage 1 job); bump
       `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
       URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
-      and assert `at_rest_until_stage_3` is absent.
+      and assert `at_rest_until_stage_3` is absent; add a scrub worker test for the
+      camera-streaming scenario of a concurrent inventory upsert during a stage 3 pass.
 - [ ] 3.5 Web-ng operator sentences for the D5 classes.
 - [ ] 3.6 DB-backed tests in the Core Integration lanes; every unboxed test deletes its rows.
 
@@ -96,7 +101,9 @@
 ## 5. Docs
 
 - [ ] 5.1 `docs/docs/unifi-protect.md`: streams resolve on the agent; upgrade order (the D6
-      release-ordering rules); regenerate aliases after upgrading.
+      release-ordering rules); regenerate aliases after upgrading. The upgrade notes state
+      that during the Core upgrade that performs the cutover, relay opens served by
+      not-yet-upgraded Core nodes can fail until the rollout completes (D6).
 - [ ] 5.2 `docs/docs/srql-language-reference.md` `camera_sources` paragraph.
 - [ ] 5.3 Runbook under `docs/`: the `pending/0` verification command defined in design D7, the
       DLQ purge, backup expiry.

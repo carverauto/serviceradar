@@ -36,10 +36,10 @@ the address from the controller or camera when a stream opens.
   lacks the `camera_source_resolution` capability. The session fails with the
   classified reason `agent_upgrade_required`.
 - **Cleanup.** An Oban job per stage, enqueued from that stage's migration,
-  removes every existing copy. It completes only under the design D7 rule, so
-  code older than the job's stage cannot finish it. Operators check the result with the
-  worker's `pending/0`, which must return zero for every target in scope for
-  the running stage, and which reports separately the addresses still at rest
+  removes every existing copy. It completes only under the design D7 completion
+  rule, so code older than the job's stage cannot finish it. Operators check the
+  result with the worker's `pending/0`, which must return zero for every target
+  of the job's stage, and which reports separately the addresses still at rest
   until Stage 3.
 - **Containment first.** Stage 1 is a Core and web-ng change only, with no agent
   or plugin release. It hides the two columns from every reader except the relay
