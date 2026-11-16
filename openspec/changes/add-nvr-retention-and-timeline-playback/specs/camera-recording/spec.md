@@ -121,7 +121,8 @@ A periodic reconciler SHALL compare each member's inventory with the Core catalo
 #### Scenario: Uncertain capture later reconciled
 - **GIVEN** a capture ended uncertain, its reserved block row is `open_local` and its claim has expired
 - **WHEN** the reconciler finds that block sealed on the reserved storage with a journal identity equal to the row's identity
-- **THEN** it SHALL freeze the descriptor historically, create the catalog entry and enqueue archive
+- **THEN** it SHALL freeze the descriptor historically and create the catalog entry
+- **AND** it SHALL enqueue archive only when the block's policy archives; for a local-only policy the entry SHALL have archive state `not_required` and no archive job SHALL be enqueued
 - **AND** a concurrent live freeze of the same block SHALL resolve as an exact retry or a conflict, never two entries
 
 #### Scenario: Second rotated block adopted
@@ -417,6 +418,7 @@ Gaps, initialization changes, clock epoch changes and timestamp discontinuities 
 - **GIVEN** a requested range covers blocks whose local copies were reclaimed and blocks still stored locally
 - **WHEN** an authorized user plays the range
 - **THEN** reclaimed blocks SHALL be served from the archive and recent blocks from local storage in one playlist
+- **AND** blocks that are local only after archive expiry or reaping SHALL be served from local storage and shown in the coverage as existing only on local storage
 - **AND** each fragment response SHALL identify which copy served it
 
 #### Scenario: Local copy fails during playback

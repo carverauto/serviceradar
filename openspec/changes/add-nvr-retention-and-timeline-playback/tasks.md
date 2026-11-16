@@ -65,7 +65,7 @@ gate.
 - [ ] R.5 `recover_block/2` over the private listener, refusing only when an active session or publication touches that block or its source and profile (today it refuses whenever any recording is active, `capacity.ex:133-136`); client function.
 
 ### serviceradar_core_elx
-- [ ] R.6 `NVRReconcileJob` per member (every 5 minutes and after each uncertain capture): page inventory, classify each block (design R4 steps 1-6), adopt, recover, record gaps, enqueue archive for every pending or retryable entry without a job.
+- [ ] R.6 `NVRReconcileJob` per member (every 5 minutes and after each uncertain capture): page inventory, classify each block (design R4 steps 1-6), adopt, recover, record gaps, enqueue archive only for blocks whose policy archives (local-only entries get `not_required`) and for every pending or retryable entry without a job.
 - [ ] R.7 Residue disposal for `unrecoverable_journal` after the 7-day grace, unless held, through `RecordingDisposition` and the NVR reclaim endpoint (C.6).
 - [ ] R.8 Alarms through `TripwireHealth.record/4` (design R5, C8): oldest unarchived over 1 hour, any `failed_terminal`, any unattributable block, block unreconciled past its bound, reconciliation paused over 1 hour.
 - [ ] R.9 Backlog figures (unarchived count, bytes, oldest unarchived age, unreconciled and unattributable counts) published through the settings change's JetStream backlog telemetry.
@@ -163,7 +163,7 @@ gate.
 ### web-ng
 - [ ] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4).
 - [ ] D.4 Authorization on every request and `RecordingAccessAudit` per playlist window (design D7); resource and migration in serviceradar_core.
-- [ ] D.5 Timeline mode on `/cameras/:camera_source_id/recordings`: coverage bar with copy states, gaps, not scheduled and deleted regions; time basis labels; automatic adjacent-window loading; served-copy indicator; holds. No database queries in disconnected mount.
+- [ ] D.5 Timeline mode on `/cameras/:camera_source_id/recordings`: coverage bar with copy states (including local only after archive expiry or reaping), gaps, not scheduled and deleted regions; time basis labels; automatic adjacent-window loading; served-copy indicator; holds. No database queries in disconnected mount.
 
 ### Verification
 - [ ] D.6 Synthetic footage played across a local-to-archive boundary, after local reclaim, after NVR loss, with forced sources, across a gap and across an epoch change; an independent decoder checks frames. Browser qualification of discontinuities and gap handling with the pinned hls.js.

@@ -306,7 +306,8 @@ today. It:
    (used by the time basis, section T).
 4. Loops: reserve the next block sequence, open one ingest request, stream
    access units until a cut point (A4), end the stream, await `sealed_local`,
-   then register the block (B2) and enqueue its archive (A6).
+   then register the block (B2) and, when the policy archives, enqueue its
+   archive (A6).
 5. Ends the run on policy disable, relay session end, recorder claim loss,
    recovery gate closure or an unresolved block (below). A new run starts with
    a new claim and clock epoch; the boundary is a recorded gap.
@@ -660,8 +661,8 @@ above.
 
 Product rule (recorded 2026-11-15): footage captured at the edge must never be
 left stranded on disk. "Kept on the volume and flagged" is not an acceptable end
-state. Everything recorded ends up cataloged and archived, or is explicitly
-accounted for as a gap.
+state. Everything recorded ends up cataloged (and archived when its policy
+archives), or is explicitly accounted for as a gap.
 
 ### R1. How footage is stranded today
 
@@ -776,7 +777,9 @@ descriptor SHA-256. For each block:
 
 1. **Cataloged**: check the archive state; nothing else.
 2. **Reserved row, sealed block**: fetch the descriptor, historical freeze,
-   create the catalog entry, enqueue archive.
+   create the catalog entry, and enqueue archive only when the block's policy
+   archives; for a local-only policy the entry has
+   `archive_state = not_required` and nothing is enqueued.
 3. **Reserved row, incomplete journal**: once the writer is retired, call
    `recover_block/2` with the row's identity. The existing explicit recovery
    repairs the journal to its last committed fragment and seals it. Then treat
@@ -1758,8 +1761,10 @@ their window. Denied requests are logged with class only.
 ### D8. What investigators see
 
 - A day or multi-day coverage bar per camera: footage local and archived,
-  archive only, local only (not yet archived), gap with reason, not scheduled,
-  and deleted by retention.
+  archive only, local only (not yet archived), local only after archive expiry
+  or reaping (shown as existing only on local storage; evictable local bytes,
+  never counted as unarchived), gap with reason, not scheduled, and deleted by
+  retention.
 - Time labels with the basis ("received 14:03:12") and a marker where time was
   re-anchored.
 - The copy serving the current fragment, from `X-Recording-Copy`, read by the
@@ -1963,8 +1968,11 @@ applies before archive:
   window is a ceiling and budget eviction may reclaim verified-archived blocks
   sooner. This change uses a new field, `max_local_age_seconds`, rather than
   giving `hot_retention_seconds` the opposite meaning. The requirement's other
-  rule, that a block without a verified archive copy is never reclaimed by
-  age, is kept.
+  rule is kept, narrowed: a block whose archive copy is `pending`,
+  `failed_retryable` or `failed_terminal` is never reclaimed by age. A local
+  copy that is local only after archive expiry or reaping has no verified
+  archive copy and is still reclaimed by the maximum local age and by the local
+  budget (C1).
 - Its D13 says that in local-only mode "the same field is the archive
   retention itself". This change uses the explicit full policy and target in
   C2 instead.
