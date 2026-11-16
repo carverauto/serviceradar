@@ -196,7 +196,8 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     ).rows
   end
 
-  defp cleanup(source_id) do
+  @doc "Deletes every camera row hanging off `source_id`, for tests that commit their rows."
+  def cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
 
     Repo.query!(
