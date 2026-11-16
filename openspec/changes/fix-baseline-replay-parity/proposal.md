@@ -35,14 +35,18 @@ baseline, and the only baseline check compared `pg_dump` schema output.
   does not carry, or configures compression or retention the baseline does not restore.
 - The bootstrap integration test compares a baseline-created database with the lane's replayed
   database for TimescaleDB compression settings and policy jobs, and checks the seeded rows.
-
-Out of scope, delivered separately: repairing databases that were already created from a
-baseline without this state. `timeseries_metrics` compression on such databases is owned by
-`DataRetentionWorker` (`enable-timeseries-compression-on-baseline-installs`); the default SNMP
-profile by `add-standard-snmp-oid-templates`.
+- Databases already created from a baseline without this state are repaired after startup by
+  `BaselineInstallRepairWorker`, enqueued once by migration
+  `20261115233000_repair_baseline_install_state` on databases the baseline created. It applies
+  the current baseline's own sections: compression settings to hypertables with compression
+  off, compression and retention policies where none exists, and seed rows into empty tables.
+  It skips `timeseries_metrics` compression, owned by `DataRetentionWorker`
+  (`enable-timeseries-compression-on-baseline-installs`), and the default SNMP profile, owned
+  by `add-standard-snmp-oid-templates`.
 
 ## Impact
 - Affected specs: `database-bootstrap`
 - Affected code: `build/schema_baseline/`, `elixir/serviceradar_core/priv/repo/baseline/`,
-  `ServiceRadar.Repo.SchemaBootstrap`, `build/contracts/schema_baseline_freshness_test.py`,
+  `ServiceRadar.Repo.SchemaBootstrap`, `ServiceRadar.Repo.BaselineInstallRepairWorker`,
+  `build/contracts/schema_baseline_freshness_test.py`,
   `database_bootstrap_integration_test.exs`

@@ -34,3 +34,30 @@ state or rows it does not reproduce.
 - **GIVEN** a covered migration enqueues a job that processes existing rows
 - **WHEN** a fresh database is created from the baseline
 - **THEN** the job SHALL NOT be enqueued
+
+### Requirement: Databases created from an earlier baseline are repaired
+An earlier-baseline database SHALL be repaired to the state the current baseline carries.
+The repair covers databases created from a baseline that did not carry seed rows or TimescaleDB
+compression and retention state, and runs after startup without blocking it. The repair SHALL add only what is missing: it SHALL NOT duplicate rows in a
+table that already holds any, SHALL NOT change a compression setting or policy that exists, and
+SHALL NOT run on a database created by replaying migrations. State with a dedicated runtime
+owner SHALL be left to that owner.
+
+#### Scenario: Missing state is added
+- **GIVEN** a database created from an earlier baseline, with compression off on a hypertable
+  the migrations compress, a retention policy missing, and a seeded settings table empty
+- **WHEN** the repair runs
+- **THEN** that hypertable SHALL have the migrations' compression settings and policy
+- **AND** the retention policy SHALL exist
+- **AND** the settings table SHALL hold its seeded row
+
+#### Scenario: Existing state is kept
+- **GIVEN** a policy whose interval an operator changed, and a seeded table that already holds rows
+- **WHEN** the repair runs, once or more
+- **THEN** the policy interval SHALL be unchanged
+- **AND** no row SHALL be duplicated
+
+#### Scenario: A replayed database is untouched
+- **GIVEN** a database created by replaying migrations
+- **WHEN** the repair runs
+- **THEN** it SHALL change nothing

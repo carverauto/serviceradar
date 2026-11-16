@@ -309,9 +309,9 @@ class SchemaBaselineReproducesReplayTest(unittest.TestCase):
         callers = [p.name for p in self.covered if POLICY_CALL_RE.search(p.read_text())]
         if not callers:
             self.skipTest("no covered migration configures compression or retention")
-        self.assertIn(
-            POLICY_MARKER,
-            self.schema_sql,
+        # assertTrue, not assertIn: assertIn would print the whole multi-megabyte baseline.
+        self.assertTrue(
+            POLICY_MARKER in self.schema_sql,
             f"\n{len(callers)} covered migrations configure TimescaleDB compression or retention "
             f"(for example {callers[0]}), but the baseline restores none of it. Regenerate it with "
             "`bazel run //build/schema_baseline:generate`.",
