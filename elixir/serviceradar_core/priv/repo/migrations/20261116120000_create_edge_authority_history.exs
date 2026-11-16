@@ -46,6 +46,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateEdgeAuthorityHistory do
   def up do
     schema = prefix() || "platform"
 
+    # CREATE TRIGGER and the explicit seed lock below take SHARE ROW EXCLUSIVE on
+    # sweep_producer_assignments and edge_output_grants until commit, which blocks writes to
+    # them. Never queue behind a long transaction: fail fast and let the migration be retried.
+    # Once acquired, the lock is held only for the set-based seed (one INSERT ... SELECT over
+    # both tables), which is proportional to their row count.
+    execute("SET LOCAL lock_timeout = '5s'")
+
     execute("""
     CREATE TABLE IF NOT EXISTS #{schema}.#{@table} (
       id bigserial PRIMARY KEY,
