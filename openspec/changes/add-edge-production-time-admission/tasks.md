@@ -201,9 +201,13 @@ no-mistakes gate. There are no bypass flags, and no Helm-only settings.
       reconciliation of `:prepared` dispatches by idempotent read-back.
 - [ ] 4.3 Keep retained recovery-generation and archive-binding history, judge
       sealed blocks by the generation they were sealed under, and quarantine a
-      seal with no history. A verified quarantine-destination archive receipt
-      is terminal: it ends the drainer for that block and permits local
-      deletion.
+      seal with no history. With an archive destination configured, a
+      verified quarantine-destination archive receipt is terminal: it ends the
+      drainer for that block and permits local deletion. In local-only mode
+      the bad seal goes to a quarantine partition (or flag) of the qualified
+      durable local archive with its central index receipt persisted, which
+      is terminal; it is retained, counted and reported, never indexed for
+      playback and never auto-deleted. No new store.
 - [ ] 4.4 Add start-up reconciliation of unsealed and interrupted blocks, and
       owner reconciliation of leftover upload scratch.
 - [ ] 4.5 Cross-reference or move these tasks into `add-edge-recording-archive`,

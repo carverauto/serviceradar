@@ -46,9 +46,15 @@ follows the retention and hold policy, never before that publication.
 The archive path SHALL authorize a sealed block from the recovery generation, archive binding and recorder grant that were valid when the block was sealed, verified against retained history, and SHALL NOT refuse it only because the current generation or binding has changed.
 
 A block whose seal names a generation or binding absent from retained history,
-or one ended for a compromise-class reason, SHALL be archived to a quarantine
-destination and reported, never published for playback and never left on the
-recorder.
+or one ended for a compromise-class reason, SHALL never be published for
+playback and SHALL never be left in the recorder spool. With an archive
+destination configured it SHALL be archived to a quarantine destination and
+reported; its verified quarantine-destination receipt is terminal. In
+local-only mode it SHALL be placed in a quarantine partition (or carry a
+quarantine flag) of the same qualified durable local archive: retained,
+counted and reported, never indexed for playback and never auto-deleted. That
+placement, with its central index receipt persisted, is terminal for the
+drainer. No separate store SHALL be introduced for it.
 
 #### Scenario: Generation drift does not freeze draining
 - **GIVEN** a block sealed under recovery generation 7
@@ -60,3 +66,9 @@ recorder.
 - **THEN** the block SHALL be archived to the quarantine destination and reported
 - **AND** SHALL NOT be published for playback
 - **AND** once its quarantine receipt is verified the drainer SHALL stop retrying it and the recorder MAY delete its local copy
+
+#### Scenario: A local-only recorder quarantines a seal with no retained history
+- **GIVEN** an NVR in local-only mode with no archive destination configured
+- **WHEN** a sealed block's seal names a generation that retained history does not hold
+- **THEN** the block SHALL be placed in the quarantine partition of the qualified durable local archive with its central index receipt persisted, and the drainer SHALL stop for it
+- **AND** it SHALL be counted and reported, SHALL NOT be indexed for playback and SHALL NOT be auto-deleted

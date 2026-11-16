@@ -493,9 +493,17 @@ undelivered entry.
   generation and archive binding it was sealed under, verified from retained
   generation and binding history. It is not refused because the current
   generation moved. A seal with no retained history, or one ended for a
-  compromise-class reason, is archived to a quarantine destination and never
-  published for playback (approved by the owner); its verified quarantine
-  receipt is terminal and permits local deletion. A dispatch with an unknown
+  compromise-class reason, is never published for playback (approved by the
+  owner). The drainer's terminal depends on the mode. With an archive
+  destination configured, only a verified archive receipt or a verified
+  quarantine-destination receipt ends it, never a local publication; a bad
+  seal goes to the quarantine destination, and its verified receipt permits
+  local deletion. In local-only mode (no archive destination configured),
+  publishing the block into the qualified durable local archive with its
+  central index receipt persisted is terminal, and local deletion then follows
+  the retention and hold policy; a bad seal goes to a quarantine partition (or
+  flag) of that same archive, retained, counted and reported, never indexed
+  for playback and never auto-deleted. No new store is introduced. A dispatch with an unknown
   outcome is reconciled automatically by idempotent read-back (no-clobber put,
   HEAD and ranged verify), not left for an operator.
 
@@ -586,4 +594,7 @@ An old agent never asks for late grants and its lane opens carry no
   `ledger_pruned`.
 - A verified quarantine-destination archive receipt is a terminal disposition
   for a sealed media block.
-- The media seal-quarantine rule is approved.
+- The media seal-quarantine rule is approved. In local-only mode, publication
+  into the qualified durable local archive with its central index receipt is
+  terminal, and a bad seal goes to a quarantine partition (or flag) of that
+  archive, never indexed for playback and never auto-deleted.
