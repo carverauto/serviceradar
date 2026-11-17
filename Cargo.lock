@@ -6825,6 +6825,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "clap 4.6.6",
@@ -6834,6 +6835,7 @@ dependencies = [
  "log",
  "may",
  "notify",
+ "prost",
  "quickcheck",
  "rand 0.10.2",
  "rcgen",
@@ -6843,6 +6845,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serviceradar-cert-policy",
+ "serviceradar-zen-normalize",
  "tempfile",
  "time",
  "time-tz",

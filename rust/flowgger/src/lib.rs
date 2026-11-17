@@ -8,6 +8,8 @@ pub mod record_capnp;
 pub mod flowgger;
 
 pub use flowgger::{health_tls_config, start_pipeline};
+#[cfg(feature = "nats-output")]
+pub use flowgger::{normalized, start_normalized_pipeline};
 
 /// Start a flowgger instance starting from a file path
 ///

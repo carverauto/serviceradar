@@ -40,7 +40,13 @@ defmodule ServiceRadar.Edge.ManagedComponentNatsPermissions do
 
   def transport("log-collector"),
     do: %{
-      subjects: ["logs.syslog", "logs.otel", "otel.traces.>", "otel.metrics.>"],
+      subjects: [
+        "logs.syslog",
+        "logs.normalized.>",
+        "logs.otel",
+        "otel.traces.>",
+        "otel.metrics.>"
+      ],
       stream: "events"
     }
 

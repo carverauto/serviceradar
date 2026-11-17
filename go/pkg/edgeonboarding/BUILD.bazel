@@ -26,6 +26,7 @@ go_test(
     srcs = [
         "agent_enroll_test.go",
         "host_trust_unix_test.go",
+        "nats_config_test.go",
         "token_test.go",
     ],
     embed = [":edgeonboarding"],

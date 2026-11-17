@@ -46,9 +46,11 @@ through Get. No record-path RPC and no watch per sending host. Reconcile the
 current agent/stream/subject scope differences in compiler/conformance work.
 
 Each batch uses one ruleset version. Invalid updates retain last-known-good
-and expose stale/error status. Explicit empty snapshots are valid. Cold-start
-normalization readiness requires a validated snapshot; a persisted snapshot
-must pass the same validation. Preserve current per-record failure semantics
+and expose stale/error status. Explicit empty snapshots are valid. A collector
+never refuses syslog for want of a ruleset: until its first validated snapshot
+it publishes each record as JSON on the rule-bearing subject, where EventWriter
+normalizes it, and it normalizes from the next record once a snapshot is
+active. A persisted snapshot must pass the same validation. Preserve current per-record failure semantics
 until shared conformance establishes the exact behavior.
 
 ### Binary contract

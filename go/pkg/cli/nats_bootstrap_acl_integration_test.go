@@ -175,7 +175,7 @@ func partitionCorePermissions(partitionID string) *server.Permissions {
 				"$JS.ACK.>",
 				"_INBOX.>",
 			},
-			Deny: []string{"$SYS.>"},
+			Deny: []string{"$SYS.>", "logs.normalized.>"},
 		},
 		Subscribe: &server.SubjectPermission{
 			Allow: []string{

@@ -86,6 +86,22 @@ async fn run() -> Result<()> {
         health_server = health_server.tls_config(tls)?;
     }
 
+    // --- Zen ruleset from datasvc ---
+    let rules = cfg.rules.as_ref().map(|rules_cfg| {
+        let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
+            rules_cfg.stream_name.clone(),
+            rules_cfg.subject.clone(),
+        ));
+        info!("Following Zen ruleset {}", active.key());
+        tokio::spawn(rules::follow(
+            rules::Datasvc(rules_cfg.datasvc.endpoint()),
+            std::sync::Arc::clone(&active),
+        ));
+        active
+    });
+    let normalize_syslog =
+        cfg.normalize_syslog(std::env::var(config::NORMALIZE_SYSLOG_ENV).ok().as_deref())?;
+
     let mut pipelines: JoinSet<Result<&'static str>> = JoinSet::new();
 
     // --- Flowgger (syslog/GELF) pipeline ---
@@ -93,10 +109,24 @@ async fn run() -> Result<()> {
     if cfg.flowgger.enabled {
         let flowgger_config = cfg.flowgger.config_file.clone();
         info!("Starting Flowgger pipeline with config: {flowgger_config}");
+        // Syslog is taken from the first moment either way: until the ruleset
+        // arrives, records go to EventWriter as JSON for it to normalize.
+        let normalization = rules
+            .clone()
+            .filter(|_| normalize_syslog)
+            .map(|rules| flowgger::normalized::Normalization { rules });
+        if normalization.is_some() {
+            info!("Normalizing syslog at the collector");
+        }
 
         // Flowgger uses sync threads internally, so we run it in a blocking task.
         pipelines.spawn_blocking(move || {
-            flowgger::start_pipeline(&flowgger_config);
+            match normalization {
+                Some(normalization) => {
+                    flowgger::start_normalized_pipeline(&flowgger_config, normalization)
+                }
+                None => flowgger::start_pipeline(&flowgger_config),
+            }
             Ok("flowgger")
         });
     }
@@ -119,21 +149,6 @@ async fn run() -> Result<()> {
                 backoff_secs = (backoff_secs * 2).min(30);
             }
         });
-    }
-
-    // --- Zen ruleset from datasvc ---
-    // Nothing reads the ruleset yet; following it now shows in the log whether
-    // this collector can fetch and validate what core publishes.
-    if let Some(rules_cfg) = &cfg.rules {
-        let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
-            rules_cfg.stream_name.clone(),
-            rules_cfg.subject.clone(),
-        ));
-        info!("Following Zen ruleset {}", active.key());
-        tokio::spawn(rules::follow(
-            rules::Datasvc(rules_cfg.datasvc.endpoint()),
-            active,
-        ));
     }
 
     if pipelines.is_empty() {

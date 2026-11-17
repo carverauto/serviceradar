@@ -289,6 +289,7 @@ func GenerateCollectorPermissions(namespace, collectorType string) (publishAllow
 	case "flowgger":
 		publishAllow = []string{
 			prefix + "logs.syslog.>",
+			prefix + "logs.normalized.>",
 		}
 		subscribeAllow = []string{}
 

@@ -143,14 +143,14 @@ impl Config {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use std::path::PathBuf;
 
     /// `cargo test` runs with the crate root as the working directory, but Bazel runs the
     /// test binary out of the runfiles tree, where a bare relative path resolves to nothing.
     /// Resolve against the manifest first, then runfiles, mirroring netprobe's corpus lookup.
-    fn fixture_path(name: &str) -> PathBuf {
+    pub(crate) fn fixture_path(name: &str) -> PathBuf {
         if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
             let candidate = Path::new(&manifest_dir).join("tests/resources").join(name);
             if candidate.exists() {

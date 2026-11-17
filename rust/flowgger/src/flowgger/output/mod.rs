@@ -10,6 +10,8 @@ mod tls_output;
 
 #[cfg(feature = "nats-output")]
 pub use self::nats_output::NATSOutput;
+#[cfg(feature = "nats-output")]
+pub(crate) use self::nats_output::partition_remote_addr;
 
 pub use self::debug_output::DebugOutput;
 #[cfg(feature = "file")]

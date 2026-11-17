@@ -73,5 +73,20 @@ and at most one encoded record staged for byte admission. The upstream Flowgger
 record queue and client/TLS buffers have their own memory costs. One persistent
 bridge thread per worker keeps an idle synchronous queue off the Tokio runtime.
 
+## Normalized batches
+
+When the embedding log collector normalizes syslog itself (see
+`rust/log-collector/src/config.rs`, off by default), the NATS output publishes
+OTLP batches on the normalized form of `output.nats_subject` (`logs.syslog`
+becomes `logs.normalized.syslog`), one ruleset per batch. Records that arrive
+before a ruleset is active are published one by one on `output.nats_subject`
+as GELF. A batch closes at `output.nats_batch_max_records` records (default
+`256`), `output.nats_batch_max_bytes` bytes (default `262144`, capped at
+`output.nats_max_inflight_bytes`) or `output.nats_batch_max_age_ms` after its
+first record (default `100`). All three must be positive integers. A batch is
+retried with the bytes and message ID it was first sent with, and an open batch
+is published within the same drain as other admitted records when the output
+fails.
+
 ## Support
 This fork is maintained for ServiceRadar. We welcome contributions aligned with this use case but cannot support other applications.

@@ -155,6 +155,36 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
     refute Enum.any?(flow_allow, &nats_subject_allows?(&1, published))
   end
 
+  test "log collector grant covers its normalized log subject" do
+    site = "00000000-0000-4000-8000-000000000123"
+
+    components = [
+      %{component_id: "example-logs", component_type: "log-collector", edge_site_id: site},
+      %{component_id: "example-trapd", component_type: "trapd", edge_site_id: site}
+    ]
+
+    logs = String.duplicate("d", 64)
+    trapd = String.duplicate("e", 64)
+
+    grants =
+      ManagedComponentNatsPermissions.snapshot(
+        components,
+        [
+          %{component_id: "example-logs", fingerprint: logs, role: "client"},
+          %{component_id: "example-trapd", fingerprint: trapd, role: "client"}
+        ],
+        [logs, trapd]
+      )
+
+    logs_allow = signed_publish_allow(grants[logs])
+    trapd_allow = signed_publish_allow(grants[trapd])
+
+    assert Enum.any?(logs_allow, &nats_subject_allows?(&1, "logs.normalized.syslog"))
+    assert Enum.any?(logs_allow, &nats_subject_allows?(&1, "logs.syslog"))
+    refute Enum.any?(logs_allow, &nats_subject_allows?(&1, "logs.snmp"))
+    refute Enum.any?(trapd_allow, &nats_subject_allows?(&1, "logs.normalized.syslog"))
+  end
+
   test "receiver lease and certificate validity have independent strict boundaries", ctx do
     assert :ok = Authority.authorize(ctx.snapshot, "example-core", @first, @now)
 
