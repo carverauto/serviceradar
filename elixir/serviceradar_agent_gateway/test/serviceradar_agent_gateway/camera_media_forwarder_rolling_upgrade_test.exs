@@ -32,6 +32,17 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
       start_core_peer!(:old_core, "#{basename}_old", """
       defmodule #{inspect(@ingress)} do
         def unrelated, do: :ok
+
+        # Fails a call to a missing function exactly as the VM's error handler does, after
+        # telling the observer, if one is set, that a caller reached this too-old node.
+        def unquote(:"$handle_undefined_function")(function, args) do
+          case :persistent_term.get(:rolling_rpc_undef_observer, nil) do
+            observer when is_pid(observer) -> send(observer, {:reached_old_core, function})
+            nil -> :ok
+          end
+
+          :erlang.raise(:error, :undef, [{__MODULE__, function, args, []}])
+        end
       end
       """)
 
@@ -76,41 +87,38 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
   end
 
   test "a capable core that joins during the wait serves the call", ctx do
-    test_pid = self()
-
-    Task.start(fn ->
-      Process.sleep(60)
-      {:ok, peer, _node} = start_peer(ctx.basename)
-      send(test_pid, {:spawned_peer, peer})
-
-      configure_peer(peer, """
+    # Booting a peer VM can take longer than the wait window on a loaded host, so the new
+    # core boots before the call and only joins (connects) inside the window: once the old
+    # core has refused the caller, so the call is already waiting for a capable peer.
+    new_node =
+      boot_core_peer!(:new_core, ctx.basename, """
       defmodule #{inspect(@ingress)} do
         def open_relay_session(%Camera.OpenRelaySessionRequest{relay_session_id: id}) do
           {:ok, %Camera.OpenRelaySessionResponse{message: id, accepted: true}, %{host: node()}}
         end
       end
       """)
-    end)
 
-    on_exit(fn ->
-      receive do
-        {:spawned_peer, peer} -> safe_stop(peer)
-      after
-        0 -> :ok
-      end
-    end)
+    refute new_node in Node.list()
 
+    joiner =
+      Task.async(fn ->
+        receive do
+          {:reached_old_core, :open_relay_session} -> Node.connect(new_node)
+        end
+      end)
+
+    :ok = :erpc.call(ctx.old_node, :persistent_term, :put, [:rolling_rpc_undef_observer, joiner.pid])
     Application.put_env(:serviceradar_core, :cluster_rpc_undef_wait_ms, 3_000)
     request = %Camera.OpenRelaySessionRequest{relay_session_id: "relay-rolling-3"}
 
     log =
       capture_log(fn ->
-        assert {:ok, %Camera.OpenRelaySessionResponse{message: "relay-rolling-3"}, %{host: host}} =
+        assert {:ok, %Camera.OpenRelaySessionResponse{message: "relay-rolling-3"}, %{host: ^new_node}} =
                  CameraMediaForwarder.open_relay_session(request, opts(ctx.old_node))
-
-        assert Atom.to_string(host) =~ "#{ctx.basename}@"
       end)
 
+    assert Task.await(joiner)
     assert log == ""
   end
 
@@ -150,6 +158,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
   end
 
   defp start_core_peer!(id, peer_name, code) do
+    core_node = boot_core_peer!(id, peer_name, code)
+    true = Node.connect(core_node)
+    core_node
+  end
+
+  # Boots a peer VM running `code` without connecting it to this node.
+  defp boot_core_peer!(id, peer_name, code) do
     peer =
       start_supervised!(%{
         id: id,
@@ -159,8 +174,6 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
 
     configure_peer(peer, code)
   end
-
-  defp start_peer(peer_name), do: :peer.start(peer_opts(peer_name))
 
   defp peer_opts(peer_name) do
     %{
@@ -176,14 +189,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
     {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
     :ok = :peer.call(peer, Code, :put_compiler_option, [:ignore_module_conflict, true])
     :peer.call(peer, Code, :compile_string, [code])
-    true = Node.connect(core_node)
     core_node
-  end
-
-  defp safe_stop(peer) do
-    :peer.stop(peer)
-  catch
-    _, _ -> :ok
   end
 
   defp restore_env(app, key, nil), do: Application.delete_env(app, key)
