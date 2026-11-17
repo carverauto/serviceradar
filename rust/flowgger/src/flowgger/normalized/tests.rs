@@ -11,6 +11,7 @@ use std::cell::Cell;
 use std::time::Duration;
 use tokio::time::Instant;
 
+mod bench;
 mod props;
 
 thread_local! {

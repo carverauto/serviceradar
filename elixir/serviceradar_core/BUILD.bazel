@@ -1046,6 +1046,14 @@ filegroup(
     srcs = ALL_TEST_SRCS + glob(["test/db/**"]) + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
 )
 
+# Core's bundled Zen rules, as the log collector's benchmark runs them
+# (//rust/flowgger:flowgger_normalized_bench).
+filegroup(
+    name = "zen_bundled_rules",
+    srcs = glob(["priv/zen/rules/*.json"]),
+    visibility = ["//rust/flowgger:__pkg__"],
+)
+
 # Read as source by //build:logger_metadata_contract_test, which checks the metadata keys of
 # every Logger.warning/error call. Kept separate from :srcs so the test's inputs are only
 # the files it parses.

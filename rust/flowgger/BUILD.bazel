@@ -132,6 +132,35 @@ rust_test(
     ),
 )
 
+# Criterion measurements of the normalized path. The stages are private to the crate, so
+# the measurements are an ignored test in it, not a `benches/` program; this target runs
+# only that test. `benchmark` puts it in BazelCI's benchmark step, which records and never
+# gates (see //build:benchmarks.bzl).
+rust_test(
+    name = "flowgger_normalized_bench",
+    args = [
+        "--ignored",
+        "--nocapture",
+        "bench_normalized_path",
+    ],
+    crate = ":flowgger_lib",
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    data = ["//elixir/serviceradar_core:zen_bundled_rules"],
+    tags = ["benchmark"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)
+
 # The Hegel properties over many more inputs than a pull request should wait for. Never
 # cached and never part of a wildcard build: the "RustPropertyExploration" workflow in
 # //:buildbuddy.yaml runs it on a schedule.
