@@ -181,17 +181,14 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
   defp log(outcomes) do
     Enum.each(outcomes, fn
       {:recorded, fingerprint, component_id} ->
-        Logger.info("Recorded rotated runtime certificate",
-          component_id: component_id,
-          fingerprint: fingerprint
-        )
+        Logger.info("Recorded rotated runtime certificate #{fingerprint} for #{component_id}")
 
       {:skipped, _fingerprint, _reason} ->
         :ok
 
       {:refused, fingerprint, reason} ->
-        Logger.warning("Rotated runtime certificate was not recorded: #{inspect(reason)}",
-          fingerprint: fingerprint
+        Logger.warning(
+          "Rotated runtime certificate #{inspect(fingerprint)} was not recorded: #{inspect(reason)}"
         )
     end)
   end
