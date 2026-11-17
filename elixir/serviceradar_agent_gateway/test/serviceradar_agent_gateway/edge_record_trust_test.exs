@@ -80,6 +80,42 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     assert EdgeRecordTrust.fence_relation(snapshot, {EdgeRecordFactory.uuidv7(), assignment, 0}, 5) == :unavailable
   end
 
+  test "names each terminal authority interval exactly, whatever the current fence says", %{keys: keys} do
+    scope = EdgeRecordFactory.uuidv7()
+    assignment = EdgeRecordFactory.uuidv7()
+
+    document =
+      keys.public
+      |> EdgeRecordFactory.trust_document(fences: [{scope, assignment, 0, 9}])
+      |> Map.put("terminal_intervals", [terminal(scope, assignment, 0, 4)])
+
+    {:ok, snapshot} = EdgeRecordTrust.new(document)
+
+    # The interval that ended with a revoked certificate, and nothing near it.
+    assert EdgeRecordTrust.terminal_interval?(snapshot, {scope, assignment, 0}, 4)
+    refute EdgeRecordTrust.terminal_interval?(snapshot, {scope, assignment, 0}, 3)
+    refute EdgeRecordTrust.terminal_interval?(snapshot, {scope, assignment, 1}, 4)
+    # A higher current fence alone never makes an epoch terminal.
+    refute EdgeRecordTrust.terminal_interval?(snapshot, {scope, assignment, 0}, 8)
+
+    # A document from a core that predates the list carries none.
+    {:ok, older} = EdgeRecordTrust.new(EdgeRecordFactory.trust_document(keys.public))
+    refute EdgeRecordTrust.terminal_interval?(older, {scope, assignment, 0}, 4)
+  end
+
+  test "rejects terminal intervals that could not name one exact interval", %{keys: keys} do
+    scope = EdgeRecordFactory.uuidv7()
+    assignment = EdgeRecordFactory.uuidv7()
+    entry = terminal(scope, assignment, 0, 4)
+    with_entries = &Map.put(EdgeRecordFactory.trust_document(keys.public), "terminal_intervals", &1)
+
+    assert {:error, :duplicate_terminal_interval} = EdgeRecordTrust.new(with_entries.([entry, entry]))
+    assert {:error, :authority_epoch} = EdgeRecordTrust.new(with_entries.([%{entry | "authority_epoch" => -1}]))
+    assert {:error, :run_shard} = EdgeRecordTrust.new(with_entries.([Map.delete(entry, "run_shard")]))
+    assert {:error, :terminal_interval} = EdgeRecordTrust.new(with_entries.(["not an interval"]))
+    assert {:error, :not_a_list} = EdgeRecordTrust.new(with_entries.(%{}))
+  end
+
   test "binds each agent principal to its network scopes, and leaves any other principal unbound", %{keys: keys} do
     first = EdgeRecordFactory.uuidv7()
     second = EdgeRecordFactory.uuidv7()
@@ -251,5 +287,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  defp terminal(scope, assignment, shard, epoch) do
+    %{
+      "network_scope_id" => Base.encode64(scope),
+      "producer_assignment_id" => Base.encode64(assignment),
+      "run_shard" => shard,
+      "authority_epoch" => epoch
+    }
   end
 end

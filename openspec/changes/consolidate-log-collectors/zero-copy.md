@@ -28,10 +28,10 @@ through parsing and rule evaluation, then encode once into a bounded batch.
 
 ## What Zen already provides
 
-ServiceRadar's Cargo.lock pins zen-engine/zen-types 2.0.1 and hipstr 0.8.0.
-The separately cloned gorules/zen checkout at
-`9c374e1681895261102ba3384d19884e8133be1d` declares version 2.1.7. Both have the
-following relevant structure; the newer checkout is not the installed version.
+ServiceRadar's Cargo.lock pins zen-engine/zen-types 2.1.7 and hipstr 0.8.0.
+This investigation read zen-engine 2.0.1 (the version then locked) and the
+gorules/zen checkout at `9c374e1681895261102ba3384d19884e8133be1d`, which
+declares version 2.1.7. Both have the following relevant structure.
 
 - `core/types/src/symbol.rs`: `Symbol = hipstr::LocalHipStr<'static>`.
   HipStr can adopt an owned String/Vec backing allocation and produce shared

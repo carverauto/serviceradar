@@ -13,3 +13,4 @@
 - [ ] 3.1 Verify readers-first migration, old-epoch draining, rollback and stable IDs without dual publication.
 - [ ] 3.2 Exercise delayed ACKs, disconnected collectors, failed shards, redelivery and hot-source skew.
 - [ ] 3.3 Benchmark single/multiple streams with equal durability and total capacity; enable based on evidence.
+- [ ] 3.4 If shard workers share admission or demand state without a lock (2.3), model it with Loom in the change that adds it.

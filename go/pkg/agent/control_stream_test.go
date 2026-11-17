@@ -641,6 +641,7 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 		proxmoxIdentityCapabilityV3,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		pluginCapabilityGRPCRequest,
+		cameraSourceResolutionCapability,
 	} {
 		if !slices.Contains(hello.GetCapabilities(), capability) {
 			t.Fatalf("control stream hello capabilities missing %q: %#v", capability, hello.GetCapabilities())

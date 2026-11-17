@@ -1506,6 +1506,21 @@ func (m *PluginManager) runPluginVerb(
 		return nil, fmt.Errorf("%w for plugin %q", errPluginAssignmentNotFound, strings.TrimSpace(pluginID))
 	}
 
+	return m.runAssignmentOnDemand(ctx, assignment, configJSON, credentialGrants, authorizedRequestBody, callbackCredential, timeout)
+}
+
+// runAssignmentOnDemand runs one assignment's entrypoint in action mode and
+// returns what the plugin submitted. The result stays in memory: it is never
+// queued as a plugin result.
+func (m *PluginManager) runAssignmentOnDemand(
+	ctx context.Context,
+	assignment *pluginAssignment,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
+	callbackCredential *awxCallbackCredentialMemoryInput,
+	timeout time.Duration,
+) ([]byte, error) {
 	// Gated here as well as in RunAction. Notification dispatch is specified to
 	// ride plugin.run_action, so this path should never carry a delivery
 	// envelope - but "should never" is not a permission check, and a capability
@@ -1534,7 +1549,7 @@ func (m *PluginManager) runPluginVerb(
 	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		m.recordExecution(false)
-		return nil, err
+		return nil, &pluginModuleLoadError{err: err}
 	}
 
 	result, err := m.executeActionWithWasm(
@@ -1550,6 +1565,17 @@ func (m *PluginManager) runPluginVerb(
 	m.recordExecution(err == nil)
 	return result, err
 }
+
+// pluginModuleLoadError marks a run that failed before the plugin started
+// because its module could not be loaded. It keeps the load error's text and
+// identity.
+type pluginModuleLoadError struct {
+	err error
+}
+
+func (e *pluginModuleLoadError) Error() string { return e.err.Error() }
+
+func (e *pluginModuleLoadError) Unwrap() error { return e.err }
 
 // lookupVerbAssignment finds the runner assignment a verb command
 // addresses. When the command carries an assignment id, only that
