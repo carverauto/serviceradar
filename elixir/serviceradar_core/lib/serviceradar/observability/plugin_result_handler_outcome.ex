@@ -60,7 +60,6 @@ defmodule ServiceRadar.Observability.PluginResultHandlerOutcome do
     :source_observation_ingest_failed,
     :plugin_assignment_package_not_loaded,
     :incomplete_hosted_inventory_read,
-    :incomplete_hosted_owner_ancestry,
     :rollback,
     :timeout,
     :closed,

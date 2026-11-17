@@ -443,7 +443,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
          :ok <- VirtualizationIdentityAliases.reconcile(records),
          :ok <- retire_legacy_proxmox_records(records, actor),
-         :ok <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
+         {:ok, _unresolved} <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
       if !Repo.in_transaction?() do
         nics |> Stream.map(& &1[:device_uid]) |> DevicePubSub.broadcast_invalidated()
       end
@@ -486,18 +486,26 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp retire_legacy_proxmox_records(_records, _actor), do: :ok
 
-  @doc "Repairs one bounded page of saved owners and existing projections."
+  @doc """
+  Repairs one bounded page of saved owners and existing projections.
+
+  A guest or projection whose owner identity cannot be settled is kept as it
+  is, logged, and counted in the checkpoint's `guests_unresolved` and
+  `edges_unresolved`; it does not halt the rest of the page.
+  """
   def reconcile_hosted_topology(checkpoint \\ %{}) do
     actor = SystemActor.system(:topology_world)
 
     with {:ok, guests} <- hosted_guest_page(checkpoint, actor),
          {:ok, edges} <- hosted_projection_page(checkpoint),
-         :ok <- reconcile_saved_guests(guests, actor),
-         :ok <- Enum.reduce_while(edges, :ok, &reconcile_saved_projection(&1, &2, actor)) do
+         {:ok, unresolved_guests} <- reconcile_saved_guests(guests, actor),
+         {:ok, unresolved_edges} <- reconcile_saved_projections(edges, actor) do
       checkpoint =
         checkpoint
         |> advance_hosted_page("guests", guests, fn guest -> guest.id end)
         |> advance_hosted_page("edges", edges, fn edge -> edge["uid"] end)
+        |> Map.update("guests_unresolved", unresolved_guests, &(&1 + unresolved_guests))
+        |> Map.update("edges_unresolved", unresolved_edges, &(&1 + unresolved_edges))
 
       {:ok, checkpoint}
     end
@@ -566,7 +574,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     )
   end
 
-  defp reconcile_saved_guest_ids([], _actor), do: :ok
+  defp reconcile_saved_guest_ids([], _actor), do: {:ok, 0}
 
   defp reconcile_saved_guest_ids(ids, actor) do
     query = Ash.Query.filter(hosted_guest_query(), id in ^ids)
@@ -581,7 +589,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   # record; only one that is not (merged, deleted or absent) is resolved on its own.
   defp reconcile_saved_guests(guests, actor) do
     live = live_owner_uids(guests, actor)
-    Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor, live))
+    Enum.reduce_while(guests, {:ok, 0}, &reconcile_saved_guest(&1, &2, actor, live))
   end
 
   defp live_owner_uids(guests, actor) do
@@ -622,19 +630,47 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
        }}
     else
       {:error, _reason} = error -> error
+      {:unresolved, _reason} = unresolved -> unresolved
       _ -> {:skip, :invalid_saved_owner}
     end
   end
 
-  defp reconcile_saved_guest(guest, :ok, actor, live) do
+  defp reconcile_saved_guest(guest, {:ok, unresolved}, actor, live) do
     case saved_hosted_link(guest, actor, live) do
       # A valid owner without an observation can retain last-known evidence,
       # but cannot create or refresh it from a host heartbeat.
-      {:ok, %{observed_at: nil}} -> {:cont, :ok}
-      {:ok, link} -> reduce_hosted_result(reconcile_saved_containment(link))
-      {:skip, _reason} -> {:cont, :ok}
-      {:error, _reason} = error -> {:halt, error}
+      {:ok, %{observed_at: nil}} ->
+        {:cont, {:ok, unresolved}}
+
+      {:ok, link} ->
+        reduce_hosted_result(reconcile_saved_containment(link), unresolved)
+
+      {:skip, _reason} ->
+        {:cont, {:ok, unresolved}}
+
+      {:unresolved, reason} ->
+        Logger.warning(
+          "HypervisorEnrichmentIngestor: saved guest #{guest.id} left unrepaired; " <>
+            "owner identity unresolved: #{inspect(reason)}"
+        )
+
+        {:cont, {:ok, unresolved + 1}}
+
+      {:error, _reason} = error ->
+        {:halt, error}
     end
+  end
+
+  # One projection whose owners cannot be settled is kept and counted; only a
+  # failed read or write halts the page, so the job retries it.
+  defp reconcile_saved_projections(edges, actor) do
+    Enum.reduce_while(edges, {:ok, 0}, fn edge, {:ok, unresolved} ->
+      case reconcile_saved_projection(edge, actor) do
+        :ok -> {:cont, {:ok, unresolved}}
+        {:unresolved, _reason} -> {:cont, {:ok, unresolved + 1}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp reconcile_saved_projection(
@@ -643,28 +679,45 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
            "target" => [%{"id" => target}],
            "observed_at" => observed_at
          },
-         :ok,
          actor
        ) do
-    with {:ok, owner_ids} <- hosted_owner_ids([source], [source], 5, actor),
+    case hosted_projection_backing(source, target, actor) do
+      :backed ->
+        :ok
+
+      # `source`/`target` are the guest/host of the inspected HOSTED_ON
+      # projection; the CONTAINS twin runs host-to-guest.
+      :unbacked ->
+        with :ok <- DgraphPersist.retire_contained_link(target, source, observed_at) do
+          DgraphPersist.retire_hosted_link(source, target, observed_at)
+        end
+
+      {:unresolved, reason} = unresolved ->
+        Logger.warning(
+          "HypervisorEnrichmentIngestor: kept HOSTED_ON #{source} -> #{target}; " <>
+            "owner identity unresolved: #{inspect(reason)}"
+        )
+
+        unresolved
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # A projection is backed while both ends are live canonical devices and a
+  # saved guest owned by `source` still names it. Anything short of a complete
+  # answer is `{:unresolved, _}` or `{:error, _}`, never `:unbacked`.
+  defp hosted_projection_backing(source, target, actor) do
+    with {:ok, true} <- live_hosted_projection(source, target, actor),
+         {:ok, owner_ids} <- hosted_owner_ids(source, actor),
          query = Ash.Query.filter(hosted_guest_query(), device_uid in ^owner_ids),
          {:ok, guests} <- complete_hosted_read(query, actor),
-         {:ok, links} <- saved_hosted_links(guests, actor),
-         {:ok, live?} <- live_hosted_projection(source, target, actor) do
-      if live? and Enum.any?(links, &(&1.guest_device_id == source)) do
-        {:cont, :ok}
-      else
-        # `source`/`target` are the guest/host of the inspected HOSTED_ON
-        # projection; the CONTAINS twin runs host-to-guest.
-        with :ok <- DgraphPersist.retire_contained_link(target, source, observed_at),
-             :ok <- DgraphPersist.retire_hosted_link(source, target, observed_at) do
-          {:cont, :ok}
-        else
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end
+         {:ok, links} <- saved_hosted_links(guests, actor) do
+      if Enum.any?(links, &(&1.guest_device_id == source)), do: :backed, else: :unbacked
     else
-      {:error, _reason} = error -> {:halt, error}
+      {:ok, false} -> :unbacked
+      unsettled -> unsettled
     end
   end
 
@@ -674,40 +727,53 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       {:ok, true}
     else
       {:error, _reason} = error -> error
+      {:unresolved, _reason} = unresolved -> unresolved
       _ -> {:ok, false}
     end
   end
 
-  # Inventory may retain the original UID after a canonical merge. Read its
-  # bounded ancestry before concluding that the saved owner no longer exists.
-  defp hosted_owner_ids(_ids, _frontier, 0, _actor),
-    do: {:error, :incomplete_hosted_owner_ancestry}
+  # Inventory may still name a guest by a UID merged into `source`. Its owners
+  # are exactly the UIDs the canonical resolver maps to `source`. The merge
+  # audit is an event log, not that relation: unmerges and reversed merges make
+  # it cyclic and join unrelated live devices, so a UID read from it is an
+  # owner only when the resolver confirms it. That inverse is no deeper than
+  # the resolver's own follow bound, so the walk needs no depth budget.
+  defp hosted_owner_ids(source, actor), do: hosted_owner_ids(source, [source], [source], actor)
 
-  defp hosted_owner_ids(ids, frontier, depth, actor) do
+  defp hosted_owner_ids(_source, ids, [], _actor), do: {:ok, ids}
+
+  defp hosted_owner_ids(source, ids, frontier, actor) do
     # Audit rows are events. Bound unique identities at the source so repeated
-    # events neither re-enter the frontier nor consume the ancestry budget.
+    # events neither re-enter the frontier nor consume the owner budget.
     query =
       MergeAudit
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(to_device_id in ^frontier)
+      |> Ash.Query.filter(to_device_id in ^frontier and (is_nil(reason) or reason != "unmerge"))
       |> Ash.Query.select([:from_device_id])
       |> Ash.Query.distinct(:from_device_id)
       |> Ash.Query.limit(@hosted_page_size + 1)
 
     with {:ok, merges} <- complete_hosted_read(query, actor) do
-      ancestors = Enum.map(merges, & &1.from_device_id) -- ids
+      candidates = Enum.map(merges, & &1.from_device_id) -- ids
 
-      cond do
-        ancestors == [] ->
-          {:ok, ids}
-
-        length(ids) + length(ancestors) > @hosted_page_size ->
-          {:error, :incomplete_hosted_owner_ancestry}
-
-        true ->
-          hosted_owner_ids(ids ++ ancestors, ancestors, depth - 1, actor)
+      if length(ids) + length(candidates) > @hosted_page_size do
+        {:unresolved, {:owner_identities_exceed_read_bound, @hosted_page_size}}
+      else
+        with {:ok, owners} <- confirmed_owners(candidates, source, actor) do
+          hosted_owner_ids(source, ids ++ owners, owners, actor)
+        end
       end
     end
+  end
+
+  defp confirmed_owners(candidates, source, actor) do
+    Enum.reduce_while(candidates, {:ok, []}, fn candidate, {:ok, owners} ->
+      case resolve_canonical_device_uid(candidate, actor) do
+        {:ok, ^source} -> {:cont, {:ok, [candidate | owners]}}
+        {:ok, _other} -> {:cont, {:ok, owners}}
+        unsettled -> {:halt, unsettled}
+      end
+    end)
   end
 
   defp complete_hosted_read(query, actor) do
@@ -723,13 +789,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       case saved_hosted_link(guest, actor) do
         {:ok, link} -> {:cont, {:ok, [link | links]}}
         {:skip, _reason} -> {:cont, {:ok, links}}
-        {:error, _reason} = error -> {:halt, error}
+        unsettled -> {:halt, unsettled}
       end
     end)
   end
 
-  defp reduce_hosted_result(:ok), do: {:cont, :ok}
-  defp reduce_hosted_result({:error, _reason} = error), do: {:halt, error}
+  defp reduce_hosted_result(:ok, unresolved), do: {:cont, {:ok, unresolved}}
+  defp reduce_hosted_result({:error, _reason} = error, _unresolved), do: {:halt, error}
 
   # The CONTAINS twin of a hosted link carries the same evidence in the
   # opposite direction (host contains guest). It is projected with the
@@ -755,7 +821,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp resolve_live_canonical_device_uid(uid, actor) do
-    with {:ok, canonical_uid} <- IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+    with {:ok, canonical_uid} <- resolve_canonical_device_uid(uid, actor) do
       query =
         Device
         |> Ash.Query.for_read(:read)
@@ -766,6 +832,18 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         {:ok, nil} -> {:skip, {:missing_or_inactive_virtualization_endpoint, canonical_uid}}
         {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  # A redirect chain longer than the resolver follows is a property of that one
+  # identity, not a failed read: retrying cannot settle it.
+  defp resolve_canonical_device_uid(uid, actor) do
+    case IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+      {:error, :canonical_resolution_depth_exceeded} ->
+        {:unresolved, {:canonical_resolution_depth_exceeded, uid}}
+
+      result ->
+        result
     end
   end
 
