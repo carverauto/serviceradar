@@ -506,8 +506,9 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   @doc """
   The uid of the device a polling host belongs to: the device whose uid it is,
   the device holding it as a confirmed IP alias, or the device whose IP,
-  hostname or name it is. `{:error, :device_not_found}` when none does; any
-  other error is a failed read.
+  hostname or name it is, preferred in that field order with the lowest uid
+  breaking a tie. `{:error, :device_not_found}` when none does; any other
+  error is a failed read.
   """
   @spec device_uid_for_host(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def device_uid_for_host(host, actor) when is_binary(host) do
