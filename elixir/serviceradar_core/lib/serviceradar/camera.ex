@@ -27,6 +27,8 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.RecorderClaim
     resource ServiceRadar.Camera.RecordingControlState
     resource ServiceRadar.Camera.RecordingArchiveSettings
+    resource ServiceRadar.Camera.CameraRecordingPolicy
+    resource ServiceRadar.Camera.NVRStorageSettings
     resource ServiceRadar.Camera.LocalPublicationIntent
     resource ServiceRadar.Camera.RecordingBlock
     resource ServiceRadar.Camera.RecordingCatalogEntry

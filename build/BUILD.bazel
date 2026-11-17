@@ -143,6 +143,7 @@ exports_files([
     "camera_nvr_retention_settings_schema.exs",
     "camera_recording_catalog_schema.exs",
     "camera_recording_holds_schema.exs",
+    "camera_recording_policy_and_storage_settings_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",

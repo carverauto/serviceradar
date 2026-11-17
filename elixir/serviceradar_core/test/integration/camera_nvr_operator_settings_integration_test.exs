@@ -8,21 +8,29 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveDestinations
+  alias ServiceRadar.Camera.CameraRecordingPolicies
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRArchiveReceipt
+  alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingDisposition
+  alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.RetentionCalculator
+  alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.CredentialUsage
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -1041,6 +1049,505 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
 
     assert length(hold_versions) == 2
     assert Enum.map(hold_versions, & &1.version.version_action_type) == [:update, :create]
+  end
+
+  test "A.2.1: CameraRecordingPolicy enforces CRUD, atomic policy_revision, relay_eligible profile validation, SQL CHECK/FK constraints, what_if_preview/2, and PaperTrail AuditHistory" do
+    Fixtures.preserve_recording_control()
+    gate_dir = Path.join(System.tmp_dir!(), "nvr-policy-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(gate_dir)
+    on_exit(fn -> File.rm_rf!(gate_dir) end)
+    Fixtures.recording_recovery_gate(gate_dir)
+
+    ctx = Fixtures.context()
+    other_ctx = Fixtures.context()
+
+    {:ok, sub_profile} =
+      StreamProfile.create_profile(
+        %{
+          camera_source_id: ctx.source.id,
+          profile_name: "sub-low",
+          relay_eligible: true,
+          metadata: %{"observed_bitrate_bps" => 512_000}
+        },
+        ctx.opts
+      )
+
+    {:ok, ineligible_profile} =
+      StreamProfile.create_profile(
+        %{
+          camera_source_id: ctx.source.id,
+          profile_name: "snapshot-only",
+          relay_eligible: false
+        },
+        ctx.opts
+      )
+
+    admin = %{
+      id: "admin-policy-test",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.audit.view"
+        ])
+    }
+
+    viewer = %{
+      id: "viewer-policy-test",
+      role: :viewer,
+      permissions: MapSet.new(["settings.recording.view"])
+    }
+
+    # Viewer cannot save policies
+    assert {:error, %Ash.Error.Forbidden{}} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: sub_profile.id,
+                 mode: :off
+               },
+               actor: viewer
+             )
+
+    # Non-relay-eligible and wrong-camera profiles rejected
+    assert {:error, ineligible_err} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ineligible_profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-0"
+               },
+               actor: admin
+             )
+
+    assert Exception.message(ineligible_err) =~ "relay-eligible"
+
+    assert {:error, wrong_cam_err} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: other_ctx.profile.id,
+                 mode: :off
+               },
+               actor: admin
+             )
+
+    assert Exception.message(wrong_cam_err) =~ "does not belong"
+
+    # Create continuous policy -> policy_revision == 1
+    assert {:ok, created} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: sub_profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-0",
+                 storage: :local_and_archive,
+                 archive_retention_override_mode: :limited,
+                 archive_retention_days_override: 14
+               },
+               actor: admin
+             )
+
+    assert created.policy_revision == 1
+    assert created.mode == :continuous
+    assert created.nvr_member == "nvr-0"
+    assert created.archive_retention_override_mode == :limited
+    assert created.archive_retention_days_override == 14
+
+    # Subsequent saves atomically increment policy_revision (1 -> 2 -> 3) as A3 assignment transitions
+    assert {:ok, rev2} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: sub_profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-1",
+                 storage: :local_and_archive,
+                 archive_retention_override_mode: :unlimited
+               },
+               actor: admin
+             )
+
+    assert rev2.id == created.id
+    assert rev2.policy_revision == 2
+    assert rev2.nvr_member == "nvr-1"
+    assert rev2.archive_retention_override_mode == :unlimited
+    assert is_nil(rev2.archive_retention_days_override)
+
+    assert {:ok, rev3} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 id: created.id,
+                 mode: :off,
+                 nvr_member: nil,
+                 archive_retention_override_mode: :inherit
+               },
+               actor: admin
+             )
+
+    assert rev3.policy_revision == 3
+    assert rev3.mode == :off
+    assert is_nil(rev3.nvr_member)
+
+    # Re-enable continuous for RetentionCalculator + what_if_preview check
+    assert {:ok, active_pol} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: sub_profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-0",
+                 storage: :local_and_archive,
+                 archive_retention_override_mode: :limited,
+                 archive_retention_days_override: 10
+               },
+               actor: admin
+             )
+
+    assert active_pol.policy_revision == 4
+
+    assert {:ok, listed} = CameraRecordingPolicies.list_policies(actor: viewer)
+    assert Enum.any?(listed, &(&1.id == active_pol.id and &1.policy_revision == 4))
+
+    assert {:ok, preview} =
+             CameraRecordingPolicies.what_if_preview(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-0",
+                 storage: :local_and_archive,
+                 nominal_bitrate_bps: 4_000_000
+               },
+               actor: viewer,
+               local_budget_bytes: 20_000_000_000
+             )
+
+    assert preview.projected_sessions >= 2
+    assert preview.projected_blocks_per_day > 3_400
+
+    # Restrictive FK prevents deleting referenced camera_stream_profiles
+    assert_constraint_violation(
+      "camera_recording_policies_stream_profile_fkey",
+      "DELETE FROM platform.camera_stream_profiles WHERE id = $1",
+      [Ecto.UUID.dump!(sub_profile.id)]
+    )
+
+    # SQL CHECK constraints enforce mode+nvr_member and override_mode+days pairs directly
+    assert_constraint_violation(
+      "camera_recording_policies_mode_member",
+      "UPDATE platform.camera_recording_policies SET mode = 'continuous', nvr_member = NULL WHERE id = $1",
+      [Ecto.UUID.dump!(active_pol.id)]
+    )
+
+    assert_constraint_violation(
+      "camera_recording_policies_archive_override",
+      "UPDATE platform.camera_recording_policies SET archive_retention_override_mode = 'inherit', archive_retention_days_override = 10 WHERE id = $1",
+      [Ecto.UUID.dump!(active_pol.id)]
+    )
+
+    # AuditHistory surfaces PaperTrail versions for CameraRecordingPolicy
+    pol_audit =
+      AuditHistory.list_recent(
+        actor: admin,
+        resource_types: [CameraRecordingPolicy],
+        limit: 20
+      )
+
+    matching_versions =
+      Enum.filter(pol_audit, &(to_string(&1.version.version_source_id) == active_pol.id))
+
+    assert length(matching_versions) >= 2
+  end
+
+  test "C.13 & E.3: NVRStorageSettings enforces pinned-bytes + 32 MiB floor, SQL CHECK constraints, revision ordering, and RecordingHealth.summary/1 aggregates live CNPG state" do
+    Fixtures.preserve_recording_control()
+
+    gate_dir =
+      Path.join(System.tmp_dir!(), "nvr-storage-health-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(gate_dir)
+    on_exit(fn -> File.rm_rf!(gate_dir) end)
+    Fixtures.recording_recovery_gate(gate_dir)
+
+    system = SystemActor.system(:nvr_storage_health_test)
+    system_opts = [actor: system]
+    storage_id = Ecto.UUID.generate()
+
+    on_exit(fn ->
+      sid_bin = Ecto.UUID.dump!(storage_id)
+
+      Repo.query!(
+        "DELETE FROM platform.camera_nvr_storage_settings_versions WHERE version_source_id = $1",
+        [sid_bin]
+      )
+
+      Repo.query!("DELETE FROM platform.camera_nvr_storage_settings WHERE storage_id = $1", [
+        sid_bin
+      ])
+    end)
+
+    admin = %{
+      id: "admin-storage-health",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.recording.operate",
+          "devices.cameras.recordings.hold",
+          "settings.audit.view"
+        ])
+    }
+
+    ctx = Fixtures.context()
+    {:ok, session} = Fixtures.open(ctx)
+    {:ok, session} = Fixtures.activate(ctx, session, "media-storage-health")
+    owner = Fixtures.owner(ctx)
+
+    {:ok, claim} =
+      RecorderOwnership.acquire(
+        owner,
+        Ecto.UUID.generate(),
+        session.media_ingest_id,
+        storage_id,
+        30_000,
+        system_opts
+      )
+
+    clock = %{
+      "clock_epoch" => "storage-health-clock",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "health-dest-#{System.unique_integer([:positive])}",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "example-health-bucket",
+          namespace: "nvr/v1"
+        },
+        actor: admin
+      )
+
+    assert {:ok, _} =
+             RecordingArchiveSettings.save_settings(
+               %{
+                 active_archive_binding_id: binding.id,
+                 archive_enabled: true,
+                 local_only_full_policy: :overwrite_oldest
+               },
+               actor: admin
+             )
+
+    now = DateTime.utc_now()
+    t1 = DateTime.shift(now, minute: -20)
+
+    # Seal unarchived pending block (10 MiB = 10_485_760 bytes in P1!)
+    assert {:ok, block_pending} =
+             RecorderOwnership.reserve_block(owner, claim, clock, system_opts)
+
+    desc_pending = recording_descriptor_with_length(block_pending, 10_485_760)
+
+    assert {:ok, pending_entry} =
+             RecordingBlocks.freeze_and_catalog(
+               owner,
+               claim,
+               block_pending,
+               desc_pending,
+               %{
+                 first_unit_pts: 0,
+                 first_unit_received_at: t1,
+                 policy_storage: :local_and_archive
+               },
+               system_opts
+             )
+
+    assert pending_entry.archive_state == :pending
+
+    # Floor = 10 MiB (pinned P1) + 32 MiB (two 16 MiB reservations) = 42 MiB (44_040_192 bytes)
+    pinned = NVRStorageSettings.pinned_bytes_for_storage(storage_id)
+    assert pinned.total_pinned_bytes == 10_485_760
+    assert pinned.min_budget_bytes == 10_485_760 + 33_554_432
+
+    # Saving custom budget below 42 MiB is refused!
+    assert {:error, floor_err} =
+             NVRStorageSettings.save_storage_settings(
+               storage_id,
+               %{budget_mode: :custom, budget_bytes: 40_000_000},
+               actor: admin
+             )
+
+    assert Exception.message(floor_err) =~ "pinned_bytes=10485760"
+
+    # Save valid custom budget & reserve -> revision == 1, sync_state == :pending
+    assert {:ok, s_rev1} =
+             NVRStorageSettings.save_storage_settings(
+               storage_id,
+               %{
+                 budget_mode: :custom,
+                 budget_bytes: 500_000_000,
+                 reserve_mode: :custom,
+                 reserve_bytes: 100_000_000
+               },
+               actor: admin
+             )
+
+    assert s_rev1.revision == 1
+    assert s_rev1.sync_state == :pending
+    assert is_nil(s_rev1.applied_revision)
+
+    # System marks revision 1 applied; operator then updates budget -> revision == 2, applied_revision stays 1!
+    assert {:ok, s_applied} =
+             s_rev1
+             |> Ash.Changeset.for_update(:record_applied, %{
+               applied_revision: 1,
+               applied_at: now
+             })
+             |> Ash.update(system_opts)
+
+    assert s_applied.sync_state == :applied
+    assert s_applied.applied_revision == 1
+
+    assert {:ok, s_rev2} =
+             NVRStorageSettings.save_storage_settings(
+               storage_id,
+               %{budget_mode: :custom, budget_bytes: 600_000_000, reserve_mode: :install_default},
+               actor: admin
+             )
+
+    assert s_rev2.revision == 2
+    assert s_rev2.sync_state == :pending
+    assert s_rev2.applied_revision == 1
+    assert is_nil(s_rev2.reserve_bytes)
+
+    # SQL CHECK constraints enforce custom/install_default pairs and reserve >= 64 MiB
+    assert_constraint_violation(
+      "camera_nvr_storage_settings_budget_pair",
+      "UPDATE platform.camera_nvr_storage_settings SET budget_mode = 'install_default', budget_bytes = 100000000 WHERE storage_id = $1",
+      [Ecto.UUID.dump!(storage_id)]
+    )
+
+    assert_constraint_violation(
+      "camera_nvr_storage_settings_reserve_pair",
+      "UPDATE platform.camera_nvr_storage_settings SET reserve_mode = 'custom', reserve_bytes = 1024 WHERE storage_id = $1",
+      [Ecto.UUID.dump!(storage_id)]
+    )
+
+    # AuditHistory surfaces NVRStorageSettings versions
+    storage_audit =
+      AuditHistory.list_recent(
+        actor: admin,
+        resource_types: [NVRStorageSettings],
+        limit: 10
+      )
+
+    assert Enum.count(storage_audit, &(to_string(&1.version.version_source_id) == storage_id)) >=
+             2
+
+    # Record a 24h open RecordingGap, a failed RecordingDisposition, a continuous policy, and a TripwireHealth alert!
+    now_us = DateTime.to_unix(now, :microsecond)
+
+    assert {:ok, _gap} =
+             RecordingGap.record(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 storage_id: storage_id,
+                 start_us: now_us - 60_000_000,
+                 time_basis: :received,
+                 reason: :nvr_refused,
+                 detail_class: "nvr_spool_budget_exhausted"
+               },
+               system_opts
+             )
+
+    op_id = Ecto.UUID.generate()
+    on_exit(fn -> Fixtures.cleanup_dispositions_by_operation(op_id) end)
+
+    assert {:ok, _disp} =
+             RecordingDisposition
+             |> Ash.Changeset.for_create(
+               :record,
+               %{
+                 operation_id: op_id,
+                 catalog_entry_id: pending_entry.id,
+                 storage_id: storage_id,
+                 block_key: pending_entry.block_key,
+                 copy: :archive,
+                 reason: :object_retention,
+                 step: :failed,
+                 error_class: "provider_timeout",
+                 actor_id: "system",
+                 effective_settings: %{"archive_retention_days" => 30},
+                 hold_check_result: %{"held" => false}
+               },
+               system_opts
+             )
+             |> Ash.create(system_opts)
+
+    assert {:ok, _pol} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-health-0",
+                 storage: :local_and_archive
+               },
+               actor: admin
+             )
+
+    check_name = "nvr.#{storage_id}.archive_backlog_age"
+    :ok = TripwireHealth.record(check_name, false, %{"severity" => "warning"})
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.health_events WHERE entity_type = 'core' AND entity_id = $1",
+        [check_name]
+      )
+    end)
+
+    assert {:ok, health} =
+             RecordingHealth.summary(
+               actor: admin,
+               now: now,
+               member_by_storage_id: %{storage_id => "nvr-health-0"}
+             )
+
+    assert health.archive_backlog.unarchived_count >= 1
+    assert health.archive_backlog.pending_count >= 1
+    assert health.archive_backlog.unarchived_bytes >= 10_485_760
+    assert health.gaps_24h.open_gaps_count >= 1
+    assert health.gaps_24h.by_reason.nvr_refused >= 1
+    assert health.retention_and_dispositions.failed_dispositions_24h >= 1
+
+    member_summary = Map.fetch!(health.storage_by_id, storage_id)
+    assert member_summary.desired_settings.revision == 2
+    assert member_summary.desired_settings.applied_revision == 1
+    assert member_summary.pinned_bytes == 10_485_760
+    assert member_summary.assigned_continuous_cameras == 1
+
+    assert Enum.any?(health.alerts, &(&1.check_id == check_name))
+
+    # Auto-clears once recorded healthy!
+    :ok = TripwireHealth.record(check_name, true, %{})
+
+    assert {:ok, cleared_health} =
+             RecordingHealth.summary(
+               actor: admin,
+               now: now,
+               member_by_storage_id: %{storage_id => "nvr-health-0"}
+             )
+
+    refute Enum.any?(cleared_health.alerts, &(&1.check_id == check_name))
   end
 
   defp assert_constraint_violation(expected_constraint, sql, params) do

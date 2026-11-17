@@ -12,10 +12,14 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveDestinations
+  alias ServiceRadar.Camera.CameraRecordingPolicies
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRArchiveReceipt
+  alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.Source
@@ -29,6 +33,28 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   @block_page_size 25
   @bytes_per_gib 1_073_741_824
   @operator_name_pattern ~r/\A[a-z0-9][a-z0-9-]{0,62}\z/
+  @min_reserve_bytes 67_108_864
+  @two_block_reservations_bytes 33_554_432
+
+  @policy_form_keys [
+    "id",
+    "camera_source_id",
+    "stream_profile_id",
+    "mode",
+    "nvr_member",
+    "storage",
+    "archive_retention_override_mode",
+    "archive_retention_days_override",
+    "nominal_bitrate_kbps"
+  ]
+
+  @storage_settings_form_keys [
+    "storage_id",
+    "budget_mode",
+    "budget_bytes",
+    "reserve_mode",
+    "reserve_bytes"
+  ]
 
   @retention_form_keys [
     "local_high_water_percent",
@@ -638,6 +664,406 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   def extract_destination_errors(other, submitted) do
     diagnose_submitted_fields(submitted, inspect(other))
+  end
+
+  # --- E.1 CameraRecordingPolicy & C1a What-If -------------------------------
+
+  @doc """
+  Default form values for per-camera `CameraRecordingPolicy` creation/editing.
+  """
+  @spec default_policy_form(atom()) :: map()
+  def default_policy_form(storage_mode \\ :local_only) do
+    default_storage =
+      if storage_mode == :local_and_archive, do: "local_and_archive", else: "local_only"
+
+    %{
+      "id" => "",
+      "camera_source_id" => "",
+      "stream_profile_id" => "",
+      "mode" => "off",
+      "nvr_member" => "",
+      "storage" => default_storage,
+      "archive_retention_override_mode" => "inherit",
+      "archive_retention_days_override" => "",
+      "nominal_bitrate_kbps" => ""
+    }
+  end
+
+  @doc """
+  Builds the policy editor form map from a persisted `CameraRecordingPolicy`
+  struct or map.
+  """
+  @spec policy_form_from_policy(map(), atom()) :: map()
+  def policy_form_from_policy(policy, storage_mode \\ :local_only) when is_map(policy) do
+    base = default_policy_form(storage_mode)
+    override_mode = to_string(fetch_map_or_struct(policy, :archive_retention_override_mode) || :inherit)
+    override_days = fetch_map_or_struct(policy, :archive_retention_days_override)
+
+    %{
+      base
+      | "id" => to_string_or_empty(fetch_map_or_struct(policy, :id)),
+        "camera_source_id" => to_string_or_empty(fetch_map_or_struct(policy, :camera_source_id)),
+        "stream_profile_id" => to_string_or_empty(fetch_map_or_struct(policy, :stream_profile_id)),
+        "mode" => to_string(fetch_map_or_struct(policy, :mode) || :off),
+        "nvr_member" => to_string_or_empty(fetch_map_or_struct(policy, :nvr_member)),
+        "storage" => to_string(fetch_map_or_struct(policy, :storage) || base["storage"]),
+        "archive_retention_override_mode" => override_mode,
+        "archive_retention_days_override" =>
+          if(override_mode == "limited", do: to_string_or_empty(override_days), else: "")
+    }
+  end
+
+  @doc """
+  DB-free baseline `C1a` What-If projection for disconnected `mount/3`.
+  """
+  @spec default_policy_what_if(map() | nil) :: map()
+  def default_policy_what_if(settings \\ nil) do
+    base = coerce_settings_struct(settings)
+
+    loaders = %{
+      settings_loader: fn -> {:ok, base} end,
+      policies_loader: fn -> {:ok, []} end,
+      catalog_loader: fn -> {:ok, []} end,
+      holds_loader: fn -> {:ok, []} end,
+      all_receipts_loader: fn -> {:ok, []} end,
+      storage_settings_loader: fn -> {:ok, []} end
+    }
+
+    {:ok, preview} =
+      CameraRecordingPolicies.what_if_preview(
+        %{mode: :off},
+        actor: SystemActor.system(:camera_recording_settings),
+        settings: base,
+        loaders: loaders
+      )
+
+    preview
+  end
+
+  @doc """
+  Lists persisted `CameraRecordingPolicy` rows under `scope`.
+  """
+  @spec list_policies(map(), keyword()) :: [CameraRecordingPolicy.t() | map()]
+  def list_policies(scope, opts \\ []) do
+    case CameraRecordingPolicies.list_policies(actor_opts(scope) ++ opts) do
+      {:ok, policies} -> policies
+      {:error, _reason} -> []
+    end
+  end
+
+  @doc """
+  Merges `phx-change="preview_policy"` parameters onto `prev_form`, handling
+  stream profile resets when switching cameras and `archive_retention_override_mode`
+  value transitions, and returns `{next_form, errors, matched_revision}`.
+  Performs zero database queries.
+  """
+  @spec normalize_policy_preview(map(), map(), keyword()) :: %{
+          form: map(),
+          errors: %{optional(atom()) => String.t()},
+          editing_revision: pos_integer() | nil
+        }
+  def normalize_policy_preview(prev_form, params, opts \\ []) when is_map(prev_form) do
+    profiles = Keyword.get(opts, :profiles, [])
+    policies = Keyword.get(opts, :policies, [])
+    storage_mode = Keyword.get(opts, :storage_mode, :local_only)
+
+    sanitized =
+      if is_map(params) do
+        params
+        |> Map.take(@policy_form_keys)
+        |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+      else
+        %{}
+      end
+
+    merged =
+      prev_form
+      |> Map.merge(sanitized)
+      |> apply_preview_mode_transition(
+        prev_form,
+        sanitized,
+        "archive_retention_override_mode",
+        "archive_retention_days_override",
+        "limited",
+        "30"
+      )
+      |> reconcile_camera_profile_selection(prev_form, sanitized, profiles)
+      |> attach_matching_policy_id(prev_form, policies, storage_mode, sanitized)
+
+    {_attrs, errors} = build_policy_attrs(merged, %{}, :preview)
+    editing_revision = find_matching_policy_revision(policies, merged)
+
+    %{
+      form: merged,
+      errors: errors,
+      editing_revision: editing_revision
+    }
+  end
+
+  @doc """
+  Computes the `C1a` & `C3a` pre-save What-If projection for `policy_form` under `scope`.
+  """
+  @spec what_if_policy_preview(map(), map(), keyword()) :: map()
+  def what_if_policy_preview(scope, policy_form, opts \\ []) when is_map(policy_form) do
+    candidate = build_policy_what_if_candidate(policy_form)
+
+    case CameraRecordingPolicies.what_if_preview(candidate, actor_opts(scope) ++ opts) do
+      {:ok, preview} -> preview
+      {:error, _reason} -> default_policy_what_if(Keyword.get(opts, :settings))
+    end
+  end
+
+  @doc """
+  Creates or updates a `CameraRecordingPolicy` under `scope` (`settings.recording.manage`),
+  returning `{:ok, policy}` or field-keyed validation errors.
+  """
+  @spec save_policy(map(), map(), keyword()) ::
+          {:ok, CameraRecordingPolicy.t() | map()} | {:error, %{optional(atom()) => String.t()}}
+  def save_policy(scope, params, opts \\ []) when is_map(params) do
+    storage_mode = Keyword.get(opts, :storage_mode, :local_only)
+    base_form = Keyword.get(opts, :base_form, default_policy_form(storage_mode))
+
+    sanitized =
+      params
+      |> Map.take(@policy_form_keys)
+      |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+
+    merged_form =
+      base_form
+      |> Map.merge(sanitized)
+      |> clear_inactive_override_days(sanitized)
+
+    {attrs, parse_errors} = build_policy_attrs(merged_form, params, :submit)
+
+    if parse_errors == %{} do
+      save_fn =
+        Keyword.get(opts, :save_fn, fn save_attrs ->
+          CameraRecordingPolicies.save_policy(save_attrs, actor_opts(scope) ++ opts)
+        end)
+
+      case save_fn.(attrs) do
+        {:ok, saved} -> {:ok, saved}
+        {:error, reason} -> {:error, extract_retention_errors(reason)}
+      end
+    else
+      {:error, parse_errors}
+    end
+  end
+
+  # --- C.17 Per-Member NVRStorageSettings ------------------------------------
+
+  @doc """
+  Default form values for per-member `NVRStorageSettings` configuration.
+  """
+  @spec default_storage_settings_form(String.t()) :: map()
+  def default_storage_settings_form(storage_id \\ "") do
+    %{
+      "storage_id" => to_string_or_empty(storage_id),
+      "budget_mode" => "install_default",
+      "budget_bytes" => "",
+      "reserve_mode" => "install_default",
+      "reserve_bytes" => ""
+    }
+  end
+
+  @doc """
+  Builds the storage settings editor form from a `NVRStorageSettings` struct or map.
+  """
+  @spec storage_settings_form_from_record(map()) :: map()
+  def storage_settings_form_from_record(record) when is_map(record) do
+    budget_mode = to_string(fetch_map_or_struct(record, :budget_mode) || :install_default)
+    reserve_mode = to_string(fetch_map_or_struct(record, :reserve_mode) || :install_default)
+
+    %{
+      "storage_id" => to_string_or_empty(fetch_map_or_struct(record, :storage_id)),
+      "budget_mode" => budget_mode,
+      "budget_bytes" =>
+        if(budget_mode == "custom",
+          do: to_string_or_empty(fetch_map_or_struct(record, :budget_bytes)),
+          else: ""
+        ),
+      "reserve_mode" => reserve_mode,
+      "reserve_bytes" =>
+        if(reserve_mode == "custom",
+          do: to_string_or_empty(fetch_map_or_struct(record, :reserve_bytes)),
+          else: ""
+        )
+    }
+  end
+
+  @doc """
+  Lists persisted `NVRStorageSettings` rows under `scope`.
+  """
+  @spec list_storage_settings(map(), keyword()) :: [NVRStorageSettings.t() | map()]
+  def list_storage_settings(scope, opts \\ []) do
+    case NVRStorageSettings.list_storage_settings(actor_opts(scope) ++ opts) do
+      {:ok, rows} -> rows
+      {:error, _reason} -> []
+    end
+  end
+
+  @doc """
+  Merges persisted `NVRStorageSettings` rows with `RecordingHealth` per-storage
+  member summaries so every known or configured storage UUID displays desired
+  vs applied state, revision, pinned floor, and local window consistently.
+  """
+  @spec merge_storage_member_rows([map()], map()) :: [map()]
+  def merge_storage_member_rows(storage_settings_rows, health_summary)
+      when is_list(storage_settings_rows) and is_map(health_summary) do
+    health_members = Map.get(health_summary, :storage_members, [])
+
+    health_by_sid =
+      Map.new(health_members, fn m -> {to_string(Map.get(m, :storage_id)), m} end)
+
+    settings_by_sid =
+      Map.new(storage_settings_rows, fn r ->
+        {to_string(fetch_map_or_struct(r, :storage_id)), r}
+      end)
+
+    all_sids =
+      (Map.keys(health_by_sid) ++ Map.keys(settings_by_sid))
+      |> Enum.reject(&(&1 in ["", "nil"]))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Enum.map(all_sids, fn sid ->
+      merge_single_storage_member_row(
+        sid,
+        Map.get(health_by_sid, sid),
+        Map.get(settings_by_sid, sid)
+      )
+    end)
+  end
+
+  @doc """
+  Pure pre-save validation for `phx-change="preview_storage_settings"`.
+  Performs zero database queries.
+  """
+  @spec preview_storage_settings(map(), keyword()) :: %{
+          form: map(),
+          errors: %{optional(atom()) => String.t()}
+        }
+  def preview_storage_settings(params, opts \\ []) do
+    prev_form = Keyword.get(opts, :prev_form, default_storage_settings_form())
+    health_summary = Keyword.get(opts, :health_summary, %{})
+    storage_rows = Keyword.get(opts, :storage_rows, [])
+    scope = Keyword.get(opts, :scope)
+
+    sanitized =
+      if is_map(params) do
+        params
+        |> Map.take(@storage_settings_form_keys)
+        |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+      else
+        %{}
+      end
+
+    sid = Map.get(sanitized, "storage_id", prev_form["storage_id"]) || ""
+    pinned_bytes = lookup_storage_pinned_bytes(sid, health_summary, storage_rows)
+    default_budget_str = Integer.to_string(max(@bytes_per_gib, pinned_bytes + @two_block_reservations_bytes))
+
+    next_form =
+      prev_form
+      |> Map.merge(sanitized)
+      |> apply_preview_mode_transition(
+        prev_form,
+        sanitized,
+        "budget_mode",
+        "budget_bytes",
+        "custom",
+        default_budget_str
+      )
+      |> apply_preview_mode_transition(
+        prev_form,
+        sanitized,
+        "reserve_mode",
+        "reserve_bytes",
+        "custom",
+        Integer.to_string(@min_reserve_bytes)
+      )
+
+    {attrs, parse_errors} = build_storage_settings_attrs(next_form, %{}, :preview)
+
+    changeset_errors =
+      if Ecto.UUID.cast(next_form["storage_id"]) == :error do
+        if next_form["storage_id"] == "" do
+          %{}
+        else
+          %{storage_id: "Storage ID must be a valid UUID."}
+        end
+      else
+        validate_storage_settings_preview(next_form["storage_id"], attrs, pinned_bytes, scope)
+      end
+
+    %{
+      form: next_form,
+      errors: Map.merge(changeset_errors, parse_errors)
+    }
+  end
+
+  @doc """
+  Persists desired `NVRStorageSettings` for `storage_id` under `scope`
+  (`settings.recording.manage`), enforcing Core's pinned-bytes floor and
+  mode+value bounds.
+  """
+  @spec save_storage_settings(map(), String.t() | nil, map(), keyword()) ::
+          {:ok, NVRStorageSettings.t() | map()} | {:error, %{optional(atom()) => String.t()}}
+  def save_storage_settings(scope, storage_id, params, opts \\ []) when is_map(params) do
+    trimmed_sid = storage_id |> to_string_or_empty() |> String.trim()
+
+    if Ecto.UUID.cast(trimmed_sid) == :error do
+      {:error, %{storage_id: "Enter or select a valid NVR storage UUID."}}
+    else
+      base_form = Keyword.get(opts, :base_form, default_storage_settings_form(trimmed_sid))
+
+      sanitized =
+        params
+        |> Map.take(@storage_settings_form_keys)
+        |> Map.new(fn {k, v} -> {k, v |> to_string() |> String.trim()} end)
+        |> Map.put("storage_id", trimmed_sid)
+
+      merged_form =
+        base_form
+        |> Map.merge(sanitized)
+        |> clear_inactive_storage_fields(sanitized)
+
+      {attrs, parse_errors} = build_storage_settings_attrs(merged_form, params, :submit)
+
+      if parse_errors == %{} do
+        save_fn =
+          Keyword.get(opts, :save_fn, fn sid, save_attrs ->
+            NVRStorageSettings.save_storage_settings(sid, save_attrs, actor_opts(scope) ++ opts)
+          end)
+
+        case save_fn.(trimmed_sid, attrs) do
+          {:ok, saved} -> {:ok, saved}
+          {:error, reason} -> {:error, extract_retention_errors(reason)}
+        end
+      else
+        {:error, parse_errors}
+      end
+    end
+  end
+
+  # --- E.3 / R.10 Recording Health -------------------------------------------
+
+  @doc """
+  DB-free baseline health summary for disconnected `mount/3`.
+  """
+  @spec default_health_summary(map() | nil) :: map()
+  def default_health_summary(settings \\ nil) do
+    RecordingHealth.default_summary(settings)
+  end
+
+  @doc """
+  Loads live CNPG recording & storage health summary under `scope`.
+  """
+  @spec load_recording_health(map(), keyword()) :: map()
+  def load_recording_health(scope, opts \\ []) do
+    case RecordingHealth.summary(actor_opts(scope) ++ opts) do
+      {:ok, summary} -> summary
+      {:error, _reason} -> default_health_summary()
+    end
   end
 
   # --- internal helpers ------------------------------------------------------
@@ -1991,6 +2417,394 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   defp core_reservation_label(state) when is_binary(state), do: state
   defp core_reservation_label(_), do: "Core reservation"
+
+  defp reconcile_camera_profile_selection(merged, prev_form, sanitized, profiles) do
+    prev_cam = prev_form["camera_source_id"] || ""
+    next_cam = merged["camera_source_id"] || ""
+    next_prof = merged["stream_profile_id"] || ""
+
+    cond do
+      next_cam == "" ->
+        %{merged | "id" => "", "stream_profile_id" => ""}
+
+      next_cam != prev_cam ->
+        valid_in_loaded? =
+          profiles != [] and Enum.any?(profiles, &(to_string(fetch_map_or_struct(&1, :id)) == next_prof))
+
+        explicit_new_prof? =
+          profiles == [] and Map.has_key?(sanitized, "stream_profile_id") and
+            next_prof != (prev_form["stream_profile_id"] || "")
+
+        kept_prof = if valid_in_loaded? or explicit_new_prof?, do: next_prof, else: ""
+        %{merged | "id" => "", "stream_profile_id" => kept_prof}
+
+      true ->
+        merged
+    end
+  end
+
+  defp attach_matching_policy_id(merged, prev_form, policies, storage_mode, sanitized) do
+    cam_id = merged["camera_source_id"] || ""
+    prof_id = merged["stream_profile_id"] || ""
+    pair_changed? = cam_id != (prev_form["camera_source_id"] || "") or prof_id != (prev_form["stream_profile_id"] || "")
+
+    case find_matching_policy(policies, merged) do
+      nil when pair_changed? ->
+        %{merged | "id" => ""}
+
+      nil ->
+        merged
+
+      existing when pair_changed? ->
+        hydrated = policy_form_from_policy(existing, storage_mode)
+        explicit_overrides = Map.drop(sanitized, ["id", "camera_source_id", "stream_profile_id"])
+        Map.merge(hydrated, explicit_overrides)
+
+      existing ->
+        %{merged | "id" => to_string_or_empty(fetch_map_or_struct(existing, :id))}
+    end
+  end
+
+  defp find_matching_policy_revision(policies, form) do
+    case find_matching_policy(policies, form) do
+      nil -> nil
+      pol -> fetch_map_or_struct(pol, :policy_revision)
+    end
+  end
+
+  defp find_matching_policy(policies, form) when is_list(policies) and is_map(form) do
+    id = form["id"] || ""
+    cam_id = form["camera_source_id"] || ""
+    prof_id = form["stream_profile_id"] || ""
+
+    Enum.find(policies, fn pol ->
+      pol_id = to_string_or_empty(fetch_map_or_struct(pol, :id))
+      pol_cam = to_string_or_empty(fetch_map_or_struct(pol, :camera_source_id))
+      pol_prof = to_string_or_empty(fetch_map_or_struct(pol, :stream_profile_id))
+
+      (id != "" and pol_id == id) or
+        (cam_id != "" and prof_id != "" and pol_cam == cam_id and pol_prof == prof_id)
+    end)
+  end
+
+  defp build_policy_what_if_candidate(form) do
+    mode = safe_mode(form["mode"], [:off, :continuous], :off)
+    storage = safe_mode(form["storage"], [:local_and_archive, :local_only], :local_only)
+
+    override_mode =
+      safe_mode(form["archive_retention_override_mode"], [:inherit, :limited, :unlimited], :inherit)
+
+    override_days =
+      if override_mode == :limited,
+        do: safe_optional_int(form["archive_retention_days_override"])
+
+    nominal_kbps = safe_optional_int(form["nominal_bitrate_kbps"])
+
+    nominal_bps =
+      if is_integer(nominal_kbps) and nominal_kbps > 0, do: nominal_kbps * 1_000
+
+    base = %{
+      camera_source_id: blank_to_nil(form["camera_source_id"]),
+      stream_profile_id: blank_to_nil(form["stream_profile_id"]),
+      mode: mode,
+      nvr_member: blank_to_nil(form["nvr_member"]),
+      storage: storage,
+      archive_retention_override_mode: override_mode,
+      archive_retention_days_override: override_days
+    }
+
+    base =
+      case blank_to_nil(form["id"]) do
+        nil -> base
+        id -> Map.put(base, :id, id)
+      end
+
+    if is_integer(nominal_bps), do: Map.put(base, :nominal_bitrate_bps, nominal_bps), else: base
+  end
+
+  defp clear_inactive_override_days(form, sanitized) do
+    if form["archive_retention_override_mode"] != "limited" and
+         not Map.has_key?(sanitized, "archive_retention_days_override") do
+      Map.put(form, "archive_retention_days_override", "")
+    else
+      form
+    end
+  end
+
+  defp build_policy_attrs(form, raw_params, phase) do
+    errors = %{}
+    cam_id = blank_to_nil(form["camera_source_id"])
+    prof_id = blank_to_nil(form["stream_profile_id"])
+    member = blank_to_nil(form["nvr_member"])
+
+    errors = validate_policy_uuids(errors, cam_id, prof_id, phase)
+    {mode, errors} = parse_mode(form["mode"], [:off, :continuous], :mode, errors)
+
+    {storage, errors} =
+      parse_mode(form["storage"], [:local_and_archive, :local_only], :storage, errors)
+
+    {override_mode, errors} =
+      parse_mode(
+        form["archive_retention_override_mode"],
+        [:inherit, :limited, :unlimited],
+        :archive_retention_override_mode,
+        errors
+      )
+
+    {override_days, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "archive_retention_days_override",
+        :archive_retention_days_override,
+        override_mode == :limited,
+        phase,
+        errors
+      )
+
+    errors = validate_policy_member(errors, mode, member, phase)
+    errors = validate_policy_override_days(errors, override_mode, override_days)
+
+    attrs = %{
+      camera_source_id: cam_id,
+      stream_profile_id: prof_id,
+      mode: mode,
+      nvr_member: member,
+      storage: storage,
+      archive_retention_override_mode: override_mode,
+      archive_retention_days_override: override_days
+    }
+
+    attrs =
+      case blank_to_nil(form["id"]) do
+        nil -> attrs
+        id -> Map.put(attrs, :id, id)
+      end
+
+    {attrs, errors}
+  end
+
+  defp validate_policy_uuids(errors, cam_id, prof_id, :submit) do
+    errors =
+      if is_nil(cam_id) or Ecto.UUID.cast(cam_id) == :error do
+        Map.put(errors, :camera_source_id, "Select a valid camera source.")
+      else
+        errors
+      end
+
+    if is_nil(prof_id) or Ecto.UUID.cast(prof_id) == :error do
+      Map.put(errors, :stream_profile_id, "Select a relay-eligible stream profile.")
+    else
+      errors
+    end
+  end
+
+  defp validate_policy_uuids(errors, _cam_id, _prof_id, _phase), do: errors
+
+  defp validate_policy_member(errors, mode, member, phase) do
+    cond do
+      mode == :continuous and is_nil(member) and phase == :submit ->
+        Map.put(errors, :nvr_member, "NVR member name is required when mode is continuous.")
+
+      is_binary(member) and not Regex.match?(@operator_name_pattern, member) ->
+        Map.put(errors, :nvr_member, "NVR member must match [a-z0-9][a-z0-9-]{0,62}.")
+
+      true ->
+        errors
+    end
+  end
+
+  defp validate_policy_override_days(errors, mode, days) do
+    cond do
+      Map.has_key?(errors, :archive_retention_days_override) ->
+        errors
+
+      mode == :limited and is_nil(days) ->
+        Map.put(
+          errors,
+          :archive_retention_days_override,
+          "Override days (1..3,650) are required when override mode is limited."
+        )
+
+      mode == :limited and is_integer(days) and (days < 1 or days > 3_650) ->
+        Map.put(
+          errors,
+          :archive_retention_days_override,
+          "Override days must be between 1 and 3,650."
+        )
+
+      mode != :limited and not is_nil(days) ->
+        Map.put(
+          errors,
+          :archive_retention_days_override,
+          "Override days must be blank when override mode is #{mode}."
+        )
+
+      true ->
+        errors
+    end
+  end
+
+  defp merge_single_storage_member_row(sid, health_member, persisted_row) do
+    desired =
+      persisted_row ||
+        (health_member && Map.get(health_member, :desired_settings)) ||
+        NVRStorageSettings.default_storage_settings(sid)
+
+    persisted? =
+      not is_nil(persisted_row) or
+        (is_map(health_member) and Map.get(health_member, :persisted_settings?) == true)
+
+    if is_map(health_member) do
+      %{
+        health_member
+        | storage_id: sid,
+          desired_settings: desired,
+          persisted_settings?: persisted?
+      }
+    else
+      %{
+        storage_id: sid,
+        member_name: nil,
+        desired_settings: desired,
+        persisted_settings?: persisted?,
+        pinned_bytes: 0,
+        pinned_breakdown: %{p1: 0, p2: 0, p3: 0, p4: 0, p5: 0, total_pinned_bytes: 0},
+        min_custom_budget_bytes: @two_block_reservations_bytes,
+        local_present_blocks: 0,
+        local_present_bytes: 0,
+        unarchived_local_bytes: 0,
+        quarantined_local_bytes: 0,
+        held_local_pinned_bytes: 0,
+        effective_budget_bytes: resolve_row_effective_budget(desired),
+        window_projection: %{
+          status: :not_recording,
+          binding_bound: :not_recording,
+          window_low_seconds: 0.0,
+          window_high_seconds: 0.0,
+          rate_bytes_per_sec: 0.0
+        },
+        time_to_full_seconds: :not_filling,
+        assigned_continuous_cameras: 0,
+        live_status_state: :unknown_until_nvr_status,
+        ledger_state: :unknown_until_nvr_status
+      }
+    end
+  end
+
+  defp resolve_row_effective_budget(desired) do
+    mode = fetch_map_or_struct(desired, :budget_mode)
+    bytes = fetch_map_or_struct(desired, :budget_bytes)
+
+    if mode in [:custom, "custom"] and is_integer(bytes) and bytes > 0 do
+      bytes
+    else
+      @bytes_per_gib
+    end
+  end
+
+  defp lookup_storage_pinned_bytes(sid, health_summary, storage_rows) do
+    from_health =
+      health_summary
+      |> Map.get(:storage_members, [])
+      |> Enum.find(&(to_string(Map.get(&1, :storage_id)) == sid))
+
+    from_rows =
+      Enum.find(storage_rows, &(to_string(Map.get(&1, :storage_id)) == sid))
+
+    cond do
+      is_map(from_health) -> Map.get(from_health, :pinned_bytes, 0)
+      is_map(from_rows) -> Map.get(from_rows, :pinned_bytes, 0)
+      true -> 0
+    end
+  end
+
+  defp clear_inactive_storage_fields(form, sanitized) do
+    form =
+      if form["budget_mode"] != "custom" and not Map.has_key?(sanitized, "budget_bytes") do
+        Map.put(form, "budget_bytes", "")
+      else
+        form
+      end
+
+    if form["reserve_mode"] != "custom" and not Map.has_key?(sanitized, "reserve_bytes") do
+      Map.put(form, "reserve_bytes", "")
+    else
+      form
+    end
+  end
+
+  defp build_storage_settings_attrs(form, raw_params, phase) do
+    errors = %{}
+
+    {budget_mode, errors} =
+      parse_mode(form["budget_mode"], [:install_default, :custom], :budget_mode, errors)
+
+    {reserve_mode, errors} =
+      parse_mode(form["reserve_mode"], [:install_default, :custom], :reserve_mode, errors)
+
+    {budget_bytes, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "budget_bytes",
+        :budget_bytes,
+        budget_mode == :custom,
+        phase,
+        errors
+      )
+
+    {reserve_bytes, errors} =
+      parse_paired_int(
+        form,
+        raw_params,
+        "reserve_bytes",
+        :reserve_bytes,
+        reserve_mode == :custom,
+        phase,
+        errors
+      )
+
+    attrs = %{
+      budget_mode: budget_mode,
+      budget_bytes: budget_bytes,
+      reserve_mode: reserve_mode,
+      reserve_bytes: reserve_bytes
+    }
+
+    {attrs, errors}
+  end
+
+  defp validate_storage_settings_preview(storage_id, attrs, pinned_bytes, scope) do
+    opts =
+      if is_nil(scope),
+        do: [actor: SystemActor.system(:camera_recording_settings)],
+        else: actor_opts(scope)
+
+    preview_loaders = %{
+      settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
+      catalog_loader: fn -> {:ok, []} end,
+      holds_loader: fn -> {:ok, []} end
+    }
+
+    changeset =
+      NVRStorageSettings.preview_changeset(
+        storage_id,
+        attrs,
+        opts
+        |> Keyword.put(:pinned_bytes, pinned_bytes)
+        |> Keyword.put(:loaders, preview_loaders)
+      )
+
+    extract_changeset_field_errors(changeset.errors)
+  end
+
+  defp fetch_map_or_struct(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, val} -> val
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
 
   defp maybe_put_opt(opts, _key, nil), do: opts
   defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)

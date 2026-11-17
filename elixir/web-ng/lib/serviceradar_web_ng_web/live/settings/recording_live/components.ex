@@ -2,13 +2,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents
+  alias ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents
+
   @tabs [
     %{id: "recorders", label: "Recorders", stage_b?: false},
     %{id: "archive", label: "Archive", stage_b?: false},
     %{id: "cameras", label: "Cameras", stage_b?: false},
-    %{id: "policy", label: "Policy", stage_b?: true},
+    %{id: "policy", label: "Policy", stage_b?: false},
     %{id: "retention", label: "Retention", stage_b?: false},
-    %{id: "health", label: "Health", stage_b?: true}
+    %{id: "health", label: "Health", stage_b?: false}
   ]
 
   attr :runtime, :map, required: true
@@ -146,7 +149,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
   attr :runtime, :map, required: true
   attr :storage_mode, :atom, default: :local_only
-  attr :members, :list, default: []
+  attr :can_manage?, :boolean, default: false
+  attr :storage_rows, :list, default: []
+  attr :storage_settings_form, :map, default: %{}
+  attr :storage_settings_errors, :map, default: %{}
+  attr :timezone, :string, default: "Etc/UTC"
 
   def recorders_panel(assigns) do
     ~H"""
@@ -235,29 +242,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         </div>
 
         <div
-          id="recording-member-budgets-section"
-          class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 space-y-1.5"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-xs font-semibold text-sr-ink">
-              Per-Member Local Byte Budget &amp; Reserve
-            </h3>
-            <.ui_badge size="xs" variant="ghost">Desired vs applied</.ui_badge>
-          </div>
-          <p :if={@members == []} class="text-xs text-sr-muted">
-            Per-member local byte budget (<code class="font-mono">budget_bytes</code>), free-space
-            reserve (<code class="font-mono">reserve_bytes</code>), install ceiling
-            (<code class="font-mono">nvr.maxSpoolBytes</code>) and floor
-            (<code class="font-mono">nvr.reserveBytes</code>), volume capacity, and effective local
-            window are reported as <strong>unknown</strong>
-            until the NVR member <code class="font-mono">GET /v1/status</code>
-            endpoint answers, and remain read-only
-            install values until runtime <code class="font-mono">NVRStorageSettings</code>
-            synchronization lands.
-          </p>
-        </div>
-
-        <div
           id="recording-local-retention-notice"
           class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 text-xs text-sr-muted"
         >
@@ -265,6 +249,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           local blocks are not reclaimed by byte budget or maximum local age, and new bounded captures
           are refused when recorder spool capacity is exhausted.
         </div>
+      </section>
+
+      <section
+        :if={@runtime.core_elx.nvr_installation != :not_installed}
+        id="recording-storage-settings-card"
+        class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-4"
+      >
+        <HealthComponents.storage_settings_section
+          can_manage?={@can_manage?}
+          storage_rows={@storage_rows}
+          storage_settings_form={@storage_settings_form}
+          storage_settings_errors={@storage_settings_errors}
+          timezone={@timezone}
+        />
       </section>
     </div>
     """
@@ -1228,41 +1226,60 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
     """
   end
 
-  def policy_blocked_panel(assigns) do
+  attr :runtime, :map, required: true
+  attr :storage_mode, :atom, default: :local_only
+  attr :can_manage?, :boolean, required: true
+  attr :sources, :list, required: true
+  attr :sources_forbidden?, :boolean, required: true
+  attr :policies, :list, required: true
+  attr :policy_profiles, :list, required: true
+  attr :policy_form, :map, required: true
+  attr :policy_editing_revision, :any, default: nil
+  attr :policy_errors, :map, default: %{}
+  attr :policy_what_if, :map, required: true
+
+  def policy_panel(assigns) do
     ~H"""
-    <section
-      id="recording-policy-blocked-panel"
-      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-3"
-    >
-      <div class="flex items-center gap-2">
-        <.ui_badge size="xs" variant="warning">Blocked — Stage B</.ui_badge>
-        <h2 class="text-base font-semibold text-sr-ink">
-          Continuous Recording Policy Prerequisite Gate
-        </h2>
-      </div>
-      <p class="text-sm text-sr-muted">
-        Per-camera continuous recording policy and pre-save capacity projection are blocked until
-        their recording-plane and coordinator prerequisites land:
-      </p>
-      <ul class="list-disc pl-5 text-xs text-sr-muted space-y-1">
-        <li>
-          <strong>Continuous recording policy (<code class="font-mono">CameraRecordingPolicy</code>):</strong>
-          per-camera mode (<code class="font-mono">off | continuous</code>), relay-eligible stream
-          profile with observed bitrate and estimated bytes/blocks per day, explicit NVR member
-          assignment transitions, storage mode (<code class="font-mono">local_and_archive | local_only</code>),
-          and optional per-policy archive retention override (<code class="font-mono">add-scalable-camera-recording-plane</code>
-          2.2, 2.4, 2.5 and <code class="font-mono">add-nvr-retention-and-timeline-playback</code>
-          Stage A).
-        </li>
-        <li>
-          <strong>Pre-save what-if projection:</strong>
-          projected effective local window, required archive throughput against measured goodput,
-          blocks per day against the volume block cap, and active sessions against the member session
-          limit (<code class="font-mono">add-nvr-retention-and-timeline-playback</code>
-          C1a, E1).
-        </li>
-      </ul>
-    </section>
+    <div id="recording-tab-panel-policy" class="space-y-6">
+      <section
+        :if={@runtime.core_elx.nvr_installation == :not_installed}
+        id="policy-not-installed-notice"
+        class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-2"
+      >
+        <h2 class="text-base font-semibold text-sr-ink">NVR is not installed</h2>
+        <p class="text-sm text-sr-muted">
+          No NVR client configuration is installed on <code class="font-mono">core-elx</code>. See
+          <code class="font-mono">docs/nvr-runtime.md</code>
+          for installation instructions.
+        </p>
+      </section>
+
+      <%= if @runtime.core_elx.nvr_installation != :not_installed or @policies != [] do %>
+        <PolicyComponents.runtime_notice storage_mode={@storage_mode} />
+
+        <PolicyComponents.policies_table_card
+          policies={@policies}
+          sources={@sources}
+          can_manage?={@can_manage?}
+        />
+
+        <PolicyComponents.what_if_card
+          what_if={@policy_what_if}
+          storage_mode={@storage_mode}
+          editing_revision={@policy_editing_revision}
+        />
+
+        <PolicyComponents.editor_form_card
+          can_manage?={@can_manage?}
+          sources={@sources}
+          sources_forbidden?={@sources_forbidden?}
+          policy_profiles={@policy_profiles}
+          policy_form={@policy_form}
+          policy_editing_revision={@policy_editing_revision}
+          policy_errors={@policy_errors}
+        />
+      <% end %>
+    </div>
     """
   end
 
@@ -2547,44 +2564,53 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
     """
   end
 
-  def health_blocked_panel(assigns) do
+  attr :runtime, :map, required: true
+  attr :storage_mode, :atom, default: :local_only
+  attr :can_operate?, :boolean, default: false
+  attr :health_summary, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
+
+  def health_panel(assigns) do
     ~H"""
-    <section
-      id="recording-health-blocked-panel"
-      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-3"
-    >
-      <div class="flex items-center gap-2">
-        <.ui_badge size="xs" variant="warning">Blocked — Stage B</.ui_badge>
-        <h2 class="text-base font-semibold text-sr-ink">
-          Recording, Reconciliation &amp; Archive Health Prerequisite Gate
-        </h2>
-      </div>
-      <p class="text-sm text-sr-muted">
-        Per-recorder pending archive backlog, oldest pending age, goodput-vs-capture
-        (<code class="font-mono">U &lt;= R</code> non-draining backlog), reconciliation status,
-        effective local window, and deduplicated storage alerts are blocked until their telemetry and
-        reconciler prerequisites land:
-      </p>
-      <ul class="list-disc pl-5 text-xs text-sr-muted space-y-1">
-        <li>
-          <strong>Continuous block sealing, reconciler &amp; archive outbox:</strong>
-          requires <code class="font-mono">add-scalable-camera-recording-plane</code>
-          task 3.2 and <code class="font-mono">add-nvr-retention-and-timeline-playback</code>
-          Stage R
-          (<code class="font-mono">NVRReconcileJob</code>
-          unreconciled and unattributable reporting).
-        </li>
-        <li>
-          <strong>JetStream recording telemetry &amp; deduplicated alerts:</strong>
-          requires backlog and goodput publication to NATS JetStream
-          (<code class="font-mono">metrics.timeseries.recording.*</code>, task 3.5) persisted by
-          <code class="font-mono">EventWriter</code>
-          into the telemetry store, plus <code class="font-mono">TripwireHealth</code>
-          storage checks, 24-hour gap summaries, and
-          inventory ledger status.
-        </li>
-      </ul>
-    </section>
+    <div id="recording-tab-panel-health" class="space-y-6">
+      <section
+        :if={@runtime.core_elx.nvr_installation == :not_installed}
+        id="health-not-installed-notice"
+        class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-2"
+      >
+        <h2 class="text-base font-semibold text-sr-ink">NVR is not installed</h2>
+        <p class="text-sm text-sr-muted">
+          No NVR client configuration is installed on <code class="font-mono">core-elx</code>. See
+          <code class="font-mono">docs/nvr-runtime.md</code>
+          for installation instructions.
+        </p>
+      </section>
+
+      <%= if @runtime.core_elx.nvr_installation != :not_installed do %>
+        <HealthComponents.backlog_card
+          backlog={@health_summary.archive_backlog}
+          storage_mode={@storage_mode}
+        />
+
+        <HealthComponents.storage_capacity_card
+          storage_members={@health_summary.storage_members}
+          unassigned_continuous_cameras={Map.get(@health_summary, :unassigned_continuous_cameras, 0)}
+        />
+
+        <HealthComponents.reconciliation_and_dispositions_card
+          backlog={@health_summary.archive_backlog}
+          dispositions={@health_summary.retention_and_dispositions}
+          can_operate?={@can_operate?}
+          timezone={@timezone}
+        />
+
+        <HealthComponents.gaps_and_alerts_card
+          gaps_24h={@health_summary.gaps_24h}
+          alerts={@health_summary.alerts}
+          timezone={@timezone}
+        />
+      <% end %>
+    </div>
     """
   end
 

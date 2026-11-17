@@ -8,8 +8,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias Phoenix.LiveView.Socket
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveDestination
+  alias ServiceRadar.Camera.CameraRecordingPolicy
+  alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingDisposition
+  alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Identity.RBAC.Cache
@@ -55,7 +60,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         list_enabled_s3_credentials: fn _ -> flunk("disconnected mount must not read secrets") end,
         load_archive_settings_view: fn _ -> flunk("disconnected mount must not read settings") end,
         load_retention_usage_summary: fn _ -> flunk("disconnected mount must not read retention usage") end,
-        list_camera_sources: fn _ -> flunk("disconnected mount must not read cameras") end
+        list_camera_sources: fn _ -> flunk("disconnected mount must not read cameras") end,
+        list_policies: fn _ -> flunk("disconnected mount must not read policies") end,
+        what_if_policy_preview: fn _, _, _ -> flunk("disconnected mount must not run DB what-if") end,
+        list_storage_settings: fn _ -> flunk("disconnected mount must not read storage settings") end,
+        load_recording_health: fn _ -> flunk("disconnected mount must not read recording health") end
       }
 
       for perm <- [
@@ -322,7 +331,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
                "awaiting_binding"
     end
 
-    test "policy and health tabs remain Stage B blocked while retention tab is live without a Blocked badge" do
+    test "all six recording tabs render without Blocked badges and open live policy and health panels" do
       socket =
         mounted_with_runtime(
           scope_with_permissions(["settings.recording.view"]),
@@ -330,25 +339,38 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         )
 
       tabs_doc = socket |> render_mounted() |> LazyHTML.from_fragment()
-      refute tabs_doc |> LazyHTML.query("#recording-tab-retention") |> LazyHTML.text() =~ "Blocked"
-      assert tabs_doc |> LazyHTML.query("#recording-tab-policy") |> LazyHTML.text() =~ "Blocked"
-      assert tabs_doc |> LazyHTML.query("#recording-tab-health") |> LazyHTML.text() =~ "Blocked"
+
+      for tab_id <- ~w(recorders archive cameras policy retention health) do
+        refute tabs_doc |> LazyHTML.query("#recording-tab-#{tab_id}") |> LazyHTML.text() =~
+                 "Blocked"
+      end
+
+      refute tabs_doc |> LazyHTML.query("#recording-settings-tabs") |> LazyHTML.text() =~ "Blocked"
 
       {:noreply, policy_socket} =
         RecordingLive.handle_params(%{"tab" => "policy"}, "/settings/recording?tab=policy", socket)
 
-      policy_html = render_mounted(policy_socket)
-      assert policy_html =~ "recording-policy-blocked-panel"
-      assert policy_html =~ "CameraRecordingPolicy"
+      policy_doc = policy_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert policy_doc |> LazyHTML.query("#recording-tab-panel-policy") |> Enum.count() == 1
+      assert policy_doc |> LazyHTML.query("#recording-policy-blocked-panel") |> Enum.count() == 0
+      assert policy_doc |> LazyHTML.query("#recording-policy-what-if-panel") |> Enum.count() == 1
+
+      assert policy_doc |> LazyHTML.query("#recording-policy-runtime-notice") |> LazyHTML.text() =~
+               "ContinuousRecorder"
 
       {:noreply, health_socket} =
         RecordingLive.handle_params(%{"tab" => "health"}, "/settings/recording?tab=health", socket)
 
-      health_html = render_mounted(health_socket)
-      assert health_html =~ "recording-health-blocked-panel"
-      assert health_html =~ "metrics.timeseries.recording.*"
-      assert health_html =~ "EventWriter"
-      assert health_html =~ "NVRReconcileJob"
+      health_doc = health_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert health_doc |> LazyHTML.query("#recording-tab-panel-health") |> Enum.count() == 1
+      assert health_doc |> LazyHTML.query("#recording-health-blocked-panel") |> Enum.count() == 0
+      assert health_doc |> LazyHTML.query("#recording-health-backlog-card") |> Enum.count() == 1
+      assert health_doc |> LazyHTML.query("#recording-health-storage-card") |> Enum.count() == 1
+
+      assert health_doc |> LazyHTML.query("#recording-health-reconciliation-card") |> Enum.count() ==
+               1
+
+      assert health_doc |> LazyHTML.query("#recording-health-gaps-alerts-card") |> Enum.count() == 1
     end
   end
 
@@ -1075,6 +1097,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         load_archive_settings_view: fn _scope -> default_overview() end,
         load_retention_usage_summary: fn _scope -> CameraRecordingSettings.default_usage_summary() end,
         list_camera_sources: fn _scope -> {:ok, []} end,
+        list_policies: fn _scope -> [] end,
+        what_if_policy_preview: &db_free_what_if_preview/3,
+        list_storage_settings: fn _scope -> [] end,
+        load_recording_health: fn _scope -> CameraRecordingSettings.default_health_summary() end,
         register_operator_destination: fn s, params ->
           CameraRecordingSettings.register_operator_destination(s, params,
             register_fn: fn normalized ->
@@ -2010,6 +2036,688 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
     end
   end
 
+  describe "E.1 live Policy tab (?tab=policy): table inspection, RBAC, CRUD revisions, and C1a what-if warnings" do
+    test "viewer inspects per-camera policies and profile estimates read-only and is denied on policy events" do
+      viewer_scope = scope_with_permissions(["settings.recording.view", "devices.view"])
+      camera_id = "00000000-0000-4000-8000-000000000401"
+      profile_id = "00000000-0000-4000-8000-000000000402"
+      policy_id = "00000000-0000-4000-8000-000000000403"
+
+      existing_policy = %CameraRecordingPolicy{
+        id: policy_id,
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        mode: :continuous,
+        nvr_member: "nvr-0",
+        storage: :local_and_archive,
+        archive_retention_override_mode: :limited,
+        archive_retention_days_override: 14,
+        policy_revision: 2,
+        camera_source: %{
+          id: camera_id,
+          display_name: "Synthetic Gate North",
+          device_uid: "sr:cam-north-01"
+        },
+        stream_profile: %{
+          id: profile_id,
+          profile_name: "main",
+          codec_hint: "h264",
+          relay_eligible: true,
+          metadata: %{"observed_bitrate_bps" => 2_000_000}
+        }
+      }
+
+      socket =
+        viewer_scope
+        |> mounted_with_runtime(installed_open_runtime(), %{
+          list_policies: fn _ -> [existing_policy] end
+        })
+        |> assign(:active_tab, "policy")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+      table_text = doc |> LazyHTML.query("#recording-policies-table") |> LazyHTML.text() |> normalize_ws()
+
+      assert table_text =~ "Synthetic Gate North (sr:cam-north-01)"
+      assert table_text =~ "main (h264)"
+      assert table_text =~ "2000 kbit/s (observed)"
+      assert table_text =~ "blocks/day"
+      assert table_text =~ "continuous"
+      assert table_text =~ "nvr-0"
+      assert table_text =~ "local_and_archive"
+      assert table_text =~ "limited (14 days)"
+      assert table_text =~ "rev 2"
+
+      assert doc |> LazyHTML.query("#save-policy-btn") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#edit-policy-#{policy_id}") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#policy-mode-select[disabled]") |> Enum.count() == 1
+
+      for {event, payload} <- [
+            {"preview_policy", %{"policy" => %{"mode" => "continuous"}}},
+            {"save_policy", %{"policy" => %{"mode" => "continuous"}}},
+            {"edit_policy", %{"id" => policy_id}},
+            {"reset_policy_form", %{}}
+          ] do
+        {:noreply, denied} = RecordingLive.handle_event(event, payload, socket)
+        assert Phoenix.Flash.get(denied.assigns.flash, :error) =~ "Not authorized"
+      end
+    end
+
+    test "preview_policy computes live C1a warnings (window < alert threshold, >16 sessions, ~2x throughput) before saving" do
+      manager_scope = scope_with_permissions(["settings.recording.manage", "devices.view"])
+      cand_cam_id = "00000000-0000-4000-8000-000000000450"
+      cand_prof_id = "00000000-0000-4000-8000-000000000451"
+
+      # 16 existing continuous cameras at 4 Mbit/s each on nvr-0
+      existing_16 =
+        for idx <- 1..16 do
+          %CameraRecordingPolicy{
+            id: Ecto.UUID.load!(Ecto.UUID.bingenerate()),
+            camera_source_id: Ecto.UUID.load!(Ecto.UUID.bingenerate()),
+            stream_profile_id: Ecto.UUID.load!(Ecto.UUID.bingenerate()),
+            mode: :continuous,
+            nvr_member: "nvr-0",
+            storage: :local_and_archive,
+            archive_retention_override_mode: :inherit,
+            policy_revision: 1,
+            stream_profile: %{
+              id: Ecto.UUID.load!(Ecto.UUID.bingenerate()),
+              profile_name: "main-#{idx}",
+              codec_hint: "h264",
+              relay_eligible: true,
+              metadata: %{"observed_bitrate_bps" => 4_000_000}
+            }
+          }
+        end
+
+      cand_profile = %{
+        id: cand_prof_id,
+        camera_source_id: cand_cam_id,
+        profile_name: "main-4m",
+        codec_hint: "h264",
+        relay_eligible: true,
+        metadata: %{"observed_bitrate_bps" => 4_000_000}
+      }
+
+      archive_settings =
+        struct(RecordingArchiveSettings.default_settings(),
+          archive_enabled: true,
+          local_window_alert_mode: :enabled,
+          local_window_alert_seconds: 3_600,
+          object_budget_mode: :limited,
+          object_budget_bytes: 500_000_000_000,
+          object_capacity_policy: :reap_oldest
+        )
+
+      deps = %{
+        load_archive_settings_view: fn _ ->
+          %{default_overview() | settings: archive_settings, storage_mode: :local_and_archive}
+        end,
+        list_camera_sources: fn _ ->
+          {:ok,
+           [
+             %{
+               id: cand_cam_id,
+               display_name: "Synthetic Camera 17",
+               device_uid: "sr:cam-17",
+               vendor_camera_id: "cam-17"
+             }
+           ]}
+        end,
+        list_relay_profiles: fn _scope, ^cand_cam_id -> [cand_profile] end,
+        list_policies: fn _ -> existing_16 end,
+        what_if_policy_preview: fn s, form, opts ->
+          CameraRecordingSettings.what_if_policy_preview(
+            s,
+            form,
+            opts ++
+              [
+                local_budget_bytes: 20 * 1_073_741_824,
+                measured_archive_goodput_bytes_per_sec: 2_000_000.0,
+                loaders: %{
+                  settings_loader: fn -> {:ok, archive_settings} end,
+                  policies_loader: fn -> {:ok, existing_16} end,
+                  catalog_loader: fn -> {:ok, []} end,
+                  holds_loader: fn -> {:ok, []} end,
+                  all_receipts_loader: fn -> {:ok, []} end,
+                  storage_settings_loader: fn -> {:ok, []} end
+                }
+              ]
+          )
+        end
+      }
+
+      socket =
+        manager_scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "policy")
+
+      {:noreply, previewed} =
+        RecordingLive.handle_event(
+          "preview_policy",
+          %{
+            "policy" => %{
+              "camera_source_id" => cand_cam_id,
+              "stream_profile_id" => cand_prof_id,
+              "mode" => "continuous",
+              "nvr_member" => "nvr-0",
+              "storage" => "local_and_archive",
+              "archive_retention_override_mode" => "limited",
+              "archive_retention_days_override" => "60"
+            }
+          },
+          socket
+        )
+
+      doc = previewed |> render_mounted() |> LazyHTML.from_fragment()
+
+      est_text = doc |> LazyHTML.query("#policy-profile-estimates") |> LazyHTML.text() |> normalize_ws()
+      assert est_text =~ "4000 kbit/s (observed)"
+      assert est_text =~ "3433 blocks/day"
+
+      assert doc |> LazyHTML.query("#what-if-member-sessions") |> LazyHTML.text() =~ "17 / 16 sessions"
+      assert doc |> LazyHTML.query("#policy-warning-sessions_exceed_limit") |> Enum.count() == 1
+      assert doc |> LazyHTML.query("#policy-warning-local_window_below_alert") |> Enum.count() == 1
+      assert doc |> LazyHTML.query("#policy-warning-provider_throughput_exceeds_measured") |> Enum.count() == 1
+
+      tp_text = doc |> LazyHTML.query("#what-if-archive-throughput") |> LazyHTML.text() |> normalize_ws()
+      assert tp_text =~ "Needed:"
+      assert tp_text =~ "Measured:"
+
+      obj_text = doc |> LazyHTML.query("#what-if-object-retention") |> LazyHTML.text() |> normalize_ws()
+      assert obj_text =~ "capacity binds"
+    end
+
+    test "save_policy creates and updates CameraRecordingPolicy revisions and surfaces field validation errors" do
+      manager_scope = scope_with_permissions(["settings.recording.manage", "devices.view"])
+      cam_id = "00000000-0000-4000-8000-000000000461"
+      prof_id = "00000000-0000-4000-8000-000000000462"
+
+      prof = %{
+        id: prof_id,
+        camera_source_id: cam_id,
+        profile_name: "main",
+        codec_hint: "h264",
+        relay_eligible: true,
+        metadata: %{"observed_bitrate_bps" => 1_000_000}
+      }
+
+      store = start_supervised!({Agent, fn -> [] end}, id: :unit_policy_store)
+
+      deps = %{
+        list_camera_sources: fn _ ->
+          {:ok, [%{id: cam_id, display_name: "Synthetic Dock Cam", device_uid: "sr:dock-1", vendor_camera_id: "dock-1"}]}
+        end,
+        list_relay_profiles: fn _scope, ^cam_id -> [prof] end,
+        list_policies: fn _ -> Agent.get(store, & &1) end,
+        what_if_policy_preview: &db_free_what_if_preview/3,
+        save_policy: fn s, params ->
+          CameraRecordingSettings.save_policy(s, params,
+            save_fn: fn attrs ->
+              existing =
+                Agent.get(store, fn rows ->
+                  Enum.find(rows, &(to_string(&1.camera_source_id) == to_string(attrs.camera_source_id)))
+                end)
+
+              rev = if existing, do: existing.policy_revision + 1, else: 1
+              id = if existing, do: existing.id, else: "00000000-0000-4000-8000-000000000469"
+
+              record = %CameraRecordingPolicy{
+                id: id,
+                camera_source_id: attrs.camera_source_id,
+                stream_profile_id: attrs.stream_profile_id,
+                mode: attrs.mode,
+                nvr_member: attrs.nvr_member,
+                storage: attrs.storage,
+                archive_retention_override_mode: attrs.archive_retention_override_mode,
+                archive_retention_days_override: attrs.archive_retention_days_override,
+                policy_revision: rev,
+                stream_profile: prof
+              }
+
+              Agent.update(store, fn rows ->
+                Enum.reject(rows, &(&1.id == id)) ++ [record]
+              end)
+
+              {:ok, record}
+            end
+          )
+        end
+      }
+
+      socket =
+        manager_scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "policy")
+
+      # Invalid member name and missing limited override days surface field errors
+      {:noreply, invalid_socket} =
+        RecordingLive.handle_event(
+          "save_policy",
+          %{
+            "policy" => %{
+              "camera_source_id" => cam_id,
+              "stream_profile_id" => prof_id,
+              "mode" => "continuous",
+              "nvr_member" => "INVALID_UPPERCASE",
+              "storage" => "local_only",
+              "archive_retention_override_mode" => "limited",
+              "archive_retention_days_override" => ""
+            }
+          },
+          socket
+        )
+
+      invalid_doc = invalid_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert invalid_doc |> LazyHTML.query("#policy-error-nvr-member") |> Enum.count() == 1
+      assert invalid_doc |> LazyHTML.query("#policy-error-override-days") |> Enum.count() == 1
+
+      # Valid create saves revision 1
+      {:noreply, created_socket} =
+        RecordingLive.handle_event(
+          "save_policy",
+          %{
+            "policy" => %{
+              "camera_source_id" => cam_id,
+              "stream_profile_id" => prof_id,
+              "mode" => "continuous",
+              "nvr_member" => "nvr-0",
+              "storage" => "local_only",
+              "archive_retention_override_mode" => "inherit",
+              "archive_retention_days_override" => ""
+            }
+          },
+          socket
+        )
+
+      assert Phoenix.Flash.get(created_socket.assigns.flash, :info) =~ "revision 1"
+      created_doc = created_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert created_doc |> LazyHTML.query("#recording-policies-table") |> LazyHTML.text() =~ "rev 1"
+
+      # Subsequent update increments policy_revision to rev 2
+      {:noreply, updated_socket} =
+        RecordingLive.handle_event(
+          "save_policy",
+          %{
+            "policy" => %{
+              "id" => "00000000-0000-4000-8000-000000000469",
+              "camera_source_id" => cam_id,
+              "stream_profile_id" => prof_id,
+              "mode" => "continuous",
+              "nvr_member" => "nvr-1",
+              "storage" => "local_only",
+              "archive_retention_override_mode" => "unlimited",
+              "archive_retention_days_override" => ""
+            }
+          },
+          created_socket
+        )
+
+      assert Phoenix.Flash.get(updated_socket.assigns.flash, :info) =~ "revision 2"
+      updated_doc = updated_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert updated_doc |> LazyHTML.query("#recording-policies-table") |> LazyHTML.text() =~ "rev 2"
+      assert updated_doc |> LazyHTML.query("#recording-policies-table") |> LazyHTML.text() =~ "nvr-1"
+    end
+  end
+
+  describe "C.17 Recorders tab (?tab=recorders): NVRStorageSettings desired vs applied, pinned floor, and RBAC" do
+    test "displays install defaults and desired-vs-applied sync states, denies viewer saves, and enforces Core pinned-bytes floor" do
+      storage_id = "00000000-0000-4000-8000-000000000511"
+      pinned_bytes = 536_870_912
+
+      initial_row = %NVRStorageSettings{
+        storage_id: storage_id,
+        budget_mode: :custom,
+        budget_bytes: 10_737_418_240,
+        reserve_mode: :install_default,
+        reserve_bytes: nil,
+        revision: 2,
+        applied_revision: 1,
+        sync_state: :refused,
+        last_refusal_class: "exceeds_install_ceiling"
+      }
+
+      store = start_supervised!({Agent, fn -> [initial_row] end}, id: :unit_storage_settings_store)
+
+      health_fn = fn _ ->
+        base = CameraRecordingSettings.default_health_summary()
+
+        member = %{
+          storage_id: storage_id,
+          member_name: "nvr-0",
+          desired_settings: hd(Agent.get(store, & &1)),
+          persisted_settings?: true,
+          pinned_bytes: pinned_bytes,
+          pinned_breakdown: %{p1: pinned_bytes, p2: 0, p3: 0, p4: 0, p5: 0, total_pinned_bytes: pinned_bytes},
+          min_custom_budget_bytes: pinned_bytes + 33_554_432,
+          local_present_blocks: 4,
+          local_present_bytes: pinned_bytes,
+          unarchived_local_bytes: pinned_bytes,
+          quarantined_local_bytes: 0,
+          held_local_pinned_bytes: 0,
+          effective_budget_bytes: 10_737_418_240,
+          window_projection: %{status: :not_recording, binding_bound: :not_recording},
+          time_to_full_seconds: :not_filling,
+          assigned_continuous_cameras: 1,
+          live_status_state: :unknown_until_nvr_status,
+          ledger_state: :unknown_until_nvr_status
+        }
+
+        %{base | storage_members: [member]}
+      end
+
+      deps = %{
+        list_storage_settings: fn _ -> Agent.get(store, & &1) end,
+        load_recording_health: health_fn,
+        save_storage_settings: fn s, sid, params ->
+          CameraRecordingSettings.save_storage_settings(s, sid, params,
+            pinned_bytes: pinned_bytes,
+            save_fn: fn target_sid, attrs ->
+              existing = hd(Agent.get(store, & &1))
+
+              changeset =
+                NVRStorageSettings.preview_changeset(target_sid, attrs,
+                  existing: existing,
+                  scope: s,
+                  pinned_bytes: pinned_bytes,
+                  loaders: %{
+                    settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
+                    catalog_loader: fn -> {:ok, []} end,
+                    holds_loader: fn -> {:ok, []} end
+                  }
+                )
+
+              if changeset.valid? do
+                {:ok, applied} = Ash.Changeset.apply_attributes(changeset)
+                updated = %{applied | revision: existing.revision + 1, sync_state: :pending, last_refusal_class: nil}
+                Agent.update(store, fn _ -> [updated] end)
+                {:ok, updated}
+              else
+                {:error, %{errors: changeset.errors}}
+              end
+            end
+          )
+        end
+      }
+
+      viewer_socket =
+        ["settings.recording.view"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+
+      viewer_doc = viewer_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert viewer_doc |> LazyHTML.query("#recorders-install-defaults-callout") |> LazyHTML.text() =~
+               "85% of PVC minus max(64 MiB, 1%)"
+
+      row_text =
+        viewer_doc |> LazyHTML.query("#storage-settings-row-#{storage_id}") |> LazyHTML.text() |> normalize_ws()
+
+      assert row_text =~ "custom: 10 GiB"
+      assert row_text =~ "rev 2"
+      assert row_text =~ "refused"
+      assert row_text =~ "exceeds_install_ceiling"
+      assert row_text =~ "Pinned: 512 MiB"
+      assert viewer_doc |> LazyHTML.query("#save-storage-settings-btn") |> Enum.count() == 0
+
+      {:noreply, denied_viewer} =
+        RecordingLive.handle_event(
+          "save_storage_settings",
+          %{"storage_settings" => %{"storage_id" => storage_id, "budget_mode" => "install_default"}},
+          viewer_socket
+        )
+
+      assert Phoenix.Flash.get(denied_viewer.assigns.flash, :error) =~ "Not authorized"
+
+      # Manager attempting budget below pinned_bytes (512 MiB) + 32 MiB = 570,425,344 B is refused
+      manager_socket =
+        ["settings.recording.manage"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+
+      {:noreply, refused_floor} =
+        RecordingLive.handle_event(
+          "save_storage_settings",
+          %{
+            "storage_settings" => %{
+              "storage_id" => storage_id,
+              "budget_mode" => "custom",
+              "budget_bytes" => "104857600",
+              "reserve_mode" => "install_default",
+              "reserve_bytes" => ""
+            }
+          },
+          manager_socket
+        )
+
+      refused_doc = refused_floor |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert refused_doc
+             |> LazyHTML.query("#storage-settings-error-budget-bytes")
+             |> LazyHTML.text() =~ "pinned_bytes=536870912"
+
+      # Manager saving valid custom budget & reserve increments revision to rev 3 (pending sync)
+      {:noreply, saved_socket} =
+        RecordingLive.handle_event(
+          "save_storage_settings",
+          %{
+            "storage_settings" => %{
+              "storage_id" => storage_id,
+              "budget_mode" => "custom",
+              "budget_bytes" => "21474836480",
+              "reserve_mode" => "custom",
+              "reserve_bytes" => "134217728"
+            }
+          },
+          manager_socket
+        )
+
+      assert Phoenix.Flash.get(saved_socket.assigns.flash, :info) =~ "revision 3"
+      saved_doc = saved_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      updated_row =
+        saved_doc |> LazyHTML.query("#storage-settings-row-#{storage_id}") |> LazyHTML.text() |> normalize_ws()
+
+      assert updated_row =~ "custom: 20 GiB"
+      assert updated_row =~ "custom: 128 MiB"
+      assert updated_row =~ "rev 3"
+      assert updated_row =~ "pending"
+    end
+  end
+
+  describe "E.3 / R.10 live Health tab (?tab=health): CNPG backlog, per-storage window, quarantine, gaps, and alerts" do
+    test "renders RecordingHealth.summary/1 across backlog, per-storage capacity, quarantine/dispositions, 24h gaps, and alerts" do
+      viewer_scope = scope_with_permissions(["settings.recording.view"])
+      storage_id = "00000000-0000-4000-8000-000000000601"
+      camera_id = "00000000-0000-4000-8000-000000000602"
+      now = ~U[2026-11-16 20:00:00Z]
+      now_us = DateTime.to_unix(now, :microsecond)
+
+      settings =
+        struct(RecordingArchiveSettings.default_settings(),
+          archive_enabled: true
+        )
+
+      catalog_entries = [
+        %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000611",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("a", 64),
+          local_state: :present,
+          archive_state: :awaiting_binding,
+          media_bytes: 16_777_216,
+          sealed_at: ~U[2026-11-16 18:00:00Z]
+        },
+        %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000612",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("b", 64),
+          local_state: :present,
+          archive_state: :failed_retryable,
+          media_bytes: 8_388_608,
+          sealed_at: ~U[2026-11-16 19:30:00Z]
+        },
+        %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000613",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("c", 64),
+          local_state: :present,
+          archive_state: :failed_terminal,
+          archive_last_error_class: "archive_receipt_conflict",
+          media_bytes: 8_388_608,
+          sealed_at: ~U[2026-11-16 19:45:00Z]
+        },
+        %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000614",
+          storage_id: storage_id,
+          block_key: String.duplicate("d", 64),
+          local_state: :quarantined,
+          quarantine_reason: :unattributable,
+          quarantined_bytes: 4_194_304,
+          archive_state: :not_required,
+          local_state_at: ~U[2026-11-16 19:50:00Z]
+        }
+      ]
+
+      gaps = [
+        %RecordingGap{
+          id: "00000000-0000-4000-8000-000000000621",
+          camera_source_id: camera_id,
+          reason: :nvr_refused,
+          detail_class: "nvr_spool_budget_exhausted",
+          time_basis: :received,
+          start_us: now_us - 600_000_000,
+          end_us: nil
+        },
+        %RecordingGap{
+          id: "00000000-0000-4000-8000-000000000622",
+          camera_source_id: camera_id,
+          reason: :handover_overflow,
+          time_basis: :received,
+          start_us: now_us - 3_600_000_000,
+          end_us: now_us - 3_598_000_000
+        }
+      ]
+
+      dispositions = [
+        %RecordingDisposition{
+          operation_id: "00000000-0000-4000-8000-000000000631",
+          storage_id: storage_id,
+          block_key: String.duplicate("e", 64),
+          copy: :local,
+          reason: :budget,
+          step: :verified_absent,
+          inserted_at: ~U[2026-11-16 19:10:00Z]
+        },
+        %RecordingDisposition{
+          operation_id: "00000000-0000-4000-8000-000000000632",
+          storage_id: storage_id,
+          block_key: String.duplicate("f", 64),
+          copy: :archive,
+          reason: :object_retention,
+          step: :failed,
+          error_class: "provider_timeout",
+          inserted_at: ~U[2026-11-16 19:20:00Z]
+        }
+      ]
+
+      alerts = [
+        %{
+          check_id: "nvr.#{storage_id}.archive_backlog_age",
+          entity_type: :core,
+          state: :unhealthy,
+          severity: :warning,
+          reason: "Oldest unarchived block exceeds 1 hour",
+          metadata: %{},
+          recorded_at: ~U[2026-11-16 19:55:00Z]
+        }
+      ]
+
+      {:ok, health_summary} =
+        RecordingHealth.summary(
+          scope: viewer_scope,
+          now: now,
+          member_by_storage_id: %{storage_id => "nvr-0"},
+          loaders: %{
+            settings_loader: fn -> {:ok, settings} end,
+            bindings_loader: fn -> {:ok, []} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, catalog_entries} end,
+            holds_loader: fn -> {:ok, []} end,
+            blocks_loader: fn -> {:ok, []} end,
+            policies_loader: fn ->
+              {:ok,
+               [
+                 %CameraRecordingPolicy{
+                   id: "00000000-0000-4000-8000-000000000641",
+                   camera_source_id: camera_id,
+                   mode: :continuous,
+                   nvr_member: "nvr-0",
+                   storage: :local_and_archive,
+                   stream_profile: %{metadata: %{"observed_bitrate_bps" => 1_000_000}}
+                 }
+               ]}
+            end,
+            storage_settings_loader: fn -> {:ok, []} end,
+            local_storage_bindings_loader: fn -> {:ok, []} end,
+            gaps_loader: fn -> {:ok, gaps} end,
+            dispositions_loader: fn -> {:ok, dispositions} end,
+            alerts_loader: fn -> {:ok, alerts} end
+          }
+        )
+
+      socket =
+        viewer_scope
+        |> mounted_with_runtime(installed_open_runtime(), %{
+          load_recording_health: fn _ -> health_summary end
+        })
+        |> assign(:active_tab, "health")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      # 1. Backlog card: 3 unarchived (32 MiB), oldest 2 hours, awaiting_binding=1,
+      #    failed_retryable=1, failed_terminal=1 highlighted
+      assert doc |> LazyHTML.query("#health-backlog-unarchived") |> LazyHTML.text() =~ "3 blocks (32 MiB)"
+      assert doc |> LazyHTML.query("#health-backlog-oldest-age") |> LazyHTML.text() =~ "2 hours"
+      assert doc |> LazyHTML.query("#health-backlog-awaiting-binding") |> LazyHTML.text() =~ "1"
+      assert doc |> LazyHTML.query("#health-backlog-failed-retryable") |> LazyHTML.text() =~ "1"
+      assert doc |> LazyHTML.query("#health-failed-terminal-badge") |> LazyHTML.text() =~ "Action required"
+
+      # 2. Storage capacity card: window, assigned continuous cameras, and honest unknown NVR status label
+      member_text =
+        doc |> LazyHTML.query("#health-storage-member-#{storage_id}") |> LazyHTML.text() |> normalize_ws()
+
+      assert member_text =~ "Local storage holds about"
+      assert member_text =~ "Assigned continuous cameras: 1"
+      assert member_text =~ "unknown until NVR /v1/status reports"
+
+      # 3. Reconciliation, quarantine & dispositions card
+      assert doc |> LazyHTML.query("#health-reconciler-status") |> LazyHTML.text() =~
+               "awaiting reconciler"
+
+      assert doc |> LazyHTML.query("#health-quarantined-summary") |> LazyHTML.text() =~
+               "1 entries (4 MiB)"
+
+      assert doc |> LazyHTML.query("#health-quarantined-list") |> LazyHTML.text() =~ "unattributable"
+
+      disp_text =
+        doc |> LazyHTML.query("#health-dispositions-24h-summary") |> LazyHTML.text() |> normalize_ws()
+
+      assert disp_text =~ "2 steps (1 verified absent)"
+      assert disp_text =~ "Failures (24h): 1"
+
+      # 4. 24h RecordingGaps by reason + open gaps + active alerts
+      assert doc |> LazyHTML.query("#health-gaps-total-badge") |> LazyHTML.text() =~ "24h total: 2"
+      assert doc |> LazyHTML.query("#health-open-gaps-badge") |> LazyHTML.text() =~ "Open gaps: 1"
+      assert doc |> LazyHTML.query("#health-gap-reason-nvr_refused") |> LazyHTML.text() =~ "1"
+      assert doc |> LazyHTML.query("#health-gap-reason-handover_overflow") |> LazyHTML.text() =~ "1"
+      assert doc |> LazyHTML.query("#health-open-gaps-list") |> LazyHTML.text() =~ "nvr_spool_budget_exhausted"
+      assert doc |> LazyHTML.query("#health-active-alerts-list") |> LazyHTML.text() =~ "archive_backlog_age"
+    end
+  end
+
   defp base_socket(scope) do
     path = "/settings/recording"
     view = Catalog.view_for_path(path)
@@ -2045,7 +2753,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       list_enabled_s3_credentials: fn _ -> [] end,
       load_archive_settings_view: fn _ -> default_overview() end,
       load_retention_usage_summary: fn _ -> CameraRecordingSettings.default_usage_summary() end,
-      list_camera_sources: fn _ -> {:ok, []} end
+      list_camera_sources: fn _ -> {:ok, []} end,
+      list_policies: fn _ -> [] end,
+      what_if_policy_preview: &db_free_what_if_preview/3,
+      list_storage_settings: fn _ -> [] end,
+      load_recording_health: fn _ -> CameraRecordingSettings.default_health_summary() end
     }
 
     socket =
@@ -2057,6 +2769,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
 
     {:ok, mounted} = RecordingLive.mount(%{}, %{}, socket)
     mounted
+  end
+
+  defp db_free_what_if_preview(scope, policy_form, opts) do
+    settings = Keyword.get(opts, :settings, RecordingArchiveSettings.default_settings())
+
+    CameraRecordingSettings.what_if_policy_preview(
+      scope,
+      policy_form,
+      opts ++
+        [
+          loaders: %{
+            settings_loader: fn -> {:ok, settings} end,
+            policies_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, []} end,
+            holds_loader: fn -> {:ok, []} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            storage_settings_loader: fn -> {:ok, []} end
+          }
+        ]
+    )
   end
 
   defp render_mounted(%Socket{} = socket) do

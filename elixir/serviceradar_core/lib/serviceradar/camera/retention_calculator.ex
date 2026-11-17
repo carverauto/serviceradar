@@ -20,6 +20,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.CameraRecordingPolicies
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
@@ -1097,6 +1099,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
          {:ok, receipts} <- load_all_receipts(settings.active_archive_binding_id, loaders),
          {:ok, catalog_entries} <- load_catalog_entries(loaders),
          {:ok, accepted_holds} <- load_accepted_holds(loaders),
+         {:ok, policies} <- load_policies_for_summary(loaders),
          {:ok, blocks} <- load_reserved_blocks(loaders) do
       archive_stats =
         aggregate_object_usage(
@@ -1110,6 +1113,9 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
 
       block_stats = aggregate_blocks_and_catalog(blocks, catalog_entries, accepted_holds, now)
       avg_block_bytes = estimate_avg_block_bytes(archive_stats, block_stats)
+
+      policy_summary =
+        summarize_policies_for_usage(policies, settings, catalog_entries, receipts, now)
 
       {r15m_bps, r6h_bps, local_history_sec} =
         resolve_summary_local_rates(block_stats, avg_block_bytes)
@@ -1132,10 +1138,24 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       }
 
       has_activity? =
-        block_stats.total_reserved_blocks > 0 or
+        policy_summary.continuous_count > 0 or
+          block_stats.total_reserved_blocks > 0 or
           block_stats.cataloged_block_count > 0 or
           archive_stats.archived_block_count > 0 or
           archive_stats.uploads_in_flight_count > 0
+
+      default_cameras =
+        if policy_summary.continuous_count > 0,
+          do: policy_summary.continuous_count,
+          else: if(has_activity?, do: 1, else: 0)
+
+      default_per_camera_bps =
+        if policy_summary.continuous_count > 0,
+          do: div(policy_summary.total_nominal_bitrate_bps, policy_summary.continuous_count),
+          else: 0
+
+      non_reapable =
+        Keyword.get(opts, :non_reapable_bytes, archive_stats.catalog_non_reapable_bytes)
 
       sim_inputs = %{
         archive_used_bytes: archive_stats.archive_used_bytes,
@@ -1146,29 +1166,39 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         local_history_seconds: local_history_sec,
         r15m_bytes_per_sec: r15m_bps,
         r6h_bytes_per_sec: r6h_bps,
-        camera_count: Keyword.get(opts, :camera_count, if(has_activity?, do: 1, else: 0)),
-        nominal_bitrate_bps: Keyword.get(opts, :nominal_bitrate_bps, 0),
+        camera_count: Keyword.get(opts, :camera_count, default_cameras),
+        nominal_bitrate_bps: Keyword.get(opts, :nominal_bitrate_bps, default_per_camera_bps),
         local_budget_bytes: Keyword.get(opts, :local_budget_bytes, @default_local_budget_bytes),
         pinned_bytes: Keyword.get(opts, :pinned_bytes, default_pinned),
-        non_reapable_bytes:
-          Keyword.get(opts, :non_reapable_bytes, archive_stats.catalog_non_reapable_bytes),
+        non_reapable_bytes: non_reapable,
         max_blocks: Keyword.get(opts, :max_blocks),
         avg_block_bytes: avg_block_bytes
       }
 
       projected = project_settings(settings, sim_inputs)
 
+      {object_projection, measured_rate_bpd, rate_basis} =
+        maybe_apply_policy_object_projection(
+          policy_summary,
+          settings,
+          archive_stats,
+          non_reapable,
+          projected,
+          opts
+        )
+
       {:ok,
        %{
          settings: settings,
          archive:
            Map.merge(archive_stats, %{
-             measured_rate_bytes_per_day: projected.rate.bytes_per_day,
-             rate_basis: projected.rate.basis
+             measured_rate_bytes_per_day: measured_rate_bpd,
+             rate_basis: rate_basis
            }),
          local_blocks: block_stats,
          holds: holds_summary,
-         object_projection: projected.object_projection,
+         policies: Map.delete(policy_summary, :archiving_specs),
+         object_projection: object_projection,
          local_projection: projected.local_projection,
          shorter_archive_than_local?: projected.shorter_archive_than_local?,
          object_retention_enforced?: not is_nil(settings.retention_credential_secret_id)
@@ -1354,6 +1384,211 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         |> Ash.Query.select([:id, :storage_id, :state, :inserted_at])
         |> Ash.read(actor: @system_actor)
     end
+  end
+
+  defp load_policies_for_summary(loaders) do
+    case Map.get(loaders, :policies_loader) do
+      loader when is_function(loader, 0) ->
+        loader.()
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
+      _ ->
+        CameraRecordingPolicy
+        |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+        |> Ash.Query.load(
+          stream_profile: [:id, :camera_source_id, :profile_name, :relay_eligible, :metadata]
+        )
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp summarize_policies_for_usage(policies, settings, catalog_entries, receipts, now) do
+    continuous =
+      Enum.filter(policies, &(fetch_val(&1, :mode) in [:continuous, "continuous"]))
+
+    archiving =
+      if settings.archive_enabled do
+        Enum.filter(
+          continuous,
+          &(fetch_val(&1, :storage) in [:local_and_archive, "local_and_archive"])
+        )
+      else
+        []
+      end
+
+    local_only_count = length(continuous) - length(archiving)
+
+    total_nominal_bps =
+      Enum.reduce(continuous, 0, fn pol, acc ->
+        est = policy_nominal_estimate(pol)
+        acc + (est.bitrate_bps || 0)
+      end)
+
+    by_member =
+      continuous
+      |> Enum.group_by(&(fetch_val(&1, :nvr_member) || "unassigned"))
+      |> Map.new(fn {member, rows} -> {member, length(rows)} end)
+
+    receipts_by_id =
+      for r <- receipts,
+          id = fetch_val(r, :id),
+          not is_nil(id),
+          into: %{},
+          do: {to_string(id), r}
+
+    archiving_specs =
+      Enum.map(archiving, fn pol ->
+        est = policy_nominal_estimate(pol)
+
+        rate_info =
+          compute_policy_archive_rate(pol, est.bitrate_bps, catalog_entries, receipts_by_id, now)
+
+        configured_days = CameraRecordingPolicies.resolve_policy_archive_retention(pol, settings)
+
+        %{
+          id: to_string(fetch_val(pol, :id) || "policy"),
+          camera_source_id: fetch_val(pol, :camera_source_id),
+          stream_profile_id: fetch_val(pol, :stream_profile_id),
+          nvr_member: fetch_val(pol, :nvr_member),
+          archive_retention_override_mode:
+            fetch_val(pol, :archive_retention_override_mode) || :inherit,
+          archive_retention_days_override: fetch_val(pol, :archive_retention_days_override),
+          rate_bytes_per_day: rate_info.bytes_per_day,
+          rate_basis: rate_info.basis,
+          retention_days: configured_days
+        }
+      end)
+
+    %{
+      total_count: length(policies),
+      continuous_count: length(continuous),
+      archiving_count: length(archiving),
+      local_only_count: local_only_count,
+      total_nominal_bitrate_bps: total_nominal_bps,
+      by_member: by_member,
+      archiving_specs: archiving_specs
+    }
+  end
+
+  defp policy_nominal_estimate(pol) do
+    case fetch_val(pol, :nominal_bitrate_bps) || fetch_val(pol, :observed_bitrate_bps) do
+      bps when is_integer(bps) and bps > 0 ->
+        CameraRecordingPolicies.profile_estimate(%{nominal_bitrate_bps: bps})
+
+      _ ->
+        CameraRecordingPolicies.profile_estimate(fetch_val(pol, :stream_profile))
+    end
+  end
+
+  defp compute_policy_archive_rate(pol, nominal_bps, catalog_entries, receipts_by_id, now) do
+    cam_id = to_string(fetch_val(pol, :camera_source_id) || "")
+    prof_id = to_string(fetch_val(pol, :stream_profile_id) || "")
+    cutoff_24h = DateTime.shift(now, second: -@window_24h_seconds)
+    cutoff_7d = DateTime.shift(now, second: -@window_7d_seconds)
+
+    matching =
+      Enum.filter(catalog_entries, fn entry ->
+        normalize_atom_state(fetch_val(entry, :local_state)) != :quarantined and
+          normalize_atom_state(fetch_val(entry, :archive_state)) in [:verified, :deleting] and
+          to_string(fetch_val(entry, :camera_source_id) || "") == cam_id and
+          to_string(fetch_val(entry, :stream_profile_id) || "") == prof_id
+      end)
+
+    {oldest, b24, b7} =
+      Enum.reduce(matching, {nil, 0, 0}, fn entry, {old_acc, s24, s7} ->
+        rid = fetch_val(entry, :nvr_archive_receipt_id)
+        receipt = rid && Map.get(receipts_by_id, to_string(rid))
+        {bytes, _} = receipt_or_media_bytes(receipt, fetch_val(entry, :media_bytes), 3)
+        ts = fetch_val(entry, :archived_at) || fetch_val(entry, :sealed_at)
+        in_24? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_24h) != :lt
+        in_7? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_7d) != :lt
+
+        {min_datetime(old_acc, ts), s24 + if(in_24?, do: bytes, else: 0),
+         s7 + if(in_7?, do: bytes, else: 0)}
+      end)
+
+    history_sec =
+      case oldest do
+        %DateTime{} = dt -> max(0, DateTime.diff(now, dt, :second))
+        _ -> 0
+      end
+
+    rate_from_history_or_nominal(%{
+      history_seconds: history_sec,
+      trailing_24h_bytes: b24,
+      trailing_7d_bytes: b7,
+      nominal_bitrate_bps: nominal_bps
+    })
+  end
+
+  defp maybe_apply_policy_object_projection(
+         %{archiving_specs: specs},
+         settings,
+         archive_stats,
+         non_reapable,
+         projected,
+         opts
+       )
+       when specs != [] do
+    if Keyword.has_key?(opts, :camera_count) or Keyword.has_key?(opts, :nominal_bitrate_bps) do
+      {projected.object_projection, projected.rate.bytes_per_day, projected.rate.basis}
+    else
+      calc =
+        calculate_object_retention(specs, %{
+          object_budget_mode: settings.object_budget_mode,
+          object_budget_bytes: settings.object_budget_bytes,
+          object_high_water_percent: settings.object_high_water_percent || 90,
+          object_low_water_percent: settings.object_low_water_percent || 80,
+          object_capacity_policy: settings.object_capacity_policy,
+          non_reapable_bytes: non_reapable,
+          usage_bytes: archive_stats.archive_used_bytes,
+          non_reapable_growth_bytes_per_day:
+            Keyword.get(opts, :non_reapable_growth_bytes_per_day, 0.0)
+        })
+
+      specs_by_id = Map.new(specs, &{&1.id, &1})
+
+      enriched =
+        Enum.map(calc.policies, fn p ->
+          meta = Map.get(specs_by_id, to_string(p.id), %{})
+
+          Map.merge(p, %{
+            camera_source_id: Map.get(meta, :camera_source_id),
+            stream_profile_id: Map.get(meta, :stream_profile_id),
+            nvr_member: Map.get(meta, :nvr_member),
+            archive_retention_override_mode: Map.get(meta, :archive_retention_override_mode),
+            archive_retention_days_override: Map.get(meta, :archive_retention_days_override),
+            rate_basis: Map.get(meta, :rate_basis, :unknown)
+          })
+        end)
+
+      basis =
+        cond do
+          Enum.any?(specs, &(&1.rate_basis == :measured)) -> :measured
+          Enum.any?(specs, &(&1.rate_basis == :estimated)) -> :estimated
+          true -> projected.rate.basis
+        end
+
+      total_rate =
+        if calc.total_rate_bytes_per_day > 0.0,
+          do: calc.total_rate_bytes_per_day,
+          else: projected.rate.bytes_per_day
+
+      {%{calc | policies: enriched}, total_rate, basis}
+    end
+  end
+
+  defp maybe_apply_policy_object_projection(
+         _policy_summary,
+         _settings,
+         _archive_stats,
+         _non_reapable,
+         projected,
+         _opts
+       ) do
+    {projected.object_projection, projected.rate.bytes_per_day, projected.rate.basis}
   end
 
   defp aggregate_object_usage(
