@@ -30,6 +30,8 @@ defmodule ServiceRadar.Security.AuditHistoryTest do
         assert ServiceRadar.Inventory.VisibilityProfile in defaults
         assert ServiceRadar.Camera.RecordingArchiveSettings in defaults
         assert ServiceRadar.Camera.RecordingHold in defaults
+        assert ServiceRadar.Camera.CameraRecordingPolicy in defaults
+        assert ServiceRadar.Camera.NVRStorageSettings in defaults
       after
         Application.put_env(:serviceradar_core, AuditHistory, previous)
       end

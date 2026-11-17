@@ -1,0 +1,219 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "storage_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"install_default\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "budget_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "budget_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"install_default\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reserve_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reserve_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "applied_revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"pending\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "sync_state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "last_refusal_class",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "applied_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "budget_bytes"
+      ],
+      "base_filter": null,
+      "check": "(budget_mode = 'custom' AND budget_bytes IS NOT NULL AND budget_bytes > 0 AND budget_bytes <= 1125899906842624) OR\n(budget_mode = 'install_default' AND budget_bytes IS NULL)\n",
+      "name": "camera_nvr_storage_settings_budget_pair"
+    },
+    {
+      "attribute": [
+        "reserve_bytes"
+      ],
+      "base_filter": null,
+      "check": "(reserve_mode = 'custom' AND reserve_bytes IS NOT NULL AND reserve_bytes >= 67108864 AND reserve_bytes <= 1125899906842624) OR\n(reserve_mode = 'install_default' AND reserve_bytes IS NULL)\n",
+      "name": "camera_nvr_storage_settings_reserve_pair"
+    },
+    {
+      "attribute": [
+        "sync_state"
+      ],
+      "base_filter": null,
+      "check": "revision >= 1 AND\n(applied_revision IS NULL OR (applied_revision >= 1 AND applied_revision <= revision)) AND\nsync_state IN ('pending', 'applied', 'refused') AND\n((sync_state = 'refused' AND last_refusal_class IS NOT NULL AND octet_length(last_refusal_class) BETWEEN 1 AND 64 AND last_refusal_class ~ '^[a-z0-9_.:-]+$') OR\n (sync_state <> 'refused' AND last_refusal_class IS NULL)) AND\n(sync_state <> 'applied' OR (applied_revision IS NOT NULL AND applied_at IS NOT NULL))\n",
+      "name": "camera_nvr_storage_settings_revision_and_sync"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "sync_state",
+        "updated_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "sync_state"
+        },
+        {
+          "type": "atom",
+          "value": "updated_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_nvr_storage_settings_sync_state_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "sync_state IN ('pending', 'refused')"
+    }
+  ],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "173CC9AED36B6644C530AEE5FA795651468805E7383BCD80CDA97AE5CA57BC80",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_nvr_storage_settings",
+  "temporal": null
+}

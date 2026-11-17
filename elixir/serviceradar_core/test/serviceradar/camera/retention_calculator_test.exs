@@ -904,6 +904,98 @@ defmodule ServiceRadar.Camera.RetentionCalculatorTest do
                archive_missing?: false
              }
     end
+
+    test "A.2.1: integrates enabled continuous CameraRecordingPolicy overrides and nominal profile bitrates into usage_summary/1" do
+      viewer = %{
+        id: "viewer-policies",
+        role: :admin,
+        permissions: MapSet.new(["settings.recording.view"])
+      }
+
+      settings = %{
+        RecordingArchiveSettings.default_settings()
+        | active_archive_binding_id: "00000000-0000-4000-8000-000000000901",
+          archive_enabled: true,
+          archive_retention_mode: :limited,
+          archive_retention_days: 30,
+          object_budget_mode: :limited,
+          object_budget_bytes: 1_250 * @gb,
+          object_high_water_percent: 90,
+          object_low_water_percent: 80,
+          object_capacity_policy: :reap_oldest
+      }
+
+      policies = [
+        %{
+          id: "pol-limited",
+          camera_source_id: "00000000-0000-4000-8000-000000000911",
+          stream_profile_id: "00000000-0000-4000-8000-000000000921",
+          mode: :continuous,
+          nvr_member: "nvr-0",
+          storage: :local_and_archive,
+          archive_retention_override_mode: :limited,
+          archive_retention_days_override: 7,
+          stream_profile: %{
+            id: "00000000-0000-4000-8000-000000000921",
+            metadata: %{"nominal_bitrate_bps" => 4_000_000}
+          }
+        },
+        %{
+          id: "pol-unlimited",
+          camera_source_id: "00000000-0000-4000-8000-000000000912",
+          stream_profile_id: "00000000-0000-4000-8000-000000000922",
+          mode: :continuous,
+          nvr_member: "nvr-0",
+          storage: :local_and_archive,
+          archive_retention_override_mode: :unlimited,
+          archive_retention_days_override: nil,
+          stream_profile: %{
+            id: "00000000-0000-4000-8000-000000000922",
+            metadata: %{"nominal_bitrate_bps" => 2_000_000}
+          }
+        },
+        %{
+          id: "pol-off",
+          camera_source_id: "00000000-0000-4000-8000-000000000913",
+          stream_profile_id: "00000000-0000-4000-8000-000000000923",
+          mode: :off,
+          nvr_member: nil,
+          storage: :local_and_archive,
+          archive_retention_override_mode: :inherit,
+          archive_retention_days_override: nil,
+          stream_profile: %{
+            id: "00000000-0000-4000-8000-000000000923",
+            metadata: %{"nominal_bitrate_bps" => 8_000_000}
+          }
+        }
+      ]
+
+      assert {:ok, summary} =
+               RetentionCalculator.usage_summary(
+                 actor: viewer,
+                 loaders: %{
+                   settings_loader: fn -> {:ok, settings} end,
+                   policies_loader: fn -> {:ok, policies} end
+                 }
+               )
+
+      assert summary.policies.total_count == 3
+      assert summary.policies.continuous_count == 2
+      assert summary.policies.archiving_count == 2
+      assert summary.policies.total_nominal_bitrate_bps == 6_000_000
+      assert summary.archive.rate_basis == :estimated
+
+      [p_lim, p_unlim] = summary.object_projection.policies
+      assert p_lim.id == "pol-limited"
+      assert p_lim.configured_days == 7
+      assert p_lim.effective_days == 7
+      assert p_lim.binding_bound == :time
+
+      assert p_unlim.id == "pol-unlimited"
+      assert p_unlim.configured_days == :unlimited
+      assert p_unlim.binding_bound == :capacity
+      assert is_number(p_unlim.effective_days) and p_unlim.effective_days > 7
+    end
   end
 
   defp assert_rel_close(actual, expected) do

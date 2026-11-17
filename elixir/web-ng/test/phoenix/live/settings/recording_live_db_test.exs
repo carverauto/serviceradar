@@ -12,13 +12,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Camera.ArchiveDestinations
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.IngestOwner
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.NVRArchiveReceipt
+  alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingDisposition
+  alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
@@ -560,6 +565,418 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(after_release_ret_view, "#retention-held-archive-bytes", "Held archive: 0 B")
     assert has_element?(after_release_ret_view, "#retention-non-reapable-bytes", "16 MiB")
     assert has_element?(after_release_ret_view, "#retention-held-local-pinned-bytes", "16 MiB")
+  end
+
+  test "policy tab persists CameraRecordingPolicy revisions and live C1a what-if against Postgres without stubs",
+       %{conn: conn, actor: actor} do
+    opts = [actor: actor]
+    writer_secret = create_synthetic_s3_secret(actor, "Synthetic Policy Writer")
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "policy-arch-#{System.unique_integer([:positive])}",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-policy-archive",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          active_archive_binding_id: binding.id,
+          archive_enabled: true,
+          writer_credential_secret_id: writer_secret.id
+        },
+        opts
+      )
+
+    live_ctx = setup_live_recorder_fence(actor)
+
+    {:ok, _profile} =
+      StreamProfile.update_profile(
+        live_ctx.profile,
+        %{metadata: %{"observed_bitrate_bps" => 2_000_000}},
+        opts
+      )
+
+    {:ok, policy_view, policy_html} = live(conn, ~p"/settings/recording?tab=policy")
+
+    refute policy_html =~ "Blocked"
+    assert has_element?(policy_view, "#recording-policy-runtime-notice")
+    assert has_element?(policy_view, "#recording-policy-form")
+    assert has_element?(policy_view, "#recording-policy-what-if-panel")
+
+    # Select camera first to load relay-eligible stream profiles, then enable continuous + limited override
+    policy_view
+    |> element("#recording-policy-form")
+    |> render_change(%{"policy" => %{"camera_source_id" => live_ctx.source.id}})
+
+    policy_view
+    |> element("#recording-policy-form")
+    |> render_change(%{
+      "policy" => %{
+        "camera_source_id" => live_ctx.source.id,
+        "stream_profile_id" => live_ctx.profile.id,
+        "mode" => "continuous",
+        "storage" => "local_and_archive",
+        "archive_retention_override_mode" => "limited"
+      }
+    })
+
+    preview_html =
+      policy_view
+      |> element("#recording-policy-form")
+      |> render_change(%{
+        "policy" => %{
+          "camera_source_id" => live_ctx.source.id,
+          "stream_profile_id" => live_ctx.profile.id,
+          "mode" => "continuous",
+          "nvr_member" => "serviceradar-nvr-0",
+          "storage" => "local_and_archive",
+          "archive_retention_override_mode" => "limited",
+          "archive_retention_days_override" => "14"
+        }
+      })
+
+    assert preview_html =~ "2000 kbit/s"
+    assert preview_html =~ "1 / 16"
+    assert preview_html =~ "configured 14d, time binds"
+
+    policy_view
+    |> element("#recording-policy-form")
+    |> render_submit(%{
+      "policy" => %{
+        "camera_source_id" => live_ctx.source.id,
+        "stream_profile_id" => live_ctx.profile.id,
+        "mode" => "continuous",
+        "nvr_member" => "serviceradar-nvr-0",
+        "storage" => "local_and_archive",
+        "archive_retention_override_mode" => "limited",
+        "archive_retention_days_override" => "14"
+      }
+    })
+
+    {:ok, created_policy} =
+      CameraRecordingPolicy.get_by_camera_profile(live_ctx.source.id, live_ctx.profile.id, opts)
+
+    assert created_policy.policy_revision == 1
+    assert created_policy.mode == :continuous
+    assert created_policy.nvr_member == "serviceradar-nvr-0"
+    assert has_element?(policy_view, "#recording-policy-row-#{created_policy.id}", "rev 1")
+
+    # Switch override mode back to inherit, then submit update -> increments policy_revision to 2
+    policy_view
+    |> element("#recording-policy-form")
+    |> render_change(%{
+      "policy" => %{
+        "camera_source_id" => live_ctx.source.id,
+        "stream_profile_id" => live_ctx.profile.id,
+        "mode" => "continuous",
+        "nvr_member" => "serviceradar-nvr-1",
+        "storage" => "local_only",
+        "archive_retention_override_mode" => "inherit"
+      }
+    })
+
+    policy_view
+    |> element("#recording-policy-form")
+    |> render_submit(%{
+      "policy" => %{
+        "camera_source_id" => live_ctx.source.id,
+        "stream_profile_id" => live_ctx.profile.id,
+        "mode" => "continuous",
+        "nvr_member" => "serviceradar-nvr-1",
+        "storage" => "local_only",
+        "archive_retention_override_mode" => "inherit"
+      }
+    })
+
+    {:ok, updated_policy} =
+      CameraRecordingPolicy.get_by_camera_profile(live_ctx.source.id, live_ctx.profile.id, opts)
+
+    assert updated_policy.policy_revision == 2
+    assert updated_policy.nvr_member == "serviceradar-nvr-1"
+    assert updated_policy.storage == :local_only
+    assert has_element?(policy_view, "#recording-policy-row-#{updated_policy.id}", "rev 2")
+  end
+
+  test "recorders tab enforces NVRStorageSettings pinned-bytes floor and persists desired budget and reserve",
+       %{conn: conn, actor: actor} do
+    opts = [actor: actor]
+    writer_secret = create_synthetic_s3_secret(actor, "Synthetic Storage Floor Writer")
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "storage-floor-#{System.unique_integer([:positive])}",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-storage-floor",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          active_archive_binding_id: binding.id,
+          archive_enabled: true,
+          writer_credential_secret_id: writer_secret.id
+        },
+        opts
+      )
+
+    live_ctx = setup_live_recorder_fence(actor)
+    block_pending = reserve_fenced_block(live_ctx, 0, opts)
+    descriptor_pending = build_synthetic_descriptor(block_pending, 16_777_216)
+
+    {:ok, _entry_pending} =
+      RecordingBlocks.freeze_and_catalog(
+        live_ctx.owner,
+        live_ctx.claim,
+        block_pending,
+        descriptor_pending,
+        %{
+          first_unit_pts: 0,
+          first_unit_received_at: ~U[2026-11-16 12:15:00.000000Z],
+          reanchored: false
+        },
+        opts
+      )
+
+    {:ok, rec_view, rec_html} = live(conn, ~p"/settings/recording?tab=recorders")
+
+    assert has_element?(rec_view, "#recording-member-budgets-section")
+    assert has_element?(rec_view, "#storage-settings-row-#{@storage_id}")
+    assert rec_html =~ "85% of PVC minus max(64 MiB, 1%)"
+    assert rec_html =~ "48 MiB"
+
+    # Enable custom budget input, then submit budget below pinned floor (16 MiB + 32 MiB = 48 MiB)
+    rec_view
+    |> element("#recording-storage-settings-form")
+    |> render_change(%{
+      "storage_settings" => %{
+        "storage_id" => @storage_id,
+        "budget_mode" => "custom",
+        "reserve_mode" => "install_default"
+      }
+    })
+
+    rec_view
+    |> element("#recording-storage-settings-form")
+    |> render_submit(%{
+      "storage_settings" => %{
+        "storage_id" => @storage_id,
+        "budget_mode" => "custom",
+        "budget_bytes" => "33554432",
+        "reserve_mode" => "install_default"
+      }
+    })
+
+    assert has_element?(rec_view, "#storage-settings-error-budget-bytes")
+
+    # Enable custom reserve input too, then save valid desired budget (20 GiB) and reserve (512 MiB)
+    rec_view
+    |> element("#recording-storage-settings-form")
+    |> render_change(%{
+      "storage_settings" => %{
+        "storage_id" => @storage_id,
+        "budget_mode" => "custom",
+        "reserve_mode" => "custom"
+      }
+    })
+
+    rec_view
+    |> element("#recording-storage-settings-form")
+    |> render_submit(%{
+      "storage_settings" => %{
+        "storage_id" => @storage_id,
+        "budget_mode" => "custom",
+        "budget_bytes" => "21474836480",
+        "reserve_mode" => "custom",
+        "reserve_bytes" => "536870912"
+      }
+    })
+
+    {:ok, persisted} = NVRStorageSettings.get_by_storage_id(@storage_id, opts)
+    assert persisted.revision == 1
+    assert persisted.budget_mode == :custom
+    assert persisted.budget_bytes == 21_474_836_480
+    assert persisted.reserve_mode == :custom
+    assert persisted.reserve_bytes == 536_870_912
+    assert is_nil(persisted.applied_revision)
+    assert has_element?(rec_view, "#storage-settings-row-#{@storage_id}", "rev 1")
+    assert has_element?(rec_view, "#storage-settings-row-#{@storage_id}", "pending")
+  end
+
+  test "health tab renders real CNPG archive backlog, per-storage capacity, quarantine, dispositions, and 24h gaps",
+       %{conn: conn, scope: scope, actor: actor} do
+    seed_health_tab_records(actor, scope)
+
+    {:ok, health_view, health_html} = live(conn, ~p"/settings/recording?tab=health")
+
+    refute health_html =~ "Blocked"
+    assert has_element?(health_view, "#recording-health-backlog-card")
+    assert has_element?(health_view, "#health-failed-terminal-badge", "Action required")
+    assert has_element?(health_view, "#recording-health-storage-card")
+    assert health_html =~ "unknown until NVR /v1/status reports"
+    assert health_html =~ "Local storage holds about"
+    assert has_element?(health_view, "#recording-health-reconciliation-card")
+    assert health_html =~ "awaiting reconciler"
+    assert health_html =~ "unattributable"
+    assert has_element?(health_view, "#recording-health-gaps-alerts-card")
+    assert health_html =~ "source_unavailable"
+    assert health_html =~ "nvr_refused"
+  end
+
+  defp seed_health_tab_records(actor, scope) do
+    opts = [actor: actor]
+    now = DateTime.utc_now()
+    writer_secret = create_synthetic_s3_secret(actor, "Synthetic Health Writer")
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "health-arch-#{System.unique_integer([:positive])}",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-health-archive",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          active_archive_binding_id: binding.id,
+          archive_enabled: true,
+          writer_credential_secret_id: writer_secret.id
+        },
+        opts
+      )
+
+    live_ctx = setup_live_recorder_fence(actor)
+
+    {:ok, _policy} =
+      CameraRecordingSettings.save_policy(
+        scope,
+        %{
+          "camera_source_id" => live_ctx.source.id,
+          "stream_profile_id" => live_ctx.profile.id,
+          "mode" => "continuous",
+          "nvr_member" => "serviceradar-nvr-0",
+          "storage" => "local_and_archive",
+          "archive_retention_override_mode" => "inherit"
+        }
+      )
+
+    block_failed = reserve_fenced_block(live_ctx, 0, opts)
+    descriptor_failed = build_synthetic_descriptor(block_failed, 8_388_608)
+
+    {:ok, entry_failed} =
+      RecordingBlocks.freeze_and_catalog(
+        live_ctx.owner,
+        live_ctx.claim,
+        block_failed,
+        descriptor_failed,
+        %{
+          first_unit_pts: 0,
+          first_unit_received_at: DateTime.shift(now, minute: -15),
+          reanchored: false
+        },
+        opts
+      )
+
+    {:ok, _} =
+      entry_failed
+      |> Ash.Changeset.for_update(
+        :transition_archive_state,
+        %{
+          archive_state: :failed_terminal,
+          archive_state_at: now,
+          archive_attempts: 5,
+          archive_last_error_class: "http_403"
+        },
+        opts
+      )
+      |> Ash.update(opts)
+
+    quarantine_key =
+      :sha256
+      |> :crypto.hash("synthetic-quarantined-block-#{System.unique_integer([:positive])}")
+      |> Base.encode16(case: :lower)
+
+    {:ok, _quarantined} =
+      RecordingCatalogEntry
+      |> Ash.Changeset.for_create(
+        :register_quarantined,
+        %{
+          storage_id: @storage_id,
+          block_key: quarantine_key,
+          quarantine_reason: :unattributable,
+          quarantine_receipt: %{"source" => "synthetic_reconcile"},
+          quarantined_bytes: 4_194_304,
+          local_state_at: now,
+          archive_state: :not_required,
+          archive_state_at: now
+        },
+        opts
+      )
+      |> Ash.create(opts)
+
+    {:ok, _disposition} =
+      RecordingDisposition
+      |> Ash.Changeset.for_create(
+        :record,
+        %{
+          operation_id: Ecto.UUID.generate(),
+          catalog_entry_id: entry_failed.id,
+          storage_id: @storage_id,
+          block_key: block_failed.block_key,
+          copy: :local,
+          reason: :budget,
+          step: :failed,
+          error_class: "nvr_unreachable",
+          actor_id: "system:synthetic_reaper"
+        },
+        opts
+      )
+      |> Ash.create(opts)
+
+    now_us = DateTime.to_unix(now, :microsecond)
+
+    {:ok, _closed_gap} =
+      RecordingGap.record(
+        %{
+          camera_source_id: live_ctx.source.id,
+          stream_profile_id: live_ctx.profile.id,
+          storage_id: @storage_id,
+          start_us: now_us - 60_000_000,
+          end_us: now_us - 30_000_000,
+          time_basis: :received,
+          reason: :source_unavailable
+        },
+        opts
+      )
+
+    {:ok, _open_gap} =
+      RecordingGap.record(
+        %{
+          camera_source_id: live_ctx.source.id,
+          stream_profile_id: live_ctx.profile.id,
+          storage_id: @storage_id,
+          start_us: now_us - 10_000_000,
+          time_basis: :received,
+          reason: :nvr_refused
+        },
+        opts
+      )
   end
 
   defp setup_live_recorder_fence(actor) do

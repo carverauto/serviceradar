@@ -690,6 +690,33 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "camera_recording_policy_and_storage_settings_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_recording_policy_and_storage_settings/policy.json",
+        "generated_camera_recording_policy_and_storage_settings/policy_version.json",
+        "generated_camera_recording_policy_and_storage_settings/storage_settings.json",
+        "generated_camera_recording_policy_and_storage_settings/storage_settings_version.json",
+        "generated_camera_recording_policy_and_storage_settings/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_recording_policy_and_storage_settings_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_recording_policy_and_storage_settings_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/policy.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_policies_versions/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/policy_version.json",
+        "priv/resource_snapshots/repo/platform.camera_nvr_storage_settings/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/storage_settings.json",
+        "priv/resource_snapshots/repo/platform.camera_nvr_storage_settings_versions/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/storage_settings_version.json",
+        "priv/repo/migrations/20261117021015_add_camera_recording_policies_and_storage_settings.exs": ":generated_camera_recording_policy_and_storage_settings/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

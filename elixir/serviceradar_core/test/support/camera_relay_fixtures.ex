@@ -256,6 +256,15 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
     Repo.query!("DELETE FROM platform.camera_ingest_owners WHERE camera_source_id = $1", [id])
     Repo.query!("DELETE FROM platform.camera_relay_sessions WHERE camera_source_id = $1", [id])
+
+    Repo.query!(
+      "DELETE FROM platform.camera_recording_policies_versions WHERE version_source_id IN " <>
+        "(SELECT id FROM platform.camera_recording_policies WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    Repo.query!("DELETE FROM platform.camera_recording_policies WHERE camera_source_id = $1", [id])
+
     Repo.query!("DELETE FROM platform.camera_stream_profiles WHERE camera_source_id = $1", [id])
     Repo.query!("DELETE FROM platform.camera_sources WHERE id = $1", [id])
 
