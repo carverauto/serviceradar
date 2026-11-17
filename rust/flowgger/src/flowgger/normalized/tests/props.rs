@@ -323,7 +323,7 @@ fn the_stored_time_is_the_senders_unless_its_clock_is_wrong(tc: TestCase) {
         || match format {
             None => false,
             Some("rfc3164") => offset.abs() > HOUR,
-            Some(_) => offset > 24 * HOUR || offset < -30 * 24 * HOUR,
+            Some(_) => !(-30 * 24 * HOUR..=24 * HOUR).contains(&offset),
         };
     if wrong_clock {
         assert_eq!(record.time_unix_nano, received);
