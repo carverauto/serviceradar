@@ -1,20 +1,12 @@
 defmodule ServiceRadarAgentGateway.StatusBufferTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
   setup do
-    previous_config =
-      try do
-        {:ok, Config.get()}
-      rescue
-        ArgumentError -> :missing
-      end
-
-    Config.setup(gateway_id: "gateway-test", domain: "test", capabilities: [])
-    on_exit(fn -> restore_config(previous_config) end)
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-test", domain: "test", capabilities: [])
   end
 
   test "overflow reports the evicted entry and retains the incoming entry" do
@@ -206,14 +198,4 @@ defmodule ServiceRadarAgentGateway.StatusBufferTest do
       partition: "default"
     }
   end
-
-  defp restore_config({:ok, config}) do
-    Config.setup(
-      gateway_id: config.gateway_id,
-      domain: config.domain,
-      capabilities: config.capabilities
-    )
-  end
-
-  defp restore_config(:missing), do: :persistent_term.erase(Config)
 end

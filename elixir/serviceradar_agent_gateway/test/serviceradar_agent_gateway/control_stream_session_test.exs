@@ -7,7 +7,13 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.NATS.DurablePublish
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.ControlStreamSession
+
+  # A registered session reports its connection tagged with the gateway id.
+  setup do
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-test", domain: "test")
+  end
 
   test "authenticated hello and config ack refresh exact control evidence in the registry" do
     ensure_process_registry!()
