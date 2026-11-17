@@ -105,14 +105,14 @@ impl CapturePlan {
         } else {
             "capture interfaces"
         };
-        let consequence = if self.present.is_empty() {
-            "packet capture is off; flow attribution is running".to_owned()
+        let present = if self.present.is_empty() {
+            "none".to_owned()
         } else {
-            format!("present: {}", bounded_list(&self.present))
+            bounded_list(&self.present)
         };
 
         Some(format!(
-            "{noun} {} not present on this host (available: {}); {consequence}",
+            "{noun} {} not present on this host (available: {}); present: {present}",
             self.missing.join(", "),
             bounded_list(&self.available),
         ))
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn no_present_interface_leaves_attribution_only() {
+    fn no_present_interface_is_reported_as_none_present() {
         let host = names(&["br-test0"]);
         let plan = CapturePlan::new(&names(&["eth-test0"]), Some(&host));
 
@@ -220,7 +220,11 @@ mod tests {
         let reason = plan
             .degradation_reason()
             .expect("absent interface degrades");
-        assert!(reason.ends_with("packet capture is off; flow attribution is running"));
+        assert_eq!(
+            reason,
+            "capture interface eth-test0 not present on this host \
+             (available: br-test0); present: none"
+        );
     }
 
     #[test]

@@ -320,9 +320,9 @@ updates.
 ### Add-on reports degraded
 
 netprobe reports `degraded` when a name in `capture_interfaces` does not exist on the
-host. It keeps running: packet capture uses the configured interfaces that do exist,
-and when none exist it runs flow attribution only. The status reason names the absent
-interfaces and lists the host's interfaces. Compare it with `ip -o link show` and
+host. It keeps running and skips the absent interfaces instead of exiting. The status
+reason names the absent interfaces, the configured interfaces that are present, and
+the host's interfaces. Compare it with `ip -o link show` and
 correct the assignment's `capture_interfaces`. A fleet-wide assignment can reach hosts
 whose NICs have different names, such as bridges or bonds. A degraded netprobe still
 counts as running for rollout and attribution.
