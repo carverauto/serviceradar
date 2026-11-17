@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
   alias ServiceRadarAgentGateway.CoreNodeForwarder
+  alias ServiceRadarAgentGateway.EdgeRecordSpoolReport
 
   require Logger
 
@@ -502,6 +503,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
         {:noreply,
          state
+         |> record_spool_health(hello)
          |> forward_reported_config_version(hello)
          |> forward_reported_section_statuses(hello)}
 
@@ -1074,6 +1076,27 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp put_synced_section_statuses(state, [_ | _] = statuses), do: %{state | last_synced_section_statuses: statuses}
 
   defp put_synced_section_statuses(state, _statuses), do: state
+
+  # Every heartbeat hello carries a fresh sample of the agent's edge-record spool. Recording only
+  # the stream's first hello would leave core reporting the backlog the agent had at connect time
+  # for as long as the stream stays up, long after the agent drained it.
+  defp record_spool_health(state, hello) do
+    spool = EdgeRecordSpoolReport.from_hello(hello)
+
+    if registered_agent?(state) and spool != nil do
+      track_spool_health(state.agent_id, spool)
+    end
+
+    state
+  end
+
+  # The tracker's table does not exist when registries are disabled; the hello still keeps its
+  # stream.
+  defp track_spool_health(agent_id, spool) do
+    ServiceRadar.AgentTracker.track_agent(agent_id, %{edge_record_spool: spool})
+  rescue
+    ArgumentError -> :ok
+  end
 
   # A heartbeat hello reports the agent's committed config version (set only after a
   # fully-successful apply) — forward it as a whole-version ack so versions applied

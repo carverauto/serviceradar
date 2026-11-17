@@ -1498,6 +1498,44 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       refute_receive {:config_sync, _function, _args}, 100
     end
 
+    test "a heartbeat hello replaces the spool health the agent reported when the stream opened",
+         %{pid: pid} do
+      if !Process.whereis(ServiceRadar.PubSub) do
+        start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      end
+
+      if !Process.whereis(ServiceRadar.AgentTracker) do
+        start_supervised!(ServiceRadar.AgentTracker)
+      end
+
+      on_exit(fn -> ServiceRadar.AgentTracker.remove_agent("agent-ack") end)
+
+      # What the stream's first hello recorded: a backlog the agent has since drained.
+      ServiceRadar.AgentTracker.track_agent("agent-ack", %{
+        edge_record_spool: %{available: true, health_available: true, unresolved_count: 40, unresolved_bytes: 81_920}
+      })
+
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload:
+          {:hello,
+           %Monitoring.ControlStreamHello{
+             agent_id: "agent-ack",
+             edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{
+               available: true,
+               health_available: true,
+               unresolved_count: 0,
+               unresolved_bytes: 0,
+               oldest_unresolved_age_known: true
+             }
+           }}
+      })
+
+      _ = :sys.get_state(pid)
+
+      assert %{edge_record_spool: %{unresolved_count: 0, unresolved_bytes: 0}} =
+               ServiceRadar.AgentTracker.get_agent("agent-ack")
+    end
+
     test "hello section statuses are persisted without an ack, debounced against the last stored set",
          %{pid: pid} do
       deferring = [

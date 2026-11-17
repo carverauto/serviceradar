@@ -47,6 +47,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.ControlStreamSession
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarAgentGateway.EdgeDeliveryGrants
+  alias ServiceRadarAgentGateway.EdgeRecordSpoolReport
   alias ServiceRadarAgentGateway.MediaIdentity
   alias ServiceRadarAgentGateway.RetiredStatusSources
   alias ServiceRadarAgentGateway.StatusBuffer
@@ -1098,7 +1099,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         os: request_value(request, :os),
         arch: request_value(request, :arch),
         deployment_type: label_value(labels, [:deployment_type, "deployment_type"]),
-        edge_record_spool: edge_record_spool(request)
+        edge_record_spool: EdgeRecordSpoolReport.from_hello(request)
       })
 
     ServiceRadar.AgentTracker.track_agent(agent_id, metadata)
@@ -1249,52 +1250,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       arch: request_value(request, :arch),
       labels: labels,
       deployment_type: label_value(labels, [:deployment_type, "deployment_type"]),
-      edge_record_spool: edge_record_spool(request)
+      edge_record_spool: EdgeRecordSpoolReport.from_hello(request)
     }
 
     compact_metadata(base)
   end
-
-  # Startup availability and live health of the edge-record spool. An agent that predates the default-on
-  # sender reports nothing, which core shows as agent_upgrade_pending; a spool that did not
-  # open is spool_unavailable (ServiceRadar.Edge.PipelineReadiness).
-  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}) do
-    spool
-    |> Map.take([
-      :available,
-      :error,
-      :health_available,
-      :health_error,
-      :wedged,
-      :gap_sequences,
-      :gap_count,
-      :unresolved_count,
-      :oldest_unresolved_age_seconds,
-      :oldest_unresolved_age_known,
-      :unresolved_bytes,
-      :bytes_used,
-      :budget_bytes,
-      :admission_paused,
-      :retained_legacy_bytes,
-      :legacy_handoff_pending_records,
-      :legacy_handoff_reason,
-      :late_pending_records,
-      :late_pending_reason
-    ])
-    |> Map.put(
-      :generation_gaps,
-      Enum.map(spool.generation_gaps, fn gap ->
-        %{
-          spool_generation_id: Base.encode16(gap.spool_generation_id, case: :lower),
-          route_profile: gap.route_profile,
-          traffic_class: gap.traffic_class,
-          sequence: gap.sequence
-        }
-      end)
-    )
-  end
-
-  defp edge_record_spool(_request), do: nil
 
   defp request_value(request, key) do
     case request do
