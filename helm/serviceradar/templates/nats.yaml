@@ -80,6 +80,13 @@
 {{- if ne (toString (default false $certAuth.infrastructureAdopted)) "true" -}}
   {{- fail "nats.certificateAuthorization.enabled requires infrastructureAdopted true after existing clients have explicit grants" -}}
 {{- end -}}
+{{- /* The regenerator reissues the runtime certificates from a new root CA on
+     every upgrade. The callout admits an adopted certificate by recorded
+     fingerprint and records a reissued one only from the same issuer, so every
+     adopted component would lose NATS access. */ -}}
+{{- if eq (toString (default false ((default (dict) .Values.certs).regenerator).enabled)) "true" -}}
+  {{- fail "nats.certificateAuthorization.enabled cannot be combined with certs.regenerator.enabled: the regenerator reissues every runtime certificate from a new root CA, which adopted components cannot rotate onto" -}}
+{{- end -}}
 {{- if not (regexMatch `^A[A-Z2-7]{55}$` $certAuthIssuer) -}}
   {{- fail "nats.certificateAuthorization.issuerPublicKey must be an account public nkey" -}}
 {{- end -}}

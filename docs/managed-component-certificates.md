@@ -201,6 +201,21 @@ component, and a private key are refused. The route uses the same API key
 pipeline and `settings.edge.manage` permission as adoption. Broker
 authorization callout stays disabled.
 
+The chart's runtime certificate generator records its own rotations. When it
+reissues the runtime certificates (a `certs.runtimeLayoutVersion` change), it
+writes `runtime-cert-rotation.json` into the runtime certificate Secret. For each
+reissued public certificate, that record holds the fingerprint it replaced, its
+own fingerprint, and its PEM with the root CA. It holds no key. The core
+migrations pre-upgrade hook, and then core whenever the mounted record changes,
+records each replacement as the successor of the component that holds the
+replaced fingerprint. A replacement is recorded only when the replaced
+certificate is recorded, unrevoked and at the current generation, and only when
+both have the same issuer. A certificate that was never adopted is skipped. The
+replaced certificates stay authorized until you revoke them. Revoke them once no
+pod presents them. A rotation from before this record existed has no record, so
+record its successors with this route. The chart refuses the callout together
+with `certs.regenerator.enabled`, because the regenerator reissues the root CA.
+
 `POST /api/admin/managed-components/:id/certificates/:fingerprint/revoke`
 revokes that one fingerprint. The component stays unblocked. Its generation
 and stored grant stay unchanged. Other fingerprints on the component stay

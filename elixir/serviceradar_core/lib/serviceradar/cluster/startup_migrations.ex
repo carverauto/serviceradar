@@ -67,6 +67,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     write_migrations_marker()
 
     if migration_only?() do
+      # The pre-upgrade migrations hook runs after the runtime certificate
+      # generator and before any workload rolls onto its certificates.
+      if repo_enabled?(), do: ServiceRadar.Edge.RuntimeCertificateRotation.reconcile_and_log()
+
       Logger.info("[StartupMigrations] Migration-only mode enabled; shutting down")
       System.stop(0)
     end

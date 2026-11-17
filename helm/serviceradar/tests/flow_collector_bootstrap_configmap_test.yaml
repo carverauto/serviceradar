@@ -15,7 +15,7 @@ tests:
   # resource exists, so the bootstrap Job cannot mount the ordinary
   # serviceradar-flow-collector-config ConfigMap (flow-collector.yaml). This
   # dedicated, hook-scoped copy must exist first -- its hook-weight must sort
-  # strictly before the Job's (-5), and the Job must actually reference it
+  # strictly before the Job's (0), and the Job must actually reference it
   # by name.
   - it: fires before the bootstrap Job so the Job's ConfigMap dependency exists
     set:
@@ -47,7 +47,7 @@ tests:
     asserts:
       - equal:
           path: metadata.annotations["helm.sh/hook-weight"]
-          value: "-5"
+          value: "0"
       - equal:
           path: spec.template.spec.volumes[0].name
           value: flow-collector-config

@@ -25,6 +25,19 @@ tests:
       - failedTemplate:
           errorMessage: "nats.certificateAuthorization.enabled requires infrastructureAdopted true after existing clients have explicit grants"
 
+  - it: refuses callout with the certificate regenerator, which reissues the root CA
+    template: templates/nats.yaml
+    set:
+      certs.regenerator.enabled: true
+      nats.certificateAuthorization.enabled: true
+      nats.certificateAuthorization.infrastructureAdopted: true
+      nats.certificateAuthorization.issuerPublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+    asserts:
+      - failedTemplate:
+          errorMessage: "nats.certificateAuthorization.enabled cannot be combined with certs.regenerator.enabled: the regenerator reissues every runtime certificate from a new root CA, which adopted components cannot rotate onto"
+
   - it: refuses callout without an account issuer public nkey
     template: templates/nats.yaml
     set:

@@ -108,6 +108,12 @@ config :serviceradar,
        :nats_static_users_file,
        System.get_env("SERVICERADAR_NATS_STATIC_USERS_FILE")
 
+# The chart's runtime certificate rotation record (runtime-cert-rotation.json in
+# the runtime certificate Secret). Unset, or a missing file, records nothing.
+config :serviceradar,
+       :runtime_cert_rotation_file,
+       System.get_env("SERVICERADAR_RUNTIME_CERT_ROTATION_FILE")
+
 config :serviceradar_core,
        ServiceRadar.Ingestion.Supervisor,
        Keyword.put(
