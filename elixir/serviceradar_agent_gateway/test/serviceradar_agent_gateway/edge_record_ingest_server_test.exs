@@ -316,6 +316,75 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert error.status == GRPC.Status.unavailable()
   end
 
+  describe "a stream that ends before its lane_open_ack" do
+    setup do
+      test_pid = self()
+      handler = "lane-open-unacknowledged-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :agent_gateway, :edge_record, :lane_open_unacknowledged],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:lane_open_unacknowledged, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+    end
+
+    test "is reported with its agent and the step it waited in when its deadline kills it" do
+      parent = self()
+
+      # A request stream whose lane_open never arrives.
+      silent =
+        Stream.resource(
+          fn -> send(parent, :reader_waiting) end,
+          fn state ->
+            receive do
+              :never -> {:halt, state}
+            end
+          end,
+          fn _state -> :ok end
+        )
+
+      transport = stream()
+      pid = spawn(fn -> EdgeRecordIngestServer.stream(silent, transport) end)
+      assert_receive :reader_waiting
+
+      # grpc_server ends an RPC whose deadline passed by killing its process with this reason,
+      # an exit signal that skips the stream's own `after`.
+      Process.exit(pid, :timeout)
+
+      assert_receive {:lane_open_unacknowledged, %{wait_ms: wait_ms},
+                      %{phase: :awaiting_lane_open, agent_id: "agent-1", route_profile: nil, reason: :timeout}}
+
+      assert is_integer(wait_ms) and wait_ms >= 0
+    end
+
+    test "names the step and lane a refused lane_open stopped in, while an acked lane reports nothing" do
+      Process.put(:edge_record_capability_ready, false)
+
+      assert_raise GRPC.RPCError, fn ->
+        EdgeRecordIngestServer.stream([client({:lane_open, lane_open()})], stream())
+      end
+
+      assert_receive {:lane_open_unacknowledged, _measurements,
+                      %{
+                        phase: :capability_check,
+                        agent_id: "agent-1",
+                        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+                        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+                        reason: :stream_ended
+                      }}
+
+      Process.put(:edge_record_capability_ready, true)
+      assert :ok = EdgeRecordIngestServer.stream(open_and_records([record()]), stream())
+      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+      refute_receive {:lane_open_unacknowledged, _measurements, _metadata}, 200
+    end
+  end
+
   test "refuses a lane_open whose class has no running publish pipeline, before acking it" do
     Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_pipelines, %{bulk: __MODULE__.NoPipeline})
 

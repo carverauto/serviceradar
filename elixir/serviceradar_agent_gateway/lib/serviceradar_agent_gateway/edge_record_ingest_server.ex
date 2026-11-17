@@ -144,6 +144,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   unresolved at the deadline is left to the agent's retry. The pipeline dying ends the stream
   `:unavailable`: its trackers are gone, and only the agent can say where the lane resumes.
 
+  A stream that ends before its `lane_open_ack` -- by its deadline, a refusal, or the client --
+  is reported by `ServiceRadarAgentGateway.EdgeRecordLaneOpenWatch` with the agent, the lane once
+  known, how long it waited and the pre-ack step it was in. The agent sends nothing until that
+  ack, so such a stream delivered nothing.
+
   ## Lane isolation (task 3.6)
 
     * The lane never enters `ServiceRadarAgentGateway.StatusBuffer`. An unresolved publication is
@@ -180,6 +185,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   alias ServiceRadarAgentGateway.EdgeContractRegistry
   alias ServiceRadarAgentGateway.EdgeRecordAuthorization
   alias ServiceRadarAgentGateway.EdgeRecordCapability
+  alias ServiceRadarAgentGateway.EdgeRecordLaneOpenWatch
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.EdgeRecoveryControl
   alias ServiceRadarAgentGateway.MediaIdentity
@@ -202,20 +208,34 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   # The session's pipeline and bound lane, for the cleanup in `stream/2`'s `after`, which cannot
   # see the state threaded through the receive loop.
   @session_key {__MODULE__, :pipeline_session}
+  # The session's EdgeRecordLaneOpenWatch, which reports a stream that ends before its
+  # lane_open_ack, including one ended by an exit signal that skips `stream/2`'s `after`.
+  @lane_open_watch_key {__MODULE__, :lane_open_watch}
 
   def stream(request_stream, stream) do
     owner = self()
-
-    task =
-      Task.Supervisor.async_nolink(task_supervisor(), fn ->
-        stop_with_owner(owner)
-        Enum.each(request_stream, &send(owner, {:edge_record_message, &1}))
-      end)
+    Process.put(@lane_open_watch_key, EdgeRecordLaneOpenWatch.start(owner))
 
     try do
-      receive_stream(stream, task, :awaiting_lane_open)
+      # Authenticated before the request is read, so a stream whose lane_open never arrives is
+      # still attributed to its agent.
+      identity = extract_identity_from_stream(stream)
+      require_agent_identity!(identity)
+      lane_open_phase(:awaiting_lane_open, %{agent_id: identity.component_id})
+
+      task =
+        Task.Supervisor.async_nolink(task_supervisor(), fn ->
+          stop_with_owner(owner)
+          Enum.each(request_stream, &send(owner, {:edge_record_message, &1}))
+        end)
+
+      try do
+        receive_stream(stream, task, {:awaiting_lane_open, identity})
+      after
+        Task.shutdown(task, :brutal_kill)
+      end
     after
-      Task.shutdown(task, :brutal_kill)
+      EdgeRecordLaneOpenWatch.ended(Process.delete(@lane_open_watch_key))
       close_session()
     end
   end
@@ -264,9 +284,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp handle_message(%EdgeRecordClientMessage{payload: {:lane_open, lane_open}}, stream, :awaiting_lane_open) do
-    identity = extract_identity_from_stream(stream)
-    require_agent_identity!(identity)
+  defp handle_message(%EdgeRecordClientMessage{payload: {:lane_open, lane_open}}, stream, {:awaiting_lane_open, identity}) do
+    lane_open_phase(:capability_check, %{
+      route_profile: lane_open.route_profile,
+      traffic_class: lane_open.traffic_class
+    })
 
     if !capability().ready?() do
       raise GRPC.RPCError,
@@ -274,6 +296,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         message: "#{capability().id()} capability is not ready"
     end
 
+    lane_open_phase(:lane_validation)
     spool_id = required_bytes(lane_open.spool_id, "spool_id")
     route_profile = lane_open.route_profile
     traffic_class = lane_open.traffic_class
@@ -299,12 +322,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       end
 
     first_unresolved = required_first_unresolved(lane_open.first_unresolved_sequence)
+    lane_open_phase(:pipeline_lookup)
     pipeline = pipeline_for!(class)
     pipeline_monitor = Process.monitor(pipeline)
     Process.put(@session_key, {pipeline, pipeline_monitor, nil})
 
     byte_credits = grant_credits(lane_open.requested_byte_credits, configured_credit_bytes())
     frame_credits = grant_credits(lane_open.requested_frame_credits, configured_credit_frames())
+
+    lane_open_phase(:sending_ack)
 
     :ok =
       send_reply(stream, %EdgeRecordServerMessage{
@@ -319,6 +345,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
              traffic_class: traffic_class
            }}
       })
+
+    EdgeRecordLaneOpenWatch.acked(Process.get(@lane_open_watch_key))
 
     %{
       identity: identity,
@@ -352,7 +380,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     raise GRPC.RPCError, status: :already_exists, message: "edge record lane is already open"
   end
 
-  defp handle_message(_message, _stream, :awaiting_lane_open) do
+  defp handle_message(_message, _stream, {:awaiting_lane_open, _identity}) do
     raise GRPC.RPCError, status: :failed_precondition, message: "first edge record message must be lane_open"
   end
 
@@ -794,7 +822,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     }
   end
 
-  defp finish_stream(_stream, :awaiting_lane_open) do
+  defp finish_stream(_stream, {:awaiting_lane_open, _identity}) do
     raise GRPC.RPCError, status: :failed_precondition, message: "edge record stream ended before lane_open"
   end
 
@@ -823,6 +851,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   defp fail_reader(_stream, reason, _state) do
     raise GRPC.RPCError, status: :unavailable, message: "edge record request stream failed: #{inspect(reason)}"
+  end
+
+  defp lane_open_phase(phase, learned \\ %{}) do
+    EdgeRecordLaneOpenWatch.phase(Process.get(@lane_open_watch_key), phase, learned)
   end
 
   defp pipeline_monitor(%{pipeline_monitor: monitor}), do: monitor
