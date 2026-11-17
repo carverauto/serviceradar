@@ -38,6 +38,8 @@ certificate generator that issues the runtime mTLS certificates for you:
   `certs.regenerator.enabled`, which defaults to `false` so that upgrades do not
   trigger unexpected certificate rotation. Set it to `true` for a single
   upgrade when you intend to rotate the runtime certificates, then set it back.
+  The regenerator also issues a new root CA, so the chart refuses it while
+  `nats.certificateAuthorization.enabled` is `true`.
 
 ### Dgraph server TLS (separate path)
 
