@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::time::Duration;
 use thiserror::Error;
 use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -22,11 +23,93 @@ pub enum KvError {
 
 pub type Result<T> = std::result::Result<T, KvError>;
 
+/// Where datasvc listens and, for mTLS, the files that identify this client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KvEndpoint {
+    /// `host:port`.
+    pub address: String,
+    /// `None` connects without TLS.
+    pub tls: Option<KvTls>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KvTls {
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: String,
+    /// The name the datasvc certificate must carry.
+    pub server_name: String,
+}
+
+// The interval datasvc's keepalive enforcement accepts; a shorter one is
+// answered by closing the connection.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(120);
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn tls_config(tls: &KvTls) -> Result<ClientTlsConfig> {
+    let read = |path: &str| fs::read(path).map_err(|e| KvError::Other(e.into()));
+    Ok(ClientTlsConfig::new()
+        .ca_certificate(Certificate::from_pem(read(&tls.ca_file)?))
+        .identity(Identity::from_pem(
+            read(&tls.cert_file)?,
+            read(&tls.key_file)?,
+        ))
+        .domain_name(tls.server_name.clone()))
+}
+
+/// The values a `Watch` call delivers for one key.
+pub struct KvWatch {
+    inner: tonic::Streaming<kvproto::WatchResponse>,
+}
+
+impl KvWatch {
+    /// The next value written to the key: its current value first, then each
+    /// later one. A deleted key delivers an empty value. `Ok(None)` means
+    /// datasvc ended the watch.
+    pub async fn next(&mut self) -> Result<Option<Vec<u8>>> {
+        match self.inner.next().await {
+            Some(Ok(item)) => Ok(Some(item.value)),
+            Some(Err(status)) => Err(KvError::Other(status.into())),
+            None => Ok(None),
+        }
+    }
+}
+
 pub struct KvClient {
     inner: kvproto::kv_service_client::KvServiceClient<Channel>,
 }
 
 impl KvClient {
+    /// Connects to one datasvc endpoint. The connection probes the server
+    /// while a watch is idle, so a peer that vanished ends the watch instead
+    /// of leaving it waiting forever.
+    pub async fn connect(endpoint: &KvEndpoint) -> Result<Self> {
+        let scheme = if endpoint.tls.is_some() {
+            "https"
+        } else {
+            "http"
+        };
+        let mut channel = Channel::from_shared(format!("{scheme}://{}", endpoint.address))
+            .map_err(|e| KvError::Other(e.into()))?
+            .connect_timeout(CONNECT_TIMEOUT)
+            .http2_keep_alive_interval(KEEPALIVE_INTERVAL)
+            .keep_alive_timeout(KEEPALIVE_TIMEOUT)
+            .keep_alive_while_idle(true);
+        if let Some(tls) = &endpoint.tls {
+            channel = channel
+                .tls_config(tls_config(tls)?)
+                .map_err(|e| KvError::Other(e.into()))?;
+        }
+        let channel = channel
+            .connect()
+            .await
+            .map_err(|e| KvError::Other(e.into()))?;
+        Ok(Self {
+            inner: kvproto::kv_service_client::KvServiceClient::new(channel),
+        })
+    }
+
     pub async fn connect_from_env() -> Result<Self> {
         let addr = std::env::var("KV_ADDRESS").map_err(|e| KvError::Other(e.into()))?;
         let mut endpoint = Channel::from_shared(format!("https://{}", addr))
@@ -37,23 +120,16 @@ impl KvClient {
 
         endpoint = match sec_mode.as_str() {
             "mtls" => {
-                let cert =
-                    fs::read(std::env::var("KV_CERT_FILE").map_err(|e| KvError::Other(e.into()))?)
-                        .map_err(|e| KvError::Other(e.into()))?;
-                let key =
-                    fs::read(std::env::var("KV_KEY_FILE").map_err(|e| KvError::Other(e.into()))?)
-                        .map_err(|e| KvError::Other(e.into()))?;
-                let ca =
-                    fs::read(std::env::var("KV_CA_FILE").map_err(|e| KvError::Other(e.into()))?)
-                        .map_err(|e| KvError::Other(e.into()))?;
-                let server_name = std::env::var("KV_SERVER_NAME")
-                    .unwrap_or_else(|_| "datasvc.serviceradar".to_string());
-                let tls = ClientTlsConfig::new()
-                    .ca_certificate(Certificate::from_pem(ca))
-                    .identity(Identity::from_pem(cert, key))
-                    .domain_name(server_name);
+                let var = |name: &str| std::env::var(name).map_err(|e| KvError::Other(e.into()));
+                let tls = KvTls {
+                    cert_file: var("KV_CERT_FILE")?,
+                    key_file: var("KV_KEY_FILE")?,
+                    ca_file: var("KV_CA_FILE")?,
+                    server_name: std::env::var("KV_SERVER_NAME")
+                        .unwrap_or_else(|_| "datasvc.serviceradar".to_string()),
+                };
                 endpoint
-                    .tls_config(tls)
+                    .tls_config(tls_config(&tls)?)
                     .map_err(|e| KvError::Other(e.into()))?
             }
             "spiffe" | "spire" | "workload_api" => {
@@ -70,6 +146,19 @@ impl KvClient {
         Ok(Self {
             inner: kvproto::kv_service_client::KvServiceClient::new(channel),
         })
+    }
+
+    /// Starts watching one key.
+    pub async fn watch(&mut self, key: &str) -> Result<KvWatch> {
+        let inner = self
+            .inner
+            .watch(kvproto::WatchRequest {
+                key: key.to_string(),
+            })
+            .await
+            .map_err(|e| KvError::Other(e.into()))?
+            .into_inner();
+        Ok(KvWatch { inner })
     }
 
     pub async fn get(&mut self, key: &str) -> Result<Option<Vec<u8>>> {

@@ -1,4 +1,5 @@
 mod config;
+mod rules;
 
 use anyhow::Result;
 use clap::{Arg, Command};
@@ -118,6 +119,21 @@ async fn run() -> Result<()> {
                 backoff_secs = (backoff_secs * 2).min(30);
             }
         });
+    }
+
+    // --- Zen ruleset from datasvc ---
+    // Nothing reads the ruleset yet; following it now shows in the log whether
+    // this collector can fetch and validate what core publishes.
+    if let Some(rules_cfg) = &cfg.rules {
+        let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
+            rules_cfg.stream_name.clone(),
+            rules_cfg.subject.clone(),
+        ));
+        info!("Following Zen ruleset {}", active.key());
+        tokio::spawn(rules::follow(
+            rules::Datasvc(rules_cfg.datasvc.endpoint()),
+            active,
+        ));
     }
 
     if pipelines.is_empty() {

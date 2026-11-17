@@ -39,8 +39,10 @@ use zen_engine::nodes::custom::NoopCustomNode;
 
 use zen_expression::variable::DynamicVariable;
 
+mod activation;
 mod bundle;
 
+pub use activation::{ActiveRules, Offer, RulesStatus};
 pub use bundle::{BUNDLE_SCHEMA, BundleError, RuleBundle};
 pub use zen_engine::Variable;
 

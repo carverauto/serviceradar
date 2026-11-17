@@ -12,3 +12,13 @@ config_file = "/etc/serviceradar/otel.toml"
 
 [health]
 listen_addr = "0.0.0.0:50044"
+
+# The Zen ruleset core publishes for syslog, read through datasvc.
+[rules.datasvc]
+address = "datasvc:50057"
+
+[rules.datasvc.tls]
+cert_file = "/etc/serviceradar/certs/log-collector.pem"
+key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
+server_name = "datasvc.serviceradar"

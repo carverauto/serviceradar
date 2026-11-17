@@ -10,6 +10,70 @@ pub struct Config {
 
     #[serde(default)]
     pub health: HealthConfig,
+
+    /// When present, the collector keeps the Zen ruleset for one stream and
+    /// subject fetched from datasvc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<RulesConfig>,
+}
+
+/// The ruleset the collector follows and the datasvc it reads it from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RulesConfig {
+    #[serde(default = "default_rules_stream")]
+    pub stream_name: String,
+
+    #[serde(default = "default_rules_subject")]
+    pub subject: String,
+
+    pub datasvc: DatasvcConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasvcConfig {
+    /// `host:port` of the datasvc gRPC listener.
+    pub address: String,
+
+    /// Client certificate settings. Without them the connection is plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<DatasvcTlsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasvcTlsConfig {
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: String,
+
+    /// The name the datasvc certificate must carry.
+    #[serde(default = "default_datasvc_server_name")]
+    pub server_name: String,
+}
+
+impl DatasvcConfig {
+    pub fn endpoint(&self) -> kvutil::KvEndpoint {
+        kvutil::KvEndpoint {
+            address: self.address.clone(),
+            tls: self.tls.as_ref().map(|tls| kvutil::KvTls {
+                cert_file: tls.cert_file.clone(),
+                key_file: tls.key_file.clone(),
+                ca_file: tls.ca_file.clone(),
+                server_name: tls.server_name.clone(),
+            }),
+        }
+    }
+}
+
+fn default_rules_stream() -> String {
+    "events".to_string()
+}
+
+fn default_rules_subject() -> String {
+    "logs.syslog".to_string()
+}
+
+fn default_datasvc_server_name() -> String {
+    "datasvc.serviceradar".to_string()
 }
 
 /// Configuration for the unified gRPC health check server.
@@ -101,6 +165,39 @@ mod tests {
         );
         assert_eq!(config.otel.config_file, "/etc/serviceradar/otel.toml");
         assert_eq!(config.health.listen_addr, "0.0.0.0:50044");
+        assert!(config.rules.is_none());
+    }
+
+    #[test]
+    fn a_rules_section_names_the_bundle_and_the_datasvc_to_read_it_from() {
+        let config: Config = toml::from_str(
+            r#"
+            [rules.datasvc]
+            address = "datasvc.example.com:50057"
+
+            [rules.datasvc.tls]
+            cert_file = "/certs/client.pem"
+            key_file = "/certs/client-key.pem"
+            ca_file = "/certs/root.pem"
+            "#,
+        )
+        .unwrap();
+
+        let rules = config.rules.unwrap();
+        assert_eq!(rules.stream_name, "events");
+        assert_eq!(rules.subject, "logs.syslog");
+        assert_eq!(
+            rules.datasvc.endpoint(),
+            kvutil::KvEndpoint {
+                address: "datasvc.example.com:50057".to_string(),
+                tls: Some(kvutil::KvTls {
+                    cert_file: "/certs/client.pem".to_string(),
+                    key_file: "/certs/client-key.pem".to_string(),
+                    ca_file: "/certs/root.pem".to_string(),
+                    server_name: "datasvc.serviceradar".to_string(),
+                }),
+            }
+        );
     }
 
     #[test]

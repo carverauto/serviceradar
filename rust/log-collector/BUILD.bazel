@@ -18,7 +18,9 @@ rust_binary(
     ) + [
         "//rust/config-bootstrap:config_bootstrap",
         "//rust/flowgger:flowgger_lib",
+        "//rust/kvutil",
         "//rust/otel:otel_lib",
+        "//rust/zen-normalize:zen_normalize",
     ],
 )
 

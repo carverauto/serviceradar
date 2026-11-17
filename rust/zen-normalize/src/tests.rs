@@ -298,3 +298,77 @@ fn a_bundle_with_an_unknown_schema_or_a_bad_rule_is_rejected_whole() {
         Err(BundleError::Rules(Error::InvalidRule { key, .. })) if key == "second"
     ));
 }
+
+#[test]
+fn a_collector_activates_whole_bundles_and_keeps_the_last_good_one() {
+    let rules = ActiveRules::new("events", "logs.syslog");
+    assert_eq!(rules.status(), RulesStatus::Missing { problem: None });
+    assert!(rules.current().is_none());
+
+    // Nothing valid has arrived yet, so there is still nothing to run.
+    assert!(rules.offer(b"").is_err());
+    assert!(matches!(
+        rules.status(),
+        RulesStatus::Missing { problem: Some(_) }
+    ));
+
+    let two_rules = bundle(BUNDLE_SCHEMA, &[FIRST, SECOND], TWO_RULE_DIGEST);
+    assert_eq!(rules.offer(&two_rules).unwrap(), Offer::Activated);
+    assert_eq!(rules.offer(&two_rules).unwrap(), Offer::Unchanged);
+    let current = RulesStatus::Current {
+        digest: TWO_RULE_DIGEST.to_owned(),
+    };
+    assert_eq!(rules.status(), current);
+
+    // A deleted key, an altered document and another subject's bundle each
+    // leave the two-rule set active and say why it may be behind.
+    let other_subject = json!({
+        "schema": BUNDLE_SCHEMA,
+        "stream_name": "events",
+        "subject": "logs.snmp",
+        "rules": [],
+        "digest": "sha256:f8a0b5f4b0a5b5f8a4ef3a0a2e2b1f4f6c0d5d1f6c7c6e6a5e8f1c2d3b4a5968",
+    });
+    let Err(BundleError::Digest { computed, .. }) =
+        RuleBundle::parse(other_subject.to_string().as_bytes())
+    else {
+        panic!("placeholder digest was accepted");
+    };
+    let mut other_subject = other_subject;
+    other_subject["digest"] = json!(computed);
+    for rejected in [
+        Vec::new(),
+        bundle(BUNDLE_SCHEMA, &[SECOND, FIRST], TWO_RULE_DIGEST),
+        other_subject.to_string().into_bytes(),
+    ] {
+        assert!(rules.offer(&rejected).is_err());
+        assert!(matches!(
+            rules.status(),
+            RulesStatus::Stale { digest, .. } if digest == TWO_RULE_DIGEST
+        ));
+        assert_eq!(rules.current().unwrap().digest, TWO_RULE_DIGEST);
+    }
+
+    // A lost watch is stale too, until the next fetch confirms the rules.
+    assert_eq!(rules.offer(&two_rules).unwrap(), Offer::Unchanged);
+    assert_eq!(rules.status(), current);
+    rules.report_unavailable("watch closed");
+    assert_eq!(
+        rules.status(),
+        RulesStatus::Stale {
+            digest: TWO_RULE_DIGEST.to_owned(),
+            problem: "watch closed".to_owned(),
+        }
+    );
+
+    // An empty bundle is a ruleset: it replaces the two rules.
+    let empty = bundle(BUNDLE_SCHEMA, &[], EMPTY_DIGEST);
+    assert_eq!(rules.offer(&empty).unwrap(), Offer::Activated);
+    assert!(rules.current().unwrap().rules.is_empty());
+    assert_eq!(
+        rules.status(),
+        RulesStatus::Current {
+            digest: EMPTY_DIGEST.to_owned(),
+        }
+    );
+}

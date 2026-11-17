@@ -19,6 +19,11 @@ pub enum BundleError {
     Schema(String),
     #[error("Zen rule bundle declares digest {declared} but its content has {computed}")]
     Digest { declared: String, computed: String },
+    #[error("Zen rule bundle is for stream {stream_name:?} subject {subject:?}")]
+    Scope {
+        stream_name: String,
+        subject: String,
+    },
     #[error(transparent)]
     Rules(#[from] Error),
 }
@@ -39,6 +44,7 @@ struct Rule {
 }
 
 /// A bundle whose digest matched and whose rules all compiled.
+#[derive(Clone)]
 pub struct RuleBundle {
     pub stream_name: String,
     pub subject: String,
