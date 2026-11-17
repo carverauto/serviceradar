@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -416,6 +417,91 @@ func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	require.Empty(t, records)
 }
 
+// windowEndSweep delivers its results, then ends the run the way the network
+// sweeper does when its context expires: it returns nil and leaves the
+// remaining hosts unswept. With waitForDeadline false it returns at once, as a
+// run the sweeper's own scan timeout cut short while the slot is still open.
+type windowEndSweep struct {
+	*mockSweeper
+	results         []models.Result
+	waitForDeadline bool
+}
+
+func (*windowEndSweep) EffectivePlannedSweepModes(_ string, spec sweeper.RunSpec) ([]models.SweepMode, error) {
+	return spec.Modes, nil
+}
+
+func (s *windowEndSweep) RunPlannedWithObserver(ctx context.Context, _ string, _ sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
+	for i := range s.results {
+		if err := observe(ctx, &s.results[i]); err != nil {
+			return err
+		}
+	}
+	if s.waitForDeadline {
+		<-ctx.Done()
+	}
+	return nil
+}
+
+// A scan cut off by the closing collection window spools every host window it
+// completed before the window closes, so a slot started late (an agent
+// restarted mid-window) keeps what it swept. A scan that ends early while the
+// slot is still open publishes nothing, so the slot stays runnable for a
+// whole-window retry.
+func TestEdgeSweepCutOffByCollectionWindowSpoolsCompletedHosts(t *testing.T) {
+	results := edgeSweepResults()
+	// Hosts .0 and .1 complete both checks. Host .2 has only its ICMP result,
+	// and host .3 was never reached.
+	partial := []models.Result{results[0], results[1], results[2], results[4], results[5]}
+
+	for _, tc := range []struct {
+		name            string
+		waitForDeadline bool
+		wantHosts       []string
+	}{
+		{name: "window closing", waitForDeadline: true, wantHosts: []string{"192.0.2.0", "192.0.2.1"}},
+		{name: "slot still open", waitForDeadline: false, wantHosts: []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, lease, slot, sp := edgeSweepFixture(t)
+			// Room for the whole plan in one batch, as a production budget has,
+			// so completed hosts stay buffered until the run finishes.
+			c := lease.ProductionCapability.GetProduction()
+			c.MaxProjectedRowCount = 64
+			c.MaxProjectedWriteBytes = 64 * sweepProjectedRowBytes
+			slot.CollectionExpiresUnixNano = time.Now().Add(time.Second).UnixNano()
+			scanner := &windowEndSweep{mockSweeper: &mockSweeper{}, results: partial, waitForDeadline: tc.waitForDeadline}
+			svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+			claims := 0
+			installTestSweep(t, sp, lease)
+
+			err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{claim: func() error { claims++; return nil }})
+			require.ErrorIs(t, err, errEdgeSweepIncomplete)
+			require.ErrorContains(t, err, "completed 2 of 4 hosts, 1 open windows")
+
+			records, readErr := sp.Unresolved()
+			require.NoError(t, readErr)
+			hosts := make([]string, 0, 4)
+			for _, stored := range records {
+				record := &edgev1.EdgeRecordV1{}
+				require.NoError(t, proto.Unmarshal(stored.Body, record))
+				require.NoError(t, edgerecord.ValidateRecord(record))
+				batch := &edgev1.SweepObservationBatchV1{}
+				require.NoError(t, proto.Unmarshal(recordBody(t, record), batch))
+				require.NoError(t, edgerecord.ValidateSweepObservationBatch(batch))
+				for _, host := range batch.Hosts {
+					require.Equal(t, uint32(5), host.ResultModeBits, "only terminal host windows are published")
+					addr, ok := netip.AddrFromSlice(host.Address)
+					require.True(t, ok)
+					hosts = append(hosts, addr.String())
+				}
+			}
+			require.Equal(t, tc.wantHosts, hosts)
+			require.Equal(t, len(tc.wantHosts) > 0, claims == 1, "the slot is consumed only when its records were spooled")
+		})
+	}
+}
+
 // The group config and the signed plan travel separately. A slot runs its
 // plan's CIDRs, modes and ports however far the config has drifted, and every
 // batch claims exactly the carried checks.
@@ -495,7 +581,7 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 	for _, result := range edgeSweepResults() {
 		require.NoError(t, producer.observe(context.Background(), &result))
 	}
-	require.NoError(t, producer.finish())
+	require.NoError(t, producer.finish(false))
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
 	require.Len(t, records, 4)
@@ -634,11 +720,10 @@ func TestEdgeSweepAdmissionWaitEndsWithTheRun(t *testing.T) {
 	require.Empty(t, records)
 }
 
-// The caller context stays open. The run context's own deadline is the slot
-// collection expiry, so a spool that never frees stops there and writes nothing.
+// The caller context stays open. The run's own deadlines come from the slot's
+// collection window, so a spool that never frees stops there and writes nothing.
 func TestEdgeSweepAdmissionWaitEndsAtCollectionExpiry(t *testing.T) {
 	cfg, lease, slot, _ := edgeSweepFixture(t)
-	slot.CollectionExpiresUnixNano = time.Now().Add(400 * time.Millisecond).UnixNano()
 	sp, _ := fullEdgeSweepSpool(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
@@ -646,8 +731,11 @@ func TestEdgeSweepAdmissionWaitEndsAtCollectionExpiry(t *testing.T) {
 	// on the original 15m window, would still be running when this returns.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	start := time.Now()
 	installTestSweep(t, sp, lease)
+	// Filling the spool fsyncs many records. The window opens after that, so
+	// a slow disk cannot expire the slot before the run reaches admission.
+	start := time.Now()
+	slot.CollectionExpiresUnixNano = start.Add(400 * time.Millisecond).UnixNano()
 	err := svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{})
 	elapsed := time.Since(start)
 	require.NoError(t, ctx.Err())

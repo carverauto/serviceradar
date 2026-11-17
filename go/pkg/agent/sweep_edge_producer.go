@@ -70,6 +70,21 @@ const (
 	sweepAdmissionMaxBackoff     = 5 * time.Second
 )
 
+// sweepCollectionFlushReserve is the tail of a slot's collection window kept
+// back from scanning. A scan still running when its window closes (a slot
+// started late, say after an agent restart) stops this much early, so the host
+// windows it completed can be spooled while the window is open; records
+// emitted after collection expiry are refused. A run that starts with little
+// window left keeps a tenth of what remains instead.
+const sweepCollectionFlushReserve = 5 * time.Second
+
+// sweepScanDeadline is when a scan that started at now must stop to leave the
+// flush reserve before expires.
+func sweepScanDeadline(now, expires time.Time) time.Time {
+	reserve := min(sweepCollectionFlushReserve, expires.Sub(now)/10)
+	return expires.Add(-max(reserve, 0))
+}
+
 // SetEdgeSweepSpool connects leased sweep producers to the shared bounded lane
 // owner. Call before Start; a nil spool keeps the legacy result path.
 func (p *PushLoop) SetEdgeSweepSpool(sp *RecordSpool) {
@@ -171,12 +186,18 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 	}()
 	producer.claim = claim
 
-	runCtx, cancel := context.WithDeadline(ctx, time.Unix(0, slot.GetCollectionExpiresUnixNano()))
+	// runCtx ends at collection expiry and bounds admission waits, including
+	// the final flush. The scan itself stops a flush reserve earlier.
+	expires := time.Unix(0, slot.GetCollectionExpiresUnixNano())
+	runCtx, cancel := context.WithDeadline(ctx, expires)
 	defer cancel()
 	producer.ctx = runCtx
-	err = runner.RunPlannedWithObserver(runCtx, executionID, producer.spec, func(scanCtx context.Context, result *models.Result) error {
+	scanDeadline := sweepScanDeadline(time.Now(), expires)
+	scanRunCtx, cancelScan := context.WithDeadline(runCtx, scanDeadline)
+	defer cancelScan()
+	err = runner.RunPlannedWithObserver(scanRunCtx, executionID, producer.spec, func(scanCtx context.Context, result *models.Result) error {
 		if err := producer.observe(scanCtx, result); err != nil {
-			cancel()
+			cancelScan()
 			return err
 		}
 		return nil
@@ -192,7 +213,9 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		producer.mu.Unlock()
 		return err
 	}
-	return producer.finish()
+	// The network sweeper returns nil when its context expires, so reaching
+	// the scan deadline is how a run cut off by the closing window shows.
+	return producer.finish(!time.Now().Before(scanDeadline))
 }
 
 func sameSweepModes(a, b []models.SweepMode) bool {
@@ -509,23 +532,34 @@ func sweepErrorCode(err error) string {
 	return "scan_error"
 }
 
-func (p *sweepEdgeProducer) finish() error {
+// finish spools the host windows still buffered after the scan returned. An
+// incomplete run is reported as errEdgeSweepIncomplete. When windowClosed, its
+// completed host windows are spooled first, because the slot cannot run again
+// and they would otherwise be lost. Otherwise nothing more is spooled, so a
+// run that admitted no record leaves the slot runnable for a whole-window
+// retry. Open windows (hosts missing a check) are never published: a host
+// window is terminal only with every carried check.
+func (p *sweepEdgeProducer) finish(windowClosed bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.err != nil {
 		return p.err
 	}
+	var incomplete error
 	if len(p.pending) != 0 || p.completed != p.slot.GetPlanHeader().GetTotalTargetCount() {
-		return fmt.Errorf("%w: completed %d of %d hosts, %d open windows", errEdgeSweepIncomplete, p.completed, p.slot.GetPlanHeader().GetTotalTargetCount(), len(p.pending))
+		incomplete = fmt.Errorf("%w: completed %d of %d hosts, %d open windows", errEdgeSweepIncomplete, p.completed, p.slot.GetPlanHeader().GetTotalTargetCount(), len(p.pending))
+		if !windowClosed {
+			return incomplete
+		}
 	}
 	for _, r := range p.ranges {
 		if batch := r.builder.Flush(); batch != nil {
 			if err := p.emit(p.ctx, batch, r.authority); err != nil {
-				return err
+				return errors.Join(err, incomplete)
 			}
 		}
 	}
-	return nil
+	return incomplete
 }
 
 func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObservationBatchV1, source *edgev1.EdgeSourceAuthorizationV1) error {
