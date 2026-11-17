@@ -1,3 +1,355 @@
+# ServiceRadar v1.5.6
+
+This release fixes a NATS lockout that a runtime certificate rotation
+caused on installs with certificate authorization enabled, and starts
+removing camera stream addresses from Core: plugin results are reduced
+as they arrive, existing copies are scrubbed, and agents and the
+UniFi Protect and Axis plugins can now resolve a stream address at the
+edge. The NVR gains a recording catalog, holds, recording policies,
+per-recorder storage settings, a health view and unified timeline
+playback with an access audit; the background workers that act on
+policies and retention are still to come. Syslog is stored under the
+sender's time at microsecond precision, and the log collector can
+follow the Zen ruleset core publishes and normalize syslog itself (off
+by default). netprobe degrades instead of crash-looping on a missing
+capture interface, leased sweeps keep the hosts they finished before
+their window closed, and edge late admission gains its bounds, late
+grants and terminal-interval list, still inactive.
+
+## Upgrade Notes
+
+- **Upgrading from v1.5.3 or earlier: read the v1.5.5 and v1.5.4
+  upgrade notes below first.** They all still apply to v1.5.6 and are
+  not repeated here. v1.5.4 was tagged but never published.
+- **Runtime certificate rotation no longer locks platform components
+  out of NATS.** With `nats.certificateAuthorization.enabled`, core
+  admits an adopted infrastructure client only by a certificate
+  fingerprint it has recorded. The move to `certs.runtimeLayoutVersion`
+  6 in v1.5.4 reissued every runtime certificate, nothing recorded the
+  new ones, and the broker refused core, agent-gateway, web-ng, datasvc
+  and the collectors. The certificate generator now writes a public
+  `runtime-cert-rotation.json` (fingerprints and certificates, no keys)
+  into the runtime certificate Secret. Core records each reissued
+  certificate as the successor of the one it replaces, in the
+  migrations pre-upgrade hook and again whenever the mounted record
+  changes. It accepts a successor only for a recorded, unrevoked
+  certificate at the component's current generation, with the same
+  issuer. An upgrade from v1.5.3 or earlier is handled this way. A
+  rotation that already happened on v1.5.4 or v1.5.5 has no record:
+  record its successors by hand with
+  `POST /api/admin/managed-components/:id/certificates` (see
+  `docs/managed-component-certificates.md`). Replaced certificates stay
+  authorized until you revoke them; revoke them once no pod presents
+  them. The flow-collector bootstrap hook now runs after the
+  certificate generator and migrations (hook weight 0, was -5) and
+  gives up after 600 s instead of holding the upgrade. The chart
+  refuses `nats.certificateAuthorization.enabled` together with
+  `certs.regenerator.enabled`, because the regenerator issues a new
+  root CA (#6732).
+- **NATS identities of disabled features get no permissions.** The
+  flow-collector, netflow-collector and k8s-inventory users rendered an
+  empty allow list when their feature was off, which NATS reads as
+  every subject. They now deny `>` for publish and subscribe, so a
+  client presenting one of those certificates while its feature is
+  disabled is refused. The chart fails to render if a static user has
+  an empty allow list without denying `>` (#6728). EventWriter no
+  longer lets a `Nats-Subject` or `Nats-Subject-Token` header replace
+  the subject a message was delivered on; stream selection and every
+  processor use the broker subject. Nothing in ServiceRadar sets those
+  headers, but an external publisher that used them to re-route
+  messages no longer can (#6727).
+- **Camera stream addresses are being removed from Core, in stages.**
+  A stream address is a secret: a UniFi Protect RTSPS alias works as a
+  bearer token, and other addresses carry `user:password@`. Core now
+  reduces every plugin result as it enters, before anything is stored:
+  RTSP and RTSPS URLs keep only their origin, other URLs lose their
+  userinfo (including URLs inside free text), and alias keys are
+  removed. Addresses are no longer stored in status, state, device,
+  source or profile records. The two relay columns,
+  `camera_sources.source_url` and
+  `camera_stream_profiles.source_url_override`, are hidden from
+  readers, but **they still hold the full address in this release**;
+  the Core cutover that removes it is not in v1.5.6. Migration
+  `20261117060000` enqueues a scrub job that cleans existing rows in
+  primary-key batches and repeats until nothing is pending; it waits
+  while a Core node on an older release is connected.
+  `StreamSecretScrubWorker.pending()` reports the two relay columns
+  separately, as `at_rest_until_stage_3`. Core no longer reads a codec
+  hint from a stream URL query; current camera plugins send it
+  explicitly. Existing `ocsf_events` rows that hold raw camera event
+  payloads are not scrubbed; new rows are reduced, and old ones expire
+  with event retention (#6746).
+- **Command records no longer keep stream secrets.**
+  `platform.agent_commands` stored camera stream URLs and relay lease
+  tokens in clear text, and an agent's raw error could quote the URL.
+  Command rows are now stored redacted while the agent still receives
+  the real command: declared keys are replaced, any key ending in
+  `token`, `secret`, `password`, `passwd` or `passphrase` is redacted,
+  every URL loses userinfo, query and fragment, and free text any agent
+  returns is scrubbed. Migration `20261117015331` enqueues a job that
+  cleans existing rows with the same rules; rows a Core pod still on
+  the old release writes after the job completes leave with the
+  command table's 2-day retention. AWX launch and variable-schema
+  inputs that contain a URL with a username or password are now
+  rejected (#6703).
+- **Upgrade agents and camera plugins before the next release.**
+  v1.5.6 agents can derive a camera stream address at stream-open time
+  from the plugin assignment that discovered the camera, and advertise
+  the `camera_source_resolution` capability; UniFi Protect camera 0.1.5
+  and Axis camera 0.1.4, built on serviceradar-sdk-go v2.3.1, answer
+  those requests. Nothing sends resolver requests in this release, so
+  camera streaming behaves as before. The next release's Core cutover
+  depends on them: it requires agents and camera plugins from v1.5.6
+  or later, and agents that have not been upgraded will stop streaming
+  at that point (#6755, #6756).
+- **Syslog is stored under the sender's time, at microsecond
+  precision.** EventWriter could not read the fractional Unix seconds
+  the log collector sends, so every syslog row was stored under the
+  time it was processed. Rows are now stored under the time the sender
+  wrote, with the receive time in `observed_timestamp`. An implausible
+  sender clock falls back to the receive time and keeps the sender's
+  time in `_syslog_original_timestamp` with
+  `_syslog_timestamp_fallback=true`: RFC 3164 keeps its one-hour limit
+  either way, and zoned formats (RFC 5424 and others) fall back when
+  the sender's time is more than 24 hours ahead or more than 30 days
+  behind. Log `timestamp` and `observed_timestamp` keep microseconds
+  instead of whole seconds on the syslog JSON, collector-normalized and
+  OTLP paths. During the rolling upgrade, a message redelivered from an
+  old core pod to a new one can be stored twice with times that differ
+  below one second (#6740, #6743, #6752).
+- **The log collector follows the Zen ruleset in datasvc;
+  collector-side normalization ships off.** With `kv.enabled`, the
+  chart renders a `[rules.datasvc]` section in `log-collector.toml`, and
+  the collector fetches and watches
+  `zen/rulesets/<stream>/<subject>.json`, keeping the last valid
+  ruleset. For now it only logs status changes. Compose gains the same
+  section and grants the log collector a datasvc `reader` role limited
+  to `zen/rulesets/`; if you maintain your own datasvc configuration,
+  grant the same (#6729, #6733). Normalization in the collector
+  (`[rules] normalize = true` or `LOG_COLLECTOR_NORMALIZE_SYSLOG=true`)
+  is off by default; the OpenSpec change still asks for EventWriter
+  memory and flush time at the largest batch to be measured before it
+  is enabled (#6740, #6757). The log collector may now publish
+  `logs.normalized.>` under the managed-component and edge-onboarding
+  permissions, and core and the platform identities are denied it in
+  the Go NATS bootstrap and the packaged `nats-server.conf` and
+  `nats-cloud.conf` (#6740).
+- **netprobe degrades instead of crash-looping on a missing capture
+  interface.** A `capture_interfaces` name that does not exist on the
+  host no longer stops netprobe: it captures on the interfaces present,
+  or runs attribution-only if none are, and the add-on reports
+  `degraded` with the missing and available interfaces. Correct the
+  assignment's `capture_interfaces` for such hosts; a fleet-wide
+  assignment can reach hosts whose NICs are bridges or bonds. The
+  netprobe unit now allows five failed starts in five minutes
+  (`StartLimitBurst=5`, `StartLimitIntervalSec=300`). After that the
+  add-on reports `circuit_open` and the agent does not reinstall the
+  same artifact and config, so fix the cause and change the assignment
+  (new version or config). The netprobe side is in add-on 0.2.76; the
+  `degraded` and `circuit_open` reporting is in the v1.5.6 agent. Core
+  now counts `degraded` add-ons as active for rollout readiness
+  (#6741).
+- **NVR recording: new records and pages, background workers still to
+  come.** NVR stays disabled by default. This release adds the
+  recording catalog and gap records, recording holds, append-only
+  dispositions and access audit, per-camera recording policies,
+  per-recorder storage settings, block reconciliation state and unified
+  timeline playback. Saving a continuous recording policy, recorder
+  storage settings, or retention and capacity settings stores and
+  validates them; the workers that run continuous capture, push
+  storage settings to NVR members, reconcile recorder inventory, evict
+  local blocks and delete expired or reaped archive objects are not in
+  this release, and the settings pages say so. Timeline playback reads
+  blocks through the NVR local read listener or the archive reader and
+  returns `503 recording_read_unavailable` when neither is configured.
+  Placing or releasing a recording hold needs the new
+  `devices.cameras.recordings.hold` permission, which only the admin
+  role holds by default (#6724, #6730, #6737, #6742, #6748).
+- **Hosted storage plans.** Hosted deployments accept a storage
+  entitlement from the control plane that bounds recording retention,
+  object budget and camera count, and archive credentials the control
+  plane delivers are read-only and shown as "Managed by ServiceRadar
+  Cloud". Until the first entitlement arrives, a hosted deployment
+  holds archive uploads while local recording continues. Self-hosted
+  installs refuse the entitlement API. Migration `20261117173000` adds
+  the entitlement and daily usage report tables, and adds
+  `managed_by` (existing rows become `operator`) and
+  `credential_generation` columns, a check constraint and an index to
+  `platform.network_credential_secrets` (#6760).
+- **Edge late admission: bounds and grants, still inactive.** Migration
+  `20261116210000` adds the global-only edge pipeline setting
+  `late_admission_max_age_seconds` (code default 14 days; not a Helm
+  value) and the singleton `platform.edge_ledger_coverage`, seeded at
+  `now() - 30 days`. It sets a 5 s lock timeout, alters only the small
+  settings table and inserts one row. The ledger retention worker keeps
+  the ledger for at least the late window plus 5 minutes (about 30
+  days with defaults, as before), and now prunes ended intervals from
+  `platform.edge_authority_history` older than that window, never open
+  ones or ones that ended `certificate_revoked` or
+  `revoked_cause_unknown`. Core can issue late-admission grants, the
+  gateway has the `IssueEdgeLateAdmissionGrants` RPC, and the trust
+  document lists terminal authority intervals; migration
+  `20261117080000` adds a partial index for them, with a 5 s lock
+  timeout. The gateway still does not advertise late admission, so
+  late records stay on the agent's disk as in v1.5.5 (#6726, #6734,
+  #6753).
+- **New migrations:** `20261116203000`, `20261116210000`,
+  `20261116232438`, `20261117015331`, `20261117021015`,
+  `20261117050200`, `20261117060000`, `20261117073000`,
+  `20261117080000`, `20261117173000`. Helm
+  `core.migrations.expectedVersion` is `20261117173000`.
+
+## Whats New
+
+**Helm and NATS**
+
+- Runtime certificate rotations are recorded and adopted
+  infrastructure stays admitted; the flow-collector bootstrap hook runs
+  after migrations with a 600 s deadline (#6732).
+- Disabled-feature NATS identities deny everything, and the chart
+  refuses an empty allow list without a `>` deny (#6728).
+
+**Camera and NVR**
+
+- Camera relays report why a source failed to start. Agents classify
+  the failure (for example `connect_timeout`, `authentication_failed`,
+  `no_video_track`, `start_deadline_exceeded`) with a short sanitized
+  detail in a new optional `failure_reason` field, core-elx validates
+  it, and web-ng shows it on the relay viewer, the device camera panel
+  and the relay list. An operator stop or an agent shutdown is not
+  reported as a failure, and older agents close as before (#6703).
+- Command records are stored redacted and existing rows are scrubbed
+  (#6703).
+- Plugin results are reduced on entry so stream addresses stay out of
+  Core tables except the two relay columns, and a stage-aware job
+  scrubs existing rows. web-ng no longer keeps stream addresses in
+  device page state or in the ServiceRadar Atlas stream payload
+  (#6746).
+- A capture that Core aborts before the end marker, for example on a
+  backwards timestamp, now fails definitely and releases the recorder
+  claim at once, instead of reporting an uncertain outcome and locking
+  the camera for the 30 s lease (#6725).
+- Recording catalog and gap records; retention usage counts every
+  archive binding that shares an endpoint and bucket and reports other
+  buckets separately; the Cameras tab shows cataloged copy states
+  (#6724).
+- Recording holds, append-only dispositions and held-byte figures on
+  the Retention and Cameras tabs (#6730).
+- Per-camera recording policies with a what-if preview, per-recorder
+  storage settings, and live Policy and Health tabs (#6737).
+- Historical block freeze, rotated-block adoption and reservation
+  resolution in Core; audited operator dispositions for quarantined
+  blocks and missing archive copies on the Health tab; the assigned NVR
+  member is picked from the configured members (#6742).
+- Unified timeline playback and holds on
+  `/cameras/:camera_source_id/recordings`, a timeline API under
+  `/api/cameras/:camera_source_id/timeline` with multi-block HLS
+  playlists, digest-checked reads and bounded read admission, and an
+  append-only recording access audit (#6748).
+- Hosted storage entitlements, closed-day storage usage reports,
+  control-plane delivered archive credentials and a held-object
+  manifest; camera recording object storage gauges on `/metrics`;
+  date and time pickers, presets and a jump form for timeline holds,
+  and an empty state when a window has no playable blocks (#6760).
+
+**Agent**
+
+- `camera.open_relay` accepts a `source_resolver` and the agent derives
+  the stream address from the discovering plugin, keeping it only in
+  the reader's copy; new failure classes `source_resolver_unavailable`,
+  `source_resolver_unsupported` and `source_not_found` (#6755).
+- A leased sweep cut off by its collection window spools the hosts it
+  completed, then reports the slot incomplete, instead of losing them;
+  the scan stops a short flush reserve before the window closes
+  (#6731). A scan stopped by that reserve keeps waiting for spool room
+  until the window closes, so the batch and buffered hosts are kept
+  (#6736).
+- The agent reports netprobe `degraded` and systemd add-on
+  `circuit_open` states, and stops reinstalling an unchanged add-on
+  whose unit hit its start limit (#6741).
+
+**Plugins and add-ons**
+
+- UniFi Protect camera 0.1.5 and Axis camera 0.1.4 answer stream
+  source resolution requests without creating or enabling a stream on
+  the controller or camera, and can omit stream addresses from
+  inventory results; inventory output is unchanged unless Core asks
+  for that (#6756).
+- netprobe 0.2.76 captures on the interfaces present and reports
+  `degraded` instead of exiting (#6741).
+- RDP adapter 0.1.17 with `libz-sys` 1.1.33 (#6754).
+
+**Edge**
+
+- Late admission bounds: `late_admission_max_age_seconds`, a ledger
+  coverage watermark and authority-history pruning (#6726).
+- Core late-admission grants and the gateway
+  `IssueEdgeLateAdmissionGrants` RPC; not called by agents yet (#6734).
+- The trust document lists terminal authority intervals, capped at
+  100,000 in the gateway's global document, which fails closed above
+  it; nothing consults the list yet (#6753).
+- The gateway records the agent's edge spool health from every
+  control-stream hello, including the 60-second heartbeat, not only the
+  first. Core's `edge-agent-spool` health no longer keeps reporting a
+  backlog that has already drained until the control stream reconnects
+  (#6762).
+- The gateway logs `edge record stream ended before lane_open_ack` and
+  emits `[:serviceradar, :agent_gateway, :edge_record,
+  :lane_open_unacknowledged]` with the agent, lane, wait and step when
+  an edge record stream ends before its ack. The peer certificate is
+  now checked when the stream opens, before the first message is read
+  (#6759).
+
+**Logs**
+
+- The log collector fetches and watches its Zen ruleset in datasvc
+  (#6729), and backs off up to 30 s when the watch keeps ending (#6733).
+- Collector-side syslog normalization publishes OTLP batches on
+  `logs.normalized.syslog`, and falls back to GELF on `logs.syslog`
+  until a ruleset is active; off by default (#6740).
+- Syslog is stored under the sender's time with a wrong-clock fallback
+  for every format (#6743), at microsecond precision (#6752).
+
+**Core**
+
+- Hosted repair no longer stops on one device whose merge history is
+  too deep: owners come from the canonical resolver, a link whose owner
+  cannot be settled is kept, logged and counted (`edges_unresolved`,
+  `guests_unresolved`), and stale hosted links are retired again
+  (#6735).
+- EventWriter routes on the subject the broker delivered (#6727).
+
+**Dependencies**
+
+- `zen-engine` 2.1.7, which moves `zip` from 8.6.0 to 9.6.1
+  (RUSTSEC-2026-0545, RUSTSEC-2026-0548); three unmaintained-crate
+  notices with no fix are accepted in the RustSec audit with review
+  dates (#6754).
+
+**Docs**
+
+- A Camera Recording and NVR operator guide covering the recording
+  settings tabs, timeline playback, holds and permissions (#6751).
+
+**Specifications**
+
+- OpenSpec: NVR retention review findings on re-archive, loss
+  acceptance and object usage closed (#6744); test, benchmark and Loom
+  tasks for the log ingestion changes (#6749); catch-up re-runs for
+  interrupted sweep lease slots proposed (#6761). New changes for the
+  certificate rotation fix (#6732) and the netprobe capture interface
+  fix (#6741).
+
+**Tests and CI**
+
+- Hegel property tests for the collector normalization path (#6757).
+- Generated Ash migrations are formatted with the project's `mix
+  format`; 21 committed migrations change only in line breaks, with no
+  version changes (#6758).
+- Agent-gateway tests own the gateway config they need (#6745), and
+  the rolling-upgrade tests connect the capable core peer inside the
+  wait window (#6747).
+
 # ServiceRadar v1.5.5
 
 This is the first published release that contains everything listed
