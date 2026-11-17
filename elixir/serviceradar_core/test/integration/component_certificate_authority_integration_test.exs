@@ -517,6 +517,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   # layout changes. An adopted component is admitted by recorded fingerprint, so
   # the reissued certificate must be recorded from the generator's rotation
   # record or the component loses NATS access.
+  @tag :tmp_dir
   test "records a chart-rotated certificate on the adopted component that held its predecessor",
        ctx do
     root =
@@ -549,7 +550,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
                actor: operator
              )
 
-    path = rotation_record(first.fingerprint, rotated, other_root, foreign)
+    path = rotation_record(ctx.tmp_dir, first.fingerprint, rotated, other_root, foreign)
 
     assert {:ok, outcomes} = RuntimeCertificateRotation.reconcile(path)
 
@@ -618,7 +619,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
 
   # The record names the adopted certificate's replacement, a replacement for a
   # certificate that was never adopted, and one from another CA.
-  defp rotation_record(adopted_fingerprint, rotated, other_root, foreign) do
+  defp rotation_record(dir, adopted_fingerprint, rotated, other_root, foreign) do
     entries = [
       %{
         previous_fingerprint: adopted_fingerprint,
@@ -637,11 +638,6 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
       }
     ]
 
-    dir =
-      Path.join(System.tmp_dir!(), "runtime-cert-rotation-#{System.unique_integer([:positive])}")
-
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
     path = Path.join(dir, "runtime-cert-rotation.json")
     File.write!(path, Jason.encode!(%{version: 1, certificates: entries}))
     path
