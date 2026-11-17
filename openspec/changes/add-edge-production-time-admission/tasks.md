@@ -122,10 +122,15 @@ Status: implemented in PR #6692 except where a task says otherwise.
       only when pruning deletes rows, to that batch's `inserted_at` cutoff.
       PRIMARY requires `produced_at >= ledger_complete_since + clock
       tolerance`. Add bounded pruning of history.
-- [ ] 2.4 Keep issuer key history: retired keys stay `valid` in the trust
+- [x] 2.4 Keep issuer key history: retired keys stay `valid` in the trust
       document for at least `late_admission_max_age_seconds` after their last
-      window.
-- [ ] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/...` with the history
+      window. Satisfied by construction: core has one issuer key and no
+      rotation or compromise operation, so no key ever retires. A core test
+      pins that every key the trust document has carried stays present as
+      `valid`. Issuer-key rotation and compromise marking are a separate future
+      change, bound by this requirement (keep a retired key for the late
+      window; mark a compromised key `historically_revoked`).
+- [x] 2.5 Add `ServiceRadar.Edge.LateAdmission.issue/...` with the history
       decision (Decision 3, checks 6 to 9, including `ledger_pruned`), reasons
       no grant for non-owners or a foreign origin principal (the gateway
       quarantines those), and no grant for a record naming a

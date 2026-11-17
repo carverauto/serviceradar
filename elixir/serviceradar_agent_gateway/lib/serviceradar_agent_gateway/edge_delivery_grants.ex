@@ -1,8 +1,15 @@
 defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
   @moduledoc """
-  The gateway half of `RenewEdgeDeliveryGrants` (unify-sweep-results-proto M2.0g): a reconnecting
-  agent names the spooled records whose production grant has lapsed, and gets back a delivery
-  grant for each one core will grant.
+  The gateway half of the two spool-drain grant RPCs:
+
+    * `RenewEdgeDeliveryGrants` (unify-sweep-results-proto M2.0g, `renew/2`): a reconnecting
+      agent names the spooled records whose production grant has lapsed, and gets back a delivery
+      grant for each one core will grant.
+    * `IssueEdgeLateAdmissionGrants` (add-edge-production-time-admission, `late/2`): an agent
+      names records of a late lane generation, and core decides each from the authority that was
+      live when it was produced (`ServiceRadar.Edge.LateAdmission`), PRIMARY or AUDIT. A late record
+      need not name a scope the agent holds now (`EdgeRecordAuthorization.late_grant_subject/3`);
+      its item also carries the authority and registry epochs core judges it by.
 
   Core decides whether the authority a record names is still the agent's
   (`ServiceRadar.Edge.DeliveryGrants`), but it only sees the coordinates this module extracts. So
@@ -19,6 +26,7 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
   """
 
   alias ServiceRadar.Edge.DeliveryGrants
+  alias ServiceRadar.Edge.LateAdmission
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarAgentGateway.EdgeRecordAuthorization
   alias ServiceRadarAgentGateway.EdgeRecordTrust
@@ -42,12 +50,23 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
   """
   @spec renew(Monitoring.EdgeDeliveryGrantRequest.t(), map()) ::
           {:ok, Monitoring.EdgeDeliveryGrantResponse.t()} | {:error, atom(), String.t()}
-  def renew(%Monitoring.EdgeDeliveryGrantRequest{} = request, identity) do
+  def renew(%Monitoring.EdgeDeliveryGrantRequest{} = request, identity), do: answer(request, identity, :renewal)
+
+  @doc """
+  Answers one `IssueEdgeLateAdmissionGrants` request, within the same bounds as `renew/2`. Core's
+  refusals are `certificate_revoked_interval` (the gateway quarantines such a record from its trust
+  snapshot) and `not_yet` (its production time is still in core's future).
+  """
+  @spec late(Monitoring.EdgeDeliveryGrantRequest.t(), map()) ::
+          {:ok, Monitoring.EdgeDeliveryGrantResponse.t()} | {:error, atom(), String.t()}
+  def late(%Monitoring.EdgeDeliveryGrantRequest{} = request, identity), do: answer(request, identity, :late_admission)
+
+  defp answer(request, identity, kind) do
     with :ok <- bounded(request),
          {:ok, snapshot} <- trust_snapshot(),
          identity = EdgeRecordTrust.with_network_scopes(snapshot, identity),
-         verified = Enum.map(request.records, &verify(&1, request.spool_id, identity, snapshot)),
-         {:ok, issued} <- issue(identity.component_id, verified) do
+         verified = Enum.map(request.records, &verify(&1, request.spool_id, identity, snapshot, kind)),
+         {:ok, issued} <- issue(identity.component_id, verified, kind) do
       {:ok, %Monitoring.EdgeDeliveryGrantResponse{results: Enum.map(verified, &result(&1, issued))}}
     end
   end
@@ -84,57 +103,83 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
     end
   end
 
-  defp verify(%{sequence: sequence, record_bytes: bytes}, spool_id, identity, snapshot) do
-    case EdgeRecordAuthorization.grant_subject(bytes, identity, snapshot) do
+  defp verify(%{sequence: sequence, record_bytes: bytes}, spool_id, identity, snapshot, kind) do
+    case subject(kind, bytes, identity, snapshot) do
       {:ok, record} ->
         context = record.producer_context
 
-        {:item,
-         %{
-           sequence: sequence,
-           spool_id: spool_id,
-           event_id: record.event_id,
-           record_sha256: :crypto.hash(:sha256, bytes),
-           network_scope_id: record.network_scope_id,
-           producer_assignment_id: context.producer_assignment_id,
-           run_shard: context.run_shard
-         }}
+        item = %{
+          sequence: sequence,
+          spool_id: spool_id,
+          event_id: record.event_id,
+          record_sha256: :crypto.hash(:sha256, bytes),
+          network_scope_id: record.network_scope_id,
+          producer_assignment_id: context.producer_assignment_id,
+          run_shard: context.run_shard
+        }
+
+        {:item, with_epochs(kind, item, record)}
 
       {:error, _class, reason, _event_id} ->
         {:refused, sequence, refusal(reason)}
     end
   end
 
-  defp issue(agent_id, verified) do
+  defp subject(:renewal, bytes, identity, snapshot), do: EdgeRecordAuthorization.grant_subject(bytes, identity, snapshot)
+
+  defp subject(:late_admission, bytes, identity, snapshot),
+    do: EdgeRecordAuthorization.late_grant_subject(bytes, identity, snapshot)
+
+  defp with_epochs(:renewal, item, _record), do: item
+
+  defp with_epochs(:late_admission, item, record) do
+    Map.merge(item, %{
+      authority_epoch: record.producer_context.authority_epoch || 0,
+      registry_epoch: record.output_contract.registry_epoch
+    })
+  end
+
+  defp issue(agent_id, verified, kind) do
     case for({:item, item} <- verified, do: item) do
       [] ->
         {:ok, %{}}
 
       items ->
-        case core_issue(agent_id, items) do
+        case core_issue(kind, agent_id, items) do
           {:ok, results} ->
             {:ok, Map.new(results, &{&1.sequence, &1})}
 
           {:error, :peer_too_old} ->
-            {:error, :unavailable, "edge delivery grants are unavailable"}
+            {:error, :unavailable, "#{description(kind)} are unavailable"}
 
           {:error, reason} ->
-            Logger.warning("Edge delivery grants unavailable from core: #{inspect(reason)}")
-            {:error, :unavailable, "edge delivery grants are unavailable"}
+            Logger.warning("#{description(kind)} unavailable from core: #{inspect(reason)}")
+            {:error, :unavailable, "#{description(kind)} are unavailable"}
         end
     end
   end
 
-  # Injectable as a 2-arity fun under `:edge_delivery_grant_rpc`, so tests need no core node.
-  defp core_issue(agent_id, items) do
-    case Application.get_env(:serviceradar_agent_gateway, :edge_delivery_grant_rpc) do
-      nil -> rpc_core(agent_id, items)
+  defp description(:renewal), do: "edge delivery grants"
+  defp description(:late_admission), do: "edge late-admission grants"
+
+  # Injectable as a 2-arity fun under `:edge_delivery_grant_rpc` (renewal) or
+  # `:edge_late_admission_grant_rpc` (late admission), so tests need no core node.
+  defp core_issue(kind, agent_id, items) do
+    case Application.get_env(:serviceradar_agent_gateway, rpc_env(kind)) do
+      nil -> rpc_core(kind, agent_id, items)
       rpc -> rpc.(agent_id, items)
     end
   end
 
-  defp rpc_core(agent_id, items) do
+  defp rpc_env(:renewal), do: :edge_delivery_grant_rpc
+  defp rpc_env(:late_admission), do: :edge_late_admission_grant_rpc
+
+  defp rpc_core(:renewal, agent_id, items) do
     CoreNodeForwarder.call_unwrap(DeliveryGrants, :issue, [agent_id, items], timeout: @rpc_timeout_ms)
+  end
+
+  defp rpc_core(:late_admission, agent_id, items) do
+    CoreNodeForwarder.call_unwrap(LateAdmission, :issue, [agent_id, items], timeout: @rpc_timeout_ms)
   end
 
   defp result({:refused, sequence, reason}, _issued),
