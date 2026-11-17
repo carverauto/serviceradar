@@ -29,6 +29,9 @@ func hostArtifactAbort(handle uint32) int32
 //go:wasmimport env http_request
 func hostHTTPRequest(reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
 
+//go:wasmimport env grpc_unary
+func hostGRPCUnary(reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
+
 //go:wasmimport env tcp_connect
 func hostTCPConnect(addrPtr uint32, addrLen uint32, port uint32, timeoutMS uint32) int32
 

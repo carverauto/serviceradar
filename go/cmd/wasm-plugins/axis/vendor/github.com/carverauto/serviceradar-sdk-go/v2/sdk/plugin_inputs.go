@@ -64,13 +64,16 @@ type PluginInputItem struct {
 
 // CredentialBrokerGrant is a scoped credential broker reference attached to a target.
 type CredentialBrokerGrant struct {
-	GrantID             string         `json:"grant_id"`
-	GrantRef            string         `json:"grant_ref,omitempty"`
-	CredentialSecretRef string         `json:"credential_secret_ref,omitempty"`
-	GrantType           string         `json:"grant_type,omitempty"`
-	Inject              map[string]any `json:"inject,omitempty"`
-	ExpiresAt           string         `json:"expires_at,omitempty"`
-	CacheStatus         string         `json:"cache_status,omitempty"`
+	GrantID             string `json:"grant_id"`
+	GrantRef            string `json:"grant_ref,omitempty"`
+	CredentialSecretRef string `json:"credential_secret_ref,omitempty"`
+	GrantType           string `json:"grant_type,omitempty"`
+	// Inject is the host-side injection spec. Use InjectType/InjectSpec to read
+	// it and a typed builder such as OAuth2ClientCredentialsInject to write it.
+	Inject      map[string]any         `json:"inject,omitempty"`
+	Allow       *CredentialBrokerAllow `json:"allow,omitempty"`
+	ExpiresAt   string                 `json:"expires_at,omitempty"`
+	CacheStatus string                 `json:"cache_status,omitempty"`
 }
 
 // CredentialPolicySnapshot is the redacted credential policy attached to a target item.

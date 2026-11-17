@@ -6,8 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+)
+
+// HTTP response modes accepted by the host's http_request import.
+const (
+	// ResponseModeStatusBody returns only the status line and body. Response
+	// headers are dropped. It is the SDK default.
+	ResponseModeStatusBody = "status_body"
+	// ResponseModeEnvelope returns a JSON envelope that also carries the
+	// response headers. Multiple values for one header arrive comma-joined.
+	ResponseModeEnvelope = "envelope"
 )
 
 // HTTPRequest defines a proxied HTTP request.
@@ -17,19 +28,67 @@ type HTTPRequest struct {
 	Headers    map[string]string
 	Body       []byte
 	BodyBase64 bool
-	// ResponseMode selects the host response encoding. Empty uses the SDK's
-	// preferred raw status/body mode and remains compatible with legacy hosts.
+	// ResponseMode selects the host response encoding. Empty uses
+	// ResponseModeStatusBody, which drops response headers; set
+	// ResponseModeEnvelope to receive them in HTTPResponse.Headers.
 	ResponseMode       string
 	TimeoutMS          int
 	InsecureSkipVerify bool
 }
 
-// HTTPResponse contains the proxied response data.
+// HTTPResponse contains the proxied response data. Headers is populated only
+// in ResponseModeEnvelope.
 type HTTPResponse struct {
 	Status   int
 	Headers  map[string]string
 	Body     []byte
 	Duration time.Duration
+}
+
+// Header returns the named response header, matched case-insensitively, or ""
+// when it is absent.
+func (r *HTTPResponse) Header(name string) string {
+	if r == nil {
+		return ""
+	}
+	if value, ok := r.Headers[name]; ok {
+		return value
+	}
+	for key, value := range r.Headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
+}
+
+// RetryAfter parses the Retry-After header as delta-seconds or an HTTP-date.
+// A date in the past yields zero. It reports false when the header is absent
+// or malformed.
+func (r *HTTPResponse) RetryAfter() (time.Duration, bool) {
+	return r.retryAfterAt(time.Now())
+}
+
+func (r *HTTPResponse) retryAfterAt(now time.Time) (time.Duration, bool) {
+	value := strings.TrimSpace(r.Header("Retry-After"))
+	if value == "" {
+		return 0, false
+	}
+	if value[0] >= '0' && value[0] <= '9' {
+		seconds, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || seconds > int64(1<<63-1)/int64(time.Second) {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	at, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	if wait := at.Sub(now); wait > 0 {
+		return wait, true
+	}
+	return 0, true
 }
 
 type httpRequestPayload struct {
@@ -85,7 +144,7 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		payload.Method = http.MethodGet
 	}
 	if payload.ResponseMode == "" {
-		payload.ResponseMode = "status_body"
+		payload.ResponseMode = ResponseModeStatusBody
 	}
 
 	if len(req.Body) > 0 {
