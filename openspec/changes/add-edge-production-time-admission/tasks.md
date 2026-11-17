@@ -138,7 +138,25 @@ Status: implemented in PR #6692 except where a task says otherwise.
       presents it, returning `certificate_revoked_interval`, a "not yet"
       answer for a record whose `produced_at` is in core's future,
       plus a gateway RPC for late grants within the existing batch bounds.
-- [ ] 2.6 Gateway: add late sessions (`late_admission = true`), replacing the
+- [ ] 2.6 Gateway late sessions, delivered as three PRs, each safe to merge
+      alone (owner decision, 2026-11-17). The gateway keeps advertising
+      `edge_late_admission_protocol_version = 0` until 2.7 has merged. That
+      advertisement is the one switch that makes agents open late lanes and
+      makes live sessions answer `LATE_ADMISSION_REQUIRED`, and until
+      EventWriter accepts the `LATE_ADMISSION` mode (2.7) a published late
+      record would be refused there. So 2.6c ships dormant, and the flip to 1
+      lands with 2.7, or in a one-line PR right after it, together with the
+      2.8 end-to-end test.
+  - [x] 2.6a Terminal intervals in the trust document: core emits them (global
+        cap 100,000, per agent 10,000, failing closed like the assignment
+        cap; see design Decision 4, "Bounding the terminal-interval list"),
+        and the gateway's `EdgeRecordTrust` parses them (Go `TrustSnapshot`
+        already did in phase 1).
+  - [ ] 2.6b The `LATE_ADMISSION` delivery mode in Go and Elixir together.
+  - [ ] 2.6c Late sessions, late-grant verification, quarantine ordering,
+        `LATE_ADMISSION_REQUIRED`, and the advertisement code held at 0.
+
+      The full scope of 2.6 as specified: add late sessions (`late_admission = true`), replacing the
       phase 1 refusal, and late-grant verification in
       `EdgeRecordAuthorization`. Never accept a late grant on a live session;
       resolve any live record with a stale or missing fence, whatever its

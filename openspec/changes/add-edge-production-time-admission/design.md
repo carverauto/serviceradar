@@ -264,6 +264,25 @@ regardless of any already-issued grant. A higher current fence alone never
 quarantines; a normal epoch advance stays PRIMARY-eligible through its late
 grant. These intervals are never pruned, so the list is complete.
 
+**Bounding the terminal-interval list.** Pruning cannot bound it. Nothing
+bounds how old a late record may be and still leave the edge: the agent does
+not apply the maximum late age, and its spool never evicts an unresolved
+record by age, so a record too old for PRIMARY is still delivered, as AUDIT
+(Decision 3). `late_admission_max_age` bounds PRIMARY, not admission. A
+terminal interval can therefore match an admissible record of any age, and
+pruning it would turn that record's outcome from security quarantine into
+`history_unknown` AUDIT. That is a quiet downgrade of exactly the case this
+list exists for. The list is instead bounded by its own cap, and fails
+closed past it exactly as the assignment cap does: the gateway's document
+lists at most 100,000 terminal intervals and is refused
+(`trust_snapshot_too_large`) beyond that. An agent's own document lists only
+that agent's terminal intervals, under the 10,000 assignment cap that Go's
+`maxTrustFences` already enforces. Terminal intervals come only from
+certificate revocations, which are operator events, so the cap is orders of
+magnitude above realistic use (each entry is about 120 bytes of JSON, so the
+cap is about 12 MB). A partial index over terminal rows keeps both reads off
+the rest of the history.
+
 **Keys.** Historical verification needs the issuer key's evidence (see
 "Current permission and historical verification are separate questions").
 Retired issuer keys SHALL stay in the trust document with `valid` status for at
