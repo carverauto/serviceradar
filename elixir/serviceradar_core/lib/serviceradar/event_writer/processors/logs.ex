@@ -172,9 +172,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   # Subjects under `logs.normalized.` carry OTLP log batches a log collector
   # has already run through its Zen rules. The broker lets only the log
-  # collector publish there, so these batches are stored without running the
-  # rules again. A JSON body is never read from these subjects, and a batch in
-  # a schema this release does not know is refused instead of being guessed at.
+  # collector, and an edge leaf carrying an edge collector's batches, publish
+  # there, so these batches are stored without running the rules again. A
+  # JSON body is never read from these subjects, and a batch in a schema this
+  # release does not know is refused instead of being guessed at.
   @normalized_subject_prefix "logs.normalized."
   @normalized_schema "otlp-normalized-v1"
 
