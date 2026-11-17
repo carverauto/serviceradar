@@ -36,5 +36,5 @@ Hegel (`hegeltest`) for properties and Criterion for benchmarks, as the longshor
 - [ ] 5.5 Hegel: for any JSON object a rule can return, the row mapping produces a record without panicking.
 - [ ] 5.6 Hegel: for any sender time and receive time, the stored time is the sender's or the receive time, and the fallback attributes are present exactly when it is the receive time.
 - [ ] 5.7 Cross-language property: generated records and rule outputs store the same row through the collector and EventWriter paths. Needs a harness across the Rust and Elixir test targets; the shared fixture covers hand-picked cases until then.
-- [ ] 5.8 Criterion: normalize and encode one record with the bundled syslog rules, assemble a batch, and encode in JSON mode as the baseline. These replace the one-off loopback measurement as the reproducible evidence 4.1 to 4.3 require.
+- [ ] 5.8 Criterion: normalize and encode one record with the bundled syslog rules, assemble a batch, and encode in JSON mode as the baseline. These give reproducible per-stage numbers that feed 4.1 to 4.3; they do not replace the end-to-end measurements those tasks and the design's rollout section require.
 - [ ] 5.9 If 5.8 shows the per-record ruleset lock matters and it is replaced with a lock-free read, ship that change with a Loom model of activation racing readers.
