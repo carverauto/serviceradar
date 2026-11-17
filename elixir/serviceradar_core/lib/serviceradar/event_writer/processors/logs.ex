@@ -643,12 +643,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     } = log_record
 
     severity_number = if is_atom(severity), do: SeverityNumber.value(severity), else: severity
-    observed_timestamp = unix_nanos_timestamp(observed)
 
     %{
       row
-      | timestamp: unix_nanos_timestamp(time) || observed_timestamp || row.timestamp,
-        observed_timestamp: observed_timestamp || row.observed_timestamp,
+      | timestamp: unix_nanos_timestamp(time),
+        observed_timestamp: unix_nanos_timestamp(observed),
         source: columns["source"] || row.source,
         source_ip: columns["source_ip"],
         service_name: columns["service_name"],
@@ -662,10 +661,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     }
   end
 
-  defp unix_nanos_timestamp(nanos) when is_integer(nanos) and nanos > 0,
+  defp unix_nanos_timestamp(nanos) when is_integer(nanos) and nanos >= 0,
     do: DateTime.from_unix!(div(nanos, 1_000_000_000), :second)
-
-  defp unix_nanos_timestamp(_nanos), do: nil
 
   defp present(value) when value in ["", 0], do: nil
   defp present(value), do: value

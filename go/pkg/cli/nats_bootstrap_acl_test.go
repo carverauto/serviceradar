@@ -196,6 +196,9 @@ func TestGeneratePlatformAccount_AllowsPluginObjectStoreSubjects(t *testing.T) {
 			t.Errorf("platform publish allow missing %q: %v", required, claims.Pub.Allow)
 		}
 	}
+	if !containsString(claims.Pub.Deny, "logs.normalized.>") {
+		t.Errorf("platform publish deny must contain logs.normalized.>: %v", claims.Pub.Deny)
+	}
 	for _, required := range []string{
 		"$O.serviceradar_plugins.>",
 		"flows.raw.>",

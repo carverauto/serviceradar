@@ -655,7 +655,7 @@ func generatePlatformAccount(
 			"$JS.FC.OBJ_serviceradar_plugins.>",
 			"_INBOX.>",
 		},
-		PublishDeny: []string{"$SYS.>"},
+		PublishDeny: []string{"$SYS.>", "logs.normalized.>"},
 		SubscribeAllow: []string{
 			"flow.host-slice.>",
 			"flow.attributed.>",
