@@ -12,13 +12,29 @@ import (
 
 //export run_check
 func run_check() {
+	raw, rawErr := loadRawConfigBytes()
+	if handleProtectSourceResolution(raw) {
+		return
+	}
+
 	_ = sdk.Execute(func() (*sdk.Result, error) {
 		var initCfg Config
 		_ = json.Unmarshal([]byte(`{"host":"x"}`), &initCfg)
 
-		cfg, err := loadConfig()
+		cfg := defaultConfig()
+		err := rawErr
+		if err == nil {
+			cfg, err = decodeConfig(raw)
+		}
 		if err != nil {
 			sdk.Log.Warn("failed to load config: " + err.Error())
+		}
+		omitAddresses, err := sdk.ParseOmitCameraStreamAddresses(raw)
+		if err != nil {
+			// The host set the key with a value this plugin cannot read; it
+			// only does so once it no longer wants addresses.
+			omitAddresses = true
+			sdk.Log.Warn("unreadable " + sdk.CameraStreamAddressesConfigKey + "; omitting stream addresses")
 		}
 
 		cfg.Host = strings.TrimSpace(cfg.Host)
@@ -75,6 +91,10 @@ func run_check() {
 			events, eventRes := collectProtectEvents(cfg, headers, client.Timeout, bootstrap.LastUpdateID, authMode)
 			details.Endpoints = append(details.Endpoints, eventRes)
 			resultEvents = append(resultEvents, events...)
+		}
+
+		if omitAddresses {
+			omitProtectStreamAddresses(&details)
 		}
 
 		detailsJSON, err := json.Marshal(details)

@@ -54,6 +54,27 @@ Each bundle contains the canonical import shape:
 }
 ```
 
+## Stream Source Resolution
+
+When a camera stream opens, the agent runs `run_check` with the host-owned
+config key `_serviceradar_camera_source_resolution_request`
+(`serviceradar.camera_source_resolution_request.v1`). The plugin then does no
+inventory work: it reads `streamprofile.cgi?list` (one GET, because the media
+parameters live on the camera), rebuilds the address the inventory reports for
+the requested `vendor_profile_id` (an empty id selects the first profile), puts
+the configured `username`/`password` in the URL userinfo, percent-encoded, and
+submits only a `serviceradar.camera_source_resolution.v1` document. Without
+configured credentials the address has no userinfo. An unknown profile is
+`source_not_found`, HTTP 401/403 is `authentication_failed`, a host-reported
+timeout is `connect_timeout`, and any other transport failure is
+`connect_failed`. The failure detail never carries the address or a credential.
+
+Inventory runs report stream addresses unless the assignment config carries
+`"_serviceradar_camera_stream_addresses": "omit"`, which Core sets once it
+opens streams through the resolver. With it, every stream and profile reports
+`source_origin` (for example `rtsp://192.0.2.20`) and no media path,
+`source_url`, `source_url_override` or raw VAPIX response bodies.
+
 ## Required Capabilities
 - `get_config`
 - `log`

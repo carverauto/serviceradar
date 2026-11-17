@@ -42,7 +42,8 @@ type EndpointResult struct {
 type StreamInfo struct {
 	ID                    string `json:"id"`
 	Protocol              string `json:"protocol"`
-	URL                   string `json:"url"`
+	URL                   string `json:"url,omitempty"`
+	SourceOrigin          string `json:"source_origin,omitempty"`
 	AuthMode              string `json:"auth_mode"`
 	CredentialReferenceID string `json:"credential_reference_id,omitempty"`
 	Source                string `json:"source"`
@@ -62,6 +63,7 @@ type CameraStreamProfile struct {
 	ProfileName       string                 `json:"profile_name"`
 	VendorProfileID   string                 `json:"vendor_profile_id,omitempty"`
 	SourceURLOverride string                 `json:"source_url_override,omitempty"`
+	SourceOrigin      string                 `json:"source_origin,omitempty"`
 	RTSPTransport     string                 `json:"rtsp_transport,omitempty"`
 	CodecHint         string                 `json:"codec_hint,omitempty"`
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
@@ -117,24 +119,32 @@ func getEndpoint(ctx context.Context, client cameraHTTPGetter, path string) Endp
 	}
 }
 
-func loadAxisConfig() (Config, error) {
-	raw, err := loadRawConfigBytes()
-	if err != nil {
-		return defaultConfig(), err
-	}
-	return decodeConfig(raw)
-}
-
 //export run_check
 func run_check() {
+	raw, rawErr := loadRawConfigBytes()
+	if handleAxisSourceResolution(raw) {
+		return
+	}
+
 	_ = sdk.Execute(func() (*sdk.Result, error) {
 		// TinyGo reflection metadata retention workaround.
 		var initCfg Config
 		_ = json.Unmarshal([]byte(`{"host":"x"}`), &initCfg)
 
-		cfg, err := loadAxisConfig()
+		cfg := defaultConfig()
+		err := rawErr
+		if err == nil {
+			cfg, err = decodeConfig(raw)
+		}
 		if err != nil {
 			sdk.Log.Warn("failed to load config: " + err.Error())
+		}
+		omitAddresses, err := sdk.ParseOmitCameraStreamAddresses(raw)
+		if err != nil {
+			// The host set the key with a value this plugin cannot read; it
+			// only does so once it no longer wants addresses.
+			omitAddresses = true
+			sdk.Log.Warn("unreadable " + sdk.CameraStreamAddressesConfigKey + "; omitting stream addresses")
 		}
 
 		cfg.Host = strings.TrimSpace(cfg.Host)
@@ -212,6 +222,9 @@ func run_check() {
 		details.Health = healthMetricSnapshot(healthMetrics)
 		summary := buildSummary(details)
 		status := deriveStatus(details, healthMetrics)
+		if omitAddresses {
+			omitAxisStreamAddresses(&details)
+		}
 
 		detailsJSON, err := json.Marshal(details)
 		if err != nil {
@@ -312,7 +325,7 @@ func collectStreamInfo(
 	client cameraHTTPGetter,
 	host, authMode, credentialReferenceID string,
 ) ([]StreamInfo, []EndpointResult) {
-	profileRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamprofile.cgi?list"))
+	profileRes := trimBody(getEndpoint(ctx, client, axisStreamProfileListPath))
 	statusRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamstatus.cgi"))
 	results := []EndpointResult{profileRes, statusRes}
 
@@ -336,12 +349,8 @@ func collectStreamInfo(
 
 	streams := make([]StreamInfo, 0, len(profiles))
 	for _, profile := range profiles {
-		streamID := profile.ID
-		if strings.TrimSpace(profile.Name) != "" {
-			streamID = profile.Name
-		}
 		streams = append(streams, StreamInfo{
-			ID:                    streamID,
+			ID:                    axisStreamProfileID(profile),
 			Protocol:              "rtsp",
 			URL:                   buildRTSPURL(host, profile.Parameters),
 			AuthMode:              authMode,
@@ -351,6 +360,15 @@ func collectStreamInfo(
 	}
 
 	return streams, results
+}
+
+// axisStreamProfileID is the id a stream profile is reported under, and so the
+// vendor_profile_id a resolution request names: its name, else its key.
+func axisStreamProfileID(profile axisref.StreamProfile) string {
+	if strings.TrimSpace(profile.Name) != "" {
+		return profile.Name
+	}
+	return profile.ID
 }
 
 func collectAxisEvents(
@@ -703,7 +721,7 @@ func countSuccessfulEndpoints(results []EndpointResult) int {
 
 func requestedStreamDiscovery(details ResultDetails) bool {
 	for _, endpoint := range details.Endpoints {
-		if endpoint.Path == "/axis-cgi/streamprofile.cgi?list" ||
+		if endpoint.Path == axisStreamProfileListPath ||
 			endpoint.Path == "/axis-cgi/streamstatus.cgi" {
 			return true
 		}

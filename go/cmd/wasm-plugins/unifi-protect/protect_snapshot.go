@@ -13,12 +13,8 @@ import (
 
 func fetchProtectBootstrap(ctx context.Context, client protectHTTPClient, cfg Config, headers map[string]string) (ProtectBootstrapSnapshot, EndpointResult) {
 	path := cfg.normalizedBootstrapPath()
-	resp, err := client.DoContext(ctx, sdk.HTTPRequest{
-		Method:  "GET",
-		URL:     client.URL(path),
-		Headers: headers,
-	})
-	if err != nil {
+	snapshot, resp, err := requestProtectBootstrap(ctx, client, cfg, headers)
+	if resp == nil {
 		return ProtectBootstrapSnapshot{}, EndpointResult{Path: path, Error: err.Error()}
 	}
 
@@ -30,16 +26,39 @@ func fetchProtectBootstrap(ctx context.Context, client protectHTTPClient, cfg Co
 		Body:       string(resp.Body),
 		Duration:   resp.Duration,
 	}
-
-	if resp.Status != http.StatusOK {
-		result.Error = fmt.Sprintf("bootstrap request failed with status %d", resp.Status)
+	if err != nil {
+		result.Error = err.Error()
 		return ProtectBootstrapSnapshot{}, trimBody(result)
+	}
+
+	result.CameraCount = len(snapshot.Cameras)
+	return snapshot, trimBody(result)
+}
+
+// requestProtectBootstrap reads the bootstrap document. A nil response means
+// the request never got an HTTP answer; otherwise err reports a non-200
+// status (protectStatusError) or an undecodable payload.
+func requestProtectBootstrap(
+	ctx context.Context,
+	client protectHTTPClient,
+	cfg Config,
+	headers map[string]string,
+) (ProtectBootstrapSnapshot, *sdk.HTTPResponse, error) {
+	resp, err := client.DoContext(ctx, sdk.HTTPRequest{
+		Method:  "GET",
+		URL:     client.URL(cfg.normalizedBootstrapPath()),
+		Headers: headers,
+	})
+	if err != nil {
+		return ProtectBootstrapSnapshot{}, nil, err
+	}
+	if resp.Status != http.StatusOK {
+		return ProtectBootstrapSnapshot{}, resp, protectStatusError{request: "bootstrap request", status: resp.Status}
 	}
 
 	var payload ProtectBootstrapResponse
 	if err := json.Unmarshal(resp.Body, &payload); err != nil {
-		result.Error = "invalid bootstrap payload: " + err.Error()
-		return ProtectBootstrapSnapshot{}, trimBody(result)
+		return ProtectBootstrapSnapshot{}, resp, fmt.Errorf("invalid bootstrap payload: %w", err)
 	}
 
 	cameras := payload.Cameras
@@ -50,11 +69,10 @@ func fetchProtectBootstrap(ctx context.Context, client protectHTTPClient, cfg Co
 	if lastUpdateID == "" {
 		lastUpdateID = strings.TrimSpace(payload.Data.LastUpdateID)
 	}
-	result.CameraCount = len(cameras)
 	return ProtectBootstrapSnapshot{
 		Cameras:      cameras,
 		LastUpdateID: lastUpdateID,
-	}, trimBody(result)
+	}, resp, nil
 }
 
 func fetchProtectSnapshot(
@@ -171,7 +189,7 @@ func fetchProtectIntegrationRTSPSStreams(
 		return nil, err
 	}
 	if resp.Status != http.StatusOK {
-		return nil, fmt.Errorf("integration rtsps stream request failed with status %d", resp.Status)
+		return nil, protectStatusError{request: "integration rtsps stream request", status: resp.Status}
 	}
 
 	var streams protectRTSPSStreams
@@ -181,10 +199,23 @@ func fetchProtectIntegrationRTSPSStreams(
 	return streams, nil
 }
 
+// protectStatusError is a controller answer with an unexpected HTTP status.
+type protectStatusError struct {
+	request string
+	status  int
+}
+
+func (e protectStatusError) Error() string {
+	return fmt.Sprintf("%s failed with status %d", e.request, e.status)
+}
+
+// protectIntegrationQualities are the rtsps-stream qualities, in the order the
+// inventory reports them as profiles (vendor_profile_id is the quality).
+var protectIntegrationQualities = []string{"high", "medium", "low", "package"}
+
 func buildProtectIntegrationChannels(streams protectRTSPSStreams) []ProtectChannel {
-	qualities := []string{"high", "medium", "low", "package"}
-	channels := make([]ProtectChannel, 0, len(qualities))
-	for _, quality := range qualities {
+	channels := make([]ProtectChannel, 0, len(protectIntegrationQualities))
+	for _, quality := range protectIntegrationQualities {
 		raw := streams[quality]
 		if raw == nil || strings.TrimSpace(*raw) == "" {
 			continue
