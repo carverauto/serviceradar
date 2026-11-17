@@ -955,6 +955,57 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicyAndHealthTest do
       assert missing_item.requires_hold_permission? == true
       assert missing_item.local_copy_present? == true
       assert missing_item.rearchive_eligible? == true
+
+      # 3. review-74: quarantined missing copy uses quarantine_binding_id & checks retained bindings:
+      q_binding_retained = "00000000-0000-4000-8000-000000000791"
+      q_binding_absent = "00000000-0000-4000-8000-000000000792"
+
+      review74_entries = [
+        %{
+          id: "00000000-0000-4000-8000-000000000721",
+          storage_id: sid,
+          block_key: String.duplicate("e", 64),
+          local_state: :quarantined,
+          quarantine_reason: :binding_without_history,
+          quarantined_bytes: 2_048_000,
+          quarantine_receipt: %{"partition_path" => ".quarantine/eee"},
+          archive_state: :missing,
+          archive_binding_id: q_binding_absent,
+          quarantine_binding_id: q_binding_retained,
+          local_state_at: DateTime.shift(now, minute: -8),
+          archive_state_at: DateTime.shift(now, minute: -3)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000722",
+          storage_id: sid,
+          block_key: String.duplicate("f", 64),
+          local_state: :quarantined,
+          quarantine_reason: :unattributable,
+          quarantined_bytes: 1_024_000,
+          quarantine_receipt: %{"partition_path" => ".quarantine/fff"},
+          archive_state: :missing,
+          quarantine_binding_id: q_binding_absent,
+          local_state_at: DateTime.shift(now, minute: -6),
+          archive_state_at: DateTime.shift(now, minute: -2)
+        }
+      ]
+
+      assert {:ok, r74_health} =
+               RecordingHealth.summary(
+                 actor: viewer,
+                 now: now,
+                 loaders: %{
+                   settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
+                   bindings_loader: fn -> {:ok, [%{id: q_binding_retained}]} end,
+                   catalog_loader: fn -> {:ok, review74_entries} end
+                 }
+               )
+
+      by_id = Map.new(r74_health.missing_archive_entries, &{&1.id, &1})
+      assert by_id["00000000-0000-4000-8000-000000000721"].owed_binding_id == q_binding_retained
+      assert by_id["00000000-0000-4000-8000-000000000721"].rearchive_eligible? == true
+      assert by_id["00000000-0000-4000-8000-000000000722"].owed_binding_id == q_binding_absent
+      assert by_id["00000000-0000-4000-8000-000000000722"].rearchive_eligible? == false
     end
   end
 end

@@ -22,6 +22,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.CameraRecordingPolicies
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.LocalStorageBinding
@@ -136,6 +137,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
     with :ok <- RecordingArchiveSettings.authorize_recording_read(opts),
          {:ok, usage} <- RetentionCalculator.usage_summary(opts),
          {:ok, catalog_entries} <- load_full_catalog_entries(loaders),
+         {:ok, retained_binding_ids} <- load_retained_binding_ids(loaders),
          {:ok, accepted_holds} <- load_accepted_holds(loaders),
          {:ok, reservations} <- load_reservations_summary(loaders),
          {:ok, policies} <- load_policies(loaders),
@@ -147,7 +149,14 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       settings = usage.settings
 
       archive_backlog =
-        build_archive_backlog(settings, catalog_entries, accepted_holds, now, opts)
+        build_archive_backlog(
+          settings,
+          catalog_entries,
+          retained_binding_ids,
+          accepted_holds,
+          now,
+          opts
+        )
 
       gaps_24h = build_gaps_summary(gaps, now)
 
@@ -188,7 +197,14 @@ defmodule ServiceRadar.Camera.RecordingHealth do
     end
   end
 
-  defp build_archive_backlog(settings, catalog_entries, accepted_holds, now, opts) do
+  defp build_archive_backlog(
+         settings,
+         catalog_entries,
+         retained_binding_ids,
+         accepted_holds,
+         now,
+         opts
+       ) do
     acc =
       Enum.reduce(
         catalog_entries,
@@ -205,7 +221,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           quarantined_entries: []
         },
         fn entry, st ->
-          accumulate_backlog_entry(entry, st, accepted_holds)
+          accumulate_backlog_entry(entry, st, retained_binding_ids, accepted_holds)
         end
       )
 
@@ -267,7 +283,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
     }
   end
 
-  defp accumulate_backlog_entry(entry, st, accepted_holds) do
+  defp accumulate_backlog_entry(entry, st, retained_binding_ids, accepted_holds) do
     local_state = normalize_catalog_state(fetch_field(entry, :local_state))
     archive_state = normalize_catalog_state(fetch_field(entry, :archive_state))
     q_reason = normalize_quarantine_reason(fetch_field(entry, :quarantine_reason))
@@ -324,8 +340,10 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         build_missing_archive_health_item(
           entry,
           local_state,
-          media_bytes,
+          q_reason,
+          entry_bytes,
           active_quarantine_item?,
+          retained_binding_ids,
           accepted_holds
         )
 
@@ -370,12 +388,25 @@ defmodule ServiceRadar.Camera.RecordingHealth do
   defp build_missing_archive_health_item(
          entry,
          local_state,
+         q_reason,
          media_bytes,
          quarantined?,
+         retained_binding_ids,
          accepted_holds
        ) do
     entry_id = to_string(fetch_field(entry, :id))
     binding_id = fetch_field(entry, :archive_binding_id)
+    q_binding_id = fetch_field(entry, :quarantine_binding_id)
+
+    owed_binding_id =
+      cond do
+        local_state == :present -> binding_id
+        local_state == :quarantined and not is_nil(q_reason) -> q_binding_id
+        true -> nil
+      end
+
+    rearchive_eligible? =
+      not is_nil(owed_binding_id) and binding_retained?(owed_binding_id, retained_binding_ids)
 
     covering =
       if quarantined? do
@@ -401,8 +432,10 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       stream_profile_id: fetch_field(entry, :stream_profile_id),
       local_state: local_state,
       local_copy_present?: local_state == :present,
-      rearchive_eligible?: local_state == :present and not is_nil(binding_id),
+      rearchive_eligible?: rearchive_eligible?,
       archive_binding_id: binding_id,
+      quarantine_binding_id: q_binding_id,
+      owed_binding_id: owed_binding_id,
       media_bytes: media_bytes,
       archive_last_error_class: fetch_field(entry, :archive_last_error_class),
       sealed_at: fetch_field(entry, :sealed_at),
@@ -412,6 +445,12 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       hold_ids: hold_ids,
       requires_hold_permission?: held?
     }
+  end
+
+  defp binding_retained?(_binding_id, :unverified_in_loader), do: true
+
+  defp binding_retained?(binding_id, %MapSet{} = retained_ids) do
+    MapSet.member?(retained_ids, to_string(binding_id))
   end
 
   defp build_gaps_summary(gaps, now) do
@@ -850,6 +889,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           :archive_state,
           :archive_state_at,
           :archive_binding_id,
+          :quarantine_binding_id,
           :archive_last_error_class,
           :media_bytes,
           :sealed_at,
@@ -857,6 +897,37 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           :inserted_at
         ])
         |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp load_retained_binding_ids(loaders) do
+    cond do
+      is_function(Map.get(loaders, :bindings_loader), 0) ->
+        with {:ok, rows} <- loaders.bindings_loader.() do
+          ids =
+            rows
+            |> Enum.map(&fetch_field(&1, :id))
+            |> Enum.reject(&is_nil/1)
+            |> MapSet.new(&to_string/1)
+
+          {:ok, ids}
+        end
+
+      map_size(loaders) > 0 ->
+        {:ok, :unverified_in_loader}
+
+      true ->
+        ArchiveBinding
+        |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+        |> Ash.Query.select([:id])
+        |> Ash.read(actor: @system_actor)
+        |> case do
+          {:ok, rows} ->
+            {:ok, MapSet.new(rows, &to_string(&1.id))}
+
+          {:error, _} = error ->
+            error
+        end
     end
   end
 

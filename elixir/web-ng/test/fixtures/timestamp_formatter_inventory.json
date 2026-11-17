@@ -296,6 +296,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/camera_timeline_playlist.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "e0e94020e297a061b5b41df754440c8fb2271004b26020108b6a3e387d018ef7",
+    "classification": "canonical_machine",
+    "reason": "Canonical UTC timestamp emitted in HLS v7 EXT-X-PROGRAM-DATE-TIME wire tag."
+  },
+  {
     "path": "lib/serviceradar_web_ng/configuration_request.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
