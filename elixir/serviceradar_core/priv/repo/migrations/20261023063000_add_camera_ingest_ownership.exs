@@ -81,7 +81,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraIngestOwnership do
           name: "camera_ingest_owners_camera_source_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(
         :stream_profile_id,
@@ -90,7 +92,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraIngestOwnership do
           name: "camera_ingest_owners_stream_profile_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(

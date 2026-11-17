@@ -85,7 +85,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryEffects do
           name: "edge_recovery_loss_transitions_span_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -115,7 +117,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryEffects do
           name: "edge_recovery_range_losses_span_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(

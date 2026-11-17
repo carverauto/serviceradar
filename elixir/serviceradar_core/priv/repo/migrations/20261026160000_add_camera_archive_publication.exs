@@ -19,7 +19,10 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchivePublication do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), primary_key: true, null: false)
+        ),
+        primary_key: true,
+        null: false
+      )
 
       add(:deployment_ref, :uuid, null: false)
       add(:generation, :bigint, null: false)
@@ -385,7 +388,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchivePublication do
     drop(
       constraint(
         :camera_archive_manifest_authorities,
-        "camera_archive_manifest_authorities_archive_binding_id_fkey", prefix: "platform")
+        "camera_archive_manifest_authorities_archive_binding_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(table(:camera_archive_manifest_authorities, prefix: "platform"))

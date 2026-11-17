@@ -19,7 +19,10 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveQualificationReceipts do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), primary_key: true, null: false)
+        ),
+        primary_key: true,
+        null: false
+      )
 
       add(:revision, :bigint, null: false)
       add(:state, :text, null: false)
@@ -68,7 +71,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveQualificationReceipts do
     drop(
       constraint(
         :camera_archive_qualification_receipts,
-        "camera_archive_qualification_receipts_archive_binding_id_fkey", prefix: "platform")
+        "camera_archive_qualification_receipts_archive_binding_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(table(:camera_archive_qualification_receipts, prefix: "platform"))

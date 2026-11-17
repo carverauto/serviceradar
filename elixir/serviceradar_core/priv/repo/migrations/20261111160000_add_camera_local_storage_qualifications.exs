@@ -87,13 +87,17 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageQualifications do
     drop_if_exists(
       constraint(
         :camera_local_storage_qualifications,
-        :camera_local_storage_qualification_revision, prefix: "platform")
+        :camera_local_storage_qualification_revision,
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :camera_local_storage_qualifications,
-        "camera_local_storage_qualification_report_fkey", prefix: "platform")
+        "camera_local_storage_qualification_report_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(table(:camera_local_storage_qualifications, prefix: "platform"))

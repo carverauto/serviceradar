@@ -21,7 +21,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalPublicationIntents do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -66,7 +68,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalPublicationIntents do
     drop(
       constraint(
         :camera_local_publication_intents,
-        "camera_local_publication_intents_recording_block_id_fkey", prefix: "platform")
+        "camera_local_publication_intents_recording_block_id_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_local_publication_intents, prefix: "platform") do

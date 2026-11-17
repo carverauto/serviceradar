@@ -116,7 +116,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingPoliciesAndStorageSetti
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(
         :stream_profile_id,
@@ -126,7 +128,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingPoliciesAndStorageSetti
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(

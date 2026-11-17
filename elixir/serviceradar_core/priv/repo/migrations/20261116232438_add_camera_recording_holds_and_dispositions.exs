@@ -124,7 +124,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingHoldsAndDispositions do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(
         :stream_profile_id,
@@ -330,7 +332,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingHoldsAndDispositions do
     drop(
       constraint(
         :camera_recording_dispositions,
-        "camera_recording_dispositions_catalog_entry_fkey", prefix: "platform")
+        "camera_recording_dispositions_catalog_entry_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(table(:camera_recording_dispositions, prefix: "platform"))

@@ -42,7 +42,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrOperatorSettings do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -314,7 +316,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrOperatorSettings do
     drop(
       constraint(
         :camera_recording_archive_settings,
-        "camera_archive_settings_active_binding_fkey", prefix: "platform")
+        "camera_archive_settings_active_binding_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(table(:camera_recording_archive_settings, prefix: "platform"))

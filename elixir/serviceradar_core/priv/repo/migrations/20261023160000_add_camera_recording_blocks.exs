@@ -21,7 +21,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingBlocks do
           name: "camera_recording_blocks_camera_source_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -39,7 +41,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingBlocks do
           name: "camera_recording_blocks_stream_profile_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(
         :ingest_owner_id,
@@ -48,7 +52,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingBlocks do
           name: "camera_recording_blocks_ingest_owner_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(:ingest_epoch, :bigint, null: false)
 
@@ -59,7 +65,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingBlocks do
           name: "camera_recording_blocks_recorder_claim_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(:recorder_epoch, :bigint, null: false)
       add(:block_sequence, :bigint, null: false)
@@ -82,7 +90,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingBlocks do
           name: "camera_recording_blocks_relay_session_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(:media_ingest_id, :text, null: false)
       add(:storage_id, :uuid, null: false)
