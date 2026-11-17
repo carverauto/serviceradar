@@ -66,8 +66,18 @@ EventWriter SHALL skip repeated Zen only for authorized versioned collector outp
 - **THEN** it is refused and counted as rejected
 
 #### Scenario: Another identity publishes the normalized subject
-- **WHEN** any NATS identity other than the log collector publishes to `logs.normalized.`
+- **WHEN** any NATS identity other than the log collector or an edge leaf publishes to `logs.normalized.`
 - **THEN** the broker refuses the publish
+
+#### Scenario: An edge leaf forwards normalized batches
+- **WHEN** an edge leaf identity publishes to `logs.normalized.`
+- **THEN** the broker accepts it, because that identity carries an edge collector's batches to the hub
+- **AND** the edge site is trusted to state its own log columns
+
+#### Scenario: A syslog sender's clock is wrong
+- **WHEN** a zoned syslog time is more than 24 hours ahead of or 30 days behind the receive time, or an RFC 3164 time is more than an hour from it
+- **THEN** the record is stored under the receive time on both paths
+- **AND** its attributes keep the sender's time and mark the fallback
 
 #### Scenario: Persistence partially fails
 - **WHEN** persistence has not succeeded for the complete batch

@@ -344,6 +344,17 @@ production capability for it. There are two kinds:
   authorized by the lease. Leasing also requires the agent to report the
   `sweep_lease_plan_checks:v1` capability.
 
+A leased sweep's host results become durable only when they are spooled. The
+agent holds a completed host (one with every check in the plan) in memory
+until its batch fills or the scan ends, and spools it no later than the slot's
+collection window close: a scan still running near the window close stops a
+few seconds early, spools every host it completed, and reports the slot
+incomplete. A host missing a check is never published. A crash or restart in
+the middle of a scan loses that slot's unspooled hosts by design. Sweep
+results are periodic samples, and the next slot replaces them. A slot that had
+spooled nothing is run again from the start if its window is still open after
+the restart.
+
 When an agent has been offline past its grants' window, the sender asks the
 gateway for **delivery grants** (`RenewEdgeDeliveryGrants`) for the spooled
 records whose production grant lapsed. Core issues one for each record whose

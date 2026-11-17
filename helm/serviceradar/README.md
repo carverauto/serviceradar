@@ -569,12 +569,16 @@ when syslog senders omit their time zone. Docker Compose uses the equivalent
 `input.rfc3164_timezone` setting in `docker/compose/flowgger.docker.toml`.
 Both default to UTC. Messages with an explicit zone retain that zone.
 
-EventWriter uses receive time when an RFC3164 timestamp differs from it by more
-than one hour in either direction. This also applies to delayed RFC3164 messages.
-The parsed timestamp is retained as `_syslog_original_timestamp` in log
-attributes, with `_syslog_timestamp_fallback=true`. RFC5424 timestamps and
-RFC3164 timestamps within one hour are unchanged. Existing stored rows are not
-rewritten.
+A syslog record is stored under the sender's timestamp, with the receive time
+as its observed timestamp. When the sender's clock looks wrong, the record is
+stored under the receive time instead: an RFC3164 timestamp more than one hour
+from the receive time in either direction (this also applies to delayed RFC3164
+messages), or a zoned timestamp (RFC5424 and other formats with a zone) more
+than 24 hours ahead of it or more than 30 days behind it. The comparison uses
+whole seconds. The parsed timestamp is retained as
+`_syslog_original_timestamp` in log attributes, with
+`_syslog_timestamp_fallback=true`. EventWriter and the collector's normalized
+output apply the same limits. Existing stored rows are not rewritten.
 
 ### Unified syslog collector
 

@@ -134,16 +134,28 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
       restore_env(:serviceradar_core, :cluster_rpc_undef_poll_ms, previous_poll)
     end)
 
-    _old_node =
+    old_node =
       start_core_peer!(:old_core_peer, "#{basename}_old", """
       {:ok, pid} = Agent.start(fn -> :ok end, name: ServiceRadar.ClusterHealth)
       :persistent_term.put(:cluster_health_pid, pid)
 
       defmodule ServiceRadar.Edge.AgentGatewaySync do
         def record_config_ack(_agent_id, _attrs), do: :ok
+
+        # Fails a call to a missing function exactly as the VM's error handler does, after
+        # telling the observer, if one is set, that a caller reached this too-old node.
+        def unquote(:"$handle_undefined_function")(function, args) do
+          case :persistent_term.get(:rolling_rpc_undef_observer, nil) do
+            observer when is_pid(observer) -> send(observer, {:reached_old_core, function})
+            nil -> :ok
+          end
+
+          :erlang.raise(:error, :undef, [{__MODULE__, function, args, []}])
+        end
       end
       """)
 
+    assert Node.connect(old_node)
     assert [_] = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
 
     unready_log =
@@ -154,13 +166,13 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
 
     assert unready_log == ""
 
-    Application.put_env(:serviceradar_core, :cluster_rpc_undef_wait_ms, 1_500)
+    # Booting a peer VM can take longer than the wait window on a loaded host, so the capable
+    # node boots before the call and only joins (connects) inside the window: once the old
+    # node has refused the caller, so the call is already waiting for a capable peer.
     test_pid = self()
 
-    Task.start(fn ->
-      Process.sleep(60)
-
-      start_core_peer_unsupervised(basename, test_pid, """
+    capable_node =
+      start_core_peer!(:capable_core_peer, basename, """
       defmodule ServiceRadar.Edge.AgentGatewaySync do
         def start_sweep_lease_refresh(agent_id, session, _attempt) do
           send(:persistent_term.get(:rolling_rpc_test_owner), {:refreshed_sweep_leases, node(), agent_id, session})
@@ -168,20 +180,18 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
         end
       end
       """)
-    end)
 
-    on_exit(fn ->
-      receive do
-        {:spawned_peer, peer} ->
-          try do
-            :peer.stop(peer)
-          catch
-            _, _ -> :ok
-          end
-      after
-        0 -> :ok
-      end
-    end)
+    refute capable_node in Node.list()
+
+    joiner =
+      Task.async(fn ->
+        receive do
+          {:reached_old_core, :start_sweep_lease_refresh} -> Node.connect(capable_node)
+        end
+      end)
+
+    :ok = :erpc.call(old_node, :persistent_term, :put, [:rolling_rpc_undef_observer, joiner.pid])
+    Application.put_env(:serviceradar_core, :cluster_rpc_undef_wait_ms, 1_500)
 
     capable_log =
       capture_log(fn ->
@@ -191,9 +201,9 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
         assert is_pid(refresh)
       end)
 
+    assert Task.await(joiner)
     assert capable_log == ""
-    assert_receive {:refreshed_sweep_leases, capable_node, "agent-rolling-upgraded", ^test_pid}, 1_000
-    assert Atom.to_string(capable_node) =~ "#{basename}@"
+    assert_receive {:refreshed_sweep_leases, ^capable_node, "agent-rolling-upgraded", ^test_pid}, 1_000
   end
 
   defp ensure_distribution_started! do
@@ -204,6 +214,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
     end
   end
 
+  # Boots a peer VM running `code` without connecting it to this node.
   defp start_core_peer!(id, peer_name, code) do
     peer =
       start_supervised!(%{
@@ -220,29 +231,12 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
         restart: :temporary
       })
 
-    configure_core_peer(peer, self(), code)
-  end
-
-  defp start_core_peer_unsupervised(peer_name, owner, code) do
-    {:ok, peer, _node} =
-      :peer.start(%{
-        name: String.to_atom(peer_name),
-        connection: :standard_io,
-        args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
-      })
-
-    send(owner, {:spawned_peer, peer})
-    configure_core_peer(peer, owner, code)
-  end
-
-  defp configure_core_peer(peer, owner, code) do
     core_node = :peer.call(peer, :erlang, :node, [])
     :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
     {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
     :ok = :peer.call(peer, Code, :put_compiler_option, [:ignore_module_conflict, true])
-    :ok = :peer.call(peer, :persistent_term, :put, [:rolling_rpc_test_owner, owner])
+    :ok = :peer.call(peer, :persistent_term, :put, [:rolling_rpc_test_owner, self()])
     :peer.call(peer, Code, :compile_string, [code])
-    assert Node.connect(core_node)
     core_node
   end
 

@@ -4,7 +4,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetricsTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.NATS.Connection
-  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
@@ -65,14 +65,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetricsTest do
   end
 
   setup do
-    previous_config =
-      try do
-        {:ok, Config.get()}
-      rescue
-        ArgumentError -> :missing
-      end
-
-    Config.setup(gateway_id: "gateway-test", domain: "test", capabilities: [])
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-test", domain: "test", capabilities: [])
 
     previous_publish = Application.get_env(:serviceradar_agent_gateway, :runtime_metrics_publish)
     Application.delete_env(:serviceradar_agent_gateway, :runtime_metrics_publish)
@@ -84,7 +77,6 @@ defmodule ServiceRadarAgentGateway.RuntimeMetricsTest do
     end
 
     on_exit(fn ->
-      restore_config(previous_config)
       restore_env(:runtime_metrics_publish, previous_publish)
       StatusHandlerTestHelpers.restore(Connection.connection_name(), existing_nats)
     end)
@@ -128,14 +120,4 @@ defmodule ServiceRadarAgentGateway.RuntimeMetricsTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
-
-  defp restore_config({:ok, config}) do
-    Config.setup(
-      gateway_id: config.gateway_id,
-      domain: config.domain,
-      capabilities: config.capabilities
-    )
-  end
-
-  defp restore_config(:missing), do: :persistent_term.erase(Config)
 end

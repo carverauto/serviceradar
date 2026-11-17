@@ -4,6 +4,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Inventory.DeviceLifecycle
 
@@ -49,10 +50,14 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
     end
   end
 
+  # `source_url_override` and `source_url` hold the stream address and are not
+  # selected by default; this is the one reader that selects them, to build the
+  # relay command.
   defp fetch_profile_from_inventory(camera_source_id, stream_profile_id) do
     StreamProfile
     |> Ash.Query.for_read(:for_relay, %{id: stream_profile_id, camera_source_id: camera_source_id})
-    |> Ash.Query.load(:camera_source)
+    |> Ash.Query.ensure_selected([:source_url_override])
+    |> Ash.Query.load(camera_source: Ash.Query.ensure_selected(Source, [:source_url]))
     |> Ash.read_one(actor: SystemActor.system(:camera_relay_source_resolver))
   end
 
@@ -123,7 +128,14 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   end
 
   defp field(nil, _key), do: nil
-  defp field(value, key) when is_map(value), do: Map.get(value, key)
+
+  defp field(value, key) when is_map(value) do
+    case Map.get(value, key) do
+      %Ash.NotLoaded{} -> nil
+      field_value -> field_value
+    end
+  end
+
   defp field(_value, _key), do: nil
 
   defp insecure_skip_verify(profile) do

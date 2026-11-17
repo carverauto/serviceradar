@@ -325,6 +325,37 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.timestamp == ~U[2030-01-02 03:04:05Z]
     end
 
+    test "uses receive time for a zoned syslog time no working clock would write" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for timestamp <- ["2030-10-07T03:20:30Z", "2030-09-06T03:20:28Z"] do
+        row =
+          Logs.parse_message(%{
+            data: Jason.encode!(%{"timestamp" => timestamp, "_syslog_format" => "rfc5424"}),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert row.timestamp == received_at
+        assert row.attributes["_syslog_original_timestamp"] == timestamp
+        assert row.attributes["_syslog_timestamp_fallback"] == true
+      end
+    end
+
+    test "keeps a zoned syslog time a skewed clock or a delayed relay explains" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for timestamp <- ["2030-10-07T03:20:29Z", "2030-09-06T03:20:29Z"] do
+        row =
+          Logs.parse_message(%{
+            data: Jason.encode!(%{"timestamp" => timestamp, "_syslog_format" => "rfc5424"}),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert DateTime.to_iso8601(row.timestamp) == timestamp
+        refute Map.has_key?(row.attributes, "_syslog_original_timestamp")
+      end
+    end
+
     test "preserves recent RFC3164 time and explicitly zoned syslog time" do
       received_at = ~U[2030-10-06 03:20:29Z]
 
