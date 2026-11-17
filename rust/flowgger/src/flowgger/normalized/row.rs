@@ -36,7 +36,23 @@ pub const COLUMN_PREFIX: &str = "serviceradar.column.";
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 /// How far an RFC 3164 timestamp may be from the receive time. That format has
 /// no zone, so a wrong assumed zone would otherwise file a fresh log hours off.
-const RFC3164_TOLERANCE_NANOS: u64 = 3_600 * NANOS_PER_SECOND;
+const RFC3164_TOLERANCE_NANOS: i128 = 3_600 * NANOS_PER_SECOND as i128;
+/// How far ahead of the receive time a zoned syslog timestamp may be. Nothing
+/// is logged before it happens, so more than this is a wrong clock.
+const SYSLOG_AHEAD_NANOS: i128 = 24 * 3_600 * NANOS_PER_SECOND as i128;
+/// How far behind the receive time a zoned syslog timestamp may be. A relay
+/// can hold logs through an outage, so this is generous.
+const SYSLOG_BEHIND_NANOS: i128 = 30 * 24 * 3_600 * NANOS_PER_SECOND as i128;
+
+/// Whether a syslog sender's time is too far from the receive time to file
+/// the record under. `ahead` is the sender's time minus the receive time.
+fn implausible_syslog_time(format: Option<&str>, ahead: i128) -> bool {
+    match format {
+        None => false,
+        Some("rfc3164") => ahead.abs() > RFC3164_TOLERANCE_NANOS,
+        Some(_) => ahead > SYSLOG_AHEAD_NANOS || ahead < -SYSLOG_BEHIND_NANOS,
+    }
+}
 
 /// `record` is the normalized record and `received` the Unix time in
 /// nanoseconds at which the collector took it from the socket.
@@ -68,9 +84,12 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
         ],
     )
     .map_or(received, |value| unix_nanos(value, received));
-    if record.get("_syslog_format").and_then(Value::as_str) == Some("rfc3164")
-        && time_unix_nano.abs_diff(received) > RFC3164_TOLERANCE_NANOS
-    {
+    // A record filed under a wrong clock drops out of every recent view, so
+    // it is filed under the receive time and keeps what the sender wrote.
+    if implausible_syslog_time(
+        record.get("_syslog_format").and_then(Value::as_str),
+        i128::from(time_unix_nano) - i128::from(received),
+    ) {
         // Whole seconds, which is what EventWriter keeps of a timestamp.
         let whole_seconds = time_unix_nano / NANOS_PER_SECOND * NANOS_PER_SECOND;
         if let Some(original) = rfc3339(whole_seconds) {
