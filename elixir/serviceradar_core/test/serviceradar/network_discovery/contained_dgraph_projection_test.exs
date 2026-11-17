@@ -15,6 +15,7 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
@@ -93,6 +94,81 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
 
     assert [] = contained_edges(host_uid)
     assert [] = hosted_edges(guest_uid)
+  end
+
+  # Merge churn leaves the audit log cyclic: a device merged into the guest's
+  # identity and split back out, then the same between its neighbours. Walking
+  # those events backwards reaches unrelated live devices and never ends within
+  # a budget; only the uids the resolver maps to the guest back its edge.
+  test "keeps an edge whose identity has a long churned merge history", %{actor: actor} do
+    {guest_uid, host_uid} = save_guest_on_host(actor, "churned")
+    # The projection page is read before saved guests are projected, so the
+    # edge must exist before the pass that inspects it.
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    retired_uid = "sr:" <> Ash.UUID.generate()
+    create_device!(actor, retired_uid, "synthetic-6297-retired")
+
+    # Inventory may still name the guest by an identity merged into it.
+    guest_uid
+    |> get_guest!(actor)
+    |> Ash.Changeset.for_update(:update, %{device_uid: retired_uid}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    retired_uid
+    |> get_device!(actor)
+    |> Ash.Changeset.for_update(:soft_delete, %{deleted_reason: "merged"}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    neighbours =
+      for index <- 1..6 do
+        uid = "sr:" <> Ash.UUID.generate()
+        create_device!(actor, uid, "synthetic-6297-churn-#{index}")
+        uid
+      end
+
+    churn =
+      [guest_uid | neighbours]
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(fn [survivor, absorbed] ->
+        [{absorbed, survivor, "ip_alias_conflict"}, {survivor, absorbed, "unmerge"}]
+      end)
+
+    record_merges!([{retired_uid, guest_uid, "manual_merge"} | churn], actor)
+
+    assert {:ok, %{"edges_done" => true, "edges_unresolved" => 0}} =
+             HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [{^guest_uid, ^host_uid}] = hosted_edges(guest_uid)
+    assert [{^host_uid, ^guest_uid}] = contained_edges(host_uid)
+  end
+
+  test "an unresolvable owner keeps its edge without halting the other projections",
+       %{actor: actor} do
+    {guest_uid, host_uid} = save_guest_on_host(actor, "unresolved")
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    # More merged-away identities than one bounded owner read can hold.
+    1..501
+    |> Enum.map(fn _index -> {"sr:" <> Ash.UUID.generate(), guest_uid, "manual_merge"} end)
+    |> record_merges!(actor)
+
+    stale_uid = "sr:it-6297-unresolved-stale-guest"
+
+    stale_link = %{
+      guest_device_id: stale_uid,
+      host_device_id: host_uid,
+      observed_at: "2030-02-03T04:05:06Z"
+    }
+
+    assert :ok = DgraphPersist.upsert_hosted_link(stale_link)
+    assert :ok = DgraphPersist.upsert_contained_link(stale_link)
+
+    assert {:ok, %{"edges_done" => true, "edges_unresolved" => 1}} =
+             HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [{^guest_uid, ^host_uid}] = hosted_edges(guest_uid)
+    assert [] = hosted_edges(stale_uid)
+    assert [{^host_uid, ^guest_uid}] = contained_edges(host_uid)
   end
 
   test "time prune ages out a stale CONTAINS edge" do
@@ -184,6 +260,23 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+  end
+
+  defp get_device!(uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(uid == ^uid)
+    |> Ash.read_one!(actor: actor)
+  end
+
+  defp record_merges!(merges, actor) do
+    rows =
+      Enum.map(merges, fn {from, to, reason} ->
+        %{from_device_id: from, to_device_id: to, reason: reason, source: @provider}
+      end)
+
+    assert %Ash.BulkResult{status: :success} =
+             Ash.bulk_create(rows, MergeAudit, :record, actor: actor, return_errors?: true)
   end
 
   defp get_guest!(uid, actor) do
