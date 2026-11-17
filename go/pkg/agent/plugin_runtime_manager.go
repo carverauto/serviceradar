@@ -1549,7 +1549,7 @@ func (m *PluginManager) runAssignmentOnDemand(
 	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		m.recordExecution(false)
-		return nil, err
+		return nil, &pluginModuleLoadError{err: err}
 	}
 
 	result, err := m.executeActionWithWasm(
@@ -1565,6 +1565,17 @@ func (m *PluginManager) runAssignmentOnDemand(
 	m.recordExecution(err == nil)
 	return result, err
 }
+
+// pluginModuleLoadError marks a run that failed before the plugin started
+// because its module could not be loaded. It keeps the load error's text and
+// identity.
+type pluginModuleLoadError struct {
+	err error
+}
+
+func (e *pluginModuleLoadError) Error() string { return e.err.Error() }
+
+func (e *pluginModuleLoadError) Unwrap() error { return e.err }
 
 // lookupVerbAssignment finds the runner assignment a verb command
 // addresses. When the command carries an assignment id, only that

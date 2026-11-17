@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -275,6 +277,65 @@ func TestPluginManagerResolveCameraSourceUnknownAssignment(t *testing.T) {
 	})
 	if !errors.Is(err, errCameraRelaySourceResolverUnavailable) {
 		t.Fatalf("error = %v, want resolver unavailable", err)
+	}
+}
+
+func TestPluginManagerResolveCameraSourceModuleLoadFailureIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		handler     http.HandlerFunc
+		contentHash string
+	}{
+		{
+			name: "download returns an error status",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			},
+		},
+		{
+			name: "downloaded module fails its content hash",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("not-the-expected-module"))
+			},
+			contentHash: strings.Repeat("0", 64),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+
+			manager := NewPluginManager(t.Context(), PluginManagerConfig{
+				Logger:             createTestLogger(),
+				CacheDir:           t.TempDir(),
+				ArtifactHTTPClient: server.Client(),
+			})
+			defer manager.Stop()
+
+			manager.mu.Lock()
+			manager.actions["assignment-load-fails"] = &pluginAssignment{
+				AssignmentID: "assignment-load-fails",
+				PluginID:     "camera-plugin",
+				PackageID:    "package-load-fails",
+				Entrypoint:   "run_check",
+				DownloadURL:  server.URL,
+				ContentHash:  tc.contentHash,
+				Timeout:      5 * time.Second,
+			}
+			manager.mu.Unlock()
+
+			_, err := manager.ResolveCameraSource(t.Context(), cameraRelaySourceResolver{
+				PluginAssignmentID: "assignment-load-fails", VendorCameraID: "camera-vendor-1",
+			})
+			if !errors.Is(err, errCameraRelaySourceResolverUnavailable) {
+				t.Fatalf("error = %v, want resolver unavailable", err)
+			}
+		})
 	}
 }
 

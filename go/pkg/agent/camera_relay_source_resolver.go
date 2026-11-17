@@ -179,7 +179,7 @@ func cameraSourceResolverRunError(ctx context.Context, err error) error {
 	switch {
 	case ctx.Err() != nil:
 		return ctx.Err()
-	case errors.Is(err, errPluginAdmissionDenied), errors.Is(err, errPluginWasmUnavailable):
+	case errors.Is(err, errPluginAdmissionDenied), errors.As(err, new(*pluginModuleLoadError)):
 		return errCameraRelaySourceResolverUnavailable
 	case errors.Is(err, context.DeadlineExceeded):
 		return &cameraSourceResolutionError{class: cameraRelayFailureResponseTimeout, detail: "the plugin did not answer in time"}
