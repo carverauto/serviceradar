@@ -55,18 +55,6 @@ ignores_for() {
       #   advisory covers parsing with the Rfc2822 well-known format only; no first-party
       #   code parses RFC 2822, and the in-graph dependents only format it.
       echo RUSTSEC-2026-0009
-      # zip 8.6.0, pinned by zen-engine (`zip = "8"` through its latest release). All
-      #   three advisories are in ZipArchive::extract / ZipStreamReader::extract;
-      #   zen-engine only reads .json entries into memory and never extracts to disk.
-      echo RUSTSEC-2026-0367
-      echo RUSTSEC-2026-0368
-      echo RUSTSEC-2026-0369
-      # zip 8.6.0 (RUSTSEC-2026-0429, extract aborts on a symlink entry with a large
-      #   declared size; fixed only in zip 9): zen-engine 2.0.1 through 2.1.6 and upstream
-      #   master all require zip 8. zen-engine never calls ZipArchive::extract, and zen_nif
-      #   uses only MemoryLoader, so zen-engine's zip loader is not reached either.
-      #   Review by 2026-12-01; remove once a zen-engine release allows zip >= 9.
-      echo RUSTSEC-2026-0429
       # net2 (unmaintained): mio 0.6 inside the vendored rperf patch crate.
       echo RUSTSEC-2020-0016
       # rustls-pemfile (unmaintained): a direct dependency; replacing it with the
