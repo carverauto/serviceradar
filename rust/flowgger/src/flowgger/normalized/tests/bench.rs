@@ -75,11 +75,21 @@ fn bench_normalized_path() {
 
     let json_mode = GelfEncoder::new(&config);
     let no_rules = encoder(&config, active(&[]));
-    let bundled = encoder(&config, active(&bundled_syslog_rules()));
+    let rules = active(&bundled_syslog_rules());
+    let bundled = encoder(&config, Arc::clone(&rules));
     // The bundled rules must be doing their work, or the number is of nothing.
-    let (_, request) = decode(&bundled.encode(record()).unwrap());
-    assert_eq!(only_record(&request).severity_text, "INFO");
-    assert_eq!(attribute(only_record(&request), "full_message"), None);
+    let before = bundled.gelf(&record()).to_value();
+    assert!(before.get("full_message").is_some());
+    assert_eq!(before.get("severity_text"), None);
+    let after = rules
+        .current()
+        .unwrap()
+        .rules
+        .normalize(bundled.gelf(&record()))
+        .unwrap()
+        .to_value();
+    assert_eq!(after.get("full_message"), None);
+    assert_eq!(after.get("severity_text"), Some(&json!("INFO")));
 
     let mut criterion = criterion();
     criterion.bench_function("encode/json_mode", |bench| {
