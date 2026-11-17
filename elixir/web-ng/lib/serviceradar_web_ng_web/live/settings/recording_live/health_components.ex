@@ -523,6 +523,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
             <.ui_badge size="xs" variant="warning">
               Disk &amp; ledger: {format_live_ledger_status(member)}
             </.ui_badge>
+            <span :if={is_map(Map.get(member, :reservations))}>
+              · Reservations:
+              <span class="font-mono text-sr-ink">
+                {Map.get(member.reservations, :unresolved_count, 0)} unresolved / {Map.get(
+                  member.reservations,
+                  :adopted_count,
+                  0
+                )} adopted
+              </span>
+            </span>
           </div>
         </div>
       </div>
@@ -530,9 +540,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
     """
   end
 
+  attr :health_summary, :map, default: %{}
   attr :backlog, :map, required: true
   attr :dispositions, :map, required: true
   attr :can_operate?, :boolean, default: false
+  attr :can_hold?, :boolean, default: false
   attr :timezone, :string, default: "Etc/UTC"
 
   def reconciliation_and_dispositions_card(assigns) do
@@ -541,12 +553,35 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
       |> Map.get(:by_reason_24h, %{})
       |> Enum.sort_by(fn {k, _v} -> to_string(k) end)
 
-    assigns = assign(assigns, :reason_pairs, reason_pairs)
+    reservations = extract_reservations_breakdown(assigns.health_summary)
+    quarantined_rows = resolve_quarantined_rows(assigns.health_summary, assigns.backlog)
+    missing_rows = resolve_missing_archive_rows(assigns.health_summary, assigns.backlog)
+
+    missing_count =
+      max(
+        Map.get(assigns.health_summary, :missing_archive_count, 0),
+        max(Map.get(assigns.backlog, :missing_count, 0), length(missing_rows))
+      )
+
+    unattributable_count =
+      max(
+        Map.get(assigns.health_summary, :unattributable_count, 0),
+        Map.get(assigns.backlog, :unattributable_count, 0)
+      )
+
+    assigns =
+      assigns
+      |> assign(:reason_pairs, reason_pairs)
+      |> assign(:reservations, reservations)
+      |> assign(:quarantined_rows, quarantined_rows)
+      |> assign(:missing_rows, missing_rows)
+      |> assign(:missing_count, missing_count)
+      |> assign(:unattributable_count, unattributable_count)
 
     ~H"""
     <section
       id="recording-health-reconciliation-card"
-      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-4"
+      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-5"
     >
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -554,10 +589,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
             Reconciliation, Quarantine &amp; Retention Dispositions
           </h2>
           <p class="mt-1 text-xs text-sr-muted">
-            Quarantined and unattributable catalog entries, 24-hour append-only
+            Core reservation resolution state, unattributable and quarantined catalog entries with
+            audited operator actions, 24-hour append-only
             <code class="font-mono">RecordingDisposition</code>
-            counts and failures, and held/missing
-            archive state.
+            counts and failures, and missing archive copy acceptance.
           </p>
         </div>
         <.ui_badge
@@ -579,6 +614,75 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
         </.ui_badge>
       </div>
 
+      <div id="health-reservations-breakdown" class="space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-xs font-semibold text-sr-ink">
+            Core Reservation Resolution Breakdown (<code class="font-mono">RecordingBlock.reconciliation_state</code>)
+          </h3>
+          <.ui_badge id="health-reservations-total-badge" size="xs" variant="ghost">
+            Total reservations: {@reservations.total_count}
+          </.ui_badge>
+        </div>
+
+        <div class="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            id="health-reservations-unresolved"
+            class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3 space-y-0.5"
+          >
+            <div class="text-xs text-sr-muted">Unresolved</div>
+            <div class="text-sm font-semibold font-mono text-sr-ink">
+              {@reservations.unresolved_count}
+            </div>
+            <div class="text-[11px] font-mono text-sr-muted">unresolved</div>
+          </div>
+
+          <div
+            id="health-reservations-adopted"
+            class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3 space-y-0.5"
+          >
+            <div class="text-xs text-sr-muted">Adopted (sealed)</div>
+            <div class="text-sm font-semibold font-mono text-sr-ink">
+              {@reservations.adopted_count}
+            </div>
+            <div class="text-[11px] font-mono text-sr-muted">adopted</div>
+          </div>
+
+          <div
+            id="health-reservations-block-absent"
+            class={[
+              "rounded-lg border p-3 space-y-0.5",
+              if(@reservations.block_absent_count > 0,
+                do: "border-amber-500/40 bg-amber-500/5",
+                else: "border-sr-line bg-sr-subtle/30"
+              )
+            ]}
+          >
+            <div class="text-xs text-sr-muted">Resolved: block absent</div>
+            <div class="text-sm font-semibold font-mono text-sr-ink">
+              {@reservations.block_absent_count}
+            </div>
+            <div class="text-[11px] font-mono text-sr-muted">block_absent</div>
+          </div>
+
+          <div
+            id="health-reservations-unrecoverable-journal"
+            class={[
+              "rounded-lg border p-3 space-y-0.5",
+              if(@reservations.unrecoverable_journal_count > 0,
+                do: "border-rose-500/40 bg-rose-500/10",
+                else: "border-sr-line bg-sr-subtle/30"
+              )
+            ]}
+          >
+            <div class="text-xs text-sr-muted">Resolved: unrecoverable journal</div>
+            <div class="text-sm font-semibold font-mono text-sr-ink">
+              {@reservations.unrecoverable_journal_count}
+            </div>
+            <div class="text-[11px] font-mono text-sr-muted">unrecoverable_journal</div>
+          </div>
+        </div>
+      </div>
+
       <div class="grid gap-3 sm:grid-cols-3">
         <div
           id="health-quarantined-summary"
@@ -595,7 +699,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
             {@backlog.quarantined_count} entries ({format_bytes(@backlog.quarantined_bytes)})
           </div>
           <div class="text-[11px] text-sr-muted">
-            Pinned as row (q), excluded from playback &amp; eviction
+            Unattributable: {@unattributable_count} · Pinned as row (q), excluded from playback &amp; eviction
           </div>
         </div>
 
@@ -624,7 +728,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
           id="health-held-missing-summary"
           class={[
             "rounded-lg border p-3 space-y-1",
-            if(@dispositions.held_archive_missing_count > 0 or @backlog.missing_count > 0,
+            if(@dispositions.held_archive_missing_count > 0 or @missing_count > 0,
               do: "border-rose-500/40 bg-rose-500/10",
               else: "border-sr-line bg-sr-subtle/30"
             )
@@ -632,7 +736,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
         >
           <div class="text-xs text-sr-muted">Holds &amp; missing archive copies</div>
           <div class="text-sm font-semibold font-mono text-sr-ink">
-            Held missing: {@dispositions.held_archive_missing_count} · Archive missing: {@backlog.missing_count}
+            Held missing: {@dispositions.held_archive_missing_count} · Archive missing: {@missing_count}
           </div>
           <div class="text-[11px] text-sr-muted">
             Active holds: {@dispositions.active_hold_count}
@@ -640,40 +744,160 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
         </div>
       </div>
 
-      <div :if={@backlog.quarantined_entries != []} id="health-quarantined-list" class="space-y-2">
+      <div :if={@quarantined_rows != []} id="health-quarantined-list" class="space-y-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h3 class="text-xs font-semibold text-sr-ink">Quarantined Catalog Entries</h3>
-          <span class="text-[11px] text-sr-muted">
+          <h3 class="text-xs font-semibold text-sr-ink">
+            Unattributable / Quarantined Blocks
+          </h3>
+          <span
+            id="health-quarantine-rbac-note"
+            class="text-[11px] text-sr-muted"
+          >
             {if @can_operate?,
-              do: "Operator quarantine reclaim activates with C.6 / R.7",
+              do:
+                "Audited operator delete intent (with confirmation) and export / preserve intent enabled",
               else: "Operator disposition requires settings.recording.operate"}
           </span>
         </div>
+
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
+          <table id="health-quarantined-table" class="w-full text-left text-xs">
             <thead class="border-b border-sr-line text-sr-muted">
               <tr>
-                <th class="py-1.5 pr-3 font-medium">Block Key</th>
                 <th class="py-1.5 pr-3 font-medium">Storage ID</th>
-                <th class="py-1.5 pr-3 font-medium">Reason</th>
-                <th class="py-1.5 pr-3 font-medium">Bytes</th>
-                <th class="py-1.5 font-medium">Archive State</th>
+                <th class="py-1.5 pr-3 font-medium">Block Key</th>
+                <th class="py-1.5 pr-3 font-medium">Reason &amp; Evidence</th>
+                <th class="py-1.5 pr-3 font-medium">Recorded At</th>
+                <th class="py-1.5 pr-3 font-medium">Disposition State</th>
+                <th :if={@can_operate?} class="py-1.5 font-medium">Operator Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-sr-line">
               <tr
-                :for={q <- @backlog.quarantined_entries}
+                :for={q <- @quarantined_rows}
                 id={"health-quarantined-entry-#{q.id}"}
+                class="align-top"
               >
-                <td class="py-2 pr-3 font-mono text-sr-ink">{q.block_key}</td>
-                <td class="py-2 pr-3 font-mono text-[11px] text-sr-muted">{q.storage_id || "—"}</td>
-                <td class="py-2 pr-3">
+                <td class="py-2.5 pr-3 font-mono text-[11px] text-sr-muted">
+                  {q.storage_id || "—"}
+                </td>
+                <td class="py-2.5 pr-3 font-mono text-sr-ink">
+                  <div>{q.block_key}</div>
+                  <div class="text-[11px] font-sans text-sr-muted">
+                    {format_bytes(q.quarantined_bytes)}
+                  </div>
+                </td>
+                <td class="py-2.5 pr-3 space-y-1">
                   <.ui_badge size="xs" variant="error">
                     {to_string(q.quarantine_reason || :quarantined)}
                   </.ui_badge>
+                  <div class="text-[11px] text-sr-muted">
+                    {format_quarantine_row_evidence(q)}
+                  </div>
                 </td>
-                <td class="py-2 pr-3 font-mono text-sr-ink">{format_bytes(q.quarantined_bytes)}</td>
-                <td class="py-2 font-mono text-sr-muted">{to_string(q.archive_state)}</td>
+                <td class="py-2.5 pr-3 text-[11px] text-sr-muted">
+                  <%= if q.recorded_at do %>
+                    <.user_time
+                      id={"health-quarantined-at-#{q.id}"}
+                      value={q.recorded_at}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  <% else %>
+                    —
+                  <% end %>
+                </td>
+                <td class="py-2.5 pr-3 space-y-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <.ui_badge
+                      id={"health-quarantined-disposition-#{q.id}"}
+                      size="xs"
+                      variant={quarantine_disposition_badge_variant(q)}
+                    >
+                      {format_quarantine_disposition_label(q)}
+                    </.ui_badge>
+                    <span class="font-mono text-[11px] text-sr-muted">
+                      archive: {to_string(q.archive_state)}
+                    </span>
+                  </div>
+                  <div
+                    :if={quarantine_decision_note(q)}
+                    class="text-[11px] text-sr-muted"
+                  >
+                    {quarantine_decision_note(q)}
+                  </div>
+                </td>
+                <td :if={@can_operate?} class="py-2.5">
+                  <%= if quarantine_row_actionable?(q) do %>
+                    <div class="space-y-2">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <.ui_button
+                          :if={quarantine_exportable?(q)}
+                          id={"request-quarantine-export-#{q.id}"}
+                          type="button"
+                          phx-click="request_quarantine_export"
+                          phx-value-id={q.id}
+                          variant="outline"
+                          size="xs"
+                        >
+                          Export / Preserve Intent
+                        </.ui_button>
+                      </div>
+
+                      <details
+                        id={"quarantine-delete-disclosure-#{q.id}"}
+                        class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-2 text-xs"
+                      >
+                        <summary class="cursor-pointer font-medium text-rose-500 select-none">
+                          Audited Delete Intent…
+                        </summary>
+                        <form
+                          id={"quarantine-delete-form-#{q.id}"}
+                          phx-submit="request_quarantine_delete"
+                          class="mt-2 space-y-2"
+                        >
+                          <input type="hidden" name="delete[id]" value={q.id} />
+                          <input type="hidden" name="delete[confirm]" value="false" />
+                          <label class="flex items-start gap-2 text-[11px] text-sr-ink">
+                            <input
+                              id={"confirm-quarantine-delete-checkbox-#{q.id}"}
+                              type="checkbox"
+                              name="delete[confirm]"
+                              value="true"
+                              class="mt-0.5 rounded border-sr-line"
+                            />
+                            <span>
+                              Confirm permanent NVR reclaim and audited
+                              <code class="font-mono">operator_quarantine</code>
+                              disposition
+                            </span>
+                          </label>
+                          <input
+                            id={"quarantine-delete-note-#{q.id}"}
+                            type="text"
+                            name="delete[note]"
+                            placeholder="Optional operator audit note"
+                            class="w-full rounded border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] text-sr-ink"
+                          />
+                          <div class="flex justify-end">
+                            <.ui_button
+                              id={"confirm-quarantine-delete-btn-#{q.id}"}
+                              type="submit"
+                              variant="danger"
+                              size="xs"
+                            >
+                              Confirm Delete Intent
+                            </.ui_button>
+                          </div>
+                        </form>
+                      </details>
+                    </div>
+                  <% else %>
+                    <span class="text-[11px] text-sr-muted">
+                      {format_quarantine_action_locked(q)}
+                    </span>
+                  <% end %>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -681,21 +905,121 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
       </div>
 
       <div
-        :if={@backlog.missing_entries != []}
+        :if={@missing_count > 0 or @missing_rows != []}
         id="health-missing-archive-list"
-        class="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 space-y-1.5"
+        class="rounded-lg border border-rose-500/40 bg-rose-500/5 p-4 space-y-3"
       >
-        <div class="text-xs font-semibold text-sr-ink">
-          Catalog Entries Reporting <code class="font-mono">archive_state = missing</code>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="text-xs font-semibold text-sr-ink">
+            Missing Archive Copies (<code class="font-mono">archive_state = missing</code>)
+          </div>
+          <span
+            id="health-missing-archive-rbac-note"
+            class="text-[11px] text-sr-muted"
+          >
+            {if @can_operate?,
+              do:
+                "Audited re-archive or loss acceptance (held entries require devices.cameras.recordings.hold)",
+              else: "Operator resolution requires settings.recording.operate"}
+          </span>
         </div>
-        <ul class="space-y-1 text-xs text-sr-muted">
-          <li :for={m <- @backlog.missing_entries} id={"health-missing-entry-#{m.id}"}>
-            <span class="font-mono text-sr-ink">{m.block_key}</span>
-            · local: <code class="font-mono">{to_string(m.local_state)}</code>
-            · {format_bytes(m.media_bytes)}
-            <span :if={m.held?} class="font-semibold text-rose-500"> · HELD</span>
-          </li>
-        </ul>
+
+        <div :if={@missing_rows != []} class="overflow-x-auto">
+          <table id="health-missing-archive-table" class="w-full text-left text-xs">
+            <thead class="border-b border-rose-500/20 text-sr-muted">
+              <tr>
+                <th class="py-1.5 pr-3 font-medium">Block Key &amp; Storage</th>
+                <th class="py-1.5 pr-3 font-medium">Local Copy</th>
+                <th class="py-1.5 pr-3 font-medium">Hold Status</th>
+                <th :if={@can_operate?} class="py-1.5 font-medium">Operator Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-rose-500/20">
+              <tr
+                :for={m <- @missing_rows}
+                id={"health-missing-entry-#{m.id}"}
+                class="align-top"
+              >
+                <td class="py-2 pr-3">
+                  <div class="font-mono text-sr-ink">{m.block_key}</div>
+                  <div class="font-mono text-[11px] text-sr-muted">
+                    {Map.get(m, :storage_id) || "—"} · {format_bytes(m.media_bytes)}
+                  </div>
+                </td>
+                <td class="py-2 pr-3">
+                  <code class="font-mono text-sr-ink">{to_string(m.local_state)}</code>
+                  <div
+                    :if={Map.get(m, :archive_last_error_class)}
+                    class="font-mono text-[11px] text-sr-muted"
+                  >
+                    error: {Map.get(m, :archive_last_error_class)}
+                  </div>
+                </td>
+                <td class="py-2 pr-3 space-y-1">
+                  <%= if Map.get(m, :held?) do %>
+                    <.ui_badge size="xs" variant="error">
+                      HELD ({max(1, Map.get(m, :hold_count, 1))})
+                    </.ui_badge>
+                    <div class="text-[11px] text-sr-muted">
+                      Loss acceptance requires
+                      <code class="font-mono">devices.cameras.recordings.hold</code>
+                    </div>
+                  <% else %>
+                    <.ui_badge size="xs" variant="ghost">Unheld</.ui_badge>
+                  <% end %>
+                </td>
+                <td :if={@can_operate?} class="py-2">
+                  <div class="flex flex-wrap items-start gap-2">
+                    <.ui_button
+                      :if={Map.get(m, :rearchive_eligible?) == true}
+                      id={"rearchive-missing-entry-#{m.id}"}
+                      type="button"
+                      phx-click="rearchive_missing_archive"
+                      phx-value-id={m.id}
+                      variant="outline"
+                      size="xs"
+                    >
+                      Re-archive
+                    </.ui_button>
+
+                    <%= if Map.get(m, :held?) == true and not @can_hold? do %>
+                      <span
+                        id={"accept-missing-loss-hold-required-#{m.id}"}
+                        class="inline-flex items-center rounded border border-rose-500/40 px-2 py-1 text-[11px] text-rose-500"
+                      >
+                        Accept Archive Loss requires
+                        <code class="ml-1 font-mono">devices.cameras.recordings.hold</code>
+                      </span>
+                    <% else %>
+                      <form
+                        id={"accept-missing-loss-form-#{m.id}"}
+                        phx-submit="accept_missing_archive_loss"
+                        class="flex flex-wrap items-center gap-1.5"
+                      >
+                        <input type="hidden" name="loss[id]" value={m.id} />
+                        <input
+                          id={"accept-missing-loss-note-#{m.id}"}
+                          type="text"
+                          name="loss[note]"
+                          placeholder="Audit note (optional)"
+                          class="rounded border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] text-sr-ink"
+                        />
+                        <.ui_button
+                          id={"accept-missing-loss-btn-#{m.id}"}
+                          type="submit"
+                          variant="warning"
+                          size="xs"
+                        >
+                          Accept Archive Loss
+                        </.ui_button>
+                      </form>
+                    <% end %>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
     """
@@ -1031,6 +1355,169 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
   end
 
   defp format_num(_), do: "0"
+
+  defp extract_reservations_breakdown(health_summary) when is_map(health_summary) do
+    raw = Map.get(health_summary, :reservations, %{})
+    by_state = Map.get(raw, :by_state, %{})
+
+    unresolved =
+      int_or_zero(fetch_val(raw, :unresolved_count) || fetch_val(by_state, :unresolved))
+
+    adopted = int_or_zero(fetch_val(raw, :adopted_count) || fetch_val(by_state, :adopted))
+
+    absent =
+      int_or_zero(fetch_val(raw, :block_absent_count) || fetch_val(by_state, :block_absent))
+
+    unrecoverable =
+      int_or_zero(
+        fetch_val(raw, :unrecoverable_journal_count) ||
+          fetch_val(raw, :unrecoverable_count) ||
+          fetch_val(by_state, :unrecoverable_journal)
+      )
+
+    total =
+      case fetch_val(raw, :total_count) do
+        n when is_integer(n) and n > 0 -> n
+        _ -> unresolved + adopted + absent + unrecoverable
+      end
+
+    %{
+      total_count: total,
+      unresolved_count: unresolved,
+      adopted_count: adopted,
+      block_absent_count: absent,
+      unrecoverable_journal_count: unrecoverable
+    }
+  end
+
+  defp extract_reservations_breakdown(_), do: extract_reservations_breakdown(%{})
+
+  defp resolve_quarantined_rows(health_summary, backlog) do
+    top_q = List.wrap(Map.get(health_summary, :quarantined_entries))
+    backlog_q = List.wrap(Map.get(backlog, :quarantined_entries))
+    top_u = List.wrap(Map.get(health_summary, :unattributable_blocks))
+    backlog_u = List.wrap(Map.get(backlog, :unattributable_blocks))
+
+    base = if top_q == [], do: backlog_q, else: top_q
+
+    (base ++ top_u ++ backlog_u)
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&normalize_quarantined_row/1)
+    |> Enum.uniq_by(& &1.id)
+  end
+
+  defp normalize_quarantined_row(row) when is_map(row) do
+    id = to_string(fetch_val(row, :id) || fetch_val(row, :catalog_entry_id) || fetch_val(row, :block_key))
+    recorded_at = fetch_val(row, :recorded_at) || fetch_val(row, :local_state_at) || fetch_val(row, :sealed_at)
+
+    %{
+      id: id,
+      storage_id: fetch_val(row, :storage_id),
+      block_key: fetch_val(row, :block_key) || id,
+      quarantine_reason: fetch_val(row, :quarantine_reason) || :quarantined,
+      quarantined_bytes: int_or_zero(fetch_val(row, :quarantined_bytes)),
+      evidence_summary: fetch_val(row, :evidence_summary),
+      quarantine_evidence: fetch_val(row, :quarantine_evidence) || %{},
+      local_state: fetch_val(row, :local_state) || :quarantined,
+      archive_state: fetch_val(row, :archive_state) || :not_required,
+      operator_disposition_state: fetch_val(row, :operator_disposition_state) || :awaiting_operator,
+      operator_decision: fetch_val(row, :operator_decision),
+      recorded_at: recorded_at
+    }
+  end
+
+  defp resolve_missing_archive_rows(health_summary, backlog) do
+    top_m = List.wrap(Map.get(health_summary, :missing_archive_entries))
+    backlog_m = List.wrap(Map.get(backlog, :missing_entries))
+    rows = if top_m == [], do: backlog_m, else: top_m
+
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.uniq_by(&to_string(fetch_val(&1, :id) || fetch_val(&1, :catalog_entry_id)))
+  end
+
+  defp format_quarantine_row_evidence(q) do
+    cond do
+      is_binary(q.evidence_summary) and q.evidence_summary != "" ->
+        q.evidence_summary
+
+      is_map(q.quarantine_evidence) and map_size(q.quarantine_evidence) > 0 ->
+        detail =
+          fetch_val(q.quarantine_evidence, :reason) ||
+            fetch_val(q.quarantine_evidence, :detail_class) ||
+            fetch_val(q.quarantine_evidence, :verification_class)
+
+        if is_binary(detail) and detail != "",
+          do: "Evidence: #{detail}",
+          else: "Quarantined evidence recorded"
+
+      true ->
+        "Quarantined evidence recorded"
+    end
+  end
+
+  defp format_quarantine_disposition_label(q) do
+    case fetch_val(q, :operator_disposition_state) do
+      s when s in [:delete_requested, "delete_requested"] -> "delete_requested"
+      s when s in [:export_requested, "export_requested"] -> "export_requested"
+      s when s in [:disposed, "disposed"] -> "disposed"
+      _ -> "awaiting_operator"
+    end
+  end
+
+  defp quarantine_disposition_badge_variant(q) do
+    case format_quarantine_disposition_label(q) do
+      "delete_requested" -> "error"
+      "export_requested" -> "info"
+      "disposed" -> "ghost"
+      _ -> "warning"
+    end
+  end
+
+  defp quarantine_decision_note(q) do
+    case fetch_val(q, :operator_decision) do
+      decision when is_map(decision) ->
+        note = fetch_val(decision, :note)
+        actor_id = fetch_val(decision, :actor_id)
+
+        cond do
+          is_binary(note) and note != "" and is_binary(actor_id) and actor_id != "" ->
+            "Note: #{note} (by #{actor_id})"
+
+          is_binary(note) and note != "" ->
+            "Note: #{note}"
+
+          true ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp quarantine_row_actionable?(q) do
+    local = fetch_val(q, :local_state)
+    disp = format_quarantine_disposition_label(q)
+
+    local in [:quarantined, "quarantined"] and disp not in ["delete_requested", "disposed"]
+  end
+
+  defp quarantine_exportable?(q) do
+    quarantine_row_actionable?(q) and format_quarantine_disposition_label(q) != "export_requested"
+  end
+
+  defp format_quarantine_action_locked(q) do
+    case format_quarantine_disposition_label(q) do
+      "delete_requested" -> "Delete intent recorded (awaiting NVR reclaim)"
+      "disposed" -> "Disposed"
+      _ -> "Reclaiming"
+    end
+  end
+
+  defp int_or_zero(val) when is_integer(val), do: val
+  defp int_or_zero(val) when is_float(val), do: trunc(val)
+  defp int_or_zero(_), do: 0
 
   defp fetch_val(map, key) when is_map(map) do
     case Map.fetch(map, key) do

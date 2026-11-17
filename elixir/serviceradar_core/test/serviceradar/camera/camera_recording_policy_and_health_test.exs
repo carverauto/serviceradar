@@ -2,11 +2,14 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicyAndHealthTest do
   use ExUnit.Case, async: true
 
   alias Ash.Error.Forbidden
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.CameraRecordingPolicies
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingHealth
+  alias ServiceRadar.Camera.RecordingHolds
 
   @gb 1_000_000_000
   @mib 1_048_576
@@ -701,6 +704,257 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicyAndHealthTest do
 
       assert [%{check_id: check_id, severity: "warning"}] = health.alerts
       assert check_id == "nvr.#{sid}.archive_backlog_age"
+    end
+
+    test "R.3 & R.10: aggregates reservation resolution counts, unattributable evidence & disposition states, missing archive hold coverage, and enforces operate RBAC before DB I/O" do
+      base_summary = RecordingHealth.default_summary()
+
+      assert base_summary.reservations == %{
+               total_count: 0,
+               unresolved_count: 0,
+               adopted_count: 0,
+               block_absent_count: 0,
+               unrecoverable_count: 0,
+               unrecoverable_journal_count: 0,
+               by_state: %{
+                 unresolved: 0,
+                 adopted: 0,
+                 block_absent: 0,
+                 unrecoverable_journal: 0
+               },
+               by_storage: %{}
+             }
+
+      assert base_summary.quarantined_entries == []
+      assert base_summary.unattributable_blocks == []
+      assert base_summary.missing_archive_entries == []
+
+      now = ~U[2026-11-16 19:00:00Z]
+      now_us = DateTime.to_unix(now, :microsecond)
+      sid = "00000000-0000-4000-8000-000000000610"
+      cam_id = "00000000-0000-4000-8000-000000000611"
+      prof_id = "00000000-0000-4000-8000-000000000612"
+      binding_id = "00000000-0000-4000-8000-000000000613"
+      hold_id = "00000000-0000-4000-8000-000000000614"
+
+      viewer = %{
+        id: "u-viewer",
+        role: :viewer,
+        permissions: MapSet.new(["settings.recording.view"])
+      }
+
+      manager = %{
+        id: "u-manager",
+        role: :operator,
+        permissions: MapSet.new(["settings.recording.view", "settings.recording.manage"])
+      }
+
+      operator = %{
+        id: "u-operator",
+        role: :operator,
+        permissions: MapSet.new(["settings.recording.operate"])
+      }
+
+      sys = SystemActor.system(:recon_unit_test)
+
+      # 1. Pure RBAC & history-pause guards before any DB connection is touched:
+      synthetic_entry_id = "00000000-0000-4000-8000-000000000699"
+
+      for non_operate <- [viewer, manager] do
+        assert {:error, %Forbidden{}} =
+                 RecordingHolds.request_quarantine_delete(
+                   synthetic_entry_id,
+                   %{confirm: true},
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingHolds.request_quarantine_export(
+                   synthetic_entry_id,
+                   %{},
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingHolds.accept_missing_archive_loss(
+                   synthetic_entry_id,
+                   %{},
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingHolds.request_missing_archive_rearchive(
+                   synthetic_entry_id,
+                   %{},
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingBlocks.freeze_historical(synthetic_entry_id, %{}, actor: non_operate)
+
+        assert {:error, %Forbidden{}} =
+                 RecordingBlocks.adopt_rotated_block(
+                   synthetic_entry_id,
+                   String.duplicate("a", 64),
+                   %{},
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingBlocks.resolve_reservation_absent(
+                   synthetic_entry_id,
+                   actor: non_operate
+                 )
+
+        assert {:error, %Forbidden{}} =
+                 RecordingBlocks.resolve_reservation_unrecoverable(
+                   synthetic_entry_id,
+                   actor: non_operate
+                 )
+      end
+
+      assert {:error, :confirmation_required} =
+               RecordingHolds.request_quarantine_delete(
+                 synthetic_entry_id,
+                 %{confirm: false},
+                 actor: operator
+               )
+
+      assert {:error, :storage_awaiting_history_reconciliation} =
+               RecordingBlocks.freeze_historical(
+                 synthetic_entry_id,
+                 %{},
+                 actor: sys,
+                 awaiting_history_reconciliation?: true
+               )
+
+      assert {:error, :storage_awaiting_history_reconciliation} =
+               RecordingBlocks.adopt_rotated_block(
+                 synthetic_entry_id,
+                 String.duplicate("a", 64),
+                 %{},
+                 actor: sys,
+                 awaiting_history_reconciliation?: true
+               )
+
+      # 2. RecordingHealth.summary/1 loader aggregation for R.3 & R.10:
+      catalog_entries = [
+        %{
+          id: "00000000-0000-4000-8000-000000000711",
+          storage_id: sid,
+          block_key: String.duplicate("a", 64),
+          local_state: :quarantined,
+          quarantine_reason: :unattributable,
+          quarantined_bytes: 3_000_000,
+          quarantine_evidence: %{"reason" => "clock_epoch_mismatch"},
+          quarantine_receipt: %{"partition_path" => ".quarantine/aaa"},
+          archive_state: :not_required,
+          local_state_at: DateTime.shift(now, minute: -10)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000712",
+          storage_id: sid,
+          block_key: String.duplicate("b", 64),
+          local_state: :reclaiming,
+          quarantine_reason: :unrecoverable_journal,
+          quarantined_bytes: 1_500_000,
+          operator_disposition_state: :delete_requested,
+          operator_decision: %{"action" => "delete_intent", "actor_id" => "u-operator"},
+          quarantine_receipt: %{"partition_path" => ".quarantine/bbb"},
+          archive_state: :not_required,
+          local_state_at: DateTime.shift(now, minute: -5)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000713",
+          storage_id: sid,
+          block_key: String.duplicate("c", 64),
+          local_state: :reclaimed,
+          quarantine_reason: :unattributable,
+          quarantined_bytes: 900_000,
+          operator_disposition_state: :disposed,
+          quarantine_receipt: %{"partition_path" => ".quarantine/ccc"},
+          archive_state: :not_required,
+          local_state_at: DateTime.shift(now, minute: -30)
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000714",
+          camera_source_id: cam_id,
+          stream_profile_id: prof_id,
+          storage_id: sid,
+          block_key: String.duplicate("d", 64),
+          timeline_start_us: now_us - 600_000_000,
+          timeline_end_us: now_us - 580_000_000,
+          local_state: :present,
+          archive_state: :missing,
+          archive_binding_id: binding_id,
+          archive_last_error_class: "object_changed",
+          media_bytes: 8_000_000,
+          sealed_at: DateTime.shift(now, minute: -10),
+          archive_state_at: DateTime.shift(now, minute: -2)
+        }
+      ]
+
+      holds = [
+        %{
+          id: hold_id,
+          camera_source_id: cam_id,
+          stream_profile_id: prof_id,
+          start_us: now_us - 700_000_000,
+          end_us: now_us - 500_000_000,
+          kind: :investigation,
+          state: :accepted,
+          unavailable_blocks: []
+        }
+      ]
+
+      reservation_rows = [
+        %{storage_id: sid, reconciliation_state: :unresolved, count: 2},
+        %{storage_id: sid, reconciliation_state: :adopted, count: 9},
+        %{storage_id: sid, reconciliation_state: :block_absent, count: 1},
+        %{storage_id: sid, reconciliation_state: :unrecoverable_journal, count: 3}
+      ]
+
+      assert {:ok, health} =
+               RecordingHealth.summary(
+                 actor: viewer,
+                 now: now,
+                 member_by_storage_id: %{sid => "nvr-0"},
+                 loaders: %{
+                   settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
+                   catalog_loader: fn -> {:ok, catalog_entries} end,
+                   holds_loader: fn -> {:ok, holds} end,
+                   reservations_loader: fn -> {:ok, reservation_rows} end
+                 }
+               )
+
+      assert health.reservations.total_count == 15
+      assert health.reservations.unresolved_count == 2
+      assert health.reservations.adopted_count == 9
+      assert health.reservations.block_absent_count == 1
+      assert health.reservations.unrecoverable_count == 3
+      assert health.reservations.unrecoverable_journal_count == 3
+      assert health.storage_by_id[sid].reservations.unresolved_count == 2
+
+      # Reclaimed quarantine entry is excluded; active quarantined + delete_requested remain visible:
+      assert length(health.quarantined_entries) == 2
+      assert health.unattributable_count == 1
+      assert [unattr_item] = health.unattributable_blocks
+      assert unattr_item.evidence_summary == "Unattributable: clock_epoch_mismatch"
+      assert unattr_item.operator_disposition_state == :awaiting_operator
+
+      deleting_item =
+        Enum.find(health.quarantined_entries, &(&1.quarantine_reason == :unrecoverable_journal))
+
+      assert deleting_item.operator_disposition_state == :delete_requested
+
+      assert health.missing_archive_count == 1
+      assert [missing_item] = health.missing_archive_entries
+      assert missing_item.held? == true
+      assert missing_item.hold_count == 1
+      assert missing_item.hold_ids == [hold_id]
+      assert missing_item.requires_hold_permission? == true
+      assert missing_item.local_copy_present? == true
+      assert missing_item.rearchive_eligible? == true
     end
   end
 end

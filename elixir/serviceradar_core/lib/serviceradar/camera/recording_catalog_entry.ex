@@ -58,6 +58,12 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
     :binding_without_history,
     :binding_compromised
   ]
+  @operator_disposition_states [
+    :awaiting_operator,
+    :export_requested,
+    :delete_requested,
+    :disposed
+  ]
   @archive_deleted_reasons [:object_retention, :object_capacity, :operator]
 
   @view_check {ActorHasPermission, permission: "settings.recording.view"}
@@ -209,10 +215,11 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
           sealed_at IS NOT NULL
         )) AND
         (local_state <> 'quarantined' OR quarantine_reason IS NOT NULL) AND
-        ((quarantine_reason IS NULL AND quarantine_receipt IS NULL AND quarantined_bytes IS NULL) OR
+        ((quarantine_reason IS NULL AND quarantine_receipt IS NULL AND quarantined_bytes IS NULL AND quarantine_evidence IS NULL AND operator_disposition_state IS NULL AND operator_decision IS NULL) OR
          (quarantine_reason IN ('unrecoverable_journal', 'unattributable', 'binding_without_history', 'binding_compromised') AND
           quarantine_receipt IS NOT NULL AND
-          quarantined_bytes IS NOT NULL AND quarantined_bytes >= 0))
+          quarantined_bytes IS NOT NULL AND quarantined_bytes >= 0 AND
+          (operator_disposition_state IS NULL OR operator_disposition_state IN ('awaiting_operator', 'export_requested', 'delete_requested', 'disposed'))))
         """
 
       check_constraint :time_basis, "camera_recording_catalog_time_basis_valid",
@@ -322,6 +329,9 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
         :quarantine_reason,
         :quarantine_receipt,
         :quarantined_bytes,
+        :quarantine_evidence,
+        :operator_disposition_state,
+        :operator_decision,
         :local_state_at,
         :archive_state,
         :archive_state_at,
@@ -351,8 +361,44 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
                ])
     end
 
+    update :quarantine_in_place do
+      accept [
+        :quarantine_reason,
+        :quarantine_receipt,
+        :quarantined_bytes,
+        :quarantine_evidence,
+        :operator_disposition_state,
+        :local_state_at,
+        :archive_state,
+        :archive_state_at,
+        :quarantine_binding_id
+      ]
+
+      change set_attribute(:local_state, :quarantined)
+
+      validate present([
+                 :quarantine_reason,
+                 :quarantine_receipt,
+                 :quarantined_bytes,
+                 :local_state_at,
+                 :archive_state,
+                 :archive_state_at
+               ])
+    end
+
+    update :record_operator_decision do
+      accept [
+        :local_state,
+        :local_state_at,
+        :operator_disposition_state,
+        :operator_decision
+      ]
+
+      validate present([:operator_disposition_state, :operator_decision])
+    end
+
     update :transition_local_state do
-      accept [:local_state, :local_state_at]
+      accept [:local_state, :local_state_at, :operator_disposition_state]
       validate present([:local_state, :local_state_at])
     end
 
@@ -551,6 +597,22 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       constraints min: 0
     end
 
+    attribute :quarantine_evidence, :map do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :operator_disposition_state, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: @operator_disposition_states
+    end
+
+    attribute :operator_decision, :map do
+      allow_nil? true
+      public? true
+    end
+
     attribute :archive_state, :atom do
       allow_nil? false
       public? true
@@ -656,6 +718,10 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
   @spec quarantine_reasons() :: [atom()]
   def quarantine_reasons, do: @quarantine_reasons
 
+  @doc "Allowed `operator_disposition_state` values for quarantined/unattributable blocks (`R.3`, `R.10`)."
+  @spec operator_disposition_states() :: [atom()]
+  def operator_disposition_states, do: @operator_disposition_states
+
   @doc """
   Returns `true` when `entry` is a frozen, non-quarantined block with at least
   one playable copy (`local_state == :present` or `archive_state == :verified`).
@@ -683,7 +749,7 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
   """
   @spec register_quarantined(map(), keyword()) :: {:ok, t()} | {:error, term()}
   def register_quarantined(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now())
+    {now, ash_opts} = Keyword.pop(opts, :now, DateTime.utc_now())
 
     {default_archive_state, default_q_binding_id} =
       resolve_quarantine_archive_transition(attrs)
@@ -709,6 +775,10 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       quarantine_reason: fetch_val(attrs, :quarantine_reason),
       quarantine_receipt: fetch_val(attrs, :quarantine_receipt),
       quarantined_bytes: fetch_val(attrs, :quarantined_bytes),
+      quarantine_evidence: fetch_val(attrs, :quarantine_evidence),
+      operator_disposition_state:
+        fetch_val(attrs, :operator_disposition_state) || :awaiting_operator,
+      operator_decision: fetch_val(attrs, :operator_decision),
       local_state_at: fetch_val(attrs, :local_state_at) || now,
       archive_state: fetch_val(attrs, :archive_state) || default_archive_state,
       archive_state_at: fetch_val(attrs, :archive_state_at) || now,
@@ -721,7 +791,53 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
 
     __MODULE__
     |> Ash.Changeset.for_create(:register_quarantined, params)
-    |> Ash.create(opts)
+    |> Ash.create(ash_opts)
+  end
+
+  @doc """
+  Quarantines an existing unverified sealed `RecordingCatalogEntry` in place (`R4` step 1,
+  `B2`, `A6` Transition 3) when its recorded `archive_binding_id` is absent from retained
+  history (`:binding_without_history`) or ended as compromised (`:binding_compromised`),
+  preserving `recording_block_id`, the frozen descriptor fields, and `archive_binding_id`.
+  """
+  @spec quarantine_in_place(t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
+  def quarantine_in_place(%{__struct__: __MODULE__} = entry, attrs, opts \\ [])
+      when is_map(attrs) and is_list(opts) do
+    cond do
+      entry.archive_state == :verified ->
+        {:error, :entry_already_verified}
+
+      entry.local_state == :reclaimed ->
+        {:error, :local_copy_already_reclaimed}
+
+      true ->
+        {now, ash_opts} = Keyword.pop(opts, :now, DateTime.utc_now())
+
+        {default_archive_state, default_q_binding_id} =
+          resolve_quarantine_archive_transition(attrs)
+
+        params = %{
+          quarantine_reason: fetch_val(attrs, :quarantine_reason),
+          quarantine_receipt: fetch_val(attrs, :quarantine_receipt),
+          quarantined_bytes: fetch_val(attrs, :quarantined_bytes) || entry.media_bytes || 0,
+          quarantine_evidence: fetch_val(attrs, :quarantine_evidence),
+          operator_disposition_state:
+            fetch_val(attrs, :operator_disposition_state) || :awaiting_operator,
+          local_state_at: fetch_val(attrs, :local_state_at) || now,
+          archive_state: fetch_val(attrs, :archive_state) || default_archive_state,
+          archive_state_at: fetch_val(attrs, :archive_state_at) || now,
+          quarantine_binding_id:
+            case fetch_val(attrs, :quarantine_binding_id) do
+              nil -> default_q_binding_id
+              explicit -> explicit
+            end
+        }
+
+        entry
+        |> Ash.Changeset.for_update(:quarantine_in_place, params)
+        |> Ash.Changeset.filter(expr(archive_state != :verified and local_state != :reclaimed))
+        |> Ash.update(ash_opts)
+    end
   end
 
   @doc """
@@ -829,12 +945,15 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
   end
 
   defp verify_quarantined_idempotent(submitted, retained) do
+    submitted_evidence = Ash.Changeset.get_attribute(submitted, :quarantine_evidence)
+
     same? =
-      retained.local_state == :quarantined and
+      retained.local_state in [:quarantined, :reclaiming, :reclaimed] and
         is_nil(retained.recording_block_id) and
         retained.quarantine_reason == Ash.Changeset.get_attribute(submitted, :quarantine_reason) and
         retained.quarantine_receipt == Ash.Changeset.get_attribute(submitted, :quarantine_receipt) and
-        retained.quarantined_bytes == Ash.Changeset.get_attribute(submitted, :quarantined_bytes)
+        retained.quarantined_bytes == Ash.Changeset.get_attribute(submitted, :quarantined_bytes) and
+        (is_nil(submitted_evidence) or retained.quarantine_evidence == submitted_evidence)
 
     if same? do
       {:ok, retained}

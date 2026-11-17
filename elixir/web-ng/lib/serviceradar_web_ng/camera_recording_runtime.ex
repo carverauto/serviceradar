@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
   alias ServiceRadarRecordingControl.RecoveryGate
 
   @rpc_timeout_ms 5_000
+  @max_client_config_bytes 32_768
+  @member_name_pattern ~r/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/
   @default_remote_supervisor Module.concat([ServiceRadarCoreElx, CameraRecording, Supervisor])
 
   @type gate_state :: :not_configured | :closed | :open
@@ -22,11 +24,17 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
   @type supervisor_state :: :enabled | :disabled | :unknown
   @type nvr_installation_state :: :installed | :not_installed | :invalid_config | :unknown
 
+  @type nvr_member :: %{
+          member: String.t(),
+          storage_id: String.t()
+        }
+
   @type core_elx_status :: %{
           reachability: :reachable | :unreachable,
           node: node() | nil,
           supervisor: supervisor_state(),
-          nvr_installation: nvr_installation_state()
+          nvr_installation: nvr_installation_state(),
+          members: [nvr_member()]
         }
 
   @type status :: %{
@@ -81,11 +89,14 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
 
     case find_supervisor_node(supervisor_module, timeout) do
       {:ok, node} ->
+        {nvr_installation, members} = inspect_nvr_installation_and_members(node, timeout)
+
         %{
           reachability: :reachable,
           node: node,
           supervisor: inspect_supervisor_enabled(node, supervisor_module, timeout),
-          nvr_installation: inspect_nvr_installation(node, timeout)
+          nvr_installation: nvr_installation,
+          members: members
         }
 
       {:error, :unreachable} ->
@@ -93,7 +104,8 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
           reachability: :unreachable,
           node: nil,
           supervisor: :unknown,
-          nvr_installation: :unknown
+          nvr_installation: :unknown,
+          members: []
         }
     end
   end
@@ -115,7 +127,7 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
     end
   end
 
-  defp inspect_nvr_installation(node, timeout) do
+  defp inspect_nvr_installation_and_members(node, timeout) do
     config_file =
       :rpc.call(
         node,
@@ -134,8 +146,47 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
         timeout
       )
 
-    classify_nvr_installation(config_file, token_file)
+    installation = classify_nvr_installation(config_file, token_file)
+
+    members =
+      if installation == :installed do
+        read_configured_members(node, config_file, timeout)
+      else
+        []
+      end
+
+    {installation, members}
   end
+
+  defp read_configured_members(node, config_file, timeout) when is_binary(config_file) do
+    with {:ok, %File.Stat{type: :regular, size: size}}
+         when is_integer(size) and size >= 0 and size <= @max_client_config_bytes <-
+           :rpc.call(node, File, :stat, [config_file], timeout),
+         {:ok, bytes}
+         when is_binary(bytes) and byte_size(bytes) <= @max_client_config_bytes <-
+           :rpc.call(node, File, :read, [config_file], timeout),
+         {:ok, %{"members" => raw_members}} when is_map(raw_members) <- Jason.decode(bytes) do
+      raw_members
+      |> Enum.flat_map(&parse_member_entry/1)
+      |> Enum.sort_by(& &1.member)
+    else
+      _ -> []
+    end
+  end
+
+  defp parse_member_entry({name, %{"storage_id" => raw_storage_id}}) when is_binary(name) and is_binary(raw_storage_id) do
+    trimmed_sid = String.trim(raw_storage_id)
+
+    with true <- Regex.match?(@member_name_pattern, name),
+         36 <- byte_size(trimmed_sid),
+         {:ok, normalized_sid} <- Ecto.UUID.cast(trimmed_sid) do
+      [%{member: name, storage_id: normalized_sid}]
+    else
+      _ -> []
+    end
+  end
+
+  defp parse_member_entry(_entry), do: []
 
   defp classify_nvr_installation({:badrpc, _}, _token_file), do: :unknown
   defp classify_nvr_installation(_config_file, {:badrpc, _}), do: :unknown

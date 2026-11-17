@@ -766,6 +766,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     profiles = Keyword.get(opts, :profiles, [])
     policies = Keyword.get(opts, :policies, [])
     storage_mode = Keyword.get(opts, :storage_mode, :local_only)
+    configured_members = Keyword.get(opts, :configured_members, [])
 
     sanitized =
       if is_map(params) do
@@ -789,6 +790,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       )
       |> reconcile_camera_profile_selection(prev_form, sanitized, profiles)
       |> attach_matching_policy_id(prev_form, policies, storage_mode, sanitized)
+      |> maybe_autoselect_nvr_member(configured_members)
 
     {_attrs, errors} = build_policy_attrs(merged, %{}, :preview)
     editing_revision = find_matching_policy_revision(policies, merged)
@@ -904,12 +906,13 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   @doc """
   Merges persisted `NVRStorageSettings` rows with `RecordingHealth` per-storage
-  member summaries so every known or configured storage UUID displays desired
-  vs applied state, revision, pinned floor, and local window consistently.
+  member summaries and configured `core-elx` NVR client members so every known
+  or configured storage UUID displays desired vs applied state, revision, pinned
+  floor, and local window consistently.
   """
-  @spec merge_storage_member_rows([map()], map()) :: [map()]
-  def merge_storage_member_rows(storage_settings_rows, health_summary)
-      when is_list(storage_settings_rows) and is_map(health_summary) do
+  @spec merge_storage_member_rows([map()], map(), [map()]) :: [map()]
+  def merge_storage_member_rows(storage_settings_rows, health_summary, runtime_members \\ [])
+      when is_list(storage_settings_rows) and is_map(health_summary) and is_list(runtime_members) do
     health_members = Map.get(health_summary, :storage_members, [])
 
     health_by_sid =
@@ -920,8 +923,20 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         {to_string(fetch_map_or_struct(r, :storage_id)), r}
       end)
 
+    runtime_by_sid =
+      Enum.reduce(runtime_members, %{}, fn m, acc ->
+        sid = m |> fetch_map_or_struct(:storage_id) |> to_string_or_empty() |> String.trim()
+        name = m |> fetch_map_or_struct(:member) |> blank_to_nil()
+
+        if sid != "" and not is_nil(name) do
+          Map.put_new(acc, sid, name)
+        else
+          acc
+        end
+      end)
+
     all_sids =
-      (Map.keys(health_by_sid) ++ Map.keys(settings_by_sid))
+      (Map.keys(health_by_sid) ++ Map.keys(settings_by_sid) ++ Map.keys(runtime_by_sid))
       |> Enum.reject(&(&1 in ["", "nil"]))
       |> Enum.uniq()
       |> Enum.sort()
@@ -930,9 +945,37 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       merge_single_storage_member_row(
         sid,
         Map.get(health_by_sid, sid),
-        Map.get(settings_by_sid, sid)
+        Map.get(settings_by_sid, sid),
+        Map.get(runtime_by_sid, sid)
       )
     end)
+  end
+
+  @doc """
+  Backfills `storage_members` and `storage_by_id` on `health_summary` with any
+  configured NVR members from `storage_rows` not yet present in CNPG rows.
+  """
+  @spec enrich_health_with_storage_rows(map(), [map()]) :: map()
+  def enrich_health_with_storage_rows(health_summary, storage_rows)
+      when is_map(health_summary) and is_list(storage_rows) do
+    existing = Map.get(health_summary, :storage_members, [])
+    existing_sids = MapSet.new(existing, &to_string(Map.get(&1, :storage_id)))
+
+    missing =
+      Enum.reject(storage_rows, fn row ->
+        MapSet.member?(existing_sids, to_string(Map.get(row, :storage_id)))
+      end)
+
+    if missing == [] do
+      health_summary
+    else
+      combined = Enum.sort_by(existing ++ missing, &to_string(Map.get(&1, :storage_id)))
+      by_id = Map.new(combined, &{to_string(Map.get(&1, :storage_id)), &1})
+
+      health_summary
+      |> Map.put(:storage_members, combined)
+      |> Map.put(:storage_by_id, by_id)
+    end
   end
 
   @doc """
@@ -1045,7 +1088,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  # --- E.3 / R.10 Recording Health -------------------------------------------
+  # --- E.3 / R.10 Recording Health & Operator Dispositions ------------------
 
   @doc """
   DB-free baseline health summary for disconnected `mount/3`.
@@ -1063,6 +1106,133 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     case RecordingHealth.summary(actor_opts(scope) ++ opts) do
       {:ok, summary} -> summary
       {:error, _reason} -> default_health_summary()
+    end
+  end
+
+  @doc """
+  Requests an audited operator delete intent on an unattributable or quarantined
+  `RecordingCatalogEntry` (`R.10`, `R2`, `R6`, `C7`). Requires
+  `settings.recording.operate` and explicit confirmation (`confirm: true`).
+  """
+  @spec request_quarantine_delete(map(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, String.t()}
+  def request_quarantine_delete(scope, catalog_entry_id, params \\ %{}, opts \\ []) when is_map(params) do
+    trimmed_id = catalog_entry_id |> to_string_or_empty() |> String.trim()
+    confirmed? = truthy?(Map.get(params, "confirm", Map.get(params, :confirm)))
+    note = extract_operator_note_param(params)
+    attrs = maybe_put_map(%{confirm: confirmed?}, :note, note)
+
+    cond do
+      not confirmed? ->
+        {:error, "Explicit confirmation is required before requesting quarantine deletion."}
+
+      Ecto.UUID.cast(trimmed_id) == :error ->
+        {:error, "Invalid quarantined catalog entry identifier."}
+
+      true ->
+        call_opts = actor_opts(scope) ++ [scope: scope] ++ opts
+
+        action_fn =
+          Keyword.get(opts, :action_fn, fn id, call_attrs ->
+            RecordingHolds.request_quarantine_delete(id, call_attrs, call_opts)
+          end)
+
+        case action_fn.(trimmed_id, attrs) do
+          {:ok, result} -> {:ok, result}
+          {:error, reason} -> {:error, format_operator_disposition_error(reason)}
+        end
+    end
+  end
+
+  @doc """
+  Requests an audited operator export / preserve intent on an unattributable or
+  quarantined `RecordingCatalogEntry` (`R.10`, `R4` step 6). Requires
+  `settings.recording.operate`.
+  """
+  @spec request_quarantine_export(map(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, String.t()}
+  def request_quarantine_export(scope, catalog_entry_id, params \\ %{}, opts \\ []) when is_map(params) do
+    trimmed_id = catalog_entry_id |> to_string_or_empty() |> String.trim()
+    note = extract_operator_note_param(params)
+    attrs = maybe_put_map(%{}, :note, note)
+
+    if Ecto.UUID.cast(trimmed_id) == :error do
+      {:error, "Invalid quarantined catalog entry identifier."}
+    else
+      call_opts = actor_opts(scope) ++ [scope: scope] ++ opts
+
+      action_fn =
+        Keyword.get(opts, :action_fn, fn id, call_attrs ->
+          RecordingHolds.request_quarantine_export(id, call_attrs, call_opts)
+        end)
+
+      case action_fn.(trimmed_id, attrs) do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, format_operator_disposition_error(reason)}
+      end
+    end
+  end
+
+  @doc """
+  Records audited operator acceptance of a `:missing` archive copy loss (`A6`
+  Transition 9, `d0797c8bc8`, `R.10`). Requires `settings.recording.operate` and,
+  when covered by an active `:accepted` hold, `devices.cameras.recordings.hold`.
+  """
+  @spec accept_missing_archive_loss(map(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, String.t()}
+  def accept_missing_archive_loss(scope, catalog_entry_id, params \\ %{}, opts \\ []) when is_map(params) do
+    trimmed_id = catalog_entry_id |> to_string_or_empty() |> String.trim()
+    note = extract_operator_note_param(params)
+    raw_confirm = Map.get(params, "confirm", Map.get(params, :confirm))
+
+    attrs =
+      %{}
+      |> maybe_put_map(:note, note)
+      |> maybe_put_map(:confirm, if(is_nil(raw_confirm), do: nil, else: truthy?(raw_confirm)))
+
+    if Ecto.UUID.cast(trimmed_id) == :error do
+      {:error, "Invalid catalog entry identifier."}
+    else
+      call_opts = actor_opts(scope) ++ [scope: scope] ++ opts
+
+      action_fn =
+        Keyword.get(opts, :action_fn, fn id, call_attrs ->
+          RecordingHolds.accept_missing_archive_loss(id, call_attrs, call_opts)
+        end)
+
+      case action_fn.(trimmed_id, attrs) do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, format_operator_disposition_error(reason)}
+      end
+    end
+  end
+
+  @doc """
+  Requests an audited operator re-archive of a `:missing` archive copy whose local
+  copy is still `:present` (`A6` Transition 8, `d0797c8bc8`, `E.3`). Requires
+  `settings.recording.operate`.
+  """
+  @spec request_missing_archive_rearchive(map(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, String.t()}
+  def request_missing_archive_rearchive(scope, catalog_entry_id, params \\ %{}, opts \\ []) when is_map(params) do
+    trimmed_id = catalog_entry_id |> to_string_or_empty() |> String.trim()
+    note = extract_operator_note_param(params)
+    attrs = maybe_put_map(%{}, :note, note)
+
+    if Ecto.UUID.cast(trimmed_id) == :error do
+      {:error, "Invalid catalog entry identifier."}
+    else
+      call_opts = actor_opts(scope) ++ [scope: scope] ++ opts
+
+      action_fn =
+        Keyword.get(opts, :action_fn, fn id, call_attrs ->
+          RecordingHolds.request_missing_archive_rearchive(id, call_attrs, call_opts)
+        end)
+
+      case action_fn.(trimmed_id, attrs) do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, format_operator_disposition_error(reason)}
+      end
     end
   end
 
@@ -2048,6 +2218,9 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     catalog_entry = resolve_catalog_entry(catalog_by_key, storage_id, block_key, block_id)
     receipt = resolve_block_receipt(receipts_by_key, storage_id, block_key, catalog_entry)
     raw_state = Map.get(block, :state)
+    reconciliation_state = normalize_reconciliation_state(Map.get(block, :reconciliation_state))
+    reconciled_at = Map.get(block, :reconciled_at)
+    reconciliation_detail = Map.get(block, :reconciliation_detail)
 
     base = %{
       id: to_string(block_id || block_key),
@@ -2055,14 +2228,23 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       storage_id: storage_id,
       stream_profile_id: Map.get(block, :stream_profile_id),
       inserted_at: Map.get(block, :inserted_at),
+      reconciliation_state: reconciliation_state,
+      reconciled_at: reconciled_at,
+      reconciliation_detail: reconciliation_detail,
       receipt: receipt,
       receipt_objects: if(receipt, do: List.wrap(Map.get(receipt, :objects)), else: [])
     }
 
     if is_nil(catalog_entry) do
-      Map.merge(base, decorate_uncataloged_block_row(raw_state, receipt))
+      Map.merge(
+        base,
+        decorate_uncataloged_block_row(raw_state, reconciliation_state, reconciliation_detail, receipt)
+      )
     else
-      Map.merge(base, decorate_cataloged_block_row(catalog_entry, receipt, holds_by_entry_id))
+      Map.merge(
+        base,
+        decorate_cataloged_block_row(catalog_entry, reconciliation_state, receipt, holds_by_entry_id)
+      )
     end
   end
 
@@ -2092,16 +2274,23 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  defp decorate_uncataloged_block_row(raw_state, receipt) do
+  defp decorate_uncataloged_block_row(raw_state, reconciliation_state, reconciliation_detail, receipt) do
+    {core_label, core_variant} =
+      format_uncataloged_core_state(raw_state, reconciliation_state)
+
+    {local_label, local_variant, local_note} =
+      format_uncataloged_local_state(reconciliation_state, reconciliation_detail)
+
     %{
       cataloged?: false,
       catalog_entry_id: nil,
-      core_state_label: core_reservation_label(raw_state),
-      core_state_variant: "ghost",
+      core_state_label: core_label,
+      core_state_variant: core_variant,
+      core_state_note: format_reconciliation_detail_note(reconciliation_state, reconciliation_detail),
       local_state: nil,
-      local_copy_label: "Unknown (NVR lookup unavailable)",
-      local_copy_variant: "warning",
-      local_copy_note: nil,
+      local_copy_label: local_label,
+      local_copy_variant: local_variant,
+      local_copy_note: local_note,
       archive_state: nil,
       archive_copy_label: if(receipt, do: "Verified receipt", else: "No receipt in Core"),
       archive_copy_variant: if(receipt, do: "success", else: "ghost"),
@@ -2125,7 +2314,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     }
   end
 
-  defp decorate_cataloged_block_row(entry, _receipt, holds_by_entry_id) do
+  defp decorate_cataloged_block_row(entry, reconciliation_state, _receipt, holds_by_entry_id) do
     entry_id = entry |> Map.get(:id) |> to_string_or_nil()
     local_state = normalize_state_atom(Map.get(entry, :local_state))
     archive_state = normalize_state_atom(Map.get(entry, :archive_state))
@@ -2133,7 +2322,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     quarantine_reason = normalize_state_atom(Map.get(entry, :quarantine_reason))
 
     {core_label, core_variant} =
-      format_catalog_core_state(local_state, Map.get(entry, :recording_block_id))
+      format_catalog_core_state(local_state, Map.get(entry, :recording_block_id), reconciliation_state)
 
     {local_label, local_variant, local_note} =
       format_catalog_local_state(local_state, archive_state, deleted_reason, quarantine_reason, entry)
@@ -2149,6 +2338,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       catalog_entry_id: entry_id,
       core_state_label: core_label,
       core_state_variant: core_variant,
+      core_state_note: nil,
       local_state: local_state,
       local_copy_label: local_label,
       local_copy_variant: local_variant,
@@ -2255,9 +2445,21 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   defp normalize_hold_kind_label("export"), do: "export"
   defp normalize_hold_kind_label(_), do: nil
 
-  defp format_catalog_core_state(:quarantined, nil), do: {"Cataloged (quarantined)", "error"}
-  defp format_catalog_core_state(:quarantined, _block_id), do: {"Cataloged · Sealed (quarantined)", "error"}
-  defp format_catalog_core_state(_local_state, _block_id), do: {"Cataloged · Sealed", "success"}
+  defp format_catalog_core_state(:quarantined, nil, :unrecoverable_journal) do
+    {"Resolved: unrecoverable journal", "error"}
+  end
+
+  defp format_catalog_core_state(:quarantined, nil, _recon_state) do
+    {"Cataloged (quarantined)", "error"}
+  end
+
+  defp format_catalog_core_state(:quarantined, _block_id, _recon_state) do
+    {"Cataloged · Sealed (quarantined)", "error"}
+  end
+
+  defp format_catalog_core_state(_local_state, _block_id, _recon_state) do
+    {"Cataloged · Sealed", "success"}
+  end
 
   defp format_catalog_local_state(:present, archive_state, deleted_reason, _q_reason, entry) do
     registered? = Map.get(entry, :local_copy_registered?) == true
@@ -2411,36 +2613,209 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(val), do: to_string(val)
 
-  defp core_reservation_label(state) when state in [:open_local, "open_local"], do: "Core reservation"
+  @reconciliation_state_atoms %{
+    "unresolved" => :unresolved,
+    "adopted" => :adopted,
+    "block_absent" => :block_absent,
+    "unrecoverable_journal" => :unrecoverable_journal
+  }
+
+  defp normalize_reconciliation_state(val) when val in [:unresolved, :adopted, :block_absent, :unrecoverable_journal] do
+    val
+  end
+
+  defp normalize_reconciliation_state(val) when is_binary(val) do
+    Map.get(@reconciliation_state_atoms, val, :unresolved)
+  end
+
+  defp normalize_reconciliation_state(_), do: :unresolved
+
+  defp format_uncataloged_core_state(_raw_state, :block_absent) do
+    {"Resolved: block absent", "warning"}
+  end
+
+  defp format_uncataloged_core_state(_raw_state, :unrecoverable_journal) do
+    {"Resolved: unrecoverable journal", "error"}
+  end
+
+  defp format_uncataloged_core_state(_raw_state, :adopted) do
+    {"Resolved: adopted", "success"}
+  end
+
+  defp format_uncataloged_core_state(raw_state, _unresolved) do
+    {core_reservation_label(raw_state), "ghost"}
+  end
+
+  defp format_uncataloged_local_state(:block_absent, detail) do
+    {"No local block (reconciled)", "ghost", format_reconciliation_detail_note(:block_absent, detail)}
+  end
+
+  defp format_uncataloged_local_state(:unrecoverable_journal, detail) do
+    {"Unrecoverable journal", "error", format_reconciliation_detail_note(:unrecoverable_journal, detail)}
+  end
+
+  defp format_uncataloged_local_state(_recon_state, _detail) do
+    {"Unknown (NVR lookup unavailable)", "warning", nil}
+  end
+
+  defp format_reconciliation_detail_note(state, detail)
+       when state in [:block_absent, :unrecoverable_journal] and is_map(detail) do
+    cls =
+      fetch_map_or_struct(detail, :detail_class) ||
+        fetch_map_or_struct(detail, :verification_class)
+
+    if is_binary(cls) and cls != "" do
+      "Detail: #{cls}"
+    end
+  end
+
+  defp format_reconciliation_detail_note(_state, _detail), do: nil
+
+  defp core_reservation_label(state) when state in [:open_local, "open_local"], do: "Core reservation (unresolved)"
 
   defp core_reservation_label(state) when is_atom(state) and not is_nil(state), do: Atom.to_string(state)
 
   defp core_reservation_label(state) when is_binary(state), do: state
-  defp core_reservation_label(_), do: "Core reservation"
+  defp core_reservation_label(_), do: "Core reservation (unresolved)"
+
+  defp extract_operator_note_param(params) when is_map(params) do
+    raw =
+      Map.get(params, "note") ||
+        Map.get(params, :note) ||
+        Map.get(params, "reason") ||
+        Map.get(params, :reason)
+
+    blank_to_nil(raw)
+  end
+
+  defp maybe_put_map(map, _key, nil), do: map
+  defp maybe_put_map(map, key, val), do: Map.put(map, key, val)
+
+  defp format_operator_disposition_error(:confirmation_required) do
+    "Explicit confirmation is required before requesting quarantine deletion."
+  end
+
+  defp format_operator_disposition_error(%Forbidden{}) do
+    "Not authorized for this recording operator action."
+  end
+
+  defp format_operator_disposition_error(:quarantine_delete_already_requested) do
+    "Delete intent was already requested for this quarantined block."
+  end
+
+  defp format_operator_disposition_error(:quarantine_already_disposed) do
+    "Quarantined block has already been disposed."
+  end
+
+  defp format_operator_disposition_error({:quarantine_not_exportable, state}) do
+    "Quarantined block cannot be exported from local state #{state}."
+  end
+
+  defp format_operator_disposition_error({:not_quarantined, state}) do
+    "Catalog entry is not in quarantine (local state #{state})."
+  end
+
+  defp format_operator_disposition_error({:archive_not_missing, state}) do
+    "Catalog entry archive state is #{state}, not missing."
+  end
+
+  defp format_operator_disposition_error({:local_copy_not_present, state}) do
+    "Cannot re-archive when local copy state is #{state}."
+  end
+
+  defp format_operator_disposition_error(:missing_recorded_archive_binding) do
+    "Cannot re-archive an entry with no recorded archive binding."
+  end
+
+  defp format_operator_disposition_error(:catalog_entry_not_found) do
+    "Catalog entry not found."
+  end
+
+  defp format_operator_disposition_error(:camera_source_not_found) do
+    "Not authorized for the camera source covering this held recording."
+  end
+
+  defp format_operator_disposition_error(:invalid_operator_note) do
+    "Operator note must be at most 1,024 bytes."
+  end
+
+  defp format_operator_disposition_error({:invalid_uuid, _field}) do
+    "Invalid catalog entry identifier."
+  end
+
+  defp format_operator_disposition_error(err) when is_exception(err) do
+    Exception.message(err)
+  end
+
+  defp format_operator_disposition_error(err) when is_binary(err), do: err
+  defp format_operator_disposition_error(err), do: inspect(err)
 
   defp reconcile_camera_profile_selection(merged, prev_form, sanitized, profiles) do
     prev_cam = prev_form["camera_source_id"] || ""
     next_cam = merged["camera_source_id"] || ""
     next_prof = merged["stream_profile_id"] || ""
 
+    valid_in_loaded? =
+      profiles != [] and
+        Enum.any?(profiles, &(to_string(fetch_map_or_struct(&1, :id)) == next_prof))
+
     cond do
       next_cam == "" ->
         %{merged | "id" => "", "stream_profile_id" => ""}
 
-      next_cam != prev_cam ->
-        valid_in_loaded? =
-          profiles != [] and Enum.any?(profiles, &(to_string(fetch_map_or_struct(&1, :id)) == next_prof))
-
-        explicit_new_prof? =
-          profiles == [] and Map.has_key?(sanitized, "stream_profile_id") and
+      next_cam != prev_cam and profiles != [] ->
+        explicit_valid_prof? =
+          valid_in_loaded? and Map.has_key?(sanitized, "stream_profile_id") and
             next_prof != (prev_form["stream_profile_id"] || "")
 
-        kept_prof = if valid_in_loaded? or explicit_new_prof?, do: next_prof, else: ""
+        selected_prof =
+          if explicit_valid_prof? do
+            next_prof
+          else
+            profiles |> List.first() |> fetch_map_or_struct(:id) |> to_string()
+          end
+
+        %{merged | "id" => "", "stream_profile_id" => selected_prof}
+
+      next_cam != prev_cam ->
+        explicit_new_prof? =
+          Map.has_key?(sanitized, "stream_profile_id") and
+            next_prof != (prev_form["stream_profile_id"] || "")
+
+        kept_prof = if explicit_new_prof?, do: next_prof, else: ""
         %{merged | "id" => "", "stream_profile_id" => kept_prof}
+
+      profiles != [] and not valid_in_loaded? ->
+        first_prof = profiles |> List.first() |> fetch_map_or_struct(:id) |> to_string()
+        %{merged | "stream_profile_id" => first_prof}
 
       true ->
         merged
     end
+  end
+
+  defp maybe_autoselect_nvr_member(merged, configured_members) when is_map(merged) and is_list(configured_members) do
+    if merged["mode"] == "continuous" and merged["nvr_member"] in [nil, ""] do
+      case first_configured_member_name(configured_members) do
+        nil -> merged
+        member -> Map.put(merged, "nvr_member", member)
+      end
+    else
+      merged
+    end
+  end
+
+  defp first_configured_member_name(configured_members) do
+    Enum.find_value(configured_members, fn
+      member when is_binary(member) ->
+        blank_to_nil(member)
+
+      member when is_map(member) ->
+        member |> fetch_map_or_struct(:member) |> blank_to_nil()
+
+      _ ->
+        nil
+    end)
   end
 
   defp attach_matching_policy_id(merged, prev_form, policies, storage_mode, sanitized) do
@@ -2645,7 +3020,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  defp merge_single_storage_member_row(sid, health_member, persisted_row) do
+  defp merge_single_storage_member_row(sid, health_member, persisted_row, runtime_member_name) do
     desired =
       persisted_row ||
         (health_member && Map.get(health_member, :desired_settings)) ||
@@ -2656,16 +3031,19 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         (is_map(health_member) and Map.get(health_member, :persisted_settings?) == true)
 
     if is_map(health_member) do
+      member_name = Map.get(health_member, :member_name) || runtime_member_name
+
       %{
         health_member
         | storage_id: sid,
+          member_name: member_name,
           desired_settings: desired,
           persisted_settings?: persisted?
       }
     else
       %{
         storage_id: sid,
-        member_name: nil,
+        member_name: runtime_member_name,
         desired_settings: desired,
         persisted_settings?: persisted?,
         pinned_bytes: 0,

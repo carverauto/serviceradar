@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:active_tab, "recorders")
         |> assign(:can_manage?, RBAC.can?(scope, "settings.recording.manage"))
         |> assign(:can_operate?, RBAC.can?(scope, "settings.recording.operate"))
+        |> assign(:can_hold?, RBAC.can?(scope, "devices.cameras.recordings.hold"))
         |> assign(:can_manage_credentials?, RBAC.can?(scope, "settings.credentials.manage"))
         |> assign(:runtime, initial_runtime())
         |> assign(:bindings, [])
@@ -490,7 +491,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             policy_params,
             profiles: policy_profiles,
             policies: socket.assigns.policies,
-            storage_mode: socket.assigns.storage_mode
+            storage_mode: socket.assigns.storage_mode,
+            configured_members: runtime_members(socket)
           )
 
         what_if =
@@ -522,7 +524,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
            "settings.recording.manage"
          ) do
       {:ok, scope} ->
-        policy_params = Map.get(params, "policy", params)
+        raw_policy_params = Map.get(params, "policy", params)
+
+        locked_defaults =
+          Map.take(socket.assigns.policy_form, ["id", "camera_source_id", "stream_profile_id"])
+
+        policy_params =
+          if is_map(raw_policy_params) do
+            Map.merge(locked_defaults, raw_policy_params, fn _k, default_v, submitted_v ->
+              if submitted_v in [nil, ""], do: default_v, else: submitted_v
+            end)
+          else
+            locked_defaults
+          end
 
         case dependencies.save_policy.(scope, policy_params) do
           {:ok, saved} ->
@@ -561,7 +575,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
                 policy_params,
                 profiles: socket.assigns.policy_profiles,
                 policies: socket.assigns.policies,
-                storage_mode: socket.assigns.storage_mode
+                storage_mode: socket.assigns.storage_mode,
+                configured_members: runtime_members(socket)
               )
 
             merged_errors = Map.merge(normalized.errors, normalize_error_map(field_errors))
@@ -706,6 +721,138 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     end
   end
 
+  def handle_event("request_quarantine_delete", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.operate"
+         ) do
+      {:ok, scope} ->
+        inner = Map.get(params, "delete", params)
+        entry_id = to_string(Map.get(inner, "id") || Map.get(params, "id") || "")
+
+        case dependencies.request_quarantine_delete.(scope, entry_id, inner) do
+          {:ok, _result} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> load_archive_data()
+             |> load_storage_and_health_data()
+             |> maybe_reload_selected_camera()
+             |> put_flash(:info, "Recorded audited delete intent for quarantined block")}
+
+          {:error, message} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> put_flash(:error, message)}
+        end
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Not authorized to operate quarantined recordings (requires settings.recording.operate)"
+         )}
+    end
+  end
+
+  def handle_event("request_quarantine_export", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.operate"
+         ) do
+      {:ok, scope} ->
+        inner = Map.get(params, "export", params)
+        entry_id = to_string(Map.get(inner, "id") || Map.get(params, "id") || "")
+
+        case dependencies.request_quarantine_export.(scope, entry_id, inner) do
+          {:ok, _result} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> load_storage_and_health_data()
+             |> put_flash(:info, "Recorded audited export / preserve intent for quarantined block")}
+
+          {:error, message} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> put_flash(:error, message)}
+        end
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Not authorized to operate quarantined recordings (requires settings.recording.operate)"
+         )}
+    end
+  end
+
+  def handle_event("accept_missing_archive_loss", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.operate"
+         ) do
+      {:ok, scope} ->
+        handle_authorized_accept_missing_loss(socket, scope, params, dependencies)
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Not authorized to accept missing archive copy loss (requires settings.recording.operate)"
+         )}
+    end
+  end
+
+  def handle_event("rearchive_missing_archive", params, socket) do
+    dependencies = deps(socket)
+
+    case dependencies.authorize_current.(
+           socket.assigns.current_scope,
+           "settings.recording.operate"
+         ) do
+      {:ok, scope} ->
+        inner = Map.get(params, "rearchive", params)
+        entry_id = to_string(Map.get(inner, "id") || Map.get(params, "id") || "")
+
+        case dependencies.request_missing_archive_rearchive.(scope, entry_id, inner) do
+          {:ok, _result} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> load_archive_data()
+             |> load_storage_and_health_data()
+             |> maybe_reload_selected_camera()
+             |> put_flash(:info, "Queued missing archive copy for re-archive")}
+
+          {:error, message} ->
+            {:noreply,
+             socket
+             |> refresh_scope_flags(scope)
+             |> put_flash(:error, message)}
+        end
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Not authorized to re-archive missing copies (requires settings.recording.operate)"
+         )}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -816,6 +963,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             runtime={@runtime}
             storage_mode={@storage_mode}
             can_operate?={@can_operate?}
+            can_hold?={@can_hold?}
             health_summary={@health_summary}
             timezone={user_timezone(@current_scope)}
           />
@@ -851,7 +999,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       what_if_policy_preview: &CameraRecordingSettings.what_if_policy_preview/3,
       list_storage_settings: &CameraRecordingSettings.list_storage_settings/1,
       save_storage_settings: &CameraRecordingSettings.save_storage_settings/3,
-      load_recording_health: &CameraRecordingSettings.load_recording_health/1
+      load_recording_health: &CameraRecordingSettings.load_recording_health/2,
+      request_quarantine_delete: &CameraRecordingSettings.request_quarantine_delete/3,
+      request_quarantine_export: &CameraRecordingSettings.request_quarantine_export/3,
+      accept_missing_archive_loss: &CameraRecordingSettings.accept_missing_archive_loss/3,
+      request_missing_archive_rearchive: &CameraRecordingSettings.request_missing_archive_rearchive/3
     }
   end
 
@@ -862,7 +1014,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         reachability: :unknown,
         node: nil,
         supervisor: :unknown,
-        nvr_installation: :unknown
+        nvr_installation: :unknown,
+        members: []
       }
     }
   end
@@ -965,36 +1118,99 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
 
     current_form = socket.assigns.policy_form
 
-    next_form =
+    base_form =
       if current_form["id"] == "" and current_form["camera_source_id"] == "" do
         CameraRecordingSettings.default_policy_form(socket.assigns.storage_mode)
       else
         current_form
       end
 
+    cam_id = blank_to_nil(base_form["camera_source_id"])
+
+    policy_profiles =
+      cond do
+        is_nil(cam_id) ->
+          []
+
+        socket.assigns.policy_profiles != [] ->
+          socket.assigns.policy_profiles
+
+        true ->
+          dependencies.list_relay_profiles.(scope, cam_id)
+      end
+
+    next_form = sync_policy_form_profile(base_form, policy_profiles)
+
     socket =
       socket
       |> assign(:policies, policies)
+      |> assign(:policy_profiles, policy_profiles)
       |> assign(:policy_form, next_form)
 
     what_if =
       dependencies.what_if_policy_preview.(
         scope,
         next_form,
-        policy_preview_opts(socket, socket.assigns.policy_profiles)
+        policy_preview_opts(socket, policy_profiles)
       )
 
     assign(socket, :policy_what_if, what_if)
+  end
+
+  defp sync_policy_form_profile(form, profiles) when is_map(form) and is_list(profiles) do
+    cam_id = form["camera_source_id"] || ""
+    prof_id = form["stream_profile_id"] || ""
+
+    cond do
+      cam_id == "" or profiles == [] ->
+        form
+
+      Enum.any?(profiles, &(to_string(Map.get(&1, :id)) == prof_id)) ->
+        form
+
+      true ->
+        Map.put(form, "stream_profile_id", to_string(List.first(profiles).id))
+    end
   end
 
   defp load_storage_and_health_data(socket) do
     scope = socket.assigns.current_scope
     dependencies = deps(socket)
     storage_settings_rows = dependencies.list_storage_settings.(scope)
-    health_summary = dependencies.load_recording_health.(scope)
+    members = runtime_members(socket)
+
+    known_storage_ids =
+      members
+      |> Enum.map(&to_string(Map.get(&1, :storage_id, "")))
+      |> Enum.reject(&(&1 == ""))
+
+    member_by_storage_id =
+      Enum.reduce(members, %{}, fn m, acc ->
+        sid = to_string(Map.get(m, :storage_id, ""))
+        name = Map.get(m, :member)
+        if sid != "" and is_binary(name) and name != "", do: Map.put(acc, sid, name), else: acc
+      end)
+
+    health_opts = [
+      known_storage_ids: known_storage_ids,
+      member_by_storage_id: member_by_storage_id
+    ]
+
+    raw_health_summary =
+      case dependencies.load_recording_health do
+        fun when is_function(fun, 2) -> fun.(scope, health_opts)
+        fun when is_function(fun, 1) -> fun.(scope)
+      end
 
     storage_rows =
-      CameraRecordingSettings.merge_storage_member_rows(storage_settings_rows, health_summary)
+      CameraRecordingSettings.merge_storage_member_rows(
+        storage_settings_rows,
+        raw_health_summary,
+        members
+      )
+
+    health_summary =
+      CameraRecordingSettings.enrich_health_with_storage_rows(raw_health_summary, storage_rows)
 
     next_st_form =
       if socket.assigns.storage_settings_form["storage_id"] == "" and storage_rows != [] do
@@ -1011,6 +1227,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     |> assign(:health_summary, health_summary)
     |> assign(:storage_rows, storage_rows)
     |> assign(:storage_settings_form, next_st_form)
+  end
+
+  defp runtime_members(socket) do
+    socket.assigns
+    |> Map.get(:runtime, %{})
+    |> Map.get(:core_elx, %{})
+    |> Map.get(:members, [])
   end
 
   defp policy_preview_opts(socket, policy_profiles) do
@@ -1097,11 +1320,75 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     end
   end
 
+  defp handle_authorized_accept_missing_loss(socket, scope, params, dependencies) do
+    inner = Map.get(params, "loss", params)
+    entry_id = to_string(Map.get(inner, "id") || Map.get(params, "id") || "")
+
+    can_hold? =
+      match?(
+        {:ok, _},
+        dependencies.authorize_current.(scope, "devices.cameras.recordings.hold")
+      )
+
+    if missing_entry_held?(socket.assigns.health_summary, entry_id) and not can_hold? do
+      {:noreply,
+       socket
+       |> refresh_scope_flags(scope)
+       |> assign(:can_hold?, false)
+       |> put_flash(
+         :error,
+         "Accepting archive loss on a held recording requires devices.cameras.recordings.hold"
+       )}
+    else
+      effective_scope = enforce_hold_flag_on_scope(scope, can_hold?)
+
+      case dependencies.accept_missing_archive_loss.(effective_scope, entry_id, inner) do
+        {:ok, _result} ->
+          {:noreply,
+           socket
+           |> refresh_scope_flags(scope)
+           |> assign(:can_hold?, can_hold?)
+           |> load_archive_data()
+           |> load_storage_and_health_data()
+           |> maybe_reload_selected_camera()
+           |> put_flash(:info, "Accepted missing archive copy loss (audited disposition recorded)")}
+
+        {:error, message} ->
+          {:noreply,
+           socket
+           |> refresh_scope_flags(scope)
+           |> assign(:can_hold?, can_hold?)
+           |> put_flash(:error, message)}
+      end
+    end
+  end
+
+  defp missing_entry_held?(health_summary, entry_id) when is_map(health_summary) do
+    top_entries = Map.get(health_summary, :missing_archive_entries, [])
+    backlog_entries = health_summary |> Map.get(:archive_backlog, %{}) |> Map.get(:missing_entries, [])
+
+    Enum.any?(top_entries ++ backlog_entries, fn item ->
+      item_id = to_string(Map.get(item, :id) || Map.get(item, :catalog_entry_id) || "")
+
+      item_id == entry_id and
+        (Map.get(item, :held?) == true or Map.get(item, :requires_hold_permission?) == true)
+    end)
+  end
+
+  defp missing_entry_held?(_health_summary, _entry_id), do: false
+
+  defp enforce_hold_flag_on_scope(%{permissions: %MapSet{} = perms} = scope, false) do
+    %{scope | permissions: MapSet.delete(perms, "devices.cameras.recordings.hold")}
+  end
+
+  defp enforce_hold_flag_on_scope(scope, _can_hold?), do: scope
+
   defp refresh_scope_flags(socket, scope) do
     socket
     |> assign(:current_scope, scope)
     |> assign(:can_manage?, RBAC.can?(scope, "settings.recording.manage"))
     |> assign(:can_operate?, RBAC.can?(scope, "settings.recording.operate"))
+    |> assign(:can_hold?, RBAC.can?(scope, "devices.cameras.recordings.hold"))
     |> assign(:can_manage_credentials?, RBAC.can?(scope, "settings.credentials.manage"))
   end
 

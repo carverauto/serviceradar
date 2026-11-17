@@ -1081,9 +1081,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 <td class="py-2.5 pr-3 font-mono text-sr-ink">{row.block_key}</td>
                 <td class="py-2.5 pr-3 font-mono text-[11px] text-sr-muted">{row.storage_id}</td>
                 <td class="py-2.5 pr-3">
-                  <.ui_badge size="xs" variant={Map.get(row, :core_state_variant, "ghost")}>
-                    {row.core_state_label}
-                  </.ui_badge>
+                  <div class="space-y-1">
+                    <.ui_badge
+                      id={"block-core-state-#{row.id}"}
+                      size="xs"
+                      variant={Map.get(row, :core_state_variant, "ghost")}
+                    >
+                      {row.core_state_label}
+                    </.ui_badge>
+                    <div
+                      :if={Map.get(row, :core_state_note)}
+                      class="text-[11px] text-sr-muted"
+                    >
+                      {Map.get(row, :core_state_note)}
+                    </div>
+                  </div>
                 </td>
                 <td class="py-2.5 pr-3">
                   <div class="space-y-1">
@@ -1270,6 +1282,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         />
 
         <PolicyComponents.editor_form_card
+          runtime={@runtime}
+          policies={@policies}
           can_manage?={@can_manage?}
           sources={@sources}
           sources_forbidden?={@sources_forbidden?}
@@ -2567,6 +2581,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :runtime, :map, required: true
   attr :storage_mode, :atom, default: :local_only
   attr :can_operate?, :boolean, default: false
+  attr :can_hold?, :boolean, default: false
   attr :health_summary, :map, required: true
   attr :timezone, :string, default: "Etc/UTC"
 
@@ -2598,9 +2613,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         />
 
         <HealthComponents.reconciliation_and_dispositions_card
+          health_summary={@health_summary}
           backlog={@health_summary.archive_backlog}
           dispositions={@health_summary.retention_and_dispositions}
           can_operate?={@can_operate?}
+          can_hold?={@can_hold?}
           timezone={@timezone}
         />
 

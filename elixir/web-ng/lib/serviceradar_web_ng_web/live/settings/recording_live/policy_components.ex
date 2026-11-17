@@ -164,13 +164,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
   def what_if_card(assigns) do
     warnings = Map.get(assigns.what_if, :warnings, [])
+    unmeasured_active? = unmeasured_active_what_if?(assigns.what_if, warnings)
+
+    hazard_warnings =
+      warnings
+      |> Enum.reject(&(&1 == :unknown_profile_bitrate))
+      |> then(fn list ->
+        if unmeasured_active?, do: Enum.reject(list, &(&1 == :local_window_below_alert)), else: list
+      end)
+
+    show_unmeasured_note? = :unknown_profile_bitrate in warnings
     local_proj = Map.get(assigns.what_if, :local_projection, %{})
     cand_obj = Map.get(assigns.what_if, :candidate_object_policy)
     obj_proj = Map.get(assigns.what_if, :object_projection, %{})
 
     assigns =
       assigns
-      |> assign(:warnings, warnings)
+      |> assign(:hazard_warnings, hazard_warnings)
+      |> assign(:show_unmeasured_note?, show_unmeasured_note?)
+      |> assign(:unmeasured_active?, unmeasured_active?)
       |> assign(:local_proj, local_proj)
       |> assign(:cand_obj, cand_obj)
       |> assign(:obj_proj, obj_proj)
@@ -205,17 +217,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
       </div>
 
       <div
-        :if={@warnings != []}
+        :if={@hazard_warnings != []}
         id="policy-what-if-warnings"
         role="status"
         class="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-1.5 text-xs text-sr-ink"
       >
         <p class="font-semibold">Pre-save advisory warnings (non-blocking):</p>
         <ul class="list-disc pl-5 space-y-1">
-          <li :for={warn <- @warnings} id={"policy-warning-#{warn}"}>
+          <li :for={warn <- @hazard_warnings} id={"policy-warning-#{warn}"}>
             {format_what_if_warning(warn, @what_if)}
           </li>
         </ul>
+      </div>
+
+      <div
+        :if={@show_unmeasured_note?}
+        id="policy-unmeasured-bitrate-note"
+        class="rounded-xl border border-sr-line bg-sr-subtle/40 px-4 py-3 text-xs text-sr-muted"
+      >
+        Stream bitrate will be measured automatically once recording starts, or enter an optional
+        simulated nominal bitrate (kbit/s) below to preview capacity impact.
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -226,11 +247,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
           <div class="flex items-center justify-between gap-1">
             <span class="text-xs text-sr-muted">Projected local window</span>
             <.ui_badge size="xs" variant="ghost">
-              {format_local_bound_badge(Map.get(@local_proj, :binding_bound))}
+              {if @unmeasured_active?,
+                do: "Unmeasured",
+                else: format_local_bound_badge(Map.get(@local_proj, :binding_bound))}
             </.ui_badge>
           </div>
           <div class="text-xs font-semibold text-sr-ink">
-            {format_local_window_summary(@local_proj)}
+            {if @unmeasured_active?,
+              do: "Unknown until recorded",
+              else: format_local_window_summary(@local_proj)}
           </div>
           <div class="text-[11px] text-sr-muted">
             Time-to-full: {format_time_to_full(Map.get(@local_proj, :time_to_full_seconds))}
@@ -243,7 +268,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
         >
           <div class="text-xs text-sr-muted">Archive throughput (~2x capture)</div>
           <div class="text-xs font-semibold font-mono text-sr-ink">
-            Needed: {format_rate_per_sec(@what_if.provider_throughput_needed_bytes_per_sec)}
+            {if @unmeasured_active?,
+              do: "Pending first recording",
+              else:
+                "Needed: #{format_rate_per_sec(@what_if.provider_throughput_needed_bytes_per_sec)}"}
           </div>
           <div class="text-[11px] text-sr-muted">
             {format_measured_throughput(
@@ -259,7 +287,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
         >
           <div class="text-xs text-sr-muted">Projected blocks / day</div>
           <div class="text-xs font-semibold font-mono text-sr-ink">
-            {format_num(@what_if.projected_blocks_per_day)} blocks/day
+            {if @unmeasured_active?,
+              do: "Unknown until recorded",
+              else: "#{format_num(@what_if.projected_blocks_per_day)} blocks/day"}
           </div>
           <div class="text-[11px] text-sr-muted">
             Volume block cap: <span class="font-mono">{@what_if.max_blocks}</span> blocks
@@ -304,6 +334,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
     """
   end
 
+  attr :runtime, :map, default: %{}
+  attr :policies, :list, default: []
   attr :can_manage?, :boolean, required: true
   attr :sources, :list, required: true
   attr :sources_forbidden?, :boolean, required: true
@@ -318,7 +350,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
         %{profile: prof, estimate: CameraRecordingPolicies.profile_estimate(prof)}
       end)
 
-    assigns = assign(assigns, :profile_rows, profile_rows)
+    member_options =
+      build_member_options(assigns.runtime, assigns.policies, assigns.policy_form)
+
+    core_elx_unreachable? =
+      get_in(assigns.runtime, [:core_elx, :reachability]) == :unreachable
+
+    assigns =
+      assigns
+      |> assign(:profile_rows, profile_rows)
+      |> assign(:member_options, member_options)
+      |> assign(:core_elx_unreachable?, core_elx_unreachable?)
 
     ~H"""
     <section
@@ -364,6 +406,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
         class="space-y-4"
       >
         <input type="hidden" name="policy[id]" value={@policy_form["id"]} />
+        <input
+          :if={@policy_form["id"] != ""}
+          type="hidden"
+          name="policy[camera_source_id]"
+          value={@policy_form["camera_source_id"]}
+        />
+        <input
+          :if={@policy_form["id"] != ""}
+          type="hidden"
+          name="policy[stream_profile_id]"
+          value={@policy_form["stream_profile_id"]}
+        />
 
         <div class="grid gap-4 md:grid-cols-2">
           <div>
@@ -409,8 +463,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
               }
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
             >
-              <option value="" selected={@policy_form["stream_profile_id"] in [nil, ""]}>
-                Select a relay-eligible profile ({length(@policy_profiles)})
+              <option
+                :if={@profile_rows == []}
+                value=""
+                selected
+              >
+                No relay-eligible profiles
               </option>
               <option
                 :for={item <- @profile_rows}
@@ -476,18 +534,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
           </div>
 
           <div>
-            <label for="policy-nvr-member-input" class="block text-xs font-medium text-sr-ink">
-              Assigned NVR member (<code class="font-mono">[a-z0-9][a-z0-9-]&#123;0,62&#125;</code>)
+            <label for="policy-nvr-member-select" class="block text-xs font-medium text-sr-ink">
+              Assigned NVR member
             </label>
-            <input
-              id="policy-nvr-member-input"
-              type="text"
+            <select
+              id="policy-nvr-member-select"
               name="policy[nvr_member]"
-              value={@policy_form["nvr_member"]}
               disabled={!@can_manage?}
-              placeholder="nvr-0"
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm font-mono text-sr-ink disabled:opacity-60"
-            />
+            >
+              <option
+                value=""
+                selected={!Enum.any?(@member_options, &(&1.value == @policy_form["nvr_member"]))}
+              >
+                {cond do
+                  @member_options != [] -> "Select an NVR member"
+                  @core_elx_unreachable? -> "No NVR members discovered (core-elx unreachable)"
+                  true -> "No NVR members discovered (core-elx unreachable)"
+                end}
+              </option>
+              <option
+                :for={opt <- @member_options}
+                value={opt.value}
+                selected={@policy_form["nvr_member"] == opt.value}
+              >
+                {opt.label}
+              </option>
+            </select>
             <p
               :if={@policy_errors[:nvr_member]}
               id="policy-error-nvr-member"
@@ -850,4 +923,75 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
       :error -> Map.get(map, Atom.to_string(key))
     end
   end
+
+  @member_name_pattern ~r/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/
+
+  defp build_member_options(runtime, policies, policy_form) do
+    runtime_list =
+      runtime
+      |> Map.get(:core_elx, %{})
+      |> Map.get(:members, [])
+
+    by_member =
+      Enum.reduce(runtime_list, %{}, fn m, acc ->
+        name = m |> fetch_val(:member) |> trimmed_str()
+        sid = m |> fetch_val(:storage_id) |> trimmed_str()
+
+        if name == "" do
+          acc
+        else
+          label =
+            if sid == "" do
+              name
+            else
+              "#{name} (#{String.slice(sid, 0, 8)}...)"
+            end
+
+          Map.put_new(acc, name, %{value: name, label: label})
+        end
+      end)
+
+    by_member =
+      Enum.reduce(policies, by_member, fn pol, acc ->
+        name = pol |> fetch_val(:nvr_member) |> trimmed_str()
+
+        if name != "" and not Map.has_key?(acc, name) do
+          Map.put(acc, name, %{value: name, label: name})
+        else
+          acc
+        end
+      end)
+
+    current_member = policy_form |> Map.get("nvr_member") |> trimmed_str()
+
+    by_member =
+      if current_member != "" and Regex.match?(@member_name_pattern, current_member) and
+           not Map.has_key?(by_member, current_member) do
+        Map.put(by_member, current_member, %{value: current_member, label: current_member})
+      else
+        by_member
+      end
+
+    by_member
+    |> Map.values()
+    |> Enum.sort_by(& &1.value)
+  end
+
+  defp unmeasured_active_what_if?(what_if, warnings) when is_map(what_if) do
+    sessions = Map.get(what_if, :projected_sessions) || 0
+
+    total_capture_bps =
+      (Map.get(what_if, :archive_capture_rate_bytes_per_sec) || 0) +
+        (Map.get(what_if, :local_only_capture_rate_bytes_per_sec) || 0) +
+        (Map.get(what_if, :projected_capture_bytes_per_sec) || 0)
+
+    unknown_bitrate? =
+      :unknown_profile_bitrate in warnings or
+        Map.get(what_if, :unknown_bitrate_policy_ids, []) != []
+
+    sessions > 0 and total_capture_bps <= 0 and unknown_bitrate?
+  end
+
+  defp trimmed_str(nil), do: ""
+  defp trimmed_str(val), do: val |> to_string() |> String.trim()
 end

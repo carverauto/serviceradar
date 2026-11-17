@@ -27,6 +27,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
   alias ServiceRadar.Camera.LocalStorageBinding
   alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
@@ -72,9 +73,17 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         quarantined_count: 0,
         quarantined_bytes: 0,
         quarantined_entries: [],
+        unattributable_count: 0,
+        unattributable_blocks: [],
         reconciler_status: :awaiting_reconciler,
         reconciler_last_pass_at: nil
       },
+      reservations: default_reservations_summary(),
+      quarantined_entries: [],
+      unattributable_count: 0,
+      unattributable_blocks: [],
+      missing_archive_count: 0,
+      missing_archive_entries: [],
       gaps_24h: %{
         total_24h_count: 0,
         open_gaps_count: 0,
@@ -128,6 +137,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          {:ok, usage} <- RetentionCalculator.usage_summary(opts),
          {:ok, catalog_entries} <- load_full_catalog_entries(loaders),
          {:ok, accepted_holds} <- load_accepted_holds(loaders),
+         {:ok, reservations} <- load_reservations_summary(loaders),
          {:ok, policies} <- load_policies(loaders),
          {:ok, storage_settings_rows} <- load_storage_settings(loaders),
          {:ok, local_bindings} <- load_local_storage_bindings(loaders),
@@ -150,6 +160,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           policies,
           storage_settings_rows,
           local_bindings,
+          reservations,
           opts
         )
 
@@ -161,6 +172,12 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       {:ok,
        %{
          archive_backlog: archive_backlog,
+         reservations: reservations,
+         quarantined_entries: archive_backlog.quarantined_entries,
+         unattributable_count: archive_backlog.unattributable_count,
+         unattributable_blocks: archive_backlog.unattributable_blocks,
+         missing_archive_count: archive_backlog.missing_count,
+         missing_archive_entries: archive_backlog.missing_entries,
          gaps_24h: gaps_24h,
          storage_members: storage_members,
          storage_by_id: storage_by_id,
@@ -202,7 +219,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       Enum.sort_by(
         acc.quarantined_entries,
         fn q ->
-          case q.local_state_at || q.sealed_at do
+          case q.recorded_at do
             %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
             _ -> 0
           end
@@ -210,11 +227,14 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         :desc
       )
 
+    unattributable_blocks =
+      Enum.filter(quarantined_sorted, &(&1.quarantine_reason == :unattributable))
+
     missing_sorted =
       Enum.sort_by(
         acc.missing_entries,
         fn m ->
-          case m.sealed_at do
+          case m.sealed_at || m.archive_state_at do
             %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
             _ -> 0
           end
@@ -240,6 +260,8 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       quarantined_count: length(quarantined_sorted),
       quarantined_bytes: acc.quarantined_bytes,
       quarantined_entries: quarantined_sorted,
+      unattributable_count: length(unattributable_blocks),
+      unattributable_blocks: unattributable_blocks,
       reconciler_status: reconciler_status,
       reconciler_last_pass_at: last_pass
     }
@@ -248,10 +270,15 @@ defmodule ServiceRadar.Camera.RecordingHealth do
   defp accumulate_backlog_entry(entry, st, accepted_holds) do
     local_state = normalize_catalog_state(fetch_field(entry, :local_state))
     archive_state = normalize_catalog_state(fetch_field(entry, :archive_state))
+    q_reason = normalize_quarantine_reason(fetch_field(entry, :quarantine_reason))
     quarantined? = local_state == :quarantined
+
+    active_quarantine_item? =
+      quarantined? or (local_state == :reclaiming and not is_nil(q_reason))
+
     media_bytes = max(0, int_or_zero(fetch_field(entry, :media_bytes)))
     q_bytes = max(0, int_or_zero(fetch_field(entry, :quarantined_bytes)))
-    entry_bytes = if quarantined?, do: q_bytes, else: media_bytes
+    entry_bytes = if active_quarantine_item?, do: q_bytes, else: media_bytes
 
     ts =
       fetch_field(entry, :sealed_at) || fetch_field(entry, :local_state_at) ||
@@ -279,25 +306,13 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       end
 
     st =
-      if quarantined? do
-        q_item = %{
-          id: to_string(fetch_field(entry, :id)),
-          storage_id:
-            fetch_field(entry, :storage_id) && to_string(fetch_field(entry, :storage_id)),
-          block_key: fetch_field(entry, :block_key),
-          camera_source_id: fetch_field(entry, :camera_source_id),
-          stream_profile_id: fetch_field(entry, :stream_profile_id),
-          quarantine_reason: fetch_field(entry, :quarantine_reason),
-          quarantined_bytes: q_bytes,
-          archive_state: archive_state,
-          quarantine_receipt: fetch_field(entry, :quarantine_receipt),
-          local_state_at: fetch_field(entry, :local_state_at),
-          sealed_at: fetch_field(entry, :sealed_at)
-        }
+      if active_quarantine_item? do
+        q_item =
+          build_quarantine_health_item(entry, local_state, archive_state, q_reason, q_bytes)
 
         %{
           st
-          | quarantined_bytes: st.quarantined_bytes + q_bytes,
+          | quarantined_bytes: st.quarantined_bytes + if(quarantined?, do: q_bytes, else: 0),
             quarantined_entries: [q_item | st.quarantined_entries]
         }
       else
@@ -305,27 +320,98 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       end
 
     if archive_state == :missing do
-      held? =
-        not quarantined? and
-          Enum.any?(accepted_holds, &entry_protected_by_hold?(&1, entry))
-
-      m_item = %{
-        id: to_string(fetch_field(entry, :id)),
-        storage_id: fetch_field(entry, :storage_id) && to_string(fetch_field(entry, :storage_id)),
-        block_key: fetch_field(entry, :block_key),
-        camera_source_id: fetch_field(entry, :camera_source_id),
-        stream_profile_id: fetch_field(entry, :stream_profile_id),
-        local_state: local_state,
-        media_bytes: media_bytes,
-        archive_last_error_class: fetch_field(entry, :archive_last_error_class),
-        sealed_at: fetch_field(entry, :sealed_at),
-        held?: held?
-      }
+      m_item =
+        build_missing_archive_health_item(
+          entry,
+          local_state,
+          media_bytes,
+          active_quarantine_item?,
+          accepted_holds
+        )
 
       %{st | missing_entries: [m_item | st.missing_entries]}
     else
       st
     end
+  end
+
+  defp build_quarantine_health_item(entry, local_state, archive_state, q_reason, q_bytes) do
+    entry_id = to_string(fetch_field(entry, :id))
+    receipt = fetch_field(entry, :quarantine_receipt)
+    evidence = resolve_quarantine_evidence(entry, receipt)
+    disp_state = resolve_quarantine_disposition_state(entry, local_state)
+
+    recorded_at =
+      fetch_field(entry, :local_state_at) || fetch_field(entry, :inserted_at) ||
+        fetch_field(entry, :sealed_at)
+
+    %{
+      id: entry_id,
+      catalog_entry_id: entry_id,
+      storage_id: fetch_field(entry, :storage_id) && to_string(fetch_field(entry, :storage_id)),
+      block_key: fetch_field(entry, :block_key),
+      camera_source_id: fetch_field(entry, :camera_source_id),
+      stream_profile_id: fetch_field(entry, :stream_profile_id),
+      local_state: local_state,
+      quarantine_reason: q_reason,
+      quarantined_bytes: q_bytes,
+      quarantine_evidence: evidence,
+      evidence_summary: format_quarantine_evidence_summary(q_reason, evidence),
+      quarantine_receipt: receipt,
+      operator_disposition_state: disp_state,
+      operator_decision: fetch_field(entry, :operator_decision),
+      archive_state: archive_state,
+      recorded_at: recorded_at,
+      local_state_at: fetch_field(entry, :local_state_at),
+      sealed_at: fetch_field(entry, :sealed_at)
+    }
+  end
+
+  defp build_missing_archive_health_item(
+         entry,
+         local_state,
+         media_bytes,
+         quarantined?,
+         accepted_holds
+       ) do
+    entry_id = to_string(fetch_field(entry, :id))
+    binding_id = fetch_field(entry, :archive_binding_id)
+
+    covering =
+      if quarantined? do
+        []
+      else
+        Enum.filter(accepted_holds, &entry_protected_by_hold?(&1, entry))
+      end
+
+    held? = covering != []
+
+    hold_ids =
+      covering
+      |> Enum.map(&fetch_field(&1, :id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&to_string/1)
+
+    %{
+      id: entry_id,
+      catalog_entry_id: entry_id,
+      storage_id: fetch_field(entry, :storage_id) && to_string(fetch_field(entry, :storage_id)),
+      block_key: fetch_field(entry, :block_key),
+      camera_source_id: fetch_field(entry, :camera_source_id),
+      stream_profile_id: fetch_field(entry, :stream_profile_id),
+      local_state: local_state,
+      local_copy_present?: local_state == :present,
+      rearchive_eligible?: local_state == :present and not is_nil(binding_id),
+      archive_binding_id: binding_id,
+      media_bytes: media_bytes,
+      archive_last_error_class: fetch_field(entry, :archive_last_error_class),
+      sealed_at: fetch_field(entry, :sealed_at),
+      archive_state_at: fetch_field(entry, :archive_state_at),
+      held?: held?,
+      hold_count: length(covering),
+      hold_ids: hold_ids,
+      requires_hold_permission?: held?
+    }
   end
 
   defp build_gaps_summary(gaps, now) do
@@ -393,6 +479,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          policies,
          storage_settings_rows,
          local_bindings,
+         reservations,
          opts
        ) do
     member_by_sid =
@@ -416,6 +503,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         catalog_entries,
         storage_settings_rows,
         local_bindings,
+        reservations,
         opts
       )
 
@@ -435,6 +523,9 @@ defmodule ServiceRadar.Camera.RecordingHealth do
 
     members =
       Enum.map(known_sids, fn sid ->
+        member_reservations =
+          Map.get(reservations.by_storage, sid, zero_storage_reservations())
+
         build_single_storage_summary(
           sid,
           Map.get(member_by_sid, sid),
@@ -444,7 +535,8 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           settings,
           catalog_entries,
           accepted_holds,
-          continuous_policies
+          continuous_policies,
+          member_reservations
         )
       end)
 
@@ -456,6 +548,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          catalog_entries,
          storage_settings_rows,
          local_bindings,
+         reservations,
          opts
        ) do
     from_opts = opts |> Keyword.get(:known_storage_ids, []) |> Enum.map(&to_string/1)
@@ -480,7 +573,15 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       |> Enum.reject(&is_nil/1)
       |> Enum.map(&to_string/1)
 
-    (from_opts ++ from_map ++ from_settings ++ from_usage ++ from_catalog ++ from_bindings)
+    from_reservations = Map.keys(reservations.by_storage)
+
+    (from_opts ++
+       from_map ++
+       from_settings ++
+       from_usage ++
+       from_catalog ++
+       from_bindings ++
+       from_reservations)
     |> Enum.reject(&(&1 in ["", "nil", "unknown"]))
     |> Enum.uniq()
     |> Enum.sort()
@@ -495,7 +596,8 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          archive_settings,
          catalog_entries,
          accepted_holds,
-         continuous_policies
+         continuous_policies,
+         member_reservations
        ) do
     desired = persisted_settings || NVRStorageSettings.default_storage_settings(sid)
 
@@ -580,6 +682,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       window_projection: window_proj,
       time_to_full_seconds: window_proj.time_to_full_seconds,
       assigned_continuous_cameras: length(assigned),
+      reservations: member_reservations,
       live_status_state:
         if(has_live_measurements?, do: :reported, else: :unknown_until_nvr_status),
       ledger_state: fetch_field(measurements, :ledger_state) || :unknown_until_nvr_status
@@ -741,14 +844,290 @@ defmodule ServiceRadar.Camera.RecordingHealth do
           :quarantine_reason,
           :quarantine_receipt,
           :quarantined_bytes,
+          :quarantine_evidence,
+          :operator_disposition_state,
+          :operator_decision,
           :archive_state,
           :archive_state_at,
+          :archive_binding_id,
           :archive_last_error_class,
           :media_bytes,
           :sealed_at,
-          :archived_at
+          :archived_at,
+          :inserted_at
         ])
         |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp default_reservations_summary do
+    %{
+      total_count: 0,
+      unresolved_count: 0,
+      adopted_count: 0,
+      block_absent_count: 0,
+      unrecoverable_count: 0,
+      unrecoverable_journal_count: 0,
+      by_state: %{
+        unresolved: 0,
+        adopted: 0,
+        block_absent: 0,
+        unrecoverable_journal: 0
+      },
+      by_storage: %{}
+    }
+  end
+
+  defp zero_storage_reservations do
+    %{
+      total_count: 0,
+      unresolved_count: 0,
+      adopted_count: 0,
+      block_absent_count: 0,
+      unrecoverable_count: 0,
+      unrecoverable_journal_count: 0
+    }
+  end
+
+  defp load_reservations_summary(loaders) do
+    cond do
+      is_function(Map.get(loaders, :reservations_loader), 0) ->
+        with {:ok, raw} <- loaders.reservations_loader.() do
+          {:ok, normalize_reservations_input(raw)}
+        end
+
+      is_function(Map.get(loaders, :blocks_loader), 0) ->
+        with {:ok, blocks} <- loaders.blocks_loader.() do
+          {:ok, summarize_reservation_rows(blocks)}
+        end
+
+      map_size(loaders) > 0 ->
+        {:ok, default_reservations_summary()}
+
+      true ->
+        query_reservations_summary()
+    end
+  end
+
+  defp normalize_reservations_input(%{by_state: _} = summary), do: summary
+
+  defp normalize_reservations_input(rows) when is_list(rows) do
+    summarize_reservation_rows(rows)
+  end
+
+  defp normalize_reservations_input(counts) when is_map(counts) do
+    unresolved =
+      int_or_zero(fetch_field(counts, :unresolved_count) || fetch_field(counts, :unresolved))
+
+    adopted = int_or_zero(fetch_field(counts, :adopted_count) || fetch_field(counts, :adopted))
+
+    absent =
+      int_or_zero(fetch_field(counts, :block_absent_count) || fetch_field(counts, :block_absent))
+
+    unrecoverable =
+      int_or_zero(
+        fetch_field(counts, :unrecoverable_count) ||
+          fetch_field(counts, :unrecoverable_journal_count) ||
+          fetch_field(counts, :unrecoverable_journal)
+      )
+
+    %{
+      total_count: unresolved + adopted + absent + unrecoverable,
+      unresolved_count: unresolved,
+      adopted_count: adopted,
+      block_absent_count: absent,
+      unrecoverable_count: unrecoverable,
+      unrecoverable_journal_count: unrecoverable,
+      by_state: %{
+        unresolved: unresolved,
+        adopted: adopted,
+        block_absent: absent,
+        unrecoverable_journal: unrecoverable
+      },
+      by_storage: fetch_field(counts, :by_storage) || %{}
+    }
+  end
+
+  defp normalize_reservations_input(_), do: default_reservations_summary()
+
+  defp summarize_reservation_rows(rows) when is_list(rows) do
+    grouped =
+      Enum.reduce(rows, %{}, fn row, acc ->
+        sid =
+          case fetch_field(row, :storage_id) do
+            nil -> "unknown"
+            val -> to_string(val)
+          end
+
+        state = normalize_reconciliation_state(fetch_field(row, :reconciliation_state))
+        cnt = max(1, int_or_zero(fetch_field(row, :count)))
+        Map.update(acc, {sid, state}, cnt, &(&1 + cnt))
+      end)
+
+    build_reservations_from_grouped(grouped)
+  end
+
+  defp query_reservations_summary do
+    import Ecto.Query, only: [from: 2]
+
+    rows =
+      ServiceRadar.Repo.all(
+        from(b in {"camera_recording_blocks", RecordingBlock},
+          prefix: "platform",
+          group_by: [b.storage_id, b.reconciliation_state],
+          select: {b.storage_id, b.reconciliation_state, count(b.id)}
+        )
+      )
+
+    grouped =
+      Enum.reduce(rows, %{}, fn {sid, raw_state, cnt}, acc ->
+        sid_str = if is_nil(sid), do: "unknown", else: to_string(sid)
+        state = normalize_reconciliation_state(raw_state)
+        Map.update(acc, {sid_str, state}, cnt, &(&1 + cnt))
+      end)
+
+    {:ok, build_reservations_from_grouped(grouped)}
+  rescue
+    _ -> {:ok, default_reservations_summary()}
+  end
+
+  defp build_reservations_from_grouped(grouped) when is_map(grouped) do
+    by_storage =
+      grouped
+      |> Enum.reduce(%{}, fn {{sid, state}, cnt}, acc ->
+        current = Map.get(acc, sid, zero_storage_reservations())
+        updated = add_reservation_count(current, state, cnt)
+        Map.put(acc, sid, updated)
+      end)
+      |> Map.delete("unknown")
+
+    totals =
+      Enum.reduce(grouped, zero_storage_reservations(), fn {{_sid, state}, cnt}, acc ->
+        add_reservation_count(acc, state, cnt)
+      end)
+
+    %{
+      total_count: totals.total_count,
+      unresolved_count: totals.unresolved_count,
+      adopted_count: totals.adopted_count,
+      block_absent_count: totals.block_absent_count,
+      unrecoverable_count: totals.unrecoverable_count,
+      unrecoverable_journal_count: totals.unrecoverable_journal_count,
+      by_state: %{
+        unresolved: totals.unresolved_count,
+        adopted: totals.adopted_count,
+        block_absent: totals.block_absent_count,
+        unrecoverable_journal: totals.unrecoverable_journal_count
+      },
+      by_storage: by_storage
+    }
+  end
+
+  defp add_reservation_count(bucket, :adopted, cnt) do
+    %{bucket | total_count: bucket.total_count + cnt, adopted_count: bucket.adopted_count + cnt}
+  end
+
+  defp add_reservation_count(bucket, :block_absent, cnt) do
+    %{
+      bucket
+      | total_count: bucket.total_count + cnt,
+        block_absent_count: bucket.block_absent_count + cnt
+    }
+  end
+
+  defp add_reservation_count(bucket, :unrecoverable_journal, cnt) do
+    %{
+      bucket
+      | total_count: bucket.total_count + cnt,
+        unrecoverable_count: bucket.unrecoverable_count + cnt,
+        unrecoverable_journal_count: bucket.unrecoverable_journal_count + cnt
+    }
+  end
+
+  defp add_reservation_count(bucket, _unresolved, cnt) do
+    %{
+      bucket
+      | total_count: bucket.total_count + cnt,
+        unresolved_count: bucket.unresolved_count + cnt
+    }
+  end
+
+  defp normalize_reconciliation_state(val) when is_atom(val) do
+    if val in RecordingBlock.reconciliation_states(), do: val, else: :unresolved
+  end
+
+  defp normalize_reconciliation_state(val) when is_binary(val) do
+    Enum.find(RecordingBlock.reconciliation_states(), &(Atom.to_string(&1) == val)) || :unresolved
+  end
+
+  defp normalize_reconciliation_state(_), do: :unresolved
+
+  defp normalize_quarantine_reason(val) when is_atom(val) do
+    if val in RecordingCatalogEntry.quarantine_reasons(), do: val
+  end
+
+  defp normalize_quarantine_reason(val) when is_binary(val) do
+    Enum.find(RecordingCatalogEntry.quarantine_reasons(), &(Atom.to_string(&1) == val))
+  end
+
+  defp normalize_quarantine_reason(_), do: nil
+
+  defp resolve_quarantine_evidence(entry, receipt) do
+    case fetch_field(entry, :quarantine_evidence) do
+      ev when is_map(ev) and map_size(ev) > 0 ->
+        ev
+
+      _ ->
+        if is_map(receipt) and is_map(fetch_field(receipt, :evidence)) do
+          fetch_field(receipt, :evidence)
+        else
+          %{}
+        end
+    end
+  end
+
+  defp resolve_quarantine_disposition_state(entry, local_state) do
+    raw = fetch_field(entry, :operator_disposition_state)
+
+    cond do
+      local_state == :reclaimed ->
+        :disposed
+
+      local_state == :reclaiming ->
+        :delete_requested
+
+      raw in [:awaiting_operator, :export_requested, :delete_requested, :disposed] ->
+        raw
+
+      is_binary(raw) ->
+        Enum.find(
+          RecordingCatalogEntry.operator_disposition_states(),
+          &(Atom.to_string(&1) == raw)
+        ) || :awaiting_operator
+
+      true ->
+        :awaiting_operator
+    end
+  end
+
+  defp format_quarantine_evidence_summary(q_reason, evidence) do
+    reason_label =
+      case q_reason do
+        :unattributable -> "Unattributable"
+        :unrecoverable_journal -> "Unrecoverable journal"
+        :binding_without_history -> "Binding absent from retained history"
+        :binding_compromised -> "Binding ended as compromised"
+        other -> to_string(other || "Quarantined")
+      end
+
+    detail =
+      fetch_field(evidence, :reason) || fetch_field(evidence, :detail_class) ||
+        fetch_field(evidence, :verification_class)
+
+    if is_binary(detail) and detail != "" and detail != to_string(q_reason) do
+      "#{reason_label}: #{detail}"
+    else
+      reason_label
     end
   end
 
