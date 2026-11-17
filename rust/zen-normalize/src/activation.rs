@@ -51,6 +51,11 @@ impl ActiveRules {
         }
     }
 
+    /// The datasvc key core publishes this collector's bundle at.
+    pub fn key(&self) -> String {
+        format!("zen/rulesets/{}/{}.json", self.stream_name, self.subject)
+    }
+
     /// Validates a fetched document and activates it. On an error the previous
     /// ruleset stays active and the status carries the error.
     pub fn offer(&self, document: &[u8]) -> Result<Offer, BundleError> {

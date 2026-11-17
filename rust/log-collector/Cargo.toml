@@ -13,12 +13,14 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 config-bootstrap = { path = "../config-bootstrap" }
 env_logger = { workspace = true }
+kvutil = { path = "../kvutil" }
 flowgger = { package = "serviceradar-flowgger", path = "../flowgger", default-features = false }
 log = { workspace = true }
 otel = { path = "../otel", optional = true }
 rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+serviceradar-zen-normalize = { path = "../zen-normalize" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 toml = { workspace = true }
 tonic = { workspace = true }
 tonic-health = { workspace = true }
@@ -27,6 +29,7 @@ tonic-health = { workspace = true }
 rcgen = { workspace = true }
 runfiles = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 default = ["syslog", "otel"]
