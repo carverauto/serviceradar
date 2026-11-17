@@ -172,9 +172,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   # Subjects under `logs.normalized.` carry OTLP log batches a log collector
   # has already run through its Zen rules. The broker lets only the log
-  # collector publish there, so these batches are stored without running the
-  # rules again. A JSON body is never read from these subjects, and a batch in
-  # a schema this release does not know is refused instead of being guessed at.
+  # collector, and an edge leaf carrying an edge collector's batches, publish
+  # there, so these batches are stored without running the rules again. A
+  # JSON body is never read from these subjects, and a batch in a schema this
+  # release does not know is refused instead of being guessed at.
   @normalized_subject_prefix "logs.normalized."
   @normalized_schema "otlp-normalized-v1"
 
@@ -719,13 +720,23 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     end
   end
 
-  # RFC3164 has no zone. A wrong assumed zone or sender clock must not hide
-  # fresh logs from event-time windows on either telemetry backend.
+  # A syslog record is filed under the time its sender wrote. A record filed
+  # under a wrong clock drops out of every recent view on either telemetry
+  # backend, so one whose time is implausible is filed under the receive time
+  # and keeps what the sender wrote. The log collector applies the same limits
+  # to the records it normalizes (rust/flowgger/src/flowgger/normalized/row.rs).
   defp syslog_timestamp(json, attributes, received_at) do
     timestamp = parse_timestamp(json)
 
-    if json["_syslog_format"] == "rfc3164" and match?(%DateTime{}, received_at) and
-         abs(DateTime.diff(timestamp, received_at, :microsecond)) > 3_600_000_000 do
+    if match?(%DateTime{}, received_at) and
+         implausible_syslog_time?(
+           json["_syslog_format"],
+           DateTime.diff(
+             DateTime.truncate(timestamp, :second),
+             DateTime.truncate(received_at, :second),
+             :second
+           )
+         ) do
       attributes =
         attributes
         |> Map.put("_syslog_original_timestamp", DateTime.to_iso8601(timestamp))
@@ -737,6 +748,19 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     end
   end
 
+  @hour_seconds 3_600
+
+  # `ahead` is in whole seconds, compared between the instants the row keeps.
+  defp implausible_syslog_time?(nil, _ahead), do: false
+
+  # RFC 3164 has no zone, so a wrong assumed zone files a fresh log hours off.
+  defp implausible_syslog_time?("rfc3164", ahead), do: abs(ahead) > @hour_seconds
+
+  # Nothing is logged before it happens. A relay can hold logs through an
+  # outage, so the limit behind the receive time is generous.
+  defp implausible_syslog_time?(_format, ahead),
+    do: ahead > 24 * @hour_seconds or ahead < -30 * 24 * @hour_seconds
+
   defp parse_timestamp(json) do
     log_timestamp(
       json["timestamp"] ||
@@ -747,9 +771,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     )
   end
 
-  # The log collector writes a syslog record's time as fractional Unix seconds.
-  defp log_timestamp(seconds) when is_float(seconds) and seconds >= 0 and seconds < 1.0e10,
-    do: DateTime.from_unix!(trunc(seconds), :second)
+  # The log collector writes a syslog record's time as fractional Unix seconds,
+  # negative before 1970.
+  defp log_timestamp(seconds) when is_float(seconds) and abs(seconds) < 1.0e10,
+    do: DateTime.from_unix!(floor(seconds), :second)
 
   defp log_timestamp(value), do: FieldParser.parse_timestamp(value)
 

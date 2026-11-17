@@ -56,8 +56,8 @@
     },
     "line": "<13>1 2000-01-01T00:00:00.250Z host03.example.com app 4242 ID47 - synthetic message from 2000",
     "name": "an RFC 5424 time before 2001-09-09",
-    "otlp": "CtwBEtkBEtYBCYCyKWHPTCMNEAkaBElORk8qHQobc3ludGhldGljIG1lc3NhZ2UgZnJvbSAyMDAwMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Aug00BHGg==",
-    "received_unix_nano": 1893553446000000000,
+    "otlp": "CtwBEtkBEtYBCYCyKWHPTCMNEAkaBElORk8qHQobc3ludGhldGljIG1lc3NhZ2UgZnJvbSAyMDAwMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkAlHjJz0wjDQ==",
+    "received_unix_nano": 946684802000000000,
     "remote_addr": "192.0.2.10",
     "rules": []
   },
@@ -77,7 +77,28 @@
     },
     "line": "<13>1 1970-01-01T00:00:00Z host04.example.com app 4242 ID47 - synthetic message at the epoch",
     "name": "an RFC 5424 time at the Unix epoch",
-    "otlp": "CtYBEtMBEtABEAkaBElORk8qIAoec3ludGhldGljIG1lc3NhZ2UgYXQgdGhlIGVwb2NoMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Aug00BHGg==",
+    "otlp": "CtYBEtMBEtABEAkaBElORk8qIAoec3ludGhldGljIG1lc3NhZ2UgYXQgdGhlIGVwb2NoMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkAlDV3AAAAAA==",
+    "received_unix_nano": 2000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 1969-12-31T23:59:59.500Z host05.example.com app 4242 ID47 - synthetic message from 1969",
+      "host": "host05.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message from 1969",
+      "timestamp": -0.5,
+      "version": "1.1"
+    },
+    "line": "<13>1 1969-12-31T23:59:59.500Z host05.example.com app 4242 ID47 - synthetic message from 1969",
+    "name": "an RFC 5424 time before 1970",
+    "otlp": "CrQCErECEq4CCQD8C6DTQEcaEAkaBElORk8qHQobc3ludGhldGljIG1lc3NhZ2UgZnJvbSAxOTY5MiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDI0Chpfc3lzbG9nX29yaWdpbmFsX3RpbWVzdGFtcBIWChQxOTY5LTEyLTMxVDIzOjU5OjU5WjIgChpfc3lzbG9nX3RpbWVzdGFtcF9mYWxsYmFjaxICEAEyKQogc2VydmljZXJhZGFyLmNvbHVtbi5zZXJ2aWNlX25hbWUSBQoDYXBwMi0KHXNlcnZpY2VyYWRhci5jb2x1bW4uc291cmNlX2lwEgwKCjE5Mi4wLjIuMTBZAPwLoNNARxo=",
     "received_unix_nano": 1893553446000000000,
     "remote_addr": "192.0.2.10",
     "rules": []
@@ -1032,5 +1053,115 @@
         "key": "strip"
       }
     ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a zoned time more than a day ahead of the receive time",
+    "otlp": "CqoCEqcCEqQCCQBAzRepo0YaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MjQKGl9zeXNsb2dfb3JpZ2luYWxfdGltZXN0YW1wEhYKFDIwMzAtMDEtMDJUMDM6MDQ6MDVaMiAKGl9zeXNsb2dfdGltZXN0YW1wX2ZhbGxiYWNrEgIQATIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkAQM0XqaNGGg==",
+    "received_unix_nano": 1893380640000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a zoned time within a day ahead of the receive time",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQCAt/hL9UYa",
+    "received_unix_nano": 1893470400000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a zoned time more than thirty days before the receive time",
+    "otlp": "CqoCEqcCEqQCCQD8nDjRxFAaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MjQKGl9zeXNsb2dfb3JpZ2luYWxfdGltZXN0YW1wEhYKFDIwMzAtMDEtMDJUMDM6MDQ6MDVaMiAKGl9zeXNsb2dfdGltZXN0YW1wX2ZhbGxiYWNrEgIQATIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Jw40cRQGg==",
+    "received_unix_nano": 1896231846000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a zoned time delayed by less than thirty days",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQBAXrCmJ1Aa",
+    "received_unix_nano": 1896059040000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a zoned time a day ahead of the receive time to the second",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQAyItM+8kYa",
+    "received_unix_nano": 1893467045000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
   }
 ]
