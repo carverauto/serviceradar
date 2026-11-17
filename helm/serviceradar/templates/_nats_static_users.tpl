@@ -3,7 +3,10 @@ serviceradar.natsStaticUsers is the one definition of every built-in NATS client
 identity and its permissions. It renders a YAML list; each entry names the
 certificate subject the broker maps (`user`) and its `publish` and `subscribe`
 blocks with `allow` and optional `deny` lists, using static NATS semantics: an
-empty allow list permits every subject before deny applies.
+empty allow list permits every subject before deny applies. No block here
+relies on that. An identity that may use every subject says `allow: [">"]`, and
+an identity whose feature is off denies `>` in both directions;
+templates/nats.yaml refuses to render any other empty allow list.
 
 Two consumers read it, so they cannot drift apart:
 
@@ -272,7 +275,7 @@ Add or change a built-in identity's subjects only here.
       - "$JS.API.>"
     deny: ["$SYS.>", "flow.attributed.>", "events.>", "logs.syslog", "logs.syslog.>", "logs.snmp", "logs.snmp.>"]
   subscribe:
-    allow: []
+    allow: [">"]
     deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
 {{- /* Datasvc query-side service: reads catalog events/config and object/KV
      state. Attributed flows are queried from CNPG, not a flow.attributed.* NATS
@@ -344,29 +347,33 @@ Add or change a built-in identity's subjects only here.
   publish:
     {{- if $flowCollectorEnabled }}
     allow: ["flows.raw.>", "flow.host-slice.>", "$JS.API.STREAM.INFO.{{ $flowCollectorStream }}", "$JS.API.STREAM.CREATE.{{ $flowCollectorStream }}", "$JS.API.STREAM.UPDATE.{{ $flowCollectorStream }}", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.UPDATE.events"]
+    deny: ["logs.normalized.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
-    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
 - user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     {{- if $flowCollectorEnabled }}
     allow: ["flows.raw.>", "$JS.API.STREAM.INFO.{{ $flowCollectorStream }}", "$JS.API.STREAM.CREATE.{{ $flowCollectorStream }}", "$JS.API.STREAM.UPDATE.{{ $flowCollectorStream }}", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.UPDATE.events"]
+    deny: ["logs.normalized.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
-    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $flowCollectorEnabled }}
     allow: ["_INBOX.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
 - user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
@@ -394,15 +401,17 @@ Add or change a built-in identity's subjects only here.
       - "$JS.API.STREAM.INFO.{{ $k8sInventoryStream }}"
       - "$JS.API.STREAM.CREATE.{{ $k8sInventoryStream }}"
       - "$JS.API.STREAM.UPDATE.{{ $k8sInventoryStream }}"
+    deny: ["logs.normalized.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
-    deny: ["logs.normalized.>"]
   subscribe:
     {{- if $k8sInventoryNatsEnabled }}
     allow: ["_INBOX.>"]
     {{- else }}
     allow: []
+    deny: [">"]
     {{- end }}
 - user: "O=ServiceRadar"
   publish:

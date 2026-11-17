@@ -54,7 +54,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \["logs\.normalized\.>"\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}\s+subscribe: \{\s+allow: \[\]\s+deny: \[">"\]\s+\}'
 
   - it: rejects unsafe stream names when the collector is enabled
     template: templates/nats.yaml

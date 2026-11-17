@@ -268,6 +268,7 @@ spec:
               key: cloak-key
         - name: SPIFFE_CERT_DIR
           value: "/etc/serviceradar/certs"
+        {{- include "serviceradar.runtimeCertRotationEnv" . | nindent 8 }}
         args:
         - |
           set -eu
@@ -276,6 +277,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- include "serviceradar.runtimeCertRotationVolumeMount" . | nindent 8 }}
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
@@ -285,6 +287,7 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- include "serviceradar.runtimeCertRotationVolume" . | nindent 6 }}
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca

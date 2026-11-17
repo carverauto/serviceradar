@@ -215,10 +215,19 @@ spec:
           EOF_SCRIPT_B64
           tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
           chmod +x /tmp/generate-certs.sh
+          # Names each reissued certificate with the one it replaced, so core
+          # records it on the adopted component before workloads roll onto it
+          # (ServiceRadar.Edge.RuntimeCertificateRotation).
+          cat >/tmp/runtime-cert-rotation.py.b64 <<'EOF_ROTATION_B64'
+{{ .Files.Get "files/runtime-cert-rotation.py" | b64enc | indent 12 }}
+          EOF_ROTATION_B64
+          tr -d '[:space:]' </tmp/runtime-cert-rotation.py.b64 | base64 -d >/tmp/runtime-cert-rotation.py
           mkdir -p "${CERT_DIR}"
+          python3 /tmp/runtime-cert-rotation.py snapshot "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
           export FORCE_REGENERATE=true
           bash /tmp/generate-certs.sh
           printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
+          python3 /tmp/runtime-cert-rotation.py manifest "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
 
           python3 <<'PY'
           import base64
