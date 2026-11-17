@@ -772,14 +772,30 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	}
 
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
-		p.systemdAddonAssignmentCurrent(a, runtimeRoot) && runtimeReady(ctx, a, supervision) {
-		p.logger.Debug().
-			Str("addon", a.GetAddonId()).
-			Str("version", a.GetVersion()).
-			Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
-		p.clearAddonDeliveryFailure(a.GetAddonId())
+		p.systemdAddonAssignmentCurrent(a, runtimeRoot) {
+		if runtimeReady(ctx, a, supervision) {
+			p.logger.Debug().
+				Str("addon", a.GetAddonId()).
+				Str("version", a.GetVersion()).
+				Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
+			p.clearAddonDeliveryFailure(a.GetAddonId())
 
-		return addonDeliverySucceeded
+			return addonDeliverySucceeded
+		}
+
+		// systemd stopped restarting this unit because it kept failing. The same
+		// artifact and config would fail the same way, and reinstalling it here
+		// every config cycle is what made such a failure loop forever. Hold it
+		// stopped (status reports circuit_open with the unit's failure) until the
+		// assignment changes; activation then clears the failed state.
+		if p.systemdAddonCircuitOpen(a.GetAddonId()) {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("version", a.GetVersion()).
+				Msg("Systemd add-on unit stopped on its start limit; not reinstalling an unchanged assignment")
+
+			return addonDeliverySucceeded
+		}
 	}
 
 	if p.systemdInstallSuppressed(a, supervision) {
@@ -954,6 +970,17 @@ func (p *PushLoop) systemdAddonRuntimeReady(ctx context.Context, a *proto.AddonA
 	}
 
 	return false
+}
+
+// systemdAddonCircuitOpen reports whether systemd stopped restarting one of the
+// add-on's units on its start limit.
+func (p *PushLoop) systemdAddonCircuitOpen(addonID string) bool {
+	units := p.systemdAddonUnits(addonID)
+	if len(units) == 0 {
+		return false
+	}
+
+	return systemdAddonUnitStatusWithReader(units, p.readSystemdAddonUnitStatus).state == agentaddon.StateCircuitOpen
 }
 
 // systemdAddonUnitReady uses the same parsed timer health used by add-on status

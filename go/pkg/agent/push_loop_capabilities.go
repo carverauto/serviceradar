@@ -107,8 +107,12 @@ const (
 
 	// systemdUnitFailed is systemd's ActiveState=failed and Result=failed value.
 	systemdUnitFailed = "failed"
-	addonStateWaiting = "waiting"
-	addonStateHealthy = "healthy"
+	// systemdResultStartLimitHit is the Result of a unit systemd stopped
+	// restarting because it failed StartLimitBurst times inside
+	// StartLimitIntervalSec.
+	systemdResultStartLimitHit = "start-limit-hit"
+	addonStateWaiting          = "waiting"
+	addonStateHealthy          = "healthy"
 )
 
 type capabilityStatusPayload struct {
@@ -834,7 +838,7 @@ func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars 
 	}
 
 	status := systemdAddonUnitStatusWithReader(units, p.readSystemdAddonUnitStatus)
-	if !foldedSidecar {
+	if !foldedSidecar || unitExplainsDeadSidecar(st.State, status.state) {
 		st.State = status.state
 		st.LastError = status.lastError
 		st.RestartCount = status.restartCount
@@ -853,6 +857,19 @@ func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars 
 	}
 
 	return st
+}
+
+// unitExplainsDeadSidecar reports whether the systemd unit state should replace
+// a folded IPC state. The IPC state refines a live process (running, or degraded
+// with the add-on's own reason). When the agent cannot reach the process and the
+// unit is not running either, the IPC error ("dial ... no such file") is only a
+// symptom; the unit state (circuit_open, a failed exit status) is the cause.
+func unitExplainsDeadSidecar(sidecarState, unitState agentaddon.State) bool {
+	if sidecarState == agentaddon.StateRunning || sidecarState == agentaddon.StateDegraded {
+		return false
+	}
+
+	return unitState != agentaddon.StateRunning
 }
 
 func foldSidecarStatus(st *agentaddon.Status, id string, sidecars []*proto.SidecarStatus) bool {
@@ -1101,6 +1118,14 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 	case "deactivating", "reloading":
 		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid, restartCount: restartCount}
 	case systemdUnitFailed:
+		if result == systemdResultStartLimitHit {
+			return systemdUnitStatus{
+				state:        agentaddon.StateCircuitOpen,
+				pid:          pid,
+				restartCount: restartCount,
+				lastError:    systemdStartLimitError(execMainStatus),
+			}
+		}
 		return systemdUnitStatus{
 			state:        agentaddon.StateUnhealthy,
 			pid:          pid,
@@ -1128,6 +1153,17 @@ func systemdFailedUnitError(result, execMainStatus string) string {
 	return detail
 }
 
+// systemdStartLimitError explains a unit systemd stopped restarting. The agent
+// holds it stopped until the assignment changes, so the message says so.
+func systemdStartLimitError(execMainStatus string) string {
+	detail := "systemd stopped restarting the unit after hitting its start limit"
+	if execMainStatus != "" && execMainStatus != "0" {
+		detail += ": status=" + execMainStatus
+	}
+
+	return detail + "; waiting for a changed assignment"
+}
+
 func finiteSystemdTimerNext(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "0", "infinity", "n/a":
@@ -1142,7 +1178,12 @@ func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
 		if status == nil {
 			continue
 		}
-		if strings.EqualFold(status.GetName(), "netprobe") && status.GetState() == string(sidecar.StateRunning) {
+		if !strings.EqualFold(status.GetName(), "netprobe") {
+			continue
+		}
+		// Degraded is a running netprobe that reported a host-side gap (for
+		// example an absent capture interface); its services still answer.
+		if state := sidecar.State(status.GetState()); state == sidecar.StateRunning || state == sidecar.StateDegraded {
 			return true
 		}
 	}

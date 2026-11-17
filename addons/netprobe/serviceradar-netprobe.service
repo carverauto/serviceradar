@@ -4,6 +4,12 @@ Documentation=https://docs.serviceradar.cloud/
 # eBPF + AF_PACKET/raw capture needs the network stack up before launch.
 After=network-online.target
 Wants=network-online.target
+# Bound automatic restarts: five failed starts inside five minutes (RestartSec=5
+# below) and systemd stops trying. A deterministic startup failure otherwise
+# restarts forever. The agent reports the stopped unit as circuit_open and does
+# not reinstall it until the assignment changes.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

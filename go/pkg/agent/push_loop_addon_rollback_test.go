@@ -26,8 +26,10 @@ import (
 	"testing"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -779,7 +781,12 @@ func TestSystemdAddonRuntimeEndpointReadyRequiresNetprobeSocket(t *testing.T) {
 	}
 }
 
-func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testing.T) {
+// stageCurrentNetprobeAssignment stages netprobe 1.1.0 with its activation
+// metadata, so the returned assignment is already current: an unchanged
+// reconcile must decide from runtime state alone.
+func stageCurrentNetprobeAssignment(t *testing.T) (string, string, *proto.AddonAssignmentConfig) {
+	t.Helper()
+
 	payload := []byte("netprobe-binary")
 	sha := sha256Hex(payload)
 	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
@@ -822,6 +829,12 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 		ArtifactSha256:    sha,
 		ArtifactSignature: "test-signature",
 	}
+
+	return runtimeRoot, versionDir, assignment
+}
+
+func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testing.T) {
+	runtimeRoot, versionDir, assignment := stageCurrentNetprobeAssignment(t)
 	pl := newSystemdAddonPushLoop(t)
 	pl.rememberSystemdAddon(netprobeTestAddonID, []string{netprobeTestUnit})
 	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
@@ -910,5 +923,59 @@ func TestReconcileStagedSystemdUnitsPassesArtifactMetadataToUpdater(t *testing.T
 	}
 	if gotReq.Signature != wantSig {
 		t.Fatalf("got Signature = %q, want %q", gotReq.Signature, wantSig)
+	}
+}
+
+// A unit systemd stopped on its start limit stays stopped while the assignment
+// is unchanged: reinstalling it every config cycle is what turned a
+// deterministic startup failure into an endless restart loop. A changed
+// assignment is the operator's fix and must reach the unit.
+func TestApplySystemdAddonHoldsACircuitOpenUnitUntilTheAssignmentChanges(t *testing.T) {
+	runtimeRoot, versionDir, assignment := stageCurrentNetprobeAssignment(t)
+	pl := newSystemdAddonPushLoop(t)
+	pl.rememberSystemdAddon(netprobeTestAddonID, []string{netprobeTestUnit})
+	stubSystemdUnitStatus(t, pl, func(string) systemdUnitStatus {
+		return systemdUnitStatus{state: agentaddon.StateCircuitOpen, lastError: "systemd start limit hit"}
+	})
+
+	deliveries := 0
+	installs := 0
+	apply := func(a *proto.AddonAssignmentConfig) addonDeliveryDisposition {
+		return pl.applySystemdAddonAtRoot(
+			context.Background(),
+			a,
+			addonDeliveryPushedArtifact,
+			addonSupervisionSystemdService,
+			time.Now(),
+			runtimeRoot,
+			func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+			func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+				deliveries++
+				return filepath.Join(versionDir, "serviceradar-netprobe"), addonDeliverySucceeded, nil
+			},
+			func(context.Context, AddonSystemdInstallRequest) error {
+				installs++
+				return nil
+			},
+		)
+	}
+
+	if got := apply(assignment); got != addonDeliverySucceeded {
+		t.Fatalf("unchanged circuit-open apply disposition = %v, want success", got)
+	}
+	if deliveries != 0 || installs != 0 {
+		t.Fatalf("deliveries = %d, installs = %d; an unchanged circuit-open unit must not be reinstalled", deliveries, installs)
+	}
+
+	changed, ok := gproto.Clone(assignment).(*proto.AddonAssignmentConfig)
+	if !ok {
+		t.Fatal("clone assignment")
+	}
+	changed.ConfigJson = []byte(`{"enabled":true,"capture_interfaces":["eth-test1"]}`)
+	if got := apply(changed); got != addonDeliverySucceeded {
+		t.Fatalf("changed assignment apply disposition = %v, want success", got)
+	}
+	if deliveries != 1 || installs != 1 {
+		t.Fatalf("deliveries = %d, installs = %d; a changed assignment must reinstall the unit", deliveries, installs)
 	}
 }

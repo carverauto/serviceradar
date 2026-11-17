@@ -72,6 +72,9 @@ type AttachManagerConfig struct {
 type AttachManager struct {
 	cfg     AttachManagerConfig
 	sidecar *Sidecar
+	// addon reaches netprobe's AddonService. Liveness still comes from the
+	// legacy IPC Ping; Health refines a live netprobe into running or degraded.
+	addon *AddonCommandClient
 
 	mu      sync.RWMutex
 	started bool
@@ -133,13 +136,16 @@ func (m *AttachManager) StartAttach(ctx context.Context) error {
 	m.status.State = sidecar.StateStarting
 	m.status.PID = 0
 	m.status.LastError = ""
-	m.wg.Add(1)
-	go m.healthLoop(m.ctx)
 
 	// The command client rides the same socket the telemetry pump uses. Wired
 	// here rather than at construction because this is where the runtime dir and
-	// sidecar name are both known, so the two cannot drift apart.
-	m.sidecar.SetAddonCommandClient(NewAddonCommandClient(AttachAddonSocketPath(m.cfg.RuntimeDir, name)))
+	// sidecar name are both known, so the two cannot drift apart. Set before the
+	// health loop starts, which reads it.
+	m.addon = NewAddonCommandClient(AttachAddonSocketPath(m.cfg.RuntimeDir, name))
+	m.sidecar.SetAddonCommandClient(m.addon)
+
+	m.wg.Add(1)
+	go m.healthLoop(m.ctx)
 
 	if m.cfg.AddonTelemetrySink != nil {
 		pump, err := NewAddonPump(AddonPumpConfig{
@@ -260,7 +266,7 @@ func (m *AttachManager) probeHealth(ctx context.Context, client sidecar.Client, 
 		// Mark the sidecar healthy before flipping status to StateRunning so any
 		// observer that sees StateRunning is guaranteed to also see Healthy().
 		m.sidecar.OnHealthy(client)
-		m.setHealthy()
+		m.setHealthy(m.addonHealth(ctx))
 		return client
 	}
 
@@ -280,14 +286,55 @@ func (m *AttachManager) probeHealth(ctx context.Context, client sidecar.Client, 
 	return nil
 }
 
-func (m *AttachManager) setHealthy() {
+// addonHealthTimeout bounds the AddonService Health call so a wedged add-on
+// server cannot stall the liveness loop past its own interval.
+const addonHealthTimeout = 2 * time.Second
+
+// addonHealth asks a live netprobe whether it is degraded, and returns the
+// reason when it is. netprobe answers DEGRADED when, for example, a configured
+// capture interface does not exist on this host: it keeps running flow
+// attribution, so the add-on is up but the operator has something to fix.
+//
+// An unavailable AddonService returns "": an older netprobe does not serve it,
+// and the Ping that just succeeded already established that netprobe is up.
+func (m *AttachManager) addonHealth(ctx context.Context) string {
+	if m.addon == nil {
+		return ""
+	}
+
+	healthCtx, cancel := context.WithTimeout(ctx, addonHealthTimeout)
+	defer cancel()
+
+	health, err := m.addon.Health(healthCtx)
+	if err != nil {
+		m.cfg.Logger.Debug().Err(err).Msg("netprobe AddonService health unavailable; reporting liveness only")
+		return ""
+	}
+
+	status := health.GetStatus()
+	if status != addonpb.HealthResponse_STATUS_DEGRADED && status != addonpb.HealthResponse_STATUS_UNHEALTHY {
+		return ""
+	}
+	if reason := strings.TrimSpace(health.GetDegradationReason()); reason != "" {
+		return reason
+	}
+
+	return "netprobe reported " + status.String() + " without a reason"
+}
+
+// setHealthy records a live netprobe: running, or degraded with the reason
+// netprobe gave.
+func (m *AttachManager) setHealthy(degradation string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.status.State = sidecar.StateRunning
+	if degradation != "" {
+		m.status.State = sidecar.StateDegraded
+	}
 	m.status.PID = 0
 	m.status.LastHealthAt = time.Now().UTC()
-	m.status.LastError = ""
+	m.status.LastError = degradation
 }
 
 func (m *AttachManager) setUnhealthy(err error) {

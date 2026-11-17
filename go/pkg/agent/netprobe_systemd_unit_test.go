@@ -86,6 +86,7 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		t.Fatalf("installed unit missing: %v", err)
 	}
 	directives := systemdDirectiveValues(installed)
+	assertNetprobeRestartsAreBounded(t, installed, directives)
 
 	if got := directives["Group"]; len(got) != 1 || got[0] != "serviceradar" {
 		t.Fatalf("Group = %v, want serviceradar", got)
@@ -149,6 +150,10 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 }
 
 func systemdDirectiveValues(unit []byte) map[string][]string {
+	return systemdSectionDirectiveValues(unit, "[Service]")
+}
+
+func systemdSectionDirectiveValues(unit []byte, wantSection string) map[string][]string {
 	out := map[string][]string{}
 	section := ""
 	for _, raw := range strings.Split(joinSystemdContinuations(string(unit)), "\n") {
@@ -157,7 +162,7 @@ func systemdDirectiveValues(unit []byte) map[string][]string {
 			section = line
 			continue
 		}
-		if section != "[Service]" || line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+		if section != wantSection || line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
@@ -294,5 +299,34 @@ func TestHostComponentSystemdUnitsShareSliceWithoutAgentParentage(t *testing.T) 
 				t.Fatalf("%s unit must not make privileged add-ons process children/dependents of serviceradar-agent.service via %q", name, strings.TrimSpace(forbidden))
 			}
 		}
+	}
+}
+
+// assertNetprobeRestartsAreBounded checks that the start limit can actually
+// trip at the unit's restart delay. systemd's default (5 starts in 10 s) never
+// trips at RestartSec=5, which let a deterministic startup failure restart
+// netprobe forever.
+func assertNetprobeRestartsAreBounded(t *testing.T, unit []byte, service map[string][]string) {
+	t.Helper()
+
+	unitSection := systemdSectionDirectiveValues(unit, "[Unit]")
+	seconds := func(values []string, name string) int {
+		t.Helper()
+		if len(values) == 0 {
+			t.Fatalf("netprobe unit does not set %s", name)
+		}
+		parsed, err := strconv.Atoi(values[len(values)-1])
+		if err != nil {
+			t.Fatalf("%s = %q, want whole seconds", name, values[len(values)-1])
+		}
+		return parsed
+	}
+
+	burst := seconds(unitSection["StartLimitBurst"], "StartLimitBurst")
+	interval := seconds(unitSection["StartLimitIntervalSec"], "StartLimitIntervalSec")
+	restartDelay := seconds(service["RestartSec"], "RestartSec")
+	if burst*restartDelay >= interval {
+		t.Fatalf("StartLimitBurst=%d at RestartSec=%d never fills StartLimitIntervalSec=%d; restarts are unbounded",
+			burst, restartDelay, interval)
 	}
 }

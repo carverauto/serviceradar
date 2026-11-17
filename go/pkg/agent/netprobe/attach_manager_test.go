@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	"github.com/rs/zerolog"
 )
 
@@ -270,5 +272,64 @@ func TestAddonSocketIsASiblingOfTheIPCSocket(t *testing.T) {
 	}
 	if filepath.Dir(addon) != filepath.Dir(ipc) {
 		t.Fatalf("addon socket %q is not a sibling of IPC socket %q", addon, ipc)
+	}
+}
+
+// fakeAddonHealthServer answers AddonService Health with whatever the test has
+// stored, so one test can walk netprobe from degraded back to healthy.
+type fakeAddonHealthServer struct {
+	addonpb.UnimplementedAddonServiceServer
+
+	response atomic.Pointer[addonpb.HealthResponse]
+}
+
+func (f *fakeAddonHealthServer) Health(context.Context, *addonpb.HealthRequest) (*addonpb.HealthResponse, error) {
+	return f.response.Load(), nil
+}
+
+func TestAttachManagerReportsAddonServiceDegradation(t *testing.T) {
+	// os.MkdirTemp, not t.TempDir: the addon socket path must stay under the
+	// unix socket length cap, which macOS t.TempDir paths exceed.
+	dir, err := os.MkdirTemp("", "np")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	sc := NewSidecar(SidecarConfig{Logger: zerolog.Nop()})
+	mgr := newTestAttachManager(t, dir, sc, sidecar.ClientFactory(func(context.Context, string) (sidecar.Client, error) {
+		return attachFakeClient{}, nil
+	}))
+
+	const reason = "capture interface eth-test0 not present on this host (available: br-test0)"
+	health := &fakeAddonHealthServer{}
+	health.response.Store(&addonpb.HealthResponse{
+		Status:            addonpb.HealthResponse_STATUS_DEGRADED,
+		DegradationReason: reason,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := mgr.StartAttach(ctx); err != nil {
+		t.Fatalf("StartAttach() error = %v", err)
+	}
+	serveAddonAt(t, AttachAddonSocketPath(mgr.cfg.RuntimeDir, sc.Name()), health)
+
+	waitForAttachStatus(t, mgr, func(status sidecar.Status) bool {
+		return status.State == sidecar.StateDegraded && status.LastError == reason
+	})
+	if !sc.Healthy() {
+		t.Fatal("a degraded netprobe is still running and must stay marked healthy")
+	}
+
+	health.response.Store(&addonpb.HealthResponse{Status: addonpb.HealthResponse_STATUS_HEALTHY})
+	waitForAttachStatus(t, mgr, func(status sidecar.Status) bool {
+		return status.State == sidecar.StateRunning && status.LastError == ""
+	})
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stopCancel()
+	if err := mgr.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop() error = %v", err)
 	}
 }

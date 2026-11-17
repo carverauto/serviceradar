@@ -36,9 +36,12 @@ type ClientFactory func(ctx context.Context, socketPath string) (Client, error)
 type State string
 
 const (
-	StateStopped     State = "stopped"
-	StateStarting    State = "starting"
-	StateRunning     State = "running"
+	StateStopped  State = "stopped"
+	StateStarting State = "starting"
+	StateRunning  State = "running"
+	// StateDegraded is a running sidecar that reported something the operator
+	// must act on, such as a configured capture interface absent on its host.
+	StateDegraded    State = "degraded"
 	StateUnhealthy   State = "unhealthy"
 	StateRestarting  State = "restarting"
 	StateCircuitOpen State = "circuit_open"

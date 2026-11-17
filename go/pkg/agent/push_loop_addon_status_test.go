@@ -574,3 +574,70 @@ func TestSystemdAddonUnitStatusPreservesBackingServiceFailure(t *testing.T) {
 		t.Fatalf("inactive oneshot service made healthy timer unhealthy: %#v", idle)
 	}
 }
+
+func TestParseSystemdUnitStatusOutputReportsStartLimitAsCircuitOpen(t *testing.T) {
+	got := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-netprobe.service",
+		"ActiveState=failed\nResult=start-limit-hit\nExecMainStatus=1\nNRestarts=5\n",
+	)
+	if got.state != agentaddon.StateCircuitOpen {
+		t.Fatalf("state = %q, want %q once systemd stopped restarting", got.state, agentaddon.StateCircuitOpen)
+	}
+	if !strings.Contains(got.lastError, "start limit") || !strings.Contains(got.lastError, "status=1") {
+		t.Fatalf("lastError = %q, want the start-limit stop and the last exit status", got.lastError)
+	}
+	if got.restartCount != 5 {
+		t.Fatalf("restartCount = %d, want 5", got.restartCount)
+	}
+}
+
+// When netprobe's process is down, the agent's failed IPC dial is a symptom.
+// The unit state says why, and is what the operator needs to see.
+func TestNetprobeAddonStatusReportsTheUnitWhenTheProcessIsDown(t *testing.T) {
+	pl := newNetprobeStatusPushLoop(t, true)
+	root := stageNetprobeCurrent(t, "1.2.5")
+	sidecars := []*proto.SidecarStatus{{
+		Name:      "netprobe",
+		State:     string(sidecar.StateUnhealthy),
+		LastError: "dial netprobe socket: connect: no such file or directory",
+	}}
+	stubSystemdUnitStatus(t, pl, func(string) systemdUnitStatus {
+		return systemdUnitStatus{
+			state:        agentaddon.StateCircuitOpen,
+			restartCount: 5,
+			lastError:    "systemd stopped restarting the unit after hitting its start limit: status=1",
+		}
+	})
+
+	got := pl.netprobeAddonStatus(root, sidecars)
+	if got.GetState() != string(agentaddon.StateCircuitOpen) {
+		t.Fatalf("state = %q, want %q", got.GetState(), agentaddon.StateCircuitOpen)
+	}
+	if !strings.Contains(got.GetLastError(), "start limit") {
+		t.Fatalf("last_error = %q, want the unit's failure rather than the IPC dial error", got.GetLastError())
+	}
+}
+
+// A degraded netprobe is running; the IPC state, with its reason, wins over a
+// unit that is merely active.
+func TestNetprobeAddonStatusCarriesDegradation(t *testing.T) {
+	pl := newNetprobeStatusPushLoop(t, true)
+	root := stageNetprobeCurrent(t, "1.2.6")
+	const reason = "capture interface eth-test0 not present on this host (available: br-test0)"
+	sidecars := []*proto.SidecarStatus{{
+		Name:      "netprobe",
+		State:     string(sidecar.StateDegraded),
+		LastError: reason,
+	}}
+	stubSystemdUnitStatus(t, pl, func(string) systemdUnitStatus {
+		return systemdUnitStatus{state: agentaddon.StateRunning, pid: 2468}
+	})
+
+	got := pl.netprobeAddonStatus(root, sidecars)
+	if got.GetState() != string(agentaddon.StateDegraded) || got.GetLastError() != reason {
+		t.Fatalf("status = %q / %q, want degraded with the netprobe reason", got.GetState(), got.GetLastError())
+	}
+	if !hasHealthyNetprobeSidecar(sidecars) {
+		t.Fatal("a degraded netprobe is running and must keep its capabilities")
+	}
+}

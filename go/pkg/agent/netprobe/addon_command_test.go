@@ -57,6 +57,15 @@ func serveFakeAddon(t *testing.T, server *fakeAddonCommandServer) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	path := filepath.Join(dir, "addon.sock")
+	serveAddonAt(t, path, server)
+
+	return path
+}
+
+// serveAddonAt starts an AddonService on the unix socket at path.
+func serveAddonAt(t *testing.T, path string, server addonpb.AddonServiceServer) {
+	t.Helper()
+
 	var listenConfig net.ListenConfig
 	listener, err := listenConfig.Listen(context.Background(), "unix", path)
 	require.NoError(t, err)
@@ -66,8 +75,6 @@ func serveFakeAddon(t *testing.T, server *fakeAddonCommandServer) string {
 
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(grpcServer.Stop)
-
-	return path
 }
 
 func okResponse(payload string) func(*addonpb.RunCommandRequest) *addonpb.RunCommandResponse {

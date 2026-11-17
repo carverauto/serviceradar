@@ -117,6 +117,18 @@ func (c *AddonCommandClient) client() (addonpb.AddonServiceClient, error) {
 	return addonpb.NewAddonServiceClient(c.conn), nil
 }
 
+// Health asks netprobe's AddonService how it is running. It returns
+// ErrAddonCommandUnavailable when the socket is absent, which is the normal
+// state for a netprobe that predates the contract.
+func (c *AddonCommandClient) Health(ctx context.Context) (*addonpb.HealthResponse, error) {
+	client, err := c.client()
+	if err != nil {
+		return nil, err
+	}
+
+	return client.Health(ctx, &addonpb.HealthRequest{})
+}
+
 // MatchBanners runs corpus matching over the generic command contract.
 //
 // The returned batch is deliberately shaped like the IPC arm's response so the

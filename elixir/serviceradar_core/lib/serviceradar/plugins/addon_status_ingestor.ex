@@ -91,7 +91,9 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestor do
         agent_uid: agent_uid,
         addon_id: addon_id,
         state: state,
-        active: state == "running",
+        # Degraded is a running add-on that reported something to fix, such as
+        # a configured capture interface absent on its host.
+        active: state in ["running", "degraded"],
         degradation_reason:
           bounded_error(
             Map.get(sidecar, "last_error") || Map.get(sidecar, "lastError"),
