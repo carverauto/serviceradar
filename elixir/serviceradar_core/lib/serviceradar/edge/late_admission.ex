@@ -23,8 +23,9 @@ defmodule ServiceRadar.Edge.LateAdmission do
   `contract_retired`. Core never refuses a verified record outright. It issues no grant only for a
   record naming an interval that ended `certificate_revoked` or `revoked_cause_unknown`, whoever
   presents it (`:certificate_revoked_interval`: the gateway quarantines it from its trust
-  snapshot), and, for now, for a record whose `produced_at` is still in core's future
-  (`:not_yet`: it waits in the late generation and is judged once core's clock catches up).
+  snapshot), and, for now, for any other record whose `produced_at` is still in core's future
+  (`:not_yet`: it waits in the late generation and is judged once core's clock catches up). A
+  future `produced_at` does not suppress the terminal-interval refusal, which is checked first.
 
   `produced_at` is the UUIDv7 time of `event_id`, which the record's signed production window
   already binds. A grant is an `EdgeDeliveryClaimsV1` late-admission transition, signed for the
@@ -151,11 +152,11 @@ defmodule ServiceRadar.Edge.LateAdmission do
       Map.get(context.intervals, {item.producer_assignment_id, item.authority_epoch}, [])
 
     cond do
-      DateTime.to_unix(produced_at, :nanosecond) - tolerance > DateTime.to_unix(now, :nanosecond) ->
-        {:refuse, :not_yet}
-
       Enum.any?(intervals, &(&1.ended_reason in @terminal_reasons)) ->
         {:refuse, :certificate_revoked_interval}
+
+      DateTime.to_unix(produced_at, :nanosecond) - tolerance > DateTime.to_unix(now, :nanosecond) ->
+        {:refuse, :not_yet}
 
       true ->
         case history(item, agent_id, intervals, produced_at, tolerance) do

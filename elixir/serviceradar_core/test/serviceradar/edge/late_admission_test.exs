@@ -143,6 +143,10 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
     future = DateTime.shift(@now, minute: 10)
     assert decide(item(future), context([interval(1, nil)])) == {:refuse, :not_yet}
 
+    # A future production time does not suppress the terminal-interval refusal.
+    assert decide(item(future), context([interval(10, 1, "certificate_revoked")])) ==
+             {:refuse, :certificate_revoked_interval}
+
     # Within the clock tolerance it is judged normally.
     near = DateTime.shift(@now, minute: 4)
     assert decide(item(near), context([interval(1, nil)])) == {:grant, :primary, :admitted}
