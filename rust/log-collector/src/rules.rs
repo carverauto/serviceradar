@@ -41,11 +41,14 @@ pub async fn follow<C: Connector>(connector: C, rules: Arc<ActiveRules>) {
     let mut reported = rules.status();
     let mut retry = FIRST_RETRY;
     loop {
-        let mut fetched = false;
-        let problem = session(&connector, &key, &rules, &mut reported, &mut fetched).await;
+        let connected = tokio::time::Instant::now();
+        let problem = session(&connector, &key, &rules, &mut reported).await;
         rules.report_unavailable(problem);
         report(&rules, &mut reported);
-        if fetched {
+        // Only a connection that lasted counts as recovered. One that fetched
+        // and then lost its watch at once would otherwise be retried every
+        // second for as long as the watch keeps failing.
+        if connected.elapsed() >= LONGEST_RETRY {
             retry = FIRST_RETRY;
         }
         tokio::time::sleep(retry).await;
@@ -59,7 +62,6 @@ async fn session<C: Connector>(
     key: &str,
     rules: &ActiveRules,
     reported: &mut RulesStatus,
-    fetched: &mut bool,
 ) -> String {
     let mut session = match bounded("connect to datasvc", connector.connect()).await {
         Ok(session) => session,
@@ -69,7 +71,6 @@ async fn session<C: Connector>(
         Ok(value) => offer(rules, key, value.as_deref().unwrap_or_default()),
         Err(problem) => return problem,
     }
-    *fetched = true;
     report(rules, reported);
     if let Err(problem) = bounded("watch the rule bundle", session.watch(key)).await {
         return problem;
@@ -207,6 +208,7 @@ mod tests {
     struct Store {
         stored: Option<Vec<u8>>,
         refuse_connections: usize,
+        end_watches_at_once: bool,
         connects: Vec<Instant>,
         fetched_keys: Vec<String>,
         watch: Option<mpsc::UnboundedSender<Vec<u8>>>,
@@ -258,7 +260,8 @@ mod tests {
 
         async fn watch(&mut self, _key: &str) -> Result<(), String> {
             let (sender, receiver) = mpsc::unbounded_channel();
-            self.store.store().watch = Some(sender);
+            let mut store = self.store.store();
+            store.watch = (!store.end_watches_at_once).then_some(sender);
             self.updates = Some(receiver);
             Ok(())
         }
@@ -392,6 +395,28 @@ mod tests {
 
         status(&rules, |status| *status == current(NO_RULES)).await;
         assert_eq!(store.store().connects.len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_store_whose_watch_keeps_ending_is_not_retried_every_second() {
+        let store = Fake::default();
+        {
+            let mut store = store.store();
+            store.stored = Some(two_rules());
+            store.end_watches_at_once = true;
+        }
+        let rules = start(&store);
+
+        while store.store().connects.len() < 8 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let connects = store.store().connects.clone();
+        let waits: Vec<u64> = connects
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).as_secs())
+            .collect();
+        assert_eq!(waits, [1, 2, 4, 8, 16, 30, 30]);
+        assert_eq!(rules.current().unwrap().digest, TWO_RULES);
     }
 
     #[tokio::test(start_paused = true)]
