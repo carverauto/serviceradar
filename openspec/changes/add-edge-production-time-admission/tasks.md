@@ -152,7 +152,14 @@ Status: implemented in PR #6692 except where a task says otherwise.
         cap; see design Decision 4, "Bounding the terminal-interval list"),
         and the gateway's `EdgeRecordTrust` parses them (Go `TrustSnapshot`
         already did in phase 1).
-  - [ ] 2.6b The `LATE_ADMISSION` delivery mode in Go and Elixir together.
+  - [x] 2.6b The `LATE_ADMISSION` delivery mode in Go and Elixir together:
+        `DeliveryModeLateAdmission = 5` in grammar-8 transport provenance, its
+        delivery proof only over an `EdgeDeliveryLateAdmissionV1` grant (and
+        no other mode over one), with shared Go-cut vectors
+        (`delivery_late_admission_cap.bin`,
+        `transport_provenance_late_admission.txt`) checked by both runtimes.
+        No gateway emits it yet: the publisher still requires mode 4 on the
+        audit route, which 2.6c and 2.7 change together.
   - [ ] 2.6c Late sessions, late-grant verification, quarantine ordering,
         `LATE_ADMISSION_REQUIRED`, and the advertisement code held at 0.
 
