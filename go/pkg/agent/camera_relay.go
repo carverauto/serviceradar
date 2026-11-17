@@ -80,11 +80,14 @@ type cameraRelayStartPayload struct {
 	StreamProfileID    string `json:"stream_profile_id"`
 	LeaseToken         string `json:"lease_token"`
 	PluginAssignmentID string `json:"plugin_assignment_id,omitempty"`
-	SourceURL          string `json:"source_url,omitempty"`
-	RTSPTransport      string `json:"rtsp_transport,omitempty"`
-	CodecHint          string `json:"codec_hint,omitempty"`
-	ContainerHint      string `json:"container_hint,omitempty"`
-	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	// SourceResolver replaces SourceURL: the agent derives the address itself.
+	// SourceURL is still accepted from a Core that predates the resolver.
+	SourceResolver     *cameraRelaySourceResolver `json:"source_resolver,omitempty"`
+	SourceURL          string                     `json:"source_url,omitempty"`
+	RTSPTransport      string                     `json:"rtsp_transport,omitempty"`
+	CodecHint          string                     `json:"codec_hint,omitempty"`
+	ContainerHint      string                     `json:"container_hint,omitempty"`
+	InsecureSkipVerify bool                       `json:"insecure_skip_verify,omitempty"`
 }
 
 type cameraRelayStopPayload struct {
@@ -102,6 +105,7 @@ type cameraRelaySessionSpec struct {
 	StreamProfileID    string
 	LeaseToken         string
 	PluginAssignmentID string
+	SourceResolver     *cameraRelaySourceResolver
 	SourceURL          string
 	RTSPTransport      string
 	CodecHint          string
@@ -169,6 +173,7 @@ type cameraRelayManager struct {
 	gateway             cameraRelayGateway
 	sourceFactory       cameraRelaySourceFactory
 	pluginSourceFactory func(context.Context, cameraRelaySessionSpec) (cameraRelayChunkStream, error)
+	sourceResolver      func(context.Context, cameraRelaySourceResolver) (string, error)
 	logger              logger.Logger
 	uploadBatchSize     int
 }
@@ -577,6 +582,10 @@ func (m *cameraRelayManager) openSource(ctx context.Context, spec cameraRelaySes
 		return nil, err
 	}
 
+	if spec.SourceResolver != nil {
+		return m.openResolvedSource(ctx, spec)
+	}
+
 	if strings.TrimSpace(spec.PluginAssignmentID) != "" {
 		if m == nil || m.pluginSourceFactory == nil {
 			return nil, errCameraRelayPluginUnavailable
@@ -590,6 +599,28 @@ func (m *cameraRelayManager) openSource(ctx context.Context, spec cameraRelaySes
 	return m.sourceFactory(spec)
 }
 
+// openResolvedSource derives the stream address and hands it to the native
+// reader. The address lives only in this call's copy of the spec: the session
+// spec, which is logged and reported, never holds it.
+func (m *cameraRelayManager) openResolvedSource(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+	if m == nil || m.sourceResolver == nil || m.sourceFactory == nil {
+		return nil, errCameraRelaySourceResolverUnavailable
+	}
+
+	resolver, err := normalizeCameraRelaySourceResolver(*spec.SourceResolver)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceURL, err := m.sourceResolver(ctx, resolver)
+	if err != nil {
+		return nil, err
+	}
+
+	spec.SourceURL = sourceURL
+	return m.sourceFactory(spec)
+}
+
 func normalizeCameraRelaySpec(spec cameraRelaySessionSpec) (cameraRelaySessionSpec, error) {
 	spec.RelaySessionID = strings.TrimSpace(spec.RelaySessionID)
 	spec.MediaIngestID = strings.TrimSpace(spec.MediaIngestID)
@@ -600,6 +631,10 @@ func normalizeCameraRelaySpec(spec cameraRelaySessionSpec) (cameraRelaySessionSp
 	spec.LeaseToken = strings.TrimSpace(spec.LeaseToken)
 	spec.PluginAssignmentID = strings.TrimSpace(spec.PluginAssignmentID)
 	spec.SourceURL = strings.TrimSpace(spec.SourceURL)
+	if spec.SourceResolver != nil {
+		// A command that names a resolver never opens a stored address.
+		spec.SourceURL = ""
+	}
 	spec.RTSPTransport = strings.TrimSpace(spec.RTSPTransport)
 	spec.CodecHint = strings.TrimSpace(spec.CodecHint)
 	spec.ContainerHint = strings.TrimSpace(spec.ContainerHint)

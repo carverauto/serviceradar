@@ -62,6 +62,10 @@ const (
 	// with grant scope only, and the agent resolves them by assignment and
 	// binding id; core issues the grant at use.
 	credentialBrokerResolveByBindingCapability = "credential_broker_resolve_by_binding"
+	// cameraSourceResolutionCapability: camera.open_relay may carry
+	// source_resolver instead of source_url, and this agent derives the
+	// stream address from the discovering plugin assignment.
+	cameraSourceResolutionCapability = "camera_source_resolution"
 	// capabilityConfigPushChunks: this agent reassembles a control-stream config
 	// push sent as AgentConfigChunks, so the gateway can push configs larger than
 	// one gRPC message.
@@ -618,6 +622,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
 		credentialBrokerResolveByBindingCapability,
+		cameraSourceResolutionCapability,
 		// grpc_request: the Wasm runtime provides the grpc_unary host
 		// function, so core can admit packages that declare it.
 		pluginCapabilityGRPCRequest,

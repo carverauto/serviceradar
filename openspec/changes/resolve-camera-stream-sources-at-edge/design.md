@@ -116,11 +116,19 @@ The open flow:
 
 1. Core sends `source_resolver = {plugin_assignment_id, vendor_camera_id,
    vendor_profile_id}` and no `source_url`.
-2. The agent calls the assignment's plugin on demand. It uses the existing
-   on-demand execution path (`PluginManager.RunPluginVerbForAssignment`,
-   `plugin_runtime_manager.go:1391`), with the assignment's own params and
-   standing grants, and a request document
-   `serviceradar.camera_source_resolution_request.v1`.
+2. The agent calls the assignment's plugin on demand, through the same
+   in-memory execution path as `PluginManager.RunPluginVerbForAssignment`
+   (`runAssignmentOnDemand`). That path takes its config from the caller, so
+   the resolver passes the assignment's own `params` (task 2.0): Core
+   materializes the credential into them when it generates the config, which
+   is how a scheduled run authenticates, and the agent adds no broker grant.
+   The request document `serviceradar.camera_source_resolution_request.v1`
+   (`{schema, vendor_camera_id, vendor_profile_id}`) is delivered as the
+   host-owned config key `_serviceradar_camera_source_resolution_request` at
+   the top level of those params, the same kind of key as D8. The plugin's
+   ordinary entrypoint checks for the key first; a plugin that predates it
+   runs its inventory instead, and the agent reports
+   `source_resolver_unsupported`.
 3. The plugin returns `serviceradar.camera_source_resolution.v1`
    (`{url}` or `{failure_class, failure_detail}`). `url` is the only channel
    for the address and any credential; it may carry userinfo. The agent captures
@@ -248,13 +256,18 @@ operator as sentences:
     capability.
   - `source_resolver_missing`: the source has no `discovery_assignment_id`.
 - Agent:
-  - `source_resolver_unavailable`: the assignment is not loaded on the agent.
+  - `source_resolver_unavailable`: the assignment is not loaded on the agent,
+    admission denied the run, or its Wasm module could not be loaded.
   - `source_resolver_unsupported`: the plugin did not return a resolution
     document, for example an old plugin version.
   - `source_not_found`: the camera or profile is unknown to the controller, or
     RTSP is disabled for it.
 - Controller errors reuse the existing classes (`authentication_failed`,
-  `connect_*`, `tls_*`, `dns_failure`).
+  `connect_*`, `tls_*`, `dns_failure`). The agent accepts only these and
+  `source_not_found` from a plugin; any other reported class becomes
+  `unknown`. A plugin run that exceeds the assignment timeout is
+  `response_timeout`. Reported detail goes through the same sanitizer as every
+  other relay failure.
 
 ### D6. Version skew
 
