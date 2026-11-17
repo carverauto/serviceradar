@@ -688,3 +688,66 @@ nats_batch_max_age_ms = 50
         );
     });
 }
+
+#[test]
+fn failing_output_still_publishes_its_open_batch() {
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut broker = Broker::start();
+        let js = broker.connect().await;
+        let stream = js
+            .create_stream(jetstream::stream::Config {
+                name: "SYNTHETIC_LOGS".into(),
+                subjects: vec!["logs.>".into()],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let config = Config::from_string(&format!(
+            r#"
+[output]
+nats_url = "{}"
+nats_stream = "SYNTHETIC_LOGS"
+nats_subject = "logs.synthetic"
+nats_timeout = 2000
+nats_connect_attempts = 5
+nats_connect_initial_backoff_ms = 10
+nats_connect_max_backoff_ms = 20
+nats_max_inflight_bytes = 128
+nats_batch_max_age_ms = 600000
+"#,
+            broker.url
+        ))
+        .unwrap();
+        let (tx, rx) = sync_channel(8);
+        let worker = NATSWorker {
+            cfg: NATSOutput::normalized(&config).cfg,
+            arx: Arc::new(Mutex::new(rx)),
+            merger: None,
+        };
+
+        // "a" waits in the open batch; the oversized record then fails the
+        // output long before the batch's age would publish it.
+        tx.send(frame::encode("sha256:one", b"a").unwrap()).unwrap();
+        tx.send(frame::encode("sha256:one", &[b'x'; 200]).unwrap())
+            .unwrap();
+        drop(tx);
+        let error = timeout(Duration::from_secs(5), worker.run())
+            .await
+            .expect("a failing publisher must exit within its drain")
+            .unwrap_err();
+        assert!(
+            error.contains("exceeding output.nats_max_inflight_bytes=128"),
+            "{error}"
+        );
+
+        let mut stream = stream.clone();
+        assert_eq!(stream.info().await.unwrap().state.messages, 1);
+        let message = stream.get_raw_message(1).await.unwrap();
+        assert_eq!(message.subject.as_str(), "logs.normalized.synthetic");
+        assert_eq!(message.payload.as_ref(), b"a");
+    });
+}

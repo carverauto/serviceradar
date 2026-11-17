@@ -894,10 +894,10 @@ impl NATSWorker {
                 });
                 continue;
             }
-            // The source has closed, so no record will complete the open batch.
-            if closed
+            // The source has closed or the output is failing, so no record
+            // will complete the open batch.
+            if (closed || fatal.is_some())
                 && staged.is_none()
-                && fatal.is_none()
                 && let Some(batch) = batcher.as_mut().and_then(Batcher::flush)
             {
                 staged = Some(batch.into());
