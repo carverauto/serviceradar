@@ -48,30 +48,32 @@ Any other report SHALL change nothing.
 - **AND** the gateway SHALL forward none
 - **AND** the slot SHALL behave exactly as before this change
 
-### Requirement: Core re-runs an interrupted slot's unreported hosts in one catch-up slot
-For each slot with `interrupted_at` that passes the catch-up bounds, the lease pass SHALL mint exactly one catch-up slot that re-runs the parent's unreported hosts.
+### Requirement: Core re-runs an interrupted slot's plan in one catch-up slot
+For each slot with `interrupted_at` that passes the catch-up bounds, the lease pass SHALL mint exactly one non-dropped catch-up slot that re-runs the parent's full plan.
 
 The catch-up slot SHALL have:
 
-- a new `execution_id` and a new plan;
+- a new `execution_id` and a new plan id;
 - `catch_up_of` set to the parent slot's id;
 - the parent's assignment, network scope, `authority_epoch`, `lease_id` and `check_set_sha256`;
 - a `slot_start` later than the mint time, so the next lease push still carries it as unrun;
 - the parent's `collection_expires`.
 
-Its plan SHALL target exactly the parent plan's addresses that have no `SweepHostResult` under the parent `execution_id`. Core SHALL express them as the exact CIDR cover: no address outside that set, and none left out. Core SHALL compute it without enumerating a plan range's addresses.
+Its plan SHALL carry the same range CIDR list as the parent and as every other slot of the lease, so the existing production-capability signing, which binds one range list per lease push, applies unchanged. Core SHALL mint a catch-up only when at least one of the parent plan's addresses has no `SweepHostResult` under the parent `execution_id`.
 
-Core SHALL deliver the catch-up through the existing lease push. Its results SHALL project as an ordinary execution whose `hosts_total` is the catch-up plan's target count, under the unchanged projection fencing. Each result SHALL carry its own observation time.
+Core SHALL deliver the catch-up through the existing lease push. Its results SHALL project as an ordinary execution whose `hosts_total` is the plan's target count, under the unchanged projection fencing. Each result SHALL carry its own observation time. A host that already reported in the parent SHALL be probed again, and its newest observation SHALL win.
 
-#### Scenario: Partial parent re-runs only the missing hosts
+#### Scenario: Partial parent re-runs its full plan
 - **GIVEN** an interrupted parent whose plan is `192.0.2.0/24`
 - **AND** the parent execution has results for `192.0.2.0` through
   `192.0.2.95`
 - **WHEN** the lease pass mints its catch-up
-- **THEN** the catch-up plan SHALL hold exactly `192.0.2.96/27` and
-  `192.0.2.128/25`, 160 targets
-- **AND** the catch-up SHALL carry a new `execution_id`, with `catch_up_of`
-  naming the parent
+- **THEN** the catch-up plan SHALL hold `192.0.2.0/24`, 256 targets, the
+  same CIDR list as the lease's other slots
+- **AND** the catch-up SHALL carry a new `execution_id` and plan id, with
+  `catch_up_of` naming the parent
+- **AND** the lease push carrying it with the next scheduled slot SHALL be
+  signed as one production scope
 
 #### Scenario: Parent with no committed result re-runs its whole plan
 - **GIVEN** an interrupted parent with no `SweepHostResult`
@@ -104,28 +106,30 @@ Core SHALL deliver the catch-up through the existing lease push. Its results SHA
 Core SHALL mint a catch-up only when every one of the following holds, and SHALL otherwise mint none:
 
 - The parent has `interrupted_at`, is `scheduled`, and is not itself a catch-up.
-- No catch-up already names the parent.
+- No non-dropped catch-up already names the parent.
 - The parent execution, if any, is not `cancelled`.
 - The assignment is active, and its current epoch and lease id equal the parent's.
 - The agent's current check set for the group equals the parent's.
 - The group's planned CIDRs equal the parent plan's CIDRs.
-- There is at least one unreported target, and the cover fits a plan.
+- At least one of the parent plan's addresses has no `SweepHostResult` under the parent execution.
 - The estimated scan time fits before the parent's `collection_expires`.
 
-The scan time estimate SHALL be the unreported target count times a pace. The pace SHALL be the `duration_ms` divided by `hosts_total` of the most recent completed execution of the same group by the same agent. With no such execution, the pace SHALL be the parent window's length divided by the parent plan's `total_target_count`. Core SHALL NOT use a fixed cutoff.
+The scan time estimate SHALL be the parent plan's `total_target_count` times a pace. The pace SHALL be the `duration_ms` divided by `hosts_total` of the most recent completed execution of the same group by the same agent. With no such execution, the pace SHALL be the parent window's length divided by the parent plan's `total_target_count`. Core SHALL NOT use a fixed cutoff.
 
 A catch-up SHALL never be the parent of another catch-up. A catch-up that runs past its window SHALL end like any slot cut off by its window.
 
 #### Scenario: Next slot too close
 - **GIVEN** the last completed execution scanned 1,000 hosts in 20 minutes
-- **AND** an interrupted parent with 400 unreported targets and 5 minutes of
-  window left at minting
+- **AND** an interrupted parent whose plan has 1,000 targets, 400 of them
+  unreported, with 15 minutes of window left at minting
 - **WHEN** the lease pass runs
-- **THEN** core SHALL mint no catch-up, because 8 minutes does not fit
+- **THEN** core SHALL mint no catch-up, because the 20-minute estimate for
+  the full plan does not fit
 
 #### Scenario: Catch-up fits
 - **GIVEN** the same pace
-- **AND** 27 minutes of the parent window left at minting
+- **AND** a 1,000-target parent plan with 27 minutes of the parent window
+  left at minting
 - **WHEN** the lease pass runs
 - **THEN** core SHALL mint the catch-up
 
@@ -146,9 +150,10 @@ A catch-up SHALL never be the parent of another catch-up. A catch-up that runs p
 - **WHEN** the lease pass runs
 - **THEN** core SHALL mint no catch-up
 
-#### Scenario: At most one catch-up per parent
+#### Scenario: At most one non-dropped catch-up per parent
 - **WHEN** two lease passes, or a pass and a retry, evaluate the same parent
-- **THEN** at most one slot SHALL have `catch_up_of` equal to that parent
+- **THEN** at most one slot that is not `dropped` SHALL have `catch_up_of`
+  equal to that parent
 
 ### Requirement: The lease pass keeps a catch-up slot only while its parent's plan is current
 The lease pass SHALL keep an unstarted catch-up slot only while it still satisfies all of these against its parent, and SHALL drop it otherwise:
@@ -158,7 +163,9 @@ The lease pass SHALL keep an unstarted catch-up slot only while it still satisfi
 - the agent's current check set;
 - the group's planned CIDRs equal the parent plan's CIDRs.
 
-The pass SHALL NOT drop a catch-up for falling off the schedule grid or for holding fewer CIDRs than the group. It SHALL NOT count a catch-up as a scheduled slot when it fills the horizon. Revoking the assignment, deleting or disabling the group, or making it ineligible SHALL drop an unstarted catch-up like any unrun slot. A catch-up that has started SHALL be fenced like any started slot. A catch-up that never commits SHALL be marked missed like any slot, and SHALL NOT reopen or change its parent.
+The pass SHALL NOT drop a catch-up for falling off the schedule grid. It SHALL NOT count a catch-up as a scheduled slot when it fills the horizon. Revoking the assignment, deleting or disabling the group, or making it ineligible SHALL drop an unstarted catch-up like any unrun slot. A catch-up that has started SHALL be fenced like any started slot.
+
+On each lease pass, a catch-up that has no `delivered_at` and whose `slot_start` has passed SHALL be dropped, and the pass SHALL then mint a new catch-up for the same parent if the catch-up bounds still hold. A delivered catch-up that never commits SHALL be marked missed like any slot, and SHALL NOT reopen or change its parent.
 
 #### Scenario: Unchanged group keeps the catch-up
 - **GIVEN** an unstarted catch-up whose parent plan matches the group's
@@ -180,8 +187,18 @@ The pass SHALL NOT drop a catch-up for falling off the schedule grid or for hold
 - **THEN** the catch-up SHALL be dropped with the assignment's other unrun
   slots
 
-#### Scenario: Catch-up never delivered
-- **GIVEN** a catch-up whose push failed
-- **WHEN** its window closes with no commit
-- **THEN** `LeaseMisses` SHALL mark it missed
-- **AND** core SHALL NOT mint another catch-up for the parent
+#### Scenario: Undelivered catch-up is re-minted
+- **GIVEN** a catch-up minted at 10:25 with `slot_start` 10:25:05 and
+  `collection_expires` 11:00, whose push failed because the agent was
+  disconnected
+- **AND** the agent reconnects at 10:26
+- **WHEN** the 10:30 lease pass runs and the plan still fits before 11:00
+- **THEN** the pass SHALL drop that catch-up
+- **AND** SHALL mint a new catch-up for the same parent, which the push
+  carries to the agent
+
+#### Scenario: Undelivered catch-up no longer fits
+- **GIVEN** an undelivered catch-up whose `slot_start` has passed
+- **WHEN** the lease pass runs and the plan no longer fits before the
+  parent's `collection_expires`
+- **THEN** the pass SHALL drop that catch-up and mint none

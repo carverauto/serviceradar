@@ -20,7 +20,7 @@ PR #6731 and #6736 made a cut-off scan spool every host window it completed and
 keep admission waits through the flush reserve, so what was scanned is not
 lost. An agent-side result journal was considered and rejected: it cannot
 recover hosts that were never scanned. What is missing is a prompt re-run of
-the hosts the slot never reported.
+the cut-off slot, so the hosts it never reported get a fresh result.
 
 ## What Changes
 
@@ -36,29 +36,37 @@ the hosts the slot never reported.
   assignment, at the assignment's current epoch and lease, in state
   `scheduled`, whose window is still open and which is not itself a catch-up.
   Re-sends change nothing.
-- **Core re-runs the unreported hosts in one catch-up slot.** The lease pass
-  mints a catch-up slot for each recorded interruption: a new execution id and
-  a new plan holding exactly the parent plan's addresses that have no
-  `SweepHostResult` in the parent execution, under the parent's check set and
-  the assignment's current epoch and lease id. Its collection window starts
-  after minting and ends at the parent's `collection_expires`, so it never
-  overlaps the next scheduled slot. Core delivers it through the existing full
-  lease push for an undelivered slot behind the cursor. `SweepLeaseV1` and
-  the batch identity do not change, and the agent runs it like any other slot.
-- **Bounds.** Core mints no catch-up when the estimated scan time of the
-  unreported hosts does not fit before the parent's window closes. The
-  estimate comes from the agent's last completed execution of the group, or
-  from the parent's window when there is none. Core also mints none when:
+- **Core re-runs the interrupted slot's plan in one catch-up slot.** When the
+  parent execution lacks a `SweepHostResult` for at least one planned address,
+  the lease pass mints a catch-up slot: a new execution id and a new plan id
+  over the parent's full plan, with the same CIDR list as the parent and every
+  other slot of the lease, under the parent's check set and the assignment's
+  current epoch and lease id. Because the ranges are unchanged, the
+  production-capability signing (one range list per lease push) is unchanged.
+  Hosts that already reported in the parent are probed again, which is
+  harmless. Its collection window starts after minting and ends at the
+  parent's `collection_expires`, so it never overlaps the next scheduled slot.
+  Core delivers it through the existing full lease push for an undelivered
+  slot behind the cursor. `SweepLeaseV1` and the batch identity do not change,
+  and the agent runs it like any other slot.
+- **Bounds.** Core mints no catch-up when the estimated scan time of the full
+  plan does not fit before the parent's window closes. The estimate comes from
+  the agent's last completed execution of the group, or from the parent's
+  window when there is none. Core also mints none when:
+  - every planned address of the parent already has a result;
   - the parent was refused, dropped or missed, or its execution was cancelled;
-  - the parent already has a catch-up, or is itself a catch-up;
+  - the parent already has a non-dropped catch-up, or is itself a catch-up;
   - the assignment's epoch, lease, check set or planned targets changed.
 
-  So each scheduled slot gets at most one extra execution, and catch-ups never
-  chain.
+  So each scheduled slot has at most one live extra execution, and catch-ups
+  never chain.
 - **Lease pass bookkeeping.** The pass keeps an unstarted catch-up slot only
   while its parent's plan is still the group's current plan for the agent, and
-  drops it otherwise. Revoking the assignment, or deleting or disabling the
-  group, drops it like any unrun slot.
+  drops it otherwise. A catch-up that was never delivered and whose
+  `slot_start` has passed is dropped and, if the bounds still hold, minted
+  again, so one failed push does not cost the re-run. Revoking the
+  assignment, or deleting or disabling the group, drops it like any unrun
+  slot.
 - **Mixed versions.** An agent without `sweep_lease_interruptions:v1` sends no
   report and gets no catch-up, which is today's behaviour. Gateways forward
   the report only from a session whose hello advertised the capability, and an
@@ -89,4 +97,5 @@ Out of scope:
   - A new catch-up planner module under `ServiceRadar.SweepJobs`.
   - One migration on `platform.sweep_execution_slots`.
 - No change to `SweepLeaseV1`, `SweepObservationBatchV1`, the batch coordinate,
-  `SweepProjection` fencing, `LeaseMisses`, or the availability resolver.
+  `LeaseCapabilities` production-capability signing, `SweepProjection`
+  fencing, `LeaseMisses`, or the availability resolver.

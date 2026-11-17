@@ -97,8 +97,8 @@ It is `unknown` for about one interval.
 
 Goals:
 
-- Re-run, promptly, exactly the hosts an agent restart kept a leased slot from
-  reporting, inside that slot's own window.
+- Re-run, promptly and inside that slot's own window, a leased slot that an
+  agent restart kept from reporting every planned host.
 - Keep core the authority over what runs: execution ids, plans, signatures and
   fencing stay core-minted.
 - Bound it so that a re-run never repeats without end, never overlaps the next
@@ -159,8 +159,8 @@ Alternatives considered:
 ### Decision 2: A catch-up is a new execution, not a continuation
 
 The re-run is a new slot with its own `execution_id`, plan and plan digest.
-It has the same assignment, epoch, lease id, network scope and check set as
-its parent. Every fencing check in `slot_matches/3` and `current_assignment/2`
+It has the same assignment, epoch, lease id, network scope, check set and
+ranges as its parent. Every fencing check in `slot_matches/3` and `current_assignment/2`
 then applies unchanged, and the projection, batch coordinates and completion
 counting need no new cases.
 
@@ -175,34 +175,51 @@ Alternatives considered:
 - **Re-push the parent slot.** The agent skips it as executed, and running it
   again would re-scan every host under coordinates already used.
 
-### Decision 3: The catch-up plan is the exact set of unreported addresses
+### Decision 3: The catch-up re-runs the parent's full plan
 
-The catch-up targets are the parent plan's addresses that have no
-`SweepHostResult` under the parent `execution_id`. Core expresses them as the
-exact minimal CIDR cover: no address outside the set, and none of it left out.
-It computes this as a range difference (each plan range minus the reported
-addresses), so an IPv6 range is never enumerated. `SweepPlan.build/2` builds
-the catch-up plan from that cover, with the parent's check set and a fresh
-plan id.
+The catch-up plan has the same CIDR list as the parent and as every other slot
+of the lease, with the parent's check set. `SweepPlan.build/2` builds it with a
+fresh plan id, so it has its own `plan_id` and `plan_sha256`; its ranges are
+the parent's.
 
-A host window the parent buffered but never published has no result, so it is
-re-run, which is correct. A parent with no committed result gets its whole
-plan again.
+The reason is lease signing. `LeaseCapabilities.production_capability/5`
+signs one production scope per lease push, and `one_lease/2` requires every
+slot in the push to carry the same range CIDR list (`:mixed_lease` otherwise).
+A full push carries every unrun slot of the assignment, so a catch-up holding
+a subset of the ranges would make the whole push fail, taking the next
+schedule slot's horizon update with it. With the parent's ranges the
+catch-up rides the existing push and signing is unchanged.
 
-If the cover does not fit a plan (`PlanValidate` allows 1,024 pages of 256
-ranges), core mints no catch-up and counts the skip. The next slot covers
-those hosts.
+Completeness is still judged per address. Core mints a catch-up only when at
+least one planned address has no `SweepHostResult` under the parent
+`execution_id`. A parent whose every planned address has a result gets none.
+A host window the parent buffered but never published has no result, so it
+counts as unreported, which is correct.
+
+Trade-off:
+
+- Hosts that already reported in the parent are probed again. That is
+  harmless: the second result is a duplicate observation of the same host, and
+  the ledger and device views keep the newest event time.
+- The time-fit test (Decision 5) uses the full plan's target count, so a
+  catch-up fits less often late in the window than one sized to the unreported
+  hosts would.
 
 Example, synthetic: the parent plan is `192.0.2.0/24` (256 targets). The
 parent execution has results for `192.0.2.0` through `192.0.2.95`. The
-catch-up plan is `192.0.2.96/27` and `192.0.2.128/25`, 160 targets.
+catch-up plan is `192.0.2.0/24`, 256 targets, under a new plan id.
 
 Alternatives considered:
 
-- **Re-run the whole parent plan.** Simplest, but it repeats every reported
-  host and is the least likely to fit the remaining window.
-- **Re-run every range with a missing host.** Simple too, but a plan of a few
-  wide ranges degrades to the whole plan.
+- **Re-run only the unreported addresses (option B).** The catch-up plan
+  would be the exact CIDR cover of the unreported addresses, for example
+  `192.0.2.96/27` and `192.0.2.128/25` above. A push then carries slots with
+  different range lists, so the lease scope would have to bind the group's
+  planned CIDRs and each slot would only be required to be contained in them.
+  Rejected because it changes production-capability signing and the
+  `lease_scope_sha256/3` contract, which this change keeps as is.
+- **Re-run every range with a missing host.** Same signing problem as option
+  B whenever it is not the whole plan.
 
 ### Decision 4: When and how a catch-up is minted
 
@@ -215,8 +232,8 @@ session refresh cannot do this, because it starts on the hello and the report
 arrives after the hello.
 
 The delay is useful. Records the old process spooled drain after the
-reconnect, so by the next pass most of them have committed. The unreported set
-computed at mint time is then close to the truth (open question 1).
+reconnect, so by the next pass most of them have committed. The completeness
+judged at mint time is then close to the truth (open question 1).
 
 The catch-up slot looks like this:
 
@@ -237,14 +254,21 @@ The push window starts at `now`. It carries the catch-up and the rest of the
 horizon, and leaves the parent untouched, because the parent started before
 the window. The agent installs the catch-up as one more slot of the lease.
 
-If the push fails, the catch-up never reaches the agent. A later pass does not
-re-send it, because it is no longer unrun, and `LeaseMisses` marks it missed
-after its window. Nothing re-mints it.
+If the push fails, the catch-up never reaches the agent, and once its
+`slot_start` passes it is no longer unrun, so no later push carries it. The
+next lease pass therefore drops a catch-up that has no `delivered_at` and
+whose `slot_start` has passed, then mints a fresh one for the same parent if
+Decision 5 and Decision 6 still hold. The agent never received the dropped
+row, so it cannot have started it. Example: the 10:25 pass mints a catch-up
+with `slot_start` 10:25:05 while the agent is disconnected; the agent
+reconnects at 10:26; the 10:30 pass drops that row and, if the plan still fits
+before the parent's window closes, mints another that the push carries.
 
 ### Decision 5: The time-fit cutoff is derived, not hardcoded
 
-Let `M` be the number of unreported targets. Core estimates the catch-up's
-scan time as `M x pace`:
+Let `N` be the parent plan's `total_target_count`, which is also the
+catch-up's (Decision 3). Core estimates the catch-up's scan time as
+`N x pace`:
 
 - `pace` is `duration_ms / hosts_total` of the most recent `completed`
   `SweepGroupExecution` of the same sweep group by the same agent.
@@ -252,21 +276,22 @@ scan time as `M x pace`:
   parent plan's `total_target_count`. That is the schedule's own sizing
   contract: a full plan fits one interval.
 
-Core mints the catch-up only if `slot_start + M x pace <=
+Core mints the catch-up only if `slot_start + N x pace <=
 collection_expires`. The parent window ends at the next scheduled slot, so
-"the next slot is close" is exactly "the unreported hosts would not finish
-before it". No other constant is involved.
+"the next slot is close" is exactly "the re-run would not finish before it".
+No other constant is involved.
 
 A catch-up that still runs long is cut off by its window like any slot. The
 flush reserve spools what it completed, and the catch-up is never caught up
 itself (Decision 6).
 
-Example, synthetic. The interval is 1 h, and the last completed execution
-took 20 min for 1,000 hosts (1.2 s per host). The agent restarts 30 min into a
-slot with 400 hosts unreported, and the next pass mints at minute 33. The
-estimate is 8 min, which ends at minute 41 of a window that ends at minute 60,
-so core mints the catch-up. Had the restart come at minute 55, the 8 min would
-not fit, and the next slot covers those hosts.
+Example, synthetic. The interval is 1 h, the plan has 1,000 targets, and the
+last completed execution took 20 min for 1,000 hosts (1.2 s per host). The
+agent restarts 30 min into a slot with 400 hosts unreported, and the next pass
+mints at minute 33. The estimate is 20 min, which ends at minute 53 of a
+window that ends at minute 60, so core mints the catch-up. Had the restart
+come at minute 45, the 20 min would not fit, and the next slot covers those
+hosts.
 
 ### Decision 6: Bounds
 
@@ -275,8 +300,8 @@ Core mints a catch-up for a parent only when all of these hold:
 1. The parent has `interrupted_at` set, is `scheduled`, has a window that
    fits by Decision 5, and has `catch_up_of` null, so it is not itself a
    catch-up.
-2. No slot has `catch_up_of` equal to the parent's id. A partial unique index
-   enforces this.
+2. No non-dropped slot has `catch_up_of` equal to the parent's id. A partial
+   unique index enforces this.
 3. The parent execution, if one exists, is not `cancelled`. An operator
    cancel withdraws the run.
 4. The assignment is `active`, and its current epoch and lease id equal the
@@ -285,14 +310,18 @@ Core mints a catch-up for a parent only when all of these hold:
    `check_set_sha256`, and the group's planned CIDRs equal the parent plan's
    CIDRs. This is the test `sync_slots/4` already applies to unrun slots, so
    the catch-up never runs targets or checks the operator has since changed.
-6. `M > 0`, and the cover fits a plan (Decision 3).
+6. At least one planned address has no `SweepHostResult` under the parent
+   execution (Decision 3).
 
 Why this terminates:
 
 - A `refused`, `dropped` or missed parent is excluded by rule 1. A missed
   slot has, by definition, a closed window.
-- Rules 1 and 2 give each scheduled slot at most one extra execution, and a
-  catch-up can never become a parent.
+- Rules 1 and 2 give each scheduled slot at most one live extra execution,
+  and a catch-up can never become a parent. A catch-up is replaced only when
+  it was never delivered and its start has passed (Decision 4), so the agent
+  runs at most one of them; replacements stop when the fit test fails, which
+  it must before the parent's window closes.
 - The windows of one assignment's slots do not overlap, and a catch-up's
   window lies inside its parent's. So an agent holds at most one open
   catch-up per group at a time.
@@ -301,21 +330,25 @@ Agent limits need no new machinery:
 
 - The catch-up runs through the same executor, run lock and spool admission
   (`appendWithBackpressure`) as any slot.
-- At the parent's measured pace it occupies the executor for no longer than
-  the uninterrupted parent would have spent on those same hosts.
+- At the measured pace it occupies the executor for no longer than one
+  uninterrupted run of the plan, and it must finish before the next slot.
 
 ### Decision 7: The lease pass keeps a catch-up only while its parent's plan is current
 
 `sync_slots/4` compares each unrun slot with the schedule's desired slot at
 the same start and with the group's planned CIDRs. As written, it would drop
-every catch-up, whose start is off the schedule grid and whose CIDRs are a
-subset. Catch-up slots (`catch_up_of` not null) are therefore split out:
+every catch-up, whose start is off the schedule grid. Catch-up slots
+(`catch_up_of` not null) are therefore split out:
 
 - A catch-up is **kept** when it still satisfies Decision 6, rules 3 to 5,
   against its parent. That covers epoch, lease id, scope, check set, and the
   parent plan's CIDRs equal to the current planned CIDRs.
 - Otherwise it is **dropped** through `ExecutionSlots.drop/2`, so only an
   unstarted one is dropped.
+- A catch-up with no `delivered_at` whose `slot_start` has passed is
+  **dropped and re-minted** by Decision 4. `drop/2` only drops a slot whose
+  start is still ahead, so this needs its own drop, limited to undelivered
+  catch-up rows.
 - It never counts as a present desired slot in `fill/6`.
 
 A group that is deleted, disabled or made ineligible revokes the assignment,
@@ -365,16 +398,16 @@ downgraded after reporting still runs it correctly.
   - `r` is restart and reconnect time;
   - `p` is the wait for the next lease pass, at most 5 min, plus the delivery
     lead;
-  - `q` is the host's position in the catch-up scan.
+  - `q` is the host's position in the catch-up scan, which is its position
+    `o` in the full plan.
 
-  The hosts a cut-off misses are mostly those the scan had not reached, which
-  sit later in the plan than the cut-off point. So for hourly and longer
-  intervals the catch-up result usually arrives before
-  `last result + 1 interval`, when `PinSilenceWorker` would have expired the
-  entry, and the host never goes `unknown`. If it arrives after, the host is
-  `unknown` only from that instant to the catch-up result, instead of about
-  one interval. Either way the result is fine. `PinSilenceWorker` only
-  handles `<n><s|m|h|d>` intervals, so cron groups are unaffected.
+  A host the cut-off missed sits at an offset `o` past the cut-off offset
+  `c`. Its silence expires at offset `o` of the cut-off slot, one interval
+  after its last result, and the catch-up reaches it at about
+  `c + r + p + o`. So it is `unknown` for about `c + r + p` instead of about
+  one interval. Re-running the full plan is what costs the `c` term
+  (Decision 3). `PinSilenceWorker` only handles `<n><s|m|h|d>` intervals, so
+  cron groups are unaffected.
 - **Availability ledger TTL** (`2 x interval + 5 min`). A catch-up observation
   is a normal ledger write with `checked_at` taken from the result's
   `last_sweep_time`, the observation time. It always lands inside the TTL.
@@ -385,8 +418,8 @@ downgraded after reporting still runs it correctly.
   marked down one observation sooner than it would be now. The
   available-wins window is unchanged.
 - **Completeness and progress.**
-  - The catch-up is its own `SweepGroupExecution`, with `hosts_total = M`. It
-    completes when all M report, through the unchanged `finish_if_complete/4`.
+  - The catch-up is its own `SweepGroupExecution`, with `hosts_total = N`. It
+    completes when all N report, through the unchanged `finish_if_complete/4`.
   - When the catch-up's first batch creates that execution, the ingestor
     supersedes the still-running parent (`status = failed`, "superseded by new
     execution"). That is today's behaviour for a newer run, and an accurate
@@ -397,10 +430,11 @@ downgraded after reporting still runs it correctly.
   - `SweepServiceState` and the group's `last_run_at` follow the catch-up like
     any execution.
 - **Device "last sweep time".** It comes from each result's
-  `last_sweep_time`, which is the catch-up's own observation time. Hosts it
-  re-runs show the fresher time.
+  `last_sweep_time`, which is the catch-up's own observation time. Every host
+  of the plan shows the fresher time once the catch-up reaches it.
 - **`LeaseMisses`.** These are unchanged:
-  - A catch-up that never commits is marked missed after its window.
+  - A delivered catch-up that never commits is marked missed after its
+    window. An undelivered one is dropped by the lease pass first.
   - A parent that committed stays `scheduled`.
   - A catch-up never marks or reopens its parent.
 - **`ExecutionReaper`.** This is unchanged. It reaps an interrupted parent the
@@ -413,10 +447,13 @@ downgraded after reporting still runs it correctly.
 
 ## Risks / Trade-offs
 
-- **Hosts still in the spool are re-scanned.** The missing set is computed at
-  mint time. A record the old process spooled that has not committed by then
-  is scanned again. The cost is duplicate probes and a duplicate result for
-  the same host, which is harmless. See open question 1.
+- **Reported hosts are re-scanned.** The catch-up re-runs the full plan
+  (Decision 3), so every host the parent already reported is probed again and
+  gets a duplicate result, which is harmless. The newest event time wins.
+- **A catch-up fits less often late in the window.** The fit test uses the
+  full plan's target count, not the unreported count.
+- **A parent whose missing results are still in the spool gets a catch-up.**
+  Completeness is judged at mint time. See open question 1.
 - **Up to five minutes' delay.** This comes from minting in the periodic pass.
   It is acceptable for the hourly and longer intervals this targets, and for
   short intervals the Decision 5 fit test usually declines anyway. See open
@@ -431,7 +468,8 @@ downgraded after reporting still runs it correctly.
 1. Add the migration on `platform.sweep_execution_slots`:
    - `interrupted_at timestamptz NULL`;
    - `catch_up_of uuid NULL REFERENCES platform.sweep_execution_slots(id)`;
-   - a unique index on `catch_up_of WHERE catch_up_of IS NOT NULL`.
+   - a partial unique index on `catch_up_of WHERE catch_up_of IS NOT NULL
+     AND state <> 'dropped'`.
 
    The migration is additive, and existing rows get nulls.
 2. Ship core and gateway before or with agents. Ordering is not required for
@@ -443,15 +481,15 @@ downgraded after reporting still runs it correctly.
 
 1. **Spool-drain race (not designed in).**
    - Failure mode: after a restart with a large unresolved spool backlog, the
-     next pass mints a catch-up that includes hosts whose records are still
-     waiting to drain, and they are probed twice.
+     next pass sees a parent as incomplete only because its last records are
+     still waiting to drain, and mints a catch-up that re-probes the plan.
    - Likelihood: low. A healthy spool drains in seconds after reconnect, and
      the pass runs up to five minutes later.
    - Cost to prevent: gate minting on the hello's `edge_record_spool` showing
      no unresolved records, or recompute the missing set at push time. This
      adds a dependency on spool health reporting to lease planning.
 
-   Is the duplicate-probe cost acceptable?
+   Is the cost of one extra full-plan run acceptable?
 2. **Window-close cut-offs.** Should the next scheduled slot scan the previous
    slot's unreported hosts first? That would help a slot cut off by its own
    window (Decision 8). It changes plan ordering, which is canonical and
