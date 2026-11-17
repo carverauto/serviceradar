@@ -135,6 +135,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     end
   end
 
+  @doc """
+  The record a late-admission grant may be asked for (`IssueEdgeLateAdmissionGrants`): as
+  `grant_subject/3`, except that the record's network scope need not be bound to the agent now.
+  A late record names authority that may have lapsed or been deleted since it was produced; core
+  judges that scope, epoch and binding against its authority history.
+  """
+  def late_grant_subject(record_bytes, identity, snapshot) when is_binary(record_bytes) do
+    with {:ok, record} <- validate_record(record_bytes),
+         :ok <- with_event(origin_identity(record, identity), record),
+         {:ok, status} <- with_event(record_key_status(record, snapshot), record),
+         :ok <- with_event(check(status == :valid, :permanent, :key_historically_revoked), record) do
+      {:ok, record}
+    end
+  end
+
   # --- 1. wrapper ------------------------------------------------------------------------------
 
   defp frame_digest(%{record_bytes: bytes, record_sha256: sha}) when is_binary(bytes) and is_binary(sha) do

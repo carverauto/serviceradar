@@ -211,6 +211,11 @@ least `late_admission_max_age_seconds` after their last signed window ends.
 - **WHEN** a late record produced within its window arrives within the late age
 - **THEN** core SHALL be able to issue PRIMARY publication for it
 
+#### Scenario: A key that signed within the late window stays in the trust document
+- **GIVEN** an issuer key that signed a production, source, delivery or registry capability whose window ended less than `late_admission_max_age_seconds` ago
+- **WHEN** core builds the trust document, including after that key stops issuing
+- **THEN** the key SHALL be present with status `valid`, unless it was marked compromised, in which case it SHALL be present as `historically_revoked`
+
 #### Scenario: A certificate-revoked interval is never pruned
 - **GIVEN** an interval that ended with `certificate_revoked` longer ago than the late age plus the clock tolerance
 - **WHEN** history pruning runs

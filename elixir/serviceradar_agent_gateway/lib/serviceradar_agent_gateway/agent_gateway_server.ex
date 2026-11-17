@@ -248,6 +248,23 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  @doc """
+  Issues late-admission grants for records of a late lane generation
+  (`ServiceRadarAgentGateway.EdgeDeliveryGrants.late/2`): core decides each, PRIMARY or AUDIT,
+  from the authority that was live when it was produced. The caller is resolved exactly as for
+  `renew_edge_delivery_grants/2`.
+  """
+  @spec issue_edge_late_admission_grants(Monitoring.EdgeDeliveryGrantRequest.t(), GRPC.Server.Stream.t()) ::
+          Monitoring.EdgeDeliveryGrantResponse.t()
+  def issue_edge_late_admission_grants(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case EdgeDeliveryGrants.late(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
   def register_edge_recovery(request, stream) do
     identity = extract_edge_identity!(stream)
 
