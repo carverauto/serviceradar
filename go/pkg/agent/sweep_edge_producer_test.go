@@ -421,10 +421,12 @@ func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 // sweeper does when its context expires: it returns nil and leaves the
 // remaining hosts unswept. With waitForDeadline false it returns at once, as a
 // run the sweeper's own scan timeout cut short while the slot is still open.
+// atScanEnd, when set, runs once the scan context ends.
 type windowEndSweep struct {
 	*mockSweeper
 	results         []models.Result
 	waitForDeadline bool
+	atScanEnd       func()
 }
 
 func (*windowEndSweep) EffectivePlannedSweepModes(_ string, spec sweeper.RunSpec) ([]models.SweepMode, error) {
@@ -432,6 +434,12 @@ func (*windowEndSweep) EffectivePlannedSweepModes(_ string, spec sweeper.RunSpec
 }
 
 func (s *windowEndSweep) RunPlannedWithObserver(ctx context.Context, _ string, _ sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
+	if s.atScanEnd != nil {
+		go func() {
+			<-ctx.Done()
+			s.atScanEnd()
+		}()
+	}
 	for i := range s.results {
 		if err := observe(ctx, &s.results[i]); err != nil {
 			return err
@@ -500,6 +508,61 @@ func TestEdgeSweepCutOffByCollectionWindowSpoolsCompletedHosts(t *testing.T) {
 			require.Equal(t, len(tc.wantHosts) > 0, claims == 1, "the slot is consumed only when its records were spooled")
 		})
 	}
+}
+
+// A batch waiting for spool admission when the scan stops for the flush reserve
+// keeps waiting until collection expiry. The spool frees only after the scan
+// stopped, and the completed hosts still land in it before the window closes.
+func TestEdgeSweepAdmissionWaitOutlastsTheFlushReserve(t *testing.T) {
+	results := edgeSweepResults()
+	// Hosts .0 and .1 complete both checks. Hosts .2 and .3 are never reached.
+	partial := []models.Result{results[0], results[1], results[4], results[5]}
+	cfg, lease, slot, _ := edgeSweepFixture(t)
+	sp, release := fullEdgeSweepSpool(t)
+	released := make(chan time.Time, 1)
+	scanner := &windowEndSweep{mockSweeper: &mockSweeper{}, results: partial, waitForDeadline: true, atScanEnd: func() {
+		release()
+		released <- time.Now()
+	}}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	claims := 0
+	installTestSweep(t, sp, lease)
+	// A 5s window keeps a 500ms reserve: room for an immediate retry and one
+	// initial backoff after the spool frees.
+	expires := time.Now().Add(5 * time.Second)
+	slot.CollectionExpiresUnixNano = expires.UnixNano()
+
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, false, sweepSlotClaim{
+		claim:   func() error { claims++; return nil },
+		release: func() error { claims--; return nil },
+	})
+	require.ErrorIs(t, err, errEdgeSweepIncomplete)
+	require.NotErrorIs(t, err, spool.ErrAdmissionRefused)
+	require.ErrorContains(t, err, "completed 2 of 4 hosts, 0 open windows")
+	select {
+	case at := <-released:
+		require.True(t, at.Before(expires), "the spool freed inside the reserve, before collection expiry")
+	default:
+		t.Fatal("the scan context never ended")
+	}
+
+	records, readErr := sp.Unresolved()
+	require.NoError(t, readErr)
+	hosts := make([]string, 0, 2)
+	for _, stored := range records {
+		record := &edgev1.EdgeRecordV1{}
+		require.NoError(t, proto.Unmarshal(stored.Body, record))
+		batch := &edgev1.SweepObservationBatchV1{}
+		require.NoError(t, proto.Unmarshal(recordBody(t, record), batch))
+		require.NoError(t, edgerecord.ValidateSweepObservationBatch(batch))
+		for _, host := range batch.Hosts {
+			addr, ok := netip.AddrFromSlice(host.Address)
+			require.True(t, ok)
+			hosts = append(hosts, addr.String())
+		}
+	}
+	require.Equal(t, []string{"192.0.2.0", "192.0.2.1"}, hosts)
+	require.Equal(t, 1, claims, "the slot stays claimed once its records are spooled")
 }
 
 // The group config and the signed plan travel separately. A slot runs its

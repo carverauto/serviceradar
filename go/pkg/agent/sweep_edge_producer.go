@@ -54,6 +54,7 @@ var (
 	errEdgeSweepDuplicateResult    = errors.New("edge sweep duplicate terminal check result")
 	errEdgeSweepWindowExpired      = errors.New("edge sweep collection window expired")
 	errEdgeSweepIncomplete         = errors.New("edge sweep incomplete")
+	errEdgeSweepFlushReserve       = errors.New("edge sweep scan stopped for the collection flush reserve")
 )
 
 // Pending windows are bounded independently of the batch builder. The scanner
@@ -64,7 +65,9 @@ const sweepProjectedRowBytes = 2048
 // A full spool refuses an append until the sender drains and reclaims it. The
 // producer waits for that, backing off between attempts, instead of failing the
 // execution: the scanner calls emit synchronously, so a waiting emit pauses the
-// scan. The wait ends when the collection window closes or the scan context ends.
+// scan. The wait ends when the collection window closes or the scan is
+// cancelled; a scan stopped for the flush reserve keeps waiting until the window
+// closes.
 const (
 	sweepAdmissionInitialBackoff = 250 * time.Millisecond
 	sweepAdmissionMaxBackoff     = 5 * time.Second
@@ -193,7 +196,7 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 	defer cancel()
 	producer.ctx = runCtx
 	scanDeadline := sweepScanDeadline(time.Now(), expires)
-	scanRunCtx, cancelScan := context.WithDeadline(runCtx, scanDeadline)
+	scanRunCtx, cancelScan := context.WithDeadlineCause(runCtx, scanDeadline, errEdgeSweepFlushReserve)
 	defer cancelScan()
 	err = runner.RunPlannedWithObserver(scanRunCtx, executionID, producer.spec, func(scanCtx context.Context, result *models.Result) error {
 		if err := producer.observe(scanCtx, result); err != nil {
@@ -623,8 +626,10 @@ func (p *sweepEdgeProducer) appendClaimed(flow string, prepared *spool.Attribute
 }
 
 // appendWithBackpressure appends body, waiting out admission refusals until the
-// spool has room or either the run context or the scan context ends. Any other
-// append error is returned at once.
+// spool has room, the run context ends, or the scan context ends for any reason
+// other than the flush reserve. A scan stopped for the flush reserve leaves the
+// wait on the run context, retrying from the initial backoff so the reserve is
+// not slept through. Any other append error is returned at once.
 func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow string, prepared *spool.AttributedAppend) error {
 	backoff := sweepAdmissionInitialBackoff
 	for {
@@ -636,7 +641,7 @@ func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow
 		if p.ctx != nil {
 			runDone = p.ctx.Done()
 		}
-		if scanCtx != nil {
+		if scanCtx != nil && !errors.Is(context.Cause(scanCtx), errEdgeSweepFlushReserve) {
 			scanDone = scanCtx.Done()
 		}
 		timer := time.NewTimer(backoff)
@@ -646,6 +651,10 @@ func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow
 			return fmt.Errorf("%w: %w", err, p.ctx.Err())
 		case <-scanDone:
 			timer.Stop()
+			if errors.Is(context.Cause(scanCtx), errEdgeSweepFlushReserve) {
+				backoff = sweepAdmissionInitialBackoff
+				continue
+			}
 			return fmt.Errorf("%w: %w", err, scanCtx.Err())
 		case <-timer.C:
 		}
