@@ -23,6 +23,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -51,6 +52,7 @@ const (
 
 	cameraRelayReasonUploadFailed    = "camera relay upload failed"
 	cameraRelayReasonSourceCompleted = "camera relay source completed"
+	cameraRelayReasonSourceStartFail = "source_start_failed"
 )
 
 // relayStopCause is the context cancel cause for an operator stop. Its text is
@@ -149,6 +151,9 @@ type cameraRelayHandle struct {
 	cancel context.CancelCauseFunc
 	done   chan struct{}
 	source cameraRelaySourceKey
+	// Set by the stop path before cancel; a session that was asked to stop is
+	// never reported as a source failure.
+	stopped atomic.Bool
 	// Written before done closes; readers must wait for done.
 	closeErr error
 }
@@ -236,9 +241,19 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 	}
 
 	spec.MediaIngestID = strings.TrimSpace(openResp.GetMediaIngestId())
+	var (
+		startFailure cameraRelayFailure
+		lateSource   cameraRelayChunkStream
+	)
+	// Core is told before the camera socket is torn down, so a slow source
+	// close never delays the upstream close.
 	defer func() {
-		if err != nil {
-			m.closeUpstream(spec, closeReasonFromContext(runCtx, "source_start_failed"))
+		if err == nil {
+			return
+		}
+		m.closeUpstream(spec, handle, closeReasonFromContext(runCtx, cameraRelayReasonSourceStartFail), startFailure)
+		if lateSource != nil {
+			handle.closeErr = lateSource.Close()
 		}
 	}()
 
@@ -252,12 +267,14 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		Msg("Camera relay upstream session accepted")
 
 	stream, err := m.openSource(runCtx, spec)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		if err = runCtx.Err(); err != nil {
+			lateSource = stream
+		}
 	}
-	if err = runCtx.Err(); err != nil {
-		handle.closeErr = stream.Close()
-		return nil, err
+	if err != nil {
+		startFailure = relaySourceFailure(runCtx, err)
+		return nil, &cameraRelaySourceStartError{failure: startFailure, err: err}
 	}
 
 	go m.runSession(runCtx, spec, handle, stream)
@@ -299,6 +316,7 @@ func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPa
 }
 
 func stopCameraRelayHandle(ctx context.Context, handle *cameraRelayHandle, reason string) error {
+	handle.stopped.Store(true)
 	handle.cancel(relayStopCause{reason: reason})
 
 	if ctx == nil {
@@ -333,6 +351,7 @@ func (m *cameraRelayManager) runSession(
 	}()
 
 	closeReason := "camera relay completed"
+	var sourceFailure cameraRelayFailure
 	defer func() {
 		closeReason = closeReasonFromContext(ctx, closeReason)
 		m.logger.Info().
@@ -340,7 +359,7 @@ func (m *cameraRelayManager) runSession(
 			Str("media_ingest_id", spec.MediaIngestID).
 			Str("close_reason", closeReason).
 			Msg("Camera relay session stopping")
-		m.closeUpstream(spec, closeReason)
+		m.closeUpstream(spec, handle, closeReason, sourceFailure)
 	}()
 
 	batch := make([]*proto.MediaChunk, 0, m.batchSize())
@@ -393,8 +412,9 @@ func (m *cameraRelayManager) runSession(
 	}
 
 	for {
-		if ctx.Err() != nil {
+		if err := ctx.Err(); err != nil {
 			closeReason = "camera relay cancelled"
+			sourceFailure = relaySourceFailure(ctx, err)
 			return
 		}
 		chunk, err := stream.Recv(ctx)
@@ -432,19 +452,56 @@ func (m *cameraRelayManager) runSession(
 
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			closeReason = "camera relay cancelled"
+			sourceFailure = relaySourceFailure(ctx, err)
 			return
 
 		default:
 			closeReason = "camera relay source failed"
-			m.logger.Warn().Err(err).Str("relay_session_id", spec.RelaySessionID).Msg("Camera relay source failed")
+			sourceFailure = relaySourceFailure(ctx, err)
 			return
 		}
 	}
 }
 
-func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, reason string) {
+// relaySourceFailure is the failure reported for the error that ended a relay's
+// source, given the relay's run context. A source reporting the relay's own
+// cancellation (agent shutdown, control-stream reconnect) is not a camera
+// failure. Every other error is, a deadline included, and so is a real source
+// error that merely coincides with a cancelled context. closeUpstream separately
+// drops the failure when an operator stopped the session.
+func relaySourceFailure(runCtx context.Context, err error) cameraRelayFailure {
+	if errors.Is(err, context.Canceled) && errors.Is(runCtx.Err(), context.Canceled) {
+		return cameraRelayFailure{}
+	}
+	return classifyCameraRelayFailure(err)
+}
+
+// logSourceFailure logs only the sanitized failure: the raw source error can
+// quote the stream URL and its credentials.
+func (m *cameraRelayManager) logSourceFailure(spec cameraRelaySessionSpec, failure cameraRelayFailure) {
+	m.logger.Warn().
+		Str("relay_session_id", spec.RelaySessionID).
+		Str("camera_source_id", spec.CameraSourceID).
+		Str("stream_profile_id", spec.StreamProfileID).
+		Str("failure_class", failure.Class).
+		Str("failure_detail", failure.Detail).
+		Msg("Camera relay source failed")
+}
+
+// closeUpstream reports the close to Core. failure is relaySourceFailure for
+// the error that ended the source, or empty when it ended normally; Core
+// stores it as the session's failure_reason. The stop flag is read here, when
+// the close is sent: a session an operator asked to stop is never reported as
+// a failure.
+func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, handle *cameraRelayHandle, reason string, failure cameraRelayFailure) {
 	if m == nil || m.gateway == nil {
 		return
+	}
+
+	if handle.stopped.Load() {
+		failure = cameraRelayFailure{}
+	} else if failure.Class != "" {
+		m.logSourceFailure(spec, failure)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCameraRelayCloseTimeout)
@@ -455,6 +512,7 @@ func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, reason s
 		MediaIngestId:  spec.MediaIngestID,
 		AgentId:        spec.AgentID,
 		Reason:         reason,
+		FailureReason:  failure.String(),
 	})
 	if err != nil {
 		m.logger.Warn().

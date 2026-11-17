@@ -1362,16 +1362,22 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   describe "camera relay dispatch" do
-    test "sends a typed camera open relay command", %{agent_id: agent_id} do
+    test "sends the stream URL to the agent but never stores it in the command row", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+      # Invented credentials: userinfo, an alias token in the path, a query token.
+      source_url =
+        "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?sig=0123abcd"
 
-      assert {:ok, _command_id} =
+      assert {:ok, command_id} =
                AgentCommandBus.start_camera_relay(agent_id, %{
                  relay_session_id: "relay-1",
                  camera_source_id: "camera-1",
                  stream_profile_id: "main",
                  lease_token: "lease-1",
-                 source_url: "rtsp://camera.local/stream/main",
+                 source_url: source_url,
                  rtsp_transport: "tcp",
                  codec_hint: "h264"
                })
@@ -1385,14 +1391,25 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["camera_source_id"] == "camera-1"
       assert payload["stream_profile_id"] == "main"
       assert payload["lease_token"] == "lease-1"
-      assert payload["source_url"] == "rtsp://camera.local/stream/main"
+      assert payload["source_url"] == source_url
       assert payload["rtsp_transport"] == "tcp"
       assert payload["codec_hint"] == "h264"
 
       assert context.relay_session_id == "relay-1"
       assert context.camera_source_id == "camera-1"
       assert context.stream_profile_id == "main"
-      assert context.source_url == "rtsp://camera.local/stream/main"
+      refute inspect(context) =~ "camera01.example.com"
+
+      stored = wait_for_status(command_id, :sent, actor)
+
+      assert stored.payload["source_url"] == "rtsps://camera01.example.com:7441/[redacted]"
+      assert stored.payload["lease_token"] == "REDACTED"
+      assert stored.payload["relay_session_id"] == "relay-1"
+      refute inspect(stored.context) =~ "camera01.example.com"
+
+      for secret <- ["viewer", "hunter2", "AbCdEf0123TokenXyz", "0123abcd", "lease-1"] do
+        refute inspect({stored.payload, stored.context}) =~ secret
+      end
     end
 
     test "prefers the assigned gateway control stream", %{agent_id: agent_id} do
@@ -1493,7 +1510,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["rtsp_transport"] == "tcp"
       assert payload["codec_hint"] == "h264"
       assert payload["container_hint"] == "annexb"
-      assert context.source_url == "rtsp://camera.local/inventory/main"
+      refute Map.has_key?(context, :source_url)
     end
 
     test "keeps TLS verification enabled for Protect relays without explicit opt-in", %{
@@ -1534,7 +1551,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["source_url"] == "rtsps://host01.example.com:7441/main"
       assert payload["rtsp_transport"] == "tcp"
       refute Map.has_key?(payload, "insecure_skip_verify")
-      assert context.source_url == "rtsps://host01.example.com:7441/main"
+      refute Map.has_key?(context, :source_url)
     end
 
     test "sends a typed camera close relay command", %{agent_id: agent_id} do

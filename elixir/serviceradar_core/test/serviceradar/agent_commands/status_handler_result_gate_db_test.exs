@@ -138,6 +138,55 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
     refute inspect(completed) =~ secret
   end
 
+  test "an agent's raw error quoting a stream URL is stored and consumed without its credentials" do
+    {:ok, command} =
+      AgentCommand.create_command(
+        %{
+          command_type: "camera.open_relay",
+          agent_id: "agent-invented-01",
+          partition_id: "default",
+          payload: %{"relay_session_id" => "relay-invented-01"},
+          context: %{"relay_session_id" => "relay-invented-01"},
+          ttl_seconds: 60
+        },
+        actor: @actor
+      )
+
+    state = state(self())
+    # Invented credentials, in the shape an older agent's url.Parse error quotes.
+    leaky_url = "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?enableSrtp"
+
+    result = %{
+      command_id: command.id,
+      command_type: command.command_type,
+      agent_id: command.agent_id,
+      partition_id: command.partition_id,
+      success: false,
+      message: ~s(parse rtsp source_url: parse "#{leaky_url}": invalid port),
+      failure_reason: "dial viewer:hunter2@camera01.example.com:7441 refused",
+      payload: %{"artifact" => "https://viewer:hunter2@downloads.example.com/a.tgz?sig=0123abcd"}
+    }
+
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, result}, state)
+
+    assert_receive {:consume, consumed}
+
+    assert {:ok, stored} = AgentCommand.get_by_id(command.id, actor: @actor)
+    assert stored.status == :failed
+
+    assert stored.message ==
+             ~s(parse rtsp source_url: parse "rtsps://camera01.example.com:7441": invalid port)
+
+    assert stored.failure_reason == "dial camera01.example.com:7441 refused"
+    assert stored.result_payload == %{"artifact" => "https://downloads.example.com/a.tgz"}
+    assert consumed.message == stored.message
+
+    for secret <- ["viewer", "hunter2", "AbCdEf0123TokenXyz", "enableSrtp", "0123abcd"] do
+      refute inspect(stored) =~ secret
+      refute inspect(consumed) =~ secret
+    end
+  end
+
   test "ack and progress require exact authenticated command provenance" do
     {:ok, command} =
       AgentCommand.create_command(

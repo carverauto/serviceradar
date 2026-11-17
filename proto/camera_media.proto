@@ -100,6 +100,12 @@ message CloseRelaySessionRequest {
   string media_ingest_id = 2;
   string agent_id = 3;
   string reason = 4;
+  // Why the camera source failed, when it did: "<class>" or "<class>: <detail>".
+  // The class is a lower_snake_case identifier; the detail is at most 200
+  // printable ASCII characters with URLs, userinfo and query strings removed by
+  // the agent. Empty for a normal close and on older agents. Receivers validate
+  // it again before storing it.
+  string failure_reason = 5;
 }
 
 message CloseRelaySessionResponse {

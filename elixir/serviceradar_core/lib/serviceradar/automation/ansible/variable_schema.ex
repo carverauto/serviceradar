@@ -27,6 +27,7 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   """
 
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
+  alias ServiceRadar.Credentials.SecretTextScrubber
 
   defmodule Var do
     @moduledoc false
@@ -429,6 +430,7 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
 
       true ->
         with {:ok, inputs} <- strict_inputs(vars, normalized_params),
+             :ok <- credential_url_free_inputs(inputs),
              :ok <- bounded_inputs(inputs) do
           {:ok, inputs}
         end
@@ -535,6 +537,13 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
     do: {:error, :launch_input_out_of_bounds}
 
   defp within_bounds(_value, _min, _max), do: :ok
+
+  defp credential_url_free_inputs(inputs) do
+    case SecretTextScrubber.userinfo_url_input(inputs) do
+      nil -> :ok
+      name -> {:error, {:credential_url_launch_input, name}}
+    end
+  end
 
   defp bounded_inputs(inputs) do
     if :erlang.external_size(inputs) <= 65_536 do

@@ -24,6 +24,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.RequestBodyPolicy
+  alias ServiceRadar.Credentials.SecretTextScrubber
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.PluginAssignment
@@ -555,9 +556,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
              request_body_policy: map(),
              authorized_request_body_b64: String.t() | nil
            }}
-          | {:error, :invalid_controller_base_url | :invalid_awx_broker_scope}
+          | {:error,
+             :invalid_controller_base_url
+             | :invalid_awx_broker_scope
+             | {:credential_url_launch_input, String.t()}}
   def broker_scope(base_url, verb, args) when is_binary(verb) and is_map(args) do
-    with {:ok, endpoint} <- normalize_controller_endpoint(base_url),
+    with :ok <- credential_url_free_launch_inputs(verb, args),
+         {:ok, endpoint} <- normalize_controller_endpoint(base_url),
          [_ | _] = methods <- allowed_methods_for(verb),
          [_ | _] = paths <- allowed_paths_for(verb, args),
          {:ok, body_binding} <- request_body_binding_for(verb, args) do
@@ -594,6 +599,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   def broker_scope(_base_url, _verb, _args), do: {:error, :invalid_awx_broker_scope}
+
+  # Every operator-supplied launch string is stored in the command args and
+  # encoded into the authorized request body, which the record policy keeps
+  # whole, so a URL with userinfo is refused here, naming the input.
+  defp credential_url_free_launch_inputs("awx.launch_job", args) do
+    {extra_vars, fields} = Map.pop(args, "extra_vars")
+
+    entries =
+      if is_map(extra_vars), do: Map.to_list(extra_vars), else: [{"extra_vars", extra_vars}]
+
+    case SecretTextScrubber.userinfo_url_input(entries ++ Map.to_list(fields)) do
+      nil -> :ok
+      name -> {:error, {:credential_url_launch_input, to_string(name)}}
+    end
+  end
+
+  defp credential_url_free_launch_inputs(_verb, _args), do: :ok
 
   @doc "Returns the explicit purpose assigned to a supported AWX verb."
   @spec credential_purpose_for_verb(String.t()) ::

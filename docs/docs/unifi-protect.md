@@ -145,6 +145,16 @@ A working lab rule looks like:
   self-signed cert.
 - **Streams fail after inventory works**: confirm port `7447`/`7441` is
   allowed and that the rule purpose includes `camera_stream`.
+- **A camera never starts streaming**: the camera page and **Camera Relays**
+  show why the agent could not pull the stream, for example "The camera refused
+  the stream: authentication failed" or "The camera's video codec is not
+  supported; the relay requires H.264". The relay requires H.264, so a camera
+  with Enhanced Encoding (H.265) enabled in Protect fails with the codec
+  message; turn it off for that camera. "The camera has no stream at the
+  requested path or alias" means the RTSPS stream for that quality was removed
+  or rotated in Protect after inventory recorded it; check that the stream
+  exists in Protect, then let inventory refresh the profile. The reason never
+  contains the stream URL or its token.
 - **Live view plays, but only after about 8 seconds**: the browser tried
   WebRTC, could not reach the WebRTC peer inside the cluster, and fell back to
   the websocket transport. Deploy the TURN relay, or disable

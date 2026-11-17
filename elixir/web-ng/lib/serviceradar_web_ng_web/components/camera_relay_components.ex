@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadar.Camera.RelayPlayback
+  alias ServiceRadar.Camera.RelaySourceFailure
 
   attr(:session, :map, required: true)
   attr(:id_prefix, :string, default: "camera-relay")
@@ -143,10 +144,17 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
     end
   end
 
+  @doc """
+  An agent-reported camera source failure as the sentence an operator acts on;
+  other failure text is shown as-is.
+  """
   def relay_failure_reason_text(session) do
-    case Map.get(session, :failure_reason) do
-      value when is_binary(value) and value != "" -> "Failure reason: #{value}"
-      _ -> ""
+    case Map.get(session || %{}, :failure_reason) do
+      value when is_binary(value) and value != "" ->
+        RelaySourceFailure.describe(value) || "Failure reason: #{value}"
+
+      _ ->
+        ""
     end
   end
 

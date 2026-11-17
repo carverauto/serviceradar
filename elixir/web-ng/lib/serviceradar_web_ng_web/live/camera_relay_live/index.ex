@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.CameraRelayHealth
@@ -525,9 +526,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     <span class="font-semibold text-sr-ink/75">Close reason:</span>
                     {display_value(Map.get(session, :close_reason))}
                   </div>
-                  <div>
+                  <div title={Map.get(session, :failure_reason)}>
                     <span class="font-semibold text-sr-ink/75">Failure reason:</span>
-                    {display_value(Map.get(session, :failure_reason))}
+                    {failure_reason_display(Map.get(session, :failure_reason))}
                   </div>
                 </div>
 
@@ -1008,6 +1009,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   defp display_value(nil), do: "n/a"
   defp display_value(value), do: to_string(value)
+
+  defp failure_reason_display(reason), do: RelaySourceFailure.describe(reason) || display_value(reason)
 
   defp relay_logs_href(session) do
     observability_logs_href(relay_session_id: Map.get(session, :id))

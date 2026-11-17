@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   alias ServiceRadar.Automation.CallbackGrants.Runtime
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
 
   @actor SystemActor.system(:automation_callback_command_dispatcher)
   @lease_seconds 15
@@ -767,7 +768,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
         resources.execution,
         command.context || %{}
       ) and
-      command.context == context and
+      AgentCommandRecordPolicy.matches_persisted?(
+        :context,
+        command.command_type,
+        command.context,
+        context
+      ) and
       CallbackCommandContract.persisted_payload_matches?(
         attempt,
         resources.execution,

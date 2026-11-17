@@ -2,19 +2,28 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
+	"github.com/bluenviron/gortsplib/v5/pkg/format"
+	"github.com/bluenviron/gortsplib/v5/pkg/liberrors"
 	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,6 +40,9 @@ var (
 	errRTSPDialFailed               = errors.New("rtsp dial failed")
 	errPluginTerminatedUnexpectedly = errors.New("plugin terminated unexpectedly")
 	errSyntheticCloseFailure        = errors.New("synthetic close failure")
+	// crypto/tls reports a peer alert with an unexported type; this has its text.
+	errSyntheticTLSAlert  = errors.New("tls: handshake failure")
+	errSyntheticReadError = errors.New("connection stalled")
 )
 
 type fakeCameraRelayGateway struct {
@@ -703,7 +715,7 @@ func TestCameraRelayManagerStopDuringSourceStartup(t *testing.T) {
 			gateway.mu.Lock()
 			if len(gateway.uploadBatches) != 0 || len(gateway.heartbeatReqs) != 0 || len(gateway.closeRequests) != 1 {
 				t.Errorf("stopped startup: uploads=%d heartbeats=%d closes=%d", len(gateway.uploadBatches), len(gateway.heartbeatReqs), len(gateway.closeRequests))
-			} else if req := gateway.closeRequests[0]; req.GetReason() != "operator startup stop" || req.GetMediaIngestId() != relayTestMediaIngestID {
+			} else if req := gateway.closeRequests[0]; req.GetReason() != "operator startup stop" || req.GetMediaIngestId() != relayTestMediaIngestID || req.GetFailureReason() != "" {
 				t.Errorf("unexpected startup cleanup: %v", req)
 			}
 			gateway.mu.Unlock()
@@ -1260,10 +1272,18 @@ func testCameraRelayManagerStopsWhenGatewayEntersDrain(
 func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing.T) {
 	t.Parallel()
 
+	refused := fmt.Errorf("describe rtsp stream: %w", &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 7441},
+		Err:  &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+	})
+	wantFailure := "connect_refused: describe rtsp stream: dial tcp 192.0.2.10:7441: connect: connection refused"
+
 	gateway := newFakeCameraRelayGateway()
 	manager := newCameraRelayManager(gateway, createTestLogger())
 	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
-		return nil, errRTSPDialFailed
+		return nil, refused
 	}
 
 	_, err := manager.Start(context.Background(), cameraRelaySessionSpec{
@@ -1273,11 +1293,12 @@ func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing
 		StreamProfileID: "main",
 		LeaseToken:      "lease-1",
 	})
-	if err == nil {
-		t.Fatal("expected source startup failure, got nil")
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("expected source startup failure wrapping the dial error, got %v", err)
 	}
-	if got := err.Error(); got != "rtsp dial failed" {
-		t.Fatalf("expected source startup error, got %q", got)
+	// The command result carries the classified reason, never the raw source error.
+	if got, want := err.Error(), "camera source failed to start: "+wantFailure; got != want {
+		t.Fatalf("expected source startup error %q, got %q", want, got)
 	}
 
 	select {
@@ -1295,8 +1316,11 @@ func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing
 	if len(gateway.closeRequests) != 1 {
 		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
 	}
-	if got := gateway.closeRequests[0].GetReason(); got != "source_start_failed" {
-		t.Fatalf("expected close reason %q, got %q", "source_start_failed", got)
+	if got := gateway.closeRequests[0].GetReason(); got != cameraRelayReasonSourceStartFail {
+		t.Fatalf("expected close reason %q, got %q", cameraRelayReasonSourceStartFail, got)
+	}
+	if got := gateway.closeRequests[0].GetFailureReason(); got != wantFailure {
+		t.Fatalf("expected failure reason %q, got %q", wantFailure, got)
 	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1351,6 +1375,441 @@ func TestCameraRelayManagerClosesUpstreamWhenPluginStreamFails(t *testing.T) {
 	if got := gateway.closeRequests[0].GetReason(); got != "camera relay source failed" {
 		t.Fatalf("expected close reason %q, got %q", "camera relay source failed", got)
 	}
+	if got, want := gateway.closeRequests[0].GetFailureReason(), "unknown: plugin terminated unexpectedly"; got != want {
+		t.Fatalf("expected failure reason %q, got %q", want, got)
+	}
+}
+
+// expiringContext reaches its deadline when the test closes expired, so the
+// deadline lands at a chosen point in the relay's startup.
+type expiringContext struct {
+	context.Context
+	expired chan struct{}
+}
+
+func (c *expiringContext) Done() <-chan struct{} {
+	return c.expired
+}
+
+func (c *expiringContext) Err() error {
+	select {
+	case <-c.expired:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// A source that fails after the relay's own context expired is still a source
+// failure. An operator stop suppresses the failure reason whatever the source
+// returned; a cancelled parent suppresses it only when the source reports that
+// cancellation.
+func TestCameraRelayManagerReportsStartFailureAfterContextDeadline(t *testing.T) {
+	t.Parallel()
+
+	timedOutDial := &net.OpError{
+		Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 7441},
+		Err: context.DeadlineExceeded,
+	}
+	const (
+		stopReason  = "operator deadline stop"
+		endCancel   = "parent cancelled"
+		endStop     = "operator stop"
+		cancelledAs = "camera source start cancelled"
+	)
+	for _, scenario := range []struct {
+		name string
+		open func() (cameraRelayChunkStream, error)
+		// end is how the startup ends: the parent's deadline when empty.
+		end string
+		// wantClass is the reported failure class; empty means none.
+		wantClass string
+	}{
+		{
+			name:      "dial ran out of time",
+			open:      func() (cameraRelayChunkStream, error) { return nil, timedOutDial },
+			wantClass: cameraRelayFailureConnectTimeout,
+		},
+		{
+			name:      "bare deadline from the source",
+			open:      func() (cameraRelayChunkStream, error) { return nil, context.DeadlineExceeded },
+			wantClass: cameraRelayFailureStartDeadline,
+		},
+		{
+			name:      "source opened after the deadline",
+			open:      func() (cameraRelayChunkStream, error) { return &blockingCameraRelayStream{}, nil },
+			wantClass: cameraRelayFailureStartDeadline,
+		},
+		{
+			name: "bare cancel after the parent was cancelled",
+			open: func() (cameraRelayChunkStream, error) { return nil, context.Canceled },
+			end:  endCancel,
+		},
+		{
+			name: "bare deadline after an operator stop",
+			open: func() (cameraRelayChunkStream, error) { return nil, context.DeadlineExceeded },
+			end:  endStop,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			gateway := newFakeCameraRelayGateway()
+			manager := newCameraRelayManager(gateway, createTestLogger())
+			expiring := &expiringContext{Context: t.Context(), expired: make(chan struct{})}
+			cancellable, cancelParent := context.WithCancel(t.Context())
+			defer cancelParent()
+			var ctx context.Context = expiring
+			if scenario.end == endCancel {
+				ctx = cancellable
+			}
+			entered := make(chan struct{})
+			manager.pluginSourceFactory = func(sourceCtx context.Context, _ cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+				close(entered)
+				<-sourceCtx.Done()
+				return scenario.open()
+			}
+			spec := cameraRelaySessionSpec{
+				RelaySessionID: "relay-deadline-1", AgentID: "agent-synthetic-3", CameraSourceID: "camera-synthetic-3",
+				StreamProfileID: "main", LeaseToken: "lease-synthetic-3", PluginAssignmentID: "plugin-synthetic-3",
+			}
+
+			started := make(chan error, 1)
+			go func() { _, err := manager.Start(ctx, spec); started <- err }()
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("source startup did not begin")
+			}
+			switch scenario.end {
+			case endStop:
+				stopCtx, cancelStop := context.WithCancel(t.Context())
+				cancelStop()
+				if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, Reason: stopReason}); err != nil && !errors.Is(err, context.Canceled) {
+					t.Fatalf("Stop: %v", err)
+				}
+			case endCancel:
+				cancelParent()
+			default:
+				close(expiring.expired)
+			}
+			var err error
+			select {
+			case err = <-started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("startup did not finish")
+			}
+			var startErr *cameraRelaySourceStartError
+			if !errors.As(err, &startErr) {
+				t.Fatalf("Start: got %v, want the sanitized source start error", err)
+			}
+
+			gateway.mu.Lock()
+			defer gateway.mu.Unlock()
+			if len(gateway.closeRequests) != 1 {
+				t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+			}
+			req := gateway.closeRequests[0]
+			if scenario.end == endStop {
+				if req.GetReason() != stopReason || req.GetFailureReason() != "" {
+					t.Errorf("close: got reason %q failure %q, want %q and no failure", req.GetReason(), req.GetFailureReason(), stopReason)
+				}
+				return
+			}
+			if scenario.end == endCancel {
+				if req.GetReason() != cameraRelayReasonSourceStartFail || req.GetFailureReason() != "" || err.Error() != cancelledAs {
+					t.Errorf("close: got reason %q failure %q start error %q, want %q, no failure and %q",
+						req.GetReason(), req.GetFailureReason(), err, cameraRelayReasonSourceStartFail, cancelledAs)
+				}
+				return
+			}
+			if req.GetReason() != cameraRelayReasonSourceStartFail {
+				t.Errorf("close reason: got %q, want %q", req.GetReason(), cameraRelayReasonSourceStartFail)
+			}
+			failure := req.GetFailureReason()
+			if !strings.HasPrefix(failure, scenario.wantClass+": ") {
+				t.Errorf("failure reason: got %q, want class %q with a detail", failure, scenario.wantClass)
+			}
+			// The command result carries the sanitized reason, never the raw error.
+			if got, want := err.Error(), "camera source failed to start: "+failure; got != want {
+				t.Errorf("start error: got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+type gatedFailingCameraRelayStream struct {
+	entered chan struct{}
+	release chan struct{}
+	err     error
+}
+
+func (s *gatedFailingCameraRelayStream) Recv(context.Context) (*cameraRelayChunk, error) {
+	close(s.entered)
+	<-s.release
+	return nil, s.err
+}
+
+func (s *gatedFailingCameraRelayStream) Close() error {
+	return nil
+}
+
+// A source error that arrives after the relay context is cancelled is decided
+// by whether an operator asked the session to stop, not by the context; the
+// source reporting that cancellation itself is not a failure.
+func TestCameraRelayManagerStopFlagDecidesRacingSourceFailure(t *testing.T) {
+	t.Parallel()
+
+	refused := &net.OpError{
+		Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 7441},
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+	}
+	for _, scenario := range []struct {
+		name        string
+		stop        bool
+		err         error
+		wantReason  string
+		wantFailure string
+	}{
+		{name: "operator stop", stop: true, err: errRTSPDialFailed, wantReason: "operator racing stop", wantFailure: ""},
+		{
+			name: "parent cancelled, source refused the connection", err: refused,
+			wantReason: "camera relay source failed", wantFailure: "connect_refused: dial tcp 192.0.2.10:7441: connect: connection refused",
+		},
+		{name: "parent cancelled, source reports the cancellation", err: context.Canceled, wantReason: "camera relay cancelled", wantFailure: ""},
+		{
+			name: "parent cancelled, source reports a deadline", err: context.DeadlineExceeded,
+			wantReason: "camera relay cancelled", wantFailure: "start_deadline_exceeded: context deadline exceeded",
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			gateway := newFakeCameraRelayGateway()
+			manager := newCameraRelayManager(gateway, createTestLogger())
+			stream := &gatedFailingCameraRelayStream{entered: make(chan struct{}), release: make(chan struct{}), err: scenario.err}
+			manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return stream, nil }
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			spec := cameraRelaySessionSpec{
+				RelaySessionID: "relay-race-1", AgentID: "agent-synthetic-4", CameraSourceID: "camera-synthetic-4",
+				StreamProfileID: "main", LeaseToken: "lease-synthetic-4",
+			}
+			if _, err := manager.Start(ctx, spec); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			<-stream.entered
+			if scenario.stop {
+				stopCtx, cancelStop := context.WithCancel(t.Context())
+				cancelStop()
+				if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, Reason: "operator racing stop"}); err != nil && !errors.Is(err, context.Canceled) {
+					t.Fatalf("Stop: %v", err)
+				}
+			} else {
+				cancel()
+			}
+			close(stream.release)
+
+			select {
+			case <-gateway.closeNotifyCh:
+			case <-time.After(3 * time.Second):
+				t.Fatal("timed out waiting for upstream relay close")
+			}
+			gateway.mu.Lock()
+			defer gateway.mu.Unlock()
+			req := gateway.closeRequests[0]
+			if req.GetReason() != scenario.wantReason || req.GetFailureReason() != scenario.wantFailure {
+				t.Errorf("close: got reason %q failure %q, want %q and %q", req.GetReason(), req.GetFailureReason(), scenario.wantReason, scenario.wantFailure)
+			}
+		})
+	}
+}
+
+// closeGatedLogger pauses the relay's close path at its "stopping" log line,
+// after the source error was classified and before the upstream close is sent.
+type closeGatedLogger struct {
+	logger.Logger
+	events zerolog.Logger
+}
+
+func (l closeGatedLogger) Info() *zerolog.Event {
+	return l.events.Info()
+}
+
+type closeGatedHook struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h closeGatedHook) Run(_ *zerolog.Event, _ zerolog.Level, message string) {
+	if message == "Camera relay session stopping" {
+		close(h.entered)
+		<-h.release
+	}
+}
+
+// A stop that lands after the source error was classified, but before the
+// upstream close is sent, closes with no failure reason.
+func TestCameraRelayManagerStopAfterSourceErrorSendsNoFailure(t *testing.T) {
+	t.Parallel()
+
+	gateway := newFakeCameraRelayGateway()
+	hook := closeGatedHook{entered: make(chan struct{}), release: make(chan struct{})}
+	manager := newCameraRelayManager(gateway, closeGatedLogger{
+		Logger: createTestLogger(),
+		events: zerolog.New(io.Discard).Hook(hook),
+	})
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return &failingCameraRelayStream{err: errRTSPDialFailed}, nil
+	}
+
+	spec := cameraRelaySessionSpec{
+		RelaySessionID: "relay-late-stop-1", AgentID: "agent-synthetic-5", CameraSourceID: "camera-synthetic-5",
+		StreamProfileID: "main", LeaseToken: "lease-synthetic-5",
+	}
+	if _, err := manager.Start(t.Context(), spec); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-hook.entered
+	stopCtx, cancelStop := context.WithCancel(t.Context())
+	cancelStop()
+	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, Reason: "operator late stop"}); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stop: %v", err)
+	}
+	close(hook.release)
+
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream relay close")
+	}
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+	if got := gateway.closeRequests[0].GetFailureReason(); got != "" {
+		t.Errorf("close after a stop sent failure reason %q, want none", got)
+	}
+}
+
+// orderedCloseCameraRelayStream fails its Recv once released and records, when
+// it is closed, whether the relay had already sent its upstream close. A second
+// Close panics on the closed channel: a source is closed exactly once.
+type orderedCloseCameraRelayStream struct {
+	upstreamClosed      <-chan struct{}
+	release             chan struct{}
+	onClose             func()
+	closed              chan struct{}
+	closedAfterUpstream bool
+}
+
+func (s *orderedCloseCameraRelayStream) Recv(context.Context) (*cameraRelayChunk, error) {
+	<-s.release
+	return nil, errRTSPDialFailed
+}
+
+func (s *orderedCloseCameraRelayStream) Close() error {
+	select {
+	case <-s.upstreamClosed:
+		s.closedAfterUpstream = true
+	default:
+	}
+	if s.onClose != nil {
+		s.onClose()
+	}
+	close(s.closed)
+	return nil
+}
+
+// The relay tells Core the session closed before it tears the camera source
+// down, on a failed start that already holds a source and on a session that
+// fails later, so a stop landing during the source close cannot erase a failure
+// that was already reported.
+func TestCameraRelayManagerClosesUpstreamBeforeSource(t *testing.T) {
+	t.Parallel()
+
+	for _, scenario := range []struct {
+		name            string
+		session         bool
+		stopDuringClose bool
+		wantReason      string
+		wantFailure     string
+	}{
+		{name: "start failure", wantReason: cameraRelayReasonSourceStartFail, wantFailure: "start_deadline_exceeded: context deadline exceeded"},
+		{name: "start failure, stop during source close", stopDuringClose: true, wantReason: cameraRelayReasonSourceStartFail, wantFailure: "start_deadline_exceeded: context deadline exceeded"},
+		{name: "session failure", session: true, wantReason: "camera relay source failed", wantFailure: "unknown: rtsp dial failed"},
+		{name: "session failure, stop during source close", session: true, stopDuringClose: true, wantReason: "camera relay source failed", wantFailure: "unknown: rtsp dial failed"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			gateway := newFakeCameraRelayGateway()
+			manager := newCameraRelayManager(gateway, createTestLogger())
+			spec := cameraRelaySessionSpec{
+				RelaySessionID: "relay-close-order-1", AgentID: "agent-synthetic-6", CameraSourceID: "camera-synthetic-6",
+				StreamProfileID: "main", LeaseToken: "lease-synthetic-6",
+			}
+			stream := &orderedCloseCameraRelayStream{
+				upstreamClosed: gateway.closeNotifyCh, release: make(chan struct{}), closed: make(chan struct{}),
+			}
+			var stopErr error
+			if scenario.stopDuringClose {
+				stream.onClose = func() {
+					stopCtx, cancelStop := context.WithCancel(t.Context())
+					cancelStop()
+					stopErr = manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, Reason: "operator teardown stop"})
+				}
+			}
+			ctx := &expiringContext{Context: t.Context(), expired: make(chan struct{})}
+			if scenario.session {
+				manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return stream, nil }
+			} else {
+				// The source opens after the relay's start deadline passed.
+				spec.PluginAssignmentID = "plugin-synthetic-6"
+				manager.pluginSourceFactory = func(sourceCtx context.Context, _ cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+					close(ctx.expired)
+					<-sourceCtx.Done()
+					return stream, nil
+				}
+			}
+
+			_, err := manager.Start(ctx, spec)
+			if scenario.session {
+				if err != nil {
+					t.Fatalf("Start: %v", err)
+				}
+				handle := manager.lookupSession(spec.RelaySessionID)
+				close(stream.release)
+				select {
+				case <-handle.done:
+				case <-time.After(3 * time.Second):
+					t.Fatal("session did not finish")
+				}
+			} else if err == nil {
+				t.Fatal("Start: got nil, want a failed start")
+			}
+
+			select {
+			case <-stream.closed:
+			default:
+				t.Fatal("source was not closed")
+			}
+			if !stream.closedAfterUpstream {
+				t.Error("source was closed before the upstream close was sent")
+			}
+			if scenario.stopDuringClose && !errors.Is(stopErr, context.Canceled) {
+				t.Fatalf("stop during source close did not reach the session: %v", stopErr)
+			}
+			gateway.mu.Lock()
+			defer gateway.mu.Unlock()
+			if len(gateway.closeRequests) != 1 {
+				t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+			}
+			req := gateway.closeRequests[0]
+			if req.GetReason() != scenario.wantReason || req.GetFailureReason() != scenario.wantFailure {
+				t.Errorf("close: got reason %q failure %q, want %q and %q", req.GetReason(), req.GetFailureReason(), scenario.wantReason, scenario.wantFailure)
+			}
+		})
+	}
 }
 
 func TestNormalizeCameraRelaySpecRequiresFields(t *testing.T) {
@@ -1374,6 +1833,114 @@ func TestDefaultCameraRelaySourceRequiresSourceURL(t *testing.T) {
 	}
 	if got := err.Error(); got != "source_url is required" {
 		t.Fatalf("expected source_url validation error, got %q", got)
+	}
+}
+
+func assertCameraRelayFailureDetailSafe(t *testing.T, detail string) {
+	t.Helper()
+
+	if len(detail) > maxCameraRelayFailureDetail {
+		t.Errorf("detail is %d bytes, want at most %d: %q", len(detail), maxCameraRelayFailureDetail, detail)
+	}
+	for _, r := range detail {
+		if r < 0x20 || r > 0x7e {
+			t.Errorf("detail contains non-printable %U: %q", r, detail)
+		}
+	}
+	// Invented credential material; none of it may survive.
+	for _, secret := range []string{"viewer", "hunter2", "AbCdEf0123TokenXyz", "enableSrtp", "sig=", "?"} {
+		if strings.Contains(detail, secret) {
+			t.Errorf("detail leaks %q: %q", secret, detail)
+		}
+	}
+}
+
+func TestClassifyCameraRelayFailure(t *testing.T) {
+	t.Parallel()
+
+	const leakyURL = "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?enableSrtp"
+
+	dial := func(err error) error {
+		return &net.OpError{Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 7441}, Err: err}
+	}
+	status := func(code base.StatusCode, message string) error {
+		return fmt.Errorf("describe rtsp stream: %w", liberrors.ErrClientBadStatusCode{Code: code, Message: message})
+	}
+	video := func(formats ...format.Format) *description.Media {
+		return &description.Media{Type: description.MediaTypeVideo, Formats: formats}
+	}
+	audio := &description.Media{Type: description.MediaTypeAudio, Formats: []format.Format{&format.G711{MULaw: true, SampleRate: 8000, ChannelCount: 1}}}
+	_, badURLErr := newRTSPCameraRelayStream(cameraRelaySessionSpec{SourceURL: "rtsps://viewer:hunter2@camera01.example.com:notaport/AbCdEf0123TokenXyz?enableSrtp"}, createTestLogger())
+	_, badSchemeErr := defaultCameraRelaySource(cameraRelaySessionSpec{SourceURL: "https://viewer:hunter2@camera01.example.com/AbCdEf0123TokenXyz"}, createTestLogger())
+
+	tests := []struct {
+		name       string
+		err        error
+		wantClass  string
+		wantDetail string
+	}{
+		{"unauthorized", status(base.StatusUnauthorized, "Unauthorized"), cameraRelayFailureAuthentication, "describe rtsp stream: bad status code: 401 (Unauthorized)"},
+		{"forbidden", status(base.StatusForbidden, "Forbidden"), cameraRelayFailureAuthentication, "describe rtsp stream: bad status code: 403 (Forbidden)"},
+		{"unknown alias", status(base.StatusNotFound, "Not Found"), cameraRelayFailureNotFound, "describe rtsp stream: bad status code: 404 (Not Found)"},
+		{"other status", status(base.StatusServiceUnavailable, "Service Unavailable"), cameraRelayFailureRTSPRequest, "describe rtsp stream: bad status code: 503 (Service Unavailable)"},
+		{"refused", dial(&os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}), cameraRelayFailureConnectRefused, "dial tcp 192.0.2.10:7441: connect: connection refused"},
+		{"connect timeout", dial(context.DeadlineExceeded), cameraRelayFailureConnectTimeout, "dial tcp 192.0.2.10:7441: context deadline exceeded"},
+		{"unreachable", dial(&os.SyscallError{Syscall: "connect", Err: syscall.EHOSTUNREACH}), cameraRelayFailureHostUnreachable, "dial tcp 192.0.2.10:7441: connect: no route to host"},
+		{"dns", dial(&net.DNSError{Err: "no such host", Name: "camera01.example.com", IsNotFound: true}), cameraRelayFailureDNS, "dial tcp 192.0.2.10:7441: lookup camera01.example.com: no such host"},
+		{"untrusted certificate", &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}, cameraRelayFailureTLSCertificate, "tls: failed to verify certificate: x509: certificate signed by unknown authority"},
+		{"not tls", tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}, cameraRelayFailureTLSHandshake, "tls: first record does not look like a TLS handshake"},
+		{"tls alert", &net.OpError{Op: "remote error", Err: errSyntheticTLSAlert}, cameraRelayFailureTLSHandshake, "remote error: tls: handshake failure"},
+		{"no response", fmt.Errorf("describe rtsp stream: %w", liberrors.ErrClientRequestTimedOut{}), cameraRelayFailureResponseTimeout, "describe rtsp stream: request timed out"},
+		{"no media", liberrors.ErrClientTCPTimeout{}, cameraRelayFailureNoMedia, "TCP timeout"},
+		{"closed by server", fmt.Errorf("describe rtsp stream: %w", io.EOF), cameraRelayFailureUpstreamClosed, "describe rtsp stream: EOF"},
+		{"h265 only", cameraRelayMissingH264Error(&description.Session{Medias: []*description.Media{audio, video(&format.H265{PayloadTyp: 96})}}), cameraRelayFailureUnsupportedCodec, "rtsp stream video codec is not supported, H264 is required: camera offers H265"},
+		{"audio only", cameraRelayMissingH264Error(&description.Session{Medias: []*description.Media{audio}}), cameraRelayFailureNoVideoTrack, "rtsp stream has no video track"},
+		{"no keyframe", fmt.Errorf("%w within %s (%d packets before the stream clock started, %d access units before a usable IDR)", errCameraRelayNoKeyframe, cameraRelayFirstKeyframeTimeout, 3, 41), cameraRelayFailureNoKeyframe, "rtsp stream produced no decodable h264 keyframe within 30s (3 packets before the stream clock started, 41 access units before a usable IDR)"},
+		{"invalid url", badURLErr, cameraRelayFailureInvalidSourceConfig, "source_url is not a valid rtsp url"},
+		{"wrong scheme", badSchemeErr, cameraRelayFailureInvalidSourceConfig, "unsupported camera relay source, an rtsp or rtsps url is required"},
+		{"unclassified error quoting the url", fmt.Errorf("read %q: %w", leakyURL, errSyntheticReadError), cameraRelayFailureUnknown, `read "[url]": connection stalled`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := classifyCameraRelayFailure(tt.err)
+			if got.Class != tt.wantClass || got.Detail != tt.wantDetail {
+				t.Fatalf("classify(%v) = {%q, %q}, want {%q, %q}", tt.err, got.Class, got.Detail, tt.wantClass, tt.wantDetail)
+			}
+			assertCameraRelayFailureDetailSafe(t, got.Detail)
+		})
+	}
+}
+
+func TestSanitizeCameraRelayFailureDetail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"url with userinfo, alias token and query", "describe rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?enableSrtp failed", "describe [url] failed"},
+		{"bare userinfo and path", "dial viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz refused", "dial camera01.example.com:7441 refused"},
+		{"host path without port", "GET camera01.example.com/AbCdEf0123TokenXyz failed", "GET camera01.example.com failed"},
+		{"path token", "SETUP /AbCdEf0123TokenXyz/trackID=1 rejected", "SETUP [path] rejected"},
+		{"query string", "token rejected: ?sig=AbCdEf0123TokenXyz", "token rejected:"},
+		{"non-printable bytes", "bad\x00status\r\nlineé\x7f", "bad status line"},
+		{"oversized", strings.Repeat("timeout ", 200), strings.TrimSpace(strings.Repeat("timeout ", 25))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := sanitizeCameraRelayFailureDetail(tt.raw)
+			if got != tt.want {
+				t.Fatalf("sanitize(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+			assertCameraRelayFailureDetailSafe(t, got)
+		})
 	}
 }
 

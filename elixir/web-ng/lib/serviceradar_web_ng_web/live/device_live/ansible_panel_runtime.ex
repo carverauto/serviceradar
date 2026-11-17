@@ -351,6 +351,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   def launch_error_message({:launch_input_out_of_bounds, name}), do: "#{name} is outside the reviewed bounds."
 
+  def launch_error_message({:credential_url_launch_input, name}),
+    do: "#{name} contains a URL with a username or password. Supply credentials through a secret input instead."
+
   def launch_error_message({:undeclared_launch_inputs, _names}),
     do: "The request contained an input that is not declared by the reviewed binding."
 

@@ -39,6 +39,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/credentials/network_credential_rule_validation_db_test.exs",
     "test/serviceradar/credentials/secret_broker_external_resolution_db_test.exs",
     "test/serviceradar/edge/addon_config_contract_fixtures_test.exs",
+    "test/serviceradar/edge/agent_command_record_scrub_worker_test.exs",
     "test/serviceradar/edge/agent_control_session_push_isolation_test.exs",
     "test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs",
     "test/serviceradar/edge/authority_history_db_test.exs",

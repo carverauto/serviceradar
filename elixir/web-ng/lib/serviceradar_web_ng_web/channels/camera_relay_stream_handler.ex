@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadarWebNG.CameraRelayWebRTC
 
   require Logger
@@ -217,9 +218,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   end
 
   defp snapshot(session) do
-    playback_metadata = playback_metadata(session)
-
-    Map.merge(playback_metadata, %{
+    session
+    |> playback_metadata()
+    |> Map.merge(%{
       type: "camera_relay_snapshot",
       relay_session_id: session.id,
       camera_source_id: session.camera_source_id,
@@ -234,6 +235,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       failure_reason: session.failure_reason,
       updated_at: iso8601(session.updated_at)
     })
+    |> put_failure_summary()
   end
 
   defp playback_metadata(session) when is_map(session) do
@@ -339,6 +341,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       failure_reason: Map.get(payload, :failure_reason),
       updated_at: iso8601_from_unix(Map.get(payload, :updated_at_unix))
     })
+    |> put_failure_summary()
   end
 
   defp normalize_snapshot(%{"relay_session_id" => relay_session_id} = payload, state)
@@ -360,9 +363,15 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       failure_reason: Map.get(payload, "failure_reason"),
       updated_at: iso8601_from_unix(Map.get(payload, "updated_at_unix"))
     })
+    |> put_failure_summary()
   end
 
   defp normalize_snapshot(_payload, _state), do: nil
+
+  # The operator sentence for an agent-reported source failure; nil for any
+  # other failure text, which the viewer shows as-is.
+  defp put_failure_summary(snapshot),
+    do: Map.put(snapshot, :failure_summary, RelaySourceFailure.describe(snapshot.failure_reason))
 
   defp relay_termination_kind(session) when is_map(session) do
     Map.get(session, :termination_kind) || Map.get(session, "termination_kind")

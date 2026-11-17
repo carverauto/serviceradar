@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
 
   @actor SystemActor.system(:secure_execution_command_dispatcher)
   @lease_seconds 15
@@ -591,7 +592,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
       command.agent_id == attempt.dispatch_agent_id and
       command.partition_id == attempt.dispatch_partition_id and
       Contract.context_matches?(attempt, execution, command.context || %{}) and
-      command.context == context and
+      AgentCommandRecordPolicy.matches_persisted?(
+        :context,
+        command.command_type,
+        command.context,
+        context
+      ) and
       Contract.persisted_payload_matches?(
         attempt,
         execution,

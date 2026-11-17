@@ -14,6 +14,8 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
   import Ash.Expr
 
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
+
   @command_fields [
     :command_type,
     :agent_id,
@@ -96,6 +98,8 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
         Ash.Changeset.change_attribute(changeset, :expires_at, expires_at)
       end
+
+      change &AgentCommandRecordPolicy.redact_changeset/2
     end
 
     create :create_with_id do
@@ -116,6 +120,8 @@ defmodule ServiceRadar.Edge.AgentCommand do
         )
         |> Ash.Changeset.change_attribute(:expires_at, expires_at)
       end
+
+      change &AgentCommandRecordPolicy.redact_changeset/2
     end
 
     update :retry_certificate_delivery do

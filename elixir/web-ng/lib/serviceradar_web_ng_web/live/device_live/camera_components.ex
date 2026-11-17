@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
 
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayTermination
+  alias ServiceRadarWebNGWeb.CameraRelayComponents
 
   attr(:camera_sources, :list, default: [])
   attr(:can_view_recordings, :boolean, default: false)
@@ -129,10 +130,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
                     </span>
                     <span
                       :if={present?(Map.get(@last_session, :failure_reason))}
+                      id={"camera-relay-failure-#{profile.id}"}
                       class="text-xs text-error"
                       title={Map.get(@last_session, :failure_reason)}
                     >
-                      {Map.get(@last_session, :failure_reason)}
+                      {CameraRelayComponents.relay_failure_reason_text(@last_session)}
                     </span>
                     <span
                       :if={present?(Map.get(@last_session, :close_reason))}
@@ -266,6 +268,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
         </div>
         <div data-role="close-reason" class="text-xs text-warning/80">
           {relay_close_reason_text(@active_session)}
+        </div>
+        <div data-role="failure-reason" class="text-xs text-error">
+          {CameraRelayComponents.relay_failure_reason_text(@active_session)}
         </div>
         <div data-role="binary-stats" class="text-xs text-sr-muted">
           Chunks: 0  Bytes: 0

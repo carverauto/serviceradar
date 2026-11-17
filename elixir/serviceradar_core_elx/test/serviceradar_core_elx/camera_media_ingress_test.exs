@@ -24,6 +24,18 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
       send(opts[:test_pid], {:close_session, relay_session_id, media_ingest_id, attrs})
       {:ok, %{id: relay_session_id, media_ingest_id: media_ingest_id, close_reason: attrs[:close_reason]}}
     end
+
+    def fail_session(relay_session_id, media_ingest_id, attrs, opts) do
+      send(opts[:test_pid], {:fail_session, relay_session_id, media_ingest_id, attrs})
+
+      {:ok,
+       %{
+         id: relay_session_id,
+         media_ingest_id: media_ingest_id,
+         close_reason: attrs[:close_reason],
+         failure_reason: attrs[:failure_reason]
+       }}
+    end
   end
 
   setup do
@@ -233,6 +245,75 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
              )
 
     assert heartbeat_ack.message == "core heartbeat accepted during relay drain"
+  end
+
+  test "stores the agent's source failure reason only after validating and sanitizing it" do
+    # Invented credentials. The agent strips them; core must not trust that it did.
+    leaky_url = "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?enableSrtp"
+    long_detail = String.duplicate("timeout ", 40)
+
+    cases = [
+      {"authentication_failed: describe rtsp stream: bad status code: 401 (Unauthorized)",
+       {:failed, "authentication_failed: describe rtsp stream: bad status code: 401 (Unauthorized)"}},
+      {"unknown: describe #{leaky_url} failed\0\r\n",
+       {:failed, "unknown: describe rtsps://camera01.example.com:7441 failed"}},
+      {"read_timeout_no_media: " <> long_detail,
+       {:failed, "read_timeout_no_media: " <> String.trim(String.duplicate("timeout ", 25))}},
+      {"Authentication Failed: 401", :closed},
+      {"auth\0failed: 401", :closed},
+      {"unknown: " <> String.duplicate("x", 600), :closed},
+      {"", :closed}
+    ]
+
+    for {reported, expected} <- cases do
+      relay_session_id = unique_id("relay-source-failure")
+      :ok = RelayPubSub.subscribe(relay_session_id)
+
+      {:ok, %{media_ingest_id: media_ingest_id}, %{ingress_pid: ingress_pid}} =
+        CameraMediaIngress.open_relay_session(%Camera.OpenRelaySessionRequest{
+          relay_session_id: relay_session_id,
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          camera_source_id: "camera-1",
+          stream_profile_id: "main"
+        })
+
+      {result, log} =
+        ExUnit.CaptureLog.with_log([level: :warning], fn ->
+          CameraMediaIngressSession.close_relay_session(ingress_pid, %Camera.CloseRelaySessionRequest{
+            relay_session_id: relay_session_id,
+            media_ingest_id: media_ingest_id,
+            agent_id: "agent-1",
+            reason: "source_start_failed",
+            failure_reason: reported
+          })
+        end)
+
+      assert {:ok, %Camera.CloseRelaySessionResponse{closed: true}} = result
+      refute log =~ "hunter2"
+
+      case expected do
+        {:failed, stored} ->
+          assert_receive {:fail_session, ^relay_session_id, ^media_ingest_id,
+                          %{close_reason: "source_start_failed", failure_reason: ^stored, viewer_count: 0}}
+
+          assert_receive {:camera_relay_state,
+                          %{
+                            relay_session_id: ^relay_session_id,
+                            status: "failed",
+                            termination_kind: "failure",
+                            failure_reason: ^stored
+                          }}
+
+          assert log =~ "Core camera relay source failed"
+          assert log =~ "failure_reason=#{stored}"
+
+        :closed ->
+          assert_receive {:close_session, ^relay_session_id, ^media_ingest_id, %{close_reason: "source_start_failed"}}
+          refute_received {:fail_session, ^relay_session_id, _media_ingest_id, _attrs}
+          refute log =~ "Core camera relay source failed"
+      end
+    end
   end
 
   defp clear_ingress_sessions do
