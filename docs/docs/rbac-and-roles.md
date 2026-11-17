@@ -43,7 +43,7 @@ The catalog covers these areas:
 | Area | Examples of what it controls |
 | --- | --- |
 | **Analytics** | Viewing analytics dashboards; managing saved queries. |
-| **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; watching live camera video; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
+| **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; watching live camera video; viewing recorded camera footage and placing or releasing recording holds; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
 | **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), camera recording and archive storage (`settings.recording.*`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
@@ -102,7 +102,23 @@ defaults to administrators and can be granted through custom role profiles;
 live-video permission does not grant it. Each inventory, metadata, playlist or footage request reloads the
 user's persisted active account and current permissions, so cached authority
 does not preserve revoked access. Fragment responses repeat authorization before
-releasing bytes. Recording access does not grant export or storage administration.
+releasing bytes. Recording access does not grant hold placement, export, or storage administration.
+
+### Recording holds
+
+Placing or releasing an investigation or export hold on recorded camera footage
+requires `devices.cameras.recordings.hold` (default role: `admin`, assignable
+through custom role profiles) together with fresh camera scope. Holds keep at
+least one verified copy of every covered block until explicitly released: when a
+verified archive copy exists, the hold pins the archive copy so the local copy
+remains evictable under the local byte budget and maximum local age; in
+local-only mode, before archive verification completes, or if a held archive
+copy is found missing while the local copy remains, the hold pins the local
+copy. Accepting the loss of a missing archive copy when a hold covers the entry
+also requires `devices.cameras.recordings.hold`. Holds are placed and released
+on the camera Timeline, not in Settings; `/settings/recording` displays active
+hold counts, held and non-reapable byte capacity impact on `?tab=retention`, and
+per-block hold-pin status on `?tab=cameras`.
 
 ### Camera recording and storage settings
 
@@ -112,7 +128,7 @@ default to `admin` and can be assigned individually through custom role profiles
 
 | Permission | Grants | Default roles |
 | --- | --- | --- |
-| `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, immutable archive destination generations, selected credential names, per-camera block locations, archive receipts, and operation history. | `admin` |
+| `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, immutable archive destination generations, selected credential names, held-byte capacity impact, per-camera block locations and hold-pin status, archive receipts, and operation history. | `admin` |
 | `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, and (once the recording-plane and retention tasks land) edit recording policy, retention, and per-member local budgets. | `admin` |
 | `settings.recording.operate` | Start supervised recorder operations (bounded camera captures, block archive uploads, destination connectivity tests, and local or archive retrieval checks). | `admin` |
 
@@ -130,8 +146,9 @@ Every state-changing LiveView event, Core action, and operations call re-checks
 the specific permission for that operation (`manage` versus `operate`) against
 the current actor rather than relying on mount-time access. None of the
 `settings.recording.*` permissions grant recorded footage playback (which keeps
-`devices.cameras.recordings.view` plus `devices.view`), and footage-read access
-does not open `/settings/recording`.
+`devices.cameras.recordings.view` plus `devices.view`) or recording hold
+placement and release (which require `devices.cameras.recordings.hold`), and
+footage-read or hold access does not open `/settings/recording`.
 
 No RBAC permission opens, closes, or modifies the deployment recovery gate from
 the UI or API. The view reports Core and NVR recovery-gate state read-only; gate

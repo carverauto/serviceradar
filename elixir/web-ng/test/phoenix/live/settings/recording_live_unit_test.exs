@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.Accounts.Scope
@@ -827,6 +828,232 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       no_other_doc = no_other_socket |> render_mounted() |> LazyHTML.from_fragment()
       assert no_other_doc |> LazyHTML.query("#retention-other-buckets-info") |> Enum.count() == 0
     end
+
+    test "renders held/non-reapable bytes and high-water/missing hold alerts" do
+      manager_scope = scope_with_permissions(["settings.recording.manage"])
+      storage_id = "00000000-0000-4000-8000-000000000011"
+      camera_id = "00000000-0000-4000-8000-000000000061"
+      binding_id = "00000000-0000-4000-8000-000000000031"
+      retention_secret_id = "00000000-0000-4000-8000-000000000045"
+      now = ~U[2026-11-16 14:00:00Z]
+
+      # 1 GiB limited object budget -> 90% high water = 966,367,641 B
+      settings =
+        struct(RecordingArchiveSettings.default_settings(),
+          active_archive_binding_id: binding_id,
+          archive_enabled: true,
+          retention_credential_secret_id: retention_secret_id,
+          local_only_full_policy: :overwrite_oldest,
+          object_budget_mode: :limited,
+          object_budget_bytes: 1_073_741_824,
+          object_high_water_percent: 90,
+          object_low_water_percent: 80,
+          object_capacity_policy: :reap_oldest
+        )
+
+      bindings = [
+        %ArchiveBinding{
+          id: binding_id,
+          provisioning_ref: "operator:primary",
+          generation: 1,
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-archive",
+          namespace: "recordings/v1"
+        }
+      ]
+
+      # Entry 1: archive-verified (800 MiB) covered by Hold 1 -> PD5 pins archive copy, NOT local copy
+      # Entry 2: in-flight pending (200 MiB) -> brings non_reapable_bytes to 1,000 MiB (>= 921.6 MiB high water)
+      # Entry 3: local-only not_required (64 MiB) covered by Hold 2 -> PD5 pins local copy
+      catalog_entries = [
+        %{
+          id: "00000000-0000-4000-8000-000000000111",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("5", 64),
+          timeline_start_us: 1_763_290_000_000_000,
+          timeline_end_us: 1_763_290_060_000_000,
+          local_state: :present,
+          archive_state: :verified,
+          archive_binding_id: binding_id,
+          media_bytes: 838_860_800,
+          sealed_at: ~U[2026-11-16 12:33:20Z],
+          archived_at: ~U[2026-11-16 12:34:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000112",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("6", 64),
+          timeline_start_us: 1_763_290_120_000_000,
+          timeline_end_us: 1_763_290_180_000_000,
+          local_state: :present,
+          archive_state: :pending,
+          archive_binding_id: binding_id,
+          media_bytes: 209_715_200,
+          sealed_at: ~U[2026-11-16 13:55:00Z]
+        },
+        %{
+          id: "00000000-0000-4000-8000-000000000113",
+          camera_source_id: camera_id,
+          storage_id: storage_id,
+          block_key: String.duplicate("7", 64),
+          timeline_start_us: 1_763_290_300_000_000,
+          timeline_end_us: 1_763_290_360_000_000,
+          local_state: :present,
+          archive_state: :not_required,
+          media_bytes: 67_108_864,
+          sealed_at: ~U[2026-11-16 13:58:00Z]
+        }
+      ]
+
+      accepted_holds = [
+        %RecordingHold{
+          id: "00000000-0000-4000-8000-000000000201",
+          camera_source_id: camera_id,
+          start_us: 1_763_290_000_000_000,
+          end_us: 1_763_290_060_000_000,
+          kind: :investigation,
+          reason: "Synthetic gate incident",
+          state: :accepted,
+          unavailable_blocks: []
+        },
+        %RecordingHold{
+          id: "00000000-0000-4000-8000-000000000202",
+          camera_source_id: camera_id,
+          start_us: 1_763_290_300_000_000,
+          end_us: 1_763_290_360_000_000,
+          kind: :export,
+          reason: "Synthetic clip hold",
+          state: :accepted,
+          unavailable_blocks: []
+        }
+      ]
+
+      {:ok, summary} =
+        RetentionCalculator.usage_summary(
+          scope: manager_scope,
+          now: now,
+          settings: settings,
+          loaders: %{
+            bindings_loader: fn -> {:ok, bindings} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, catalog_entries} end,
+            holds_loader: fn -> {:ok, accepted_holds} end,
+            blocks_loader: fn -> {:ok, []} end
+          }
+        )
+
+      assert summary.holds == %{
+               active_hold_count: 2,
+               held_archive_bytes: 838_860_800,
+               held_local_pinned_bytes: 67_108_864,
+               held_archive_missing_count: 0
+             }
+
+      assert summary.object_projection.non_reapable_bytes == 1_048_576_000
+      assert summary.object_projection.archiving_paused? == true
+
+      deps = %{
+        load_archive_settings_view: fn _ ->
+          %{
+            default_overview()
+            | record: settings,
+              settings: settings,
+              retention_form: CameraRecordingSettings.retention_form_from_settings(settings),
+              storage_mode: :local_and_archive,
+              active_binding_id: binding_id,
+              object_retention_enforced?: true,
+              selected_retention_label: "Synthetic retention deleter"
+          }
+        end,
+        load_retention_usage_summary: fn _ -> summary end
+      }
+
+      socket =
+        manager_scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "retention")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert doc |> LazyHTML.query("#retention-active-holds-count") |> LazyHTML.text() =~
+               "Active holds: 2"
+
+      held_arch_text =
+        doc |> LazyHTML.query("#retention-held-archive-bytes") |> LazyHTML.text() |> normalize_ws()
+
+      assert held_arch_text =~ "Held archive: 800 MiB"
+      assert held_arch_text =~ "Non-reapable: 1000 MiB"
+
+      assert doc
+             |> LazyHTML.query("#retention-held-local-pinned-bytes")
+             |> LazyHTML.text()
+             |> normalize_ws() == "Held local-pinned: 64 MiB"
+
+      holds_rule_text =
+        doc |> LazyHTML.query("#retention-holds-capacity-summary") |> LazyHTML.text() |> normalize_ws()
+
+      assert holds_rule_text =~ "archive-verified held blocks pin the archive copy"
+      assert holds_rule_text =~ "keep their local copy evictable"
+      assert holds_rule_text =~ "placed and released on the camera Timeline, not in Settings"
+
+      high_water_alert = LazyHTML.query(doc, "#retention-non-reapable-high-water-alert[role='alert']")
+      assert Enum.count(high_water_alert) == 1
+
+      assert high_water_alert |> LazyHTML.text() |> normalize_ws() =~
+               "Non-reapable bytes (held archive copies and uploads in flight) have reached object high water — new archive uploads pause until holds are released or the budget is raised"
+
+      assert doc |> LazyHTML.query("#retention-held-archive-missing-alert") |> Enum.count() == 0
+
+      # Raising the draft object budget to 10 GiB puts high water (9 GiB) above 1,000 MiB and clears the alert live
+      {:noreply, raised_socket} =
+        RecordingLive.handle_event(
+          "preview_retention_settings",
+          %{
+            "retention" => %{
+              "object_budget_mode" => "limited",
+              "object_budget_bytes" => "10737418240"
+            }
+          },
+          socket
+        )
+
+      raised_doc = raised_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert raised_doc |> LazyHTML.query("#retention-non-reapable-high-water-alert") |> Enum.count() == 0
+
+      # When a held entry's archive copy is missing, held_archive_missing_count > 0 surfaces the critical alert
+      missing_entries =
+        List.update_at(catalog_entries, 0, &Map.put(&1, :archive_state, :missing))
+
+      {:ok, missing_summary} =
+        RetentionCalculator.usage_summary(
+          scope: manager_scope,
+          now: now,
+          settings: settings,
+          loaders: %{
+            bindings_loader: fn -> {:ok, bindings} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, missing_entries} end,
+            holds_loader: fn -> {:ok, accepted_holds} end,
+            blocks_loader: fn -> {:ok, []} end
+          }
+        )
+
+      assert missing_summary.holds.held_archive_missing_count == 1
+      assert missing_summary.holds.held_local_pinned_bytes == 838_860_800 + 67_108_864
+
+      missing_socket = assign(raised_socket, :usage_summary, missing_summary)
+      missing_doc = missing_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      missing_alert =
+        LazyHTML.query(missing_doc, "#retention-held-archive-missing-alert[role='alert']")
+
+      assert Enum.count(missing_alert) == 1
+      assert LazyHTML.text(missing_alert) =~ "held_archive_missing"
+      assert LazyHTML.text(missing_alert) =~ "1 held block(s)"
+    end
   end
 
   describe "A1.8 archive mutations and per-event RBAC re-authorization" do
@@ -1529,6 +1756,189 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert rows_html =~ "Not cataloged"
       refute String.downcase(rows_html) =~ "absent"
       refute String.downcase(rows_html) =~ "capture time"
+    end
+
+    test "renders PD5 archive vs local hold-pin badges on cameras tab" do
+      camera_id = "00000000-0000-4000-8000-000000000061"
+      profile_id = "00000000-0000-4000-8000-000000000062"
+      storage_id = "00000000-0000-4000-8000-000000000011"
+
+      block_arch_id = "00000000-0000-4000-8000-000000000301"
+      block_local_id = "00000000-0000-4000-8000-000000000302"
+      block_unheld_id = "00000000-0000-4000-8000-000000000303"
+
+      key_arch = String.duplicate("8", 64)
+      key_local = String.duplicate("9", 64)
+      key_unheld = String.duplicate("0", 64)
+
+      blocks = [
+        %{
+          id: block_arch_id,
+          block_key: key_arch,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 13:10:00Z]
+        },
+        %{
+          id: block_local_id,
+          block_key: key_local,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 13:08:00Z]
+        },
+        %{
+          id: block_unheld_id,
+          block_key: key_unheld,
+          storage_id: storage_id,
+          stream_profile_id: profile_id,
+          state: :sealed,
+          inserted_at: ~U[2026-11-16 13:06:00Z]
+        }
+      ]
+
+      catalog_entries = %{
+        {storage_id, key_arch} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000311",
+          recording_block_id: block_arch_id,
+          camera_source_id: camera_id,
+          stream_profile_id: profile_id,
+          storage_id: storage_id,
+          block_key: key_arch,
+          local_state: :present,
+          archive_state: :verified,
+          time_basis: :received,
+          timeline_start_us: 1_763_298_600_000_000,
+          timeline_end_us: 1_763_298_612_000_000,
+          media_bytes: 4_194_304,
+          fragment_count: 6
+        },
+        {storage_id, key_local} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000312",
+          recording_block_id: block_local_id,
+          camera_source_id: camera_id,
+          stream_profile_id: profile_id,
+          storage_id: storage_id,
+          block_key: key_local,
+          local_state: :present,
+          archive_state: :not_required,
+          time_basis: :received,
+          timeline_start_us: 1_763_298_480_000_000,
+          timeline_end_us: 1_763_298_492_000_000,
+          media_bytes: 2_097_152,
+          fragment_count: 3
+        },
+        {storage_id, key_unheld} => %RecordingCatalogEntry{
+          id: "00000000-0000-4000-8000-000000000313",
+          recording_block_id: block_unheld_id,
+          camera_source_id: camera_id,
+          stream_profile_id: profile_id,
+          storage_id: storage_id,
+          block_key: key_unheld,
+          local_state: :present,
+          archive_state: :verified,
+          time_basis: :received,
+          timeline_start_us: 1_763_298_360_000_000,
+          timeline_end_us: 1_763_298_372_000_000,
+          media_bytes: 2_097_152,
+          fragment_count: 3
+        }
+      }
+
+      holds = [
+        %RecordingHold{
+          id: "00000000-0000-4000-8000-000000000321",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_id,
+          start_us: 1_763_298_600_000_000,
+          end_us: 1_763_298_615_000_000,
+          kind: :investigation,
+          reason: "Synthetic investigation hold",
+          state: :accepted,
+          unavailable_blocks: []
+        },
+        %RecordingHold{
+          id: "00000000-0000-4000-8000-000000000322",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_id,
+          start_us: 1_763_298_480_000_000,
+          end_us: 1_763_298_495_000_000,
+          kind: :export,
+          reason: "Synthetic export hold",
+          state: :accepted,
+          unavailable_blocks: []
+        }
+      ]
+
+      scope = scope_with_permissions(["settings.recording.view", "devices.view"])
+
+      deps = %{
+        authorize_current: &scope_authorize_current/2,
+        authorize_current_any: &scope_authorize_current_any/2,
+        list_relay_profiles: fn _scope, ^camera_id ->
+          [%{id: profile_id, profile_name: "main", codec_hint: "h264"}]
+        end,
+        list_camera_blocks_page: fn s, cid, opts ->
+          CameraRecordingSettings.list_camera_blocks_page(
+            s,
+            cid,
+            Keyword.put(opts, :loaders, %{
+              blocks_page_loader: fn ^camera_id, _page_opts -> {:ok, blocks} end,
+              receipts_for_blocks_loader: fn _ -> %{} end,
+              catalog_for_blocks_loader: fn _ -> {:ok, catalog_entries} end,
+              holds_loader: fn [^camera_id] -> {:ok, holds} end
+            })
+          )
+        end
+      }
+
+      socket =
+        scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "cameras")
+        |> assign(:sources, [
+          %{
+            id: camera_id,
+            display_name: "Synthetic Gate Camera",
+            device_uid: "sr:cam-01",
+            vendor_camera_id: "cam-01"
+          }
+        ])
+
+      {:noreply, selected_socket} =
+        RecordingLive.handle_event(
+          "select_camera_context",
+          %{"camera_source_id" => camera_id},
+          socket
+        )
+
+      doc = selected_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      timeline_note =
+        doc
+        |> LazyHTML.query("#camera-recording-holds-timeline-note")
+        |> LazyHTML.text()
+        |> normalize_ws()
+
+      assert timeline_note =~ "placed or released from the camera Timeline, not in Settings"
+
+      arch_pin_text =
+        doc |> LazyHTML.query("#block-hold-pin-#{block_arch_id}") |> LazyHTML.text() |> normalize_ws()
+
+      assert arch_pin_text =~ "Hold pins archive copy (local evictable)"
+      assert arch_pin_text =~ "1 active hold (investigation)"
+      assert arch_pin_text =~ "Placed/released on Timeline"
+
+      local_pin_text =
+        doc |> LazyHTML.query("#block-hold-pin-#{block_local_id}") |> LazyHTML.text() |> normalize_ws()
+
+      assert local_pin_text =~ "Hold pins local copy"
+      refute local_pin_text =~ "local evictable"
+      assert local_pin_text =~ "1 active hold (export)"
+
+      assert doc |> LazyHTML.query("#block-hold-pin-#{block_unheld_id}") |> Enum.count() == 0
+      assert doc |> LazyHTML.query("#camera-recording-blocks-stream") |> LazyHTML.text() =~ "No active hold"
     end
   end
 

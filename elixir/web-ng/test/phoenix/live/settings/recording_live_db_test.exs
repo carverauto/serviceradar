@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
@@ -271,8 +272,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert %DateTime{} = persisted.object_capacity_policy_confirmed_at
   end
 
-  test "freeze_and_catalog surfaces real catalog copy states and received time basis on ?tab=cameras and multi-generation same-bucket vs other-bucket usage on ?tab=retention",
-       %{conn: conn, actor: actor} do
+  test "freeze_and_catalog and RecordingHolds surface real catalog copy states, PD5 hold-pin badges, and held/non-reapable bytes across ?tab=cameras and ?tab=retention",
+       %{conn: conn, scope: scope, actor: actor} do
     opts = [actor: actor]
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Writer")
     retention_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Retention")
@@ -462,6 +463,103 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert ret_html =~ "64 MiB"
     assert ret_html =~ "synthetic-other-archive"
     assert ret_html =~ "excluded from active budget"
+    assert has_element?(ret_view, "#retention-active-holds-count", "Active holds: 0")
+
+    # 3. Place real RecordingHolds over entry_verified (PD5 :archive pin, 32 MiB) and
+    #    entry_pending (PD5 :local pin, 16 MiB) under admin Scope against Postgres
+    {:ok, hold_archive} =
+      RecordingHolds.place_hold(
+        %{
+          camera_source_id: live_ctx.source.id,
+          stream_profile_id: live_ctx.profile.id,
+          start_us: entry_verified.timeline_start_us,
+          end_us: entry_verified.timeline_end_us,
+          kind: :investigation,
+          reason: "Synthetic DB investigation hold on archive-verified block"
+        },
+        scope: scope
+      )
+
+    assert hold_archive.state == :accepted
+    assert hold_archive.unavailable_blocks == []
+
+    {:ok, hold_local} =
+      RecordingHolds.place_hold(
+        %{
+          camera_source_id: live_ctx.source.id,
+          stream_profile_id: live_ctx.profile.id,
+          start_us: entry_pending.timeline_start_us,
+          end_us: entry_pending.timeline_end_us,
+          kind: :export,
+          reason: "Synthetic DB export hold on unarchived block"
+        },
+        scope: scope
+      )
+
+    assert hold_local.state == :accepted
+    assert hold_local.unavailable_blocks == []
+
+    # Verify ?tab=cameras renders exact PD5 hold-pin badges for cataloged rows and omits uncataloged
+    {:ok, held_cam_view, _} = live(conn, ~p"/settings/recording?tab=cameras")
+
+    held_cam_view
+    |> element("#recording-camera-picker-form")
+    |> render_change(%{"camera_source_id" => live_ctx.source.id})
+
+    assert has_element?(held_cam_view, "#camera-recording-holds-timeline-note")
+
+    assert has_element?(
+             held_cam_view,
+             "#block-hold-pin-#{block_verified.id}",
+             "Hold pins archive copy (local evictable)"
+           )
+
+    assert has_element?(
+             held_cam_view,
+             "#block-hold-pin-#{block_verified.id}",
+             "1 active hold (investigation)"
+           )
+
+    assert has_element?(
+             held_cam_view,
+             "#block-hold-pin-#{block_pending.id}",
+             "Hold pins local copy"
+           )
+
+    assert has_element?(
+             held_cam_view,
+             "#block-hold-pin-#{block_pending.id}",
+             "1 active hold (export)"
+           )
+
+    refute has_element?(held_cam_view, "#block-hold-pin-#{block_uncataloged.id}")
+
+    # Verify ?tab=retention aggregates active_hold_count=2, held_archive_bytes=32 MiB,
+    # non_reapable_bytes=48 MiB (32 MiB held archive + 16 MiB in-flight), held_local_pinned_bytes=16 MiB
+    {:ok, held_ret_view, _} = live(conn, ~p"/settings/recording?tab=retention")
+
+    assert has_element?(held_ret_view, "#retention-active-holds-count", "Active holds: 2")
+    assert has_element?(held_ret_view, "#retention-held-archive-bytes", "Held archive: 32 MiB")
+    assert has_element?(held_ret_view, "#retention-non-reapable-bytes", "48 MiB")
+    assert has_element?(held_ret_view, "#retention-held-local-pinned-bytes", "16 MiB")
+    assert has_element?(held_ret_view, "#retention-holds-capacity-summary")
+
+    # Releasing hold_archive updates both ?tab=cameras and ?tab=retention immediately
+    {:ok, released_hold} =
+      RecordingHolds.release_hold(
+        hold_archive.id,
+        %{release_reason: "Synthetic DB investigation closed"},
+        scope: scope
+      )
+
+    assert released_hold.state == :released
+
+    {:ok, after_release_ret_view, _} = live(conn, ~p"/settings/recording?tab=retention")
+
+    assert has_element?(after_release_ret_view, "#retention-active-holds-count", "Active holds: 1")
+    assert has_element?(after_release_ret_view, "#retention-held-archive-bytes", "Held archive: 0 B")
+    assert has_element?(after_release_ret_view, "#retention-non-reapable-bytes", "16 MiB")
+    assert has_element?(after_release_ret_view, "#retention-held-local-pinned-bytes", "16 MiB")
   end
 
   defp setup_live_recorder_fence(actor) do

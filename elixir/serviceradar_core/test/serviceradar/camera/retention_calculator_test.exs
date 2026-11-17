@@ -3,6 +3,7 @@ defmodule ServiceRadar.Camera.RetentionCalculatorTest do
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RetentionCalculator
 
   @gb 1_000_000_000
@@ -647,6 +648,261 @@ defmodule ServiceRadar.Camera.RetentionCalculatorTest do
                DateTime.shift(now, day: -3)
 
       assert summary.local_projection.pinned_bytes == 2_200_000
+
+      assert summary.holds == %{
+               active_hold_count: 0,
+               held_archive_bytes: 0,
+               held_local_pinned_bytes: 0,
+               held_archive_missing_count: 0
+             }
+    end
+
+    test "C.19 & PD5: integrates accepted holds into held_archive_bytes, non_reapable_bytes, held_local_pinned_bytes, and disjoint C1a pinned_bytes without double-counting" do
+      viewer = %{
+        id: "viewer-holds",
+        role: :admin,
+        permissions: MapSet.new(["settings.recording.view"])
+      }
+
+      now = ~U[2026-11-16 16:00:00Z]
+      b_active = "00000000-0000-4000-8000-000000000501"
+      storage_id = "00000000-0000-4000-8000-000000000509"
+      camera_id = "00000000-0000-4000-8000-000000000510"
+      profile_main = "00000000-0000-4000-8000-000000000511"
+      profile_sub = "00000000-0000-4000-8000-000000000512"
+
+      bindings = [
+        %{
+          id: b_active,
+          endpoint: "https://objects.example.com",
+          bucket: "recordings-holds",
+          namespace: "nvr/v1"
+        }
+      ]
+
+      # Object budget = 10_000_000 (high water 90% = 9_000_000, low water 80% = 8_000_000),
+      # local_only_full_policy = :overwrite_oldest so kind (b) is only pinned when held (P4).
+      settings = %{
+        RecordingArchiveSettings.default_settings()
+        | active_archive_binding_id: b_active,
+          archive_enabled: true,
+          local_only_full_policy: :overwrite_oldest,
+          object_budget_mode: :limited,
+          object_budget_bytes: 10_000_000,
+          object_high_water_percent: 90,
+          object_low_water_percent: 80,
+          object_capacity_policy: :reap_oldest
+      }
+
+      k_verified = String.duplicate("a", 64)
+      k_pending = String.duplicate("b", 64)
+      k_local_only = String.duplicate("c", 64)
+      k_deleted_arch = String.duplicate("d", 64)
+      k_missing_arch = String.duplicate("e", 64)
+      k_unavail = String.duplicate("f", 64)
+
+      receipts = [
+        %{
+          id: "00000000-0000-4000-8000-000000000601",
+          storage_id: storage_id,
+          block_key: k_verified,
+          archive_binding_id: b_active,
+          verified_at: DateTime.shift(now, hour: -2),
+          objects: [%{name: "media.m4s", length: 7_500_000}]
+        }
+      ]
+
+      catalog_entries = [
+        # 1. Archive-verified & held: pins :archive (7.5M object bytes), local copy (7.2M) stays EVICTABLE!
+        %{
+          id: "00000000-0000-4000-8000-000000000701",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_main,
+          storage_id: storage_id,
+          block_key: k_verified,
+          timeline_start_us: 1_000_000,
+          timeline_end_us: 5_000_000,
+          local_state: :present,
+          archive_state: :verified,
+          archive_binding_id: b_active,
+          nvr_archive_receipt_id: "00000000-0000-4000-8000-000000000601",
+          media_bytes: 7_200_000,
+          sealed_at: DateTime.shift(now, hour: -2)
+        },
+        # 2. Pending upload & held: pins :local (2.0M). Already in P1 -> counted ONCE in local pinned_bytes,
+        #    and 2.0M in-flight brings non_reapable_bytes to 7.5M + 2.0M = 9.5M >= 9.0M high water!
+        %{
+          id: "00000000-0000-4000-8000-000000000702",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_main,
+          storage_id: storage_id,
+          block_key: k_pending,
+          timeline_start_us: 5_000_000,
+          timeline_end_us: 9_000_000,
+          local_state: :present,
+          archive_state: :pending,
+          archive_binding_id: b_active,
+          media_bytes: 2_000_000,
+          sealed_at: DateTime.shift(now, minute: -5)
+        },
+        # 3. Local-only (kind b) & held under overwrite_oldest: pins :local (3.0M) -> counted in P4!
+        %{
+          id: "00000000-0000-4000-8000-000000000703",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_sub,
+          storage_id: storage_id,
+          block_key: k_local_only,
+          timeline_start_us: 2_000_000,
+          timeline_end_us: 6_000_000,
+          local_state: :present,
+          archive_state: :not_required,
+          media_bytes: 3_000_000,
+          sealed_at: DateTime.shift(now, minute: -10)
+        },
+        # 4. Archive already deleted & held: pins :local (1.2M) -> counted in P4!
+        %{
+          id: "00000000-0000-4000-8000-000000000704",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_main,
+          storage_id: storage_id,
+          block_key: k_deleted_arch,
+          timeline_start_us: 9_000_000,
+          timeline_end_us: 12_000_000,
+          local_state: :present,
+          archive_state: :deleted,
+          archive_deleted_reason: :object_capacity,
+          archive_binding_id: b_active,
+          media_bytes: 1_200_000,
+          sealed_at: DateTime.shift(now, day: -2)
+        },
+        # 5. Archive missing while local present & held: pins :local (1.1M, in P1)
+        #    and increments held_archive_missing_count.
+        %{
+          id: "00000000-0000-4000-8000-000000000705",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_main,
+          storage_id: storage_id,
+          block_key: k_missing_arch,
+          timeline_start_us: 12_000_000,
+          timeline_end_us: 15_000_000,
+          local_state: :present,
+          archive_state: :missing,
+          archive_binding_id: b_active,
+          media_bytes: 1_100_000,
+          sealed_at: DateTime.shift(now, day: -1)
+        },
+        # 6. Listed in hold's unavailable_blocks -> NEVER claimed by hold!
+        %{
+          id: "00000000-0000-4000-8000-000000000706",
+          camera_source_id: camera_id,
+          stream_profile_id: profile_main,
+          storage_id: storage_id,
+          block_key: k_unavail,
+          timeline_start_us: 15_000_000,
+          timeline_end_us: 18_000_000,
+          local_state: :reclaiming,
+          archive_state: :not_required,
+          media_bytes: 4_000_000,
+          sealed_at: DateTime.shift(now, day: -3)
+        }
+      ]
+
+      holds = [
+        %{
+          id: "00000000-0000-4000-8000-000000000801",
+          camera_source_id: camera_id,
+          stream_profile_id: nil,
+          start_us: 0,
+          end_us: 20_000_000,
+          kind: :investigation,
+          state: :accepted,
+          unavailable_blocks: [
+            %{"catalog_entry_id" => "00000000-0000-4000-8000-000000000706"}
+          ]
+        },
+        # Released hold must be ignored
+        %{
+          id: "00000000-0000-4000-8000-000000000802",
+          camera_source_id: camera_id,
+          stream_profile_id: nil,
+          start_us: 0,
+          end_us: 20_000_000,
+          kind: :export,
+          state: :released,
+          unavailable_blocks: []
+        }
+      ]
+
+      assert {:ok, summary} =
+               RetentionCalculator.usage_summary(
+                 actor: viewer,
+                 now: now,
+                 loaders: %{
+                   settings_loader: fn -> {:ok, settings} end,
+                   bindings_loader: fn -> {:ok, bindings} end,
+                   all_receipts_loader: fn -> {:ok, receipts} end,
+                   catalog_loader: fn -> {:ok, catalog_entries} end,
+                   holds_loader: fn -> {:ok, holds} end,
+                   blocks_loader: fn -> {:ok, []} end
+                 }
+               )
+
+      # Object tier: held_archive_bytes = 7.5M; in_flight = 2.0M -> non_reapable = 9.5M >= 9.0M high water -> paused!
+      assert summary.archive.held_archive_bytes == 7_500_000
+      assert summary.archive.held_archive_block_count == 1
+      assert summary.archive.catalog_non_reapable_bytes == 9_500_000
+      assert summary.object_projection.non_reapable_bytes == 9_500_000
+      assert summary.object_projection.archiving_paused? == true
+
+      # Local tier:
+      # held_local_pinned_bytes = pending (2.0M) + local_only (3.0M) + deleted_arch (1.2M) + missing_arch (1.1M) = 7.3M
+      # (NOT counting the 7.2M local copy of the archive-verified entry!)
+      assert summary.local_blocks.held_local_pinned_bytes == 7_300_000
+      assert summary.local_blocks.held_local_pinned_count == 4
+
+      # Disjoint C1a pinned_bytes = P1 (3.1M) + P4 (local_only 3.0M + deleted_arch 1.2M = 4.2M) = 7.3M
+      # (Each held entry counted ONCE!)
+      assert summary.local_projection.pinned_bytes == 7_300_000
+
+      assert summary.holds == %{
+               active_hold_count: 1,
+               held_archive_bytes: 7_500_000,
+               held_local_pinned_bytes: 7_300_000,
+               held_archive_missing_count: 1
+             }
+
+      # RecordingHolds.for_catalog_entries/2 via :loaders seam:
+      assert {:error, %Forbidden{}} =
+               RecordingHolds.for_catalog_entries(catalog_entries,
+                 actor: %{id: "unpermitted", role: :viewer, permissions: MapSet.new()}
+               )
+
+      assert {:ok, per_entry} =
+               RecordingHolds.for_catalog_entries(catalog_entries,
+                 actor: viewer,
+                 loaders: %{holds_loader: fn _cam_ids -> {:ok, holds} end}
+               )
+
+      assert per_entry["00000000-0000-4000-8000-000000000701"] == %{
+               pinned_copy: :archive,
+               hold_count: 1,
+               kinds: [:investigation],
+               hold_ids: ["00000000-0000-4000-8000-000000000801"],
+               archive_missing?: false
+             }
+
+      assert per_entry["00000000-0000-4000-8000-000000000703"].pinned_copy == :local
+      assert per_entry["00000000-0000-4000-8000-000000000705"].pinned_copy == :local
+      assert per_entry["00000000-0000-4000-8000-000000000705"].archive_missing? == true
+
+      # Entry recorded in unavailable_blocks is never claimed by the hold!
+      assert per_entry["00000000-0000-4000-8000-000000000706"] == %{
+               pinned_copy: nil,
+               hold_count: 0,
+               kinds: [],
+               hold_ids: [],
+               archive_missing?: false
+             }
     end
   end
 

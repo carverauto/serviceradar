@@ -24,6 +24,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHold
+  alias ServiceRadar.Camera.RecordingHolds
 
   require Ash.Query
 
@@ -1094,17 +1096,19 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
          {:ok, bindings} <- load_bindings_for_summary(settings.active_archive_binding_id, loaders),
          {:ok, receipts} <- load_all_receipts(settings.active_archive_binding_id, loaders),
          {:ok, catalog_entries} <- load_catalog_entries(loaders),
+         {:ok, accepted_holds} <- load_accepted_holds(loaders),
          {:ok, blocks} <- load_reserved_blocks(loaders) do
       archive_stats =
         aggregate_object_usage(
           bindings,
           catalog_entries,
           receipts,
+          accepted_holds,
           settings.active_archive_binding_id,
           now
         )
 
-      block_stats = aggregate_blocks_and_catalog(blocks, catalog_entries, now)
+      block_stats = aggregate_blocks_and_catalog(blocks, catalog_entries, accepted_holds, now)
       avg_block_bytes = estimate_avg_block_bytes(archive_stats, block_stats)
 
       {r15m_bps, r6h_bps, local_history_sec} =
@@ -1115,8 +1119,17 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           local_only_full_policy: settings.local_only_full_policy,
           p1_unarchived_bytes: block_stats.unarchived_local_bytes,
           kind_b_local_only_bytes: block_stats.kind_b_local_only_bytes,
+          held_kind_b_bytes: block_stats.held_kind_b_bytes,
+          held_kind_a_local_only_bytes: block_stats.held_kind_a_local_only_bytes,
           p5_quarantined_bytes: block_stats.quarantined_local_bytes
         }).total_pinned_bytes
+
+      holds_summary = %{
+        active_hold_count: count_accepted_holds(accepted_holds),
+        held_archive_bytes: archive_stats.held_archive_bytes,
+        held_local_pinned_bytes: block_stats.held_local_pinned_bytes,
+        held_archive_missing_count: block_stats.held_archive_missing_count
+      }
 
       has_activity? =
         block_stats.total_reserved_blocks > 0 or
@@ -1154,6 +1167,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
              rate_basis: projected.rate.basis
            }),
          local_blocks: block_stats,
+         holds: holds_summary,
          object_projection: projected.object_projection,
          local_projection: projected.local_projection,
          shorter_archive_than_local?: projected.shorter_archive_than_local?,
@@ -1272,8 +1286,12 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         |> Ash.Query.select([
           :id,
           :recording_block_id,
+          :camera_source_id,
+          :stream_profile_id,
           :storage_id,
           :block_key,
+          :timeline_start_us,
+          :timeline_end_us,
           :local_state,
           :archive_state,
           :archive_deleted_reason,
@@ -1288,6 +1306,38 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         ])
         |> Ash.read(actor: @system_actor)
     end
+  end
+
+  defp load_accepted_holds(loaders) do
+    case Map.get(loaders, :holds_loader) do
+      loader when is_function(loader, 0) ->
+        loader.()
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
+      _ ->
+        RecordingHold
+        |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+        |> Ash.Query.filter(state == :accepted)
+        |> Ash.Query.select([
+          :id,
+          :camera_source_id,
+          :stream_profile_id,
+          :start_us,
+          :end_us,
+          :kind,
+          :state,
+          :unavailable_blocks
+        ])
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp count_accepted_holds(holds) when is_list(holds) do
+    Enum.count(holds, fn hold ->
+      is_map(hold) and fetch_val(hold, :state) in [:accepted, "accepted", nil]
+    end)
   end
 
   defp load_reserved_blocks(loaders) do
@@ -1306,7 +1356,14 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end
   end
 
-  defp aggregate_object_usage(bindings, catalog_entries, receipts, active_binding_id, now) do
+  defp aggregate_object_usage(
+         bindings,
+         catalog_entries,
+         receipts,
+         accepted_holds,
+         active_binding_id,
+         now
+       ) do
     bindings_by_id =
       Map.new(bindings, fn b ->
         {to_string(fetch_val(b, :id)), b}
@@ -1315,7 +1372,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     {active_bucket, same_bucket_ids} =
       resolve_same_bucket_bindings(bindings, bindings_by_id, active_binding_id)
 
-    items = build_object_usage_items(catalog_entries, receipts)
+    items = build_object_usage_items(catalog_entries, receipts, accepted_holds)
 
     {same_items, other_items} =
       Enum.split_with(items, &MapSet.member?(same_bucket_ids, &1.binding_id))
@@ -1364,7 +1421,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end
   end
 
-  defp build_object_usage_items(catalog_entries, receipts) do
+  defp build_object_usage_items(catalog_entries, receipts, accepted_holds) do
     receipts_by_id =
       for r <- receipts,
           id = fetch_val(r, :id),
@@ -1392,7 +1449,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     catalog_items =
       Enum.flat_map(
         catalog_entries,
-        &catalog_entry_object_items(&1, receipts_by_id, receipts_by_copy)
+        &catalog_entry_object_items(&1, receipts_by_id, receipts_by_copy, accepted_holds)
       )
 
     fallback_items =
@@ -1408,7 +1465,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           bytes: sum_receipt_object_bytes(objects),
           object_count: length(objects),
           timestamp: fetch_val(r, :verified_at),
-          blocked_by_provider?: false
+          blocked_by_provider?: false,
+          held_archive?: false
         }
       end
 
@@ -1423,18 +1481,30 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       MapSet.member?(cataloged_pairs, {to_string(sid), to_string(bkey)})
   end
 
-  defp catalog_entry_object_items(entry, receipts_by_id, receipts_by_copy) do
+  defp catalog_entry_object_items(entry, receipts_by_id, receipts_by_copy, accepted_holds) do
     local_state = normalize_atom_state(fetch_val(entry, :local_state))
     archive_state = normalize_atom_state(fetch_val(entry, :archive_state))
 
     if local_state == :quarantined do
       quarantine_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy)
     else
-      sealed_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy)
+      sealed_entry_object_items(
+        entry,
+        archive_state,
+        receipts_by_id,
+        receipts_by_copy,
+        accepted_holds
+      )
     end
   end
 
-  defp sealed_entry_object_items(entry, archive_state, receipts_by_id, receipts_by_copy) do
+  defp sealed_entry_object_items(
+         entry,
+         archive_state,
+         receipts_by_id,
+         receipts_by_copy,
+         accepted_holds
+       ) do
     binding_id = fetch_val(entry, :archive_binding_id)
 
     cond do
@@ -1450,6 +1520,10 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
             (receipt && fetch_val(receipt, :verified_at)) ||
             fetch_val(entry, :sealed_at)
 
+        held_archive? =
+          archive_state == :verified and
+            Enum.any?(accepted_holds, &entity_protected_by_hold?(&1, entry))
+
         [
           %{
             kind: :verified_or_deleting,
@@ -1458,7 +1532,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
             object_count: obj_count,
             timestamp: ts,
             blocked_by_provider?:
-              fetch_val(entry, :archive_last_error_class) == "blocked_by_provider"
+              fetch_val(entry, :archive_last_error_class) == "blocked_by_provider",
+            held_archive?: held_archive?
           }
         ]
 
@@ -1472,7 +1547,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
             bytes: bytes,
             object_count: 0,
             timestamp: nil,
-            blocked_by_provider?: false
+            blocked_by_provider?: false,
+            held_archive?: false
           }
         ]
 
@@ -1500,7 +1576,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
             bytes: bytes,
             object_count: obj_count,
             timestamp: fetch_val(entry, :archived_at),
-            blocked_by_provider?: false
+            blocked_by_provider?: false,
+            held_archive?: false
           }
         ]
 
@@ -1514,7 +1591,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
             bytes: bytes,
             object_count: 0,
             timestamp: nil,
-            blocked_by_provider?: false
+            blocked_by_provider?: false,
+            held_archive?: false
           }
         ]
 
@@ -1562,6 +1640,9 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           in_flight_count: 0,
           quarantine_bytes: 0,
           blocked_bytes: 0,
+          held_archive_bytes: 0,
+          held_archive_count: 0,
+          non_reapable_verified_bytes: 0,
           block_count: 0,
           object_count: 0,
           oldest: nil,
@@ -1581,7 +1662,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       end
 
     total_used = acc.verified_bytes + acc.in_flight_bytes + acc.quarantine_bytes
-    non_reapable = acc.in_flight_bytes + acc.quarantine_bytes + acc.blocked_bytes
+    non_reapable = acc.non_reapable_verified_bytes + acc.in_flight_bytes + acc.quarantine_bytes
 
     %{
       archive_used_bytes: total_used,
@@ -1590,6 +1671,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       uploads_in_flight_count: acc.in_flight_count,
       quarantine_object_bytes: acc.quarantine_bytes,
       blocked_by_provider_bytes: acc.blocked_bytes,
+      held_archive_bytes: acc.held_archive_bytes,
+      held_archive_block_count: acc.held_archive_count,
       catalog_non_reapable_bytes: non_reapable,
       archived_block_count: acc.block_count,
       archived_object_count: acc.object_count,
@@ -1611,11 +1694,17 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     ts = item.timestamp
     in_24h? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_24h) != :lt
     in_7d? = match?(%DateTime{}, ts) and DateTime.compare(ts, cutoff_7d) != :lt
+    non_reapable_item? = item.blocked_by_provider? or item.held_archive?
 
     %{
       st
       | verified_bytes: st.verified_bytes + item.bytes,
         blocked_bytes: st.blocked_bytes + if(item.blocked_by_provider?, do: item.bytes, else: 0),
+        held_archive_bytes:
+          st.held_archive_bytes + if(item.held_archive?, do: item.bytes, else: 0),
+        held_archive_count: st.held_archive_count + if(item.held_archive?, do: 1, else: 0),
+        non_reapable_verified_bytes:
+          st.non_reapable_verified_bytes + if(non_reapable_item?, do: item.bytes, else: 0),
         block_count: st.block_count + 1,
         object_count: st.object_count + item.object_count,
         oldest: min_datetime(st.oldest, ts),
@@ -1723,9 +1812,9 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end)
   end
 
-  defp aggregate_blocks_and_catalog(blocks, catalog_entries, now) do
+  defp aggregate_blocks_and_catalog(blocks, catalog_entries, accepted_holds, now) do
     base = aggregate_blocks(blocks, now)
-    catalog = aggregate_catalog_local(catalog_entries, now)
+    catalog = aggregate_catalog_local(catalog_entries, accepted_holds, now)
 
     merged_by_storage =
       Map.merge(base.by_storage, catalog.by_storage, fn _sid, b_info, c_info ->
@@ -1740,6 +1829,11 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       unarchived_local_count: catalog.unarchived_local_count,
       unarchived_local_bytes: catalog.unarchived_local_bytes,
       kind_b_local_only_bytes: catalog.kind_b_local_only_bytes,
+      held_local_pinned_count: catalog.held_local_pinned_count,
+      held_local_pinned_bytes: catalog.held_local_pinned_bytes,
+      held_kind_b_bytes: catalog.held_kind_b_bytes,
+      held_kind_a_local_only_bytes: catalog.held_kind_a_local_only_bytes,
+      held_archive_missing_count: catalog.held_archive_missing_count,
       quarantined_local_count: catalog.quarantined_local_count,
       quarantined_local_bytes: catalog.quarantined_local_bytes,
       local_only_after_archive_count: catalog.local_only_after_archive_count,
@@ -1753,7 +1847,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     })
   end
 
-  defp aggregate_catalog_local(catalog_entries, now) do
+  defp aggregate_catalog_local(catalog_entries, accepted_holds, now) do
     cutoff_15m = DateTime.shift(now, second: -@window_15m_seconds)
     cutoff_6h = DateTime.shift(now, second: -@window_6h_seconds)
 
@@ -1767,6 +1861,11 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           unarchived_count: 0,
           unarchived_bytes: 0,
           kind_b_bytes: 0,
+          held_local_count: 0,
+          held_local_bytes: 0,
+          held_kind_b_bytes: 0,
+          held_kind_a_bytes: 0,
+          held_archive_missing_count: 0,
           quarantined_count: 0,
           quarantined_bytes: 0,
           after_archive_count: 0,
@@ -1778,7 +1877,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           by_storage: %{}
         },
         fn entry, st ->
-          accumulate_catalog_local_entry(entry, st, cutoff_15m, cutoff_6h)
+          accumulate_catalog_local_entry(entry, st, accepted_holds, cutoff_15m, cutoff_6h)
         end
       )
 
@@ -1804,6 +1903,11 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       unarchived_local_count: acc.unarchived_count,
       unarchived_local_bytes: acc.unarchived_bytes,
       kind_b_local_only_bytes: acc.kind_b_bytes,
+      held_local_pinned_count: acc.held_local_count,
+      held_local_pinned_bytes: acc.held_local_bytes,
+      held_kind_b_bytes: acc.held_kind_b_bytes,
+      held_kind_a_local_only_bytes: acc.held_kind_a_bytes,
+      held_archive_missing_count: acc.held_archive_missing_count,
       quarantined_local_count: acc.quarantined_count,
       quarantined_local_bytes: acc.quarantined_bytes,
       local_only_after_archive_count: acc.after_archive_count,
@@ -1816,7 +1920,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     }
   end
 
-  defp accumulate_catalog_local_entry(entry, st, cutoff_15m, cutoff_6h) do
+  defp accumulate_catalog_local_entry(entry, st, accepted_holds, cutoff_15m, cutoff_6h) do
     local_state = normalize_atom_state(fetch_val(entry, :local_state))
     archive_state = normalize_atom_state(fetch_val(entry, :archive_state))
     media_bytes = max(0, trunc(number_or_zero(fetch_val(entry, :media_bytes))))
@@ -1834,6 +1938,12 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
 
     present? = local_state == :present
     quarantined? = local_state == :quarantined
+    held? = not quarantined? and Enum.any?(accepted_holds, &entity_protected_by_hold?(&1, entry))
+    pinned_copy = if held?, do: RecordingHolds.pinned_copy_for_entry(entry)
+    held_local_pinned? = present? and pinned_copy == :local
+    held_kind_b? = held_local_pinned? and archive_state == :not_required
+    held_kind_a_deleted? = held_local_pinned? and archive_state == :deleted
+    held_archive_missing? = held? and archive_state == :missing
 
     pinned_kind_c? =
       present? and
@@ -1857,6 +1967,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         cataloged_blocks: 0,
         local_present_bytes: 0,
         unarchived_local_bytes: 0,
+        held_local_pinned_bytes: 0,
         quarantined_local_bytes: 0,
         trailing_15m_catalog_bytes: 0,
         trailing_6h_catalog_bytes: 0
@@ -1870,6 +1981,9 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         unarchived_local_bytes:
           Map.get(prev_s, :unarchived_local_bytes, 0) +
             if(pinned_kind_c?, do: media_bytes, else: 0),
+        held_local_pinned_bytes:
+          Map.get(prev_s, :held_local_pinned_bytes, 0) +
+            if(held_local_pinned?, do: media_bytes, else: 0),
         quarantined_local_bytes:
           Map.get(prev_s, :quarantined_local_bytes, 0) + if(quarantined?, do: q_bytes, else: 0),
         trailing_15m_catalog_bytes:
@@ -1885,6 +1999,13 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       unarchived_count: st.unarchived_count + if(pinned_kind_c?, do: 1, else: 0),
       unarchived_bytes: st.unarchived_bytes + if(pinned_kind_c?, do: media_bytes, else: 0),
       kind_b_bytes: st.kind_b_bytes + if(kind_b?, do: media_bytes, else: 0),
+      held_local_count: st.held_local_count + if(held_local_pinned?, do: 1, else: 0),
+      held_local_bytes: st.held_local_bytes + if(held_local_pinned?, do: media_bytes, else: 0),
+      held_kind_b_bytes: st.held_kind_b_bytes + if(held_kind_b?, do: media_bytes, else: 0),
+      held_kind_a_bytes:
+        st.held_kind_a_bytes + if(held_kind_a_deleted?, do: media_bytes, else: 0),
+      held_archive_missing_count:
+        st.held_archive_missing_count + if(held_archive_missing?, do: 1, else: 0),
       quarantined_count: st.quarantined_count + if(quarantined?, do: 1, else: 0),
       quarantined_bytes: st.quarantined_bytes + if(quarantined?, do: q_bytes, else: 0),
       after_archive_count: st.after_archive_count + if(after_archive?, do: 1, else: 0),
@@ -1900,6 +2021,15 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       b6h: st.b6h + if(in_6h?, do: media_bytes, else: 0),
       by_storage: Map.put(st.by_storage, sid, next_s)
     }
+  end
+
+  defp entity_protected_by_hold?(hold, entry) when is_map(hold) and is_map(entry) do
+    normalized_hold =
+      if is_nil(fetch_val(hold, :state)),
+        do: Map.put(hold, :state, :accepted),
+        else: hold
+
+    RecordingHolds.hold_protects_entry?(normalized_hold, entry)
   end
 
   defp resolve_summary_local_rates(%{cataloged_block_count: c_count} = stats, _avg_block_bytes)

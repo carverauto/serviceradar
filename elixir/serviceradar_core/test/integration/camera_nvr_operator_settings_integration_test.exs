@@ -14,6 +14,8 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHold
+  alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Credentials.CredentialSecretBuilder
@@ -852,9 +854,207 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
     assert is_nil(cleared.local_only_full_policy_confirmed_at)
   end
 
+  test "C.2 & C.19: RecordingHold writes AshPaperTrail AuditHistory versions and populates real held/non-reapable bytes in RetentionCalculator.usage_summary/1" do
+    gate_dir =
+      Path.join(System.tmp_dir!(), "nvr-holds-cat-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(gate_dir)
+    on_exit(fn -> File.rm_rf!(gate_dir) end)
+    _recovery = Fixtures.recording_recovery_gate(gate_dir)
+
+    system_opts = [actor: SystemActor.system(:nvr_holds_usage_test)]
+    ctx = Fixtures.context()
+    {:ok, relay} = Fixtures.open(ctx)
+    {:ok, relay} = Fixtures.activate(ctx, relay)
+    owner = Fixtures.owner(ctx)
+
+    {:ok, claim} =
+      RecorderOwnership.acquire(
+        owner,
+        Ecto.UUID.generate(),
+        relay.media_ingest_id,
+        @storage_id_primary,
+        30_000,
+        system_opts
+      )
+
+    clock = %{
+      "clock_epoch" => "holds-usage-clock",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    admin = %{
+      id: "admin-holds-audit",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.recording.operate",
+          "settings.audit.view"
+        ])
+    }
+
+    slug = "holds-bucket-#{System.unique_integer([:positive])}"
+
+    assert {:ok, binding} =
+             ArchiveDestinations.register_operator(
+               %{
+                 name: slug,
+                 endpoint: "https://objects.example.com",
+                 region: "example-1",
+                 bucket: "holds-summary-#{slug}",
+                 namespace: "nvr/v1"
+               },
+               actor: admin
+             )
+
+    assert {:ok, _} =
+             RecordingArchiveSettings.save_settings(
+               %{
+                 active_archive_binding_id: binding.id,
+                 archive_enabled: true,
+                 local_only_full_policy: :overwrite_oldest
+               },
+               actor: admin
+             )
+
+    now = ~U[2026-11-16 17:00:00.000000Z]
+    t1 = DateTime.shift(now, minute: -10)
+    t2 = DateTime.shift(now, minute: -5)
+
+    # Block A: archive-verified (pins :archive -> 4_200_000 object bytes; local media_bytes NOT local-pinned!)
+    assert {:ok, block_a} = RecorderOwnership.reserve_block(owner, claim, clock, system_opts)
+    desc_a = recording_descriptor_with_length(block_a, 4_000_000)
+
+    assert {:ok, entry_a} =
+             RecordingBlocks.freeze_and_catalog(
+               owner,
+               claim,
+               block_a,
+               desc_a,
+               %{
+                 first_unit_pts: 0,
+                 first_unit_received_at: t1,
+                 policy_storage: :local_and_archive
+               },
+               system_opts
+             )
+
+    receipt_json =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => @storage_id_primary,
+        "block_key" => block_a.block_key,
+        "destination_sha256" => binding.destination_sha256,
+        "verified_at_ms" => DateTime.to_unix(now, :millisecond),
+        "objects" => [
+          %{
+            "name" => "media.m4s",
+            "key" => "nvr/v1/#{@storage_id_primary}/#{block_a.block_key}/media.m4s",
+            "length" => 4_200_000,
+            "sha256" => String.duplicate("1", 64),
+            "etag" => "\"etag-hold-a\""
+          }
+        ]
+      })
+
+    assert {:ok, receipt_a} =
+             NVRArchiveReceipt.record(binding.id, receipt_json,
+               actor: SystemActor.system(:nvr_holds_usage_test),
+               authorize?: true
+             )
+
+    assert {:ok, %{entry: entry_a_ver}} =
+             RecordingHolds.mark_archive_verified_and_move_pin(
+               entry_a.id,
+               %{archive_binding_id: binding.id, nvr_archive_receipt_id: receipt_a.id},
+               actor: admin
+             )
+
+    assert entry_a_ver.archive_state == :verified
+
+    # Block B: local-only (pins :local -> 2_500_000 media_bytes under overwrite_oldest -> P4!)
+    assert {:ok, block_b} = RecorderOwnership.reserve_block(owner, claim, clock, system_opts)
+    desc_b = recording_descriptor_with_length(block_b, 2_500_000)
+
+    assert {:ok, entry_b} =
+             RecordingBlocks.freeze_and_catalog(
+               owner,
+               claim,
+               block_b,
+               desc_b,
+               %{
+                 first_unit_pts: 900_000,
+                 first_unit_received_at: t2,
+                 policy_storage: :local_only
+               },
+               system_opts
+             )
+
+    assert entry_b.archive_state == :not_required
+
+    # Place hold covering both Block A and Block B:
+    assert {:ok, hold} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 start_us: DateTime.to_unix(t1, :microsecond) - 1_000_000,
+                 end_us: DateTime.to_unix(t2, :microsecond) + 5_000_000,
+                 kind: :investigation,
+                 reason: "preserve real CNPG camera footage"
+               },
+               actor: admin,
+               now: now
+             )
+
+    assert {:ok, summary} = RetentionCalculator.usage_summary(actor: admin, now: now)
+    assert summary.holds.active_hold_count >= 1
+    assert summary.archive.held_archive_bytes == 4_200_000
+    assert summary.object_projection.non_reapable_bytes >= 4_200_000
+    assert summary.local_blocks.held_local_pinned_bytes >= 2_500_000
+    assert summary.local_projection.pinned_bytes >= 2_500_000
+
+    # Release hold and verify AuditHistory surfaces both create (:accept) and update (:release) versions!
+    assert {:ok, _released} =
+             RecordingHolds.release_hold(
+               hold.id,
+               %{release_reason: "audit verified"},
+               actor: admin,
+               now: DateTime.shift(now, second: 30)
+             )
+
+    audit_entries =
+      AuditHistory.list_recent(
+        actor: admin,
+        resource_types: [RecordingHold],
+        limit: 10
+      )
+
+    hold_versions =
+      Enum.filter(audit_entries, &(to_string(&1.version.version_source_id) == hold.id))
+
+    assert length(hold_versions) == 2
+    assert Enum.map(hold_versions, & &1.version.version_action_type) == [:update, :create]
+  end
+
   defp assert_constraint_violation(expected_constraint, sql, params) do
     assert {:error, %Postgrex.Error{postgres: %{constraint: ^expected_constraint}}} =
              Repo.query(sql, params, mode: :savepoint)
+  end
+
+  defp recording_descriptor_with_length(block, media_length) do
+    base = Fixtures.recording_descriptor(block)
+    [fragment] = base["fragments"]
+
+    base
+    |> put_in(["media", "length"], media_length)
+    |> Map.put("fragments", [Map.put(fragment, "length", media_length)])
   end
 
   defp create_camera_with_blocks(total) do
