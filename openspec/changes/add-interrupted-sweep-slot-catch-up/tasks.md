@@ -10,12 +10,14 @@
 - [ ] 1.1 Add a migration on `platform.sweep_execution_slots`:
       - `interrupted_at timestamptz NULL`;
       - `catch_up_of uuid NULL` referencing `sweep_execution_slots(id)`;
+      - `install_acked_at timestamptz NULL`;
       - a partial unique index on `catch_up_of WHERE catch_up_of IS NOT NULL
         AND state <> 'dropped'`.
-- [ ] 1.2 Add both attributes to `ServiceRadar.SweepJobs.SweepExecutionSlot`,
+- [ ] 1.2 Add the three attributes to `ServiceRadar.SweepJobs.SweepExecutionSlot`,
       with these actions:
       - `:record_interruption`, which sets `interrupted_at`;
-      - `:schedule_catch_up`, which is `:schedule` plus `catch_up_of`.
+      - `:schedule_catch_up`, which is `:schedule` plus `catch_up_of`;
+      - `:record_install_ack`, which sets `install_acked_at`.
 
       Keep the `unique_assignment_slot` identity unchanged.
 
@@ -78,8 +80,9 @@
       - list the assignment's candidate parents (Decision 6);
       - judge whether the parent execution lacks a `SweepHostResult` for any
         planned address (Decision 3);
-      - estimate the pace and apply the time-fit test to the full plan's
-        target count (Decision 5);
+      - estimate the pace from the most recent completed execution of the
+        group by the agent, mint nothing without one, and apply the time-fit
+        test to the full plan's target count (Decision 5);
       - build the plan with `SweepPlan.build/2` over the parent's CIDR list
         and check set, with a fresh plan id.
 - [ ] 6.2 In `LeasePass.plan_agent/4`, mint catch-ups in the agent's planning
@@ -89,23 +92,30 @@
 - [ ] 6.3 Change `LeasePass.sync_slots/4` to split catch-up slots from
       schedule slots:
       - keep or drop catch-ups by Decision 7;
-      - drop an undelivered catch-up whose `slot_start` has passed, with a
-        new `ExecutionSlots` drop limited to such rows, and let the same pass
-        re-mint it (Decision 4);
+      - drop a catch-up with no `install_acked_at` whose `slot_start` has
+        passed, with a new `ExecutionSlots` drop limited to such rows, and
+        let the same pass re-mint it (Decision 4);
       - exclude them from `fill/6`'s present set.
-- [ ] 6.4 Confirm, with a test, that a minted catch-up reaches the agent in
+- [ ] 6.4 In `LeaseDelivery.record_ack/3`, when an ack with
+      `installed = true` is stored, stamp `install_acked_at` on the catch-up
+      slots the acknowledged push carried. Leave the `delivered_at` stamp in
+      `send_push` unchanged.
+- [ ] 6.5 Confirm, with a test, that a minted catch-up reaches the agent in
       the full push triggered by `undelivered_behind?/2`, that
       `LeaseCapabilities` signs that push (no `:mixed_lease`) together with
       the next scheduled slot, and that the push leaves the parent untouched.
-- [ ] 6.5 Add tests for every scenario of the requirements "Core re-runs an
+- [ ] 6.6 Add tests for every scenario of the requirements "Core re-runs an
       interrupted slot's plan in one catch-up slot", "Catch-up
       slots are bounded" and "The lease pass keeps a catch-up slot only while
       its parent's plan is current". Include:
       - an end-to-end projection of catch-up batches through
         `SweepProjection`;
       - the supersede of the parent execution;
-      - an undelivered catch-up dropped and re-minted by the next pass;
-      - `LeaseMisses` marking a delivered catch-up that never commits missed.
+      - a catch-up whose push failed after `delivered_at` was stamped,
+        dropped and re-minted by the next pass;
+      - an installed catch-up kept after its `slot_start`;
+      - no catch-up for a group with no completed execution;
+      - `LeaseMisses` marking an installed catch-up that never commits missed.
 
 ## 7. Docs and validation
 

@@ -114,7 +114,7 @@ Core SHALL mint a catch-up only when every one of the following holds, and SHALL
 - At least one of the parent plan's addresses has no `SweepHostResult` under the parent execution.
 - The estimated scan time fits before the parent's `collection_expires`.
 
-The scan time estimate SHALL be the parent plan's `total_target_count` times a pace. The pace SHALL be the `duration_ms` divided by `hosts_total` of the most recent completed execution of the same group by the same agent. With no such execution, the pace SHALL be the parent window's length divided by the parent plan's `total_target_count`. Core SHALL NOT use a fixed cutoff.
+The scan time estimate SHALL be the parent plan's `total_target_count` times a pace. The pace SHALL be the `duration_ms` divided by `hosts_total` of the most recent completed execution of the same group by the same agent. With no such execution there is no pace, and core SHALL mint no catch-up; the hosts wait for the next scheduled slot. Core SHALL NOT use a fixed cutoff or a pace derived from the window length.
 
 A catch-up SHALL never be the parent of another catch-up. A catch-up that runs past its window SHALL end like any slot cut off by its window.
 
@@ -132,6 +132,12 @@ A catch-up SHALL never be the parent of another catch-up. A catch-up that runs p
   left at minting
 - **WHEN** the lease pass runs
 - **THEN** core SHALL mint the catch-up
+
+#### Scenario: No completed execution means no catch-up
+- **GIVEN** an interrupted parent of a group with no completed execution by
+  the agent
+- **WHEN** the lease pass runs
+- **THEN** core SHALL mint no catch-up
 
 #### Scenario: Interrupted catch-up is not caught up
 - **GIVEN** an agent restarts while running a catch-up slot
@@ -165,7 +171,7 @@ The lease pass SHALL keep an unstarted catch-up slot only while it still satisfi
 
 The pass SHALL NOT drop a catch-up for falling off the schedule grid. It SHALL NOT count a catch-up as a scheduled slot when it fills the horizon. Revoking the assignment, deleting or disabling the group, or making it ineligible SHALL drop an unstarted catch-up like any unrun slot. A catch-up that has started SHALL be fenced like any started slot.
 
-On each lease pass, a catch-up that has no `delivered_at` and whose `slot_start` has passed SHALL be dropped, and the pass SHALL then mint a new catch-up for the same parent if the catch-up bounds still hold. A delivered catch-up that never commits SHALL be marked missed like any slot, and SHALL NOT reopen or change its parent.
+On each lease pass, a catch-up whose `slot_start` has passed and for which no `SweepLeaseAck` with `installed = true` exists for any push that carried it SHALL be dropped, and the pass SHALL then mint a new catch-up for the same parent if the catch-up bounds still hold. The pass SHALL NOT use `delivered_at` for this, because a push stamps it before the send. The pass SHALL NOT drop by this rule a catch-up whose install was acknowledged. An installed catch-up that never commits SHALL be marked missed like any slot, and SHALL NOT reopen or change its parent.
 
 #### Scenario: Unchanged group keeps the catch-up
 - **GIVEN** an unstarted catch-up whose parent plan matches the group's
@@ -187,18 +193,25 @@ On each lease pass, a catch-up that has no `delivered_at` and whose `slot_start`
 - **THEN** the catch-up SHALL be dropped with the assignment's other unrun
   slots
 
-#### Scenario: Undelivered catch-up is re-minted
+#### Scenario: Uninstalled catch-up is re-minted
 - **GIVEN** a catch-up minted at 10:25 with `slot_start` 10:25:05 and
-  `collection_expires` 11:00, whose push failed because the agent was
-  disconnected
+  `collection_expires` 11:00
+- **AND** the push carrying it stamped `delivered_at` and then failed because
+  the agent was disconnected, so no installed ack exists for it
 - **AND** the agent reconnects at 10:26
 - **WHEN** the 10:30 lease pass runs and the plan still fits before 11:00
 - **THEN** the pass SHALL drop that catch-up
 - **AND** SHALL mint a new catch-up for the same parent, which the push
   carries to the agent
 
-#### Scenario: Undelivered catch-up no longer fits
-- **GIVEN** an undelivered catch-up whose `slot_start` has passed
+#### Scenario: Installed catch-up is not re-minted
+- **GIVEN** a catch-up whose push the agent acknowledged with
+  `installed = true`
+- **WHEN** a lease pass runs after its `slot_start`
+- **THEN** the pass SHALL NOT drop it or mint another catch-up for the parent
+
+#### Scenario: Uninstalled catch-up no longer fits
+- **GIVEN** a catch-up with no installed ack whose `slot_start` has passed
 - **WHEN** the lease pass runs and the plan no longer fits before the
   parent's `collection_expires`
 - **THEN** the pass SHALL drop that catch-up and mint none

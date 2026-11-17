@@ -51,8 +51,9 @@ the cut-off slot, so the hosts it never reported get a fresh result.
   and the agent runs it like any other slot.
 - **Bounds.** Core mints no catch-up when the estimated scan time of the full
   plan does not fit before the parent's window closes. The estimate comes from
-  the agent's last completed execution of the group, or from the parent's
-  window when there is none. Core also mints none when:
+  the agent's last completed execution of the group. With no completed
+  execution there is no estimate and no catch-up, so a group's first sweep
+  waits for its next interval. Core also mints none when:
   - every planned address of the parent already has a result;
   - the parent was refused, dropped or missed, or its execution was cancelled;
   - the parent already has a non-dropped catch-up, or is itself a catch-up;
@@ -62,9 +63,11 @@ the cut-off slot, so the hosts it never reported get a fresh result.
   never chain.
 - **Lease pass bookkeeping.** The pass keeps an unstarted catch-up slot only
   while its parent's plan is still the group's current plan for the agent, and
-  drops it otherwise. A catch-up that was never delivered and whose
-  `slot_start` has passed is dropped and, if the bounds still hold, minted
-  again, so one failed push does not cost the re-run. Revoking the
+  drops it otherwise. A catch-up whose `slot_start` has passed with no
+  installed `SweepLeaseAck` for any push that carried it is dropped and, if
+  the bounds still hold, minted again, so one failed push does not cost the
+  re-run. The shared `delivered_at` stamp, set before the send, is not used
+  for this. Revoking the
   assignment, or deleting or disabling the group, drops it like any unrun
   slot.
 - **Mixed versions.** An agent without `sweep_lease_interruptions:v1` sends no
@@ -93,7 +96,8 @@ Out of scope:
     `config_sync_forwarder.ex`.
   - `ServiceRadar.Edge.AgentGatewaySync`.
   - `ServiceRadar.SweepJobs.ExecutionSlots`, `SweepExecutionSlot`
-    (`interrupted_at`, `catch_up_of`) and `LeasePass`.
+    (`interrupted_at`, `catch_up_of`, `install_acked_at`), `LeasePass`, and
+    `LeaseDelivery.record_ack/3`, which stamps `install_acked_at`.
   - A new catch-up planner module under `ServiceRadar.SweepJobs`.
   - One migration on `platform.sweep_execution_slots`.
 - No change to `SweepLeaseV1`, `SweepObservationBatchV1`, the batch coordinate,

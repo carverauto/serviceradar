@@ -248,21 +248,33 @@ The catch-up slot looks like this:
 - Epoch, lease id, network scope, check set: the assignment's current values,
   which the bounds require to equal the parent's.
 
-Delivery needs nothing new. The catch-up has no `delivered_at` and starts
+The push path needs nothing new. The catch-up has no `delivered_at` and starts
 behind the cursor, so `undelivered_behind?/2` makes the pass send a full push.
 The push window starts at `now`. It carries the catch-up and the rest of the
 horizon, and leaves the parent untouched, because the parent started before
 the window. The agent installs the catch-up as one more slot of the lease.
 
 If the push fails, the catch-up never reaches the agent, and once its
-`slot_start` passes it is no longer unrun, so no later push carries it. The
-next lease pass therefore drops a catch-up that has no `delivered_at` and
-whose `slot_start` has passed, then mints a fresh one for the same parent if
-Decision 5 and Decision 6 still hold. The agent never received the dropped
-row, so it cannot have started it. Example: the 10:25 pass mints a catch-up
-with `slot_start` 10:25:05 while the agent is disconnected; the agent
-reconnects at 10:26; the 10:30 pass drops that row and, if the plan still fits
-before the parent's window closes, mints another that the push carries.
+`slot_start` passes it is no longer unrun, so no later push carries it.
+`delivered_at` cannot tell this apart from a push that arrived:
+`LeaseDelivery` records the push and stamps every carried slot's
+`delivered_at` before `AgentCommandBus.push_sweep_lease` runs, and a send to a
+disconnected agent fails after that stamp. The rule therefore keys on install
+acknowledgement. When core stores a `SweepLeaseAck` with `installed = true`
+for a push, it stamps `install_acked_at` on the catch-up slots that push
+carried; the delivery row keeps only the latest push, so the slot has to hold
+this itself. The shared `delivered_at` stamp is unchanged.
+
+The next lease pass drops a catch-up that has no `install_acked_at` and whose
+`slot_start` has passed, then mints a fresh one for the same parent if
+Decision 5 and Decision 6 still hold. Example: the 10:25 pass mints a catch-up
+with `slot_start` 10:25:05 while the agent is disconnected, and the push
+stamps `delivered_at` and then fails; the agent reconnects at 10:26; the 10:30
+pass drops that row and, if the plan still fits before the parent's window
+closes, mints another that the push carries. A send that returned `:ok` but
+was never installed is recovered the same way. A catch-up the agent did
+install is never dropped by this rule, so a run in progress is not cut off.
+An install whose ack was lost is open question 6.
 
 ### Decision 5: The time-fit cutoff is derived, not hardcoded
 
@@ -272,9 +284,10 @@ catch-up's (Decision 3). Core estimates the catch-up's scan time as
 
 - `pace` is `duration_ms / hosts_total` of the most recent `completed`
   `SweepGroupExecution` of the same sweep group by the same agent.
-- With no such execution, `pace` is the parent's window length divided by the
-  parent plan's `total_target_count`. That is the schedule's own sizing
-  contract: a full plan fits one interval.
+- With no such execution there is no pace, and core mints no catch-up. A
+  group's first sweep that is cut off simply waits for its next interval.
+  Dividing the parent window by `N` is not used: that estimate is exactly one
+  window, which can never fit after the parent has started.
 
 Core mints the catch-up only if `slot_start + N x pace <=
 collection_expires`. The parent window ends at the next scheduled slot, so
@@ -319,8 +332,9 @@ Why this terminates:
   slot has, by definition, a closed window.
 - Rules 1 and 2 give each scheduled slot at most one live extra execution,
   and a catch-up can never become a parent. A catch-up is replaced only when
-  it was never delivered and its start has passed (Decision 4), so the agent
-  runs at most one of them; replacements stop when the fit test fails, which
+  its install was never acknowledged and its start has passed (Decision 4),
+  so the agent runs at most one of them outside the lost-ack case (open
+  question 6); replacements stop when the fit test fails, which
   it must before the parent's window closes.
 - The windows of one assignment's slots do not overlap, and a catch-up's
   window lies inside its parent's. So an agent holds at most one open
@@ -345,9 +359,9 @@ every catch-up, whose start is off the schedule grid. Catch-up slots
   parent plan's CIDRs equal to the current planned CIDRs.
 - Otherwise it is **dropped** through `ExecutionSlots.drop/2`, so only an
   unstarted one is dropped.
-- A catch-up with no `delivered_at` whose `slot_start` has passed is
+- A catch-up with no `install_acked_at` whose `slot_start` has passed is
   **dropped and re-minted** by Decision 4. `drop/2` only drops a slot whose
-  start is still ahead, so this needs its own drop, limited to undelivered
+  start is still ahead, so this needs its own drop, limited to such
   catch-up rows.
 - It never counts as a present desired slot in `fill/6`.
 
@@ -433,8 +447,8 @@ downgraded after reporting still runs it correctly.
   `last_sweep_time`, which is the catch-up's own observation time. Every host
   of the plan shows the fresher time once the catch-up reaches it.
 - **`LeaseMisses`.** These are unchanged:
-  - A delivered catch-up that never commits is marked missed after its
-    window. An undelivered one is dropped by the lease pass first.
+  - An installed catch-up that never commits is marked missed after its
+    window. One with no installed ack is dropped by the lease pass first.
   - A parent that committed stays `scheduled`.
   - A catch-up never marks or reopens its parent.
 - **`ExecutionReaper`.** This is unchanged. It reaps an interrupted parent the
@@ -468,6 +482,7 @@ downgraded after reporting still runs it correctly.
 1. Add the migration on `platform.sweep_execution_slots`:
    - `interrupted_at timestamptz NULL`;
    - `catch_up_of uuid NULL REFERENCES platform.sweep_execution_slots(id)`;
+   - `install_acked_at timestamptz NULL`, set only on catch-up slots;
    - a partial unique index on `catch_up_of WHERE catch_up_of IS NOT NULL
      AND state <> 'dropped'`.
 
@@ -506,3 +521,17 @@ downgraded after reporting still runs it correctly.
 5. **UI.** Should the execution views show a catch-up next to its parent, or
    give the parent a reason more specific than "superseded by new execution"?
    Not needed for correctness. Proposed: separate follow-up if wanted.
+6. **Lost install ack (not designed in).**
+   - Failure mode: the agent installs the catch-up but its `SweepLeaseAck` is
+     lost. Once `slot_start` passes, core drops the catch-up and re-mints it
+     (Decision 4). The projection refuses the first run's batches because
+     that slot is `dropped`, and the re-minted slot scans the plan again. The
+     result is a duplicate scan whose first results are refused; the hosts
+     still get results from the re-minted run if it fits.
+   - Likelihood: rare. It needs an ack lost after a successful install, on a
+     catch-up, within the few seconds before its `slot_start`.
+   - Cost to prevent: wait for the next ack, or an agent signal that it holds
+     the slot, before dropping. That adds a second acknowledgement state to
+     lease delivery for one rare case.
+
+   Is the duplicate scan acceptable?
