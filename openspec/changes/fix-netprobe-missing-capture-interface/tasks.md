@@ -2,7 +2,7 @@
 - [x] 1.1 Resolve configured `capture_interfaces` against the host's interfaces at
       startup; open capture handles and attach TC/XDP/AF_XDP only on present ones
 - [x] 1.2 Report `STATUS_DEGRADED` from AddonService `Health` with a bounded reason
-      and `capture_interfaces.{missing,active,available}` details
+      and `capture_interfaces.{missing,present,available}` details
 - [x] 1.3 Keep restart-required checks on the requested list (regression test)
 
 ## 2. Agent (this PR)
