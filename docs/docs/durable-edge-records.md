@@ -768,6 +768,14 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 4. Check the agent log for `Edge record sender run failed` and
    `Edge record gateway rejected records permanently`, which names the
    rejection code.
+5. Check the gateway log for `edge record stream ended before lane_open_ack`.
+   The agent sends nothing on a lane until the gateway acks it, so each such
+   stream delivered nothing. The line names the agent, the lane once known,
+   how long the stream waited, the step it stopped in (`awaiting_lane_open`
+   means the agent's `lane_open` never reached the gateway) and the reason
+   (`timeout` for an expired deadline). The gateway also emits it as the
+   `[:serviceradar, :agent_gateway, :edge_record, :lane_open_unacknowledged]`
+   telemetry event.
 
 ### The agent spool keeps growing
 
