@@ -4,13 +4,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   `ServiceRadar.Observability.PluginResultIngestor` hands this handler a plugin
   result already reduced by `ServiceRadar.Camera.StreamAddressReduction`, so no
-  stream address reaches profile, source or device metadata. The two relay
-  columns, `camera_sources.source_url` and
-  `camera_stream_profiles.source_url_override`, are set only by
-  `put_relay_addresses/2`, from the `:relay_addresses` option: the
-  `ServiceRadar.Camera.RelayAddressExtract` the ingestor took from the
-  unreduced result. A direct caller that omits the option gets the extract of
-  the payload it passed.
+  stream address reaches inventory. Inventory keeps only non-secret stream facts
+  (design D3 of `resolve-camera-stream-sources-at-edge`):
+
+    * each profile's `source_origin`: the origin a plugin reports
+      (`source_origin`), or else the origin of the stream URL an older plugin
+      still reports, on the profile or else on the camera;
+    * each source's `discovery_assignment_id`: the assignment in the result's
+      host-stamped provenance (`PluginResultProvenance`), never an id the
+      plugin's payload names. A result without provenance leaves the stored id
+      as it is.
+
   """
 
   @behaviour ServiceRadar.Observability.PluginResultHandler
@@ -19,8 +23,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Camera.RelayAddressExtract
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Camera.StreamAddressReduction
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Identity.AliasPolicy
@@ -34,6 +38,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Observability.PluginResultHandler
   alias ServiceRadar.Observability.PluginResultHandlerOutcome
+  alias ServiceRadar.Observability.PluginResultProvenance
+  alias ServiceRadar.Plugins.PluginAssignment
 
   require Ash.Query
   require Logger
@@ -43,7 +49,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   @profile_metadata_keys ~w(
     source width height fps bitrate auth_mode credential_reference_id protocol insecure_skip_verify
   )
+  @source_origin_keys ["source_origin", "sourceOrigin"]
   @source_url_keys ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
+  @stream_url_keys ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
   @profile_source_url_keys [
     "source_url_override",
     "sourceUrlOverride",
@@ -209,14 +217,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
              context.status,
              context.observed_at
            ),
-         %{source: source_attrs, profiles: profiles} =
-           put_relay_addresses(
-             %{
-               source: source_attrs,
-               profiles: normalize_profiles(descriptor, context.observed_at)
-             },
-             context.relay_addresses
-           ),
+         profiles = normalize_profiles(descriptor, context.observed_at),
          {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor),
          :ok <-
            Enum.reduce_while(profiles, :ok, fn profile_attrs, :ok ->
@@ -248,61 +249,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
       device_sync: Keyword.get(opts, :device_sync, &sync_device_inventory/4),
       resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
-      relay_addresses:
-        Keyword.get_lazy(opts, :relay_addresses, fn ->
-          RelayAddressExtract.from_result(payload)
-        end),
       descriptors: extract_camera_descriptors(payload)
     }
-  end
-
-  @doc """
-  Sets the two relay columns, `source_url` on the source attributes and
-  `source_url_override` on each profile's, from the relay address extract. It is
-  the only setter of those attributes: a camera or profile the extract holds no
-  address for gets nil, as an inventory report without an address always did.
-  """
-  @spec put_relay_addresses(%{source: map(), profiles: [map()]}, RelayAddressExtract.t()) ::
-          %{source: map(), profiles: [map()]}
-  def put_relay_addresses(%{source: source, profiles: profiles}, %RelayAddressExtract{} = extract) do
-    camera = {source.vendor, source.vendor_camera_id}
-
-    %{
-      source: Map.put(source, :source_url, RelayAddressExtract.source_url(extract, camera)),
-      profiles:
-        Enum.map(profiles, fn profile ->
-          Map.put(
-            profile,
-            :source_url_override,
-            RelayAddressExtract.profile_url(extract, camera, profile.profile_name)
-          )
-        end)
-    }
-  end
-
-  @doc false
-  # The relay addresses of an unreduced plugin result, per camera and profile, found
-  # with the same descriptor and profile normalization the upserts use. Only
-  # `ServiceRadar.Camera.RelayAddressExtract` calls this.
-  @spec relay_address_entries(map()) :: [
-          %{camera: {String.t(), String.t()}, source_url: String.t() | nil, profiles: list()}
-        ]
-  def relay_address_entries(payload) when is_map(payload) do
-    for descriptor <- extract_camera_descriptors(payload),
-        {vendor, vendor_camera_id} = source_identity(descriptor),
-        not blank?(vendor) and not blank?(vendor_camera_id) do
-      %{
-        camera: {vendor, vendor_camera_id},
-        source_url: string_value(descriptor, @source_url_keys),
-        profiles:
-          for profile <- list_value(descriptor, ["stream_profiles", "streamProfiles", "profiles"]),
-              is_map(profile),
-              profile_name = profile_name(profile),
-              not blank?(profile_name) do
-            {profile_name, string_value(profile, @profile_source_url_keys)}
-          end
-      }
-    end
   end
 
   @doc false
@@ -395,20 +343,42 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          metadata: map_value(descriptor, ["metadata"]) || %{}
        }
        |> maybe_put(:assigned_gateway_id, assigned_gateway_id)
+       |> maybe_put(:discovery_assignment_id, provenance_assignment_id(status))
        |> Map.merge(source_state)}
     end
   end
 
+  # The discovering assignment, from the host's provenance stamp only. A value that
+  # is not a UUID is not an assignment id.
+  defp provenance_assignment_id(status) do
+    with %{"assignment_id" => assignment_id} <- PluginResultProvenance.from_status(status),
+         {:ok, uuid} <- Ecto.UUID.cast(assignment_id) do
+      uuid
+    else
+      _ -> nil
+    end
+  end
+
+  # An older plugin reports a stream URL (already reduced on entry); a plugin that
+  # saw the inventory address cutover key reports its origin. Either way only the
+  # origin is kept.
+  defp reported_origin(map, url_keys) do
+    StreamAddressReduction.origin(string_value(map, @source_origin_keys)) ||
+      StreamAddressReduction.origin(string_value(map, url_keys))
+  end
+
   defp normalize_profiles(descriptor, observed_at) do
+    camera_origin = reported_origin(descriptor, @source_url_keys)
+
     profiles =
       descriptor
       |> list_value(["stream_profiles", "streamProfiles", "profiles"])
-      |> Enum.map(&normalize_profile(&1, observed_at))
+      |> Enum.map(&normalize_profile(&1, camera_origin, observed_at))
       |> Enum.reject(&is_nil/1)
 
     case profiles do
       [] ->
-        case normalize_default_profile(descriptor, observed_at) do
+        case normalize_default_profile(descriptor, camera_origin, observed_at) do
           nil -> []
           profile -> [profile]
         end
@@ -425,7 +395,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     ])
   end
 
-  defp normalize_profile(profile, observed_at) when is_map(profile) do
+  defp normalize_profile(profile, camera_origin, observed_at) when is_map(profile) do
     profile_name = profile_name(profile)
 
     if blank?(profile_name) do
@@ -434,6 +404,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       %{
         profile_name: profile_name,
         vendor_profile_id: string_value(profile, @profile_id_keys),
+        source_origin: reported_origin(profile, @profile_source_url_keys) || camera_origin,
         rtsp_transport: string_value(profile, ["rtsp_transport", "rtspTransport", "transport"]),
         codec_hint: string_value(profile, ["codec_hint", "codecHint", "codec"]),
         container_hint: string_value(profile, ["container_hint", "containerHint", "container"]),
@@ -444,16 +415,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp normalize_profile(_profile, _observed_at), do: nil
+  defp normalize_profile(_profile, _camera_origin, _observed_at), do: nil
 
-  defp normalize_default_profile(descriptor, observed_at) do
-    if blank?(string_value(descriptor, @source_url_keys)) and
+  defp normalize_default_profile(descriptor, camera_origin, observed_at) do
+    if is_nil(camera_origin) and
          blank?(string_value(descriptor, ["codec_hint", "codecHint", "codec"])) do
       nil
     else
       %{
         profile_name: "default",
         vendor_profile_id: string_value(descriptor, ["vendor_profile_id", "vendorProfileId"]),
+        source_origin: camera_origin,
         rtsp_transport:
           string_value(descriptor, ["rtsp_transport", "rtspTransport", "transport"]),
         codec_hint: string_value(descriptor, ["codec_hint", "codecHint", "codec"]),
@@ -493,9 +465,22 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp upsert_source(attrs, actor) do
     attrs
+    |> keep_known_discovery_assignment(actor)
     |> preserve_source_local_metadata(actor)
     |> Source.upsert_source(actor: actor)
   end
+
+  # A result can arrive after its assignment was deleted (edge records are
+  # durable). Such an id is left out rather than failing the inventory upsert on
+  # the foreign key.
+  defp keep_known_discovery_assignment(%{discovery_assignment_id: id} = attrs, actor) do
+    case Ash.get(PluginAssignment, id, actor: actor, not_found_error?: false) do
+      {:ok, %PluginAssignment{}} -> attrs
+      _missing_or_unreadable -> Map.delete(attrs, :discovery_assignment_id)
+    end
+  end
+
+  defp keep_known_discovery_assignment(attrs, _actor), do: attrs
 
   defp upsert_profile(attrs, actor) do
     attrs
@@ -1671,7 +1656,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             string_value(device_info, ["ProductFullName", "ProdNbr", "Brand"]),
             host
           ]),
-        "source_url" => first_stream_url(streams),
+        "source_origin" => first_stream_origin(streams),
         "stream_profiles" => Enum.map(streams, &axis_profile_descriptor/1),
         "identity" =>
           %{"serial" => serial} |> Enum.reject(fn {_key, value} -> blank?(value) end) |> Map.new()
@@ -1685,7 +1670,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     %{
       "profile_name" => first_present([string_value(stream, ["id"]), "default"]),
       "vendor_profile_id" => string_value(stream, ["id"]),
-      "source_url_override" => url,
+      "source_origin" => reported_origin(stream, ["url"]),
       "rtsp_transport" => "tcp",
       "codec_hint" => codec_from_rtsp_url(url)
     }
@@ -1762,7 +1747,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             string_value(source, ["camera_host", "cameraHost"]),
             string_value(details, ["camera_host", "cameraHost"])
           ]),
-        "source_url" => first_stream_url(streams),
+        "source_origin" => first_stream_origin(streams),
         "stream_profiles" => Enum.map(streams, &generic_profile_descriptor/1),
         "identity" => identity,
         "camera" => camera,
@@ -1788,7 +1773,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp build_enrichment_descriptor(_details, _enrichment), do: nil
 
   defp generic_profile_descriptor(stream) when is_map(stream) do
-    url = string_value(stream, ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"])
+    url = string_value(stream, @stream_url_keys)
+    origin = reported_origin(stream, @stream_url_keys)
 
     metadata =
       %{
@@ -1817,11 +1803,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           "profileId",
           "id"
         ]),
-      "source_url_override" => url,
+      "source_origin" => origin,
       "rtsp_transport" =>
         first_present([
           string_value(stream, ["rtsp_transport", "rtspTransport", "transport"]),
-          if is_binary(url) and String.starts_with?(String.downcase(url), "rtsp") do
+          if is_binary(origin) and String.starts_with?(String.downcase(origin), "rtsp") do
             "tcp"
           end
         ]),
@@ -2288,11 +2274,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     byte_size(normalized) == 12 and String.match?(normalized, ~r/\A[0-9A-Fa-f]{12}\z/)
   end
 
-  defp first_stream_url(streams) do
-    Enum.find_value(streams, fn stream ->
-      string_value(stream, ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"])
-    end)
-  end
+  defp first_stream_origin(streams),
+    do: Enum.find_value(streams, &(is_map(&1) and reported_origin(&1, @stream_url_keys)))
 
   defp codec_from_rtsp_url(nil), do: nil
 

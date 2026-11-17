@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime do
 
   alias Phoenix.Component
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadarWebNGWeb.DeviceLive.CameraComponents
 
   @default_poll_interval_ms 1_000
@@ -77,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime do
   def format_error({:agent_offline, _agent_id}, _format_fallback), do: "Assigned agent is offline for this camera source"
 
   def format_error(:invalid_uuid, _format_fallback), do: "Invalid camera relay request"
-  def format_error(reason, _format_fallback) when is_binary(reason), do: reason
+  def format_error(reason, _format_fallback) when is_binary(reason), do: RelaySourceFailure.describe(reason) || reason
   def format_error(reason, format_fallback) when is_function(format_fallback, 1), do: format_fallback.(reason)
 
   defp fetch_session(scope, relay_session_id) do

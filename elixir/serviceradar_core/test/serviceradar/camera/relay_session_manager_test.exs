@@ -7,6 +7,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -79,13 +80,28 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       session = start_supervised!({HoldingControlSession, name: name, test_pid: parent})
       assert wait_for_control_session("default", agent_id, session)
 
+      advertise_source_resolution!(agent_id)
+
+      source_resolver = %{
+        "plugin_assignment_id" => Ecto.UUID.generate(),
+        "vendor_camera_id" => "invented-cam"
+      }
+
       dispatch = fn agent, payload, opts, _requester ->
         case operation do
           :open ->
             AgentCommandBus.start_camera_relay(
               agent,
-              Map.put(payload, :source_url, "rtsp://host01.example.com/stream/main"),
-              opts
+              payload,
+              Keyword.put(opts, :camera_profile_fetcher, fn _source_id, _profile_id ->
+                {:ok,
+                 %{
+                   camera_source: %{
+                     vendor_camera_id: source_resolver["vendor_camera_id"],
+                     discovery_assignment_id: source_resolver["plugin_assignment_id"]
+                   }
+                 }}
+              end)
             )
 
           :close ->
@@ -151,18 +167,11 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
             assert Map.fetch!(stored_payload, key) == Map.fetch!(payload, key)
           end
 
-          assert payload["source_url"] == "rtsp://host01.example.com/stream/main"
+          assert payload["source_resolver"] == source_resolver
+          refute Map.has_key?(payload, "source_url")
           refute payload["lease_token"] in [nil, "REDACTED"]
-
-          assert stored_payload ==
-                   Map.merge(payload, %{
-                     "source_url" => "rtsp://host01.example.com/[redacted]",
-                     "lease_token" => "REDACTED"
-                   })
-
-          stored_text = Jason.encode!(stored_payload)
-          refute stored_text =~ "/stream/main"
-          refute stored_text =~ payload["lease_token"]
+          assert stored_payload == Map.put(payload, "lease_token", "REDACTED")
+          refute Jason.encode!(stored_payload) =~ payload["lease_token"]
 
         :close ->
           assert stored_payload == payload
@@ -585,6 +594,37 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert {:ok, replacement} = Fixtures.open(ctx)
     assert replacement.id != failed.id
     assert Fixtures.owner(ctx).epoch == 2
+  end
+
+  # The camera-streaming scenario "Agent not upgraded", and a source no plugin
+  # assignment is recorded as discovering: Core refuses before dispatch and the
+  # session fails with the class the operator's sentence is keyed on.
+  for {class, advertises?} <- [
+        {"agent_upgrade_required", false},
+        {"source_resolver_missing", true}
+      ] do
+    test "an open Core cannot resolve at the edge fails the session as #{class} without a command",
+         ctx do
+      class = unquote(class)
+      agent_id = "agent-relay-#{Ecto.UUID.generate()}"
+      {:ok, _source} = Source.update_source(ctx.source, %{assigned_agent_id: agent_id}, ctx.opts)
+      if unquote(advertises?), do: advertise_source_resolution!(agent_id)
+
+      assert {:error, ^class} =
+               Fixtures.open(ctx,
+                 dispatch_open: fn agent, payload, opts, _requester ->
+                   AgentCommandBus.start_camera_relay(agent, payload, opts)
+                 end
+               )
+
+      assert [%{status: :failed, failure_reason: ^class}] = Fixtures.sessions(ctx)
+      assert is_binary(RelaySourceFailure.describe(class))
+
+      assert %{rows: [[0]]} =
+               Repo.query!("SELECT count(*) FROM platform.agent_commands WHERE agent_id = $1", [
+                 agent_id
+               ])
+    end
   end
 
   test "a mismatched dispatch reply cannot replace the reserved command identity", ctx do
@@ -1075,6 +1115,21 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     end
 
     assert {:error, :ownership_lost} = IngestOwnership.for_relay(allowed.id, ctx.opts)
+  end
+
+  # The capability list Core keeps for the agent; removed when the test ends.
+  defp advertise_source_resolution!(agent_id) do
+    Repo.query!(
+      "INSERT INTO platform.ocsf_agents (uid, capabilities) VALUES ($1, ARRAY['camera_source_resolution'])",
+      [agent_id]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
+
+      assert %{rows: [[0]]} =
+               Repo.query!("SELECT count(*) FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
+    end)
   end
 
   defp wait_for_control_session(partition_id, agent_id, pid, attempts \\ 40)

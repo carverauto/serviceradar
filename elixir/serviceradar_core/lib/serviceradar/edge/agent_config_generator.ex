@@ -1502,6 +1502,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     _ -> :embedded
   end
 
+  @camera_stream_addresses_key "_serviceradar_camera_stream_addresses"
+
+  # Design D8 of resolve-camera-stream-sources-at-edge: Core no longer keeps stream
+  # addresses, so it tells every camera inventory plugin, through a host-owned key
+  # at the top of its params, to report only stream origins. The key replaces any
+  # value an assignment carries, so an operator cannot opt back in.
+  defp put_camera_stream_address_cutover(params, manifest) do
+    if camera_inventory_package?(manifest),
+      do: Map.put(params, @camera_stream_addresses_key, "omit"),
+      else: params
+  end
+
+  defp camera_inventory_package?(%{"integrations" => %{"credential_profiles" => profiles}})
+       when is_list(profiles) do
+    Enum.any?(profiles, fn
+      %{"purposes" => purposes} when is_list(purposes) -> "camera_inventory" in purposes
+      _profile -> false
+    end)
+  end
+
+  defp camera_inventory_package?(_manifest), do: false
+
   defp build_plugin_assignment_config(%PluginAssignment{} = assignment, grant_mode) do
     package = assignment.plugin_package
     manifest = normalize_map(package.manifest)
@@ -1544,7 +1566,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         runtime: package.runtime,
         outputs: package.outputs,
         capabilities: effective_capabilities(package, manifest),
-        params: wasm_params,
+        params: put_camera_stream_address_cutover(wasm_params, manifest),
         host_params: host_params,
         permissions: effective_permissions(assignment, package, manifest),
         resources: effective_resources(assignment, package, manifest),

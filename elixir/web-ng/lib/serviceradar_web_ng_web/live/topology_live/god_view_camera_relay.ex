@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   import Phoenix.LiveView, only: [clear_flash: 2, put_flash: 3]
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadarWebNG.RBAC
 
   require Logger
@@ -252,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   end
 
   defp viewer_state_from_error(reason) when is_binary(reason) do
-    normalized_reason = String.trim(reason)
+    normalized_reason = String.trim(RelaySourceFailure.describe(reason) || reason)
     classification = classify_camera_relay_issue(normalized_reason)
 
     case classification do

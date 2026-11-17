@@ -1053,6 +1053,115 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
+  # Design D8 of resolve-camera-stream-sources-at-edge: from Stage 3, Core tells a camera
+  # inventory plugin, in its own assignment params, to report no stream addresses.
+  describe "camera stream address cutover key" do
+    test "camera inventory assignments receive omit, replacing any value already there", %{
+      actor: actor,
+      agent_uid: agent_uid
+    } do
+      params =
+        delivered_plugin_params(actor, agent_uid, ["camera_inventory", "camera_stream"], %{
+          "host" => "192.0.2.10",
+          "_serviceradar_camera_stream_addresses" => "report"
+        })
+
+      assert params["_serviceradar_camera_stream_addresses"] == "omit"
+      assert params["host"] == "192.0.2.10"
+    end
+
+    test "assignments of packages without the camera inventory purpose get no key", %{
+      actor: actor,
+      agent_uid: agent_uid
+    } do
+      for purposes <- [["camera_stream"], ["inventory"], nil] do
+        params = delivered_plugin_params(actor, agent_uid, purposes, %{"host" => "192.0.2.20"})
+
+        refute Map.has_key?(params, "_serviceradar_camera_stream_addresses")
+        assert params["host"] == "192.0.2.20"
+      end
+    end
+  end
+
+  # The params the generator delivers for one assignment of a package whose stored
+  # manifest declares a credential profile with `purposes` (none when nil). The
+  # manifest is set with SQL: upload validation is not under test, only what the
+  # generator reads from an approved package.
+  defp delivered_plugin_params(actor, agent_uid, purposes, assignment_params) do
+    plugin_id = "camera-cutover-#{System.unique_integer([:positive])}"
+    name = "Camera Cutover #{plugin_id}"
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: name}, actor: actor)
+      |> Ash.create()
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: name,
+          version: "1.0.0",
+          entrypoint: "run_check",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: plugin_manifest(plugin_id, name),
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:#{plugin_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(:update, %{wasm_object_key: "plugins/#{plugin_id}/plugin.wasm"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+      |> Ash.update()
+
+    if purposes do
+      ServiceRadar.Repo.query!(
+        """
+        UPDATE platform.plugin_packages
+        SET manifest = jsonb_set(manifest, '{integrations}', $2::jsonb)
+        WHERE id = $1::text::uuid
+        """,
+        [
+          package.id,
+          %{"credential_profiles" => [%{"provider" => plugin_id, "purposes" => purposes}]}
+        ]
+      )
+    end
+
+    create_plugin_assignment!(
+      agent_uid,
+      %{
+        plugin_package_id: package.id,
+        enabled: true,
+        interval_seconds: 60,
+        timeout_seconds: 10,
+        params: assignment_params
+      },
+      actor
+    )
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+    config.plugins
+    |> Enum.find(&(&1.plugin_id == plugin_id))
+    |> Map.fetch!(:params)
+  end
+
   # Creates a plugin package whose manifest declares `allowed_domains == manifest_domains`,
   # approves it with `approved_permissions.allowed_domains == approved_domains`, assigns it
   # to the agent (no assignment-level override), and returns the effective

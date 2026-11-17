@@ -1,10 +1,20 @@
 defmodule ServiceRadar.Camera.RelaySourceResolver do
   @moduledoc """
-  Resolves relay command payloads against normalized camera inventory.
+  Completes a `camera.open_relay` payload from normalized camera inventory.
+
+  Core holds no stream address (design D1 of the
+  `resolve-camera-stream-sources-at-edge` change). The payload instead names
+  the plugin assignment that discovered the camera and the vendor ids its
+  plugin needs, as `source_resolver`; the agent asks that assignment to derive
+  the address when the stream opens. A `source_url` a caller passes in is
+  dropped, never forwarded.
+
+  A source no plugin assignment is recorded as discovering cannot be resolved
+  at the edge and fails with the relay failure class `source_resolver_missing`
+  (design D5), before anything is dispatched.
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Inventory.DeviceLifecycle
 
@@ -14,25 +24,21 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   @type fetcher_result :: {:ok, struct() | map()} | {:error, term()}
   @type profile_fetcher :: (Ecto.UUID.t(), Ecto.UUID.t() -> fetcher_result)
 
+  @source_resolver_missing "source_resolver_missing"
+
   @spec resolve_start_payload(relay_payload(), keyword()) ::
           {:ok, relay_payload()} | {:error, String.t()}
   def resolve_start_payload(payload, opts \\ []) when is_map(payload) do
-    if present?(Map.get(payload, :source_url)) do
-      {:ok, Map.update!(payload, :source_url, &sanitize_source_url/1)}
-    else
-      resolve_from_inventory(payload, opts)
-    end
-  end
+    payload = Map.delete(payload, :source_url)
 
-  defp resolve_from_inventory(payload, opts) do
     with {:ok, camera_source_id} <- require_uuid(payload, :camera_source_id),
          {:ok, stream_profile_id} <- require_uuid(payload, :stream_profile_id),
          {:ok, profile} <- fetch_profile(camera_source_id, stream_profile_id, opts),
          :ok <- ensure_source_active(profile, opts),
-         {:ok, source_url} <- require_source_url(profile) do
+         {:ok, source_resolver} <- source_resolver(profile) do
       {:ok,
        payload
-       |> put_if_missing(:source_url, sanitize_source_url(source_url))
+       |> Map.put(:source_resolver, source_resolver)
        |> put_if_missing(:rtsp_transport, field(profile, :rtsp_transport))
        |> put_if_missing(:codec_hint, field(profile, :codec_hint))
        |> put_if_missing(:container_hint, field(profile, :container_hint))
@@ -50,28 +56,29 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
     end
   end
 
-  # `source_url_override` and `source_url` hold the stream address and are not
-  # selected by default; this is the one reader that selects them, to build the
-  # relay command.
   defp fetch_profile_from_inventory(camera_source_id, stream_profile_id) do
     StreamProfile
     |> Ash.Query.for_read(:for_relay, %{id: stream_profile_id, camera_source_id: camera_source_id})
-    |> Ash.Query.ensure_selected([:source_url_override])
-    |> Ash.Query.load(camera_source: Ash.Query.ensure_selected(Source, [:source_url]))
+    |> Ash.Query.load(:camera_source)
     |> Ash.read_one(actor: SystemActor.system(:camera_relay_source_resolver))
   end
 
-  defp require_source_url(profile) do
-    source_url =
-      field(profile, :source_url_override) ||
-        profile
-        |> field(:camera_source)
-        |> field(:source_url)
+  # The agent needs the discovering assignment and the vendor camera id; the vendor
+  # profile id is optional (a camera's default stream has none).
+  defp source_resolver(profile) do
+    source = field(profile, :camera_source)
+    assignment_id = field(source, :discovery_assignment_id)
+    vendor_camera_id = field(source, :vendor_camera_id)
 
-    if present?(source_url) do
-      {:ok, source_url}
+    if present?(assignment_id) and present?(vendor_camera_id) do
+      {:ok,
+       maybe_put(
+         %{plugin_assignment_id: to_string(assignment_id), vendor_camera_id: vendor_camera_id},
+         :vendor_profile_id,
+         field(profile, :vendor_profile_id)
+       )}
     else
-      {:error, "camera relay source_url is not available in inventory"}
+      {:error, @source_resolver_missing}
     end
   end
 
@@ -109,11 +116,11 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
       value when is_binary(value) and value != "" ->
         case Ecto.UUID.cast(value) do
           {:ok, uuid} -> {:ok, uuid}
-          :error -> {:error, "#{key} must be a UUID when source_url is omitted"}
+          :error -> {:error, "#{key} must be a UUID"}
         end
 
       _ ->
-        {:error, "#{key} is required when source_url is omitted"}
+        {:error, "#{key} is required"}
     end
   end
 
@@ -126,6 +133,9 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
       Map.put(payload, key, value)
     end
   end
+
+  defp maybe_put(map, _key, value) when value in [nil, ""], do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp field(nil, _key), do: nil
 
@@ -159,8 +169,6 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   end
 
   defp metadata_atom_key("insecure_skip_verify"), do: :insecure_skip_verify
-  defp metadata_atom_key("plugin_id"), do: :plugin_id
-  defp metadata_atom_key("source"), do: :source
   defp metadata_atom_key(_key), do: nil
 
   defp truthy?(true), do: true
@@ -176,27 +184,4 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   defp format_error(%Ash.Error.Invalid{} = error), do: Ash.Error.to_error_class(error).message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
-
-  defp sanitize_source_url(value) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    trimmed
-    |> URI.parse()
-    |> strip_enable_srtp()
-    |> URI.to_string()
-    |> String.trim_trailing("?")
-  end
-
-  defp sanitize_source_url(value), do: value
-
-  defp strip_enable_srtp(%URI{query: nil} = uri), do: uri
-
-  defp strip_enable_srtp(%URI{query: query} = uri) do
-    params =
-      query
-      |> URI.decode_query()
-      |> Map.delete("enableSrtp")
-
-    %{uri | query: if(map_size(params) == 0, do: nil, else: URI.encode_query(params))}
-  end
 end

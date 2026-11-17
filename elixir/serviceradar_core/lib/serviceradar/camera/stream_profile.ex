@@ -15,7 +15,7 @@ defmodule ServiceRadar.Camera.StreamProfile do
   @mutable_fields [
     :profile_name,
     :vendor_profile_id,
-    :source_url_override,
+    :source_origin,
     :rtsp_transport,
     :codec_hint,
     :container_hint,
@@ -104,14 +104,12 @@ defmodule ServiceRadar.Camera.StreamProfile do
       public? true
     end
 
-    # The profile's stream address, which can carry a path alias or userinfo. Only the
-    # relay resolver selects it (`ServiceRadar.Camera.RelaySourceResolver`), and inventory
-    # ingest sets it only through `InventoryIngestor.put_relay_addresses/2`. Readers use
-    # `source_scheme`. Stage 3 of the resolve-camera-stream-sources-at-edge change removes it.
-    attribute :source_url_override, :string do
-      public? false
-      sensitive? true
-      select_by_default? false
+    # The stream's origin (`scheme://host[:port]`), never a path, alias or userinfo:
+    # inventory ingest writes it only through `StreamAddressReduction.origin/1`. The
+    # address itself is resolved by the agent when a relay opens (design D1 of
+    # resolve-camera-stream-sources-at-edge).
+    attribute :source_origin, :string do
+      public? true
     end
 
     attribute :rtsp_transport, :string do
@@ -157,16 +155,14 @@ defmodule ServiceRadar.Camera.StreamProfile do
   end
 
   calculations do
-    # The scheme of the address a relay of this profile opens (`rtsp`, `rtsps`, ...),
-    # lowercased, or nil when inventory holds none. It is computed in the database,
-    # so a reader learns whether the stream is TLS without loading the address.
+    # The scheme of the profile's stream (`rtsp`, `rtsps`, ...), lowercased, or nil
+    # when inventory holds no origin, so a reader learns whether the stream is TLS.
     calculate :source_scheme,
               :string,
               expr(
                 fragment(
-                  "lower(substring(coalesce(nullif(btrim(?), ''), nullif(btrim(?), '')) from '^([A-Za-z][A-Za-z0-9+.-]*)://'))",
-                  source_url_override,
-                  camera_source.source_url
+                  "lower(substring(nullif(btrim(?), '') from '^([A-Za-z][A-Za-z0-9+.-]*)://'))",
+                  source_origin
                 )
               ) do
       public? true

@@ -4324,11 +4324,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
 
       # Invented address: the path alias works as a bearer token, so no socket assign
-      # may hold it; the TLS-bypass control comes from the profile's source_scheme.
-      {:ok, source} =
-        CameraSource.update_source(
-          source,
-          %{source_url: "rtsps://192.0.2.10:7441/InventedAliasXyz01"},
+      # may hold it, even while a row stored before the cleanup still has it in the
+      # unmapped relay column. The TLS-bypass control comes from the profile's origin.
+      ServiceRadar.Repo.query!(
+        "UPDATE platform.camera_sources SET source_url = $2 WHERE id = $1::text::uuid",
+        [source.id, "rtsps://192.0.2.10:7441/InventedAliasXyz01"]
+      )
+
+      {:ok, profile} =
+        CameraStreamProfile.update_profile(
+          profile,
+          %{source_origin: "rtsps://192.0.2.10:7441"},
           actor: AshTestHelpers.system_actor()
         )
 
@@ -4587,7 +4593,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
             vendor: "axis",
             vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
             display_name: "Lobby Camera",
-            source_url: "rtsp://camera.local/stream",
             assigned_agent_id: "agent-camera-1",
             assigned_gateway_id: "gateway-camera-1"
           },

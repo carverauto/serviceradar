@@ -224,7 +224,6 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           vendor: "axis",
           vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
           display_name: "Ops Camera",
-          source_url: "rtsp://camera.local/stream",
           assigned_agent_id: "agent-camera-ops-1",
           assigned_gateway_id: "gateway-camera-ops-1",
           metadata: metadata

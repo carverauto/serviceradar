@@ -196,7 +196,12 @@ events and logs. None of them sees the secret, whatever the agent or
 plugin version. The status payload digest is computed over the reduced payload.
 From Stage 3 the ingestor sets `source_origin` from the reduced result: the
 descriptor's `source_origin` field, or else the rule's origin function applied
-to its URL field (an older plugin's address, already reduced to an origin).
+to its URL field (an older plugin's address, already reduced to an origin). A
+profile descriptor that carries neither takes its camera descriptor's origin,
+found the same way, as a relay used to fall back from the profile's address to
+the camera's. The origin function, `StreamAddressReduction.origin/1`, returns
+`scheme://host[:port]` of a value that is one URL, whatever its scheme, and
+nothing for any other value.
 
 Stage 1 ingest rule (Stages 1 and 2 only, while Core still writes the two relay
 columns). On arrival the entry point derives two values from each plugin result:
@@ -230,7 +235,9 @@ Profile metadata is also filtered against an allowlist (`source`, `width`,
   UI.
 - `camera_sources`: `source_url` is removed. `discovery_assignment_id` (uuid,
   references the plugin assignment, set to null when the assignment is deleted)
-  is added.
+  is added. A result without provenance, or whose provenance names an
+  assignment that no longer exists (a durable edge record can arrive after its
+  assignment is deleted), leaves the stored value unchanged.
 - Device metadata no longer gets `camera_source_url`.
 
 No new credential reference is added, so the hard rule's five conditions for a

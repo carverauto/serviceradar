@@ -79,6 +79,26 @@ defmodule ServiceRadar.Camera.StreamAddressReductionTest do
              %{"url" => @origin}
   end
 
+  test "origin/1 keeps only scheme, host and port of any URL, and nothing of other values" do
+    for {input, expected} <- [
+          {@origin, @origin},
+          {"rtsps://192.0.2.10:7441/AbCdEf", @origin},
+          {" rtsp://viewer:secret@cam01.example.com/live?x=1 ", "rtsp://cam01.example.com"},
+          {"https://viewer:secret@files.example.com:8443/a?b=1#c",
+           "https://files.example.com:8443"},
+          {"rtsps:\\/\\/192.0.2.10:7441\\/AbCdEf", @origin},
+          {"rtsp://[2001:db8::1]:554/stream", "rtsp://[2001:db8::1]:554"},
+          {"dial rtsps://192.0.2.10:7441/AbCdEf failed", nil},
+          {"rtsps://", nil},
+          {"camera 01", nil},
+          {"", nil},
+          {nil, nil},
+          {42, nil}
+        ] do
+      assert StreamAddressReduction.origin(input) == expected, inspect(input)
+    end
+  end
+
   test "a reduced value is a fixed point, and structs are left alone" do
     observed_at = ~U[2026-01-01 00:00:00Z]
 

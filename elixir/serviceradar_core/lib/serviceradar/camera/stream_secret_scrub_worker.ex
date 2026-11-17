@@ -2,37 +2,44 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
   @moduledoc """
   Removes camera stream addresses, path aliases and URL userinfo that Core
   stored from plugin results before `ServiceRadar.Camera.StreamAddressReduction`
-  ran on entry (design D7 of the `resolve-camera-stream-sources-at-edge` change).
+  ran on entry, and from stage 3 empties the two relay address columns Core
+  opened relays from before the agent resolved them itself (design D7 of the
+  `resolve-camera-stream-sources-at-edge` change).
 
   ## Targets
 
   `@targets` is the single definition of what a pass scrubs and what `pending/0`
   counts. Each target names the change stage that brings it into scope; this
-  code runs at stage 1, so it knows only the stage 1 targets:
+  code runs at stage 3 and knows them all:
 
-    1. `camera_stream_profiles.metadata`: reduce, and drop keys outside the
-       profile metadata allowlist (`InventoryIngestor.allowed_profile_metadata/1`).
-    2. `camera_sources.metadata`: reduce. `camera_sources.last_event_message`,
+    1. [stage 1] `camera_stream_profiles.metadata`: reduce, and drop keys outside
+       the profile metadata allowlist (`InventoryIngestor.allowed_profile_metadata/1`).
+    2. [stage 1] `camera_sources.metadata`: reduce. `camera_sources.last_event_message`,
        `last_event_type` and `availability_reason`, which hold plugin event text
        and the result summary: reduce, as strings.
-    3. `ocsf_devices.metadata`: drop `camera_source_url`, and reduce the rest.
-    4. `service_status.details`, `service_state.message` and
+    3. [stage 1] `ocsf_devices.metadata`: drop `camera_source_url`, and reduce the rest.
+    4. [stage 1] `service_status.details`, `service_state.message` and
        `service_state.details`: reduce, and recompute the payload digests
        (`_serviceradar_plugin_result.payload_digest` and
        `downstream_ingest.payload_digest`) with the ingest function, so a
        redelivered result still matches its stored row. `service_status.message`
        (the result's summary) is reduced as well: a redelivery matches its stored
        row on that column too, and ingest now stores it reduced.
+    5. [stage 3] `camera_stream_profiles.source_url_override`: first set
+       `source_origin` to its origin (`StreamAddressReduction.origin/1`), only
+       where `source_origin` is null, so an origin a newer report wrote is never
+       overwritten; then null the column.
+    6. [stage 3] `camera_stream_profiles.source_origin`: reduce.
+    7. [stage 3] `camera_sources.source_url`: null.
 
   "Reduce" is `StreamAddressReduction.reduce/1`, the same function every plugin
   result passes through on entry, so the cleanup cannot drift from the runtime.
   A row counts against a target exactly when that target's scrub would change
-  it.
+  it; for targets 5 and 7, while the column is not null.
 
-  `camera_sources.source_url` and `camera_stream_profiles.source_url_override`
-  still hold the addresses a relay opens from until Stage 3; they are not stage
-  1 targets. `pending/0` reports them separately, by column name, under
-  `at_rest_until_stage_3`, so a clean stage 1 result is not mistaken for the fix.
+  Core no longer maps the two relay columns of targets 5 and 7 (the agent
+  resolves stream addresses itself), so they are read and written with SQL
+  only. Stage 4 drops them and removes their targets.
 
   ## Passes
 
@@ -49,8 +56,9 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
 
   ## Jobs
 
-  Each job names the stage it must complete in its args (`%{"stage" => 1}`) and
-  is unique per stage. The job returns `:ok` only when (a) this code and every
+  Each job names the stage it must complete in its args (`%{"stage" => 1}`,
+  `%{"stage" => 3}`) and is unique per stage; a job's targets are those of its
+  stage and below. The job returns `:ok` only when (a) this code and every
   connected Core node are at or above the job's stage, (b) the pass scrubbed every
   target of the job, (c) the pass changed and skipped no row, and (d) `pending/0`
   then counts zero for every target of the job. Otherwise it snoozes for
@@ -77,7 +85,7 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
 
   require Logger
 
-  @scrub_stage 1
+  @scrub_stage 3
   @batch_size 500
   @default_repass_seconds 600
   @default_max_passes 1000
@@ -163,6 +171,30 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
       table: "service_state",
       column: "details",
       scrub: :plugin_document
+    },
+    %{
+      id: "camera_stream_profiles.source_url_override",
+      stage: 3,
+      type: "text",
+      table: "camera_stream_profiles",
+      column: "source_url_override",
+      scrub: :relay_override
+    },
+    %{
+      id: "camera_stream_profiles.source_origin",
+      stage: 3,
+      type: "text",
+      table: "camera_stream_profiles",
+      column: "source_origin",
+      scrub: :reduce
+    },
+    %{
+      id: "camera_sources.source_url",
+      stage: 3,
+      type: "text",
+      table: "camera_sources",
+      column: "source_url",
+      scrub: :null
     }
   ]
 
@@ -183,16 +215,7 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
     "service_state" => %{key: [{"id", :uuid}], prefilter?: true}
   }
 
-  @at_rest_columns [
-    {"camera_sources.source_url", "camera_sources", "source_url"},
-    {"camera_stream_profiles.source_url_override", "camera_stream_profiles",
-     "source_url_override"}
-  ]
-
-  @type pending_report :: %{
-          required(:in_scope) => %{String.t() => non_neg_integer()},
-          optional(:at_rest_until_stage_3) => %{String.t() => non_neg_integer()}
-        }
+  @type pending_report :: %{required(:in_scope) => %{String.t() => non_neg_integer()}}
 
   @doc "The scrub stage this code implements; peers read it over `:erpc`."
   @spec scrub_stage() :: pos_integer()
@@ -243,21 +266,12 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
 
   @doc """
   What remains to scrub, writing nothing: `in_scope` maps each target this code
-  knows to the number of rows its scrub would still change, and
-  `at_rest_until_stage_3` counts, by column name, the rows whose relay address
-  columns are still set. Options: `:repo`, `:batch_size`.
+  knows to the number of rows its scrub would still change. Options: `:repo`,
+  `:batch_size`.
   """
   @spec pending(keyword()) :: pending_report()
   def pending(opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    %{
-      in_scope: Map.new(@targets, &{&1.id, scrub_target(&1, false, opts).changed}),
-      at_rest_until_stage_3:
-        Map.new(@at_rest_columns, fn {name, table, column} ->
-          {name, count_non_null(repo, table, column)}
-        end)
-    }
+    %{in_scope: Map.new(@targets, &{&1.id, scrub_target(&1, false, opts).changed})}
   end
 
   defp job_targets(job_stage), do: Enum.filter(@targets, &(&1.stage <= job_stage))
@@ -374,12 +388,44 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
     scrubbed = scrub_value(target.scrub, value)
 
     cond do
-      scrubbed == value -> :clean
-      not apply? -> :changed
-      update_column(repo, target, table, key, value, scrubbed) -> :changed
-      true -> :skipped
+      scrubbed == value ->
+        :clean
+
+      not apply? ->
+        :changed
+
+      true ->
+        keep_origin(repo, target, key, value)
+
+        if update_column(repo, target, table, key, value, scrubbed),
+          do: :changed,
+          else: :skipped
     end
   end
+
+  # Target 5 keeps the relay address's origin before the address goes, with its
+  # own compare-and-set on `source_origin` being null: an origin a newer report
+  # wrote meanwhile wins, and losing that race is not a skip.
+  defp keep_origin(repo, %{scrub: :relay_override}, [id], value) do
+    case StreamAddressReduction.origin(value) do
+      nil ->
+        :ok
+
+      origin ->
+        repo.query!(
+          """
+          UPDATE platform.camera_stream_profiles
+          SET source_origin = $2::text
+          WHERE id = $1::text::uuid AND source_origin IS NULL
+          """,
+          [id, origin]
+        )
+
+        :ok
+    end
+  end
+
+  defp keep_origin(_repo, _target, _key, _value), do: :ok
 
   defp fetch_batch(repo, target, table, batch_size, cursor) do
     key_columns = table.key
@@ -476,14 +522,9 @@ defmodule ServiceRadar.Camera.StreamSecretScrubWorker do
   defp param_cast(index, :timestamptz), do: "$#{index}::timestamptz"
   defp param_cast(index, :text), do: "$#{index}::text"
 
-  defp count_non_null(repo, table, column) do
-    %{rows: [[count]]} =
-      repo.query!("SELECT count(*) FROM platform.#{table} WHERE #{column} IS NOT NULL", [])
-
-    count
-  end
-
   defp scrub_value(:reduce, value), do: StreamAddressReduction.reduce(value)
+  defp scrub_value(:relay_override, _value), do: nil
+  defp scrub_value(:null, _value), do: nil
 
   defp scrub_value(:profile_metadata, metadata) when is_map(metadata) do
     metadata

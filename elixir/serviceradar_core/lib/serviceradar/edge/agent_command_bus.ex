@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Infrastructure.Agent, as: AgentRecord
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.RateLimiter
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @sweep_cancel_command_type "sweep.cancel_group"
   @sweep_cancel_capability "sweep_cancel"
   @endpoint_inventory_capability "endpoint-inventory"
+  @camera_source_resolution_capability "camera_source_resolution"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
   @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
   @endpoint_inventory_cohort_query_type "endpoint_inventory.cohort_cache_query"
@@ -1033,10 +1035,19 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
+  @doc """
+  Opens a camera relay on `agent_id`. The command names the plugin assignment
+  that discovered the camera instead of a stream address
+  (`ServiceRadar.Camera.RelaySourceResolver`), so it is sent only to an agent
+  that advertises `camera_source_resolution`. Any other agent gets no command,
+  and the open fails with the relay failure class `agent_upgrade_required`
+  (designs D5 and D6 of `resolve-camera-stream-sources-at-edge`).
+  """
   def start_camera_relay(agent_id, payload, opts \\ []) do
     payload = normalize_camera_relay_start_payload(payload)
 
-    with {:ok, payload} <- resolve_camera_relay_payload(payload, opts) do
+    with :ok <- require_camera_source_resolution(agent_id),
+         {:ok, payload} <- resolve_camera_relay_payload(payload, opts) do
       opts =
         add_context(opts, %{
           relay_session_id: payload.relay_session_id,
@@ -1045,6 +1056,26 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         })
 
       dispatch(agent_id, "camera.open_relay", payload, opts)
+    end
+  end
+
+  # The capabilities Core keeps for the agent from what it advertised, as the
+  # credential broker's resolve-by-binding gate reads them.
+  defp require_camera_source_resolution(agent_id) do
+    case AgentRecord.get_by_uid(agent_id,
+           actor: SystemActor.system(:agent_command_bus),
+           not_found_error?: false
+         ) do
+      {:ok, %AgentRecord{capabilities: capabilities}} when is_list(capabilities) ->
+        if @camera_source_resolution_capability in capabilities,
+          do: :ok,
+          else: {:error, "agent_upgrade_required"}
+
+      {:ok, _no_capabilities} ->
+        {:error, "agent_upgrade_required"}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -1168,7 +1199,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   # The agent's last acknowledged config version — what it is actually running.
   # Used to decide whether a dependency-triggered push would change anything.
   defp agent_known_config_version(agent_id) do
-    case ServiceRadar.Infrastructure.Agent.get_by_uid(agent_id,
+    case AgentRecord.get_by_uid(agent_id,
            actor: SystemActor.system(:agent_command_bus)
          ) do
       {:ok, agent} -> Map.get(agent, :acked_config_version) || ""
@@ -1437,7 +1468,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       stream_profile_id: payload_value(payload, :stream_profile_id),
       lease_token: payload_value(payload, :lease_token)
     }
-    |> maybe_put(:source_url, payload_value(payload, :source_url))
     |> maybe_put(:rtsp_transport, payload_value(payload, :rtsp_transport))
     |> maybe_put(:codec_hint, payload_value(payload, :codec_hint))
     |> maybe_put(:container_hint, payload_value(payload, :container_hint))

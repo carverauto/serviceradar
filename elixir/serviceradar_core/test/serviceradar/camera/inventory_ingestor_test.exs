@@ -2,8 +2,6 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Camera.InventoryIngestor
-  alias ServiceRadar.Camera.RelayAddressExtract
-  alias ServiceRadar.Camera.StreamAddressReduction
 
   describe "merge_local_relay_metadata/2" do
     test "preserves local relay metadata when incoming plugin metadata omits it" do
@@ -168,7 +166,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
 
     assert_receive {:profile_upsert, profile_attrs}
     assert profile_attrs.profile_name == "main"
-    assert profile_attrs.source_url_override == "rtsp://camera.local/embedded-main"
+    assert profile_attrs.source_origin == "rtsp://camera.local"
     assert profile_attrs.codec_hint == "h264"
   end
 
@@ -217,10 +215,10 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert source_attrs.device_uid == "axis-serial-1"
     assert source_attrs.vendor == "axis"
     assert source_attrs.vendor_camera_id == "axis-serial-1"
-    assert source_attrs.source_url == "rtsp://10.0.0.50/axis-media/media.amp?videocodec=h264"
 
     assert_receive {:profile_upsert, profile_attrs}
     assert profile_attrs.profile_name == "main"
+    assert profile_attrs.source_origin == "rtsp://10.0.0.50"
     assert profile_attrs.rtsp_transport == "tcp"
     assert profile_attrs.codec_hint == "h264"
   end
@@ -291,12 +289,12 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert source_attrs.device_uid == "device-canonical-42"
     assert source_attrs.vendor == "axis"
     assert source_attrs.vendor_camera_id == "axis-serial-42"
-    assert source_attrs.source_url == "rtsp://10.0.0.50/axis-media/media.amp?videocodec=h264"
     assert source_attrs.assigned_agent_id == "agent-42"
     assert source_attrs.assigned_gateway_id == "gateway-42"
 
     assert_receive {:profile_upsert, profile_attrs}
     assert profile_attrs.profile_name == "main"
+    assert profile_attrs.source_origin == "rtsp://10.0.0.50"
     assert profile_attrs.rtsp_transport == "tcp"
     assert profile_attrs.codec_hint == "h264"
     assert profile_attrs.metadata["auth_mode"] == "digest"
@@ -446,10 +444,11 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
                "vendor" => "ubiquiti",
                "camera_id" => "protect-serial-1",
                "display_name" => "South Lot",
-               "source_url" => "rtsp://protect.local/live/high?videocodec=h265",
+               "source_origin" => "rtsp://protect.local",
                "stream_profiles" => [
                  %{
                    "profile_name" => "high",
+                   "source_origin" => "rtsp://protect.local",
                    "metadata" => %{"insecure_skip_verify" => true}
                  }
                ],
@@ -618,46 +617,43 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     refute_receive {:source_upsert, _}
   end
 
-  test "relay columns come only from the relay address extract, and profile metadata keeps the allowlist" do
-    # Invented address; the path alias works as a bearer token.
-    alias_url = "rtsps://192.0.2.10:7441/AbCdEfInvented03"
+  test "profiles keep only an origin, and the discovering assignment comes from host provenance" do
+    # Invented addresses and ids.
+    assignment_id = "3c9a1f7e-2b4d-4e8a-9c1b-5d6e7f8a9b01"
+    parent = self()
 
-    unreduced = %{
+    payload = %{
       "camera_descriptors" => [
         %{
-          "device_uid" => "device-relay",
+          "device_uid" => "device-origin",
           "vendor" => "ubiquiti",
-          "camera_id" => "cam-relay",
-          "source_url" => alias_url,
+          "camera_id" => "cam-origin",
+          "source_url" => "rtsp://viewer:secret@192.0.2.30/live",
+          # The plugin's own claim is never trusted.
+          "discovery_assignment_id" => "3c9a1f7e-2b4d-4e8a-9c1b-5d6e7f8a9b99",
           "stream_profiles" => [
+            %{"name" => "reported", "source_origin" => "rtsps://192.0.2.31:7441"},
             %{
-              "name" => "High",
-              "source_url_override" => alias_url,
-              "metadata" => %{
-                "rtsps_alias" => "AbCdEfInvented03",
-                "width" => 1920,
-                "vendor_note" => "x"
-              }
+              "name" => "older-plugin",
+              "source_url_override" => "rtsps://192.0.2.32:7441/AbCdEf"
+            },
+            %{"name" => "camera-level"},
+            %{
+              "name" => "allowlist",
+              "metadata" => %{"rtsps_alias" => "AbCdEf", "width" => 1920, "vendor_note" => "x"}
             }
           ]
         }
       ]
     }
 
-    extract = RelayAddressExtract.from_result(unreduced)
-    refute inspect(extract) =~ "AbCdEfInvented03"
-
-    for {relay_addresses, expected_url} <- [
-          {extract, alias_url},
-          {RelayAddressExtract.empty(), nil}
+    for {status, expected_assignment} <- [
+          {%{plugin_provenance: %{"assignment_id" => assignment_id}}, assignment_id},
+          {%{plugin_provenance: %{"assignment_id" => "not-a-uuid"}}, :absent},
+          {%{}, :absent}
         ] do
-      parent = self()
-
       assert :ok =
-               unreduced
-               |> StreamAddressReduction.reduce()
-               |> InventoryIngestor.ingest(%{},
-                 relay_addresses: relay_addresses,
+               InventoryIngestor.ingest(payload, status,
                  source_upsert: fn attrs, _actor ->
                    send(parent, {:source_upsert, attrs})
                    {:ok, %{id: Ecto.UUID.generate()}}
@@ -670,9 +666,25 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
                  device_sync: fn _, _, _, _ -> :ok end
                )
 
-      assert_receive {:source_upsert, %{source_url: ^expected_url}}
-      assert_receive {:profile_upsert, %{source_url_override: ^expected_url, metadata: metadata}}
-      assert metadata == %{"width" => 1920}
+      assert_receive {:source_upsert, source_attrs}
+      refute Map.has_key?(source_attrs, :source_url)
+
+      case expected_assignment do
+        :absent -> refute Map.has_key?(source_attrs, :discovery_assignment_id)
+        id -> assert source_attrs.discovery_assignment_id == id
+      end
+
+      profiles =
+        for _profile <- 1..4, into: %{} do
+          assert_receive {:profile_upsert, attrs}
+          refute Map.has_key?(attrs, :source_url_override)
+          {attrs.profile_name, attrs}
+        end
+
+      assert profiles["reported"].source_origin == "rtsps://192.0.2.31:7441"
+      assert profiles["older-plugin"].source_origin == "rtsps://192.0.2.32:7441"
+      assert profiles["camera-level"].source_origin == "rtsp://192.0.2.30"
+      assert profiles["allowlist"].metadata == %{"width" => 1920}
     end
   end
 
