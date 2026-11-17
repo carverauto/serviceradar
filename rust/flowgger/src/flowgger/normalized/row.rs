@@ -47,7 +47,7 @@ const SYSLOG_BEHIND_SECONDS: i128 = 30 * 24 * 3_600;
 
 /// Whether a syslog sender's time is too far from the receive time to file
 /// the record under. `ahead` is the sender's whole second minus the receive
-/// time's, the instants EventWriter keeps.
+/// time's, as EventWriter compares them.
 fn implausible_syslog_time(format: Option<&str>, ahead: i128) -> bool {
     match format {
         None => false,
@@ -86,7 +86,7 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
         ],
     )
     .map_or(i128::from(received), |value| unix_nanos(value, received));
-    // Whole seconds, which is what EventWriter keeps of a timestamp.
+    // Whole seconds, which is what EventWriter compares.
     let sender_seconds = sender_time.div_euclid(NANOS_PER_SECOND);
     let received_seconds = i128::from(received).div_euclid(NANOS_PER_SECOND);
     // A record filed under a wrong clock drops out of every recent view, so
