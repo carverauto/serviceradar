@@ -11,6 +11,8 @@ use std::cell::Cell;
 use std::time::Duration;
 use tokio::time::Instant;
 
+mod props;
+
 thread_local! {
     static RECEIVED: Cell<u64> = const { Cell::new(0) };
 }

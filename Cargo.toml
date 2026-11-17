@@ -114,6 +114,9 @@ flate2 = "1"
 flowparser-sflow = "0.3"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 glob = "0.3"
+# static-engine links the engine as a crate. The default feature set builds it with
+# a nested cargo run that downloads from crates.io, which a hermetic build cannot do.
+hegeltest = { version = "0.52", features = ["static-engine"] }
 hex = "0.4"
 hmac = "0.12"
 http = "1"

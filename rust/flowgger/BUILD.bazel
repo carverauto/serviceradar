@@ -88,6 +88,8 @@ rust_test(
         "//third_party/binaries:nats_server_linux_amd64",
     ],
     env = {
+        # Hegel's CI profile: cases derived from each test's name, so a run is repeatable.
+        "HEGEL_DEFAULT_PROFILE": "ci",
         "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },
     deps = all_crate_deps(
@@ -115,6 +117,7 @@ rust_test(
     data = ["//third_party/binaries:nats_server_linux_amd64"],
     env = {
         "FLOWGGER_REQUIRE_MANAGED_POLICY_TEST": "1",
+        "HEGEL_DEFAULT_PROFILE": "ci",
         "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },
     exec_properties = {"test.dockerUser": "0"},
