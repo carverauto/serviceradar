@@ -1624,6 +1624,22 @@
     "reason": "Private qualification receipt arrival timestamp in the machine API; not localized display."
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/camera_live/recordings.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "5574b23b8bbf5c7912f67d3473ec391bd4e4c82100eb71dc3660a9cfcc50a35e",
+    "classification": "canonical_machine",
+    "reason": "HTML datetime-local input wire format (YYYY-MM-DDTHH:MM:SS) from ServiceRadar.TimeZone.local_datetime/2; not localized display."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/camera_live/recordings.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "8aba40d7ba87b392a9849af97ac6d5373d0a40fc0ff792ef750390d4773ea8b2",
+    "classification": "canonical_machine",
+    "reason": "HTML datetime-local input wire format (YYYY-MM-DDTHH:MM:SS) from ServiceRadar.TimeZone.local_datetime/2; not localized display."
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/stats.ex",
     "matcher": "naive_datetime_string",
     "occurrence": 1,

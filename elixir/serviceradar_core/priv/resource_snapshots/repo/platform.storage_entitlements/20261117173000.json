@@ -1,0 +1,343 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "\"deployment\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "schema_version",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "deployment_ref",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "generation",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "document_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "issued_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "applied_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_present",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_enabled",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_allocation_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"off\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_overage_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_overage_cap_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"reap_oldest\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_capacity_policy",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_retention_max_days",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_retention_default_days",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_max_cameras",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "recordings_pending",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "warehouse_present",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "warehouse_enabled",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "warehouse_consumer",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "id"
+      ],
+      "base_filter": null,
+      "check": "id = 'deployment'",
+      "name": "storage_entitlements_singleton"
+    },
+    {
+      "attribute": [
+        "revision"
+      ],
+      "base_filter": null,
+      "check": "schema_version = 1 AND\nbtrim(deployment_ref) <> '' AND octet_length(deployment_ref) <= 128 AND\ngeneration > 0 AND\nrevision > 0 AND\ndocument_sha256 ~ '^[0-9a-f]{64}$' AND\nrecordings_allocation_bytes >= 0 AND\nrecordings_overage_mode IN ('off', 'metered') AND\n((recordings_overage_mode = 'off' AND recordings_overage_cap_bytes IS NULL) OR\n (recordings_overage_mode = 'metered' AND recordings_overage_cap_bytes IS NOT NULL AND recordings_overage_cap_bytes > 0 AND recordings_overage_cap_bytes >= recordings_allocation_bytes)) AND\nrecordings_capacity_policy IN ('reap_oldest', 'stop_archiving') AND\n(recordings_retention_max_days IS NULL OR recordings_retention_max_days >= 1) AND\n(recordings_retention_default_days IS NULL OR recordings_retention_default_days >= 1) AND\n(recordings_max_cameras IS NULL OR recordings_max_cameras >= 0)\n",
+      "name": "storage_entitlements_valid"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [],
+  "custom_statements": [
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "ALTER TABLE platform.network_credential_secrets\n  DROP COLUMN IF EXISTS credential_generation,\n  DROP COLUMN IF EXISTS managed_by;\n",
+      "global?": false,
+      "name": "network_credential_secrets_cloud_managed_columns",
+      "up": "ALTER TABLE platform.network_credential_secrets\n  ADD COLUMN IF NOT EXISTS managed_by text NOT NULL DEFAULT 'operator',\n  ADD COLUMN IF NOT EXISTS credential_generation bigint;\n"
+    },
+    {
+      "after_tables": [
+        "storage_entitlements"
+      ],
+      "code?": false,
+      "down": "ALTER TABLE platform.network_credential_secrets\n  DROP CONSTRAINT IF EXISTS network_credential_secrets_managed_by_valid;\n",
+      "global?": false,
+      "name": "network_credential_secrets_cloud_managed_constraint",
+      "up": "ALTER TABLE platform.network_credential_secrets\n  DROP CONSTRAINT IF EXISTS network_credential_secrets_managed_by_valid,\n  ADD CONSTRAINT network_credential_secrets_managed_by_valid\n    CHECK (\n      managed_by IN ('operator', 'control_plane') AND\n      (credential_generation IS NULL OR credential_generation > 0)\n    );\n"
+    },
+    {
+      "after_tables": [
+        "storage_entitlements"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.network_credential_secrets_managed_by_idx;\n",
+      "global?": false,
+      "name": "network_credential_secrets_cloud_managed_index",
+      "up": "CREATE INDEX IF NOT EXISTS network_credential_secrets_managed_by_idx\n  ON platform.network_credential_secrets (managed_by, provider);\n"
+    }
+  ],
+  "has_create_action": true,
+  "hash": "45FD30C72838348C63B38F0583039677F4EC4726282661A9B316E0D2C4C68667",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "storage_entitlements",
+  "temporal": null
+}

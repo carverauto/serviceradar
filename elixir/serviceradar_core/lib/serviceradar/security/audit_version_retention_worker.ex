@@ -65,7 +65,8 @@ defmodule ServiceRadar.Security.AuditVersionRetentionWorker do
     {"camera_recording_archive_settings_versions", :camera_recording_archive_settings_days, 180},
     {"camera_recording_holds_versions", :camera_recording_holds_days, 180},
     {"camera_recording_policies_versions", :camera_recording_policies_days, 180},
-    {"camera_nvr_storage_settings_versions", :camera_nvr_storage_settings_days, 180}
+    {"camera_nvr_storage_settings_versions", :camera_nvr_storage_settings_days, 180},
+    {"storage_entitlement_versions", :storage_entitlement_days, 180}
   ]
 
   @doc """

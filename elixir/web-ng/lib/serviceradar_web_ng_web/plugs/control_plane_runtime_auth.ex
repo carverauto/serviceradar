@@ -20,7 +20,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth do
 
   @authorization_header "x-serviceradar-control-plane-authorization"
   @deployment_header "x-serviceradar-deployment-ref"
-  @generation_header "x-serviceradar-media-generation"
+  @media_generation_header "x-serviceradar-media-generation"
+  @entitlement_generation_header "x-serviceradar-entitlement-generation"
 
   @impl Plug
   def init(opts), do: opts
@@ -32,23 +33,41 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth do
     path = Enum.map(conn.path_info, &URI.decode/1)
 
     with ["Bearer " <> presented_token] <- get_req_header(conn, @authorization_header),
-         {:ok, installation} <- authenticate(conn, path, presented_token) do
-      put_private(conn, :control_plane_media_installation, installation)
+         {:ok, private_key, installation} <- authenticate(conn, path, presented_token) do
+      put_private(conn, private_key, installation)
     else
       _invalid_authentication -> reject(conn)
     end
   end
 
-  defp authenticate(conn, ["v1", scope | _rest], token) when scope == "media" or scope == "archive-bindings" do
+  defp authenticate(conn, ["v1", "storage" | _rest], token) do
     with [reference] <- get_req_header(conn, @deployment_header),
-         [generation] <- get_req_header(conn, @generation_header) do
-      ControlPlaneRuntimeAccess.authenticate(:media, token, {reference, generation})
+         [generation] <- get_req_header(conn, @entitlement_generation_header),
+         {:ok, installation} <-
+           ControlPlaneRuntimeAccess.authenticate(:entitlements, token, {reference, generation}) do
+      {:ok, :control_plane_entitlement_installation, installation}
     else
       _invalid_installation -> :error
     end
   end
 
-  defp authenticate(_conn, _path, token), do: ControlPlaneRuntimeAccess.authenticate(:account, token, nil)
+  defp authenticate(conn, ["v1", scope | _rest], token) when scope == "media" or scope == "archive-bindings" do
+    with [reference] <- get_req_header(conn, @deployment_header),
+         [generation] <- get_req_header(conn, @media_generation_header),
+         {:ok, installation} <-
+           ControlPlaneRuntimeAccess.authenticate(:media, token, {reference, generation}) do
+      {:ok, :control_plane_media_installation, installation}
+    else
+      _invalid_installation -> :error
+    end
+  end
+
+  defp authenticate(_conn, _path, token) do
+    case ControlPlaneRuntimeAccess.authenticate(:account, token, nil) do
+      {:ok, installation} -> {:ok, :control_plane_media_installation, installation}
+      :error -> :error
+    end
+  end
 
   defp reject(conn) do
     conn

@@ -12,10 +12,12 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
 
   @runtime_token "test-control-plane-runtime-token-with-more-than-32-bytes"
   @media_token "synthetic-media-installation-token-with-more-than-32-bytes"
+  @entitlement_token "synthetic-entitlement-purpose-token-with-more-than-32-bytes"
   @deployment_ref "ce032564-a123-4bc5-89ab-000000000001"
   @authorization_header "x-serviceradar-control-plane-authorization"
   @deployment_header "x-serviceradar-deployment-ref"
   @generation_header "x-serviceradar-media-generation"
+  @entitlement_generation_header "x-serviceradar-entitlement-generation"
 
   setup do
     previous_runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
@@ -26,7 +28,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
       token: @runtime_token,
       port: 4001,
-      media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"]
+      media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"],
+      entitlements: [token: @entitlement_token, deployment_ref: @deployment_ref, generation: "1"]
     )
 
     Application.put_env(
@@ -508,6 +511,339 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     end
   end
 
+  test "entitlements authentication enforces strict 3-way domain separation across account, media, and storage routes" do
+    storage_paths = [
+      {:put, "/v1/storage/entitlement"},
+      {:get, "/v1/storage/entitlement"},
+      {:get, "/v1/storage/usage?from=2026-10-01"},
+      {:get, "/v1/storage/holds"},
+      {:put, "/v%31/%73torage/%65ntitlement"}
+    ]
+
+    for {header, value} <- [
+          {@authorization_header, "Bearer " <> @runtime_token},
+          {@authorization_header, "Bearer " <> @media_token},
+          {@deployment_header, "ce032564-a123-4bc5-89ab-000000000002"},
+          {@entitlement_generation_header, "2"},
+          {@entitlement_generation_header, "01"},
+          {@entitlement_generation_header, "+1"}
+        ],
+        {method, path} <- storage_paths do
+      conn =
+        method
+        |> conn(path, "invalid-json")
+        |> entitlement_headers()
+        |> put_req_header(header, value)
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+      refute conn.resp_body =~ @entitlement_token
+    end
+
+    # Media generation header alone cannot satisfy entitlements authentication
+    for {method, path} <- storage_paths do
+      conn =
+        method
+        |> conn(path, "invalid-json")
+        |> put_req_header(@authorization_header, "Bearer " <> @entitlement_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+
+    # Missing or duplicate required headers fail closed
+    for header <- [@authorization_header, @deployment_header, @entitlement_generation_header],
+        {method, path} <- storage_paths do
+      base = method |> conn(path) |> entitlement_headers()
+      assert ControlPlaneRuntimeRouter.call(delete_req_header(base, header), []).status == 401
+
+      duplicate = %{base | req_headers: [{header, "duplicate"} | base.req_headers]}
+      assert ControlPlaneRuntimeRouter.call(duplicate, []).status == 401
+    end
+
+    # Entitlement token cannot access account or media routes
+    assert request(%{"email" => "owner@example.com"}, @entitlement_token).status == 401
+    refute_received {:password_reset_requested, _email}
+
+    media_with_entitlement_token =
+      :get
+      |> conn("/v1/media/installation")
+      |> media_headers()
+      |> put_req_header(@authorization_header, "Bearer " <> @entitlement_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert media_with_entitlement_token.status == 401
+
+    archive_creds_with_entitlement_token =
+      :get
+      |> conn("/v1/media/archive-credentials/writer")
+      |> media_headers()
+      |> put_req_header(@authorization_header, "Bearer " <> @entitlement_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert archive_creds_with_entitlement_token.status == 401
+  end
+
+  test "entitlements installation refuses shared or malformed tokens and enables listener standalone" do
+    previous = Application.fetch_env!(:serviceradar_web_ng, :control_plane_runtime)
+    valid = Keyword.fetch!(previous, :entitlements)
+
+    for invalid_ent <- [
+          [],
+          Keyword.put(valid, :token, @runtime_token),
+          Keyword.put(valid, :token, @media_token),
+          Keyword.put(valid, :token, "too-short-entitlement-token"),
+          Keyword.put(valid, :token, String.duplicate("e", 513)),
+          Keyword.delete(valid, :deployment_ref),
+          Keyword.put(valid, :deployment_ref, String.upcase(@deployment_ref)),
+          Keyword.put(valid, :generation, "0"),
+          Keyword.put(valid, :generation, "01")
+        ] do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_runtime,
+        Keyword.put(previous, :entitlements, invalid_ent)
+      )
+
+      conn =
+        :get
+        |> conn("/v1/storage/entitlement")
+        |> entitlement_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+
+    # Standalone entitlements configuration keeps ControlPlaneRuntimeAccess enabled
+    Application.put_env(:serviceradar_web_ng, :control_plane_runtime, entitlements: valid)
+    assert ControlPlaneRuntimeAccess.enabled?()
+  end
+
+  test "storage entitlement route enforces bounded JSON, duplicate-key rejection, and method bounds" do
+    for path <- ["/v1/storage/entitlement", "/v%31/%73torage/%65ntitlement"],
+        body <- [
+          "{",
+          "[]",
+          ~s({"schema_version":1,"revision":1,"revision":2}),
+          ~s({"schema_version":1,"revi\\u0073ion":1,"revision":1})
+        ] do
+      conn = entitlement_put_request(body, path)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_request"}
+    end
+
+    invalid_schema = ~s({"schema_version":2,"revision":1})
+    padded = invalid_schema <> String.duplicate(" ", 16_384 - byte_size(invalid_schema))
+
+    conn = entitlement_put_request(padded)
+    assert conn.status in [400, 409]
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+    assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+
+    too_large = entitlement_put_request(padded <> " ")
+    assert too_large.status == 413
+    assert json_response(too_large) == %{"status" => "request_too_large"}
+
+    wrong_type = entitlement_put_request(invalid_schema, "/v1/storage/entitlement", "text/plain")
+    assert wrong_type.status == 415
+    assert json_response(wrong_type) == %{"status" => "unsupported_media_type"}
+
+    wrong_method =
+      :post
+      |> conn("/v1/storage/entitlement", "invalid-json")
+      |> entitlement_headers()
+      |> put_req_header("content-type", "application/json")
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert wrong_method.status == 404
+    assert json_response(wrong_method) == %{"status" => "not_found"}
+
+    unknown_subroute =
+      :get
+      |> conn("/v1/storage/unknown")
+      |> entitlement_headers()
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert unknown_subroute.status == 404
+    assert json_response(unknown_subroute) == %{"status" => "not_found"}
+  end
+
+  test "storage usage and holds routes validate bounded query parameters before hitting CNPG" do
+    today = Date.to_iso8601(Date.utc_today())
+    tomorrow = Date.utc_today() |> Date.add(1) |> Date.to_iso8601()
+
+    for bad_query <- [
+          "",
+          "from=not-a-date",
+          "from=2026-10-01&to=not-a-date",
+          "from=2026-10-10&to=2026-10-05",
+          "from=2026-01-01&to=2026-02-05",
+          "from=#{today}",
+          "from=2026-10-01&to=#{today}",
+          "from=#{tomorrow}",
+          "from=2026-10-01&extra=1"
+        ] do
+      path = if bad_query == "", do: "/v1/storage/usage", else: "/v1/storage/usage?#{bad_query}"
+
+      conn =
+        :get
+        |> conn(path)
+        |> entitlement_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 400, "expected 400 for #{path}, got #{conn.status}"
+    end
+
+    for bad_holds_query <- [
+          "limit=0",
+          "limit=101",
+          "limit=01",
+          "limit=abc",
+          "unknown=1"
+        ] do
+      conn =
+        :get
+        |> conn("/v1/storage/holds?#{bad_holds_query}")
+        |> entitlement_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 400
+    end
+  end
+
+  test "archive credentials route enforces media auth, allowed roles, and 4 KiB bounded JSON" do
+    for bad_role <- ["admin", "owner", "delete", "writer/extra"] do
+      conn =
+        :get
+        |> conn("/v1/media/archive-credentials/#{bad_role}")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 404
+      assert json_response(conn) == %{"status" => "not_found"}
+    end
+
+    for role <- ["writer", "reader", "retention"] do
+      dup_conn =
+        :put
+        |> conn(
+          "/v1/media/archive-credentials/#{role}",
+          ~s({"credential_generation":1,"credential_generation":2})
+        )
+        |> put_req_header("content-type", "application/json")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert dup_conn.status == 400
+      assert json_response(dup_conn) == %{"status" => "invalid_request"}
+
+      invalid_payload = ~s({"schema_version":2,"unknown":"field"})
+      padded = invalid_payload <> String.duplicate(" ", 4_096 - byte_size(invalid_payload))
+
+      exact_limit =
+        :put
+        |> conn("/v1/media/archive-credentials/#{role}", padded)
+        |> put_req_header("content-type", "application/json")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert exact_limit.status == 400
+      assert json_response(exact_limit) == %{"status" => "invalid_archive_credential_payload"}
+
+      too_large =
+        :put
+        |> conn("/v1/media/archive-credentials/#{role}", padded <> " ")
+        |> put_req_header("content-type", "application/json")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert too_large.status == 413
+      assert json_response(too_large) == %{"status" => "request_too_large"}
+
+      wrong_type =
+        :put
+        |> conn("/v1/media/archive-credentials/#{role}", invalid_payload)
+        |> put_req_header("content-type", "text/plain")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert wrong_type.status == 415
+      assert json_response(wrong_type) == %{"status" => "unsupported_media_type"}
+
+      wrong_method =
+        :post
+        |> conn("/v1/media/archive-credentials/#{role}", "invalid-json")
+        |> put_req_header("content-type", "application/json")
+        |> media_headers()
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert wrong_method.status == 404
+      assert json_response(wrong_method) == %{"status" => "not_found"}
+    end
+  end
+
+  test "Telemetry.emit_camera_recording_storage_gauges is safe in db_free mode and emits all 4 gauges" do
+    {:ok, _} = Application.ensure_all_started(:telemetry)
+    handler_id = "camera-recording-storage-gauges-test-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :camera_recording],
+        &__MODULE__.forward_telemetry_event/4,
+        parent
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    # Safe with Repo unstarted in db_free test mode
+    assert :ok = ServiceRadarWebNGWeb.Telemetry.emit_camera_recording_storage_gauges()
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_recording], fallback_m, %{}}
+    assert fallback_m.object_used_bytes == 0
+    assert fallback_m.object_hard_limit_bytes == 0
+    assert fallback_m.object_cutoff_days == -1.0
+    assert fallback_m.object_held_bytes == 0
+
+    # Emits supplied live gauge values accurately
+    assert :ok =
+             ServiceRadarWebNGWeb.Telemetry.emit_camera_recording_storage_gauges(
+               gauges: %{
+                 used_bytes: 53_687_091_200,
+                 hard_limit_bytes: 107_374_182_400,
+                 cutoff_days: 32.5,
+                 held_bytes: 2_147_483_648
+               }
+             )
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_recording], live_m, %{}}
+    assert live_m.object_used_bytes == 53_687_091_200
+    assert live_m.object_hard_limit_bytes == 107_374_182_400
+    assert live_m.object_cutoff_days == 32.5
+    assert live_m.object_held_bytes == 2_147_483_648
+  end
+
+  defp entitlement_put_request(body, path \\ "/v1/storage/entitlement", content_type \\ "application/json") do
+    :put
+    |> conn(path, body)
+    |> put_req_header("content-type", content_type)
+    |> entitlement_headers()
+    |> ControlPlaneRuntimeRouter.call([])
+  end
+
+  defp entitlement_headers(conn) do
+    conn
+    |> put_req_header(@authorization_header, "Bearer " <> @entitlement_token)
+    |> put_req_header(@deployment_header, @deployment_ref)
+    |> put_req_header(@entitlement_generation_header, "1")
+  end
+
   defp authority_request(method, path, document) do
     method
     |> conn(path, Jason.encode!(document))
@@ -568,6 +904,10 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   end
 
   defp json_response(conn), do: Jason.decode!(conn.resp_body)
+
+  def forward_telemetry_event(event, measurements, metadata, parent) do
+    send(parent, {:telemetry_event, event, measurements, metadata})
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

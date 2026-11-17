@@ -8,7 +8,9 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
 
   @doc "Whether the private listener has at least one usable authentication purpose."
   def enabled? do
-    valid_token?(runtime_token(), runtime_token()) or match?({:ok, _, _}, media_installation())
+    valid_token?(runtime_token(), runtime_token()) or
+      match?({:ok, _, _}, media_installation()) or
+      match?({:ok, _, _}, entitlement_installation())
   end
 
   @doc "Authenticates one purpose and returns only its installed identity."
@@ -27,12 +29,19 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
     end
   end
 
-  defp media_installation do
-    config =
-      :serviceradar_web_ng
-      |> Application.get_env(:control_plane_runtime, [])
-      |> Keyword.get(:media, [])
+  def authenticate(:entitlements, token, {reference, generation_header}) do
+    with {:ok, expected_token, %{deployment_ref: ^reference, generation: generation} = installation} <-
+           entitlement_installation(),
+         true <- generation_header == Integer.to_string(generation),
+         true <- valid_token?(expected_token, token) do
+      {:ok, installation}
+    else
+      _invalid_authentication -> :error
+    end
+  end
 
+  defp media_installation do
+    config = purpose_config(:media)
     token = Keyword.get(config, :token)
     reference = Keyword.get(config, :deployment_ref)
 
@@ -45,6 +54,35 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
     else
       _invalid_installation -> :error
     end
+  end
+
+  defp entitlement_installation do
+    config = purpose_config(:entitlements)
+    token = Keyword.get(config, :token)
+    reference = Keyword.get(config, :deployment_ref)
+
+    with true <- valid_token?(token, token),
+         false <- valid_token?(runtime_token(), token),
+         false <- valid_token?(media_token(), token),
+         true <- is_binary(reference) and byte_size(reference) == 36,
+         {:ok, ^reference} <- Ecto.UUID.cast(reference),
+         {:ok, generation} <- generation(Keyword.get(config, :generation)) do
+      {:ok, token, %{deployment_ref: reference, generation: generation}}
+    else
+      _invalid_installation -> :error
+    end
+  end
+
+  defp purpose_config(purpose) do
+    :serviceradar_web_ng
+    |> Application.get_env(:control_plane_runtime, [])
+    |> Keyword.get(purpose, [])
+  end
+
+  defp media_token do
+    :media
+    |> purpose_config()
+    |> Keyword.get(:token)
   end
 
   defp generation(value) when is_binary(value) and byte_size(value) <= 19 do

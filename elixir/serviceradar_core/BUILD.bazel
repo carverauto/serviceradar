@@ -766,6 +766,31 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "storage_entitlement_and_cloud_archive_credentials_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_storage_entitlement_and_cloud_archive_credentials/entitlement.json",
+        "generated_storage_entitlement_and_cloud_archive_credentials/entitlement_version.json",
+        "generated_storage_entitlement_and_cloud_archive_credentials/usage_report.json",
+        "generated_storage_entitlement_and_cloud_archive_credentials/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:storage_entitlement_and_cloud_archive_credentials_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_storage_entitlement_and_cloud_archive_credentials_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.storage_entitlements/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/entitlement.json",
+        "priv/resource_snapshots/repo/platform.storage_entitlement_versions/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/entitlement_version.json",
+        "priv/resource_snapshots/repo/platform.storage_usage_daily_reports/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/usage_report.json",
+        "priv/repo/migrations/20261117173000_add_storage_entitlement_and_cloud_archive_credentials.exs": ":generated_storage_entitlement_and_cloud_archive_credentials/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

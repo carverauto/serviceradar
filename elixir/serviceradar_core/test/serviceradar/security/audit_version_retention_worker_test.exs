@@ -36,7 +36,8 @@ defmodule ServiceRadar.Security.AuditVersionRetentionWorkerTest do
     "camera_recording_archive_settings_versions",
     "camera_recording_holds_versions",
     "camera_recording_policies_versions",
-    "camera_nvr_storage_settings_versions"
+    "camera_nvr_storage_settings_versions",
+    "storage_entitlement_versions"
   ]
 
   setup do

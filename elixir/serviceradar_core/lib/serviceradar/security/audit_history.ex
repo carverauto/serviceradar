@@ -77,7 +77,8 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Camera.RecordingArchiveSettings,
     ServiceRadar.Camera.RecordingHold,
     ServiceRadar.Camera.CameraRecordingPolicy,
-    ServiceRadar.Camera.NVRStorageSettings
+    ServiceRadar.Camera.NVRStorageSettings,
+    ServiceRadar.Storage.StorageEntitlement
   ]
 
   # AshEvents-backed resources, distinct from `@default_resources` (which is

@@ -1029,6 +1029,165 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert after_loss.archive_binding_id == binding.id
   end
 
+  test "hosted waiting state, applied StorageEntitlement retention/policy bounds, and Cloud-managed archive credentials work end-to-end against CNPG",
+       %{conn: conn, actor: actor} do
+    previous_hosted = Application.get_env(:serviceradar_core, :hosted_runtime_contract_version)
+    Application.put_env(:serviceradar_core, :hosted_runtime_contract_version, "1")
+
+    on_exit(fn ->
+      if previous_hosted,
+        do:
+          Application.put_env(
+            :serviceradar_core,
+            :hosted_runtime_contract_version,
+            previous_hosted
+          ),
+        else: Application.delete_env(:serviceradar_core, :hosted_runtime_contract_version)
+    end)
+
+    opts = [actor: actor]
+    sys_actor = ServiceRadar.Actors.SystemActor.system(:recording_live_entitlement_db_test)
+    dep_ref = Ecto.UUID.generate()
+    inst = %{deployment_ref: dep_ref, generation: "1"}
+
+    # 1. Hosted install before first entitlement renders waiting banner
+    {:ok, waiting_view, _} = live(conn, ~p"/settings/recording?tab=retention")
+
+    assert has_element?(
+             waiting_view,
+             "#retention-waiting-entitlement-banner",
+             "Waiting for a storage entitlement"
+           )
+
+    # 2. Seed 400-day archive retention before entitlement push, then apply plan
+    #    with max_days: 365, max_recording_cameras: 1, and a pending decrease
+    {:ok, _} =
+      RecordingArchiveSettings.save_settings(
+        %{archive_retention_mode: :limited, archive_retention_days: 400},
+        opts
+      )
+
+    {:ok, _delivered_writer} =
+      ServiceRadar.Camera.CloudArchiveCredentials.deliver(
+        inst,
+        "writer",
+        %{
+          "schema_version" => 1,
+          "deployment_ref" => dep_ref,
+          "credential_generation" => 1,
+          "access_key_id" => "SYNTHENTWRITERKEY001",
+          "secret_access_key" => "synth-ent-writer-secret-never-shown-001"
+        },
+        actor: sys_actor
+      )
+
+    effective_at_iso =
+      DateTime.utc_now()
+      |> DateTime.shift(day: 1)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    {:ok, _} =
+      ServiceRadar.Storage.StorageEntitlements.apply_document(
+        inst,
+        %{
+          "schema_version" => 1,
+          "deployment_ref" => dep_ref,
+          "revision" => 1,
+          "issued_at" => "2026-11-17T12:00:00Z",
+          "consumers" => %{
+            "recordings" => %{
+              "enabled" => true,
+              "allocation_bytes" => 107_374_182_400,
+              "overage" => %{"mode" => "off"},
+              "capacity_policy" => "reap_oldest",
+              "retention" => %{"max_days" => 365, "default_days" => 30},
+              "limits" => %{"max_recording_cameras" => 1},
+              "pending" => %{
+                "effective_at" => effective_at_iso,
+                "allocation_bytes" => 53_687_091_200,
+                "retention" => %{"max_days" => 90}
+              }
+            }
+          }
+        },
+        actor: sys_actor
+      )
+
+    # 3. Retention tab displays "Set by plan", exact "configured 400 days, effective 365 days (plan maximum)",
+    #    pending banner, and refuses > 365 days
+    {:ok, ret_view, ret_html} = live(conn, ~p"/settings/recording?tab=retention")
+    refute ret_html =~ "synth-ent-writer-secret-never-shown-001"
+    refute has_element?(ret_view, "#retention-waiting-entitlement-banner")
+    assert has_element?(ret_view, "#retention-plan-budget-badge", "Set by plan")
+
+    assert has_element?(
+             ret_view,
+             "#retention-archive-effective-plan-cap",
+             "configured 400 days, effective 365 days (plan maximum)"
+           )
+
+    assert has_element?(ret_view, "#retention-pending-entitlement-banner", "50 GiB")
+    refute has_element?(ret_view, "#retention-archive-mode-select option[value='unlimited']")
+
+    ret_view
+    |> element("#recording-retention-settings-form")
+    |> render_submit(%{
+      "retention" => %{
+        "archive_retention_mode" => "limited",
+        "archive_retention_days" => "380"
+      }
+    })
+
+    assert has_element?(ret_view, "#retention-error-archive-retention-days", "limited by your plan")
+
+    # 4. Archive tab shows Cloud-managed writer credential as Managed by ServiceRadar Cloud
+    {:ok, arch_view, arch_html} = live(conn, ~p"/settings/recording?tab=archive")
+    refute arch_html =~ "synth-ent-writer-secret-never-shown-001"
+    assert has_element?(arch_view, "#writer-credential-cloud-managed-badge", "Managed by ServiceRadar Cloud")
+    assert has_element?(arch_view, "#writer-credential-disabled-select")
+
+    # 5. Policy tab enforces max_recording_cameras == 1 with "limited by your plan"
+    cam1 = setup_live_recorder_fence(actor)
+    cam2 = setup_live_recorder_fence(actor)
+
+    {:ok, pol_view, _} = live(conn, ~p"/settings/recording?tab=policy")
+
+    pol_view
+    |> element("#recording-policy-form")
+    |> render_submit(%{
+      "policy" => %{
+        "camera_source_id" => cam1.source.id,
+        "stream_profile_id" => cam1.profile.id,
+        "mode" => "continuous",
+        "nvr_member" => "serviceradar-nvr-0",
+        "storage" => "local_and_archive",
+        "archive_retention_override_mode" => "inherit"
+      }
+    })
+
+    assert has_element?(
+             pol_view,
+             "#policy-camera-limit-badge",
+             "1 / 1 continuous cameras (limited by your plan)"
+           )
+
+    pol_view
+    |> element("#recording-policy-form")
+    |> render_submit(%{
+      "policy" => %{
+        "camera_source_id" => cam2.source.id,
+        "stream_profile_id" => cam2.profile.id,
+        "mode" => "continuous",
+        "nvr_member" => "serviceradar-nvr-0",
+        "storage" => "local_and_archive",
+        "archive_retention_override_mode" => "inherit"
+      }
+    })
+
+    assert render(pol_view) =~ "limited by your plan"
+  end
+
   defp seed_health_tab_records(actor, scope) do
     opts = [actor: actor]
     now = DateTime.utc_now()

@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:credentials, [])
         |> assign(:settings_record, nil)
         |> assign(:settings_struct, default_settings)
+        |> assign(:entitlement, CameraRecordingSettings.default_entitlement_view())
         |> assign(:settings_form, CameraRecordingSettings.default_settings_form())
         |> assign(:retention_form, CameraRecordingSettings.default_retention_form())
         |> assign(:simulator_form, CameraRecordingSettings.default_simulator_form())
@@ -56,6 +57,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:destination_errors, %{})
         |> assign(:storage_mode, :local_only)
         |> assign(:active_binding_id, nil)
+        |> assign(:active_binding_managed_by_cloud?, false)
+        |> assign(:writer_managed_by_cloud?, false)
+        |> assign(:reader_managed_by_cloud?, false)
+        |> assign(:retention_managed_by_cloud?, false)
         |> assign(:selected_writer_label, "None selected")
         |> assign(:selected_reader_label, "Use writer credential (reader role)")
         |> assign(:selected_retention_label, "None selected (object retention not enforced)")
@@ -330,6 +335,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             usage_summary: socket.assigns.usage_summary,
             existing: socket.assigns.settings_record,
             storage_mode: socket.assigns.storage_mode,
+            entitlement: socket.assigns.entitlement,
             scope: scope
           )
 
@@ -492,7 +498,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             profiles: policy_profiles,
             policies: socket.assigns.policies,
             storage_mode: socket.assigns.storage_mode,
-            configured_members: runtime_members(socket)
+            configured_members: runtime_members(socket),
+            entitlement: socket.assigns.entitlement
           )
 
         what_if =
@@ -576,7 +583,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
                 profiles: socket.assigns.policy_profiles,
                 policies: socket.assigns.policies,
                 storage_mode: socket.assigns.storage_mode,
-                configured_members: runtime_members(socket)
+                configured_members: runtime_members(socket),
+                entitlement: socket.assigns.entitlement
               )
 
             merged_errors = Map.merge(normalized.errors, normalize_error_map(field_errors))
@@ -877,7 +885,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             </p>
           </div>
 
-          <Components.install_and_gate_banner runtime={@runtime} />
+          <Components.install_and_gate_banner
+            runtime={@runtime}
+            entitlement={@entitlement}
+            active_tab={@active_tab}
+          />
 
           <Components.tab_bar active_tab={@active_tab} />
 
@@ -896,6 +908,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             :if={@active_tab == "archive"}
             runtime={@runtime}
             storage_mode={@storage_mode}
+            entitlement={@entitlement}
             bindings={@bindings}
             credentials={@credentials}
             can_manage?={@can_manage?}
@@ -909,6 +922,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             object_retention_enforced?={@object_retention_enforced?}
             credential_issue={@credential_issue}
             active_binding_id={@active_binding_id}
+            active_binding_managed_by_cloud?={@active_binding_managed_by_cloud?}
+            writer_managed_by_cloud?={@writer_managed_by_cloud?}
+            reader_managed_by_cloud?={@reader_managed_by_cloud?}
+            retention_managed_by_cloud?={@retention_managed_by_cloud?}
           />
 
           <Components.cameras_panel
@@ -931,6 +948,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             :if={@active_tab == "policy"}
             runtime={@runtime}
             storage_mode={@storage_mode}
+            entitlement={@entitlement}
             can_manage?={@can_manage?}
             sources={@sources}
             sources_forbidden?={@sources_forbidden?}
@@ -945,6 +963,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
           <Components.retention_panel
             :if={@active_tab == "retention"}
             storage_mode={@storage_mode}
+            entitlement={@entitlement}
             can_manage?={@can_manage?}
             settings_record={@settings_record}
             settings_struct={@settings_struct}
@@ -1044,11 +1063,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         Map.get(settings_view, :record) ||
         RecordingArchiveSettings.default_settings()
 
+    entitlement =
+      CameraRecordingSettings.normalize_entitlement_view(Map.get(settings_view, :entitlement))
+
     storage_mode = Map.get(settings_view, :storage_mode, :local_only)
 
     retention_form =
       Map.get_lazy(settings_view, :retention_form, fn ->
-        CameraRecordingSettings.retention_form_from_settings(settings_struct)
+        CameraRecordingSettings.retention_form_from_settings(settings_struct, entitlement)
       end)
 
     object_retention_enforced? =
@@ -1067,20 +1089,39 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         usage_summary: usage_summary,
         existing: Map.get(settings_view, :record),
         storage_mode: storage_mode,
+        entitlement: entitlement,
         scope: scope
       )
+
+    active_binding_cloud? =
+      Map.get_lazy(settings_view, :active_binding_managed_by_cloud?, fn ->
+        active_id = Map.get(settings_view, :active_binding_id)
+
+        case Enum.find(bindings, &(to_string(Map.get(&1, :id)) == to_string(active_id))) do
+          %{provisioning_ref: ref} when is_binary(ref) ->
+            ref != "" and not String.starts_with?(ref, "operator:")
+
+          _ ->
+            false
+        end
+      end)
 
     socket
     |> assign(:bindings, bindings)
     |> assign(:credentials, credentials)
     |> assign(:settings_record, Map.get(settings_view, :record))
     |> assign(:settings_struct, settings_struct)
+    |> assign(:entitlement, entitlement)
     |> assign(:storage_mode, storage_mode)
     |> assign(:settings_form, settings_view.form)
     |> assign(:retention_form, retention_form)
     |> assign(:usage_summary, usage_summary)
     |> assign(:retention_projection, preview.projection)
     |> assign(:active_binding_id, settings_view.active_binding_id)
+    |> assign(:active_binding_managed_by_cloud?, active_binding_cloud?)
+    |> assign(:writer_managed_by_cloud?, Map.get(settings_view, :writer_managed_by_cloud?, false))
+    |> assign(:reader_managed_by_cloud?, Map.get(settings_view, :reader_managed_by_cloud?, false))
+    |> assign(:retention_managed_by_cloud?, Map.get(settings_view, :retention_managed_by_cloud?, false))
     |> assign(:selected_writer_label, settings_view.selected_writer_label)
     |> assign(:selected_reader_label, settings_view.selected_reader_label)
     |> assign(

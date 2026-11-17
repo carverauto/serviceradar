@@ -107,6 +107,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
         |> check_source_and_profile(changeset, loaders)
         |> check_mode_and_member(changeset, normalized_member)
         |> check_retention_override(changeset)
+        |> check_entitlement_bounds(changeset, loaders)
 
       {Enum.reverse(errors), stamped}
     end
@@ -329,6 +330,159 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
         )
         | errors
       ]
+    end
+
+    defp check_entitlement_bounds(errors, changeset, loaders) do
+      if Map.get(changeset.context, :bypass_entitlement_bounds) == true do
+        errors
+      else
+        entitlement = load_entitlement(changeset, loaders)
+
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          rec = entitlement.recordings
+
+          errors
+          |> check_plan_override_ceiling(changeset, rec.retention_max_days)
+          |> check_plan_camera_limit(changeset, loaders, rec.max_recording_cameras)
+        else
+          errors
+        end
+      end
+    end
+
+    defp check_plan_override_ceiling(errors, _changeset, nil), do: errors
+
+    defp check_plan_override_ceiling(errors, changeset, max_days)
+         when is_integer(max_days) and max_days >= 1 do
+      mode = proposed_value(changeset, :archive_retention_override_mode)
+      days = effective_value_for_validation(changeset, :archive_retention_days_override)
+
+      submitted? =
+        changeset.action_type == :create or
+          explicit_input?(changeset, :archive_retention_override_mode) or
+          explicit_input?(changeset, :archive_retention_days_override) or
+          override_changing?(changeset)
+
+      cond do
+        not submitted? ->
+          errors
+
+        mode == :unlimited ->
+          [
+            InvalidAttribute.exception(
+              field: :archive_retention_override_mode,
+              message: "limited by your plan"
+            )
+            | errors
+          ]
+
+        mode == :limited and is_integer(days) and days > max_days ->
+          [
+            InvalidAttribute.exception(
+              field: :archive_retention_days_override,
+              message: "limited by your plan"
+            )
+            | errors
+          ]
+
+        true ->
+          errors
+      end
+    end
+
+    defp override_changing?(%{action_type: :create}), do: true
+
+    defp override_changing?(changeset) do
+      existing_mode =
+        if is_map(changeset.data) and not match?(%OriginalDataNotAvailable{}, changeset.data),
+          do: Map.get(changeset.data, :archive_retention_override_mode)
+
+      existing_days =
+        if is_map(changeset.data) and not match?(%OriginalDataNotAvailable{}, changeset.data),
+          do: Map.get(changeset.data, :archive_retention_days_override)
+
+      proposed_value(changeset, :archive_retention_override_mode) != existing_mode or
+        effective_value_for_validation(changeset, :archive_retention_days_override) !=
+          existing_days
+    end
+
+    defp check_plan_camera_limit(errors, _changeset, _loaders, nil), do: errors
+
+    defp check_plan_camera_limit(errors, changeset, loaders, max_cameras)
+         when is_integer(max_cameras) and max_cameras >= 0 do
+      if proposed_value(changeset, :mode) == :continuous do
+        current_id =
+          if changeset.action_type == :update and is_map(changeset.data) and
+               not match?(%OriginalDataNotAvailable{}, changeset.data) do
+            Map.get(changeset.data, :id)
+          end
+
+        other_count = count_other_continuous_policies(current_id, loaders)
+
+        if other_count + 1 > max_cameras do
+          [
+            InvalidAttribute.exception(
+              field: :mode,
+              message: "limited by your plan"
+            )
+            | errors
+          ]
+        else
+          errors
+        end
+      else
+        errors
+      end
+    end
+
+    defp count_other_continuous_policies(exclude_id, loaders) do
+      case Map.get(loaders, :policies_loader) do
+        loader when is_function(loader, 0) ->
+          case loader.() do
+            {:ok, rows} when is_list(rows) ->
+              Enum.count(rows, fn r ->
+                mode = Map.get(r, :mode) || Map.get(r, "mode")
+                id = Map.get(r, :id) || Map.get(r, "id")
+                mode in [:continuous, "continuous"] and to_string(id) != to_string(exclude_id)
+              end)
+
+            _ ->
+              0
+          end
+
+        _ when map_size(loaders) > 0 ->
+          0
+
+        _ ->
+          require Ash.Query
+
+          query = Ash.Query.filter(ServiceRadar.Camera.CameraRecordingPolicy, mode == :continuous)
+
+          query =
+            if is_nil(exclude_id) do
+              query
+            else
+              Ash.Query.filter(query, id != ^exclude_id)
+            end
+
+          case Ash.count(query, actor: @system_actor) do
+            {:ok, count} -> count
+            _ -> 0
+          end
+      end
+    end
+
+    defp load_entitlement(changeset, loaders) do
+      now = Map.get(changeset.context, :policy_now) || DateTime.utc_now()
+      opts = [loaders: loaders, now: now]
+
+      opts =
+        case Map.fetch(changeset.context, :hosted_install?) do
+          {:ok, val} -> Keyword.put(opts, :hosted_install?, val)
+          :error -> opts
+        end
+
+      ServiceRadar.Storage.StorageEntitlements.effective_state(opts)
     end
 
     defp explicit_input?(changeset, field) do

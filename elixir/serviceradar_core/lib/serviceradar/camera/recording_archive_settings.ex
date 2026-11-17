@@ -25,6 +25,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Policies.Checks.ActorHasPermission
+  alias ServiceRadar.Storage.StorageEntitlements
 
   require Ash.Query
 
@@ -144,6 +145,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       errors =
         []
         |> check_credential_permissions(changeset, actor)
+        |> check_cloud_managed_custody(changeset, actor, loaders)
         |> check_binding(changeset, archive_enabled, loaders)
         |> check_credential_slots(changeset, archive_enabled, loaders)
         |> check_watermarks(
@@ -194,6 +196,7 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
           @min_archive_days..@max_archive_days
         )
         |> check_object_budget(changeset)
+        |> check_entitlement_bounds(changeset, loaders, now)
 
       {errors, stamped} =
         {errors, %{}}
@@ -458,6 +461,166 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
       else
         errors
       end
+    end
+
+    defp check_cloud_managed_custody(errors, _changeset, %{role: :system}, _loaders), do: errors
+
+    defp check_cloud_managed_custody(errors, %{action_type: :create}, _actor, _loaders),
+      do: errors
+
+    defp check_cloud_managed_custody(errors, changeset, _actor, loaders) do
+      errors =
+        Enum.reduce(@credential_slots, errors, fn slot, acc ->
+          existing_id = existing_value(changeset, slot)
+
+          if changing_field?(changeset, slot) and not is_nil(existing_id) and
+               secret_managed_by_cloud?(existing_id, loaders) do
+            [
+              InvalidAttribute.exception(
+                field: slot,
+                message: "Managed by ServiceRadar Cloud"
+              )
+              | acc
+            ]
+          else
+            acc
+          end
+        end)
+
+      existing_binding_id = existing_value(changeset, :active_archive_binding_id)
+
+      if changing_field?(changeset, :active_archive_binding_id) and
+           not is_nil(existing_binding_id) and
+           binding_managed_by_cloud?(existing_binding_id, loaders) do
+        [
+          InvalidAttribute.exception(
+            field: :active_archive_binding_id,
+            message: "Managed by ServiceRadar Cloud"
+          )
+          | errors
+        ]
+      else
+        errors
+      end
+    end
+
+    defp secret_managed_by_cloud?(secret_id, loaders) do
+      case RecordingArchiveSettings.inspect_credential_secret(secret_id, loaders) do
+        {:ok, %{managed_by_cloud?: true}} -> true
+        _ -> false
+      end
+    end
+
+    defp binding_managed_by_cloud?(binding_id, loaders) do
+      binding_loader = Map.get(loaders, :binding_loader, &default_binding_loader/1)
+
+      case binding_loader.(binding_id) do
+        {:ok, binding} when is_map(binding) ->
+          ref = Map.get(binding, :provisioning_ref) || Map.get(binding, "provisioning_ref") || ""
+          is_binary(ref) and ref != "" and not String.starts_with?(ref, "operator:")
+
+        _ ->
+          false
+      end
+    end
+
+    defp check_entitlement_bounds(errors, changeset, loaders, now) do
+      if Map.get(changeset.context, :bypass_entitlement_bounds) == true do
+        errors
+      else
+        entitlement = load_entitlement_for_validation(changeset, loaders, now)
+
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          errors
+          |> check_plan_locked_budget_fields(changeset)
+          |> check_plan_retention_ceiling(changeset, entitlement.recordings.retention_max_days)
+        else
+          errors
+        end
+      end
+    end
+
+    defp check_plan_locked_budget_fields(errors, changeset) do
+      locked_fields = [:object_budget_mode, :object_budget_bytes, :object_capacity_policy]
+
+      Enum.reduce(locked_fields, errors, fn field, acc ->
+        if changing_field?(changeset, field) or
+             (changeset.action_type == :update and explicit_param_differs?(changeset, field)) do
+          [
+            InvalidAttribute.exception(
+              field: field,
+              message: "limited by your plan"
+            )
+            | acc
+          ]
+        else
+          acc
+        end
+      end)
+    end
+
+    defp check_plan_retention_ceiling(errors, _changeset, nil), do: errors
+
+    defp check_plan_retention_ceiling(errors, changeset, max_days)
+         when is_integer(max_days) and max_days >= 1 do
+      mode = proposed_value(changeset, :archive_retention_mode)
+      days = effective_value_for_validation(changeset, :archive_retention_days)
+
+      retention_submitted? =
+        changeset.action_type == :create or
+          explicit_param?(changeset, :archive_retention_mode) or
+          explicit_param?(changeset, :archive_retention_days) or
+          changing_field?(changeset, :archive_retention_mode) or
+          changing_field?(changeset, :archive_retention_days)
+
+      cond do
+        not retention_submitted? ->
+          errors
+
+        mode == :unlimited ->
+          [
+            InvalidAttribute.exception(
+              field: :archive_retention_mode,
+              message: "limited by your plan"
+            )
+            | errors
+          ]
+
+        mode == :limited and is_integer(days) and days > max_days ->
+          [
+            InvalidAttribute.exception(
+              field: :archive_retention_days,
+              message: "limited by your plan"
+            )
+            | errors
+          ]
+
+        true ->
+          errors
+      end
+    end
+
+    defp load_entitlement_for_validation(changeset, loaders, now) do
+      opts = [loaders: loaders, now: now]
+
+      opts =
+        case Map.fetch(changeset.context, :hosted_install?) do
+          {:ok, val} -> Keyword.put(opts, :hosted_install?, val)
+          :error -> opts
+        end
+
+      StorageEntitlements.effective_state(opts)
+    end
+
+    defp explicit_param?(changeset, field) do
+      params = changeset.params || %{}
+      str_key = Atom.to_string(field)
+      Map.has_key?(params, field) or Map.has_key?(params, str_key)
+    end
+
+    defp explicit_param_differs?(changeset, field) do
+      explicit_param?(changeset, field) and
+        proposed_value(changeset, field) != existing_value(changeset, field)
     end
 
     defp stamp_confirmation(
@@ -1134,6 +1297,109 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
   end
 
   @doc """
+  Resolves configured versus plan-bounded effective archive retention (`F.5`,
+  `spec.md:724-732`).
+
+  When `max_days` is lowered below a previously stored `archive_retention_days`,
+  keeps the stored value and resolves `effective_days = min(configured_days, max_days)`
+  with `summary_label = "configured X days, effective Y days (plan maximum)"`.
+  """
+  @spec effective_archive_retention(map() | t(), map() | nil) :: %{
+          configured_mode: :limited | :unlimited,
+          configured_days: pos_integer() | :unlimited,
+          plan_max_days: pos_integer() | nil,
+          effective_mode: :limited | :unlimited,
+          effective_days: pos_integer() | :unlimited,
+          capped_by_plan?: boolean(),
+          summary_label: String.t() | nil
+        }
+  def effective_archive_retention(settings, entitlement_state \\ nil) when is_map(settings) do
+    raw_mode = normalize_mode_atom(field(settings, :archive_retention_mode)) || :limited
+    raw_days = field(settings, :archive_retention_days)
+
+    configured_days =
+      cond do
+        raw_mode == :unlimited -> :unlimited
+        is_integer(raw_days) and raw_days > 0 -> raw_days
+        true -> 30
+      end
+
+    configured_mode = if configured_days == :unlimited, do: :unlimited, else: :limited
+    max_days = extract_plan_max_days(entitlement_state)
+
+    cond do
+      is_integer(max_days) and configured_days == :unlimited ->
+        %{
+          configured_mode: :unlimited,
+          configured_days: :unlimited,
+          plan_max_days: max_days,
+          effective_mode: :limited,
+          effective_days: max_days,
+          capped_by_plan?: true,
+          summary_label: "configured unlimited, effective #{max_days} days (plan maximum)"
+        }
+
+      is_integer(max_days) and is_integer(configured_days) and configured_days > max_days ->
+        %{
+          configured_mode: :limited,
+          configured_days: configured_days,
+          plan_max_days: max_days,
+          effective_mode: :limited,
+          effective_days: max_days,
+          capped_by_plan?: true,
+          summary_label:
+            "configured #{configured_days} days, effective #{max_days} days (plan maximum)"
+        }
+
+      true ->
+        %{
+          configured_mode: configured_mode,
+          configured_days: configured_days,
+          plan_max_days: max_days,
+          effective_mode: configured_mode,
+          effective_days: configured_days,
+          capped_by_plan?: false,
+          summary_label: nil
+        }
+    end
+  end
+
+  @doc """
+  Applies active SaaS entitlement bounds onto a `RecordingArchiveSettings` struct
+  or map for effective object-budget, capacity-policy, and retention evaluation
+  without mutating persisted operator columns (`F.5`, `F.7`).
+  """
+  @spec apply_entitlement_bounds(map() | t(), map() | nil) :: map() | t()
+  def apply_entitlement_bounds(settings, nil) when is_map(settings), do: settings
+
+  def apply_entitlement_bounds(settings, %{hosted?: true, applied?: true, recordings: rec} = ent)
+      when is_map(settings) and is_map(rec) do
+    eff_ret = effective_archive_retention(settings, ent)
+
+    settings
+    |> Map.put(:object_budget_mode, :limited)
+    |> Map.put(:object_budget_bytes, rec.hard_limit_bytes)
+    |> Map.put(:object_capacity_policy, rec.capacity_policy)
+    |> Map.put(:archive_retention_mode, eff_ret.effective_mode)
+    |> Map.put(
+      :archive_retention_days,
+      if(eff_ret.effective_mode == :limited, do: eff_ret.effective_days)
+    )
+  end
+
+  def apply_entitlement_bounds(settings, _entitlement) when is_map(settings), do: settings
+
+  defp extract_plan_max_days(%{
+         hosted?: true,
+         applied?: true,
+         recordings: %{retention_max_days: m}
+       })
+       when is_integer(m) and m >= 1, do: m
+
+  defp extract_plan_max_days(%{retention_max_days: m}) when is_integer(m) and m >= 1, do: m
+  defp extract_plan_max_days(_), do: nil
+
+  @doc """
   Returns the settings together with redacted credential summaries (`id`, `name`,
   `status`) and archive/retention readiness state so users without
   `settings.credentials.manage` can view selected credential names and status.
@@ -1144,8 +1410,27 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
 
     with :ok <- authorize_overview(opts),
          {:ok, persisted} <- load_singleton_for_overview(loaders) do
-      settings = persisted || default_settings()
+      base_settings = persisted || default_settings()
+      entitlement = StorageEntitlements.effective_state(opts)
+
+      settings =
+        maybe_apply_unpersisted_entitlement_default_retention(
+          base_settings,
+          not is_nil(persisted),
+          entitlement
+        )
+
+      effective_settings = apply_entitlement_bounds(settings, entitlement)
+      eff_ret = effective_archive_retention(settings, entitlement)
       active_binding = load_active_binding(settings.active_archive_binding_id, loaders)
+
+      active_binding_cloud? =
+        not is_nil(active_binding) and
+          not String.starts_with?(
+            to_string(field(active_binding, :provisioning_ref) || ""),
+            "operator:"
+          ) and
+          to_string(field(active_binding, :provisioning_ref) || "") != ""
 
       writer_summary = summarize_slot(settings.writer_credential_secret_id, loaders)
       reader_summary = summarize_slot(settings.reader_credential_secret_id, loaders)
@@ -1157,29 +1442,75 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
           else: :local_only
 
       {ready?, unavailable_reason} =
-        derive_readiness(settings, active_binding, writer_summary, reader_summary)
+        derive_readiness(settings, active_binding, writer_summary, reader_summary, entitlement)
 
       object_retention_enforced? =
         not is_nil(retention_summary) and retention_summary.status == :available
 
+      eff_capacity_policy =
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          entitlement.recordings.capacity_policy
+        else
+          effective_object_capacity_policy(settings)
+        end
+
+      reaper_enabled? =
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          entitlement.recordings.reaper_enabled?
+        else
+          Application.get_env(:serviceradar_core, :camera_object_reaper_enabled, false) == true and
+            settings.object_budget_mode == :limited and
+            settings.object_capacity_policy == :reap_oldest
+        end
+
+      capacity_policy_source =
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          entitlement.recordings.capacity_policy_source
+        else
+          settings.object_capacity_policy_confirmed_by_id
+        end
+
       {:ok,
        %{
          settings: settings,
+         effective_settings: effective_settings,
          persisted?: not is_nil(persisted),
          storage_mode: storage_mode,
          active_binding: active_binding,
+         active_binding_managed_by_cloud?: active_binding_cloud?,
          writer_credential: writer_summary,
          reader_credential: reader_summary,
          retention_credential: retention_summary,
          object_retention_enforced?: object_retention_enforced?,
-         shorter_archive_than_local?: shorter_archive_than_local?(settings),
+         shorter_archive_than_local?: shorter_archive_than_local?(effective_settings),
          effective_local_only_full_policy: effective_local_only_full_policy(settings),
-         effective_object_capacity_policy: effective_object_capacity_policy(settings),
+         effective_object_capacity_policy: eff_capacity_policy,
+         capacity_policy_source: capacity_policy_source,
+         reaper_enabled?: reaper_enabled?,
+         effective_archive_retention: eff_ret,
+         entitlement: entitlement,
+         waiting_for_entitlement?: entitlement.waiting_for_entitlement?,
+         archive_jobs_held?: entitlement.archive_jobs_held?,
+         archive_jobs_hold_reason: entitlement.archive_jobs_hold_reason,
          archive_ready?: ready?,
          unavailable_reason: unavailable_reason
        }}
     end
   end
+
+  defp maybe_apply_unpersisted_entitlement_default_retention(settings, true, _ent), do: settings
+
+  defp maybe_apply_unpersisted_entitlement_default_retention(settings, false, %{
+         hosted?: true,
+         applied?: true,
+         recordings: %{retention_default_days: def_days}
+       })
+       when is_integer(def_days) and def_days > 0 do
+    %{settings | archive_retention_mode: :limited, archive_retention_days: def_days}
+  end
+
+  defp maybe_apply_unpersisted_entitlement_default_retention(settings, _persisted?, _ent),
+    do: settings
 
   @doc false
   @spec inspect_credential_secret(Ecto.UUID.t(), map()) :: {:ok, map()}
@@ -1197,7 +1528,10 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
            id: to_string(secret_id),
            name: nil,
            status: :missing,
-           reason: :credential_secret_missing
+           reason: :credential_secret_missing,
+           managed_by: :operator,
+           managed_by_cloud?: false,
+           credential_generation: nil
          }}
     end
   end
@@ -1210,43 +1544,33 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
     name = field(secret, :name)
     provider = field(secret, :provider)
     kind = field(secret, :credential_kind)
+    raw_managed_by = field(secret, :managed_by) || :operator
+
+    managed_by =
+      if raw_managed_by in [:control_plane, "control_plane"], do: :control_plane, else: :operator
+
+    cred_gen = field(secret, :credential_generation)
+
+    base = %{
+      id: to_string(secret_id),
+      name: name,
+      managed_by: managed_by,
+      managed_by_cloud?: managed_by == :control_plane,
+      credential_generation: cred_gen
+    }
 
     cond do
       not secret_enabled?(secret, provider_loader) ->
-        {:ok,
-         %{
-           id: to_string(secret_id),
-           name: name,
-           status: :inactive,
-           reason: :credential_secret_inactive
-         }}
+        {:ok, Map.merge(base, %{status: :inactive, reason: :credential_secret_inactive})}
 
       provider != @provider ->
-        {:ok,
-         %{
-           id: to_string(secret_id),
-           name: name,
-           status: :invalid,
-           reason: :credential_provider_mismatch
-         }}
+        {:ok, Map.merge(base, %{status: :invalid, reason: :credential_provider_mismatch})}
 
       kind not in [:opaque, "opaque"] ->
-        {:ok,
-         %{
-           id: to_string(secret_id),
-           name: name,
-           status: :invalid,
-           reason: :credential_kind_mismatch
-         }}
+        {:ok, Map.merge(base, %{status: :invalid, reason: :credential_kind_mismatch})}
 
       true ->
-        {:ok,
-         %{
-           id: to_string(secret_id),
-           name: name,
-           status: :available,
-           reason: nil
-         }}
+        {:ok, Map.merge(base, %{status: :available, reason: nil})}
     end
   end
 
@@ -1287,8 +1611,11 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
     summary
   end
 
-  defp derive_readiness(settings, active_binding, writer_summary, reader_summary) do
+  defp derive_readiness(settings, active_binding, writer_summary, reader_summary, entitlement) do
     cond do
+      entitlement.waiting_for_entitlement? ->
+        {false, :waiting_for_entitlement}
+
       not is_nil(writer_summary) and writer_summary.status != :available ->
         {false, {:writer_credential_unavailable, writer_summary.reason}}
 
@@ -1351,9 +1678,22 @@ defmodule ServiceRadar.Camera.RecordingArchiveSettings do
         _ -> %{}
       end
 
-    case Keyword.get(opts, :now) do
-      %DateTime{} = now -> Map.put(context, :confirmed_at_now, now)
-      _ -> context
+    context =
+      case Keyword.get(opts, :now) do
+        %DateTime{} = now -> Map.put(context, :confirmed_at_now, now)
+        _ -> context
+      end
+
+    context =
+      case Keyword.fetch(opts, :hosted_install?) do
+        {:ok, val} -> Map.put(context, :hosted_install?, val)
+        :error -> context
+      end
+
+    if Keyword.get(opts, :bypass_entitlement_bounds) == true do
+      Map.put(context, :bypass_entitlement_bounds, true)
+    else
+      context
     end
   end
 

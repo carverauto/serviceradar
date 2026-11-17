@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
+  attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
   attr :hold_form, :any, default: nil
@@ -112,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         :if={!@loading && @mode == :timeline}
         source={@source}
         timezone={@timezone}
+        can_view_recording_settings={@can_view_recording_settings}
         can_manage_holds={@can_manage_holds}
         stream_profiles={@stream_profiles}
         timeline_profile_id={@timeline_profile_id}
@@ -121,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
+        timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
         hold_form={@hold_form}
@@ -280,6 +283,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   attr :source, :any, required: true
   attr :timezone, :string, required: true
+  attr :can_view_recording_settings, :boolean, default: false
   attr :can_manage_holds, :boolean, required: true
   attr :stream_profiles, :list, required: true
   attr :timeline_profile_id, :string, required: true
@@ -289,6 +293,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
+  attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, required: true
   attr :timeline_holds, :list, required: true
   attr :hold_form, :any, default: nil
@@ -313,6 +318,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
       |> assign(:has_local_only_after_archive?, any_local_only_after_archive?(buckets, blocks))
+      |> assign(:scheduled_continuous?, coverage_field(coverage, :scheduled_continuous?) == true)
 
     ~H"""
     <div id="camera-timeline-view" class="space-y-6">
@@ -441,6 +447,33 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               Refresh
             </.ui_button>
           </div>
+
+          <form
+            id="camera-timeline-jump-form"
+            phx-submit="jump_timeline_to"
+            class="inline-flex flex-wrap items-center gap-1.5"
+          >
+            <label for="camera-timeline-jump-at" class="sr-only">
+              Jump to date and time ({@timezone})
+            </label>
+            <input
+              id="camera-timeline-jump-at"
+              type="datetime-local"
+              step="1"
+              name="jump_at"
+              value={@timeline_jump_at}
+              aria-label={"Jump to date and time (#{@timezone})"}
+              class="h-8 rounded-lg border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
+            />
+            <.ui_button
+              id="camera-timeline-jump-submit"
+              type="submit"
+              variant="outline"
+              size="xs"
+            >
+              Go
+            </.ui_button>
+          </form>
         </div>
 
         <div
@@ -660,38 +693,92 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             </.ui_badge>
           </div>
 
-          <div
-            id="camera-timeline-player"
-            phx-hook="CameraTimelinePlayer"
-            phx-update="ignore"
-            data-playlist-path={@timeline_playlist_path || ""}
-            data-has-adjacent-window={to_string(@timeline_has_adjacent_window)}
-            data-window-end-us={@timeline_play_to_us}
-          >
-            <video
-              data-role="timeline-video"
-              controls
-              playsinline
-              class="aspect-video w-full rounded-lg bg-black"
-              aria-label="Camera timeline playback"
-            ></video>
-            <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <p data-role="timeline-status" role="status" class="text-sm text-sr-muted">
-                  Preparing timeline...
+          <div id="camera-timeline-player-card">
+            <div
+              :if={@timeline_playlist_path in [nil, ""]}
+              id="camera-timeline-empty-state"
+              role="status"
+              class="rounded-xl border border-dashed border-sr-line bg-sr-canvas p-6 text-sm space-y-2"
+            >
+              <%= if @scheduled_continuous? do %>
+                <div class="flex items-center gap-2 font-semibold text-sr-ink">
+                  <.icon name="hero-clock" class="size-4 text-sr-muted" />
+                  <span>No playable footage in selected window</span>
+                </div>
+                <p class="text-xs text-sr-muted">
+                  A <code class="font-mono">continuous</code>
+                  recording policy is configured for this camera,
+                  and <strong class="text-sr-ink">0</strong>
+                  sealed catalog blocks
+                  (<code class="font-mono">RecordingCatalogEntry</code>) exist in the selected window yet.
+                  Try a wider span (<code class="font-mono">24h</code>
+                  / <code class="font-mono">7d</code>) or
+                  check recorder and reconciliation status.
                 </p>
-                <span
-                  id="camera-timeline-served-copy-badge"
-                  data-role="served-copy-badge"
-                  data-served-copy=""
-                  class="inline-flex items-center rounded-md border border-sr-line px-2 py-0.5 font-mono text-xs text-sr-ink"
-                >
-                  Serving: —
-                </span>
+                <div :if={@can_view_recording_settings} class="pt-1">
+                  <.link
+                    id="camera-timeline-empty-health-link"
+                    navigate={~p"/settings/recording?tab=health"}
+                    class="text-xs font-medium text-sr-brand underline"
+                  >
+                    Inspect Recording &amp; Storage health
+                  </.link>
+                </div>
+              <% else %>
+                <div class="flex items-center gap-2 font-semibold text-sr-ink">
+                  <.icon name="hero-video-camera-slash" class="size-4 text-sr-muted" />
+                  <span>No continuous recording policy active</span>
+                </div>
+                <p class="text-xs text-sr-muted">
+                  No <code class="font-mono">continuous</code> recording policy is active for this
+                  camera/profile, and no playable catalog blocks exist in the selected window.
+                </p>
+                <div :if={@can_view_recording_settings} class="pt-1">
+                  <.link
+                    id="camera-timeline-empty-policy-link"
+                    navigate={~p"/settings/recording?tab=policy"}
+                    class="text-xs font-medium text-sr-brand underline"
+                  >
+                    Configure recording policy
+                  </.link>
+                </div>
+              <% end %>
+            </div>
+
+            <div
+              id="camera-timeline-player"
+              phx-hook="CameraTimelinePlayer"
+              phx-update="ignore"
+              data-playlist-path={@timeline_playlist_path || ""}
+              data-has-adjacent-window={to_string(@timeline_has_adjacent_window)}
+              data-window-end-us={@timeline_play_to_us}
+              class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
+            >
+              <video
+                data-role="timeline-video"
+                controls
+                playsinline
+                class="aspect-video w-full rounded-lg bg-black"
+                aria-label="Camera timeline playback"
+              ></video>
+              <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <p data-role="timeline-status" role="status" class="text-sm text-sr-muted">
+                    Preparing timeline...
+                  </p>
+                  <span
+                    id="camera-timeline-served-copy-badge"
+                    data-role="served-copy-badge"
+                    data-served-copy=""
+                    class="inline-flex items-center rounded-md border border-sr-line px-2 py-0.5 font-mono text-xs text-sr-ink"
+                  >
+                    Serving: —
+                  </span>
+                </div>
+                <button type="button" data-role="timeline-retry" class="sr-ops-button" hidden>
+                  Retry playback
+                </button>
               </div>
-              <button type="button" data-role="timeline-retry" class="sr-ops-button" hidden>
-                Retry playback
-              </button>
             </div>
           </div>
 
@@ -754,10 +841,37 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             <.form
               for={@hold_form}
               id="place-timeline-hold-form"
+              phx-change="change_hold_form"
               phx-submit="place_timeline_hold"
               class="space-y-3 rounded-lg border border-sr-line bg-sr-canvas p-3"
             >
-              <p class="text-xs font-semibold text-sr-ink">Place hold on window</p>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="text-xs font-semibold text-sr-ink">Place hold on window</p>
+                <div
+                  id="timeline-hold-presets"
+                  role="group"
+                  aria-label="Hold window presets"
+                  class="inline-flex flex-wrap items-center gap-1"
+                >
+                  <button
+                    :for={
+                      {preset, label} <- [
+                        {"window", "Current window"},
+                        {"15m", "Last 15m"},
+                        {"1h", "Last 1h"},
+                        {"24h", "Last 24h"}
+                      ]
+                    }
+                    id={"timeline-hold-preset-#{preset}"}
+                    type="button"
+                    phx-click="select_hold_preset"
+                    phx-value-preset={preset}
+                    class="rounded border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] font-medium text-sr-ink hover:bg-sr-subtle"
+                  >
+                    {label}
+                  </button>
+                </div>
+              </div>
               <.input
                 field={@hold_form[:kind]}
                 id="timeline-hold-kind"
@@ -765,18 +879,22 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 label="Hold kind"
                 options={[{"Investigation", "investigation"}, {"Export", "export"}]}
               />
-              <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-2">
                 <.input
-                  field={@hold_form[:start_us]}
-                  id="timeline-hold-start-us"
-                  type="number"
-                  label="Start (us UTC)"
+                  field={@hold_form[:start_at]}
+                  id="timeline-hold-start-at"
+                  type="datetime-local"
+                  step="1"
+                  label={"Start (#{@timezone})"}
+                  required
                 />
                 <.input
-                  field={@hold_form[:end_us]}
-                  id="timeline-hold-end-us"
-                  type="number"
-                  label="End (us UTC)"
+                  field={@hold_form[:end_at]}
+                  id="timeline-hold-end-at"
+                  type="datetime-local"
+                  step="1"
+                  label={"End (#{@timezone})"}
+                  required
                 />
               </div>
               <.input

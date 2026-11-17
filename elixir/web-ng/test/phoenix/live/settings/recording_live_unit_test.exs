@@ -3236,6 +3236,468 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
     end
   end
 
+  describe "Stage F SaaS storage entitlements, Cloud-managed credentials, and timeline UX addenda" do
+    test "hosted install before first entitlement shows waiting banner while self-hosted stays unaffected" do
+      scope = scope_with_permissions(["settings.recording.manage"])
+
+      waiting_ent =
+        CameraRecordingSettings.normalize_entitlement_view(%{
+          hosted?: true,
+          applied?: false,
+          waiting_for_entitlement?: true,
+          archive_jobs_held?: true
+        })
+
+      waiting_overview = %{default_overview() | entitlement: waiting_ent}
+
+      hosted_socket =
+        mounted_with_runtime(scope, installed_open_runtime(), %{
+          load_archive_settings_view: fn _ -> waiting_overview end
+        })
+
+      recorders_doc = hosted_socket |> render_mounted() |> LazyHTML.from_fragment()
+      banner = LazyHTML.query(recorders_doc, "#retention-waiting-entitlement-banner")
+      assert Enum.count(banner) == 1
+
+      assert LazyHTML.text(banner) =~
+               "Waiting for a storage entitlement — archive jobs are held while recording continues locally"
+
+      {:noreply, ret_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "retention"},
+          "/settings/recording?tab=retention",
+          hosted_socket
+        )
+
+      ret_doc = ret_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert ret_doc |> LazyHTML.query("#retention-waiting-entitlement-banner") |> Enum.count() == 1
+
+      # Self-hosted install has no waiting banner and keeps unlimited archive retention available
+      self_hosted_socket = mounted_with_runtime(scope, installed_open_runtime())
+
+      {:noreply, sh_ret} =
+        RecordingLive.handle_params(
+          %{"tab" => "retention"},
+          "/settings/recording?tab=retention",
+          self_hosted_socket
+        )
+
+      sh_doc = sh_ret |> render_mounted() |> LazyHTML.from_fragment()
+      assert sh_doc |> LazyHTML.query("#retention-waiting-entitlement-banner") |> Enum.count() == 0
+
+      assert sh_doc
+             |> LazyHTML.query("#retention-archive-mode-select option[value='unlimited']")
+             |> Enum.count() == 1
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(sh_doc, "#retention-object-budget-mode-select"),
+               "disabled"
+             ) == []
+    end
+
+    test "applied entitlement bounds retention settings, shows configured 400 / effective 365 days, and renders pending decrease banner" do
+      scope = scope_with_permissions(["settings.recording.manage"])
+      alloc_bytes = 100 * 1_073_741_824
+      cap_bytes = 150 * 1_073_741_824
+      pending_alloc = 50 * 1_073_741_824
+      effective_at = ~U[2026-11-18 12:00:00Z]
+
+      applied_ent =
+        CameraRecordingSettings.normalize_entitlement_view(%{
+          hosted?: true,
+          applied?: true,
+          waiting_for_entitlement?: false,
+          applied_revision: 7,
+          recordings: %{
+            enabled: true,
+            allocation_bytes: alloc_bytes,
+            overage_mode: :metered,
+            overage_cap_bytes: cap_bytes,
+            hard_limit_bytes: cap_bytes,
+            capacity_policy: :reap_oldest,
+            retention_max_days: 365,
+            retention_default_days: 30,
+            max_recording_cameras: 2
+          },
+          pending: %{
+            "effective_at" => "2026-11-18T12:00:00Z",
+            "allocation_bytes" => pending_alloc,
+            "retention" => %{"max_days" => 90}
+          },
+          pending_projection: %{
+            effective_at: effective_at,
+            allocation_bytes: pending_alloc,
+            retention_max_days: 90,
+            projected_effective_days: 16.0,
+            projected_bytes_to_delete: 32_212_254_720
+          }
+        })
+
+      stored_record = %RecordingArchiveSettings{
+        id: "deployment",
+        archive_enabled: true,
+        archive_retention_mode: :limited,
+        archive_retention_days: 400,
+        object_budget_mode: :unlimited,
+        object_high_water_percent: 90,
+        object_low_water_percent: 80
+      }
+
+      base_ov = default_overview()
+
+      overview = %{
+        base_ov
+        | record: stored_record,
+          settings:
+            Map.merge(base_ov.settings, %{
+              archive_retention_mode: :limited,
+              archive_retention_days: 400
+            }),
+          entitlement: applied_ent,
+          storage_mode: :local_and_archive,
+          object_retention_enforced?: true,
+          selected_retention_label: "Cloud archive retention",
+          retention_form: CameraRecordingSettings.retention_form_from_settings(stored_record, applied_ent)
+      }
+
+      socket =
+        mounted_with_runtime(scope, installed_open_runtime(), %{
+          load_archive_settings_view: fn _ -> overview end,
+          save_retention_settings: fn s, params ->
+            CameraRecordingSettings.save_retention_settings(s, params,
+              entitlement: applied_ent,
+              loaders: %{
+                settings_loader: fn -> {:ok, stored_record} end,
+                entitlement_loader: fn -> {:ok, applied_ent} end
+              },
+              save_fn: fn attrs -> {:ok, Map.merge(stored_record, attrs)} end
+            )
+          end
+        })
+
+      {:noreply, ret_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "retention"},
+          "/settings/recording?tab=retention",
+          socket
+        )
+
+      doc = ret_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      # Plan budget & capacity policy are read-only ("Set by plan"), while watermarks stay editable
+      assert doc |> LazyHTML.query("#retention-plan-budget-badge") |> LazyHTML.text() =~
+               "Set by plan"
+
+      budget_summary =
+        doc |> LazyHTML.query("#retention-plan-budget-summary") |> LazyHTML.text() |> normalize_ws()
+
+      assert budget_summary =~ "100 GiB"
+      assert budget_summary =~ "150 GiB"
+      assert budget_summary =~ "reap_oldest"
+      assert budget_summary =~ "Set by plan"
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(doc, "#retention-object-budget-mode-select"),
+               "disabled"
+             ) == [""]
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(doc, "#retention-object-budget-bytes-input"),
+               "disabled"
+             ) == [""]
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(doc, "#retention-object-capacity-policy-select"),
+               "disabled"
+             ) == [""]
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(doc, "#retention-object-high-water-input"),
+               "disabled"
+             ) == []
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(doc, "#retention-object-low-water-input"),
+               "disabled"
+             ) == []
+
+      # Archive retention hides unlimited, shows "limited by your plan" and exact spec string
+      assert doc
+             |> LazyHTML.query("#retention-archive-mode-select option[value='unlimited']")
+             |> Enum.count() == 0
+
+      assert doc
+             |> LazyHTML.query("#retention-archive-plan-limit-note")
+             |> LazyHTML.text() =~ "limited by your plan"
+
+      assert doc
+             |> LazyHTML.query("#retention-archive-effective-plan-cap")
+             |> LazyHTML.text()
+             |> normalize_ws() == "configured 400 days, effective 365 days (plan maximum)"
+
+      # Pending decrease banner shows new allocation, effective time, and projected retention & deletion
+      pending_banner =
+        doc
+        |> LazyHTML.query("#retention-pending-entitlement-banner")
+        |> LazyHTML.text()
+        |> normalize_ws()
+
+      assert pending_banner =~ "50 GiB"
+      assert pending_banner =~ "90 days"
+      assert pending_banner =~ "about 16 days"
+      assert pending_banner =~ "30 GiB"
+      assert doc |> LazyHTML.query("#retention-pending-effective-at") |> Enum.count() == 1
+
+      # Saving > 365 days is refused with "limited by your plan"
+      {:noreply, refused_socket} =
+        RecordingLive.handle_event(
+          "save_retention_settings",
+          %{
+            "retention" => %{
+              "archive_retention_mode" => "limited",
+              "archive_retention_days" => "366"
+            }
+          },
+          ret_socket
+        )
+
+      assert refused_socket.assigns.retention_errors[:archive_retention_days] =~
+               "limited by your plan"
+    end
+
+    test "applied entitlement bounds per-camera overrides and continuous camera count, and marks Cloud credentials read-only" do
+      scope =
+        scope_with_permissions([
+          "settings.recording.manage",
+          "settings.credentials.manage",
+          "devices.view"
+        ])
+
+      applied_ent =
+        CameraRecordingSettings.normalize_entitlement_view(%{
+          hosted?: true,
+          applied?: true,
+          recordings: %{
+            enabled: true,
+            allocation_bytes: 50 * 1_073_741_824,
+            hard_limit_bytes: 50 * 1_073_741_824,
+            capacity_policy: :stop_archiving,
+            retention_max_days: 365,
+            max_recording_cameras: 1
+          }
+        })
+
+      existing_pol = %CameraRecordingPolicy{
+        id: "00000000-0000-4000-8000-000000000081",
+        camera_source_id: "00000000-0000-4000-8000-000000000061",
+        stream_profile_id: "00000000-0000-4000-8000-000000000071",
+        mode: :continuous,
+        nvr_member: "nvr-0",
+        storage: :local_and_archive,
+        archive_retention_override_mode: :limited,
+        archive_retention_days_override: 400,
+        policy_revision: 1
+      }
+
+      cloud_binding = %ArchiveBinding{
+        id: "00000000-0000-4000-8000-000000000091",
+        provisioning_ref: "cloud:managed-bucket",
+        generation: 1,
+        endpoint: "https://objects.example.com",
+        region: "example-1",
+        bucket: "synthetic-cloud-bucket",
+        namespace: "recordings/v1",
+        destination_sha256: String.duplicate("a", 64)
+      }
+
+      cloud_cred = %{
+        id: "00000000-0000-4000-8000-000000000092",
+        name: "Cloud Archive Writer",
+        description: "Delivered by ServiceRadar Cloud",
+        managed_by: :control_plane
+      }
+
+      base_ov = default_overview()
+
+      overview = %{
+        base_ov
+        | entitlement: applied_ent,
+          storage_mode: :local_and_archive,
+          active_binding_id: cloud_binding.id,
+          active_binding_managed_by_cloud?: true,
+          writer_managed_by_cloud?: true,
+          selected_writer_label: "Cloud Archive Writer",
+          form:
+            Map.merge(base_ov.form, %{
+              "active_archive_binding_id" => cloud_binding.id,
+              "archive_enabled" => "true",
+              "writer_credential_secret_id" => cloud_cred.id
+            })
+      }
+
+      cam2_id = "00000000-0000-4000-8000-000000000062"
+      prof2_id = "00000000-0000-4000-8000-000000000072"
+
+      socket =
+        mounted_with_runtime(scope, installed_open_runtime(), %{
+          load_archive_settings_view: fn _ -> overview end,
+          list_archive_bindings: fn _ -> [cloud_binding] end,
+          list_enabled_s3_credentials: fn _ -> [cloud_cred] end,
+          list_policies: fn _ -> [existing_pol] end,
+          save_policy: fn s, params ->
+            CameraRecordingSettings.save_policy(s, params,
+              entitlement: applied_ent,
+              policies: [existing_pol]
+            )
+          end
+        })
+
+      # Archive tab renders Cloud-managed binding & writer credential read-only
+      {:noreply, arch_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "archive"},
+          "/settings/recording?tab=archive",
+          socket
+        )
+
+      arch_doc = arch_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert arch_doc
+             |> LazyHTML.query("#active-binding-cloud-managed-badge")
+             |> LazyHTML.text() =~ "Managed by ServiceRadar Cloud"
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(arch_doc, "#active-archive-binding-select"),
+               "disabled"
+             ) == [""]
+
+      assert arch_doc
+             |> LazyHTML.query("#writer-credential-cloud-managed-badge")
+             |> LazyHTML.text() =~ "Managed by ServiceRadar Cloud"
+
+      assert arch_doc
+             |> LazyHTML.query("#writer-credential-disabled-select")
+             |> Enum.count() == 1
+
+      assert arch_doc
+             |> LazyHTML.query("#archive-credential-cloud-badge-#{cloud_cred.id}")
+             |> LazyHTML.text() =~ "Managed by ServiceRadar Cloud"
+
+      # Policy tab renders camera limit badge, capped override display, and refuses camera limit / >365d override
+      {:noreply, pol_socket} =
+        RecordingLive.handle_params(
+          %{"tab" => "policy"},
+          "/settings/recording?tab=policy",
+          socket
+        )
+
+      pol_doc = pol_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert pol_doc
+             |> LazyHTML.query("#policy-camera-limit-badge")
+             |> LazyHTML.text()
+             |> normalize_ws() == "1 / 1 continuous cameras (limited by your plan)"
+
+      assert pol_doc
+             |> LazyHTML.query("#recording-policy-row-#{existing_pol.id}")
+             |> LazyHTML.text() =~ "configured 400 days, effective 365 days (plan maximum)"
+
+      assert pol_doc
+             |> LazyHTML.query("#policy-override-mode-select option[value='unlimited']")
+             |> Enum.count() == 0
+
+      {:noreply, cam_limit_refused} =
+        RecordingLive.handle_event(
+          "save_policy",
+          %{
+            "policy" => %{
+              "camera_source_id" => cam2_id,
+              "stream_profile_id" => prof2_id,
+              "mode" => "continuous",
+              "nvr_member" => "nvr-0",
+              "storage" => "local_and_archive",
+              "archive_retention_override_mode" => "inherit"
+            }
+          },
+          pol_socket
+        )
+
+      assert cam_limit_refused.assigns.policy_errors[:mode] =~ "limited by your plan"
+    end
+
+    test "timeline workspace renders datetime-local hold inputs, jump picker, and empty-state explanation when no blocks are playable" do
+      source = %{
+        id: "00000000-0000-4000-8000-000000000061",
+        display_name: "Synthetic Yard Camera",
+        device_uid: "sr:yard-01"
+      }
+
+      hold_form =
+        Phoenix.Component.to_form(
+          %{
+            "kind" => "investigation",
+            "start_at" => "2026-11-16T14:45:00",
+            "end_at" => "2026-11-16T15:00:00",
+            "start_us" => "1794847500000000",
+            "end_us" => "1794848400000000",
+            "reason" => "",
+            "preset" => "15m"
+          },
+          as: :hold
+        )
+
+      doc =
+        (&RecordingsComponents.recordings/1)
+        |> render_component(
+          source: source,
+          items: [],
+          mode: :timeline,
+          timezone: "America/Chicago",
+          can_view_recording_settings: true,
+          can_manage_holds: true,
+          timeline_coverage: %{
+            blocks: [],
+            buckets: [],
+            gaps: [],
+            scheduled_continuous?: true
+          },
+          timeline_jump_at: "2026-11-16T15:00:00",
+          timeline_playlist_path: nil,
+          timeline_holds: [],
+          hold_form: hold_form
+        )
+        |> LazyHTML.from_fragment()
+
+      # #262: Blank <video> hidden and clear empty state rendered
+      assert doc |> LazyHTML.query("#camera-timeline-empty-state") |> LazyHTML.text() =~
+               "No playable footage in selected window"
+
+      [video_class] = LazyHTML.attribute(LazyHTML.query(doc, "#camera-timeline-player"), "class")
+      assert video_class =~ "hidden"
+
+      # #261: Human datetime-local hold inputs + presets + jump form, zero raw microsecond prompts
+      html_text = LazyHTML.text(doc)
+      refute html_text =~ "Start (us UTC)"
+      refute html_text =~ "End (us UTC)"
+
+      assert LazyHTML.attribute(LazyHTML.query(doc, "#timeline-hold-start-at"), "type") == [
+               "datetime-local"
+             ]
+
+      assert LazyHTML.attribute(LazyHTML.query(doc, "#timeline-hold-end-at"), "type") == [
+               "datetime-local"
+             ]
+
+      assert LazyHTML.attribute(LazyHTML.query(doc, "#camera-timeline-jump-at"), "type") == [
+               "datetime-local"
+             ]
+
+      for preset <- ["window", "15m", "1h", "24h"] do
+        assert doc |> LazyHTML.query("#timeline-hold-preset-#{preset}") |> Enum.count() == 1
+      end
+    end
+  end
+
   defp base_socket(scope) do
     path = "/settings/recording"
     view = Catalog.view_for_path(path)

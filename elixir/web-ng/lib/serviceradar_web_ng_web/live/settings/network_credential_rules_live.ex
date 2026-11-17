@@ -306,6 +306,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> put_flash(:error, "Credential not found")
          |> reload_page_data()}
 
+      {:error, :credential_managed_by_control_plane} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Managed by ServiceRadar Cloud — credential is read-only")}
+
       {:error, _reason} ->
         {:noreply,
          socket
@@ -366,6 +372,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          socket
          |> assign(:credential_form, credential_delete_form(id))
          |> assign(:credential_action_error, "Type the exact credential ID to confirm deletion")}
+
+      {:error, :credential_managed_by_control_plane} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Managed by ServiceRadar Cloud — credential is read-only")}
 
       {:error, :credential_in_use, context} ->
         {:noreply, show_delete_block(socket, context, "Credential is still in use")}
@@ -1544,6 +1556,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     Map.get(private, :credential_management_opts, [])
   end
 
+  defp credential_open_error(:credential_managed_by_control_plane),
+    do: "Managed by ServiceRadar Cloud — credential is read-only"
+
   defp credential_open_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
 
   defp credential_open_error(:credential_descriptor_unavailable),
@@ -1565,6 +1580,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       nil -> {credential_rotation_error(reason), %{}}
     end
   end
+
+  defp credential_rotation_error(:credential_managed_by_control_plane),
+    do: "Managed by ServiceRadar Cloud — credential is read-only"
 
   defp credential_rotation_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"

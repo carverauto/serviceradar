@@ -207,7 +207,10 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
                id: @writer_id,
                name: "Archive Writer S3",
                status: :available,
-               reason: nil
+               reason: nil,
+               managed_by: :operator,
+               managed_by_cloud?: false,
+               credential_generation: nil
              }
 
       refute Map.has_key?(overview.writer_credential, :secret_payload)
@@ -216,7 +219,10 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsUnitTest do
                id: @reader_id,
                name: "Archive Reader S3",
                status: :inactive,
-               reason: :credential_secret_inactive
+               reason: :credential_secret_inactive,
+               managed_by: :operator,
+               managed_by_cloud?: false,
+               credential_generation: nil
              }
 
       assert overview.archive_ready? == false

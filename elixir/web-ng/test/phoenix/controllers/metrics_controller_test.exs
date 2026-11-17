@@ -73,4 +73,28 @@ defmodule ServiceRadarWebNGWeb.MetricsControllerTest do
     assert conn.resp_body =~ "serviceradar_collectors_total"
     assert conn.resp_body =~ "serviceradar_leaf_nodes_total"
   end
+
+  test "authorized GET /metrics exposes the 4 camera recording object storage gauges", %{
+    conn: conn
+  } do
+    ServiceRadarWebNGWeb.Telemetry.emit_camera_recording_storage_gauges(
+      gauges: %{
+        used_bytes: 21_474_836_480,
+        hard_limit_bytes: 107_374_182_400,
+        cutoff_days: 32.5,
+        held_bytes: 1_073_741_824
+      }
+    )
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer " <> @test_metrics_token)
+      |> get(~p"/metrics")
+
+    assert conn.status == 200
+    assert conn.resp_body =~ "serviceradar_camera_recording_object_used_bytes"
+    assert conn.resp_body =~ "serviceradar_camera_recording_object_hard_limit_bytes"
+    assert conn.resp_body =~ "serviceradar_camera_recording_object_cutoff_days"
+    assert conn.resp_body =~ "serviceradar_camera_recording_object_held_bytes"
+  end
 end

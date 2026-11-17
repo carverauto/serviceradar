@@ -3,11 +3,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   use ServiceRadarWebNGWeb, :live_view
 
   alias Ash.Error.Forbidden
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RecordingTimeline
+  alias ServiceRadar.Repo
+  alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.CameraArchiveWindow
   alias ServiceRadarWebNG.CameraRecordingSettings
   alias ServiceRadarWebNG.RBAC
@@ -64,9 +67,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_playlist_path: nil,
         timeline_play_from_us: nil,
         timeline_play_to_us: nil,
+        timeline_jump_at: "",
         timeline_has_adjacent_window: false,
         timeline_holds: [],
-        hold_form: to_form(default_hold_form_params(nil, nil), as: :hold),
+        hold_form: to_form(default_hold_form_params(nil, nil, "Etc/UTC", false), as: :hold),
         error: nil,
         loading: true
       )
@@ -124,6 +128,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
+        timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
         hold_form={@hold_form}
@@ -228,11 +233,119 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     {:noreply, load_timeline(socket)}
   end
 
+  def handle_event("jump_timeline_to", params, socket) do
+    raw_jump_at = Map.get(params, "jump_at", "")
+
+    with {:ok, scope, source} <- authorize_timeline_view(socket),
+         tz = user_timezone(scope),
+         {:ok, target_us} <- parse_datetime_local_to_us(raw_jump_at, tz) do
+      span_us = Map.fetch!(@span_durations_us, socket.assigns.timeline_span)
+      now_us = System.system_time(:microsecond)
+
+      {custom_from_us, anchor_to_us} =
+        if target_us >= now_us do
+          {nil, nil}
+        else
+          upper_us = min(target_us + span_us, now_us)
+          {target_us, max(upper_us, target_us + 1_000_000)}
+        end
+
+      socket =
+        socket
+        |> assign(
+          current_scope: scope,
+          source: source,
+          timeline_custom_from_us: custom_from_us,
+          timeline_anchor_to_us: anchor_to_us,
+          timeline_jump_at: format_us_for_datetime_local(target_us, tz, :floor, true),
+          error: nil
+        )
+        |> load_timeline_for_authorized(scope, source)
+
+      {:noreply, socket}
+    else
+      {:error, reason}
+      when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
+        {:noreply, unavailable(socket, reason)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, error: "Enter a valid calendar date and time to jump to.")}
+    end
+  end
+
+  def handle_event("change_hold_form", params, socket) do
+    hold_params = Map.get(params, "hold", params)
+
+    case authorize_timeline_hold(socket) do
+      {:ok, scope, source} ->
+        merged =
+          Map.merge(socket.assigns.hold_form.params, Map.take(hold_params, ["kind", "start_at", "end_at", "reason"]))
+
+        {:noreply,
+         assign(socket,
+           current_scope: scope,
+           source: source,
+           hold_form: to_form(merged, as: :hold),
+           error: nil
+         )}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
+  end
+
+  def handle_event("select_hold_preset", %{"preset" => preset}, socket) do
+    case authorize_timeline_hold(socket) do
+      {:ok, scope, source} ->
+        tz = user_timezone(scope)
+        now_us = System.system_time(:microsecond)
+
+        {start_us, end_us} =
+          case preset do
+            "window" ->
+              {socket.assigns.timeline_play_from_us || now_us - 15 * 60_000_000,
+               socket.assigns.timeline_play_to_us || now_us}
+
+            "15m" ->
+              {now_us - 15 * 60_000_000, now_us}
+
+            "1h" ->
+              {now_us - 3_600_000_000, now_us}
+
+            "24h" ->
+              {now_us - 24 * 3_600_000_000, now_us}
+
+            _ ->
+              {socket.assigns.timeline_play_from_us, socket.assigns.timeline_play_to_us}
+          end
+
+        existing_params = socket.assigns.hold_form.params
+
+        updated_params =
+          start_us
+          |> default_hold_form_params(end_us, tz, true)
+          |> Map.put("kind", Map.get(existing_params, "kind", "investigation"))
+          |> Map.put("reason", Map.get(existing_params, "reason", ""))
+
+        {:noreply,
+         assign(socket,
+           current_scope: scope,
+           source: source,
+           hold_form: to_form(updated_params, as: :hold),
+           error: nil
+         )}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
+  end
+
   def handle_event("select_timeline_bucket", params, socket) do
     with {:ok, scope, source} <- authorize_timeline_view(socket),
          {:ok, bucket_start} <- parse_required_int(params["start_us"]),
          {:ok, bucket_end} <- parse_required_int(params["end_us"]),
          true <- bucket_end > bucket_start do
+      tz = user_timezone(scope)
       cov = socket.assigns.timeline_coverage
       cov_to_us = (cov && cov.to_us) || bucket_end
       play_from_us = bucket_start
@@ -256,9 +369,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
          source: source,
          timeline_play_from_us: play_from_us,
          timeline_play_to_us: play_to_us,
+         timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
          timeline_playlist_path: playlist_path,
          timeline_has_adjacent_window: has_adjacent?,
-         hold_form: to_form(default_hold_form_params(play_from_us, play_to_us), as: :hold),
+         hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
          error: nil
        )}
     else
@@ -469,6 +583,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         )
 
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
+      tz = user_timezone(scope)
 
       assign(socket,
         current_scope: scope,
@@ -478,10 +593,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_coverage: coverage,
         timeline_play_from_us: play_from_us,
         timeline_play_to_us: play_to_us,
+        timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
         timeline_playlist_path: playlist_path,
         timeline_has_adjacent_window: has_adjacent?,
         timeline_holds: all_holds,
-        hold_form: to_form(default_hold_form_params(play_from_us, play_to_us), as: :hold),
+        hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
         error: nil,
         loading: false
       )
@@ -542,9 +658,25 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     assign(socket,
       timeline_play_from_us: next_from,
       timeline_play_to_us: next_to,
+      timeline_jump_at:
+        format_us_for_datetime_local(
+          next_from,
+          user_timezone(socket.assigns.current_scope),
+          :floor,
+          true
+        ),
       timeline_playlist_path: playlist_path,
       timeline_has_adjacent_window: adjacent_window_available?(next_to, cov_to_us),
-      hold_form: to_form(default_hold_form_params(next_from, next_to), as: :hold)
+      hold_form:
+        to_form(
+          default_hold_form_params(
+            next_from,
+            next_to,
+            user_timezone(socket.assigns.current_scope),
+            true
+          ),
+          as: :hold
+        )
     )
   end
 
@@ -718,13 +850,57 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp default_hold_form_params(start_us, end_us) do
+  defp default_hold_form_params(start_us, end_us, timezone, connected?) do
     %{
       "kind" => "investigation",
-      "start_us" => if(is_integer(start_us), do: Integer.to_string(start_us), else: ""),
-      "end_us" => if(is_integer(end_us), do: Integer.to_string(end_us), else: ""),
+      "start_at" => format_us_for_datetime_local(start_us, timezone, :floor, connected?),
+      "end_at" => format_us_for_datetime_local(end_us, timezone, :ceil, connected?),
       "reason" => ""
     }
+  end
+
+  defp user_timezone(%{user: %{timezone: tz}}) when is_binary(tz) and tz != "", do: tz
+  defp user_timezone(_scope), do: "Etc/UTC"
+
+  defp utc_timezone?(tz) when is_binary(tz) do
+    String.upcase(String.trim(tz)) in ["", "UTC", "ETC/UTC", "GMT", "ETC/GMT", "Z", "ZULU", "ETC/ZULU"]
+  end
+
+  defp utc_timezone?(_), do: true
+
+  defp format_us_for_datetime_local(us, timezone, rounding, connected?) when is_integer(us) do
+    adjusted_us =
+      case rounding do
+        :ceil ->
+          if rem(us, 1_000_000) > 0, do: (div(us, 1_000_000) + 1) * 1_000_000, else: us
+
+        _ ->
+          div(us, 1_000_000) * 1_000_000
+      end
+
+    case DateTime.from_unix(adjusted_us, :microsecond) do
+      {:ok, utc_dt} ->
+        naive =
+          if connected? and not utc_timezone?(timezone) do
+            case TimeZone.local_datetime(utc_dt, timezone) do
+              {:ok, local_naive} -> local_naive
+              {:error, _} -> DateTime.to_naive(utc_dt)
+            end
+          else
+            DateTime.to_naive(utc_dt)
+          end
+
+        format_datetime_local_value(naive)
+
+      _ ->
+        ""
+    end
+  end
+
+  defp format_us_for_datetime_local(_us, _timezone, _rounding, _connected?), do: ""
+
+  defp format_datetime_local_value(%NaiveDateTime{} = naive) do
+    naive |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601()
   end
 
   defp parse_mode_param("timeline"), do: :timeline
@@ -751,16 +927,87 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp parse_hold_kind(_), do: {:error, :invalid_hold_kind}
 
   defp parse_hold_bounds(hold_params, socket) do
-    start_us =
-      parse_optional_int(hold_params["start_us"]) || socket.assigns.timeline_play_from_us
+    tz = user_timezone(socket.assigns.current_scope)
 
-    end_us =
-      parse_optional_int(hold_params["end_us"]) || socket.assigns.timeline_play_to_us
-
-    if is_integer(start_us) and is_integer(end_us) and end_us > start_us do
+    with {:ok, start_us} <-
+           resolve_hold_bound_us(
+             hold_params,
+             "start_at",
+             "start_us",
+             socket.assigns.timeline_play_from_us,
+             tz
+           ),
+         {:ok, end_us} <-
+           resolve_hold_bound_us(
+             hold_params,
+             "end_at",
+             "end_us",
+             socket.assigns.timeline_play_to_us,
+             tz
+           ),
+         true <- is_integer(start_us) and is_integer(end_us) and end_us > start_us do
       {:ok, start_us, end_us}
     else
-      {:error, :invalid_hold_window}
+      _ -> {:error, :invalid_hold_window}
+    end
+  end
+
+  defp resolve_hold_bound_us(hold_params, dt_key, us_key, fallback_us, tz) do
+    cond do
+      present_string?(hold_params[us_key]) or is_integer(hold_params[us_key]) ->
+        case parse_optional_int(hold_params[us_key]) do
+          n when is_integer(n) -> {:ok, n}
+          nil -> {:error, :invalid_hold_window}
+        end
+
+      present_string?(hold_params[dt_key]) ->
+        parse_datetime_local_to_us(hold_params[dt_key], tz)
+
+      is_integer(fallback_us) ->
+        {:ok, fallback_us}
+
+      true ->
+        {:error, :invalid_hold_window}
+    end
+  end
+
+  defp present_string?(val) when is_binary(val), do: String.trim(val) != ""
+  defp present_string?(_), do: false
+
+  defp parse_datetime_local_to_us(raw, tz) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    iso_str =
+      if Regex.match?(~r/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\z/, trimmed) do
+        trimmed <> ":00"
+      else
+        trimmed
+      end
+
+    with {:ok, naive} <- NaiveDateTime.from_iso8601(iso_str) do
+      naive_in_timezone_to_us(naive, tz)
+    end
+  end
+
+  defp parse_datetime_local_to_us(_, _tz), do: {:error, :invalid_datetime}
+
+  defp naive_in_timezone_to_us(%NaiveDateTime{} = naive, tz) do
+    if utc_timezone?(tz) do
+      {:ok, naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)}
+    else
+      zone = String.trim(tz)
+
+      case SQL.query(
+             Repo,
+             "SELECT (EXTRACT(EPOCH FROM ($1::timestamp AT TIME ZONE $2)) * 1000000)::bigint",
+             [naive, zone]
+           ) do
+        {:ok, %{rows: [[epoch_us]]}} when is_integer(epoch_us) ->
+          {:ok, epoch_us}
+
+        _ ->
+          {:error, :invalid_timezone}
+      end
     end
   end
 

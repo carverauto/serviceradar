@@ -194,23 +194,23 @@ storage-entitlements issue and #182, referenced, not repeated here.
 - [x] F.2 web-ng: retention tab shows archive size, held bytes, rates and "holds about N days" per policy with configured versus effective and the binding bound; what-if before saving; self-hosted operator budget with alerts only while the reaper flag is off.
 
 ### P3: entitlement contract and delivery (depends on control issue)
-- [ ] F.3 serviceradar_core: `StorageEntitlement` singleton resource and migration (revision, canonical SHA-256, applied time, per-consumer fields, pending block), PaperTrail audited.
-- [ ] F.4 web-ng: `entitlements` purpose in the control-plane runtime auth plug (token, `X-ServiceRadar-Deployment-Ref`, `X-ServiceRadar-Entitlement-Generation`); `PUT` and `GET /v1/storage/entitlement` with schema validation, revision ordering, idempotent replay and refusal of unknown fields; hosted install holds archive admission until applied.
-- [ ] F.5 serviceradar_core and web-ng: settings bounds from the entitlement (read-only object budget and policy, retention bounded by `max_days` with "limited by your plan", configured versus effective, camera limit on policies); pending change display and application at `effective_at`.
-- [ ] F.6 web-ng and serviceradar_core: `GET /v1/storage/usage?from=` (closed UTC days, bounded pages, report revisions, opaque policy references) and current-day gauges on `/metrics`.
+- [x] F.3 serviceradar_core: `StorageEntitlement` singleton resource and migration (revision, canonical SHA-256, applied time, per-consumer fields, pending block), PaperTrail audited.
+- [x] F.4 web-ng: `entitlements` purpose in the control-plane runtime auth plug (token, `X-ServiceRadar-Deployment-Ref`, `X-ServiceRadar-Entitlement-Generation`); `PUT` and `GET /v1/storage/entitlement` with schema validation, revision ordering, idempotent replay and refusal of unknown fields; hosted install holds archive admission until applied.
+- [x] F.5 serviceradar_core and web-ng: settings bounds from the entitlement (read-only object budget and policy, retention bounded by `max_days` with "limited by your plan", configured versus effective, camera limit on policies); pending change display and application at `effective_at`.
+- [x] F.6 web-ng and serviceradar_core: `GET /v1/storage/usage?from=` (closed UTC days, bounded pages, report revisions, opaque policy references) and current-day gauges on `/metrics`.
 
 ### P4: reaper under an entitlement (depends on control plan terms)
-- [ ] F.7 Enable the C3a reaper for `reap_oldest` from the entitlement (archive copies only; remaining local copies stay, local only after archive reaping, under the C1 eviction table); capacity policy recorded with the entitlement revision.
+- [x] F.7 Enable the C3a reaper for `reap_oldest` from the entitlement (archive copies only; remaining local copies stay, local only after archive reaping, under the C1 eviction table); capacity policy recorded with the entitlement revision.
 
 ### Parallel: credentials (depends on control #182)
-- [ ] F.8 web-ng and serviceradar_core: `PUT /v1/media/archive-credentials/:role` (writer, reader, retention) writing `network_credential_secrets` rows marked `managed_by = control_plane` with a generation, pointing the settings slots; GET with generation and status only; read-only rows and "Managed by ServiceRadar Cloud" in the credential-usage inventory; rotation with destination test and drain of the previous generation.
+- [x] F.8 web-ng and serviceradar_core: `PUT /v1/media/archive-credentials/:role` (writer, reader, retention) writing `network_credential_secrets` rows marked `managed_by = control_plane` with a generation, pointing the settings slots; GET with generation and status only; read-only rows and "Managed by ServiceRadar Cloud" in the credential-usage inventory; rotation with destination test and drain of the previous generation.
 
 ### Later: lifecycle (depends on control lifecycle workflow)
-- [ ] F.9 Suspension through the existing durable recording stop with archive jobs held (design A6 "Held jobs") and retention and reaping continuing; `GET /v1/storage/holds?cursor=` held-object manifest for termination; holds never deleted by deprovisioning.
+- [x] F.9 Suspension through the existing durable recording stop with archive jobs held (design A6 "Held jobs") and retention and reaping continuing; `GET /v1/storage/holds?cursor=` held-object manifest for termination; holds never deleted by deprovisioning.
 
 ### Cross-change
 - [ ] F.10 Request an amendment in `add-vms-storage-playback-engine`: its `cloud-control-plane.md` custody text and the `mediaStorage.providerSecretName` path either migrate to the credential broker or are recorded as the one infrastructure exception; this change keeps every NVR archive credential in the CNPG inventory (design F7).
-- [ ] F.11 Tests: revision ordering, replay and refusal; hosted hold before the first entitlement; self-hosted unaffected; bounds and pending application; usage report replay; managed credentials read-only; rotation drain; suspension keeps holds and retention.
+- [x] F.11 Tests: revision ordering, replay and refusal; hosted hold before the first entitlement; self-hosted unaffected; bounds and pending application; usage report replay; managed credentials read-only; rotation drain; suspension keeps holds and retention.
 
 Out of scope: the StarRocks warehouse consumer, a separate product follow-up under the same allocation contract.
 

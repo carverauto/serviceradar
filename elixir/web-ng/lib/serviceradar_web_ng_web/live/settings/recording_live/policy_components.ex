@@ -43,13 +43,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
   attr :policies, :list, required: true
   attr :sources, :list, required: true
+  attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
 
   def policies_table_card(assigns) do
     sources_by_id =
       Map.new(assigns.sources, fn src -> {to_string(Map.get(src, :id)), src} end)
 
-    assigns = assign(assigns, :sources_by_id, sources_by_id)
+    entitlement_applied? = Map.get(assigns.entitlement, :applied?) == true
+    max_cameras = if entitlement_applied?, do: Map.get(assigns.entitlement, :max_recording_cameras)
+    plan_max_days = if entitlement_applied?, do: Map.get(assigns.entitlement, :retention_max_days)
+
+    enabled_continuous_count =
+      Enum.count(assigns.policies, &(fetch_val(&1, :mode) in [:continuous, "continuous"]))
+
+    assigns =
+      assigns
+      |> assign(:sources_by_id, sources_by_id)
+      |> assign(:max_cameras, max_cameras)
+      |> assign(:plan_max_days, plan_max_days)
+      |> assign(:enabled_continuous_count, enabled_continuous_count)
 
     ~H"""
     <section
@@ -65,7 +78,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
             archive retention override, and <code class="font-mono">policy_revision</code>.
           </p>
         </div>
-        <.ui_badge size="xs" variant="ghost">{length(@policies)} configured</.ui_badge>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <.ui_badge
+            :if={is_integer(@max_cameras)}
+            id="policy-camera-limit-badge"
+            size="xs"
+            variant={if(@enabled_continuous_count >= @max_cameras, do: "warning", else: "info")}
+          >
+            {@enabled_continuous_count} / {@max_cameras} continuous cameras (limited by your plan)
+          </.ui_badge>
+          <.ui_badge size="xs" variant="ghost">{length(@policies)} configured</.ui_badge>
+        </div>
       </div>
 
       <p
@@ -127,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
                 {to_string(fetch_val(policy, :storage) || :local_only)}
               </td>
               <td class="py-2.5 pr-3 text-sr-ink">
-                {format_override_label(policy)}
+                {format_override_label(policy, @plan_max_days)}
               </td>
               <td class="py-2.5 pr-3">
                 <.ui_badge
@@ -336,6 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
   attr :runtime, :map, default: %{}
   attr :policies, :list, default: []
+  attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
   attr :sources, :list, required: true
   attr :sources_forbidden?, :boolean, required: true
@@ -356,11 +380,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
     core_elx_unreachable? =
       get_in(assigns.runtime, [:core_elx, :reachability]) == :unreachable
 
+    entitlement_applied? = Map.get(assigns.entitlement, :applied?) == true
+    plan_max_days = if entitlement_applied?, do: Map.get(assigns.entitlement, :retention_max_days)
+    max_cameras = if entitlement_applied?, do: Map.get(assigns.entitlement, :max_recording_cameras)
+
+    enabled_continuous_count =
+      Enum.count(assigns.policies, &(fetch_val(&1, :mode) in [:continuous, "continuous"]))
+
     assigns =
       assigns
       |> assign(:profile_rows, profile_rows)
       |> assign(:member_options, member_options)
       |> assign(:core_elx_unreachable?, core_elx_unreachable?)
+      |> assign(:plan_max_days, plan_max_days)
+      |> assign(:max_cameras, max_cameras)
+      |> assign(:enabled_continuous_count, enabled_continuous_count)
 
     ~H"""
     <section
@@ -531,6 +565,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
                 continuous
               </option>
             </select>
+            <p
+              :if={is_integer(@max_cameras)}
+              id="policy-camera-plan-limit-note"
+              class="mt-1 text-xs text-sr-muted"
+            >
+              {@enabled_continuous_count} of {@max_cameras} continuous cameras enabled — limited by your plan.
+            </p>
+            <p
+              :if={@policy_errors[:mode]}
+              id="policy-error-mode"
+              class="mt-1 text-xs text-rose-500"
+            >
+              {@policy_errors[:mode]}
+            </p>
           </div>
 
           <div>
@@ -614,9 +662,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
                 value="limited"
                 selected={@policy_form["archive_retention_override_mode"] == "limited"}
               >
-                limited (override days 1..3,650)
+                limited (override days 1..{@plan_max_days || "3,650"})
               </option>
               <option
+                :if={is_nil(@plan_max_days)}
                 value="unlimited"
                 selected={@policy_form["archive_retention_override_mode"] == "unlimited"}
               >
@@ -627,19 +676,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
           <div>
             <label for="policy-override-days-input" class="block text-xs font-medium text-sr-ink">
-              Archive retention override days (<code class="font-mono">1..3,650</code>)
+              Archive retention override days (<code class="font-mono">1..{@plan_max_days || "3,650"}</code>)
             </label>
             <input
               id="policy-override-days-input"
               type="number"
               min="1"
-              max="3650"
+              max={@plan_max_days || 3650}
               name="policy[archive_retention_days_override]"
               value={@policy_form["archive_retention_days_override"]}
               disabled={!@can_manage? or @policy_form["archive_retention_override_mode"] != "limited"}
-              placeholder="30"
+              placeholder={to_string(min(30, @plan_max_days || 30))}
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
             />
+            <p
+              :if={is_integer(@plan_max_days)}
+              id="policy-override-plan-limit-note"
+              class="mt-1 text-xs text-sr-muted"
+            >
+              Maximum {@plan_max_days} days — limited by your plan.
+            </p>
             <p
               :if={@policy_errors[:archive_retention_days_override]}
               id="policy-error-override-days"
@@ -731,14 +787,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
   defp format_estimate_line(_est), do: "unknown until recorded"
 
-  defp format_override_label(policy) do
+  defp format_override_label(policy, plan_max_days) do
     mode = fetch_val(policy, :archive_retention_override_mode) || :inherit
     days = fetch_val(policy, :archive_retention_days_override)
 
     case to_string(mode) do
-      "limited" -> "limited (#{days} days)"
-      "unlimited" -> "unlimited"
-      _ -> "inherit"
+      "limited" ->
+        if is_integer(plan_max_days) and is_integer(days) and days > plan_max_days do
+          "configured #{days} days, effective #{plan_max_days} days (plan maximum)"
+        else
+          "limited (#{days} days)"
+        end
+
+      "unlimited" ->
+        if is_integer(plan_max_days) do
+          "configured unlimited, effective #{plan_max_days} days (plan maximum)"
+        else
+          "unlimited"
+        end
+
+      _ ->
+        "inherit"
     end
   end
 

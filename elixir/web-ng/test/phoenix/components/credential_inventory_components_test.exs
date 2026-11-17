@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
   alias ServiceRadar.Credentials.CredentialUsage.LiveGrant
   alias ServiceRadar.Credentials.CredentialUsage.Result
   alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInventoryComponents
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialManagement
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm
 
   @moduletag :db_free
@@ -439,6 +440,69 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
       )
 
     assert link |> LazyHTML.text() |> normalize_text() =~ "Camera archive (writer)"
+  end
+
+  test "control-plane managed credentials render Managed by ServiceRadar Cloud and Read-only with zero operator action buttons" do
+    document =
+      render_inventory(
+        managed_by: :control_plane,
+        credential_generation: 3,
+        provider: "s3_compatible",
+        credential_kind: :api_key,
+        name: "Cloud archive writer"
+      )
+
+    badge = LazyHTML.query(document, "[data-role='managed-by-cloud-badge']")
+    assert badge |> LazyHTML.text() |> normalize_text() == "Managed by ServiceRadar Cloud"
+
+    actions = LazyHTML.query(document, "#credential-actions-credential-1")
+    assert actions |> LazyHTML.text() |> normalize_text() == "Read-only"
+    assert LazyHTML.attribute(LazyHTML.query(actions, "button"), "phx-click") == []
+    assert LazyHTML.to_html(LazyHTML.query(actions, "details")) == ""
+
+    cloud_secret = Map.merge(secret(), %{managed_by: :control_plane, credential_generation: 3})
+    scope = %{user: %{id: "operator-1"}, permissions: MapSet.new(["settings.credentials.manage"])}
+
+    opts = [
+      dependencies: %{
+        authorize_current: fn s, _ -> {:ok, s} end,
+        load_secret: fn "credential-1", _ -> {:ok, cloud_secret} end
+      }
+    ]
+
+    for kind <- [:edit, :rotate, :delete] do
+      assert {:error, :credential_managed_by_control_plane} =
+               CredentialManagement.open(
+                 kind,
+                 scope,
+                 "credential-1",
+                 opts
+               )
+    end
+
+    assert {:error, :credential_managed_by_control_plane} =
+             CredentialManagement.edit_details(
+               scope,
+               "credential-1",
+               %{"name" => "Renamed"},
+               opts
+             )
+
+    assert {:error, :credential_managed_by_control_plane} =
+             CredentialManagement.rotate(
+               scope,
+               "credential-1",
+               %{"auth_password" => "synthetic-rotated-secret"},
+               opts
+             )
+
+    assert {:error, :credential_managed_by_control_plane} =
+             CredentialManagement.delete(
+               scope,
+               "credential-1",
+               "credential-1",
+               opts
+             )
   end
 
   defp secret do
