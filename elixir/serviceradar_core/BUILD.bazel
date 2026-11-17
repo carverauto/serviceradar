@@ -811,6 +811,10 @@ _TEST_RUNTIME_DATA = glob(
     "//integration_tests/srql_parity:app_classifier_cases.json",
     "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
     # Read at runtime by
+    # test/serviceradar/event_writer/processors/normalized_log_parity_test.exs: the
+    # syslog cases shared with the log collector's encoders.
+    "//rust/flowgger:normalized_log_parity",
+    # Read at runtime by
     # test/serviceradar/inventory/endpoint_inventory_package_set_hash_vectors_test.exs:
     # the package_set_hash vectors shared with the Go producer.
     "//go/pkg/endpointinventory:package_set_hash_golden",

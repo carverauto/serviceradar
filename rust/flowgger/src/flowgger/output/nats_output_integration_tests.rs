@@ -576,3 +576,115 @@ fn fatal_error_waits_one_publish_timeout_for_admitted_records() {
         }
     });
 }
+
+// The normalizing encoder's records go to two subjects: batches of normalized
+// records, each of one ruleset, to the subject only the collector may publish
+// on, and records encoded before any ruleset arrived to the JSON subject.
+#[test]
+fn normalized_records_are_batched_by_ruleset_and_earlier_records_stay_json() {
+    let runtime = RtBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut broker = Broker::start();
+        let js = broker.connect().await;
+        let stream = js
+            .create_stream(jetstream::stream::Config {
+                name: "SYNTHETIC_LOGS".into(),
+                subjects: vec!["logs.>".into()],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let config = Config::from_string(&format!(
+            r#"
+[output]
+nats_url = "{}"
+nats_stream = "SYNTHETIC_LOGS"
+nats_subject = "logs.synthetic"
+nats_timeout = 2000
+nats_connect_attempts = 5
+nats_connect_initial_backoff_ms = 10
+nats_connect_max_backoff_ms = 20
+nats_max_inflight = 1
+nats_batch_max_records = 2
+nats_batch_max_age_ms = 50
+"#,
+            broker.url
+        ))
+        .unwrap();
+        let (tx, rx) = sync_channel(8);
+        let worker = NATSWorker {
+            cfg: NATSOutput::normalized(&config).cfg,
+            arx: Arc::new(Mutex::new(rx)),
+            merger: None,
+        };
+        let publishing = tokio::spawn(worker.run());
+        let stored = |expected: u64| {
+            let mut stream = stream.clone();
+            async move {
+                timeout(Duration::from_secs(5), async {
+                    while stream.info().await.unwrap().state.messages < expected {
+                        sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap_or_else(|_| panic!("fewer than {expected} messages were published"));
+            }
+        };
+
+        // One window of one message keeps publication in arrival order.
+        tx.send(frame::encode("", br#"{"short_message":"early"}"#).unwrap())
+            .unwrap();
+        for record in ["a", "b", "c"] {
+            tx.send(frame::encode("sha256:one", record.as_bytes()).unwrap())
+                .unwrap();
+        }
+        tx.send(frame::encode("sha256:two", b"d").unwrap()).unwrap();
+        // "d" has no successor: only its age publishes it while the queue is open.
+        stored(4).await;
+        tx.send(frame::encode("sha256:two", b"e").unwrap()).unwrap();
+        drop(tx);
+        timeout(Duration::from_secs(5), publishing)
+            .await
+            .expect("publisher did not drain its open batch when the queue closed")
+            .unwrap()
+            .unwrap();
+
+        let mut published = Vec::new();
+        for sequence in 1..=stream.clone().info().await.unwrap().state.messages {
+            let message = stream.get_raw_message(sequence).await.unwrap();
+            let header = |name: &str| message.headers.get(name).map(|value| value.to_string());
+            published.push((
+                message.subject.to_string(),
+                String::from_utf8(message.payload.to_vec()).unwrap(),
+                header("Sr-Log-Schema"),
+                header("Sr-Ruleset-Id"),
+            ));
+        }
+        let batch = |payload: &str, ruleset: &str| {
+            (
+                "logs.normalized.synthetic".to_owned(),
+                payload.to_owned(),
+                Some("otlp-normalized-v1".to_owned()),
+                Some(ruleset.to_owned()),
+            )
+        };
+        assert_eq!(
+            published,
+            [
+                (
+                    "logs.synthetic".to_owned(),
+                    r#"{"short_message":"early"}"#.to_owned(),
+                    None,
+                    None
+                ),
+                batch("ab", "sha256:one"),
+                batch("c", "sha256:one"),
+                batch("d", "sha256:two"),
+                batch("e", "sha256:two"),
+            ]
+        );
+    });
+}

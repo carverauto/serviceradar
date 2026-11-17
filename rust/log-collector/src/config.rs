@@ -26,7 +26,37 @@ pub struct RulesConfig {
     #[serde(default = "default_rules_subject")]
     pub subject: String,
 
+    /// Whether the collector runs these rules on syslog itself and publishes
+    /// normalized batches, instead of leaving the rules to EventWriter. The
+    /// `LOG_COLLECTOR_NORMALIZE_SYSLOG` environment variable overrides it.
+    #[serde(default)]
+    pub normalize: bool,
+
     pub datasvc: DatasvcConfig,
+}
+
+/// The environment variable that overrides [`RulesConfig::normalize`].
+pub const NORMALIZE_SYSLOG_ENV: &str = "LOG_COLLECTOR_NORMALIZE_SYSLOG";
+
+impl Config {
+    /// Whether syslog is normalized here. `override_value` is the value of
+    /// [`NORMALIZE_SYSLOG_ENV`], if set. Normalizing needs a ruleset to follow.
+    pub fn normalize_syslog(&self, override_value: Option<&str>) -> anyhow::Result<bool> {
+        let normalize = match override_value.map(str::trim) {
+            None | Some("") => self.rules.as_ref().is_some_and(|rules| rules.normalize),
+            Some("true") => true,
+            Some("false") => false,
+            Some(other) => {
+                anyhow::bail!("{NORMALIZE_SYSLOG_ENV} must be true or false, not {other:?}")
+            }
+        };
+        if normalize && self.rules.is_none() {
+            anyhow::bail!(
+                "normalizing syslog needs a [rules] section naming the datasvc to read the ruleset from"
+            );
+        }
+        Ok(normalize)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +196,32 @@ mod tests {
         assert_eq!(config.otel.config_file, "/etc/serviceradar/otel.toml");
         assert_eq!(config.health.listen_addr, "0.0.0.0:50044");
         assert!(config.rules.is_none());
+    }
+
+    #[test]
+    fn syslog_is_normalized_here_only_when_switched_on_and_a_ruleset_is_followed() {
+        let rules = |normalize: &str| -> Config {
+            toml::from_str(&format!(
+                "[rules]\n{normalize}\n[rules.datasvc]\naddress = \"datasvc.example.com:50057\"\n"
+            ))
+            .unwrap()
+        };
+        let without_rules: Config = toml::from_str("").unwrap();
+
+        // Off unless asked for, in the file or by the override.
+        assert!(!rules("").normalize_syslog(None).unwrap());
+        assert!(rules("normalize = true").normalize_syslog(None).unwrap());
+        assert!(rules("").normalize_syslog(Some("true")).unwrap());
+        assert!(
+            !rules("normalize = true")
+                .normalize_syslog(Some("false"))
+                .unwrap()
+        );
+        assert!(!without_rules.normalize_syslog(None).unwrap());
+
+        // Asking for it without a ruleset to follow, or unclearly, stops the start.
+        assert!(without_rules.normalize_syslog(Some("true")).is_err());
+        assert!(rules("").normalize_syslog(Some("yes")).is_err());
     }
 
     #[test]

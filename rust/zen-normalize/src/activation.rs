@@ -9,7 +9,7 @@
 //! not ready to normalize.
 
 use crate::{BundleError, RuleBundle};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// What the collector can say about its rules without evaluating any.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub struct ActiveRules {
 
 #[derive(Default)]
 struct State {
-    active: Option<RuleBundle>,
+    active: Option<Arc<RuleBundle>>,
     problem: Option<String>,
 }
 
@@ -80,7 +80,7 @@ impl ActiveRules {
                 {
                     return Ok(Offer::Unchanged);
                 }
-                state.active = Some(bundle);
+                state.active = Some(Arc::new(bundle));
                 Ok(Offer::Activated)
             }
             Err(error) => {
@@ -98,7 +98,7 @@ impl ActiveRules {
 
     /// The active ruleset. Take it once per batch so every record in the batch
     /// is normalized by one version.
-    pub fn current(&self) -> Option<RuleBundle> {
+    pub fn current(&self) -> Option<Arc<RuleBundle>> {
         self.lock().active.clone()
     }
 

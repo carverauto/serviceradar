@@ -310,6 +310,21 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       end
     end
 
+    test "stores the time a syslog sender wrote, which the collector sends as seconds" do
+      row =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "timestamp" => 1_893_553_445.25,
+              "short_message" => "synthetic example",
+              "_syslog_format" => "rfc5424"
+            }),
+          metadata: %{subject: "logs.syslog", received_at: ~U[2030-01-02 09:00:00Z]}
+        })
+
+      assert row.timestamp == ~U[2030-01-02 03:04:05Z]
+    end
+
     test "preserves recent RFC3164 time and explicitly zoned syslog time" do
       received_at = ~U[2030-10-06 03:20:29Z]
 
@@ -811,6 +826,38 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
                "source_kind" => "syslog",
                "ruleset_id" => @ruleset
              }
+    end
+
+    # Column attributes are the log collector's word. Any OTLP sender can
+    # write an attribute, so elsewhere they are only attributes.
+    test "an OTLP sender cannot state a column" do
+      data =
+        ExportLogsServiceRequest.encode(%ExportLogsServiceRequest{
+          resource_logs: [
+            %ResourceLogs{
+              scope_logs: [
+                %ScopeLogs{
+                  log_records: [
+                    %LogRecord{
+                      time_unix_nano: 1_705_315_800_000_000_000,
+                      attributes: [
+                        %KeyValue{
+                          key: "serviceradar.column.service_name",
+                          value: %AnyValue{value: {:string_value, "forged"}}
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        })
+
+      [row] = Logs.parse_message(%{data: data, metadata: %{subject: "logs.otel"}})
+
+      assert row.service_name == nil
+      assert row.attributes["serviceradar.column.service_name"] == "forged"
     end
 
     test "refuses a batch whose schema it does not know" do

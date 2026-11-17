@@ -38,9 +38,12 @@ every rebase:
   `rust/zen-normalize` verifies its digest and compiles it. Both sides assert
   the same frozen digests.
 
-JSON remains the wire format. Flowgger does not call the shared Zen crate yet;
-binary transport, stream sharding and specialized receivers are design
-contracts, not implemented capabilities. Nothing from this branch has been
+JSON remains the default wire format. The log collector can normalize syslog
+itself and publish OTLP batches on `logs.normalized.syslog`
+(`[rules] normalize = true` or `LOG_COLLECTOR_NORMALIZE_SYSLOG=true`, off by
+default); until its first ruleset arrives it publishes JSON as before. Stream
+sharding and specialized receivers are design contracts, not implemented
+capabilities. Nothing from this branch has been
 pushed or deployed.
 
 ## Evidence and remaining checks

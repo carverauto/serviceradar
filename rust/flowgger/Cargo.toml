@@ -14,8 +14,10 @@ path = "src/lib.rs"
 
 [dependencies]
 serviceradar-cert-policy = { path = "../cert-policy" }
+serviceradar-zen-normalize = { path = "../zen-normalize", optional = true }
 anyhow = { workspace = true }
 async-nats = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 clap = { workspace = true }
@@ -25,6 +27,7 @@ kafka = { workspace = true, features = ["snappy", "gzip", "security"], optional 
 log = { workspace = true }
 may = { workspace = true, optional = true }
 notify = { workspace = true, features = ["macos_fsevent"], optional = true }
+prost = { workspace = true, optional = true }
 rand = { workspace = true }
 redis = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"], optional = true }
@@ -57,7 +60,9 @@ coroutines = ["may", "tls"]
 default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
-nats-output = ["async-nats"]
+# The NATS output also normalizes at the collector, which needs the Zen rules,
+# the GELF field mapping and OTLP encoding.
+nats-output = ["async-nats", "gelf", "dep:base64", "dep:prost", "dep:serviceradar-zen-normalize"]
 tls = ["dep:rustls", "dep:rustls-pemfile"]
 gelf = ["serde", "serde_json"]
 ltsv = []

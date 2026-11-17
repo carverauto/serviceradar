@@ -32,6 +32,14 @@ cargo_build_script(
     deps = ["@crates//:tonic-prost-build"],
 )
 
+# Syslog lines with the record JSON mode publishes and the batch the normalizing
+# encoder publishes for each. This crate's tests produce it and EventWriter's
+# tests in //elixir/serviceradar_core check that both store the same row.
+filegroup(
+    name = "normalized_log_parity",
+    srcs = ["tests/resources/normalized_log_parity.json"],
+)
+
 rust_library(
     name = "flowgger_lib",
     srcs = glob(["src/**/*.rs"]),
@@ -52,8 +60,11 @@ rust_library(
         normal = True,
     ) + [
         "//rust/cert-policy:cert_policy",
+        "//rust/zen-normalize:zen_normalize",
         ":build_script",
         "@crates//:async-nats",
+        "@crates//:base64",
+        "@crates//:prost",
     ],
 )
 
@@ -72,7 +83,10 @@ rust_test(
         "tls",
     ],
     # Config::from_path tests read these fixtures by relative path.
-    data = glob(["tests/resources/*.toml"]) + ["//third_party/binaries:nats_server_linux_amd64"],
+    data = glob(["tests/resources/*.toml"]) + [
+        ":normalized_log_parity",
+        "//third_party/binaries:nats_server_linux_amd64",
+    ],
     env = {
         "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },

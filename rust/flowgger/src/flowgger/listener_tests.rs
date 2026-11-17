@@ -216,7 +216,7 @@ fn duplicate_listener_alias_is_rejected() {
          [[inputs]]\ntype = 'syslog-tcp'\nlisten = '127.0.0.1:1514'",
     )
     .unwrap();
-    configured_listeners(&config);
+    configured_listeners(&config, None);
 }
 
 #[test]
@@ -224,5 +224,5 @@ fn duplicate_listener_alias_is_rejected() {
 fn unknown_additional_listener_is_rejected() {
     let config =
         Config::from_string("[input]\ntype = 'udp'\n[[inputs]]\ntype = 'unknown'").unwrap();
-    configured_listeners(&config);
+    configured_listeners(&config, None);
 }

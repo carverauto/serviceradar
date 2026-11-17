@@ -1,11 +1,16 @@
 //! A Flowgger output that publishes every log record to a NATS JetStream subject.
 //! Enable with `--features nats-output`.
 
-#[cfg(all(feature = "nats-output", feature = "gelf"))]
+#[cfg(feature = "nats-output")]
 use serde_json::Value;
 #[cfg(feature = "nats-output")]
 use {
     super::Output,
+    crate::flowgger::normalized::{
+        self, Normalization,
+        batch::{Batch, Batcher, Limits},
+        frame,
+    },
     crate::flowgger::{config::Config, merger::Merger},
     async_nats::jetstream::{
         context::{ContextBuilder, PublishAckFuture, PublishError, PublishErrorKind},
@@ -235,6 +240,36 @@ struct NATSConfig {
     connect_max_backoff: Duration,
     max_inflight: usize,
     max_inflight_bytes: usize,
+    /// Set when records arrive framed by the normalizing encoder: where
+    /// normalized batches are published, and how they are bounded.
+    normalized: Option<(String, Limits)>,
+}
+
+#[cfg(feature = "nats-output")]
+impl NATSConfig {
+    /// Every subject this output publishes on.
+    fn subjects(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.subject.as_str())
+            .chain(self.normalized.iter().map(|(subject, _)| subject.as_str()))
+    }
+}
+
+/// One NATS message ready to publish. `ruleset` is set on a batch of
+/// normalized records.
+#[cfg(feature = "nats-output")]
+struct Outgoing {
+    payload: Vec<u8>,
+    ruleset: Option<String>,
+}
+
+#[cfg(feature = "nats-output")]
+impl From<Batch> for Outgoing {
+    fn from(batch: Batch) -> Self {
+        Self {
+            payload: batch.payload,
+            ruleset: Some(batch.ruleset),
+        }
+    }
 }
 
 #[cfg(feature = "nats-output")]
@@ -352,9 +387,34 @@ impl NATSOutput {
                     "output.nats_max_inflight_bytes",
                     8 * 1024 * 1024,
                 ),
+                normalized: None,
             },
             workers,
         }
+    }
+
+    /// The output for the normalizing encoder. Records normalized at the
+    /// collector are published in batches on the normalized form of
+    /// `output.nats_subject`; records that arrived before a ruleset did are
+    /// published one by one on `output.nats_subject`, as GELF. A batch closes
+    /// at `output.nats_batch_max_records` records (default 256),
+    /// `output.nats_batch_max_bytes` bytes (default 256 KiB, and never more
+    /// than one worker may have in flight) or `output.nats_batch_max_age_ms`
+    /// after its first record (default 100).
+    pub fn normalized(cfg: &Config) -> Self {
+        let mut output = Self::new(cfg);
+        let subject =
+            Normalization::subject(&output.cfg.subject).unwrap_or_else(|error| panic!("{error}"));
+        let limits = Limits {
+            records: positive_size(cfg, "output.nats_batch_max_records", 256),
+            bytes: positive_size(cfg, "output.nats_batch_max_bytes", 256 * 1024)
+                .min(output.cfg.max_inflight_bytes),
+            age: Duration::from_millis(
+                positive_size(cfg, "output.nats_batch_max_age_ms", 100) as u64
+            ),
+        };
+        output.cfg.normalized = Some((subject, limits));
+        output
     }
 }
 
@@ -421,13 +481,15 @@ impl NATSPublisher {
                 // Skip the append when an existing subject (e.g. `logs.>` on the shared
                 // `events` stream) already covers ours — a literal `logs.syslog` append
                 // would self-overlap and JetStream rejects the UPDATE (10052, #4302).
-                if !updated_config
-                    .subjects
-                    .iter()
-                    .any(|existing| subject_covers(existing, &self.cfg.subject))
-                {
-                    updated_config.subjects.push(self.cfg.subject.clone());
-                    changed = true;
+                for subject in self.cfg.subjects() {
+                    if !updated_config
+                        .subjects
+                        .iter()
+                        .any(|existing| subject_covers(existing, subject))
+                    {
+                        updated_config.subjects.push(subject.to_owned());
+                        changed = true;
+                    }
                 }
                 if updated_config.num_replicas != self.cfg.stream_replicas {
                     updated_config.num_replicas = self.cfg.stream_replicas;
@@ -441,7 +503,7 @@ impl NATSPublisher {
             Err(_) => {
                 let stream_config = jetstream::stream::Config {
                     name: self.cfg.stream.clone(),
-                    subjects: vec![self.cfg.subject.clone()],
+                    subjects: self.cfg.subjects().map(str::to_owned).collect(),
                     storage: StorageType::File,
                     num_replicas: self.cfg.stream_replicas,
                     ..Default::default()
@@ -500,20 +562,21 @@ impl NATSPublisher {
     async fn publish_once(
         &self,
         js: &jetstream::Context,
+        subject: &str,
         publish: PublishMessage,
     ) -> Result<(), PublishFailure> {
         // Start the dedupe clock before handing the request to async-nats. If
         // send_publish succeeds, the server could persist the record at any
         // point after this instant even when its ACK never reaches us.
         let possible_store_started = Instant::now();
-        let ack: PublishAckFuture = js
-            .send_publish(self.cfg.subject.clone(), publish)
-            .await
-            .map_err(|error| PublishFailure {
-                stage: PublishStage::Send,
-                error,
-                possible_store_started: None,
-            })?;
+        let ack: PublishAckFuture =
+            js.send_publish(subject.to_owned(), publish)
+                .await
+                .map_err(|error| PublishFailure {
+                    stage: PublishStage::Send,
+                    error,
+                    possible_store_started: None,
+                })?;
 
         ack.await.map(|_| ()).map_err(|error| PublishFailure {
             stage: PublishStage::Acknowledgment,
@@ -525,6 +588,7 @@ impl NATSPublisher {
     async fn publish_with_retry(
         &self,
         shared: &AsyncMutex<Arc<NATSConnection>>,
+        subject: &str,
         publish: PublishMessage,
         message_id: &str,
         payload_size: usize,
@@ -560,7 +624,7 @@ impl NATSPublisher {
                 remaining_retry_budget(deadline, Instant::now()).ok_or_else(|| {
                     format!(
                         "NATS acknowledgment retry horizon exhausted for message_id={message_id} subject={} (duplicate_window={:?}); refusing an unsafe duplicate retry",
-                        self.cfg.subject, connection.duplicate_window
+                        subject, connection.duplicate_window
                     )
                 })?;
             }
@@ -582,12 +646,15 @@ impl NATSPublisher {
                 connection = self.reconnect(shared, &connection, retry_deadline).await?;
                 continue;
             }
-            match self.publish_once(&connection.js, publish.clone()).await {
+            match self
+                .publish_once(&connection.js, subject, publish.clone())
+                .await
+            {
                 Ok(()) => return Ok(()),
                 Err(failure) if permanent_publish_error(failure.error.kind()) => {
                     eprintln!(
                         "Dropping NATS record message_id={message_id} subject={} bytes={payload_size}: permanent {} error: {}",
-                        self.cfg.subject, failure.stage, failure.error
+                        subject, failure.stage, failure.error
                     );
                     return Ok(());
                 }
@@ -604,7 +671,7 @@ impl NATSPublisher {
                             format!(
                                 "NATS {} failed for message_id={message_id} subject={}, but stream duplicate_window={:?} does not leave a safe retry horizon beyond publish timeout {:?}: {}",
                                 failure.stage,
-                                self.cfg.subject,
+                                subject,
                                 connection.duplicate_window,
                                 self.cfg.timeout,
                                 failure.error
@@ -623,13 +690,13 @@ impl NATSPublisher {
                                 .ok_or_else(|| {
                                     format!(
                                         "NATS acknowledgment retry horizon exhausted for message_id={message_id} subject={} after {} error: {}",
-                                        self.cfg.subject, failure.stage, failure.error
+                                        subject, failure.stage, failure.error
                                     )
                                 })?;
                             retry_delay(backoff, remaining).ok_or_else(|| {
                                 format!(
                                     "NATS acknowledgment retry horizon has only {remaining:?} remaining for message_id={message_id} subject={}, less than retry backoff {backoff:?}; refusing an unsafe duplicate retry",
-                                    self.cfg.subject
+                                    subject
                                 )
                             })?
                         }
@@ -637,7 +704,7 @@ impl NATSPublisher {
                     };
                     eprintln!(
                         "NATS {} failed for message_id={message_id} subject={} (retry {retry_count}): {}. Reconnecting in {:?}...",
-                        failure.stage, self.cfg.subject, failure.error, delay
+                        failure.stage, subject, failure.error, delay
                     );
 
                     sleep(delay).await;
@@ -698,26 +765,70 @@ impl NATSPublisher {
     }
 }
 
+/// Puts the sender address of a GELF record under the collector's partition.
+#[cfg(feature = "nats-output")]
+pub(crate) fn partition_remote_addr(bytes: Vec<u8>, partition: &str) -> Vec<u8> {
+    if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes)
+        && let Some(obj) = v.as_object_mut()
+    {
+        if let Some(addr_val) = obj.get_mut("_remote_addr")
+            && let Some(s) = addr_val.as_str()
+        {
+            *addr_val = Value::String(format!("{partition}:{s}"));
+        }
+        return serde_json::to_vec(&v).unwrap_or(bytes);
+    }
+    bytes
+}
+
 #[cfg(feature = "nats-output")]
 impl NATSWorker {
-    fn prepare_record(&self, mut bytes: Vec<u8>) -> Vec<u8> {
-        #[cfg(feature = "gelf")]
-        {
-            if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes)
-                && let Some(obj) = v.as_object_mut()
-            {
-                if let Some(addr_val) = obj.get_mut("_remote_addr")
-                    && let Some(s) = addr_val.as_str()
-                {
-                    *addr_val = Value::String(format!("{}:{}", self.cfg.partition, s));
-                }
-                bytes = serde_json::to_vec(&v).unwrap_or(bytes);
-            }
-        }
+    fn prepare_record(&self, bytes: Vec<u8>) -> Vec<u8> {
+        let mut bytes = partition_remote_addr(bytes, &self.cfg.partition);
         if let Some(m) = &self.merger {
             m.frame(&mut bytes);
         }
         bytes
+    }
+
+    /// Takes one record from the queue. Returns the message it completed: the
+    /// record itself, or the batch of normalized records it closed.
+    fn admit(
+        &self,
+        bytes: Vec<u8>,
+        batcher: &mut Option<Batcher>,
+    ) -> Result<Option<Outgoing>, String> {
+        let fits = |size: usize| {
+            if size > self.cfg.max_inflight_bytes {
+                Err(format!(
+                    "NATS encoded record has {size} bytes, exceeding output.nats_max_inflight_bytes={}; refusing to drop it or exceed the publish budget",
+                    self.cfg.max_inflight_bytes,
+                ))
+            } else {
+                Ok(())
+            }
+        };
+        let Some(batcher) = batcher else {
+            let payload = self.prepare_record(bytes);
+            fits(payload.len())?;
+            return Ok(Some(Outgoing {
+                payload,
+                ruleset: None,
+            }));
+        };
+        fits(bytes.len())?;
+        match frame::decode(&bytes)? {
+            // Encoded before any ruleset arrived: published as it is, for
+            // EventWriter to normalize.
+            ("", record) => Ok(Some(Outgoing {
+                payload: record.to_vec(),
+                ruleset: None,
+            })),
+            _ => {
+                let closed = batcher.push(&bytes, tokio::time::Instant::now())?;
+                Ok(closed.map(Outgoing::from))
+            }
+        }
     }
 
     async fn run(self) -> Result<(), String> {
@@ -733,32 +844,67 @@ impl NATSWorker {
         let mut records = receive_records(Arc::clone(&self.arx))?;
         let mut pending = JoinSet::new();
         let mut pending_bytes = 0usize;
-        let mut staged: Option<Vec<u8>> = None;
+        let mut staged: Option<Outgoing> = None;
+        let mut batcher = self
+            .cfg
+            .normalized
+            .as_ref()
+            .map(|(_, limits)| Batcher::new(*limits));
         let mut closed = false;
         // The first fatal error, and when to stop waiting for the records
         // already admitted. Nothing more is admitted once it is set.
         let mut fatal: Option<(String, tokio::time::Instant)> = None;
 
         loop {
-            if let Some(bytes) = staged.as_ref()
+            if let Some(message) = staged.as_ref()
                 && pending.len() < self.cfg.max_inflight
-                && bytes.len() <= self.cfg.max_inflight_bytes - pending_bytes
+                && message.payload.len() <= self.cfg.max_inflight_bytes - pending_bytes
             {
-                let bytes = staged.take().unwrap();
-                let payload_size = bytes.len();
+                let Outgoing { payload, ruleset } = staged.take().unwrap();
+                let payload_size = payload.len();
                 let message_id = new_message_id();
-                let publish = PublishMessage::build()
-                    .payload(bytes.into())
+                let mut publish = PublishMessage::build()
+                    .payload(payload.into())
                     .message_id(&message_id);
+                let mut subject = self.cfg.subject.clone();
+                if let (Some(ruleset), Some((normalized_subject, _))) =
+                    (ruleset, &self.cfg.normalized)
+                {
+                    subject.clone_from(normalized_subject);
+                    let (schema, schema_value) = normalized::SCHEMA_HEADER;
+                    let (version, version_value) = normalized::NORMALIZATION_VERSION_HEADER;
+                    let (epoch, epoch_value) = normalized::ROUTING_EPOCH_HEADER;
+                    publish = publish
+                        .header("Content-Type", "application/x-protobuf")
+                        .header(schema, schema_value)
+                        .header(version, version_value)
+                        .header(normalized::RULESET_HEADER, ruleset.as_str())
+                        .header(epoch, epoch_value);
+                }
                 let publisher = Arc::clone(&publisher);
                 let connection = Arc::clone(&connection);
                 pending_bytes += payload_size;
                 pending.spawn(async move {
                     let result = publisher
-                        .publish_with_retry(&connection, publish, &message_id, payload_size)
+                        .publish_with_retry(
+                            &connection,
+                            &subject,
+                            publish,
+                            &message_id,
+                            payload_size,
+                        )
                         .await;
                     (payload_size, result)
                 });
+                continue;
+            }
+            // The source has closed, so no record will complete the open batch.
+            if closed
+                && staged.is_none()
+                && fatal.is_none()
+                && let Some(batch) = batcher.as_mut().and_then(Batcher::flush)
+            {
+                staged = Some(batch.into());
                 continue;
             }
             if staged.is_none() && pending.is_empty() && (closed || fatal.is_some()) {
@@ -770,6 +916,7 @@ impl NATSWorker {
                 };
             }
             let drain_deadline = fatal.as_ref().map(|(_, deadline)| *deadline);
+            let batch_deadline = batcher.as_ref().and_then(Batcher::deadline);
             let mut failure = None;
             tokio::select! {
                 // Surface failures before accepting more records when both are
@@ -789,19 +936,16 @@ impl NATSWorker {
                         pending.len(), usize::from(staged.is_some()), self.cfg.timeout,
                     ));
                 }
+                // The oldest record of the open batch has waited long enough.
+                _ = tokio::time::sleep_until(batch_deadline.unwrap_or_else(tokio::time::Instant::now)), if batch_deadline.is_some() && fatal.is_none() && staged.is_none() => {
+                    staged = batcher.as_mut().and_then(Batcher::flush).map(Outgoing::from);
+                }
                 record = records.recv(), if fatal.is_none() && !closed && staged.is_none() && pending.len() < self.cfg.max_inflight => {
                     match record {
-                        Some(Ok(bytes)) => {
-                            let bytes = self.prepare_record(bytes);
-                            if bytes.len() > self.cfg.max_inflight_bytes {
-                                failure = Some(format!(
-                                    "NATS encoded record has {} bytes, exceeding output.nats_max_inflight_bytes={}; refusing to drop it or exceed the publish budget",
-                                    bytes.len(), self.cfg.max_inflight_bytes,
-                                ));
-                            } else {
-                                staged = Some(bytes);
-                            }
-                        }
+                        Some(Ok(bytes)) => match self.admit(bytes, &mut batcher) {
+                            Ok(message) => staged = message,
+                            Err(error) => failure = Some(error),
+                        },
                         Some(Err(err)) => failure = Some(err),
                         None => closed = true,
                     }

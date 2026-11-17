@@ -16,7 +16,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     protobuf body is refused
   - Collector-normalized OTLP batches on `logs.normalized.<kind>`, which
     require the `Sr-Log-Schema: otlp-normalized-v1` header and are stored
-    without running Zen rules again
+    without running Zen rules again. The collector decides the columns OTLP
+    has no field for and sends them as `serviceradar.column.*` record
+    attributes, which become the columns and are not stored as attributes
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -435,7 +437,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
            json["observed_time_unix_nano"] ||
            json["observedTimeUnixNano"] do
       nil -> nil
-      value -> FieldParser.parse_timestamp(value)
+      value -> log_timestamp(value)
     end
   end
 
@@ -561,9 +563,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
        ) do
     {scope_name, scope_version} = parse_scope(scope)
     scope_attributes = protobuf_scope_attributes(scope)
+    normalized? = normalized_subject?(metadata[:subject])
 
     Enum.flat_map(log_records, fn log_record ->
-      record_attributes = key_values_to_map(log_record.attributes)
+      {columns, record_attributes} =
+        collector_columns(key_values_to_map(log_record.attributes), normalized?)
+
       log_attributes = attach_ingest_metadata(record_attributes, metadata)
       log_id = generated_uuid()
       source = source_kind(metadata[:subject])
@@ -571,7 +576,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       trace_id = OtelId.normalize_trace_id(log_record.trace_id)
 
       [
-        %{
+        collector_row(columns, log_record, %{
           id: log_id,
           timestamp: parse_otel_timestamp(log_record),
           observed_timestamp: protobuf_observed_timestamp(log_record) || metadata[:received_at],
@@ -593,7 +598,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
           attributes: log_attributes,
           resource_attributes: resource_attributes,
           created_at: DateTime.utc_now()
-        }
+        })
       ]
     end)
   end
@@ -606,6 +611,49 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _resource_attributes,
          _metadata
        ), do: []
+
+  # The log collector made the JSON path's column decisions when it normalized
+  # the record (rust/flowgger/src/flowgger/normalized/row.rs), so its batches
+  # state those columns and nothing is derived here. proto3 cannot carry an
+  # absent string or number, so empty and zero mean absent. Only the collector
+  # can publish these batches, so no sender can set a column this way.
+  @collector_column_prefix "serviceradar.column."
+
+  defp collector_columns(attributes, false), do: {nil, attributes}
+
+  defp collector_columns(attributes, true) do
+    {columns, attributes} =
+      Map.split_with(attributes, fn {key, _value} ->
+        String.starts_with?(key, @collector_column_prefix)
+      end)
+
+    {Map.new(columns, fn {key, value} ->
+       {String.replace_prefix(key, @collector_column_prefix, ""), value}
+     end), attributes}
+  end
+
+  defp collector_row(nil, _log_record, row), do: row
+
+  defp collector_row(columns, %LogRecord{severity_number: severity, severity_text: text}, row) do
+    severity_number = if is_atom(severity), do: SeverityNumber.value(severity), else: severity
+
+    %{
+      row
+      | source: columns["source"] || row.source,
+        source_ip: columns["source_ip"],
+        service_name: columns["service_name"],
+        service_version: columns["service_version"],
+        service_instance: columns["service_instance"],
+        severity_text: present(text),
+        severity_number: present(severity_number),
+        trace_flags: present(row.trace_flags),
+        scope_name: present(row.scope_name),
+        scope_version: present(row.scope_version)
+    }
+  end
+
+  defp present(value) when value in ["", 0], do: nil
+  defp present(value), do: value
 
   # Normalizes OTLP protobuf severity. The protobuf decoder yields SeverityNumber
   # enum atoms (which would otherwise persist as NULL numbers), and OTel SDKs emit
@@ -678,7 +726,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_timestamp(json) do
-    FieldParser.parse_timestamp(
+    log_timestamp(
       json["timestamp"] ||
         json["time_unix_nano"] ||
         json["timeUnixNano"] ||
@@ -686,6 +734,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         json["observedTimeUnixNano"]
     )
   end
+
+  # The log collector writes a syslog record's time as fractional Unix seconds.
+  defp log_timestamp(seconds) when is_float(seconds) and seconds >= 0 and seconds < 1.0e10,
+    do: DateTime.from_unix!(trunc(seconds), :second)
+
+  defp log_timestamp(value), do: FieldParser.parse_timestamp(value)
 
   defp extract_body(json) do
     cond do

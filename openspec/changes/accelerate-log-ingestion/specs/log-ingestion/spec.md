@@ -37,6 +37,11 @@ The collector SHALL receive effective rules through datasvc, validate complete s
 - **THEN** the previous validated snapshot remains active
 - **AND** stale/error status is exposed
 
+#### Scenario: A collector starts while datasvc is unreachable
+- **WHEN** the collector has no validated snapshot
+- **THEN** it accepts syslog and publishes each record as JSON for EventWriter to normalize
+- **AND** it publishes normalized batches from the first record after a snapshot is active
+
 #### Scenario: A watch reconnects
 - **WHEN** the watch disconnects
 - **THEN** the collector reconciles through an authoritative fetch

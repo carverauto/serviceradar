@@ -1,0 +1,994 @@
+[
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a syslog record with no rules",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_remote_addr": "default:2001:db8::10",
+      "_syslog_format": "rfc5424",
+      "full_message": "<11>1 2030-01-02T03:04:05Z host02.example.com - - - -",
+      "host": "host02.example.com",
+      "level": 3,
+      "sd_id": "serviceradar@1",
+      "short_message": "-",
+      "timestamp": 1893553445.0,
+      "version": "1.1"
+    },
+    "line": "<11>1 2030-01-02T03:04:05Z host02.example.com - - - -",
+    "name": "a record with no application name or message",
+    "otlp": "CtYBEtMBEtABCQAycWTTQEcaEBMaBUVSUk9SKgMKAS0yJgoMX3JlbW90ZV9hZGRyEhYKFGRlZmF1bHQ6MjAwMTpkYjg6OjEwMhsKDl9zeXNsb2dfZm9ybWF0EgkKB3JmYzU0MjQyOAogc2VydmljZXJhZGFyLmNvbHVtbi5zZXJ2aWNlX25hbWUSFAoSaG9zdDAyLmV4YW1wbGUuY29tMi8KHXNlcnZpY2VyYWRhci5jb2x1bW4uc291cmNlX2lwEg4KDDIwMDE6ZGI4OjoxMFkA/Aug00BHGg==",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "2001:db8::10",
+    "rules": []
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "severity set by a rule",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEA0aBFdBUk4qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "severity_text",
+                    "value": "'WARN'"
+                  },
+                  {
+                    "id": "e1",
+                    "key": "severity_number",
+                    "value": "13"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "severity"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "severity text with no number",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaGgZub3RpY2UqEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "severity",
+                    "value": "'notice'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "severity"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a level name in place of a number",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEA8aBFdBUk4qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "level",
+                    "value": "'warning'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "level"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "an RFC 3164 time far from the receive time",
+    "otlp": "CqoCEqcCEqQCCQA8QoeRYUcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmMzMTY0MjQKGl9zeXNsb2dfb3JpZ2luYWxfdGltZXN0YW1wEhYKFDIwMzAtMDEtMDJUMDM6MDQ6MDVaMiAKGl9zeXNsb2dfdGltZXN0YW1wX2ZhbGxiYWNrEgIQATIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkAPEKHkWFHGg==",
+    "received_unix_nano": 1893589446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "_syslog_format",
+                    "value": "'rfc3164'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "format"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "an RFC 3164 time near the receive time",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmMzMTY0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQBMaLh2Qkca",
+    "received_unix_nano": 1893555246000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "_syslog_format",
+                    "value": "'rfc3164'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "format"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "attributes with nested and empty entries",
+    "otlp": "CrgCErUCErICCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MgoKBGZsYWcSAhABMi8KBm5lc3RlZBIlMiMKCgoEa2VwdBICGAEKFQoEbGlzdBINKgsKAhgBCgUKA3R3bzISCgVyYXRpbxIJIQAAAAAAAOA/MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwMhMKBHVzZXISCwoJc3ludGhldGljWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "attributes",
+                    "value": "{'blank': [], 'flag': true, 'nested': {'empty': {}, 'kept': 1, 'list': [1, 'two', {}]}, 'ratio': 0.5, 'user': 'synthetic'}"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "attributes"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "attributes given as JSON text",
+    "otlp": "Cu4BEusBEugBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MhoKB2RlY29kZWQSDzINCgsKBWRlcHRoEgIYAjIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Aug00BHGg==",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "attributes",
+                    "value": "'{\"decoded\": {\"depth\": 2}}'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "attributes"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "resource, scope, trace and event fields",
+    "otlp": "CsYECocBCgsKBWVtcHR5EgIyAAohCglob3N0Lm5hbWUSFAoSaG9zdDA5LmV4YW1wbGUuY29tCh0KE3NlcnZpY2UuaW5zdGFuY2UuaWQSBgoEaS0wMQoaCgxzZXJ2aWNlLm5hbWUSCgoIY2hlY2tvdXQKGgoPc2VydmljZS52ZXJzaW9uEgcKBTEuMi4zErkDClEKD3N5bnRoZXRpYy5zY29wZRIDMC4xGgwKBWV4dHJhEgMKAXgaGQoEbmFtZRIRCg9zeW50aGV0aWMuc2NvcGUaEAoHdmVyc2lvbhIFCgMwLjES4wIJgORXc9NARxoQCRoESU5GTyoTChFzeW50aGV0aWMgbWVzc2FnZTIkCgxfcmVtb3RlX2FkZHISFAoSZGVmYXVsdDoxOTIuMC4yLjEwMhsKDl9zeXNsb2dfZm9ybWF0EgkKB3JmYzU0MjQyLgokc2VydmljZXJhZGFyLmNvbHVtbi5zZXJ2aWNlX2luc3RhbmNlEgYKBGktMDEyLgogc2VydmljZXJhZGFyLmNvbHVtbi5zZXJ2aWNlX25hbWUSCgoIY2hlY2tvdXQyLgojc2VydmljZXJhZGFyLmNvbHVtbi5zZXJ2aWNlX3ZlcnNpb24SBwoFMS4yLjMyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMEUBAAAAShAK92UZFs1D3YRI6yEcgDGcUgi3rWtxaSAzMVkAxqbb00BHGmIPc3ludGhldGljLmV2ZW50",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "resource_attributes",
+                    "value": "{'empty': {}, 'host.name': 'host09.example.com', 'service.instance.id': 'i-01', 'service.name': 'checkout', 'service.version': '1.2.3'}"
+                  },
+                  {
+                    "id": "e1",
+                    "key": "scope",
+                    "value": "{'extra': 'x', 'name': 'synthetic.scope', 'version': '0.1'}"
+                  },
+                  {
+                    "id": "e2",
+                    "key": "trace_id",
+                    "value": "'0af7651916cd43dd8448eb211c80319c'"
+                  },
+                  {
+                    "id": "e3",
+                    "key": "span_id",
+                    "value": "'b7ad6b7169203331'"
+                  },
+                  {
+                    "id": "e4",
+                    "key": "trace_flags",
+                    "value": "1"
+                  },
+                  {
+                    "id": "e5",
+                    "key": "event_name",
+                    "value": "'synthetic.event'"
+                  },
+                  {
+                    "id": "e6",
+                    "key": "observed_timestamp",
+                    "value": "'2030-01-02T03:04:07Z'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "otel"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "camel case fields and other encodings",
+    "otlp": "CusCEugCChQKBW5hbWVkEgEyGggKAWsSAwoBdhLPAgmA5Fdz00BHGhAJGgRJTkZPKhMKEXN5bnRoZXRpYyBtZXNzYWdlMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDItCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIJCgdiaWxsaW5nMioKI3NlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV92ZXJzaW9uEgMKATkyIwoac2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2USBQoDd2FmMi4KHXNlcnZpY2VyYWRhci5jb2x1bW4uc291cmNlX2lwEg0KCzIwMDE6ZGI4OjoxShABAgMEBQYHCAkKCwwNDg8QUgi3rWtxaSAzMVkA/Aug00BHGmIPc3ludGhldGljLmNhbWVs",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "serviceName",
+                    "value": "'billing'"
+                  },
+                  {
+                    "id": "e1",
+                    "key": "serviceVersion",
+                    "value": "'9'"
+                  },
+                  {
+                    "id": "e2",
+                    "key": "scopeName",
+                    "value": "'named'"
+                  },
+                  {
+                    "id": "e3",
+                    "key": "scopeVersion",
+                    "value": "'2'"
+                  },
+                  {
+                    "id": "e4",
+                    "key": "scope_attributes",
+                    "value": "{'k': 'v'}"
+                  },
+                  {
+                    "id": "e5",
+                    "key": "traceId",
+                    "value": "'AQIDBAUGBwgJCgsMDQ4PEA=='"
+                  },
+                  {
+                    "id": "e6",
+                    "key": "spanId",
+                    "value": "'B7AD6B7169203331'"
+                  },
+                  {
+                    "id": "e7",
+                    "key": "eventName",
+                    "value": "'synthetic.camel'"
+                  },
+                  {
+                    "id": "e8",
+                    "key": "sourceIp",
+                    "value": "'[2001:db8::1]:514'"
+                  },
+                  {
+                    "id": "e9",
+                    "key": "source",
+                    "value": "'waf'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "camel"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a structured body and a rule-set time",
+    "otlp": "CtwBEtkBEtYBCQDgTVmaQEcaEAkaBElORk8qHQobeyJldmVudCI6ImxvZ2luIiwib2siOnRydWV9MiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Aug00BHGg==",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "body",
+                    "value": "{'event': 'login', 'ok': true}"
+                  },
+                  {
+                    "id": "e1",
+                    "key": "timestamp",
+                    "value": "'2030-01-02T03:00:00Z'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "body"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a rule that cannot be evaluated",
+    "otlp": "CtIBEs8BEswBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "attributes.rule",
+                    "value": "'applied'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "mark"
+      },
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "serviceradar_remove_fields",
+                    "value": "'not a list'"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "broken"
+      }
+    ]
+  },
+  {
+    "gelf": {
+      "_detail": "synthetic",
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+      "host": "host01.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message",
+      "timestamp": 1893553445.2499998,
+      "version": "1.1"
+    },
+    "line": "<13>1 2030-01-02T03:04:05.250Z host01.example.com app 4242 ID47 [test@1 detail=\"synthetic\"] synthetic message",
+    "name": "a rule that removes the raw message",
+    "otlp": "CvABEu0BEuoBCYDkV3PTQEcaEAkaBElORk8qEwoRc3ludGhldGljIG1lc3NhZ2UyJAoMX3JlbW90ZV9hZGRyEhQKEmRlZmF1bHQ6MTkyLjAuMi4xMDIbCg5fc3lzbG9nX2Zvcm1hdBIJCgdyZmM1NDI0MhwKBGtlcHQSFAoSaG9zdDAxLmV4YW1wbGUuY29tMikKIHNlcnZpY2VyYWRhci5jb2x1bW4uc2VydmljZV9uYW1lEgUKA2FwcDItCh1zZXJ2aWNlcmFkYXIuY29sdW1uLnNvdXJjZV9pcBIMCgoxOTIuMC4yLjEwWQD8C6DTQEca",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": [
+      {
+        "jdm": {
+          "edges": [
+            {
+              "id": "a",
+              "sourceId": "in",
+              "targetId": "step",
+              "type": "edge"
+            },
+            {
+              "id": "b",
+              "sourceId": "step",
+              "targetId": "out",
+              "type": "edge"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "in",
+              "name": "Request",
+              "type": "inputNode"
+            },
+            {
+              "content": {
+                "expressions": [
+                  {
+                    "id": "e0",
+                    "key": "serviceradar_remove_fields",
+                    "value": "['full_message']"
+                  },
+                  {
+                    "id": "e1",
+                    "key": "attributes.kept",
+                    "value": "host"
+                  }
+                ]
+              },
+              "id": "step",
+              "name": "Set",
+              "type": "expressionNode"
+            },
+            {
+              "id": "out",
+              "name": "Response",
+              "type": "outputNode"
+            }
+          ]
+        },
+        "key": "strip"
+      }
+    ]
+  }
+]

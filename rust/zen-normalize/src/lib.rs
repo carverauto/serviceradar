@@ -21,7 +21,9 @@
 //!
 //! Records stay [`Variable`] values between rules; strings are shared, not
 //! copied. A record is JSON text only at [`RuleSet::normalize_json`], once on
-//! the way in and once on the way out.
+//! the way in and once on the way out. A collector that decoded the record
+//! itself builds the [`Variable`] directly, with [`number`] and [`float`] for
+//! its numbers, and calls [`RuleSet::normalize`].
 //!
 //! Zen stores numbers as 96-bit decimals, so a number a rule returns comes back
 //! in Zen's normal form (`1.0` becomes `1`). A JSON number no rule returns
@@ -170,10 +172,22 @@ impl DynamicVariable for JsonNumber {
     }
 }
 
+/// A number for a record built without JSON text. Like a number parsed from a
+/// JSON record, it keeps this exact value until a rule result replaces it.
+pub fn number(number: impl Into<serde_json::Number>) -> Variable {
+    Variable::Dynamic(Rc::new(JsonNumber(number.into())))
+}
+
+/// [`number`] for a float. JSON has no NaN or infinity, so those are `null`,
+/// which is what encoding them as JSON text produces.
+pub fn float(value: f64) -> Variable {
+    serde_json::Number::from_f64(value).map_or(Variable::Null, number)
+}
+
 fn record_from_json(value: serde_json::Value) -> Variable {
     use serde_json::Value;
     match value {
-        Value::Number(number) => Variable::Dynamic(Rc::new(JsonNumber(number))),
+        Value::Number(value) => number(value),
         Value::Array(items) => {
             Variable::from_array(items.into_iter().map(record_from_json).collect())
         }

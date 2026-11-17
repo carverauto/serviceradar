@@ -25,6 +25,8 @@ pub mod merger;
 #[cfg(test)]
 pub mod output;
 
+#[cfg(feature = "nats-output")]
+pub mod normalized;
 mod record;
 mod splitter;
 #[cfg(feature = "tls")]
@@ -107,6 +109,13 @@ use self::output::{DebugOutput, Output};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashSet, panic, thread};
+
+#[cfg(feature = "nats-output")]
+use self::normalized::Normalization;
+/// Normalizing at the collector needs the NATS output, so without it there is
+/// no value of this type and the pipeline always publishes its configured format.
+#[cfg(not(feature = "nats-output"))]
+type Normalization = std::convert::Infallible;
 
 const DEFAULT_INPUT_FORMAT: &str = "auto";
 const DEFAULT_INPUT_TYPE: &str = "syslog-tls";
@@ -242,7 +251,18 @@ fn get_output_tls(_config: &Config) -> ! {
     panic!("Support for tls hasn't been compiled in")
 }
 
-fn get_output(output_type: &str, config: &Config) -> Box<dyn Output> {
+fn get_output(
+    output_type: &str,
+    config: &Config,
+    normalization: Option<&Normalization>,
+) -> Box<dyn Output> {
+    if let Some(normalization) = normalization {
+        assert_eq!(
+            output_type, "nats",
+            "Syslog normalized at the collector is published to NATS; output.type must be \"nats\""
+        );
+        return normalized_output(config, normalization);
+    }
     match output_type {
         "stdout" | "debug" => Box::new(DebugOutput::new(config)) as Box<dyn Output>,
         "kafka" => get_output_kafka(config),
@@ -420,12 +440,41 @@ pub fn validate_time_format_input(
 }
 
 pub fn start(config_file: &str) {
-    start_with_grpc(config_file, true);
+    start_with_grpc(config_file, true, None);
 }
 
 /// Start the syslog pipeline when the embedding application owns its health listener.
 pub fn start_pipeline(config_file: &str) {
-    start_with_grpc(config_file, false);
+    start_with_grpc(config_file, false, None);
+}
+
+/// [`start_pipeline`], with records normalized here and published as OTLP
+/// batches on the normalized form of `output.nats_subject`. Until a ruleset
+/// is active, records are published as GELF on `output.nats_subject`.
+/// `output.format` is not used.
+#[cfg(feature = "nats-output")]
+pub fn start_normalized_pipeline(config_file: &str, normalization: Normalization) {
+    start_with_grpc(config_file, false, Some(normalization));
+}
+
+#[cfg(feature = "nats-output")]
+fn normalized_output(config: &Config, _normalization: &Normalization) -> Box<dyn Output> {
+    Box::new(output::NATSOutput::normalized(config)) as Box<dyn Output>
+}
+
+#[cfg(feature = "nats-output")]
+fn normalized_encoder(config: &Config, normalization: &Normalization) -> Box<dyn Encoder + Send> {
+    Box::new(normalized::NormalizedEncoder::new(config, normalization)) as Box<dyn Encoder + Send>
+}
+
+#[cfg(not(feature = "nats-output"))]
+fn normalized_output(_config: &Config, normalization: &Normalization) -> Box<dyn Output> {
+    match *normalization {}
+}
+
+#[cfg(not(feature = "nats-output"))]
+fn normalized_encoder(_config: &Config, normalization: &Normalization) -> Box<dyn Encoder + Send> {
+    match *normalization {}
 }
 
 /// Preserve the native health endpoint's TLS policy on an embedding application's listener.
@@ -435,19 +484,19 @@ pub fn health_tls_config(
     grpc::tls_config(&Config::from_path(config_file)?)
 }
 
-fn start_with_grpc(config_file: &str, grpc_enabled: bool) {
+fn start_with_grpc(config_file: &str, grpc_enabled: bool, normalization: Option<Normalization>) {
     let config = match Config::from_path(config_file) {
         Ok(config) => config,
         Err(e) => panic!("Unable to read the config file [{}]: {}", config_file, e),
     };
-    let listeners = configured_listeners(&config);
+    let listeners = configured_listeners(&config, normalization.as_ref());
     let output_format = output_format(&config);
     let output_type = config
         .lookup("output.type")
         .map_or(DEFAULT_OUTPUT_TYPE, |x| {
             x.as_str().expect("output.type must be a string")
         });
-    let output = get_output(output_type, &config);
+    let output = get_output(output_type, &config, normalization.as_ref());
     let output_framing = match config.lookup("output.framing") {
         Some(framing) => framing.as_str().expect("output.framing must be a string"),
         None => match (output_format, output_type) {
@@ -488,7 +537,7 @@ struct Listener {
     encoder: Box<dyn Encoder + Send>,
 }
 
-fn configured_listeners(config: &Config) -> Vec<Listener> {
+fn configured_listeners(config: &Config, normalization: Option<&Normalization>) -> Vec<Listener> {
     let mut sockets = HashSet::new();
     config
         .input_configs()
@@ -524,7 +573,10 @@ fn configured_listeners(config: &Config) -> Vec<Listener> {
                 name,
                 input,
                 decoder: configured_decoder(&config),
-                encoder: configured_encoder(&config),
+                encoder: match normalization {
+                    Some(normalization) => normalized_encoder(&config, normalization),
+                    None => configured_encoder(&config),
+                },
             }
         })
         .collect()
