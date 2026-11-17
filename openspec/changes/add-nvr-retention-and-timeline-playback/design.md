@@ -630,7 +630,9 @@ The `ArchiveBlockJob` (unique per catalog entry, queue `nvr_archive`):
    that request.
 3. On 200, records the receipt (`NVRArchiveReceipt`, settings change D9, or
    the quarantine-destination receipt) and moves the entry to `verified` in
-   one transaction.
+   one transaction. For a re-archive request (transition 8), a 200 answered
+   from a retained receipt is not success; the entry moves to `verified` only
+   after the PUT to objects a HEAD showed absent and a read-back match.
 4. On `archive_busy` (503), snoozes without consuming an attempt. On 502,
    other 503s and unknown outcomes, retries with jittered exponential backoff
    (30 s doubling to 30 min) indefinitely while the block exists. Retrying is
