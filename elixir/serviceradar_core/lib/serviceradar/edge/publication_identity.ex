@@ -365,8 +365,9 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @doc """
   base64url(no-pad)-encodes the framed grammar-8 envelope (NOT a digest). `input` carries
   exactly one of `:edge` / `:service` slot, `:record_sha256`, a `:delivery_mode`
-  (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY / 5=LATE_ADMISSION), `:delivery_proof` (nil for FRESH,
-  exactly 32 bytes otherwise), and a nonzero `:route_map_version`. Service slots are FRESH-only.
+  (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY / 5=LATE_ADMISSION),
+  `:delivery_proof` (nil for FRESH, exactly 32 bytes otherwise), and a nonzero
+  `:route_map_version`. Service slots are FRESH-only.
   Returns `{:ok, header}` or `{:error, reason}`.
   """
   @spec transport_provenance(map()) :: {:ok, binary()} | {:error, atom()}

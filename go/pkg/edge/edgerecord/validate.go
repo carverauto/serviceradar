@@ -583,8 +583,8 @@ const (
 )
 
 // FrameDeliveryMode is the gateway-attested transport disposition, aligned one-to-one with the
-// provenance delivery_mode (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY). The zero
-// value is UNSPECIFIED / INVALID.
+// provenance delivery_mode (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY /
+// 5=LATE_ADMISSION). The zero value is UNSPECIFIED / INVALID.
 type FrameDeliveryMode uint8
 
 const (
@@ -600,8 +600,8 @@ const (
 	FrameDeliveryModeLateFenced
 	// FrameDeliveryModeLateAdmission -- a record admitted LATE under the production-time
 	// rule and published per core's late-admission decision (ValidateLateFrameSigned).
-	// Its provenance delivery_mode code lands with the gateway's late publication path
-	// (add-edge-production-time-admission task 2.6); until then no gateway emits it.
+	// Provenance delivery_mode 5 (DeliveryModeLateAdmission); no gateway emits it until the
+	// late publication path lands (add-edge-production-time-admission tasks 2.6c and 2.7).
 	FrameDeliveryModeLateAdmission
 )
 

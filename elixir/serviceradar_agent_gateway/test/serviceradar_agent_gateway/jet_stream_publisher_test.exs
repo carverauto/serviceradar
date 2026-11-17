@@ -815,7 +815,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     defp capability_for(:mode_late_fenced), do: renewal_capability()
 
     # LATE_ADMISSION accepts only core's late-admission grant (the shared Go-signed vector).
-    defp capability_for(:mode_late_admission), do: EdgeSignedCapabilityV1.decode(load("delivery_late_admission_cap.bin"))
+    defp capability_for(:mode_late_admission),
+      do: EdgeSignedCapabilityV1.decode(load("delivery_late_admission_cap.bin"))
 
     defp publication_in_mode(name, mode) do
       case capability_for(name) do
