@@ -280,19 +280,22 @@ func TestPluginManagerResolveCameraSourceUnknownAssignment(t *testing.T) {
 	}
 }
 
-func TestPluginManagerResolveCameraSourceModuleLoadFailureIsUnavailable(t *testing.T) {
+func TestPluginManagerResolveCameraSourceModuleLoadFailureClass(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name        string
 		handler     http.HandlerFunc
 		contentHash string
+		timeout     time.Duration
+		wantClass   string
 	}{
 		{
 			name: "download returns an error status",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			},
+			wantClass: cameraRelayFailureSourceResolverUnavailable,
 		},
 		{
 			name: "downloaded module fails its content hash",
@@ -300,6 +303,15 @@ func TestPluginManagerResolveCameraSourceModuleLoadFailureIsUnavailable(t *testi
 				_, _ = w.Write([]byte("not-the-expected-module"))
 			},
 			contentHash: strings.Repeat("0", 64),
+			wantClass:   cameraRelayFailureSourceResolverUnavailable,
+		},
+		{
+			name: "download outlasts the assignment timeout",
+			handler: func(_ http.ResponseWriter, r *http.Request) {
+				<-r.Context().Done()
+			},
+			timeout:   50 * time.Millisecond,
+			wantClass: cameraRelayFailureResponseTimeout,
 		},
 	}
 
@@ -325,15 +337,15 @@ func TestPluginManagerResolveCameraSourceModuleLoadFailureIsUnavailable(t *testi
 				Entrypoint:   "run_check",
 				DownloadURL:  server.URL,
 				ContentHash:  tc.contentHash,
-				Timeout:      5 * time.Second,
+				Timeout:      tc.timeout,
 			}
 			manager.mu.Unlock()
 
 			_, err := manager.ResolveCameraSource(t.Context(), cameraRelaySourceResolver{
 				PluginAssignmentID: "assignment-load-fails", VendorCameraID: "camera-vendor-1",
 			})
-			if !errors.Is(err, errCameraRelaySourceResolverUnavailable) {
-				t.Fatalf("error = %v, want resolver unavailable", err)
+			if got := cameraRelaySourceFailureClass(err); got != tc.wantClass {
+				t.Fatalf("failure class = %q (error %v), want %q", got, err, tc.wantClass)
 			}
 		})
 	}
