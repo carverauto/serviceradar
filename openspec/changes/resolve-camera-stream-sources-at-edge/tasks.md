@@ -48,10 +48,14 @@
 
 ## 2. Edge resolution (Stage 2)
 
-- [ ] 2.0 Verify that the agent's on-demand plugin call for an assignment
+- [x] 2.0 Verify that the agent's on-demand plugin call for an assignment
       (`RunPluginVerbForAssignment`) receives the same params and standing credential broker
       grants as a scheduled run of that assignment. If it does not, the resolver cannot
       authenticate, and Stage 2 must add that first.
+      Result: it does not. The call runs the config its caller supplies and never reads the
+      assignment's params. A scheduled run holds no broker grant either: Core writes the
+      resolved credential into the params. `ResolveCameraSource` therefore passes the
+      assignment's params plus the request key (D1 step 2).
 - [ ] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
       `serviceradar.camera_source_resolution{_request}.v1`, and the D8 config key constant with
       a helper that reports whether it is set; release, then re-vendor in both plugins.
@@ -61,7 +65,7 @@
       `source_url*`).
 - [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
       userinfo; inventory results as D8 states.
-- [ ] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
+- [x] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
       params and standing grants; capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
       persist it or enqueue it as a result;
       advertise `camera_source_resolution`; add the D5 classes; confirm that no log line,

@@ -1506,6 +1506,21 @@ func (m *PluginManager) runPluginVerb(
 		return nil, fmt.Errorf("%w for plugin %q", errPluginAssignmentNotFound, strings.TrimSpace(pluginID))
 	}
 
+	return m.runAssignmentOnDemand(ctx, assignment, configJSON, credentialGrants, authorizedRequestBody, callbackCredential, timeout)
+}
+
+// runAssignmentOnDemand runs one assignment's entrypoint in action mode and
+// returns what the plugin submitted. The result stays in memory: it is never
+// queued as a plugin result.
+func (m *PluginManager) runAssignmentOnDemand(
+	ctx context.Context,
+	assignment *pluginAssignment,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
+	callbackCredential *awxCallbackCredentialMemoryInput,
+	timeout time.Duration,
+) ([]byte, error) {
 	// Gated here as well as in RunAction. Notification dispatch is specified to
 	// ride plugin.run_action, so this path should never carry a delivery
 	// envelope - but "should never" is not a permission check, and a capability

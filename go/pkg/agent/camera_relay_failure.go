@@ -55,7 +55,12 @@ const (
 	cameraRelayFailureNoMedia             = "read_timeout_no_media"
 	cameraRelayFailureUpstreamClosed      = "upstream_closed"
 	cameraRelayFailureStartDeadline       = "start_deadline_exceeded"
-	cameraRelayFailureUnknown             = "unknown"
+	// Source resolver classes: the stream address is derived on this agent by
+	// the plugin assignment that discovered the camera.
+	cameraRelayFailureSourceResolverUnavailable = "source_resolver_unavailable"
+	cameraRelayFailureSourceResolverUnsupported = "source_resolver_unsupported"
+	cameraRelayFailureSourceNotFound            = "source_not_found"
+	cameraRelayFailureUnknown                   = "unknown"
 )
 
 const (
@@ -149,8 +154,19 @@ func cameraRelayFailureClass(err error) string {
 }
 
 func cameraRelaySourceFailureClass(err error) string {
+	var resolution *cameraSourceResolutionError
+	if errors.As(err, &resolution) {
+		return resolution.class
+	}
+
 	switch {
+	case errors.Is(err, errCameraRelaySourceResolverUnavailable):
+		return cameraRelayFailureSourceResolverUnavailable
+	case errors.Is(err, errCameraRelaySourceResolverUnsupported):
+		return cameraRelayFailureSourceResolverUnsupported
 	case errors.Is(err, errCameraRelaySourceURLRequired),
+		errors.Is(err, errCameraRelaySourceResolverInvalid),
+		errors.Is(err, errCameraSourceResolverParams),
 		errors.Is(err, errCameraRelayInvalidSourceURL),
 		errors.Is(err, errUnsupportedCameraRelaySource),
 		errors.Is(err, errUnsupportedCameraRelayTransport),

@@ -1809,6 +1809,7 @@ func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.Command
 		StreamProfileID:    payload.StreamProfileID,
 		LeaseToken:         payload.LeaseToken,
 		PluginAssignmentID: payload.PluginAssignmentID,
+		SourceResolver:     payload.SourceResolver,
 		SourceURL:          payload.SourceURL,
 		RTSPTransport:      payload.RTSPTransport,
 		CodecHint:          payload.CodecHint,

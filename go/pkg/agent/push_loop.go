@@ -282,6 +282,13 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
+	cameraRelayManager.sourceResolver = func(ctx context.Context, resolver cameraRelaySourceResolver) (string, error) {
+		server.mu.RLock()
+		pluginManager := server.pluginManager
+		server.mu.RUnlock()
+
+		return pluginManager.ResolveCameraSource(ctx, resolver)
+	}
 	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
 	remoteConsoleManager.sshOptions = remoteAccessSSHOptions(server)
 	remoteConsoleManager.desktopGateway = desktopMediaGatewayFromClient(gateway)
