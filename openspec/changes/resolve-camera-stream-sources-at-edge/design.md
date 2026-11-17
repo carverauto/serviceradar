@@ -256,7 +256,8 @@ operator as sentences:
     capability.
   - `source_resolver_missing`: the source has no `discovery_assignment_id`.
 - Agent:
-  - `source_resolver_unavailable`: the assignment is not loaded on the agent.
+  - `source_resolver_unavailable`: the assignment is not loaded on the agent,
+    admission denied the run, or its Wasm module could not be loaded.
   - `source_resolver_unsupported`: the plugin did not return a resolution
     document, for example an old plugin version.
   - `source_not_found`: the camera or profile is unknown to the controller, or

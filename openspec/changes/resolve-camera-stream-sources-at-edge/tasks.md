@@ -66,7 +66,7 @@
 - [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
       userinfo; inventory results as D8 states.
 - [x] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
-      params and standing grants; capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
+      params (task 2.0); capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
       persist it or enqueue it as a result;
       advertise `camera_source_resolution`; add the D5 classes; confirm that no log line,
       command result or error carries the resolved URL or its userinfo.
