@@ -684,8 +684,18 @@ func stagedTimerService(path, timer string, units []string) (string, error) {
 }
 
 func (h systemHost) activateAddonSystemdUnits(ctx context.Context, enable, timerService string) error {
-	if timerService != "" {
-		if err := h.clearTimerServiceFailure(ctx, timerService); err != nil {
+	// The service whose last result health reports: a timer add-on's backing
+	// service (timerService is set only for a fresh candidate, so a same-version
+	// timer reconcile keeps a genuine failure visible), or a service add-on's own
+	// unit. For a service add-on this also clears a start-limit stop, which
+	// refuses every start until cleared; activation runs for new content, the
+	// operator's fix, so it gets a fresh restart budget.
+	failedUnit := timerService
+	if failedUnit == "" && strings.HasSuffix(enable, ".service") {
+		failedUnit = enable
+	}
+	if failedUnit != "" {
+		if err := h.clearUnitFailure(ctx, failedUnit); err != nil {
 			return err
 		}
 	}
@@ -703,16 +713,17 @@ func (h systemHost) activateAddonSystemdUnits(ctx context.Context, enable, timer
 	return nil
 }
 
-// clearTimerServiceFailure clears the previous scan's failed state so health
-// reports the candidate's own result. Only a loaded, failed unit has such a
-// state. systemd loads units lazily, so the service of a timer add-on installed
-// for the first time is not loaded yet, and `reset-failed` refuses it with "Unit
-// ... not loaded" -- which failed every first install of a timer add-on.
-func (h systemHost) clearTimerServiceFailure(ctx context.Context, service string) error {
-	if h.runSystemctl(ctx, "is-failed", "--quiet", service) != nil {
+// clearUnitFailure clears a unit's failed state: the previous scan of a timer
+// add-on, so health reports the candidate's own result, or a start-limit stop,
+// so new content can start at all. Only a loaded, failed unit has such a state.
+// systemd loads units lazily, so the service of a timer add-on installed for the
+// first time is not loaded yet, and `reset-failed` refuses it with "Unit ... not
+// loaded" -- which failed every first install of a timer add-on.
+func (h systemHost) clearUnitFailure(ctx context.Context, unit string) error {
+	if h.runSystemctl(ctx, "is-failed", "--quiet", unit) != nil {
 		return nil
 	}
-	return h.runSystemctl(ctx, "reset-failed", service)
+	return h.runSystemctl(ctx, "reset-failed", unit)
 }
 
 // UninstallAddonSystemdUnits is the privileged teardown: it disables (--now) each unit,

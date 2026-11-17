@@ -302,13 +302,30 @@ sudo journalctl -u serviceradar-netprobe.service -n 200 --no-pager
 ```
 
 Common causes are unsupported architecture, failed artifact verification, missing BPF
-capabilities, an interface allowlist that does not match host interfaces, or a blocked
-gateway connection.
+capabilities, or a blocked gateway connection. An interface allowlist that does not
+match host interfaces does not stop netprobe; see
+[Add-on reports degraded](#add-on-reports-degraded).
+
+The unit allows five failed starts within five minutes (`StartLimitBurst=5`,
+`StartLimitIntervalSec=300`), then systemd stops restarting it. The add-on status
+then reports `circuit_open` with the unit's failure, and the agent does not reinstall
+the same artifact and config. Fix the cause and change the assignment (new version or
+config). The agent clears the unit's failed state before it starts the new content.
 
 If the assignment targets `k8s-agent`, move it to the worker-node agent. The
 in-cluster Kubernetes agent intentionally skips host-level netprobe activation and
 visibility bootstrap writes so pod filesystem constraints do not block normal config
 updates.
+
+### Add-on reports degraded
+
+netprobe reports `degraded` when a name in `capture_interfaces` does not exist on the
+host. It keeps running and skips the absent interfaces instead of exiting. The status
+reason names the absent interfaces, the configured interfaces that are present, and
+the host's interfaces. Compare it with `ip -o link show` and
+correct the assignment's `capture_interfaces`. A fleet-wide assignment can reach hosts
+whose NICs have different names, such as bridges or bonds. A degraded netprobe still
+counts as running for rollout and attribution.
 
 ### No attributed flows
 

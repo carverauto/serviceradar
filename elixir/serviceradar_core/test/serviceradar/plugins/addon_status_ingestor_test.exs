@@ -56,13 +56,18 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
             "restart_count" => 5,
             "last_error" => "boom"
           },
+          %{
+            "name" => "addon:partial",
+            "state" => "degraded",
+            "last_error" => "capture interface eth-test0 not present on this host"
+          },
           %{"name" => "netprobe", "state" => "running"}
         ])
       )
 
     by_id = Map.new(statuses_for(agent_uid), &{&1.addon_id, &1})
 
-    assert map_size(by_id) == 2
+    assert map_size(by_id) == 3
     refute Map.has_key?(by_id, "netprobe")
 
     assert by_id["sample"].state == "running"
@@ -75,6 +80,14 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     assert by_id["broken"].active == false
     assert by_id["broken"].degradation_reason == "boom"
     assert by_id["broken"].restart_count == 5
+
+    # Degraded is a running add-on that reported a host-side gap: it is active,
+    # and its reason is kept for the operator.
+    assert by_id["partial"].state == "degraded"
+    assert by_id["partial"].active == true
+
+    assert by_id["partial"].degradation_reason ==
+             "capture interface eth-test0 not present on this host"
   end
 
   test "re-ingest upserts the existing row instead of duplicating", %{agent_uid: agent_uid} do

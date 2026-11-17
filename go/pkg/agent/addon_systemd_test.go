@@ -1639,3 +1639,64 @@ func TestInstallAddonSystemdUnitsEmptyKeyUsesEmbeddedKeyOverEnvironment(t *testi
 		t.Fatalf("artifact materialized despite failed verification: %v", statErr)
 	}
 }
+
+// A service unit systemd stopped on its start limit refuses `enable --now` and
+// `restart` until its failed state is cleared. Activation runs only for new
+// content, the operator's fix, so it must clear that state rather than fail
+// the install and leave the old failure in place.
+func TestServiceActivationClearsAStartLimitStop(t *testing.T) {
+	const (
+		unitFailed = "failed"
+		unitActive = "active"
+	)
+
+	root := t.TempDir()
+	state := filepath.Join(root, "service-state")
+	if err := os.WriteFile(state, []byte(unitFailed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host := systemHost{systemctlPath: installServiceSystemctlFixture(t, root, state)}
+
+	if err := host.activateAddonSystemdUnits(context.Background(), "serviceradar-np.service", ""); err != nil {
+		t.Fatalf("activating new content on a start-limited unit failed: %v", err)
+	}
+	if got, err := os.ReadFile(state); err != nil || string(got) != unitActive {
+		t.Fatalf("unit state after activation = %q, %v; want %s", got, err, unitActive)
+	}
+}
+
+// installServiceSystemctlFixture writes a systemctl fixture for one service
+// unit whose state lives in a file. Like systemd after a start-limit stop, it
+// refuses to start a failed unit until reset-failed clears it.
+func installServiceSystemctlFixture(t *testing.T, dir, state string) string {
+	t.Helper()
+	script := `#!/bin/sh
+set -eu
+state() { cat "$SERVICE_FIXTURE_STATE"; }
+command=$1
+shift
+case "$command" in
+  is-failed)
+    [ "$(state)" = failed ]
+    ;;
+  reset-failed)
+    printf inactive > "$SERVICE_FIXTURE_STATE"
+    ;;
+  enable|restart)
+    if [ "$(state)" = failed ]; then
+      echo "Job failed: start request repeated too quickly." >&2
+      exit 1
+    fi
+    printf active > "$SERVICE_FIXTURE_STATE"
+    ;;
+  *) ;;
+esac
+`
+	path := filepath.Join(dir, "systemctl")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SERVICE_FIXTURE_STATE", state)
+
+	return path
+}

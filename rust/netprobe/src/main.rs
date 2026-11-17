@@ -11,6 +11,7 @@ mod banner_command;
 mod capabilities;
 #[allow(dead_code)]
 mod capture;
+mod capture_plan;
 // The census module is shared with the library crate, which uses the whole of
 // it. The binary drives only the runtime, so the record constants and the
 // classification helpers its tests exercise look dead here. Same reason
@@ -179,6 +180,16 @@ async fn main() -> Result<()> {
     if !config.enabled {
         log::info!("netprobe config is disabled; lifecycle IPC remains available");
     }
+    // Capture opens and attaches only on the configured interfaces this host
+    // has. An absent one is a misconfiguration to report, not a reason to exit:
+    // exiting took flow attribution down with it and left systemd restarting
+    // netprobe forever. `config` keeps the requested list, because that is what
+    // every pushed config is compared against.
+    let capture_plan = capture_plan::CapturePlan::for_host(&config.capture_interfaces);
+    if let Some(reason) = capture_plan.degradation_reason() {
+        log::warn!("netprobe degraded: {reason}");
+    }
+    let capture_config = capture_plan.capture_config(&config);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     // Broadcast, not mpsc: the AddonService subscribes once per StreamTelemetry
@@ -222,7 +233,7 @@ async fn main() -> Result<()> {
             // order. This branch previously dropped without opening.
             _capture_handles = Some(lifecycle::initialize_privileged_resources(
                 &mut startup_ops,
-                &config,
+                &capture_config,
                 args.drop_user.as_deref(),
                 args.skip_cap_check,
                 args.allow_root,
@@ -243,12 +254,12 @@ async fn main() -> Result<()> {
                     .expect("checked ebpf_object is present");
                 let opened_captures = prepare_ebpf_privileged_resources(
                     &mut startup_ops,
-                    &config,
+                    &capture_config,
                     args.skip_cap_check,
                 )?;
                 let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
                     ebpf_object,
-                    &config,
+                    &capture_config,
                     metrics.clone(),
                     fingerprint_event_tx.clone(),
                     dpi_event_tx.clone(),
@@ -271,7 +282,7 @@ async fn main() -> Result<()> {
                 )?);
                 log::info!(
                     "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
-                    config.capture_interfaces.len()
+                    capture_config.capture_interfaces.len()
                 );
                 VisibilityRuntime::Ebpf(Box::new(runtime))
             }
@@ -312,6 +323,7 @@ async fn main() -> Result<()> {
                     config.flow_table_max_entries,
                     config.capture_interfaces.len(),
                 ),
+                capture: capture_plan,
             },
         );
 

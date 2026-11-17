@@ -21,6 +21,25 @@ go_test(
     ],
 )
 
+# Runs the shipped binary with a capture interface the executor does not have and
+# drives it through the agent's attach manager and AddonService. Unprivileged:
+# nothing is opened when every configured interface is absent.
+go_test(
+    name = "missing_capture_interface_live_test",
+    srcs = ["missing_capture_interface_live_test.go"],
+    data = [":netprobe"],
+    env = {"NETPROBE_BINARY": "$(rootpath :netprobe)"},
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/agent/sidecar",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+    ],
+)
+
 NETPROBE_FEATURES = select({
     "//build/platforms:target_linux_aarch64_musl": [],
     "//build/platforms:target_linux_x86_64_musl": [],
@@ -96,7 +115,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.75"
+NETPROBE_VERSION = "0.2.76"
 
 cargo_build_script(
     name = "build_script",

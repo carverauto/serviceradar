@@ -9,6 +9,7 @@ pub mod attribution;
 pub mod banner_command;
 pub mod capabilities;
 pub mod capture;
+pub mod capture_plan;
 pub mod census;
 pub mod config;
 pub mod dpi;

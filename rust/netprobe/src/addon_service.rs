@@ -39,6 +39,7 @@ use tokio_stream::{Stream, StreamExt};
 use crate::addon_config_json::AddonConfigJson;
 use crate::banner_command;
 use crate::capabilities;
+use crate::capture_plan::CapturePlan;
 use crate::fingerprint::{
     FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
     P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
@@ -75,10 +76,15 @@ const EVENT_BATCH_FLUSH: std::time::Duration = std::time::Duration::from_secs(2)
 /// config it was handed. `RuntimeConfig` already holds them for its own bail,
 /// but it holds them privately and only compares; classifying the change needs
 /// the values themselves so the refusal can say which field moved.
+///
+/// `capture_interfaces` is the list as REQUESTED, which is what a pushed config
+/// is compared against. `capture` records which of those the host actually had,
+/// and is what health reports on.
 #[derive(Clone, Debug, Default)]
 pub struct StartupSnapshot {
     pub capture_interfaces: Vec<String>,
     pub flow_table_max_entries: u32,
+    pub capture: CapturePlan,
 }
 
 /// The five broadcast channels netprobe publishes telemetry on.
@@ -172,7 +178,7 @@ impl Addon for NetprobeAddon {
         // The agent turns these into the sweep banner-grab capability status,
         // so they have to survive the transport change or that capability
         // silently goes dark.
-        let details = BTreeMap::from([
+        let mut details = BTreeMap::from([
             (
                 "running_as_root".to_owned(),
                 capabilities::running_as_root().to_string(),
@@ -211,10 +217,22 @@ impl Addon for NetprobeAddon {
             ),
         ]);
 
+        // An absent capture interface leaves netprobe running (attribution, and
+        // capture on whatever interfaces exist), so it is DEGRADED, not
+        // unhealthy: the agent reports it with the reason and keeps the add-on
+        // counted as running.
+        let (status, degradation_reason) = match self.startup.capture.degradation_reason() {
+            Some(reason) => {
+                details.extend(self.startup.capture.health_details());
+                (HealthStatus::Degraded, reason)
+            }
+            None => (HealthStatus::Healthy, String::new()),
+        };
+
         Ok(Health {
-            status: HealthStatus::Healthy,
+            status,
             version: self.version.clone(),
-            degradation_reason: String::new(),
+            degradation_reason,
             details,
         })
     }
@@ -805,6 +823,59 @@ mod tests {
         );
         // Prose stays out of details.
         assert!(health.degradation_reason.is_empty());
+        assert_eq!(health.status, HealthStatus::Healthy);
+    }
+
+    /// The startup state of a netprobe whose configured capture interface is
+    /// absent on its host: started with the requested list, capturing on none.
+    fn startup_missing_eth_test0() -> StartupSnapshot {
+        let host = vec!["br-test0".to_owned()];
+        let requested = vec!["eth-test0".to_owned()];
+
+        StartupSnapshot {
+            capture: CapturePlan::new(&requested, Some(&host)),
+            capture_interfaces: requested,
+            flow_table_max_entries: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn health_reports_an_absent_capture_interface_as_degraded() {
+        let addon = addon_with(startup_missing_eth_test0());
+
+        let health = addon.health().await.expect("health");
+
+        assert_eq!(health.status, HealthStatus::Degraded);
+        assert!(
+            health.degradation_reason.contains("eth-test0")
+                && health.degradation_reason.contains("br-test0"),
+            "reason must name the absent and the available interfaces: {}",
+            health.degradation_reason
+        );
+        assert_eq!(
+            health
+                .details
+                .get(crate::capture_plan::DETAIL_MISSING)
+                .map(String::as_str),
+            Some("eth-test0")
+        );
+        // The capability details the agent reads survive degradation.
+        assert!(health.details.contains_key("running_as_root"));
+    }
+
+    #[tokio::test]
+    async fn configure_accepts_the_requested_list_when_an_interface_was_absent() {
+        // The agent keeps pushing the config netprobe was started with. Comparing
+        // it against the interfaces actually captured on would refuse every push
+        // as "requires a restart" and hand the agent a reason to restart forever.
+        let addon = addon_with(startup_missing_eth_test0());
+
+        let result = addon
+            .configure(br#"{"enabled": true, "capture_interfaces": ["eth-test0"]}"#)
+            .await
+            .expect("configure returns");
+
+        assert!(result.accepted, "rejected: {}", result.error);
     }
 
     fn match_banners_request(payload_json: Vec<u8>) -> CommandRequest {
@@ -948,6 +1019,7 @@ mod tests {
         let addon = addon_with(StartupSnapshot {
             capture_interfaces: vec!["ens18".to_owned()],
             flow_table_max_entries: 65_536,
+            ..StartupSnapshot::default()
         });
 
         let result = addon
@@ -969,6 +1041,7 @@ mod tests {
         let addon = addon_with(StartupSnapshot {
             capture_interfaces: vec![],
             flow_table_max_entries: 65_536,
+            ..StartupSnapshot::default()
         });
 
         let result = addon
