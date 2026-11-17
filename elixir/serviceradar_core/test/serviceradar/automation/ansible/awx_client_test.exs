@@ -829,7 +829,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
             {%{extra_vars: %{"source" => "viewer:hunter2@nvr_01.example.com"}}, "source"},
             {%{job_tags: "deploy,viewer:hunter2@host01.example.com"}, "job_tags"},
             {%{skip_tags: "viewer:hunter2@host01.example.com:8554/stream"}, "skip_tags"},
-            {%{extra_vars: %{"config" => %{"source" => "viewer:hunter2@192.0.2.10"}}}, "config"}
+            {%{extra_vars: %{"config" => %{"source" => "viewer:hunter2@192.0.2.10"}}}, "config"},
+            # The credential shape itself: user `deploy`, password `prod`.
+            {%{host_limit: "deploy:prod@host01.example.com"}, "host_limit"},
+            # User `a`, password `b:c`.
+            {%{job_tags: "a:b:c@host01.example.com"}, "job_tags"}
           ] do
         assert {:error, {:credential_url_launch_input, ^name}} =
                  AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
@@ -867,6 +871,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       launch_opts = %{
         extra_vars: %{
           "contact" => "ops@example.com",
+          "note" => "label: deploy@host01.example.com",
           "window" => ["12:30@noon", "[2001:db8::1]"]
         },
         job_tags: "webservers:&staging",

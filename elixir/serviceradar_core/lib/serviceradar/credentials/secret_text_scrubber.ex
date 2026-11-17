@@ -38,7 +38,10 @@ defmodule ServiceRadar.Credentials.SecretTextScrubber do
   # A credential-bearing authority without a scheme: `user:password@host`,
   # optionally followed by a port and path. The host must be an IPv4 literal, a
   # bracketed IPv6 literal or a dotted host name, so an email address, a bare
-  # `user@host` and a time such as `12:30@noon` are not matched.
+  # `user@host` and a time such as `12:30@noon` are not matched. The user has no
+  # colon and the first colon ends it, so the match starts at the first token
+  # before the colon and everything up to `@` is the password: `a:b:c@host` is
+  # user `a`, password `b:c`, and is removed whole.
   @credential_userinfo "[^\\s/:@\"'<>=]+:[^\\s/@\"'<>]+@"
   @credential_host "(?:\\[[0-9A-Fa-f:.%]+\\]|[#{@host_label_chars}]+(?:\\.[#{@host_label_chars}]+)+)" <>
                      "(?![#{@host_label_chars}@])"

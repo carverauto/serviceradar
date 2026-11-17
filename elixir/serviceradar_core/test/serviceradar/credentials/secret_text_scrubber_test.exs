@@ -13,7 +13,12 @@ defmodule ServiceRadar.Credentials.SecretTextScrubberTest do
     "viewer:hunter2@host01.example.com:8554/stream",
     "limit=viewer:hunter2@host01.example.com",
     "viewer:hunter2@[2001:db8::1]:554",
-    "rtsp://viewer:hunter2@host01.example.com/stream"
+    "rtsp://viewer:hunter2@host01.example.com/stream",
+    # Exactly the credential shape (user `deploy`, password `prod`), so it
+    # cannot be told apart from a real credential.
+    "deploy:prod@host01.example.com",
+    # User `a`, password `b:c`: the first colon separates user and password.
+    "a:b:c@host01.example.com"
   ]
 
   @benign [
@@ -24,6 +29,7 @@ defmodule ServiceRadar.Credentials.SecretTextScrubberTest do
     "12:30@noon",
     "group1:group2",
     "build_group:web_servers",
+    "label: deploy@host01.example.com",
     "https://files.example.com/pkg.tgz?version=1.2.3#sha"
   ]
 
@@ -57,6 +63,10 @@ defmodule ServiceRadar.Credentials.SecretTextScrubberTest do
     {"contact ops@example.com", "contact ops@example.com"},
     {"12:30@noon", "12:30@noon"},
     {"viewer:hunter2@nvr_01.example.com", "nvr_01.example.com"},
+    {"label: deploy@host01.example.com", "label: deploy@host01.example.com"},
+    {"certificate issued for deploy:prod@host01.example.com",
+     "certificate issued for host01.example.com"},
+    {"a:b:c@host01.example.com", "host01.example.com"},
     {"rtsp://viewer:hunter2@192.0.2.10:554/stream", "rtsp://192.0.2.10:554"}
   ]
 

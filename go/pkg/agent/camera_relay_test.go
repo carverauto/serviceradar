@@ -1930,6 +1930,11 @@ func TestSanitizeCameraRelayFailureDetail(t *testing.T) {
 		{"email address kept", "certificate issued for deploy@host01.example.com", "certificate issued for deploy@host01.example.com"},
 		{"contact address kept", "contact ops@example.com", "contact ops@example.com"},
 		{"time at word kept", "12:30@noon", "12:30@noon"},
+		{"label then address kept", "label: deploy@host01.example.com", "label: deploy@host01.example.com"},
+		// The credential shape itself: user deploy, password prod.
+		{"user and password before host", "certificate issued for deploy:prod@host01.example.com", "certificate issued for host01.example.com"},
+		// The first colon separates user a from password b:c.
+		{"password containing a colon", "a:b:c@host01.example.com", "host01.example.com"},
 		{"path token", "SETUP /AbCdEf0123TokenXyz/trackID=1 rejected", "SETUP [path] rejected"},
 		{"query string", "token rejected: ?sig=AbCdEf0123TokenXyz", "token rejected:"},
 		{"non-printable bytes", "bad\x00status\r\nlineé\x7f", "bad status line"},
