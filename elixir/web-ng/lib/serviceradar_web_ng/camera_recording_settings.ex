@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
@@ -266,6 +267,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         uploads_in_flight_count: 0,
         quarantine_object_bytes: 0,
         blocked_by_provider_bytes: 0,
+        held_archive_bytes: 0,
+        held_archive_block_count: 0,
         catalog_non_reapable_bytes: 0,
         archived_block_count: 0,
         archived_object_count: 0,
@@ -293,6 +296,11 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         unarchived_local_count: 0,
         unarchived_local_bytes: 0,
         kind_b_local_only_bytes: 0,
+        held_local_pinned_count: 0,
+        held_local_pinned_bytes: 0,
+        held_kind_b_bytes: 0,
+        held_kind_a_local_only_bytes: 0,
+        held_archive_missing_count: 0,
         quarantined_local_count: 0,
         quarantined_local_bytes: 0,
         local_only_after_archive_count: 0,
@@ -303,6 +311,12 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         catalog_r15m_bytes_per_sec: 0.0,
         catalog_r6h_bytes_per_sec: 0.0,
         catalog_history_seconds: 0
+      },
+      holds: %{
+        active_hold_count: 0,
+        held_archive_bytes: 0,
+        held_local_pinned_bytes: 0,
+        held_archive_missing_count: 0
       },
       object_projection: projected.object_projection,
       local_projection: projected.local_projection,
@@ -377,7 +391,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     errors = Map.merge(changeset_errors, parse_errors)
 
     projection_attrs = build_safe_projection_attrs(next_form, existing)
-    sim_inputs = build_simulator_inputs(next_sim, usage_summary, storage_mode)
+    sim_inputs = build_simulator_inputs(next_sim, usage_summary, storage_mode, projection_attrs)
     projection = RetentionCalculator.project_settings(projection_attrs, sim_inputs)
 
     %{
@@ -568,7 +582,14 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         filtered = filter_blocks_by_profile(blocks, profile_filter)
         receipts_by_key = load_receipts_for_blocks(filtered, opts)
         catalog_by_key = load_catalog_for_blocks(filtered, scope, opts)
-        rows = Enum.map(filtered, &decorate_block_row(&1, receipts_by_key, catalog_by_key))
+        holds_by_entry_id = load_holds_for_catalog(catalog_by_key, scope, opts)
+
+        rows =
+          Enum.map(
+            filtered,
+            &decorate_block_row(&1, receipts_by_key, catalog_by_key, holds_by_entry_id)
+          )
+
         {:ok, %{rows: rows, next_cursor: next_cursor}}
 
       {:error, _reason} ->
@@ -1205,7 +1226,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     }
   end
 
-  defp build_simulator_inputs(sim_form, usage_summary, storage_mode) do
+  defp build_simulator_inputs(sim_form, usage_summary, storage_mode, projection_attrs) do
     archive = Map.get(usage_summary, :archive, %{})
     local_blocks = Map.get(usage_summary, :local_blocks, %{})
     local_proj = Map.get(usage_summary, :local_projection, %{})
@@ -1232,6 +1253,14 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         Map.get(local_blocks, :catalog_history_seconds, 0)
       )
 
+    pinned_bytes = resolve_preview_pinned_bytes(local_blocks, local_proj, projection_attrs)
+
+    non_reapable_bytes =
+      max(
+        Map.get(archive, :catalog_non_reapable_bytes, 0),
+        Map.get(object_proj, :non_reapable_bytes, 0)
+      )
+
     %{
       storage_mode: storage_mode,
       archive_used_bytes: Map.get(archive, :archive_used_bytes, 0),
@@ -1255,9 +1284,36 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
           do: sim_gib * @bytes_per_gib,
           else: Map.get(local_proj, :effective_budget_bytes, @bytes_per_gib)
         ),
-      pinned_bytes: Map.get(local_proj, :pinned_bytes, 0),
-      non_reapable_bytes: Map.get(object_proj, :non_reapable_bytes, 0)
+      pinned_bytes: pinned_bytes,
+      non_reapable_bytes: non_reapable_bytes
     }
+  end
+
+  defp resolve_preview_pinned_bytes(local_blocks, local_proj, projection_attrs) do
+    has_partition_inputs? =
+      Enum.any?(
+        [
+          :unarchived_local_bytes,
+          :kind_b_local_only_bytes,
+          :held_kind_b_bytes,
+          :held_kind_a_local_only_bytes,
+          :quarantined_local_bytes
+        ],
+        &(Map.get(local_blocks, &1, 0) > 0)
+      )
+
+    if has_partition_inputs? do
+      RetentionCalculator.calculate_pinned_bytes(%{
+        local_only_full_policy: Map.get(projection_attrs, :local_only_full_policy),
+        p1_unarchived_bytes: Map.get(local_blocks, :unarchived_local_bytes, 0),
+        kind_b_local_only_bytes: Map.get(local_blocks, :kind_b_local_only_bytes, 0),
+        held_kind_b_bytes: Map.get(local_blocks, :held_kind_b_bytes, 0),
+        held_kind_a_local_only_bytes: Map.get(local_blocks, :held_kind_a_local_only_bytes, 0),
+        p5_quarantined_bytes: Map.get(local_blocks, :quarantined_local_bytes, 0)
+      }).total_pinned_bytes
+    else
+      Map.get(local_proj, :pinned_bytes, 0)
+    end
   end
 
   defp safe_int(val, fallback) when is_binary(val) do
@@ -1538,9 +1594,28 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
+  defp load_holds_for_catalog(catalog_by_key, scope, opts) when is_map(catalog_by_key) do
+    entries =
+      catalog_by_key
+      |> Map.values()
+      |> Enum.filter(&is_map/1)
+      |> Enum.uniq_by(&Map.get(&1, :id))
+
+    if entries == [] do
+      %{}
+    else
+      case RecordingHolds.for_catalog_entries(entries, actor_opts(scope) ++ opts) do
+        {:ok, holds_by_entry_id} when is_map(holds_by_entry_id) -> holds_by_entry_id
+        _ -> %{}
+      end
+    end
+  end
+
+  defp load_holds_for_catalog(_catalog_by_key, _scope, _opts), do: %{}
+
   @doc false
-  @spec decorate_block_row(map(), map(), map()) :: map()
-  def decorate_block_row(block, receipts_by_key \\ %{}, catalog_by_key \\ %{}) do
+  @spec decorate_block_row(map(), map(), map(), map()) :: map()
+  def decorate_block_row(block, receipts_by_key \\ %{}, catalog_by_key \\ %{}, holds_by_entry_id \\ %{}) do
     storage_id = to_string(Map.get(block, :storage_id) || "—")
     block_key = to_string(Map.get(block, :block_key) || Map.get(block, :id))
     block_id = Map.get(block, :id)
@@ -1561,7 +1636,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     if is_nil(catalog_entry) do
       Map.merge(base, decorate_uncataloged_block_row(raw_state, receipt))
     else
-      Map.merge(base, decorate_cataloged_block_row(catalog_entry, receipt))
+      Map.merge(base, decorate_cataloged_block_row(catalog_entry, receipt, holds_by_entry_id))
     end
   end
 
@@ -1605,6 +1680,14 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       archive_copy_label: if(receipt, do: "Verified receipt", else: "No receipt in Core"),
       archive_copy_variant: if(receipt, do: "success", else: "ghost"),
       archive_copy_note: nil,
+      held?: false,
+      hold_count: 0,
+      hold_pinned_copy: nil,
+      hold_pin_label: nil,
+      hold_pin_variant: nil,
+      hold_kinds: [],
+      hold_archive_missing?: false,
+      hold_note: nil,
       time_basis: nil,
       time_basis_label: nil,
       timeline_start_at: nil,
@@ -1616,7 +1699,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     }
   end
 
-  defp decorate_cataloged_block_row(entry, _receipt) do
+  defp decorate_cataloged_block_row(entry, _receipt, holds_by_entry_id) do
+    entry_id = entry |> Map.get(:id) |> to_string_or_nil()
     local_state = normalize_state_atom(Map.get(entry, :local_state))
     archive_state = normalize_state_atom(Map.get(entry, :archive_state))
     deleted_reason = normalize_state_atom(Map.get(entry, :archive_deleted_reason))
@@ -1631,28 +1715,119 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {archive_label, archive_variant, archive_note} =
       format_catalog_archive_state(archive_state, deleted_reason, entry)
 
+    hold_fields = format_catalog_hold_fields(entry, entry_id, archive_state, holds_by_entry_id)
     time_fields = format_catalog_time_fields(entry)
 
-    Map.merge(
-      %{
-        cataloged?: true,
-        catalog_entry_id: entry |> Map.get(:id) |> to_string_or_nil(),
-        core_state_label: core_label,
-        core_state_variant: core_variant,
-        local_state: local_state,
-        local_copy_label: local_label,
-        local_copy_variant: local_variant,
-        local_copy_note: local_note,
-        archive_state: archive_state,
-        archive_copy_label: archive_label,
-        archive_copy_variant: archive_variant,
-        archive_copy_note: archive_note,
-        media_bytes: Map.get(entry, :media_bytes),
-        fragment_count: Map.get(entry, :fragment_count)
-      },
-      time_fields
-    )
+    %{
+      cataloged?: true,
+      catalog_entry_id: entry_id,
+      core_state_label: core_label,
+      core_state_variant: core_variant,
+      local_state: local_state,
+      local_copy_label: local_label,
+      local_copy_variant: local_variant,
+      local_copy_note: local_note,
+      archive_state: archive_state,
+      archive_copy_label: archive_label,
+      archive_copy_variant: archive_variant,
+      archive_copy_note: archive_note,
+      media_bytes: Map.get(entry, :media_bytes),
+      fragment_count: Map.get(entry, :fragment_count)
+    }
+    |> Map.merge(hold_fields)
+    |> Map.merge(time_fields)
   end
+
+  defp format_catalog_hold_fields(entry, entry_id, archive_state, holds_by_entry_id) when is_map(holds_by_entry_id) do
+    summary = (entry_id && Map.get(holds_by_entry_id, entry_id)) || %{}
+    hold_count = max(0, Map.get(summary, :hold_count, 0))
+    held? = hold_count > 0
+
+    if held? do
+      pinned_copy = resolve_hold_pinned_copy(summary, entry)
+      archive_missing? = Map.get(summary, :archive_missing?, archive_state == :missing)
+
+      kinds =
+        summary
+        |> Map.get(:kinds, [])
+        |> Enum.map(&normalize_hold_kind_label/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      {pin_label, pin_variant} = format_hold_pin_badge(pinned_copy, archive_missing?)
+      note = format_hold_note(hold_count, kinds, archive_missing?)
+
+      %{
+        held?: true,
+        hold_count: hold_count,
+        hold_pinned_copy: pinned_copy,
+        hold_pin_label: pin_label,
+        hold_pin_variant: pin_variant,
+        hold_kinds: kinds,
+        hold_archive_missing?: archive_missing?,
+        hold_note: note
+      }
+    else
+      %{
+        held?: false,
+        hold_count: 0,
+        hold_pinned_copy: nil,
+        hold_pin_label: nil,
+        hold_pin_variant: nil,
+        hold_kinds: [],
+        hold_archive_missing?: false,
+        hold_note: nil
+      }
+    end
+  end
+
+  defp resolve_hold_pinned_copy(summary, entry) do
+    if Map.has_key?(summary, :pinned_copy) or Map.has_key?(summary, "pinned_copy") do
+      summary
+      |> Map.get(:pinned_copy, Map.get(summary, "pinned_copy"))
+      |> normalize_hold_pin_atom()
+    else
+      RecordingHolds.pinned_copy_for_entry(entry)
+    end
+  end
+
+  defp format_hold_pin_badge(:archive, _archive_missing?) do
+    {"Hold pins archive copy (local evictable)", "info"}
+  end
+
+  defp format_hold_pin_badge(:local, true) do
+    {"Hold pins local copy", "error"}
+  end
+
+  defp format_hold_pin_badge(:local, false) do
+    {"Hold pins local copy", "warning"}
+  end
+
+  defp format_hold_pin_badge(_other, _archive_missing?) do
+    {"Held — no verified copy available", "error"}
+  end
+
+  defp format_hold_note(hold_count, kinds, archive_missing?) do
+    count_label = if hold_count == 1, do: "1 active hold", else: "#{hold_count} active holds"
+    kinds_suffix = if kinds == [], do: "", else: " (#{Enum.join(kinds, ", ")})"
+
+    missing_prefix =
+      if archive_missing?, do: "Held archive copy missing · ", else: ""
+
+    "#{missing_prefix}#{count_label}#{kinds_suffix} · Placed/released on Timeline"
+  end
+
+  defp normalize_hold_pin_atom(:archive), do: :archive
+  defp normalize_hold_pin_atom("archive"), do: :archive
+  defp normalize_hold_pin_atom(:local), do: :local
+  defp normalize_hold_pin_atom("local"), do: :local
+  defp normalize_hold_pin_atom(_), do: nil
+
+  defp normalize_hold_kind_label(:investigation), do: "investigation"
+  defp normalize_hold_kind_label("investigation"), do: "investigation"
+  defp normalize_hold_kind_label(:export), do: "export"
+  defp normalize_hold_kind_label("export"), do: "export"
+  defp normalize_hold_kind_label(_), do: nil
 
   defp format_catalog_core_state(:quarantined, nil), do: {"Cataloged (quarantined)", "error"}
   defp format_catalog_core_state(:quarantined, _block_id), do: {"Cataloged · Sealed (quarantined)", "error"}

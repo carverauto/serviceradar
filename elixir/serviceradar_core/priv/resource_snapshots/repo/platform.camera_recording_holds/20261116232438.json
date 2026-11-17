@@ -1,0 +1,375 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"uuid_generate_v7()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_holds_camera_source_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_sources"
+      },
+      "scale": null,
+      "size": null,
+      "source": "camera_source_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_holds_stream_profile_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_stream_profiles"
+      },
+      "scale": null,
+      "size": null,
+      "source": "stream_profile_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "start_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "end_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "kind",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "created_by_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"pending\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "accepted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "released_by_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "released_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "release_reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "[]",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "unavailable_blocks",
+      "type": [
+        "array",
+        "map"
+      ]
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "end_us"
+      ],
+      "base_filter": null,
+      "check": "end_us > start_us AND\nkind IN ('investigation', 'export') AND\nbtrim(reason) <> '' AND octet_length(reason) <= 1024 AND\nbtrim(created_by_id) <> '' AND octet_length(created_by_id) <= 128\n",
+      "name": "camera_recording_holds_bounds_and_kind"
+    },
+    {
+      "attribute": [
+        "state"
+      ],
+      "base_filter": null,
+      "check": "(state = 'pending' AND accepted_at IS NULL AND released_by_id IS NULL AND released_at IS NULL AND release_reason IS NULL) OR\n(state = 'accepted' AND accepted_at IS NOT NULL AND released_by_id IS NULL AND released_at IS NULL AND release_reason IS NULL) OR\n(state = 'released' AND accepted_at IS NOT NULL AND released_by_id IS NOT NULL AND btrim(released_by_id) <> '' AND octet_length(released_by_id) <= 128 AND released_at IS NOT NULL AND released_at >= accepted_at AND (release_reason IS NULL OR (btrim(release_reason) <> '' AND octet_length(release_reason) <= 1024)))\n",
+      "name": "camera_recording_holds_state_lifecycle"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "camera_source_id",
+        "start_us",
+        "end_us"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "start_us"
+        },
+        {
+          "type": "atom",
+          "value": "end_us"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_holds_active_range_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "state = 'accepted'"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "camera_source_id",
+        "stream_profile_id",
+        "start_us",
+        "end_us"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "stream_profile_id"
+        },
+        {
+          "type": "atom",
+          "value": "start_us"
+        },
+        {
+          "type": "atom",
+          "value": "end_us"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_holds_profile_range_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "state = 'accepted' AND stream_profile_id IS NOT NULL"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "state",
+        "inserted_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "state"
+        },
+        {
+          "type": "atom",
+          "value": "inserted_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_holds_state_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    }
+  ],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "7433FE2F4F869B202BD9276D10CAD4FAD3B2EE8530086D254A36CCEA0F4CF6A5",
+  "identities": [],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_recording_holds",
+  "temporal": null
+}

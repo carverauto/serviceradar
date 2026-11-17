@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.LocalPublicationIntent
@@ -10,7 +11,10 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingHold
+  alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -818,7 +822,7 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
              )
 
     # Helper for_blocks/2 authorizes settings.recording.view and devices.cameras.recordings.view.
-    assert {:error, %Ash.Error.Forbidden{}} =
+    assert {:error, %Forbidden{}} =
              RecordingCatalogEntry.for_blocks([sealed_block],
                actor: %{id: "no-perm", role: :viewer, permissions: MapSet.new()}
              )
@@ -1052,6 +1056,425 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
              )
   end
 
+  test "C.2 & C.3: PD5 hold pin moves on archive verification and missing fallback, deletion-first produces unavailable_blocks, and RecordingDisposition trigger refuses UPDATE and DELETE",
+       ctx do
+    t0 = ~U[2026-11-16 15:00:00.000000Z]
+    t0_us = DateTime.to_unix(t0, :microsecond)
+
+    # 1. Catalog block 1 (ctx.block) as local-only (archive_state = :not_required).
+    assert {:ok, entry1} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               Fixtures.recording_descriptor(ctx.block),
+               %{first_unit_pts: 0, first_unit_received_at: t0, policy_storage: :local_only},
+               ctx.opts
+             )
+
+    assert entry1.local_state == :present
+    assert entry1.archive_state == :not_required
+
+    # Authorization guard: actor without devices.cameras.recordings.hold is refused.
+    view_only = %{
+      id: "viewer-no-hold",
+      role: :viewer,
+      permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+    }
+
+    assert {:error, %Forbidden{}} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 start_us: t0_us - 1_000_000,
+                 end_us: t0_us + 5_000_000,
+                 kind: :investigation,
+                 reason: "synthetic unauthorized hold attempt"
+               },
+               actor: view_only
+             )
+
+    hold_actor = %{
+      id: "investigator-01",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.operate"
+        ])
+    }
+
+    # Place accepted hold covering entry1: pins :local because archive_state == :not_required.
+    assert {:ok, hold1} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 start_us: t0_us - 500_000,
+                 end_us: t0_us + 2_000_000,
+                 kind: :investigation,
+                 reason: "preserve synthetic incident timeline"
+               },
+               actor: hold_actor
+             )
+
+    assert hold1.state == :accepted
+    assert hold1.unavailable_blocks == []
+
+    assert {:ok, summaries} =
+             RecordingHolds.for_catalog_entries([entry1], actor: view_only)
+
+    assert summaries[entry1.id].pinned_copy == :local
+    assert summaries[entry1.id].hold_count == 1
+    assert summaries[entry1.id].kinds == [:investigation]
+
+    # Local deletion intent on held local-only entry MUST be refused!
+    assert {:error, {:blocked_by_hold, %{pinned_copy: :local}}} =
+             RecordingHolds.begin_copy_deletion_intent(
+               entry1.id,
+               :local,
+               %{
+                 reason: :local_only_overwrite,
+                 effective_settings: %{"policy" => "overwrite_oldest"}
+               },
+               actor: hold_actor
+             )
+
+    # 2. Verify archive on entry1 -> pin moves to :archive!
+    #    Now :archive deletion intent MUST be refused, while :local eviction MUST be allowed (PD5)!
+    binding = register_binding(ctx)
+
+    assert {:ok, %{entry: verified_entry, pinned_copy: :archive, holds: [moved_hold]}} =
+             RecordingHolds.mark_archive_verified_and_move_pin(
+               entry1.id,
+               %{archive_binding_id: binding.id},
+               actor: hold_actor
+             )
+
+    assert moved_hold.id == hold1.id
+    assert verified_entry.archive_state == :verified
+
+    assert {:error, {:blocked_by_hold, %{pinned_copy: :archive}}} =
+             RecordingHolds.begin_copy_deletion_intent(
+               entry1.id,
+               :archive,
+               %{reason: :object_capacity, effective_settings: %{"policy" => "reap_oldest"}},
+               actor: hold_actor
+             )
+
+    # Next, simulate archive copy becoming :missing BEFORE local copy is evicted:
+    # pin MUST move back to :local, return affected holds, and refuse :local deletion again!
+    assert {:ok,
+            %{
+              entry: missing_entry,
+              pinned_copy: :local,
+              holds: [missing_hold],
+              held_archive_missing?: true
+            }} =
+             RecordingHolds.mark_archive_missing_and_fallback_pin(
+               entry1.id,
+               %{error_class: "object_changed"},
+               actor: hold_actor
+             )
+
+    assert missing_hold.id == hold1.id
+    assert missing_entry.archive_state == :missing
+
+    assert {:error, {:pinned_by_archive_state, :missing}} =
+             RecordingHolds.begin_copy_deletion_intent(
+               entry1.id,
+               :local,
+               %{reason: :budget},
+               actor: hold_actor
+             )
+
+    # Re-verify archive copy -> pin moves to :archive again, and :local budget eviction SUCCEEDS!
+    assert {:ok, %{entry: reverified, pinned_copy: :archive}} =
+             RecordingHolds.mark_archive_verified_and_move_pin(
+               entry1.id,
+               %{archive_binding_id: binding.id},
+               actor: hold_actor
+             )
+
+    assert reverified.archive_state == :verified
+
+    assert {:ok, %{entry: reclaiming_entry, disposition: disp1}} =
+             RecordingHolds.begin_copy_deletion_intent(
+               entry1.id,
+               :local,
+               %{
+                 reason: :budget,
+                 settings_revision: "rev-1",
+                 effective_settings: %{"local_high_water_percent" => 90}
+               },
+               actor: hold_actor
+             )
+
+    assert reclaiming_entry.local_state == :reclaiming
+    assert disp1.step == :requested
+    assert disp1.copy == :local
+    assert disp1.reason == :budget
+    assert disp1.hold_check_result["decision"] == "allowed_local_eviction_archive_pinned"
+
+    # Append follow-up step (:executed) under the same operation_id.
+    assert {:ok, disp_exec} =
+             RecordingHolds.record_disposition_step(disp1, :executed, %{}, actor: hold_actor)
+
+    assert disp_exec.operation_id == disp1.operation_id
+    assert disp_exec.step == :executed
+
+    # PostgreSQL BEFORE UPDATE OR DELETE trigger on camera_recording_dispositions refuses UPDATE and DELETE!
+    disp_id_bin = Ecto.UUID.dump!(disp1.id)
+
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{constraint: "camera_recording_dispositions_append_only"}
+            }} =
+             Repo.query(
+               "UPDATE platform.camera_recording_dispositions SET reason = 'max_local_age' WHERE id = $1",
+               [disp_id_bin]
+             )
+
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{constraint: "camera_recording_dispositions_append_only"}
+            }} =
+             Repo.query(
+               "DELETE FROM platform.camera_recording_dispositions WHERE id = $1",
+               [disp_id_bin]
+             )
+
+    # Check constraint requires catalog_entry_id IS NOT NULL for catalog-bound reasons,
+    # while allowing operator_quarantine with catalog_entry_id: nil for non-catalog residue.
+    assert {:error, _} =
+             RecordingDisposition.record(
+               %{
+                 operation_id: Ecto.UUID.generate(),
+                 catalog_entry_id: nil,
+                 storage_id: ctx.claim.storage_id,
+                 block_key: digest("non-catalog-invalid-reason"),
+                 copy: :local,
+                 reason: :budget,
+                 step: :requested,
+                 actor_id: "system"
+               },
+               ctx.opts
+             )
+
+    residue_op = Ecto.UUID.generate()
+    on_exit(fn -> Fixtures.cleanup_dispositions_by_operation(residue_op) end)
+
+    assert {:ok, residue_disp} =
+             RecordingDisposition.record(
+               %{
+                 operation_id: residue_op,
+                 catalog_entry_id: nil,
+                 storage_id: ctx.claim.storage_id,
+                 block_key: digest("non-catalog-quarantine-residue"),
+                 copy: :local,
+                 reason: :operator_quarantine,
+                 step: :requested,
+                 actor_id: "investigator-01"
+               },
+               ctx.opts
+             )
+
+    assert is_nil(residue_disp.catalog_entry_id)
+
+    # 3. Deletion intent committed FIRST wins: subsequent place_hold records unavailable_blocks!
+    t2 = DateTime.shift(t0, second: 30)
+    t2_us = DateTime.to_unix(t2, :microsecond)
+
+    assert {:ok, block2} =
+             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    assert {:ok, entry2} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               block2,
+               Fixtures.recording_descriptor(block2),
+               %{
+                 first_unit_pts: 2_700_000,
+                 first_unit_received_at: t2,
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    assert {:ok, %{entry: entry2_reclaiming}} =
+             RecordingHolds.begin_copy_deletion_intent(
+               entry2.id,
+               :local,
+               %{reason: :local_only_overwrite},
+               actor: hold_actor
+             )
+
+    assert entry2_reclaiming.local_state == :reclaiming
+
+    assert {:ok, hold_after_delete} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 start_us: t2_us - 100_000,
+                 end_us: t2_us + 2_000_000,
+                 kind: :export,
+                 reason: "export request after deletion started"
+               },
+               actor: hold_actor
+             )
+
+    assert [
+             %{
+               "catalog_entry_id" => unavail_id,
+               "status" => "unavailable, deletion in progress"
+             }
+           ] = hold_after_delete.unavailable_blocks
+
+    assert unavail_id == entry2.id
+
+    # Hold never claims to protect a block listed in unavailable_blocks!
+    assert {:ok, after_summaries} =
+             RecordingHolds.for_catalog_entries([entry2_reclaiming], actor: view_only)
+
+    assert after_summaries[entry2.id].hold_count == 0
+    assert is_nil(after_summaries[entry2.id].pinned_copy)
+
+    # Release hold1 explicitly and verify re-release is refused.
+    assert {:ok, released_hold} =
+             RecordingHolds.release_hold(
+               hold1.id,
+               %{release_reason: "investigation closed"},
+               actor: hold_actor
+             )
+
+    assert released_hold.state == :released
+    assert released_hold.released_by_id == "investigator-01"
+    assert released_hold.release_reason == "investigation closed"
+
+    assert {:error, :hold_already_released} =
+             RecordingHolds.release_hold(hold1.id, %{}, actor: hold_actor)
+  end
+
+  test "C.2 & C.12: concurrent Task.async row-lock serialization prevents hold-pinning and deletion-intent from both succeeding on a single copy",
+       ctx do
+    hold_actor = %{
+      id: "race-investigator",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.operate"
+        ])
+    }
+
+    base_t = ~U[2026-11-16 15:30:00.000000Z]
+
+    # Run 6 independent races on distinct single-copy local-only catalog entries across
+    # concurrent DB connections synchronized on a start barrier.
+    for round <- 1..6 do
+      block =
+        if round == 1 do
+          ctx.block
+        else
+          {:ok, b} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+          b
+        end
+
+      ts = DateTime.shift(base_t, second: round * 20)
+      ts_us = DateTime.to_unix(ts, :microsecond)
+
+      assert {:ok, entry} =
+               RecordingBlocks.freeze_and_catalog(
+                 ctx.owner,
+                 ctx.claim,
+                 block,
+                 Fixtures.recording_descriptor(block),
+                 %{
+                   first_unit_pts: round * 900_000,
+                   first_unit_received_at: ts,
+                   policy_storage: :local_only
+                 },
+                 ctx.opts
+               )
+
+      parent = self()
+
+      hold_task =
+        Task.async(fn ->
+          send(parent, {:hold_ready, self()})
+          receive do: (:go -> :ok)
+
+          RecordingHolds.place_hold(
+            %{
+              camera_source_id: ctx.source.id,
+              stream_profile_id: ctx.profile.id,
+              start_us: ts_us - 50_000,
+              end_us: ts_us + 2_000_000,
+              kind: :investigation,
+              reason: "concurrent hold round #{round}"
+            },
+            actor: hold_actor
+          )
+        end)
+
+      delete_task =
+        Task.async(fn ->
+          send(parent, {:delete_ready, self()})
+          receive do: (:go -> :ok)
+
+          RecordingHolds.begin_copy_deletion_intent(
+            entry.id,
+            :local,
+            %{reason: :local_only_overwrite},
+            actor: hold_actor
+          )
+        end)
+
+      assert_receive {:hold_ready, hold_pid}, 5_000
+      assert_receive {:delete_ready, delete_pid}, 5_000
+
+      if rem(round, 2) == 0 do
+        send(hold_pid, :go)
+        send(delete_pid, :go)
+      else
+        send(delete_pid, :go)
+        send(hold_pid, :go)
+      end
+
+      assert {:ok, %RecordingHold{} = hold} = Task.await(hold_task, 10_000)
+      delete_result = Task.await(delete_task, 10_000)
+
+      {:ok, refreshed} = Ash.get(RecordingCatalogEntry, entry.id, ctx.opts)
+
+      case delete_result do
+        {:error, {:blocked_by_hold, %{pinned_copy: :local}}} ->
+          # Hold committed first -> deletion intent was refused and local copy stayed :present!
+          assert hold.unavailable_blocks == []
+          assert refreshed.local_state == :present
+
+        {:ok, %{entry: %{local_state: :reclaiming}}} ->
+          # Deletion intent committed first -> hold MUST record the block as unavailable!
+          assert refreshed.local_state == :reclaiming
+
+          assert [
+                   %{
+                     "catalog_entry_id" => unavail_id,
+                     "status" => "unavailable, deletion in progress"
+                   }
+                 ] = hold.unavailable_blocks
+
+          assert unavail_id == entry.id
+
+        other ->
+          flunk("unexpected concurrent deletion result: #{inspect(other)}")
+      end
+    end
+  end
+
   defp close_recovery_during_query(ctx, query?, work) do
     handler = {__MODULE__, make_ref()}
     parent = self()
@@ -1086,6 +1509,15 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     source = Ecto.UUID.dump!(ctx.source.id)
 
     on_exit(fn ->
+      Repo.query!(
+        """
+        UPDATE platform.camera_recording_catalog
+        SET archive_binding_id = NULL, quarantine_binding_id = NULL
+        WHERE archive_binding_id = $1 OR quarantine_binding_id = $1
+        """,
+        [id]
+      )
+
       Repo.query!(
         "DELETE FROM platform.camera_recording_blocks WHERE camera_source_id = $1 AND archive_binding_id = $2",
         [source, id]

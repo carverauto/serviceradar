@@ -33,7 +33,8 @@ defmodule ServiceRadar.Security.AuditVersionRetentionWorkerTest do
     "authored_dashboard_versions",
     "dashboard_report_schedule_versions",
     "sweep_group_versions",
-    "camera_recording_archive_settings_versions"
+    "camera_recording_archive_settings_versions",
+    "camera_recording_holds_versions"
   ]
 
   setup do

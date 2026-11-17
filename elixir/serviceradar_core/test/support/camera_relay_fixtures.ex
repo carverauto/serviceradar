@@ -200,6 +200,16 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
   def cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
 
+    cleanup_source_dispositions(id)
+
+    Repo.query!(
+      "DELETE FROM platform.camera_recording_holds_versions WHERE version_source_id IN " <>
+        "(SELECT id FROM platform.camera_recording_holds WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    Repo.query!("DELETE FROM platform.camera_recording_holds WHERE camera_source_id = $1", [id])
+
     Repo.query!(
       "DELETE FROM platform.camera_recording_catalog WHERE camera_source_id = $1 OR recording_block_id IN " <>
         "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
@@ -224,6 +234,12 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
                [id]
              )
 
+    Repo.query!(
+      "DELETE FROM platform.camera_nvr_archive_receipts WHERE recording_block_id IN " <>
+        "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
+      [id]
+    )
+
     Repo.query!("DELETE FROM platform.camera_recording_blocks WHERE camera_source_id = $1", [id])
 
     Repo.query!(
@@ -245,6 +261,83 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
     assert %{rows: [[0]]} =
              Repo.query!("SELECT count(*) FROM platform.camera_sources WHERE id = $1", [id])
+  end
+
+  @doc "Cleans up append-only `camera_recording_dispositions` rows committed by unboxed tests."
+  def cleanup_dispositions_by_operation(operation_id) do
+    op_bin = Ecto.UUID.dump!(operation_id)
+
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.camera_recording_dispositions WHERE operation_id = $1",
+        [op_bin]
+      )
+
+    if count > 0 do
+      {:ok, _} =
+        Repo.transaction(fn ->
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_dispositions DISABLE TRIGGER trg_camera_recording_dispositions_append_only"
+          )
+
+          Repo.query!(
+            "DELETE FROM platform.camera_recording_dispositions WHERE operation_id = $1",
+            [op_bin]
+          )
+
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_dispositions ENABLE TRIGGER trg_camera_recording_dispositions_append_only"
+          )
+        end)
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_recording_dispositions WHERE operation_id = $1",
+                 [op_bin]
+               )
+    end
+  end
+
+  defp cleanup_source_dispositions(source_id_bin) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*) FROM platform.camera_recording_dispositions
+        WHERE catalog_entry_id IN (
+          SELECT id FROM platform.camera_recording_catalog
+          WHERE camera_source_id = $1 OR recording_block_id IN (
+            SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1
+          )
+        )
+        """,
+        [source_id_bin]
+      )
+
+    if count > 0 do
+      {:ok, _} =
+        Repo.transaction(fn ->
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_dispositions DISABLE TRIGGER trg_camera_recording_dispositions_append_only"
+          )
+
+          Repo.query!(
+            """
+            DELETE FROM platform.camera_recording_dispositions
+            WHERE catalog_entry_id IN (
+              SELECT id FROM platform.camera_recording_catalog
+              WHERE camera_source_id = $1 OR recording_block_id IN (
+                SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1
+              )
+            )
+            """,
+            [source_id_bin]
+          )
+
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_dispositions ENABLE TRIGGER trg_camera_recording_dispositions_append_only"
+          )
+        end)
+    end
   end
 
   def local_intent(block, operation) do

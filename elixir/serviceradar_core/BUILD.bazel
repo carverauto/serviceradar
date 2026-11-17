@@ -665,6 +665,31 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "camera_recording_holds_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_recording_holds/hold.json",
+        "generated_camera_recording_holds/hold_version.json",
+        "generated_camera_recording_holds/disposition.json",
+        "generated_camera_recording_holds/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_recording_holds_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_recording_holds_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_holds/20261116232438.json": ":generated_camera_recording_holds/hold.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_holds_versions/20261116232438.json": ":generated_camera_recording_holds/hold_version.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_dispositions/20261116232438.json": ":generated_camera_recording_holds/disposition.json",
+        "priv/repo/migrations/20261116232438_add_camera_recording_holds_and_dispositions.exs": ":generated_camera_recording_holds/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

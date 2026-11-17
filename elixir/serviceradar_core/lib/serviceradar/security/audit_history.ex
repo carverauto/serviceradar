@@ -74,7 +74,8 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.SweepJobs.SweepGroup,
     ServiceRadar.Dashboards.AuthoredDashboard,
     ServiceRadar.Dashboards.DashboardReportSchedule,
-    ServiceRadar.Camera.RecordingArchiveSettings
+    ServiceRadar.Camera.RecordingArchiveSettings,
+    ServiceRadar.Camera.RecordingHold
   ]
 
   # AshEvents-backed resources, distinct from `@default_resources` (which is

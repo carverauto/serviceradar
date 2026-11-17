@@ -145,7 +145,13 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     viewer_permissions = Catalog.permissions_for_role(:viewer)
 
     for permission <-
-          ~w(settings.recording.view settings.recording.manage settings.recording.operate) do
+          ~w(
+            settings.recording.view
+            settings.recording.manage
+            settings.recording.operate
+            devices.cameras.recordings.view
+            devices.cameras.recordings.hold
+          ) do
       assert permission in keys
       assert MapSet.member?(admin_permissions, permission)
       refute MapSet.member?(operator_permissions, permission)

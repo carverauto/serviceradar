@@ -1021,7 +1021,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-3"
       >
         <div class="flex flex-wrap items-start justify-between gap-2">
-          <div>
+          <div class="space-y-1">
             <h2 class="text-base font-semibold text-sr-ink">Per-Camera Block Locations</h2>
             <p class="mt-1 text-xs text-sr-muted">
               Sealed blocks registered in <code class="font-mono">RecordingCatalogEntry</code>
@@ -1034,6 +1034,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               rows represent Core block reservations, with local copy state shown as
               <strong>unknown</strong>
               when NVR lookup is unavailable.
+            </p>
+            <p id="camera-recording-holds-timeline-note" class="text-xs text-sr-muted">
+              Investigation and export holds pin one verified copy (the archive copy once verified so
+              the local copy stays evictable, otherwise the local copy) and are placed or released
+              from the camera Timeline, not in Settings.
             </p>
           </div>
         </div>
@@ -1064,6 +1069,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 <th class="py-2 pr-3 font-medium">Core Record</th>
                 <th class="py-2 pr-3 font-medium">Local Copy (NVR)</th>
                 <th class="py-2 pr-3 font-medium">Archive Copy (Catalog &amp; Receipt)</th>
+                <th class="py-2 pr-3 font-medium">Hold Pin</th>
                 <th class="py-2 pr-3 font-medium">Timeline Window (Time Basis)</th>
                 <th class="py-2 font-medium">Reserved At</th>
               </tr>
@@ -1128,6 +1134,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                       </div>
                     </div>
                   </div>
+                </td>
+                <td class="py-2.5 pr-3">
+                  <%= cond do %>
+                    <% Map.get(row, :held?) and is_binary(Map.get(row, :hold_pin_label)) -> %>
+                      <div id={"block-hold-pin-#{row.id}"} class="space-y-1">
+                        <.ui_badge size="xs" variant={Map.get(row, :hold_pin_variant, "info")}>
+                          {Map.get(row, :hold_pin_label)}
+                        </.ui_badge>
+                        <div :if={Map.get(row, :hold_note)} class="text-[11px] text-sr-muted">
+                          {Map.get(row, :hold_note)}
+                        </div>
+                      </div>
+                    <% Map.get(row, :cataloged?) -> %>
+                      <span class="text-[11px] text-sr-muted">No active hold</span>
+                    <% true -> %>
+                      <span class="text-[11px] text-sr-muted">—</span>
+                  <% end %>
                 </td>
                 <td class="py-2.5 pr-3">
                   <%= cond do %>
@@ -1257,18 +1280,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :timezone, :string, default: "Etc/UTC"
 
   def retention_panel(assigns) do
+    holds_view =
+      extract_holds_view(
+        assigns.usage_summary,
+        assigns.projection,
+        assigns.retention_form,
+        assigns.settings_struct
+      )
+
+    assigns = assign(assigns, :holds_view, holds_view)
+
     ~H"""
     <div id="recording-tab-panel-retention" class="space-y-6">
       <.retention_stage_banner
         storage_mode={@storage_mode}
         object_retention_enforced?={@object_retention_enforced?}
         shorter_archive_than_local?={@projection.shorter_archive_than_local?}
+        holds_view={@holds_view}
       />
 
       <.retention_usage_and_projection_card
         storage_mode={@storage_mode}
         usage_summary={@usage_summary}
         projection={@projection}
+        holds_view={@holds_view}
         retention_form={@retention_form}
         settings_struct={@settings_struct}
         timezone={@timezone}
@@ -1331,6 +1366,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :storage_mode, :atom, required: true
   attr :object_retention_enforced?, :boolean, required: true
   attr :shorter_archive_than_local?, :boolean, required: true
+  attr :holds_view, :map, required: true
 
   defp retention_stage_banner(assigns) do
     ~H"""
@@ -1366,6 +1402,41 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       </section>
 
       <div
+        :if={@holds_view.non_reapable_at_high_water?}
+        id="retention-non-reapable-high-water-alert"
+        role="alert"
+        class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-sr-ink space-y-1"
+      >
+        <p class="font-semibold">
+          Non-reapable bytes (held archive copies and uploads in flight) have reached object high water — new archive uploads pause until holds are released or the budget is raised
+        </p>
+        <p class="text-sr-muted">
+          Non-reapable object bytes (<span class="font-mono text-sr-ink">{format_bytes(@holds_view.non_reapable_bytes)}</span>,
+          including
+          <span class="font-mono text-sr-ink">{format_bytes(@holds_view.held_archive_bytes)}</span>
+          pinned across <strong class="text-sr-ink">{@holds_view.active_hold_count}</strong>
+          active hold(s)) are at or above object high water (<span class="font-mono text-sr-ink">{format_bytes(@holds_view.object_high_water_bytes)}</span>).
+          Recording continues locally while held archive copies remain protected.
+        </p>
+      </div>
+
+      <div
+        :if={@holds_view.held_archive_missing_count > 0}
+        id="retention-held-archive-missing-alert"
+        role="alert"
+        class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-sr-ink space-y-1"
+      >
+        <p class="font-semibold">
+          Held archive copy missing (<code class="font-mono">held_archive_missing</code>): {@holds_view.held_archive_missing_count} held block(s) report a missing or changed archive copy
+        </p>
+        <p class="text-sr-muted">
+          Any remaining local copy has been re-pinned locally to preserve evidence. Resolve affected
+          entries from the Health tab (re-archive from a present local copy, or record an audited
+          loss acceptance with <code class="font-mono">devices.cameras.recordings.hold</code>).
+        </p>
+      </div>
+
+      <div
         :if={@storage_mode == :local_and_archive and !@object_retention_enforced?}
         id="retention-unenforced-banner"
         class="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-xs text-sr-ink"
@@ -1397,6 +1468,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :storage_mode, :atom, required: true
   attr :usage_summary, :map, required: true
   attr :projection, :map, required: true
+  attr :holds_view, :map, required: true
   attr :retention_form, :map, required: true
   attr :settings_struct, :map, required: true
   attr :timezone, :string, default: "Etc/UTC"
@@ -1513,9 +1585,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           id="retention-metric-local-only-footage"
           class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3 space-y-1"
         >
-          <div class="text-xs text-sr-muted">Local-only &amp; held archive bytes</div>
-          <div class="text-sm font-semibold font-mono text-sr-ink">
-            Held: {format_bytes(@projection.object_projection.non_reapable_bytes)}
+          <div class="text-xs text-sr-muted">Holds, non-reapable &amp; local-only bytes</div>
+          <div id="retention-active-holds-count" class="text-sm font-semibold font-mono text-sr-ink">
+            Active holds: {@holds_view.active_hold_count}
+          </div>
+          <div id="retention-held-archive-bytes" class="text-[11px] text-sr-muted">
+            Held archive:
+            <span class="font-mono text-sr-ink">{format_bytes(@holds_view.held_archive_bytes)}</span>
+            · Non-reapable:
+            <span id="retention-non-reapable-bytes" class="font-mono text-sr-ink">
+              {format_bytes(@holds_view.non_reapable_bytes)}
+            </span>
+          </div>
+          <div id="retention-held-local-pinned-bytes" class="text-[11px] text-sr-muted">
+            Held local-pinned:
+            <span class="font-mono text-sr-ink">
+              {format_bytes(@holds_view.held_local_pinned_bytes)}
+            </span>
           </div>
           <div class="text-[11px] text-sr-muted">
             Local-only footage: <span class="font-mono">{format_bytes(@kind_b_bytes)}</span>
@@ -1537,6 +1623,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               />)
             </span>
           </div>
+        </div>
+      </div>
+
+      <div
+        id="retention-holds-capacity-summary"
+        class="rounded-lg border border-sr-line bg-sr-subtle/30 px-3.5 py-2.5 text-xs text-sr-muted space-y-1"
+      >
+        <div class="text-sr-ink">
+          <strong>Hold pin &amp; capacity rule:</strong>
+          archive-verified held blocks pin the archive copy (<span class="font-mono">{format_bytes(
+            @holds_view.held_archive_bytes
+          )}</span>
+          included in <span class="font-mono">{format_bytes(@holds_view.non_reapable_bytes)}</span>
+          non-reapable object bytes) and keep their local copy evictable under the local budget and
+          maximum local age; local-only, unarchived, or archive-deleted/missing held blocks pin the
+          local copy (<span class="font-mono">{format_bytes(@holds_view.held_local_pinned_bytes)}</span>
+          included in <span class="font-mono">{format_bytes(@holds_view.local_pinned_bytes)}</span>
+          local pinned bytes).
+        </div>
+        <div>
+          Investigation and export holds are placed and released on the camera Timeline, not in
+          Settings.
         </div>
       </div>
 
@@ -2481,6 +2589,100 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   # --- formatting helpers ----------------------------------------------------
+
+  defp extract_holds_view(usage_summary, projection, retention_form, settings_struct) do
+    archive = Map.get(usage_summary, :archive, %{})
+    local_blocks = Map.get(usage_summary, :local_blocks, %{})
+    holds = Map.get(usage_summary, :holds, %{})
+    summary_obj_proj = Map.get(usage_summary, :object_projection, %{})
+    summary_local_proj = Map.get(usage_summary, :local_projection, %{})
+    proj_obj = Map.get(projection, :object_projection, %{})
+    proj_local = Map.get(projection, :local_projection, %{})
+
+    active_hold_count = Map.get(holds, :active_hold_count, 0)
+
+    held_archive_bytes =
+      Map.get(holds, :held_archive_bytes, Map.get(archive, :held_archive_bytes, 0))
+
+    held_local_pinned_bytes =
+      Map.get(
+        holds,
+        :held_local_pinned_bytes,
+        Map.get(local_blocks, :held_local_pinned_bytes, 0)
+      )
+
+    held_archive_missing_count =
+      Map.get(
+        holds,
+        :held_archive_missing_count,
+        Map.get(local_blocks, :held_archive_missing_count, 0)
+      )
+
+    summary_non_reapable =
+      max(
+        Map.get(archive, :catalog_non_reapable_bytes, 0),
+        Map.get(summary_obj_proj, :non_reapable_bytes, 0)
+      )
+
+    non_reapable_bytes =
+      if summary_non_reapable > 0 do
+        summary_non_reapable
+      else
+        Map.get(proj_obj, :non_reapable_bytes, 0)
+      end
+
+    local_pinned_bytes =
+      max(
+        Map.get(proj_local, :pinned_bytes, Map.get(summary_local_proj, :pinned_bytes, 0)),
+        held_local_pinned_bytes
+      )
+
+    object_high_water_bytes =
+      resolve_object_high_water_bytes(
+        proj_obj,
+        summary_obj_proj,
+        retention_form,
+        settings_struct
+      )
+
+    non_reapable_at_high_water? =
+      is_integer(object_high_water_bytes) and object_high_water_bytes > 0 and
+        non_reapable_bytes >= object_high_water_bytes
+
+    %{
+      active_hold_count: active_hold_count,
+      held_archive_bytes: held_archive_bytes,
+      held_local_pinned_bytes: held_local_pinned_bytes,
+      held_archive_missing_count: held_archive_missing_count,
+      non_reapable_bytes: non_reapable_bytes,
+      local_pinned_bytes: local_pinned_bytes,
+      object_high_water_bytes: object_high_water_bytes,
+      non_reapable_at_high_water?: non_reapable_at_high_water?
+    }
+  end
+
+  defp resolve_object_high_water_bytes(proj_obj, summary_obj_proj, retention_form, settings_struct) do
+    proj_high = Map.get(proj_obj, :high_water_bytes)
+    summary_high = Map.get(summary_obj_proj, :high_water_bytes)
+
+    draft_switched_to_unlimited? =
+      retention_form["object_budget_mode"] == "unlimited" and
+        Map.get(settings_struct, :object_budget_mode) in [:limited, "limited"]
+
+    cond do
+      Map.get(proj_obj, :object_budget_mode) == :limited and is_integer(proj_high) and
+          proj_high > 0 ->
+        proj_high
+
+      not draft_switched_to_unlimited? and
+        Map.get(summary_obj_proj, :object_budget_mode) == :limited and
+        is_integer(summary_high) and summary_high > 0 ->
+        summary_high
+
+      true ->
+        nil
+    end
+  end
 
   defp format_object_retention_summary(%{policies: [pol | _]} = obj_proj) do
     cfg = pol.configured_days

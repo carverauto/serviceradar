@@ -257,6 +257,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.cameras.recordings.hold",
+          section: "devices",
+          resource: "devices.cameras.recordings",
+          action: "hold",
+          label: "Hold camera recordings",
+          description:
+            "Place and release investigation or export holds on recorded camera footage",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.console.open",
           section: "devices",
           resource: "devices.console",
