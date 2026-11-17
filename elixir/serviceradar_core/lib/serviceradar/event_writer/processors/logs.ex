@@ -634,12 +634,22 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp collector_row(nil, _log_record, row), do: row
 
-  defp collector_row(columns, %LogRecord{severity_number: severity, severity_text: text}, row) do
+  defp collector_row(columns, %LogRecord{} = log_record, row) do
+    %LogRecord{
+      severity_number: severity,
+      severity_text: text,
+      time_unix_nano: time,
+      observed_time_unix_nano: observed
+    } = log_record
+
     severity_number = if is_atom(severity), do: SeverityNumber.value(severity), else: severity
+    observed_timestamp = unix_nanos_timestamp(observed)
 
     %{
       row
-      | source: columns["source"] || row.source,
+      | timestamp: unix_nanos_timestamp(time) || observed_timestamp || row.timestamp,
+        observed_timestamp: observed_timestamp || row.observed_timestamp,
+        source: columns["source"] || row.source,
         source_ip: columns["source_ip"],
         service_name: columns["service_name"],
         service_version: columns["service_version"],
@@ -651,6 +661,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         scope_version: present(row.scope_version)
     }
   end
+
+  defp unix_nanos_timestamp(nanos) when is_integer(nanos) and nanos > 0,
+    do: DateTime.from_unix!(div(nanos, 1_000_000_000), :second)
+
+  defp unix_nanos_timestamp(_nanos), do: nil
 
   defp present(value) when value in ["", 0], do: nil
   defp present(value), do: value

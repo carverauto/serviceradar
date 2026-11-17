@@ -42,6 +42,27 @@
   },
   {
     "gelf": {
+      "_remote_addr": "default:192.0.2.10",
+      "_syslog_format": "rfc5424",
+      "application_name": "app",
+      "full_message": "<13>1 2000-01-01T00:00:00.250Z host03.example.com app 4242 ID47 - synthetic message from 2000",
+      "host": "host03.example.com",
+      "level": 5,
+      "process_id": "4242",
+      "sd_id": "serviceradar@1",
+      "short_message": "synthetic message from 2000",
+      "timestamp": 946684800.25,
+      "version": "1.1"
+    },
+    "line": "<13>1 2000-01-01T00:00:00.250Z host03.example.com app 4242 ID47 - synthetic message from 2000",
+    "name": "an RFC 5424 time before 2001-09-09",
+    "otlp": "CtwBEtkBEtYBCYCyKWHPTCMNEAkaBElORk8qHQobc3ludGhldGljIG1lc3NhZ2UgZnJvbSAyMDAwMiQKDF9yZW1vdGVfYWRkchIUChJkZWZhdWx0OjE5Mi4wLjIuMTAyGwoOX3N5c2xvZ19mb3JtYXQSCQoHcmZjNTQyNDIpCiBzZXJ2aWNlcmFkYXIuY29sdW1uLnNlcnZpY2VfbmFtZRIFCgNhcHAyLQodc2VydmljZXJhZGFyLmNvbHVtbi5zb3VyY2VfaXASDAoKMTkyLjAuMi4xMFkA/Aug00BHGg==",
+    "received_unix_nano": 1893553446000000000,
+    "remote_addr": "192.0.2.10",
+    "rules": []
+  },
+  {
+    "gelf": {
       "_detail": "synthetic",
       "_remote_addr": "default:192.0.2.10",
       "_syslog_format": "rfc5424",

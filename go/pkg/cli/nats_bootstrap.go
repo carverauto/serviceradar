@@ -796,8 +796,9 @@ func flowCollectorStreamPermissions() []string {
 //     JetStream control, inboxes). Attributed-flow DB writes are
 //     in-process/in-cluster and no longer publish/read back through
 //     flow.attributed.*.
-//   - PublishDeny is limited to $SYS.> (reserved for the system
-//     account on every identity).
+//   - PublishDeny holds $SYS.> (reserved for the system account on
+//     every identity) and logs.normalized.>, whose batches only the log
+//     collector may publish.
 //   - SubscribeAllow lists the raw flow, log, event, config, JetStream,
 //     and inbox subjects core consumes.
 //   - SubscribeDeny denies $SYS.> for symmetry with other identities.
@@ -831,7 +832,7 @@ func GeneratePartitionCoreCreds(
 			"$JS.ACK.>",
 			"_INBOX.>",
 		},
-		PublishDeny: []string{"$SYS.>"},
+		PublishDeny: []string{"$SYS.>", "logs.normalized.>"},
 		SubscribeAllow: []string{
 			"flow.raw.>",
 			"flows.raw.>",

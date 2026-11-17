@@ -325,6 +325,10 @@ func TestGeneratePartitionCoreCreds_ExcludesAttributedFlowReadback(t *testing.T)
 		t.Errorf("publish deny must not contain flow.attributed.>: %v", claims.Pub.Deny)
 	}
 
+	if !containsString(claims.Pub.Deny, "logs.normalized.>") {
+		t.Errorf("publish deny must contain logs.normalized.>: %v", claims.Pub.Deny)
+	}
+
 	subAllow := claims.Sub.Allow
 	for _, required := range []string{"flow.raw.>", "flows.raw.>", "logs.>", "events.>", "config.>"} {
 		if !containsString(subAllow, required) {
