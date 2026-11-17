@@ -363,6 +363,35 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     end
 
     @tag :integration
+    test "device_uid_for_host prefers the device holding the host as its address" do
+      actor = SystemActor.system(:test)
+      ip_seed = System.unique_integer([:positive])
+      host = "203.0.113.#{rem(ip_seed, 250) + 1}"
+
+      # Created first and with the lower uid, so an unordered read reaches it
+      # first: a device whose name merely spells the address.
+      named_uid = "sr:00000000-0000-4000-8000-#{String.pad_leading("#{ip_seed}", 12, "0")}"
+      addressed_uid = "sr:ffffffff-ffff-4fff-bfff-#{String.pad_leading("#{ip_seed}", 12, "0")}"
+
+      for attrs <- [%{uid: named_uid, name: host}, %{uid: addressed_uid, ip: host}] do
+        {:ok, _device} =
+          Device
+          |> Ash.Changeset.for_create(
+            :create,
+            Map.merge(attrs, %{
+              type_id: 10,
+              created_time: DateTime.utc_now(),
+              modified_time: DateTime.utc_now()
+            }),
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+      end
+
+      assert {:ok, ^addressed_uid} = CredentialResolver.device_uid_for_host(host, actor)
+    end
+
+    @tag :integration
     test "a failed SRQL targeting read does not fall back to the default profile" do
       actor = SystemActor.system(:test)
       unique = System.unique_integer([:positive])
