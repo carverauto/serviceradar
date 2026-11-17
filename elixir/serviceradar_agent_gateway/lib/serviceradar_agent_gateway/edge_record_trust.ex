@@ -21,6 +21,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
       `{network_scope_id, producer_assignment_id, run_shard}`;
     * `:scopes` -- the network scopes each agent is assigned, by the certificate `component_id`
       the edge identity resolver authenticates;
+    * `:terminal_intervals` -- every authority interval that ended `certificate_revoked` or
+      `revoked_cause_unknown`, by `{network_scope_id, producer_assignment_id, run_shard}` and
+      epoch (`terminal_interval?/3`). A late record naming one is security-quarantined whoever
+      presents it, whatever grant it carries (add-edge-production-time-admission, Decision 4); a
+      higher current fence alone never makes an epoch terminal. A document from a core that
+      predates the list carries none;
     * `:clock_tolerance_nano` -- bounded skew applied to every current-at-now window check.
 
   ## Fence semantics
@@ -111,6 +117,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
           clock_tolerance_nano: non_neg_integer(),
           keys: %{{binary(), binary()} => %{public_key: binary(), purposes: MapSet.t(), status: key_status()}},
           fences: %{fence_key() => non_neg_integer()},
+          terminal_intervals: MapSet.t({fence_key(), non_neg_integer()}),
           scopes: %{String.t() => MapSet.t()},
           registry: EdgeContractRegistry.t() | nil,
           registry_refused: [EdgeContractRegistry.refused()]
@@ -237,6 +244,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   end
 
   @doc """
+  Whether `epoch` of the producer at `fence_key` is a terminal authority interval: one that ended
+  `certificate_revoked` or `revoked_cause_unknown`. Exact: neighbouring epochs, shards and a
+  higher current fence never match.
+  """
+  @spec terminal_interval?(snapshot(), fence_key(), non_neg_integer()) :: boolean()
+  def terminal_interval?(%{terminal_intervals: terminal}, fence_key, epoch),
+    do: MapSet.member?(terminal, {fence_key, epoch})
+
+  @doc """
   `identity` with `:network_scope_ids` set to the network scopes this snapshot binds its
   authenticated `:component_id` to, or to `nil` when the snapshot has no binding for that principal.
   """
@@ -330,15 +346,18 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
          {:ok, keys} <- parse_list(Map.get(document, "keys", []), &parse_key/1),
          {:ok, fences} <- parse_list(Map.get(document, "fences", []), &parse_fence/1),
          {:ok, scopes} <- parse_list(Map.get(document, "scopes", []), &parse_scope/1),
+         {:ok, terminal} <- parse_list(Map.get(document, "terminal_intervals", []), &parse_terminal/1),
          :ok <- check(keys != [], :no_keys),
          :ok <- check(unique?(Enum.map(keys, &elem(&1, 0))), :duplicate_key),
          :ok <- check(unique?(Enum.map(fences, &elem(&1, 0))), :duplicate_fence),
-         :ok <- check(unique?(Enum.map(scopes, &elem(&1, 0))), :duplicate_scope_binding) do
+         :ok <- check(unique?(Enum.map(scopes, &elem(&1, 0))), :duplicate_scope_binding),
+         :ok <- check(unique?(terminal), :duplicate_terminal_interval) do
       {:ok,
        %{
          clock_tolerance_nano: tolerance,
          keys: Map.new(keys),
          fences: Map.new(fences),
+         terminal_intervals: MapSet.new(terminal),
          scopes: Map.new(scopes)
        }}
     end
@@ -396,6 +415,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   end
 
   defp parse_fence(_fence), do: {:error, :fence}
+
+  # The same exact identity as a fence entry; unlike a fence, it need not name a scope any agent
+  # is bound to now, because a successor presents a predecessor's records.
+  defp parse_terminal(%{} = interval), do: parse_fence(interval)
+  defp parse_terminal(_interval), do: {:error, :terminal_interval}
 
   defp parse_scope(%{"network_scope_ids" => [_ | _] = ids} = binding) do
     agent_id = binding["agent_id"]

@@ -51,6 +51,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/edge/late_admission_db_test.exs",
     "test/serviceradar/edge/output_grants_db_test.exs",
     "test/serviceradar/edge/pipeline_settings_db_test.exs",
+    "test/serviceradar/edge/record_trust_terminal_intervals_db_test.exs",
     "test/serviceradar/edge/recovery_assignments_db_test.exs",
     "test/serviceradar/edge/recovery_copy_grants_db_test.exs",
     "test/serviceradar/edge/recovery_effects_db_test.exs",
