@@ -355,8 +355,12 @@ Agent limits need no new machinery:
   (`appendWithBackpressure`) as any slot.
 - The executor runs due slots one at a time, across groups. Two catch-ups
   from one restart can each pass their own group's fit test, and the second
-  then starts only after the first finishes and may overrun its window. It is
-  cut off like any long slot (Decision 5). There is no cross-group budget.
+  is reached only after the first finishes. If its window is still open, it
+  starts late and is cut off by its window like any long slot (Decision 5).
+  If its `collection_expires` has already passed, `runGroup` skips it: it
+  spools nothing, and `LeaseMisses` later marks it missed. Either way the
+  hosts it did not reach wait for the next scheduled slot. There is no
+  cross-group budget.
 
 ### Decision 7: The lease pass keeps a catch-up only while its parent's plan is current
 
