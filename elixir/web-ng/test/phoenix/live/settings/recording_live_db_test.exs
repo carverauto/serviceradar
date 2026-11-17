@@ -44,6 +44,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
 
   @storage_id "00000000-0000-4000-8000-000000000041"
 
+  defmodule EnabledRuntimeSupervisorStub do
+    @moduledoc false
+    def enabled?, do: true
+  end
+
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     actor = system_actor()
@@ -567,9 +572,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(after_release_ret_view, "#retention-held-local-pinned-bytes", "16 MiB")
   end
 
+  @tag :tmp_dir
   test "policy tab persists CameraRecordingPolicy revisions and live C1a what-if against Postgres without stubs",
-       %{conn: conn, actor: actor} do
+       %{conn: conn, actor: actor, tmp_dir: tmp_dir} do
     opts = [actor: actor]
+    configure_synthetic_runtime_members!(tmp_dir)
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Policy Writer")
 
     {:ok, binding} =
@@ -668,32 +675,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert created_policy.nvr_member == "serviceradar-nvr-0"
     assert has_element?(policy_view, "#recording-policy-row-#{created_policy.id}", "rev 1")
 
-    # Switch override mode back to inherit, then submit update -> increments policy_revision to 2
+    # Switch override mode back to inherit, then submit update via LiveView form/3
+    # (which enforces disabled <select> omission and submits hidden locked identity inputs) -> rev 2
     policy_view
-    |> element("#recording-policy-form")
-    |> render_change(%{
+    |> form("#recording-policy-form", %{
       "policy" => %{
-        "camera_source_id" => live_ctx.source.id,
-        "stream_profile_id" => live_ctx.profile.id,
         "mode" => "continuous",
         "nvr_member" => "serviceradar-nvr-1",
         "storage" => "local_only",
         "archive_retention_override_mode" => "inherit"
       }
     })
+    |> render_change()
 
     policy_view
-    |> element("#recording-policy-form")
-    |> render_submit(%{
+    |> form("#recording-policy-form", %{
       "policy" => %{
-        "camera_source_id" => live_ctx.source.id,
-        "stream_profile_id" => live_ctx.profile.id,
         "mode" => "continuous",
         "nvr_member" => "serviceradar-nvr-1",
         "storage" => "local_only",
         "archive_retention_override_mode" => "inherit"
       }
     })
+    |> render_submit()
 
     {:ok, updated_policy} =
       CameraRecordingPolicy.get_by_camera_profile(live_ctx.source.id, live_ctx.profile.id, opts)
@@ -832,6 +836,197 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(health_view, "#recording-health-gaps-alerts-card")
     assert health_html =~ "source_unavailable"
     assert health_html =~ "nvr_refused"
+  end
+
+  @tag sandbox: :unboxed
+  @tag :tmp_dir
+  test "R.10 historical freeze, reservation resolutions, unattributable quarantine operator delete/export, and held missing-archive loss work end-to-end against Postgres",
+       %{conn: conn, scope: scope, actor: actor, tmp_dir: tmp_dir} do
+    opts = [actor: actor]
+    now = DateTime.utc_now()
+    open_synthetic_recovery_gate!(tmp_dir)
+
+    {:ok, binding} =
+      ArchiveDestinations.register_operator(
+        %{
+          name: "r10-arch-#{System.unique_integer([:positive])}",
+          endpoint: "https://objects.example.com",
+          region: "example-1",
+          bucket: "synthetic-r10-archive",
+          namespace: "recordings/v1"
+        },
+        opts
+      )
+
+    on_exit(fn -> cleanup_unboxed_archive_binding(binding.id) end)
+
+    live_ctx = setup_live_recorder_fence(actor)
+    on_exit(fn -> cleanup_unboxed_camera_source(live_ctx.source.id) end)
+
+    block_historical = reserve_fenced_block(live_ctx, 0, opts)
+    block_absent = reserve_fenced_block(live_ctx, 1, opts)
+    block_unrecoverable = reserve_fenced_block(live_ctx, 2, opts)
+    block_unresolved = reserve_fenced_block(live_ctx, 3, opts)
+
+    # Retire the recorder claim so reconciler primitives run under writer retirement (R3)
+    live_ctx.claim
+    |> Ash.Changeset.for_update(
+      :transition,
+      %{state: :released, claim_token: nil, consumer_id: nil, lease_expires_at: nil},
+      opts
+    )
+    |> Ash.update!(opts)
+
+    # 1. Reconciler freeze_historical adopts block_historical into RecordingCatalogEntry
+    descriptor_hist = build_synthetic_descriptor(block_historical, 16_777_216)
+
+    {:ok, entry_hist} =
+      RecordingBlocks.freeze_historical(
+        block_historical.id,
+        descriptor_hist,
+        %{
+          first_unit_pts: 0,
+          first_unit_received_at: DateTime.shift(now, minute: -20),
+          reanchored: false
+        },
+        opts
+      )
+
+    # Transition entry_hist to verified -> missing with an active legal hold covering its window
+    {:ok, entry_hist} =
+      entry_hist
+      |> Ash.Changeset.for_update(
+        :transition_archive_state,
+        %{
+          archive_state: :verified,
+          archive_state_at: now,
+          archived_at: now,
+          archive_binding_id: binding.id
+        },
+        opts
+      )
+      |> Ash.update(opts)
+
+    {:ok, _hold} =
+      RecordingHolds.place_hold(
+        %{
+          camera_source_id: live_ctx.source.id,
+          stream_profile_id: live_ctx.profile.id,
+          start_us: entry_hist.timeline_start_us,
+          end_us: entry_hist.timeline_end_us,
+          kind: :investigation,
+          reason: "Synthetic R10 investigation hold covering missing archive copy"
+        },
+        scope: scope
+      )
+
+    {:ok, entry_missing} =
+      entry_hist
+      |> Ash.Changeset.for_update(
+        :transition_archive_state,
+        %{archive_state: :missing, archive_state_at: now},
+        opts
+      )
+      |> Ash.update(opts)
+
+    # 2. Resolve block_absent and block_unrecoverable via Core reconciler primitives
+    {:ok, _} =
+      RecordingBlocks.resolve_reservation_absent(
+        block_absent.id,
+        %{detail_class: "nvr_reported_absent"},
+        opts
+      )
+
+    {:ok, _} =
+      RecordingBlocks.resolve_reservation_unrecoverable(
+        block_unrecoverable.id,
+        %{detail_class: "corrupt_journal_tail"},
+        opts
+      )
+
+    # 3. Register an unattributable quarantined block via Core reconciler primitive
+    orphan_key =
+      :sha256
+      |> :crypto.hash("synthetic-r10-orphan-#{System.unique_integer([:positive])}")
+      |> Base.encode16(case: :lower)
+
+    {:ok, %{entry: orphan_entry}} =
+      RecordingBlocks.quarantine_unattributable_block(
+        %{
+          storage_id: @storage_id,
+          block_key: orphan_key,
+          quarantined_bytes: 4_194_304,
+          quarantine_receipt: %{"source" => "synthetic_r10_reconciler"},
+          quarantine_evidence: %{"reason" => "no_core_reservation"}
+        },
+        opts
+      )
+
+    on_exit(fn -> cleanup_unboxed_quarantined_entry(orphan_entry.id) end)
+
+    # 4. Verify ?tab=cameras displays exact reservation resolution badges
+    {:ok, cam_view, _} = live(conn, ~p"/settings/recording?tab=cameras")
+
+    cam_view
+    |> element("#recording-camera-picker-form")
+    |> render_change(%{"camera_source_id" => live_ctx.source.id})
+
+    assert has_element?(
+             cam_view,
+             "#block-core-state-#{block_unresolved.id}",
+             "Core reservation (unresolved)"
+           )
+
+    assert has_element?(
+             cam_view,
+             "#block-core-state-#{block_absent.id}",
+             "Resolved: block absent"
+           )
+
+    assert has_element?(
+             cam_view,
+             "#block-core-state-#{block_unrecoverable.id}",
+             "Resolved: unrecoverable journal"
+           )
+
+    # 5. Verify ?tab=health renders reservation breakdown and executes audited operator dispositions
+    {:ok, health_view, _} = live(conn, ~p"/settings/recording?tab=health")
+
+    assert has_element?(health_view, "#health-reservations-breakdown")
+    assert has_element?(health_view, "#health-quarantined-entry-#{orphan_entry.id}")
+    assert has_element?(health_view, "#health-missing-entry-#{entry_missing.id}")
+
+    # Export / Preserve intent
+    health_view
+    |> element("#request-quarantine-export-#{orphan_entry.id}")
+    |> render_click()
+
+    {:ok, after_export} = Ash.get(RecordingCatalogEntry, orphan_entry.id, opts)
+    assert after_export.operator_disposition_state == :export_requested
+
+    # Audited Delete Intent with explicit confirmation
+    health_view
+    |> element("#quarantine-delete-form-#{orphan_entry.id}")
+    |> render_submit(%{
+      "delete" => %{
+        "id" => orphan_entry.id,
+        "confirm" => "true",
+        "note" => "Confirmed synthetic orphan disposal"
+      }
+    })
+
+    {:ok, after_delete} = Ash.get(RecordingCatalogEntry, orphan_entry.id, opts)
+    assert after_delete.local_state == :reclaiming
+    assert after_delete.operator_disposition_state == :delete_requested
+
+    # Accept Archive Loss on held missing archive entry (admin holds both operate + hold permissions)
+    health_view
+    |> element("#accept-missing-loss-form-#{entry_missing.id}")
+    |> render_submit(%{"loss" => %{"id" => entry_missing.id, "note" => "Accepted synthetic loss"}})
+
+    {:ok, after_loss} = Ash.get(RecordingCatalogEntry, entry_missing.id, opts)
+    assert after_loss.archive_state == :not_required
+    assert after_loss.archive_binding_id == binding.id
   end
 
   defp seed_health_tab_records(actor, scope) do
@@ -1455,5 +1650,246 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
       )
 
     NetworkCredentialSecret.create_secret!(built, actor: actor)
+  end
+
+  defp configure_synthetic_runtime_members!(tmp_dir) do
+    orig_sup = Application.get_env(:serviceradar_web_ng, :camera_recording_remote_supervisor)
+    orig_nodes = Application.get_env(:serviceradar_web_ng, :camera_recording_rpc_nodes)
+    orig_cfg = Application.get_env(:serviceradar_core_elx, :camera_nvr_client_config_file)
+    orig_tok = Application.get_env(:serviceradar_core_elx, :camera_nvr_client_token_file)
+
+    start_supervised!(%{
+      id: EnabledRuntimeSupervisorStub,
+      start: {Agent, :start_link, [fn -> :ok end, [name: EnabledRuntimeSupervisorStub]]}
+    })
+
+    config_path = Path.join(tmp_dir, "nvr-client.json")
+    token_path = Path.join(tmp_dir, "nvr-token")
+    File.write!(token_path, "synthetic-unused-token")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "members" => %{
+          "serviceradar-nvr-0" => %{
+            "host" => "nvr-0.example.com",
+            "port" => 8443,
+            "storage_id" => @storage_id
+          },
+          "serviceradar-nvr-1" => %{
+            "host" => "nvr-1.example.com",
+            "port" => 8443,
+            "storage_id" => "00000000-0000-4000-8000-000000000042"
+          }
+        }
+      })
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_recording_remote_supervisor,
+      EnabledRuntimeSupervisorStub
+    )
+
+    Application.put_env(:serviceradar_web_ng, :camera_recording_rpc_nodes, [Node.self()])
+    Application.put_env(:serviceradar_core_elx, :camera_nvr_client_config_file, config_path)
+    Application.put_env(:serviceradar_core_elx, :camera_nvr_client_token_file, token_path)
+
+    on_exit(fn ->
+      restore_app_env(:serviceradar_web_ng, :camera_recording_remote_supervisor, orig_sup)
+      restore_app_env(:serviceradar_web_ng, :camera_recording_rpc_nodes, orig_nodes)
+      restore_app_env(:serviceradar_core_elx, :camera_nvr_client_config_file, orig_cfg)
+      restore_app_env(:serviceradar_core_elx, :camera_nvr_client_token_file, orig_tok)
+    end)
+  end
+
+  defp restore_app_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_app_env(app, key, val), do: Application.put_env(app, key, val)
+
+  defp open_synthetic_recovery_gate!(tmp_dir) do
+    prior = Application.fetch_env(:serviceradar_core, :nvr_recovery_gate)
+    path = Path.join(tmp_dir, "recovery.json")
+    generation = Ecto.UUID.generate()
+    File.write!(path, ~s({"generation":"#{generation}","state":"ready"}))
+
+    {:ok, gate} =
+      ServiceRadarRecordingControl.RecoveryGate.load(
+        %{
+          "SERVICERADAR_NVR_RECOVERY_GENERATION" => generation,
+          "SERVICERADAR_NVR_RECOVERY_STATE_FILE" => Path.expand(path)
+        },
+        nil
+      )
+
+    Application.put_env(:serviceradar_core, :nvr_recovery_gate, gate)
+
+    on_exit(fn ->
+      case prior do
+        {:ok, val} -> Application.put_env(:serviceradar_core, :nvr_recovery_gate, val)
+        :error -> Application.delete_env(:serviceradar_core, :nvr_recovery_gate)
+      end
+    end)
+  end
+
+  defp cleanup_unboxed_quarantined_entry(entry_id) do
+    entry_bin = Ecto.UUID.dump!(entry_id)
+
+    %{rows: op_rows} =
+      SQL.query!(
+        Repo,
+        "SELECT DISTINCT operation_id FROM platform.camera_recording_dispositions WHERE catalog_entry_id = $1",
+        [entry_bin]
+      )
+
+    for [op_bin] <- op_rows do
+      cleanup_unboxed_dispositions_by_operation(op_bin)
+    end
+
+    %{rows: cat_rows} =
+      SQL.query!(
+        Repo,
+        "SELECT storage_id, block_key FROM platform.camera_recording_catalog WHERE id = $1",
+        [entry_bin]
+      )
+
+    for [storage_bin, block_key] <- cat_rows do
+      SQL.query!(
+        Repo,
+        "DELETE FROM platform.camera_recording_operations WHERE storage_id = $1 AND block_key = $2",
+        [storage_bin, block_key]
+      )
+    end
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_recording_catalog WHERE id = $1", [entry_bin])
+
+    assert %{rows: [[0]]} =
+             SQL.query!(
+               Repo,
+               "SELECT count(*) FROM platform.camera_recording_catalog WHERE id = $1",
+               [entry_bin]
+             )
+  end
+
+  defp cleanup_unboxed_camera_source(source_id) do
+    id = Ecto.UUID.dump!(source_id)
+
+    %{rows: op_rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT DISTINCT operation_id FROM platform.camera_recording_dispositions
+        WHERE catalog_entry_id IN (
+          SELECT id FROM platform.camera_recording_catalog
+          WHERE camera_source_id = $1 OR recording_block_id IN (
+            SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1
+          )
+        )
+        """,
+        [id]
+      )
+
+    for [op_bin] <- op_rows do
+      cleanup_unboxed_dispositions_by_operation(op_bin)
+    end
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.camera_recording_holds_versions WHERE version_source_id IN " <>
+        "(SELECT id FROM platform.camera_recording_holds WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_recording_holds WHERE camera_source_id = $1", [
+      id
+    ])
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.camera_recording_operations WHERE camera_source_id = $1",
+      [id]
+    )
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.camera_recording_catalog WHERE camera_source_id = $1 OR recording_block_id IN " <>
+        "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_recording_gaps WHERE camera_source_id = $1", [
+      id
+    ])
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_recording_blocks WHERE camera_source_id = $1", [
+      id
+    ])
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.camera_recorder_claims WHERE ingest_owner_id IN " <>
+        "(SELECT id FROM platform.camera_ingest_owners WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.camera_consumer_leases WHERE ingest_owner_id IN " <>
+        "(SELECT id FROM platform.camera_ingest_owners WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_ingest_owners WHERE camera_source_id = $1", [id])
+    SQL.query!(Repo, "DELETE FROM platform.camera_relay_sessions WHERE camera_source_id = $1", [id])
+    SQL.query!(Repo, "DELETE FROM platform.camera_stream_profiles WHERE camera_source_id = $1", [id])
+    SQL.query!(Repo, "DELETE FROM platform.camera_sources WHERE id = $1", [id])
+
+    assert %{rows: [[0]]} =
+             SQL.query!(Repo, "SELECT count(*) FROM platform.camera_sources WHERE id = $1", [id])
+  end
+
+  defp cleanup_unboxed_archive_binding(binding_id) do
+    id = Ecto.UUID.dump!(binding_id)
+
+    SQL.query!(
+      Repo,
+      "UPDATE platform.camera_recording_catalog SET archive_binding_id = NULL WHERE archive_binding_id = $1",
+      [id]
+    )
+
+    SQL.query!(
+      Repo,
+      "UPDATE platform.camera_recording_catalog SET quarantine_binding_id = NULL WHERE quarantine_binding_id = $1",
+      [id]
+    )
+
+    SQL.query!(Repo, "DELETE FROM platform.camera_archive_bindings WHERE id = $1", [id])
+
+    assert %{rows: [[0]]} =
+             SQL.query!(
+               Repo,
+               "SELECT count(*) FROM platform.camera_archive_bindings WHERE id = $1",
+               [id]
+             )
+  end
+
+  defp cleanup_unboxed_dispositions_by_operation(op_bin) do
+    {:ok, _} =
+      Repo.transaction(fn ->
+        SQL.query!(
+          Repo,
+          "ALTER TABLE platform.camera_recording_dispositions DISABLE TRIGGER trg_camera_recording_dispositions_append_only"
+        )
+
+        SQL.query!(
+          Repo,
+          "DELETE FROM platform.camera_recording_dispositions WHERE operation_id = $1",
+          [op_bin]
+        )
+
+        SQL.query!(
+          Repo,
+          "ALTER TABLE platform.camera_recording_dispositions ENABLE TRIGGER trg_camera_recording_dispositions_append_only"
+        )
+      end)
   end
 end

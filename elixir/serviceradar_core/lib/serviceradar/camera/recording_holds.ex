@@ -43,6 +43,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingHold
+  alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
 
   @system_actor SystemActor.system(:camera_recording_holds)
   @unavailable_status "unavailable, deletion in progress"
+  @operator_deadline_seconds 300
 
   @read_permissions [
     "settings.recording.view",
@@ -332,9 +334,9 @@ defmodule ServiceRadar.Camera.RecordingHolds do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     actor = resolve_actor(opts)
 
-    with :ok <- authorize_deletion_intent(actor),
+    with {:ok, reason} <- parse_disposition_reason(fetch_val(attrs, :reason)),
+         :ok <- authorize_intent_for_reason(actor, reason),
          {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
-         {:ok, reason} <- parse_disposition_reason(fetch_val(attrs, :reason)),
          {:ok, operation_id} <- resolve_operation_id(fetch_val(attrs, :operation_id)),
          {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(attrs, :actor_id)) do
       transact([RecordingCatalogEntry, RecordingHold, RecordingDisposition], fn ->
@@ -509,6 +511,147 @@ defmodule ServiceRadar.Camera.RecordingHolds do
              }}
           end
         end
+      end)
+    end
+  end
+
+  @doc """
+  Audited operator delete intent on a quarantined or unattributable
+  `RecordingCatalogEntry` (`R.10`, `R2`, `R6`, `C7`).
+
+  Strictly requires `settings.recording.operate` (or system actor) and explicit
+  confirmation (`confirm: true`). Locks the catalog entry `FOR UPDATE`, transitions
+  `local_state: :quarantined -> :reclaiming` and
+  `operator_disposition_state: :delete_requested`, creates a `RecordingOperation`
+  (`kind: :quarantine_delete`), and appends a `:requested` `RecordingDisposition`
+  row with `reason: :operator_quarantine` in one CNPG transaction.
+  """
+  @spec request_quarantine_delete(String.t(), map() | keyword(), keyword()) ::
+          {:ok,
+           %{
+             entry: RecordingCatalogEntry.t(),
+             disposition: RecordingDisposition.t(),
+             operation: RecordingOperation.t()
+           }}
+          | {:error, term()}
+  def request_quarantine_delete(catalog_entry_id, attrs \\ %{}, opts \\ [])
+      when is_binary(catalog_entry_id) and (is_map(attrs) or is_list(attrs)) and is_list(opts) do
+    params = to_map(attrs)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    actor = resolve_actor(opts)
+    require_confirm? = Keyword.get(opts, :require_confirmation?, true)
+
+    with :ok <- authorize_operate_actor(actor),
+         :ok <- verify_explicit_confirmation(params, require_confirm?),
+         {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
+         {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(params, :actor_id)),
+         {:ok, note} <- parse_operator_note(params, "operator_quarantine_delete") do
+      transact([RecordingCatalogEntry, RecordingDisposition, RecordingOperation], fn ->
+        execute_quarantine_delete_intent(entry_uuid, actor_id, note, params, now)
+      end)
+    end
+  end
+
+  @doc """
+  Audited operator export / preserve intent on a quarantined or unattributable
+  `RecordingCatalogEntry` (`R.10`, `R4` step 6).
+
+  Strictly requires `settings.recording.operate` (or system actor). Keeps
+  `local_state == :quarantined` (pinned, never evicted), sets
+  `operator_disposition_state = :export_requested`, and records a `RecordingOperation`
+  (`kind: :quarantine_export`) in one CNPG transaction.
+  """
+  @spec request_quarantine_export(String.t(), map() | keyword(), keyword()) ::
+          {:ok, %{entry: RecordingCatalogEntry.t(), operation: RecordingOperation.t()}}
+          | {:error, term()}
+  def request_quarantine_export(catalog_entry_id, attrs \\ %{}, opts \\ [])
+      when is_binary(catalog_entry_id) and (is_map(attrs) or is_list(attrs)) and is_list(opts) do
+    params = to_map(attrs)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    actor = resolve_actor(opts)
+
+    with :ok <- authorize_operate_actor(actor),
+         {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
+         {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(params, :actor_id)),
+         {:ok, note} <- parse_operator_note(params, "operator_quarantine_export") do
+      transact([RecordingCatalogEntry, RecordingOperation], fn ->
+        execute_quarantine_export_intent(entry_uuid, actor_id, note, now)
+      end)
+    end
+  end
+
+  @doc """
+  Audited operator acceptance of a `:missing` archive copy loss (`A6` Transition 9,
+  `E.3`, `R.10`, `d0797c8bc8`).
+
+  Strictly requires `settings.recording.operate`, AND when any active `:accepted`
+  `RecordingHold` covers the entry, ALSO requires `devices.cameras.recordings.hold`
+  (refusing otherwise and leaving `archive_state == :missing`). Transitions
+  `archive_state -> :not_required` (keeping `archive_binding_id`), records a
+  succeeded `RecordingOperation` (`kind: :archive_loss_acceptance`), and appends a
+  `RecordingDisposition` row with `reason: :archive_loss_accepted` in one CNPG
+  transaction.
+  """
+  @spec accept_missing_archive_loss(String.t(), map() | keyword(), keyword()) ::
+          {:ok,
+           %{
+             entry: RecordingCatalogEntry.t(),
+             disposition: RecordingDisposition.t(),
+             operation: RecordingOperation.t()
+           }}
+          | {:error, term()}
+  def accept_missing_archive_loss(catalog_entry_id, attrs \\ %{}, opts \\ [])
+      when is_binary(catalog_entry_id) and (is_map(attrs) or is_list(attrs)) and is_list(opts) do
+    params = to_map(attrs)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    actor = resolve_actor(opts)
+    require_confirm? = Keyword.get(opts, :require_confirmation?, false)
+
+    with :ok <- authorize_operate_actor(actor),
+         :ok <- verify_optional_confirmation(params, require_confirm?),
+         {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
+         {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(params, :actor_id)),
+         {:ok, note} <- parse_operator_note(params, "operator_accepted_archive_loss") do
+      transact(
+        [RecordingCatalogEntry, RecordingHold, RecordingDisposition, RecordingOperation],
+        fn ->
+          execute_accept_missing_archive_loss(
+            entry_uuid,
+            actor,
+            actor_id,
+            note,
+            params,
+            now,
+            opts
+          )
+        end
+      )
+    end
+  end
+
+  @doc """
+  Audited operator re-archive request on a `:missing` archive copy whose local copy
+  is still `:present` (`A6` Transition 8, `E.3`, `d0797c8bc8`).
+
+  Strictly requires `settings.recording.operate`, returns `archive_state` to `:pending`
+  under its recorded `archive_binding_id`, and records a `RecordingOperation`
+  (`kind: :missing_rearchive`) in one CNPG transaction.
+  """
+  @spec request_missing_archive_rearchive(String.t(), map() | keyword(), keyword()) ::
+          {:ok, %{entry: RecordingCatalogEntry.t(), operation: RecordingOperation.t()}}
+          | {:error, term()}
+  def request_missing_archive_rearchive(catalog_entry_id, attrs \\ %{}, opts \\ [])
+      when is_binary(catalog_entry_id) and (is_map(attrs) or is_list(attrs)) and is_list(opts) do
+    params = to_map(attrs)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    actor = resolve_actor(opts)
+
+    with :ok <- authorize_operate_actor(actor),
+         {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
+         {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(params, :actor_id)),
+         {:ok, note} <- parse_operator_note(params, "operator_requested_rearchive") do
+      transact([RecordingCatalogEntry, RecordingOperation], fn ->
+        execute_missing_archive_rearchive(entry_uuid, actor_id, note, now)
       end)
     end
   end
@@ -792,11 +935,19 @@ defmodule ServiceRadar.Camera.RecordingHolds do
   end
 
   defp transition_entry_for_intent(entry, :local, now) do
+    params =
+      if is_nil(entry.quarantine_reason) do
+        %{local_state: :reclaiming, local_state_at: now}
+      else
+        %{
+          local_state: :reclaiming,
+          local_state_at: now,
+          operator_disposition_state: :delete_requested
+        }
+      end
+
     entry
-    |> Ash.Changeset.for_update(:transition_local_state, %{
-      local_state: :reclaiming,
-      local_state_at: now
-    })
+    |> Ash.Changeset.for_update(:transition_local_state, params)
     |> Ash.update(actor: @system_actor)
   end
 
@@ -872,6 +1023,19 @@ defmodule ServiceRadar.Camera.RecordingHolds do
     if permitted?, do: :ok, else: {:error, Forbidden.exception([])}
   end
 
+  defp authorize_intent_for_reason(actor, :operator_quarantine),
+    do: authorize_operate_actor(actor)
+
+  defp authorize_intent_for_reason(actor, _reason), do: authorize_deletion_intent(actor)
+
+  defp authorize_operate_actor(actor) do
+    permitted? =
+      match?(%{role: :system}, actor) or
+        ActorHasPermission.match?(actor, [permission: "settings.recording.operate"], %{})
+
+    if permitted?, do: :ok, else: {:error, Forbidden.exception([])}
+  end
+
   defp authorize_deletion_intent(actor) do
     permitted? =
       match?(%{role: :system}, actor) or
@@ -880,6 +1044,324 @@ defmodule ServiceRadar.Camera.RecordingHolds do
         end)
 
     if permitted?, do: :ok, else: {:error, Forbidden.exception([])}
+  end
+
+  defp verify_explicit_confirmation(_params, false), do: :ok
+
+  defp verify_explicit_confirmation(params, true) do
+    if fetch_val(params, :confirm) in [true, "true"] do
+      :ok
+    else
+      {:error, :confirmation_required}
+    end
+  end
+
+  defp verify_optional_confirmation(params, true), do: verify_explicit_confirmation(params, true)
+
+  defp verify_optional_confirmation(params, false) do
+    case fetch_val(params, :confirm) do
+      val when val in [false, "false"] -> {:error, :confirmation_required}
+      _ -> :ok
+    end
+  end
+
+  defp parse_operator_note(params, default_note) do
+    raw = fetch_val(params, :note) || fetch_val(params, :reason)
+
+    cond do
+      is_nil(raw) ->
+        {:ok, default_note}
+
+      is_binary(raw) ->
+        trimmed = String.trim(raw)
+
+        cond do
+          trimmed == "" -> {:ok, default_note}
+          byte_size(trimmed) > 1024 -> {:error, :invalid_operator_note}
+          true -> {:ok, trimmed}
+        end
+
+      true ->
+        {:error, :invalid_operator_note}
+    end
+  end
+
+  defp execute_quarantine_delete_intent(entry_uuid, actor_id, note, params, now) do
+    with {:ok, entry} <- lock_catalog_entry(entry_uuid),
+         :ok <- ensure_quarantined_deletable(entry),
+         {:ok, operation} <-
+           start_operator_operation(:quarantine_delete, entry, actor_id, now, %{
+             "catalog_entry_id" => entry.id,
+             "quarantine_reason" => to_string(entry.quarantine_reason),
+             "intent" => "delete_quarantined_block",
+             "operator_note" => note
+           }),
+         decision = %{
+           "action" => "delete_intent",
+           "actor_id" => actor_id,
+           "note" => note,
+           "operation_id" => operation.id,
+           "decided_at" => DateTime.to_iso8601(now)
+         },
+         {:ok, updated_entry} <-
+           entry
+           |> Ash.Changeset.for_update(:record_operator_decision, %{
+             local_state: :reclaiming,
+             local_state_at: now,
+             operator_disposition_state: :delete_requested,
+             operator_decision: decision
+           })
+           |> Ash.update(actor: @system_actor),
+         {:ok, disposition} <-
+           insert_requested_disposition(
+             entry,
+             :local,
+             :operator_quarantine,
+             operation.id,
+             actor_id,
+             Map.put_new(params, :effective_settings, %{
+               "quarantine_reason" => to_string(entry.quarantine_reason),
+               "operator_note" => note
+             }),
+             %{
+               "held" => false,
+               "pinned_copy" => nil,
+               "hold_count" => 0,
+               "hold_ids" => [],
+               "decision" => "operator_quarantine_delete"
+             }
+           ) do
+      {:ok, %{entry: updated_entry, disposition: disposition, operation: operation}}
+    end
+  end
+
+  defp ensure_quarantined_deletable(%RecordingCatalogEntry{quarantine_reason: nil} = entry) do
+    {:error, {:not_quarantined, entry.local_state}}
+  end
+
+  defp ensure_quarantined_deletable(%RecordingCatalogEntry{local_state: :quarantined}), do: :ok
+
+  defp ensure_quarantined_deletable(%RecordingCatalogEntry{local_state: :reclaiming}) do
+    {:error, :quarantine_delete_already_requested}
+  end
+
+  defp ensure_quarantined_deletable(%RecordingCatalogEntry{local_state: :reclaimed}) do
+    {:error, :quarantine_already_disposed}
+  end
+
+  defp ensure_quarantined_deletable(%RecordingCatalogEntry{local_state: state}) do
+    {:error, {:not_quarantined, state}}
+  end
+
+  defp execute_quarantine_export_intent(entry_uuid, actor_id, note, now) do
+    with {:ok, entry} <- lock_catalog_entry(entry_uuid),
+         :ok <- ensure_quarantined_exportable(entry),
+         {:ok, operation} <-
+           start_operator_operation(:quarantine_export, entry, actor_id, now, %{
+             "catalog_entry_id" => entry.id,
+             "quarantine_reason" => to_string(entry.quarantine_reason),
+             "intent" => "export_for_inspection",
+             "operator_note" => note
+           }),
+         decision = %{
+           "action" => "export_intent",
+           "actor_id" => actor_id,
+           "note" => note,
+           "operation_id" => operation.id,
+           "decided_at" => DateTime.to_iso8601(now)
+         },
+         {:ok, updated_entry} <-
+           entry
+           |> Ash.Changeset.for_update(:record_operator_decision, %{
+             local_state: entry.local_state,
+             local_state_at: entry.local_state_at,
+             operator_disposition_state: :export_requested,
+             operator_decision: decision
+           })
+           |> Ash.update(actor: @system_actor) do
+      {:ok, %{entry: updated_entry, operation: operation}}
+    end
+  end
+
+  defp ensure_quarantined_exportable(%RecordingCatalogEntry{
+         quarantine_reason: reason,
+         local_state: :quarantined
+       })
+       when not is_nil(reason), do: :ok
+
+  defp ensure_quarantined_exportable(%RecordingCatalogEntry{local_state: state}) do
+    {:error, {:quarantine_not_exportable, state}}
+  end
+
+  defp execute_accept_missing_archive_loss(entry_uuid, actor, actor_id, note, params, now, opts) do
+    with {:ok, entry} <- lock_catalog_entry(entry_uuid),
+         :ok <- ensure_archive_is_missing(entry),
+         covering = load_covering_holds_for_entry(entry),
+         :ok <- verify_hold_authority_for_missing_loss(covering, entry, actor, opts),
+         {:ok, operation} <-
+           record_completed_operator_operation(
+             :archive_loss_acceptance,
+             entry,
+             actor_id,
+             now,
+             %{
+               "catalog_entry_id" => entry.id,
+               "action" => "accept_missing_archive_loss",
+               "held" => covering != [],
+               "hold_count" => length(covering),
+               "local_copy_remained" => entry.local_state == :present,
+               "operator_note" => note
+             }
+           ),
+         {:ok, updated_entry} <-
+           entry
+           |> Ash.Changeset.for_update(:transition_archive_state, %{
+             archive_state: :not_required,
+             archive_state_at: now,
+             archive_last_error_class: nil
+           })
+           |> Ash.update(actor: @system_actor),
+         {:ok, disposition} <-
+           insert_archive_loss_disposition(entry, operation.id, actor_id, note, params, covering) do
+      {:ok, %{entry: updated_entry, disposition: disposition, operation: operation}}
+    end
+  end
+
+  defp ensure_archive_is_missing(%RecordingCatalogEntry{archive_state: :missing}), do: :ok
+
+  defp ensure_archive_is_missing(%RecordingCatalogEntry{archive_state: state}) do
+    {:error, {:archive_not_missing, state}}
+  end
+
+  defp verify_hold_authority_for_missing_loss([], _entry, _actor, _opts), do: :ok
+
+  defp verify_hold_authority_for_missing_loss(_covering, entry, actor, opts) do
+    has_hold_perm? =
+      match?(%{role: :system}, actor) or
+        ActorHasPermission.match?(actor, [permission: "devices.cameras.recordings.hold"], %{})
+
+    if has_hold_perm? do
+      if is_nil(entry.camera_source_id) do
+        :ok
+      else
+        authorize_camera_source_scope(entry.camera_source_id, nil, actor, opts)
+      end
+    else
+      {:error, Forbidden.exception([])}
+    end
+  end
+
+  defp insert_archive_loss_disposition(entry, operation_id, actor_id, note, params, covering) do
+    hold_ids = Enum.map(covering, & &1.id)
+    held? = covering != []
+
+    eff_settings =
+      params
+      |> fetch_val(:effective_settings)
+      |> case do
+        m when is_map(m) -> m
+        _ -> %{}
+      end
+      |> Map.merge(%{
+        "operator_note" => note,
+        "previous_archive_state" => "missing"
+      })
+
+    disp_params = %{
+      operation_id: operation_id,
+      catalog_entry_id: entry.id,
+      storage_id: entry.storage_id,
+      block_key: entry.block_key,
+      copy: :archive,
+      reason: :archive_loss_accepted,
+      settings_revision: fetch_val(params, :settings_revision),
+      effective_settings: eff_settings,
+      hold_check_result: %{
+        "held" => held?,
+        "hold_count" => length(covering),
+        "hold_ids" => hold_ids,
+        "decision" => if(held?, do: "accepted_with_hold_authority", else: "accepted_unheld")
+      },
+      local_copy_remained: entry.local_state == :present,
+      step: :verified_absent,
+      error_class: nil,
+      actor_id: actor_id
+    }
+
+    RecordingDisposition
+    |> Ash.Changeset.for_create(:record, disp_params, actor: @system_actor)
+    |> Ash.create(actor: @system_actor)
+  end
+
+  defp execute_missing_archive_rearchive(entry_uuid, actor_id, note, now) do
+    with {:ok, entry} <- lock_catalog_entry(entry_uuid),
+         :ok <- ensure_archive_is_missing(entry),
+         :ok <- ensure_rearchive_eligible(entry),
+         {:ok, operation} <-
+           start_operator_operation(:missing_rearchive, entry, actor_id, now, %{
+             "catalog_entry_id" => entry.id,
+             "action" => "rearchive_missing_copy",
+             "operator_note" => note
+           }),
+         {:ok, updated_entry} <-
+           entry
+           |> Ash.Changeset.for_update(:transition_archive_state, %{
+             archive_state: :pending,
+             archive_state_at: now,
+             archive_last_error_class: nil
+           })
+           |> Ash.update(actor: @system_actor) do
+      {:ok, %{entry: updated_entry, operation: operation}}
+    end
+  end
+
+  defp ensure_rearchive_eligible(%RecordingCatalogEntry{} = entry) do
+    cond do
+      entry.local_state != :present ->
+        {:error, {:local_copy_not_present, entry.local_state}}
+
+      is_nil(entry.archive_binding_id) ->
+        {:error, :missing_recorded_archive_binding}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp start_operator_operation(kind, %RecordingCatalogEntry{} = entry, actor_id, now, summary) do
+    op_params = %{
+      kind: kind,
+      actor_id: actor_id,
+      camera_source_id: entry.camera_source_id,
+      stream_profile_id: entry.stream_profile_id,
+      recording_block_id: entry.recording_block_id,
+      block_key: entry.block_key,
+      storage_id: entry.storage_id,
+      archive_binding_id: entry.archive_binding_id || entry.quarantine_binding_id,
+      result_summary: summary,
+      started_at: now,
+      deadline_at: DateTime.shift(now, second: @operator_deadline_seconds)
+    }
+
+    RecordingOperation
+    |> Ash.Changeset.for_create(:start, op_params, actor: @system_actor)
+    |> Ash.create(actor: @system_actor)
+  end
+
+  defp record_completed_operator_operation(kind, entry, actor_id, now, summary) do
+    with {:ok, op} <- start_operator_operation(kind, entry, actor_id, now, summary) do
+      op
+      |> Ash.Changeset.for_update(
+        :complete,
+        %{
+          state: :succeeded,
+          result_summary: summary,
+          finished_at: now
+        },
+        actor: @system_actor
+      )
+      |> Ash.update(actor: @system_actor)
+    end
   end
 
   defp authorize_camera_source_scope(camera_source_id, stream_profile_id, actor, opts) do

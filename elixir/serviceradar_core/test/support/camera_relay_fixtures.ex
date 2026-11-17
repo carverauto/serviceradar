@@ -211,6 +211,11 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     Repo.query!("DELETE FROM platform.camera_recording_holds WHERE camera_source_id = $1", [id])
 
     Repo.query!(
+      "DELETE FROM platform.camera_recording_operations WHERE camera_source_id = $1",
+      [id]
+    )
+
+    Repo.query!(
       "DELETE FROM platform.camera_recording_catalog WHERE camera_source_id = $1 OR recording_block_id IN " <>
         "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
       [id]
@@ -305,6 +310,48 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
                  [op_bin]
                )
     end
+  end
+
+  @doc "Cleans up a camera-less quarantined catalog entry and any attached operations/dispositions."
+  def cleanup_quarantined_entry(entry_id) do
+    entry_bin = Ecto.UUID.dump!(entry_id)
+
+    %{rows: op_rows} =
+      Repo.query!(
+        "SELECT DISTINCT operation_id FROM platform.camera_recording_dispositions WHERE catalog_entry_id = $1",
+        [entry_bin]
+      )
+
+    for [op_bin] <- op_rows do
+      cleanup_dispositions_by_operation(Ecto.UUID.load!(op_bin))
+    end
+
+    %{rows: [[entry_count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.camera_recording_catalog WHERE id = $1",
+        [entry_bin]
+      )
+
+    if entry_count > 0 do
+      %{rows: [[storage_bin, block_key]]} =
+        Repo.query!(
+          "SELECT storage_id, block_key FROM platform.camera_recording_catalog WHERE id = $1",
+          [entry_bin]
+        )
+
+      Repo.query!(
+        "DELETE FROM platform.camera_recording_operations WHERE storage_id = $1 AND block_key = $2",
+        [storage_bin, block_key]
+      )
+
+      Repo.query!("DELETE FROM platform.camera_recording_catalog WHERE id = $1", [entry_bin])
+    end
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.camera_recording_catalog WHERE id = $1",
+               [entry_bin]
+             )
   end
 
   defp cleanup_source_dispositions(source_id_bin) do

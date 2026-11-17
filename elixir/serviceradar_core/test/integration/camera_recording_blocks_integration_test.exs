@@ -7,17 +7,21 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.LocalPublicationIntents
   alias ServiceRadar.Camera.LocalStorageBinding
+  alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RecordingHolds
+  alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @clock %{
     "clock_epoch" => "invented-clock",
@@ -1473,6 +1477,686 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
           flunk("unexpected concurrent deletion result: #{inspect(other)}")
       end
     end
+  end
+
+  test "R.1: freeze_historical refuses while writer claim is live, adopts once claim is released or expired, retries idempotently, and refuses conflicting descriptors",
+       ctx do
+    descriptor = Fixtures.recording_descriptor(ctx.block)
+    received_at = ~U[2026-11-16 16:00:00.250000Z]
+
+    # 1. While writer claim is still active & unexpired, freeze_historical MUST refuse!
+    assert {:error, :writer_not_retired} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               descriptor,
+               %{first_unit_pts: 45_000, first_unit_received_at: received_at},
+               ctx.opts
+             )
+
+    {:ok, still_open} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert still_open.state == :open_local
+    assert still_open.reconciliation_state == :unresolved
+    assert is_nil(still_open.reconciled_at)
+
+    # 2. Release claim -> writer is retired -> freeze_historical adopts and catalogs in one transaction!
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    # Mismatched storage_id or descriptor identity is refused before freezing:
+    assert {:error, :recording_block_mismatch} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               descriptor,
+               Keyword.put(ctx.opts, :storage_id, Ecto.UUID.generate())
+             )
+
+    assert {:ok, %RecordingCatalogEntry{} = adopted_entry} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               descriptor,
+               %{
+                 first_unit_pts: 45_000,
+                 first_unit_received_at: received_at,
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    {:ok, sealed_block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert sealed_block.state == :sealed
+    assert sealed_block.reconciliation_state == :adopted
+    assert %DateTime{} = sealed_block.reconciled_at
+    assert sealed_block.reconciliation_detail["source"] == "historical_freeze"
+    assert adopted_entry.recording_block_id == sealed_block.id
+    assert adopted_entry.local_state == :present
+    assert adopted_entry.archive_state == :not_required
+    assert RecordingCatalogEntry.playable?(adopted_entry) == true
+
+    # Exact retry is idempotent (both with explicit attrs and default attrs):
+    assert {:ok, retry_entry} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               descriptor,
+               %{
+                 first_unit_pts: 45_000,
+                 first_unit_received_at: received_at,
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    assert retry_entry.id == adopted_entry.id
+
+    assert {:ok, fallback_retry} =
+             RecordingBlocks.freeze_historical(ctx.block.id, descriptor, ctx.opts)
+
+    assert fallback_retry.id == adopted_entry.id
+
+    # Conflicting descriptor or conflicting explicit catalog attrs are refused:
+    assert {:error, :recording_descriptor_conflict} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               put_in(descriptor["media"]["sha256"], digest("tampered-historical")),
+               ctx.opts
+             )
+
+    assert {:error, :recording_descriptor_conflict} =
+             RecordingBlocks.freeze_historical(
+               ctx.block,
+               descriptor,
+               %{first_unit_pts: 999_999, first_unit_received_at: received_at},
+               ctx.opts
+             )
+
+    # 3. Also prove lease-expired (not explicitly released) claim satisfies writer retirement!
+    {:ok, short_claim} =
+      RecorderOwnership.acquire(
+        ctx.owner,
+        Ecto.UUID.generate(),
+        ctx.relay.media_ingest_id,
+        Ecto.UUID.generate(),
+        1_500,
+        ctx.opts
+      )
+
+    {:ok, expired_block} =
+      RecorderOwnership.reserve_block(ctx.owner, short_claim, @clock, ctx.opts)
+
+    Process.sleep(1_650)
+
+    assert {:ok, expired_entry} =
+             RecordingBlocks.freeze_historical(
+               expired_block,
+               Fixtures.recording_descriptor(expired_block),
+               ctx.opts
+             )
+
+    assert expired_entry.recording_block_id == expired_block.id
+  end
+
+  test "R.1 & R.11: concurrent Task.async live freeze_and_catalog racing freeze_historical serializes cleanly under row lock and yields exactly one catalog entry",
+       ctx do
+    # Release initial setup claim so each race round acquires a fresh claim on the shared owner.
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    base_t = ~U[2026-11-16 16:30:00.000000Z]
+
+    for round <- 1..6 do
+      ttl_ms = if rem(round, 2) == 0, do: 1_500, else: 5_000
+
+      {:ok, claim} =
+        RecorderOwnership.acquire(
+          ctx.owner,
+          Ecto.UUID.generate(),
+          ctx.relay.media_ingest_id,
+          Ecto.UUID.generate(),
+          ttl_ms,
+          ctx.opts
+        )
+
+      {:ok, block} = RecorderOwnership.reserve_block(ctx.owner, claim, @clock, ctx.opts)
+      descriptor = Fixtures.recording_descriptor(block)
+      ts = DateTime.shift(base_t, second: round * 15)
+
+      catalog_attrs = %{
+        first_unit_pts: round * 90_000,
+        first_unit_received_at: ts,
+        policy_storage: :local_only
+      }
+
+      if ttl_ms == 1_500 do
+        remaining_ms = DateTime.diff(claim.lease_expires_at, DateTime.utc_now(), :millisecond)
+        if remaining_ms > 80, do: Process.sleep(remaining_ms - 60)
+      end
+
+      parent = self()
+
+      live_task =
+        Task.async(fn ->
+          send(parent, {:live_ready, self()})
+          receive do: (:go -> :ok)
+
+          res =
+            RecordingBlocks.freeze_and_catalog(
+              ctx.owner,
+              claim,
+              block,
+              descriptor,
+              catalog_attrs,
+              ctx.opts
+            )
+
+          _ = RecorderOwnership.release(ctx.owner, claim, ctx.opts)
+          res
+        end)
+
+      hist_task =
+        Task.async(fn ->
+          send(parent, {:hist_ready, self()})
+          receive do: (:go -> :ok)
+          RecordingBlocks.freeze_historical(block, descriptor, catalog_attrs, ctx.opts)
+        end)
+
+      assert_receive {:live_ready, live_pid}, 5_000
+      assert_receive {:hist_ready, hist_pid}, 5_000
+
+      if rem(round, 2) == 0 do
+        send(hist_pid, :go)
+        send(live_pid, :go)
+      else
+        send(live_pid, :go)
+        send(hist_pid, :go)
+      end
+
+      live_res = Task.await(live_task, 10_000)
+      hist_res = Task.await(hist_task, 10_000)
+
+      # Ensure claim is retired if short TTL had not yet elapsed when live_task finished:
+      if ttl_ms == 1_500 do
+        remaining_after_ms =
+          DateTime.diff(claim.lease_expires_at, DateTime.utc_now(), :millisecond)
+
+        if remaining_after_ms > -20, do: Process.sleep(max(remaining_after_ms + 80, 80))
+      end
+
+      # If both failed solely because live missed expiry by ms and hist ran 1ms before expiry,
+      # the reconciler's immediate post-expiry pass adopts it cleanly:
+      final_entry =
+        case {live_res, hist_res} do
+          {{:ok, %RecordingCatalogEntry{} = e1}, {:ok, %RecordingCatalogEntry{} = e2}} ->
+            assert e1.id == e2.id
+            e1
+
+          {{:ok, %RecordingCatalogEntry{} = e1}, {:error, :writer_not_retired}} ->
+            assert {:ok, e_retry} =
+                     RecordingBlocks.freeze_historical(block, descriptor, catalog_attrs, ctx.opts)
+
+            assert e_retry.id == e1.id
+            e1
+
+          {{:error, :recorder_claim_lost}, {:ok, %RecordingCatalogEntry{} = e2}} ->
+            e2
+
+          {{:error, :recorder_claim_lost}, {:error, :writer_not_retired}} ->
+            assert {:ok, e_after} =
+                     RecordingBlocks.freeze_historical(block, descriptor, catalog_attrs, ctx.opts)
+
+            e_after
+
+          other ->
+            flunk("unexpected concurrent live/historical freeze outcome: #{inspect(other)}")
+        end
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_recording_catalog WHERE recording_block_id = $1",
+                 [Ecto.UUID.dump!(block.id)]
+               )
+
+      {:ok, persisted_block} = Ash.get(RecordingBlock, block.id, ctx.opts)
+      assert persisted_block.state == :sealed
+      assert persisted_block.reconciliation_state == :adopted
+      assert final_entry.recording_block_id == block.id
+    end
+  end
+
+  test "R.2 (PD1): adopt_rotated_block adopts valid seq + 1 continuation, advances RecorderClaim.next_block_sequence, and rejects PD1 mismatches as unattributable",
+       ctx do
+    pred = ctx.block
+    pred_descriptor = Fixtures.recording_descriptor(pred)
+    next_seq = pred.block_sequence + 1
+    next_identity = Map.put(RecordingBlock.identity(pred), "block_sequence", next_seq)
+    next_key = Descriptor.block_key(next_identity)
+
+    rotated_descriptor =
+      pred_descriptor
+      |> Map.put("identity", next_identity)
+      |> put_in(["media", "sha256"], digest("rotated-seq-1-media"))
+      |> put_in([Access.key("fragments"), Access.at(0), "sha256"], digest("rotated-seq-1-media"))
+
+    # 1. Predecessor still :open_local (not yet adopted/sealed) -> rejected as unattributable!
+    assert {:error, {:unattributable_block, :predecessor_not_adopted, ev1}} =
+             RecordingBlocks.adopt_rotated_block(pred, next_key, rotated_descriptor, ctx.opts)
+
+    assert ev1["expected_sequence"] == next_seq
+
+    # Seal + catalog predecessor under live claim, keeping claim active for a moment:
+    assert {:ok, _pred_entry} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               pred,
+               pred_descriptor,
+               %{
+                 first_unit_pts: 0,
+                 first_unit_received_at: ~U[2026-11-16 17:00:00Z],
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    # 2. Writer claim NOT retired yet -> rejected as unattributable (:writer_not_retired)!
+    assert {:error, {:unattributable_block, :writer_not_retired, _}} =
+             RecordingBlocks.adopt_rotated_block(pred, next_key, rotated_descriptor, ctx.opts)
+
+    # Retire the writer claim:
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+    {:ok, claim_before} = Ash.get(RecorderClaim, ctx.claim.id, ctx.opts)
+    assert claim_before.next_block_sequence == 1
+
+    # 3. Mismatched clock_epoch -> rejected as unattributable (:clock_epoch_mismatch)!
+    wrong_clock_identity =
+      put_in(next_identity, ["clock", "clock_epoch"], "forged-clock-epoch")
+
+    wrong_clock_desc = Map.put(rotated_descriptor, "identity", wrong_clock_identity)
+
+    assert {:error, {:unattributable_block, :clock_epoch_mismatch, clock_ev}} =
+             RecordingBlocks.adopt_rotated_block(pred, next_key, wrong_clock_desc, ctx.opts)
+
+    assert clock_ev["expected_clock_epoch"] == "invented-clock"
+    assert clock_ev["candidate_clock_epoch"] == "forged-clock-epoch"
+
+    # 4. Skipped sequence (seq + 2 without seq + 1) -> rejected as unattributable (:sequence_mismatch)!
+    seq2_identity =
+      Map.put(RecordingBlock.identity(pred), "block_sequence", pred.block_sequence + 2)
+
+    seq2_key = Descriptor.block_key(seq2_identity)
+    seq2_desc = Map.put(rotated_descriptor, "identity", seq2_identity)
+
+    assert {:error, {:unattributable_block, :sequence_mismatch, seq_ev}} =
+             RecordingBlocks.adopt_rotated_block(pred, seq2_key, seq2_desc, ctx.opts)
+
+    assert seq_ev["expected_sequence"] == 1
+    assert seq_ev["candidate_sequence"] == 2
+
+    # 5. Mismatched candidate block_key -> rejected as unattributable (:block_key_mismatch)!
+    assert {:error, {:unattributable_block, :block_key_mismatch, _}} =
+             RecordingBlocks.adopt_rotated_block(
+               pred,
+               digest("wrong-directory-name"),
+               rotated_descriptor,
+               ctx.opts
+             )
+
+    # Prove NONE of the rejected PD1 candidates wrote a catalog row or continuation block!
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.camera_recording_blocks WHERE block_key = $1",
+               [next_key]
+             )
+
+    # 6. Valid PD1 continuation (seq + 1) -> adopts, advances next_block_sequence, and catalogs in 1 tx!
+    assert {:ok, %RecordingCatalogEntry{} = adopted_rotated} =
+             RecordingBlocks.adopt_rotated_block(
+               pred,
+               next_key,
+               rotated_descriptor,
+               Keyword.put(ctx.opts, :policy_storage, :local_only)
+             )
+
+    assert adopted_rotated.block_key == next_key
+    assert adopted_rotated.storage_id == pred.storage_id
+    assert adopted_rotated.local_state == :present
+    assert RecordingCatalogEntry.playable?(adopted_rotated) == true
+
+    {:ok, cont_block} = Ash.get(RecordingBlock, adopted_rotated.recording_block_id, ctx.opts)
+    assert cont_block.block_sequence == next_seq
+    assert cont_block.state == :sealed
+    assert cont_block.reconciliation_state == :adopted
+    assert cont_block.reconciliation_detail["source"] == "rotated_adoption"
+    assert cont_block.reconciliation_detail["predecessor_block_id"] == pred.id
+
+    {:ok, claim_after} = Ash.get(RecorderClaim, ctx.claim.id, ctx.opts)
+    assert claim_after.next_block_sequence == next_seq + 1
+
+    # Exact retry of adopt_rotated_block is idempotent, while conflicting descriptor is rejected:
+    assert {:ok, retry_rotated} =
+             RecordingBlocks.adopt_rotated_block(pred, next_key, rotated_descriptor, ctx.opts)
+
+    assert retry_rotated.id == adopted_rotated.id
+
+    tampered_rotated = put_in(rotated_descriptor["media"]["sha256"], digest("tampered-rot"))
+
+    assert {:error, {:unattributable_block, :descriptor_conflict, _}} =
+             RecordingBlocks.adopt_rotated_block(pred, next_key, tampered_rotated, ctx.opts)
+  end
+
+  test "R.3, R.10 & d0797c8bc8: reservation resolution excludes resolved rows, enforces R2 quarantined-gap rule, gates operator quarantine & held missing-archive dispositions, and enriches RecordingHealth",
+       ctx do
+    # Reserve 4 blocks under the live claim, then retire the claim:
+    b_adopted = ctx.block
+    {:ok, b_absent} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    {:ok, b_unrec_no_int} =
+      RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    {:ok, b_unrec_known} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    {:ok, b_still_unresolved} =
+      RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    # While claim is still live, resolve_reservation_absent refuses:
+    assert {:error, :writer_not_retired} =
+             RecordingBlocks.resolve_reservation_absent(b_absent, %{}, ctx.opts)
+
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    # Initially all 5 reserved blocks are unresolved:
+    assert {:ok, initial_unresolved} =
+             RecordingBlocks.list_unresolved_reservations(
+               %{camera_source_id: ctx.source.id},
+               ctx.opts
+             )
+
+    assert Enum.map(initial_unresolved, & &1.id) == [
+             b_adopted.id,
+             b_absent.id,
+             b_unrec_no_int.id,
+             b_unrec_known.id,
+             b_still_unresolved.id
+           ]
+
+    # 1. Adopt b_adopted historically:
+    t0 = ~U[2026-11-16 17:30:00.000000Z]
+    t0_us = DateTime.to_unix(t0, :microsecond)
+    binding = register_binding(ctx)
+
+    assert {:ok, adopted_entry} =
+             RecordingBlocks.freeze_historical(
+               b_adopted,
+               Fixtures.recording_descriptor(b_adopted),
+               %{first_unit_pts: 0, first_unit_received_at: t0, policy_storage: :local_only},
+               ctx.opts
+             )
+
+    # Assign archive_binding_id via mark_archive_verified_and_move_pin then mark :missing for d0797c8bc8 test:
+    operate_only = %{
+      id: "operator-no-hold",
+      role: :operator,
+      permissions: MapSet.new(["settings.recording.operate", "settings.recording.view"])
+    }
+
+    operate_and_hold = %{
+      id: "operator-with-hold",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.operate",
+          "settings.recording.view"
+        ])
+    }
+
+    manager_only = %{
+      id: "manager-no-operate",
+      role: :operator,
+      permissions: MapSet.new(["settings.recording.manage", "settings.recording.view"])
+    }
+
+    assert {:ok, %{entry: _verified}} =
+             RecordingHolds.mark_archive_verified_and_move_pin(
+               adopted_entry.id,
+               %{archive_binding_id: binding.id},
+               actor: operate_and_hold
+             )
+
+    # 2. Resolve b_absent as :block_absent -> records a :block_absent RecordingGap in the same tx!
+    assert {:ok, %{block: resolved_absent, gap: %RecordingGap{} = absent_gap}} =
+             RecordingBlocks.resolve_reservation_absent(
+               b_absent,
+               %{detail_class: "lookup_absent"},
+               ctx.opts
+             )
+
+    assert resolved_absent.reconciliation_state == :block_absent
+    assert absent_gap.reason == :block_absent
+    assert absent_gap.detail_class == "lookup_absent"
+
+    # Idempotent retry on already-resolved :block_absent returns existing resolved block without duplicating gap:
+    assert {:ok, %{block: retry_absent, gap: nil}} =
+             RecordingBlocks.resolve_reservation_absent(b_absent, %{}, ctx.opts)
+
+    assert retry_absent.id == resolved_absent.id
+
+    # 3. Resolve b_unrec_no_int WITHOUT known media interval -> R2 quarantined-gap rule records NO gap!
+    q_receipt_1 = %{
+      "partition_path" => ".quarantine/#{b_unrec_no_int.block_key}",
+      "placed_at_ms" => 1_763_314_200_000,
+      "files" => [%{"name" => "journal.bin", "length" => 2048, "sha256" => digest("j1")}]
+    }
+
+    assert {:ok,
+            %{
+              block: resolved_unrec_1,
+              gap: nil,
+              quarantined_entry: %RecordingCatalogEntry{} = q_unrec_1
+            }} =
+             RecordingBlocks.resolve_reservation_unrecoverable(
+               b_unrec_no_int,
+               %{
+                 verification_class: "empty_block",
+                 quarantine_receipt: q_receipt_1,
+                 quarantined_bytes: 2048,
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    assert resolved_unrec_1.reconciliation_state == :unrecoverable_journal
+    assert q_unrec_1.quarantine_reason == :unrecoverable_journal
+    assert q_unrec_1.operator_disposition_state == :awaiting_operator
+
+    # 4. Resolve b_unrec_known WITH known media interval -> records a :quarantined RecordingGap!
+    assert {:ok, %{block: resolved_unrec_2, gap: %RecordingGap{} = q_gap}} =
+             RecordingBlocks.resolve_reservation_unrecoverable(
+               b_unrec_known,
+               %{
+                 verification_class: "corrupt_tail",
+                 start_us: t0_us + 5_000_000,
+                 end_us: t0_us + 7_000_000
+               },
+               ctx.opts
+             )
+
+    assert resolved_unrec_2.reconciliation_state == :unrecoverable_journal
+    assert q_gap.reason == :quarantined
+    assert q_gap.detail_class == "corrupt_tail"
+
+    # 5. list_unresolved_reservations/2 now returns ONLY b_still_unresolved!
+    assert {:ok, remaining_unresolved} =
+             RecordingBlocks.list_unresolved_reservations(
+               %{camera_source_id: ctx.source.id},
+               ctx.opts
+             )
+
+    assert Enum.map(remaining_unresolved, & &1.id) == [b_still_unresolved.id]
+
+    # operator_page/3 projects reconciliation_state for ?tab=cameras:
+    assert {:ok, page} =
+             RecordingBlocks.operator_page(ctx.source.id, [limit: 10], actor: operate_only)
+
+    by_id = Map.new(page.results, &{&1.id, &1.reconciliation_state})
+    assert by_id[b_adopted.id] == :adopted
+    assert by_id[b_absent.id] == :block_absent
+    assert by_id[b_unrec_no_int.id] == :unrecoverable_journal
+    assert by_id[b_still_unresolved.id] == :unresolved
+
+    # 6. Quarantine an unattributable block on disk & exercise R.10 operator export + delete intents:
+    unattr_key = digest("unattributable-rogue-block-r10")
+
+    unattr_receipt = %{
+      "partition_path" => ".quarantine/#{unattr_key}",
+      "placed_at_ms" => 1_763_314_300_000,
+      "files" => [%{"name" => "media.m4s", "length" => 8192, "sha256" => digest("rogue")}]
+    }
+
+    assert {:ok, %{entry: unattr_entry, gap: nil}} =
+             RecordingBlocks.quarantine_unattributable_block(
+               %{
+                 storage_id: ctx.claim.storage_id,
+                 block_key: unattr_key,
+                 quarantine_receipt: unattr_receipt,
+                 quarantined_bytes: 8192,
+                 quarantine_evidence: %{"reason" => "clock_epoch_mismatch"},
+                 policy_storage: :local_only
+               },
+               ctx.opts
+             )
+
+    on_exit(fn -> Fixtures.cleanup_quarantined_entry(unattr_entry.id) end)
+
+    assert unattr_entry.quarantine_reason == :unattributable
+    assert unattr_entry.operator_disposition_state == :awaiting_operator
+    assert unattr_entry.quarantine_evidence["reason"] == "clock_epoch_mismatch"
+
+    # Manager without settings.recording.operate is denied:
+    assert {:error, %Forbidden{}} =
+             RecordingHolds.request_quarantine_export(unattr_entry.id, %{}, actor: manager_only)
+
+    assert {:error, %Forbidden{}} =
+             RecordingHolds.request_quarantine_delete(
+               unattr_entry.id,
+               %{confirm: true},
+               actor: manager_only
+             )
+
+    # Operator records export intent -> keeps local_state == :quarantined, sets :export_requested:
+    assert {:ok, %{entry: exported_entry, operation: %RecordingOperation{} = export_op}} =
+             RecordingHolds.request_quarantine_export(
+               unattr_entry.id,
+               %{note: "exporting rogue block for forensic review"},
+               actor: operate_only
+             )
+
+    assert exported_entry.local_state == :quarantined
+    assert exported_entry.operator_disposition_state == :export_requested
+    assert export_op.kind == :quarantine_export
+
+    # Operator delete intent requires explicit confirmation, then transitions to :reclaiming + writes disposition:
+    assert {:error, :confirmation_required} =
+             RecordingHolds.request_quarantine_delete(
+               unattr_entry.id,
+               %{confirm: false},
+               actor: operate_only
+             )
+
+    assert {:ok,
+            %{
+              entry: deleting_entry,
+              disposition: %RecordingDisposition{} = q_disp,
+              operation: %RecordingOperation{} = del_op
+            }} =
+             RecordingHolds.request_quarantine_delete(
+               unattr_entry.id,
+               %{confirm: true, note: "confirmed quarantine removal"},
+               actor: operate_only
+             )
+
+    assert deleting_entry.local_state == :reclaiming
+    assert deleting_entry.operator_disposition_state == :delete_requested
+    assert del_op.kind == :quarantine_delete
+    assert q_disp.reason == :operator_quarantine
+    assert q_disp.copy == :local
+    assert q_disp.step == :requested
+    assert q_disp.actor_id == "operator-no-hold"
+
+    # 7. Missing archive copy + hold authority enforcement (d0797c8bc8, A6 transitions 8 & 9):
+    assert {:ok, _hold} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 start_us: t0_us - 500_000,
+                 end_us: t0_us + 2_000_000,
+                 kind: :investigation,
+                 reason: "hold covering missing archive block"
+               },
+               actor: operate_and_hold
+             )
+
+    assert {:ok, %{entry: missing_entry, held_archive_missing?: true}} =
+             RecordingHolds.mark_archive_missing_and_fallback_pin(
+               adopted_entry.id,
+               %{error_class: "object_absent"},
+               actor: operate_only
+             )
+
+    assert missing_entry.archive_state == :missing
+
+    # Live RecordingHealth.summary/1 against Postgres reports reservations, quarantine, and held missing copy:
+    assert {:ok, live_health} = RecordingHealth.summary(actor: operate_only)
+    assert live_health.reservations.by_storage[to_string(ctx.claim.storage_id)].adopted_count >= 1
+
+    assert live_health.reservations.by_storage[to_string(ctx.claim.storage_id)].block_absent_count >=
+             1
+
+    assert live_health.reservations.by_storage[to_string(ctx.claim.storage_id)].unrecoverable_count >=
+             2
+
+    assert live_health.reservations.by_storage[to_string(ctx.claim.storage_id)].unresolved_count >=
+             1
+
+    held_missing_row =
+      Enum.find(live_health.missing_archive_entries, &(&1.id == adopted_entry.id))
+
+    assert held_missing_row.held? == true
+    assert held_missing_row.requires_hold_permission? == true
+
+    # Operator WITHOUT devices.cameras.recordings.hold MUST be refused when accepting loss on a held entry!
+    assert {:error, %Forbidden{}} =
+             RecordingHolds.accept_missing_archive_loss(
+               adopted_entry.id,
+               %{note: "attempt without hold permission"},
+               actor: operate_only
+             )
+
+    {:ok, still_missing} = Ash.get(RecordingCatalogEntry, adopted_entry.id, ctx.opts)
+    assert still_missing.archive_state == :missing
+
+    # Operator WITH both settings.recording.operate AND devices.cameras.recordings.hold succeeds!
+    assert {:ok,
+            %{
+              entry: accepted_loss_entry,
+              disposition: %RecordingDisposition{} = loss_disp,
+              operation: %RecordingOperation{} = loss_op
+            }} =
+             RecordingHolds.accept_missing_archive_loss(
+               adopted_entry.id,
+               %{note: "bucket loss accepted under investigation authority"},
+               actor: operate_and_hold
+             )
+
+    assert accepted_loss_entry.archive_state == :not_required
+    assert accepted_loss_entry.archive_binding_id == binding.id
+    assert is_nil(accepted_loss_entry.archive_last_error_class)
+    assert loss_op.kind == :archive_loss_acceptance
+    assert loss_op.state == :succeeded
+    assert loss_disp.reason == :archive_loss_accepted
+    assert loss_disp.copy == :archive
+    assert loss_disp.step == :verified_absent
+    assert loss_disp.local_copy_remained == true
+    assert loss_disp.hold_check_result["decision"] == "accepted_with_hold_authority"
   end
 
   defp close_recovery_during_query(ctx, query?, work) do

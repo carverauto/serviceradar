@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
@@ -2333,15 +2334,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       created_doc = created_socket |> render_mounted() |> LazyHTML.from_fragment()
       assert created_doc |> LazyHTML.query("#recording-policies-table") |> LazyHTML.text() =~ "rev 1"
 
-      # Subsequent update increments policy_revision to rev 2
+      # Edit mode renders hidden camera_source_id + stream_profile_id alongside disabled <select>s
+      assert created_doc
+             |> LazyHTML.query("#recording-policy-form input[type='hidden'][name='policy[camera_source_id]']")
+             |> LazyHTML.attribute("value") == [cam_id]
+
+      assert created_doc
+             |> LazyHTML.query("#recording-policy-form input[type='hidden'][name='policy[stream_profile_id]']")
+             |> LazyHTML.attribute("value") == [prof_id]
+
+      # Subsequent update omitting disabled select params increments policy_revision to rev 2
       {:noreply, updated_socket} =
         RecordingLive.handle_event(
           "save_policy",
           %{
             "policy" => %{
               "id" => "00000000-0000-4000-8000-000000000469",
-              "camera_source_id" => cam_id,
-              "stream_profile_id" => prof_id,
               "mode" => "continuous",
               "nvr_member" => "nvr-1",
               "storage" => "local_only",
@@ -2718,6 +2726,503 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
     end
   end
 
+  describe "R.10 Health & Cameras operator reconciliation UI" do
+    test "renders reservation breakdown and enforces operate + hold RBAC on dispositions" do
+      now = ~U[2026-11-16 18:00:00Z]
+      storage_id = "00000000-0000-4000-8000-000000000701"
+      camera_id = "00000000-0000-4000-8000-000000000702"
+      profile_id = "00000000-0000-4000-8000-000000000703"
+      binding_id = "00000000-0000-4000-8000-000000000704"
+      quarantined_id = "00000000-0000-4000-8000-000000000705"
+      missing_held_id = "00000000-0000-4000-8000-000000000706"
+
+      quarantined_key = String.duplicate("a7", 32)
+      missing_key = String.duplicate("b8", 32)
+
+      quarantined_entry = %RecordingCatalogEntry{
+        id: quarantined_id,
+        storage_id: storage_id,
+        block_key: quarantined_key,
+        quarantined_bytes: 8_388_608,
+        local_state: :quarantined,
+        quarantine_reason: :unattributable,
+        quarantine_receipt: %{"source" => "historical_reconcile"},
+        quarantine_evidence: %{"reason" => "historical_freeze_no_core_reservation"},
+        operator_disposition_state: :awaiting_operator,
+        archive_state: :not_required,
+        local_state_at: ~U[2026-11-16 17:15:00Z],
+        inserted_at: ~U[2026-11-16 17:15:00Z]
+      }
+
+      missing_held_entry = %RecordingCatalogEntry{
+        id: missing_held_id,
+        recording_block_id: "00000000-0000-4000-8000-000000000707",
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        storage_id: storage_id,
+        block_key: missing_key,
+        archive_binding_id: binding_id,
+        timeline_start_us: 1_763_310_000_000_000,
+        timeline_end_us: 1_763_310_060_000_000,
+        media_bytes: 16_777_216,
+        local_state: :present,
+        archive_state: :missing,
+        inserted_at: ~U[2026-11-16 17:00:00Z]
+      }
+
+      active_hold = %RecordingHold{
+        id: "00000000-0000-4000-8000-000000000708",
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        start_us: 1_763_310_000_000_000,
+        end_us: 1_763_310_060_000_000,
+        kind: :legal,
+        state: :accepted,
+        reason: "Synthetic legal hold covering missing archive entry"
+      }
+
+      blocks = [
+        %RecordingBlock{
+          id: "00000000-0000-4000-8000-000000000711",
+          storage_id: storage_id,
+          block_key: String.duplicate("11", 32),
+          state: :open_local,
+          reconciliation_state: :unresolved
+        },
+        %RecordingBlock{
+          id: "00000000-0000-4000-8000-000000000712",
+          storage_id: storage_id,
+          block_key: String.duplicate("22", 32),
+          state: :open_local,
+          reconciliation_state: :adopted
+        },
+        %RecordingBlock{
+          id: "00000000-0000-4000-8000-000000000713",
+          storage_id: storage_id,
+          block_key: String.duplicate("33", 32),
+          state: :open_local,
+          reconciliation_state: :block_absent
+        },
+        %RecordingBlock{
+          id: "00000000-0000-4000-8000-000000000714",
+          storage_id: storage_id,
+          block_key: String.duplicate("44", 32),
+          state: :open_local,
+          reconciliation_state: :unrecoverable_journal
+        }
+      ]
+
+      {:ok, health_summary} =
+        RecordingHealth.summary(
+          scope: scope_with_permissions(["settings.recording.view"]),
+          now: now,
+          loaders: %{
+            settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
+            bindings_loader: fn -> {:ok, []} end,
+            all_receipts_loader: fn -> {:ok, []} end,
+            catalog_loader: fn -> {:ok, [quarantined_entry, missing_held_entry]} end,
+            holds_loader: fn -> {:ok, [active_hold]} end,
+            blocks_loader: fn -> {:ok, blocks} end,
+            policies_loader: fn -> {:ok, []} end,
+            storage_settings_loader: fn -> {:ok, []} end,
+            local_storage_bindings_loader: fn -> {:ok, []} end,
+            gaps_loader: fn -> {:ok, []} end,
+            dispositions_loader: fn -> {:ok, []} end,
+            alerts_loader: fn -> {:ok, []} end
+          }
+        )
+
+      action_log = start_supervised!({Agent, fn -> [] end}, id: :unit_r10_action_log)
+
+      deps = %{
+        load_recording_health: fn _ -> health_summary end,
+        request_quarantine_delete: fn s, id, params ->
+          CameraRecordingSettings.request_quarantine_delete(s, id, params,
+            action_fn: fn target_id, attrs ->
+              Agent.update(action_log, &[{:delete, target_id, attrs} | &1])
+              {:ok, %{entry: quarantined_entry, disposition: %{id: "disp-del"}}}
+            end
+          )
+        end,
+        request_quarantine_export: fn s, id, params ->
+          CameraRecordingSettings.request_quarantine_export(s, id, params,
+            action_fn: fn target_id, attrs ->
+              Agent.update(action_log, &[{:export, target_id, attrs} | &1])
+              {:ok, %{entry: quarantined_entry, disposition: %{id: "disp-exp"}}}
+            end
+          )
+        end,
+        accept_missing_archive_loss: fn s, id, params ->
+          CameraRecordingSettings.accept_missing_archive_loss(s, id, params,
+            action_fn: fn target_id, attrs ->
+              Agent.update(action_log, &[{:accept_loss, target_id, attrs, s.permissions} | &1])
+              {:ok, %{entry: missing_held_entry, disposition: %{id: "disp-loss"}}}
+            end
+          )
+        end
+      }
+
+      # 1. Manager (lacks settings.recording.operate) sees reservation breakdown + quarantined rows
+      #    read-only and is denied on operator actions
+      manager_socket =
+        ["settings.recording.manage"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "health")
+
+      manager_doc = manager_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert manager_doc |> LazyHTML.query("#health-reservations-unresolved") |> LazyHTML.text() =~ "1"
+      assert manager_doc |> LazyHTML.query("#health-reservations-adopted") |> LazyHTML.text() =~ "1"
+      assert manager_doc |> LazyHTML.query("#health-reservations-block-absent") |> LazyHTML.text() =~ "1"
+      assert manager_doc |> LazyHTML.query("#health-reservations-unrecoverable-journal") |> LazyHTML.text() =~ "1"
+
+      q_row_text =
+        manager_doc
+        |> LazyHTML.query("#health-quarantined-entry-#{quarantined_id}")
+        |> LazyHTML.text()
+        |> normalize_ws()
+
+      assert q_row_text =~ storage_id
+      assert q_row_text =~ String.slice(quarantined_key, 0, 16)
+      assert q_row_text =~ "unattributable"
+      assert q_row_text =~ "historical_freeze_no_core_reservation"
+      assert q_row_text =~ "awaiting_operator"
+
+      assert manager_doc |> LazyHTML.query("#request-quarantine-export-#{quarantined_id}") |> Enum.count() == 0
+      assert manager_doc |> LazyHTML.query("#quarantine-delete-disclosure-#{quarantined_id}") |> Enum.count() == 0
+      assert manager_doc |> LazyHTML.query("#accept-missing-loss-btn-#{missing_held_id}") |> Enum.count() == 0
+
+      for {event, payload} <- [
+            {"request_quarantine_delete", %{"delete" => %{"id" => quarantined_id, "confirm" => "true"}}},
+            {"request_quarantine_export", %{"id" => quarantined_id}},
+            {"accept_missing_archive_loss", %{"id" => missing_held_id}}
+          ] do
+        {:noreply, denied} = RecordingLive.handle_event(event, payload, manager_socket)
+        assert Phoenix.Flash.get(denied.assigns.flash, :error) =~ "settings.recording.operate"
+      end
+
+      assert Agent.get(action_log, & &1) == []
+
+      # 2. Operator WITHOUT devices.cameras.recordings.hold can export/delete quarantined blocks
+      #    (with explicit confirmation required on delete) and is blocked from accepting loss on a held entry
+      operator_socket =
+        ["settings.recording.operate"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "health")
+
+      operator_doc = operator_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert operator_doc |> LazyHTML.query("#request-quarantine-export-#{quarantined_id}") |> Enum.count() == 1
+      assert operator_doc |> LazyHTML.query("#quarantine-delete-disclosure-#{quarantined_id}") |> Enum.count() == 1
+      assert operator_doc |> LazyHTML.query("#rearchive-missing-entry-#{missing_held_id}") |> Enum.count() == 1
+      assert operator_doc |> LazyHTML.query("#accept-missing-loss-btn-#{missing_held_id}") |> Enum.count() == 0
+      assert operator_doc |> LazyHTML.query("#accept-missing-loss-hold-required-#{missing_held_id}") |> Enum.count() == 1
+
+      # Unconfirmed delete is rejected before calling Core
+      {:noreply, unconfirmed} =
+        RecordingLive.handle_event(
+          "request_quarantine_delete",
+          %{"delete" => %{"id" => quarantined_id, "confirm" => "false"}},
+          operator_socket
+        )
+
+      assert Phoenix.Flash.get(unconfirmed.assigns.flash, :error) =~ "Explicit confirmation"
+      assert Agent.get(action_log, & &1) == []
+
+      # Confirmed delete + export intent succeed
+      {:noreply, exported} =
+        RecordingLive.handle_event("request_quarantine_export", %{"id" => quarantined_id}, operator_socket)
+
+      assert Phoenix.Flash.get(exported.assigns.flash, :info) =~ "export / preserve intent"
+
+      {:noreply, deleted} =
+        RecordingLive.handle_event(
+          "request_quarantine_delete",
+          %{"delete" => %{"id" => quarantined_id, "confirm" => "true", "note" => "Verified synthetic orphan"}},
+          operator_socket
+        )
+
+      assert Phoenix.Flash.get(deleted.assigns.flash, :info) =~ "delete intent"
+
+      # Held missing-archive loss is denied without devices.cameras.recordings.hold
+      {:noreply, held_denied} =
+        RecordingLive.handle_event(
+          "accept_missing_archive_loss",
+          %{"id" => missing_held_id},
+          operator_socket
+        )
+
+      assert Phoenix.Flash.get(held_denied.assigns.flash, :error) =~
+               "devices.cameras.recordings.hold"
+
+      # 3. Operator WITH devices.cameras.recordings.hold can accept loss on the held missing entry
+      hold_operator_socket =
+        ["settings.recording.operate", "devices.cameras.recordings.hold"]
+        |> scope_with_permissions()
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "health")
+
+      hold_doc = hold_operator_socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert hold_doc |> LazyHTML.query("#accept-missing-loss-btn-#{missing_held_id}") |> Enum.count() == 1
+
+      {:noreply, accepted_loss} =
+        RecordingLive.handle_event(
+          "accept_missing_archive_loss",
+          %{"id" => missing_held_id},
+          hold_operator_socket
+        )
+
+      assert Phoenix.Flash.get(accepted_loss.assigns.flash, :info) =~
+               "Accepted missing archive copy loss"
+    end
+
+    test "cameras tab surfaces reconciliation_state labels on uncataloged RecordingBlock rows" do
+      scope = scope_with_permissions(["settings.recording.view", "devices.view"])
+      camera_id = "00000000-0000-4000-8000-000000000720"
+      profile_id = "00000000-0000-4000-8000-000000000721"
+      storage_id = "00000000-0000-4000-8000-000000000722"
+
+      unresolved_block = %RecordingBlock{
+        id: "00000000-0000-4000-8000-000000000731",
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        storage_id: storage_id,
+        block_key: String.duplicate("c1", 32),
+        state: :open_local,
+        reconciliation_state: :unresolved,
+        inserted_at: ~U[2026-11-16 17:50:00Z]
+      }
+
+      absent_block = %RecordingBlock{
+        id: "00000000-0000-4000-8000-000000000732",
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        storage_id: storage_id,
+        block_key: String.duplicate("c2", 32),
+        state: :open_local,
+        reconciliation_state: :block_absent,
+        reconciliation_detail: %{"detail_class" => "nvr_reported_absent"},
+        inserted_at: ~U[2026-11-16 17:40:00Z]
+      }
+
+      unrecoverable_block = %RecordingBlock{
+        id: "00000000-0000-4000-8000-000000000733",
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        storage_id: storage_id,
+        block_key: String.duplicate("c3", 32),
+        state: :open_local,
+        reconciliation_state: :unrecoverable_journal,
+        reconciliation_detail: %{"detail_class" => "corrupt_journal_tail"},
+        inserted_at: ~U[2026-11-16 17:30:00Z]
+      }
+
+      deps = %{
+        list_camera_sources: fn _ ->
+          {:ok,
+           [
+             %{
+               id: camera_id,
+               display_name: "Synthetic Recon Cam",
+               device_uid: "sr:cam-recon-1",
+               vendor_camera_id: "cam-recon-1"
+             }
+           ]}
+        end,
+        list_relay_profiles: fn _s, ^camera_id ->
+          [%{id: profile_id, camera_source_id: camera_id, profile_name: "main", codec_hint: "h264", relay_eligible: true}]
+        end,
+        list_camera_blocks_page: fn s, ^camera_id, opts ->
+          CameraRecordingSettings.list_camera_blocks_page(
+            s,
+            camera_id,
+            opts ++
+              [
+                loaders: %{
+                  blocks_page_loader: fn _cam, _page_opts ->
+                    {:ok, [unresolved_block, absent_block, unrecoverable_block]}
+                  end,
+                  receipts_for_blocks_loader: fn _blocks -> %{} end,
+                  catalog_for_blocks_loader: fn _blocks -> {:ok, %{}} end
+                }
+              ]
+          )
+        end
+      }
+
+      socket =
+        scope
+        |> mounted_with_runtime(installed_open_runtime(), deps)
+        |> assign(:active_tab, "cameras")
+
+      {:noreply, selected} =
+        RecordingLive.handle_event("select_camera_context", %{"camera_source_id" => camera_id}, socket)
+
+      doc = selected |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert doc
+             |> LazyHTML.query("#block-core-state-#{unresolved_block.id}")
+             |> LazyHTML.text()
+             |> normalize_ws() == "Core reservation (unresolved)"
+
+      assert doc
+             |> LazyHTML.query("#block-core-state-#{absent_block.id}")
+             |> LazyHTML.text()
+             |> normalize_ws() == "Resolved: block absent"
+
+      assert doc
+             |> LazyHTML.query("#block-core-state-#{unrecoverable_block.id}")
+             |> LazyHTML.text()
+             |> normalize_ws() == "Resolved: unrecoverable journal"
+
+      table_text = doc |> LazyHTML.query("#camera-recording-blocks-stream") |> LazyHTML.text() |> normalize_ws()
+      assert table_text =~ "No local block (reconciled)"
+      assert table_text =~ "Detail: nvr_reported_absent"
+      assert table_text =~ "Unrecoverable journal"
+      assert table_text =~ "Detail: corrupt_journal_tail"
+    end
+  end
+
+  describe "Policy tab UX polish" do
+    test "renders NVR member select, auto-selects stream profile, and calms unmeasured what-if" do
+      manager_scope = scope_with_permissions(["settings.recording.manage", "devices.view"])
+      cam_id = "00000000-0000-4000-8000-000000000801"
+      prof_id = "00000000-0000-4000-8000-000000000802"
+      member_sid = "00000000-0000-4000-8000-000000000803"
+
+      unmeasured_profile = %{
+        id: prof_id,
+        camera_source_id: cam_id,
+        profile_name: "High",
+        codec_hint: "h264",
+        relay_eligible: true,
+        metadata: %{}
+      }
+
+      legacy_policy = %CameraRecordingPolicy{
+        id: "00000000-0000-4000-8000-000000000809",
+        camera_source_id: "00000000-0000-4000-8000-000000000808",
+        stream_profile_id: "00000000-0000-4000-8000-000000000807",
+        mode: :continuous,
+        nvr_member: "nvr-legacy",
+        storage: :local_only,
+        policy_revision: 1
+      }
+
+      runtime =
+        put_in(installed_open_runtime(), [:core_elx, :members], [
+          %{member: "nvr-0", storage_id: member_sid}
+        ])
+
+      confirmed_local_settings =
+        struct(RecordingArchiveSettings.default_settings(),
+          local_only_full_policy: :overwrite_oldest
+        )
+
+      deps = %{
+        load_archive_settings_view: fn _ ->
+          %{default_overview() | settings: confirmed_local_settings}
+        end,
+        list_camera_sources: fn _ ->
+          {:ok,
+           [
+             %{
+               id: cam_id,
+               display_name: "Synthetic Unmeasured Cam",
+               device_uid: "sr:cam-unmeasured-01",
+               vendor_camera_id: "cam-unmeasured-01"
+             }
+           ]}
+        end,
+        list_relay_profiles: fn _s, ^cam_id -> [unmeasured_profile] end,
+        list_policies: fn _ -> [legacy_policy] end,
+        what_if_policy_preview: &db_free_what_if_preview/3
+      }
+
+      socket = mounted_with_runtime(manager_scope, runtime, deps)
+
+      # Configured runtime member surfaces on ?tab=recorders and ?tab=health before any blocks exist
+      recorders_doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+      assert recorders_doc |> LazyHTML.query("#storage-settings-row-#{member_sid}") |> LazyHTML.text() =~ "nvr-0"
+
+      health_doc =
+        socket
+        |> assign(:active_tab, "health")
+        |> render_mounted()
+        |> LazyHTML.from_fragment()
+
+      assert health_doc |> LazyHTML.query("#health-storage-member-#{member_sid}") |> LazyHTML.text() =~ "nvr-0"
+
+      # Switch to ?tab=policy: <select id="policy-nvr-member-select"> exists, zero text input
+      policy_socket = assign(socket, :active_tab, "policy")
+      policy_doc = policy_socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert policy_doc |> LazyHTML.query("#policy-nvr-member-input") |> Enum.count() == 0
+      assert policy_doc |> LazyHTML.query("select#policy-nvr-member-select") |> Enum.count() == 1
+
+      member_select_text =
+        policy_doc
+        |> LazyHTML.query("#policy-nvr-member-select")
+        |> LazyHTML.text()
+        |> normalize_ws()
+
+      assert member_select_text =~ "nvr-0 (00000000...)"
+      assert member_select_text =~ "nvr-legacy"
+
+      # Picking a camera auto-selects its first relay-eligible stream profile into policy_form
+      {:noreply, cam_selected} =
+        RecordingLive.handle_event(
+          "preview_policy",
+          %{"policy" => %{"camera_source_id" => cam_id}},
+          policy_socket
+        )
+
+      assert cam_selected.assigns.policy_form["stream_profile_id"] == prof_id
+
+      cam_doc = cam_selected |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert cam_doc
+             |> LazyHTML.query("#policy-profile-select option[value='#{prof_id}'][selected]")
+             |> Enum.count() == 1
+
+      # Switching mode to continuous auto-selects nvr-0 and renders calm unmeasured What-If state
+      {:noreply, cont_selected} =
+        RecordingLive.handle_event(
+          "preview_policy",
+          %{"policy" => %{"camera_source_id" => cam_id, "mode" => "continuous"}},
+          cam_selected
+        )
+
+      assert cont_selected.assigns.policy_form["nvr_member"] == "nvr-0"
+
+      cont_doc = cont_selected |> render_mounted() |> LazyHTML.from_fragment()
+
+      assert cont_doc |> LazyHTML.query("#policy-unmeasured-bitrate-note") |> Enum.count() == 1
+      assert cont_doc |> LazyHTML.query("#policy-what-if-warnings") |> Enum.count() == 0
+
+      local_window_text =
+        cont_doc |> LazyHTML.query("#what-if-local-window") |> LazyHTML.text() |> normalize_ws()
+
+      assert local_window_text =~ "Unmeasured"
+      assert local_window_text =~ "Unknown until recorded"
+      refute local_window_text =~ "0 minutes"
+      refute local_window_text =~ "budget binds"
+
+      tp_text =
+        cont_doc |> LazyHTML.query("#what-if-archive-throughput") |> LazyHTML.text() |> normalize_ws()
+
+      assert tp_text =~ "Pending first recording"
+      refute tp_text =~ "Needed: 0 B/s"
+
+      blocks_text =
+        cont_doc |> LazyHTML.query("#what-if-blocks-per-day") |> LazyHTML.text() |> normalize_ws()
+
+      assert blocks_text =~ "Unknown until recorded"
+      refute blocks_text =~ "0 blocks/day"
+    end
+  end
+
   defp base_socket(scope) do
     path = "/settings/recording"
     view = Catalog.view_for_path(path)
@@ -2836,7 +3341,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         reachability: :reachable,
         node: :"core-elx@example.internal",
         supervisor: :enabled,
-        nvr_installation: :installed
+        nvr_installation: :installed,
+        members: []
       }
     }
   end

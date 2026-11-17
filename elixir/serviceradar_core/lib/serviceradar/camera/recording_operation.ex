@@ -18,7 +18,18 @@ defmodule ServiceRadar.Camera.RecordingOperation do
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @kinds [:capture, :archive, :destination_test, :local_check, :archive_check, :receipt_import]
+  @kinds [
+    :capture,
+    :archive,
+    :destination_test,
+    :local_check,
+    :archive_check,
+    :receipt_import,
+    :quarantine_delete,
+    :quarantine_export,
+    :archive_loss_acceptance,
+    :missing_rearchive
+  ]
   @states [:running, :succeeded, :failed, :outcome_unknown]
   @terminal_states [:succeeded, :failed, :outcome_unknown]
   @hex64 ~r/\A[0-9a-f]{64}\z/
@@ -411,6 +422,10 @@ defmodule ServiceRadar.Camera.RecordingOperation do
       constraints one_of: @states
     end
   end
+
+  @doc "Allowed `RecordingOperation` kinds."
+  @spec kinds() :: [atom()]
+  def kinds, do: @kinds
 
   @doc """
   Evaluates the effective state of an in-memory `RecordingOperation` against `now`.

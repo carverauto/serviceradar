@@ -13,6 +13,8 @@ defmodule ServiceRadar.Camera.RecordingBlock do
 
   import Ash.Expr
 
+  @reconciliation_states [:unresolved, :adopted, :block_absent, :unrecoverable_journal]
+
   postgres do
     table "camera_recording_blocks"
     schema "platform"
@@ -25,6 +27,10 @@ defmodule ServiceRadar.Camera.RecordingBlock do
 
       index [:camera_source_id, :inserted_at, :id],
         name: "camera_recording_blocks_operator_page_index"
+
+      index [:storage_id, :inserted_at, :id],
+        name: "camera_recording_blocks_unresolved_index",
+        where: "reconciliation_state = 'unresolved'"
     end
 
     references do
@@ -56,6 +62,14 @@ defmodule ServiceRadar.Camera.RecordingBlock do
       check_constraint :state, "camera_block_upload_lease_present",
         check:
           "state <> 'uploading' OR (upload_token IS NOT NULL AND upload_epoch > 0 AND upload_expires_at IS NOT NULL)"
+
+      check_constraint :reconciliation_state, "camera_block_reconciliation_state_valid",
+        check: """
+        reconciliation_state IN ('unresolved', 'adopted', 'block_absent', 'unrecoverable_journal') AND
+        ((reconciliation_state = 'unresolved' AND reconciled_at IS NULL AND reconciliation_detail IS NULL) OR
+         (reconciliation_state = 'adopted' AND reconciled_at IS NOT NULL AND state IN ('sealed', 'uploading')) OR
+         (reconciliation_state IN ('block_absent', 'unrecoverable_journal') AND reconciled_at IS NOT NULL AND state = 'open_local'))
+        """
     end
   end
 
@@ -88,8 +102,38 @@ defmodule ServiceRadar.Camera.RecordingBlock do
 
       prepare build(
                 sort: [inserted_at: :desc, id: :desc],
-                select: [:id, :block_key, :storage_id, :stream_profile_id, :state, :inserted_at]
+                select: [
+                  :id,
+                  :block_key,
+                  :storage_id,
+                  :stream_profile_id,
+                  :state,
+                  :reconciliation_state,
+                  :reconciled_at,
+                  :reconciliation_detail,
+                  :inserted_at
+                ]
               )
+    end
+
+    read :unresolved_reservations do
+      argument :storage_id, :uuid, allow_nil?: true
+      argument :camera_source_id, :uuid, allow_nil?: true
+      argument :limit, :integer, allow_nil?: false, default: 100, constraints: [min: 1, max: 500]
+
+      filter expr(
+               reconciliation_state == :unresolved and
+                 (is_nil(^arg(:storage_id)) or storage_id == ^arg(:storage_id)) and
+                 (is_nil(^arg(:camera_source_id)) or camera_source_id == ^arg(:camera_source_id))
+             )
+
+      prepare fn query, _context ->
+        limit = Ash.Query.get_argument(query, :limit) || 100
+
+        query
+        |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+        |> Ash.Query.limit(limit)
+      end
     end
 
     create :reserve do
@@ -112,6 +156,26 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     update :freeze do
       accept [:descriptor, :descriptor_sha256]
       change set_attribute(:state, :sealed)
+    end
+
+    update :freeze_and_adopt do
+      accept [:descriptor, :descriptor_sha256, :reconciled_at, :reconciliation_detail]
+      change set_attribute(:state, :sealed)
+      change set_attribute(:reconciliation_state, :adopted)
+      validate present([:descriptor, :descriptor_sha256, :reconciled_at])
+    end
+
+    update :mark_adopted do
+      accept [:reconciled_at, :reconciliation_detail]
+      change set_attribute(:reconciliation_state, :adopted)
+      validate present(:reconciled_at)
+    end
+
+    update :resolve_reconciliation do
+      accept [:reconciliation_state, :reconciled_at, :reconciliation_detail]
+      validate present([:reconciliation_state, :reconciled_at])
+      validate one_of(:reconciliation_state, [:block_absent, :unrecoverable_journal])
+      validate attribute_equals(:state, :open_local)
     end
 
     update :claim_upload do
@@ -197,6 +261,16 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     attribute :upload_epoch, :integer, allow_nil?: false, default: 0, constraints: [min: 0]
     attribute :upload_token, :uuid, sensitive?: true
     attribute :upload_expires_at, :utc_datetime_usec
+
+    attribute :reconciliation_state, :atom,
+      allow_nil?: false,
+      default: :unresolved,
+      public?: true,
+      constraints: [one_of: @reconciliation_states]
+
+    attribute :reconciled_at, :utc_datetime_usec, public?: true
+    attribute :reconciliation_detail, :map, public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -236,6 +310,10 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     identity :block_key, [:block_key]
     identity :capture, [:camera_source_id, :stream_profile_id, :recorder_epoch, :block_sequence]
   end
+
+  @doc "Allowed `reconciliation_state` values (`R.3`, `design.md` `R3`/`R4`)."
+  @spec reconciliation_states() :: [atom()]
+  def reconciliation_states, do: @reconciliation_states
 
   @doc "Capture identity from retained state, never from a recovered file or current claim."
   def identity(block) do

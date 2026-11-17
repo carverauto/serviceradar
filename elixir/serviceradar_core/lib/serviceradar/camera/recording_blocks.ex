@@ -21,11 +21,15 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.IngestOwner
   alias ServiceRadar.Camera.LocalStorageBinding
+  alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingDisposition
+  alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Repo
   alias ServiceRadarRecordingControl.RecoveryGate
@@ -34,9 +38,29 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   require Ash.Query
 
   @max_epoch 9_223_372_036_854_775_807
+  @max_wire_rotation_blocks 255
   @operator_page_limit 25
+  @unresolved_default_limit 100
+  @unresolved_max_limit 500
   @operator_page_actor SystemActor.system(:camera_recording_blocks_operator_page)
   @catalog_actor SystemActor.system(:camera_recording_blocks_catalog)
+  @catalog_attr_keys [
+    :first_unit_pts,
+    :first_unit_received_at,
+    :timeline_start_us,
+    :timeline_end_us,
+    :start_us,
+    :end_us,
+    :time_basis,
+    :time_uncertainty_us,
+    :policy_id,
+    :run_id,
+    :anchor_id,
+    :reanchored,
+    :contiguous_with_previous,
+    :policy_storage,
+    :storage
+  ]
 
   def freeze(ingest, claim, block, descriptor, opts \\ []) do
     with {:ok, bytes} <- Descriptor.encode(descriptor) do
@@ -85,12 +109,221 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
                  descriptor["identity"] == RecordingBlock.identity(retained) ||
                    {:error, :recording_block_mismatch},
                {:ok, frozen} <-
-                 freeze_descriptor(retained, descriptor, prepared.descriptor_sha256, opts) do
+                 freeze_and_mark_adopted(
+                   retained,
+                   descriptor,
+                   prepared.descriptor_sha256,
+                   %{"source" => "live_freeze"},
+                   opts
+                 ) do
             ensure_catalog_entry(frozen, retained.database_now, prepared)
           end
         end,
         opts
       )
+    end
+  end
+
+  @doc """
+  Reconciler-only historical freeze (`R.1`, `design.md` `R3`): system actor only.
+
+  Runs every check of live `freeze_and_catalog/6` EXCEPT claim liveness, replacing
+  claim liveness with **writer retirement** (the block's `RecorderClaim` / epoch is
+  released, superseded, or lease-expired by database `clock_timestamp()`). Acquires
+  the same `IngestOwner -> RecorderClaim -> RecordingBlock` `FOR UPDATE` row locks
+  as live `freeze_and_catalog/6`, freezes the canonical descriptor, marks the
+  reservation `:adopted`, and inserts the `RecordingCatalogEntry` in one CNPG
+  transaction with zero network I/O.
+  """
+  @spec freeze_historical(
+          RecordingBlock.t() | String.t(),
+          map(),
+          map() | keyword(),
+          keyword()
+        ) :: {:ok, RecordingCatalogEntry.t()} | {:error, term()}
+  def freeze_historical(block_or_id, descriptor, catalog_attrs_or_opts \\ [], opts \\ []) do
+    {catalog_attrs, call_opts} = split_catalog_attrs_and_opts(catalog_attrs_or_opts, opts)
+
+    with :ok <- authorize_system_reconciler(call_opts),
+         :ok <- check_history_reconciliation_ready(call_opts),
+         {:ok, bytes} <- Descriptor.encode(descriptor) do
+      with_recovery(fn ->
+        transaction(fn ->
+          execute_freeze_historical(block_or_id, descriptor, bytes, catalog_attrs, call_opts)
+        end)
+      end)
+    end
+  end
+
+  @doc """
+  System-actor reconciler primitive that adopts an unreserved block the NVR rotated
+  into (`R.2`, `PD1`, `design.md` `R3`) **only** when every `PD1` continuation proof
+  holds against an adopted/sealed predecessor `RecordingBlock` in one CNPG transaction.
+
+  Supports both `(predecessor, candidate_block_key, candidate_descriptor, opts)` and
+  `(predecessor, candidate_descriptor, opts)`. Any failed `PD1` check rolls back and
+  returns `{:error, {:unattributable_block, reason, evidence}}` without cataloging
+  unverified bytes.
+  """
+  @spec adopt_rotated_block(
+          RecordingBlock.t() | String.t(),
+          String.t() | map(),
+          map() | keyword(),
+          keyword()
+        ) ::
+          {:ok, RecordingCatalogEntry.t()}
+          | {:error, {:unattributable_block, atom(), map()} | term()}
+  def adopt_rotated_block(predecessor_or_id, key_or_descriptor, desc_or_opts \\ [], opts \\ [])
+
+  def adopt_rotated_block(predecessor_or_id, candidate_block_key, candidate_descriptor, opts)
+      when is_binary(candidate_block_key) and is_map(candidate_descriptor) and is_list(opts) do
+    {catalog_attrs, call_opts} = extract_opts_catalog_attrs(opts)
+
+    run_adopt_rotated_block(
+      predecessor_or_id,
+      candidate_block_key,
+      candidate_descriptor,
+      catalog_attrs,
+      call_opts
+    )
+  end
+
+  def adopt_rotated_block(predecessor_or_id, candidate_descriptor, catalog_attrs_or_opts, opts)
+      when is_map(candidate_descriptor) do
+    {catalog_attrs, call_opts} = split_catalog_attrs_and_opts(catalog_attrs_or_opts, opts)
+
+    explicit_key =
+      fetch_catalog_val(catalog_attrs, :block_key) || Keyword.get(call_opts, :block_key)
+
+    candidate_key = resolve_implicit_candidate_key(explicit_key, candidate_descriptor)
+
+    run_adopt_rotated_block(
+      predecessor_or_id,
+      candidate_key,
+      candidate_descriptor,
+      catalog_attrs,
+      call_opts
+    )
+  end
+
+  def adopt_rotated_block(_predecessor_or_id, candidate_block_key, candidate_descriptor, opts)
+      when is_list(opts) do
+    with :ok <- authorize_system_reconciler(opts),
+         :ok <- check_history_reconciliation_ready(opts) do
+      {:error,
+       {:unattributable_block, :invalid_descriptor,
+        %{
+          "reason" => "invalid_descriptor",
+          "candidate_block_key" => to_string(candidate_block_key || ""),
+          "descriptor_valid" => is_map(candidate_descriptor)
+        }}}
+    end
+  end
+
+  @doc """
+  Lists `RecordingBlock` reservations whose `reconciliation_state` is `:unresolved`
+  (oldest first, bounded 1..500, default 100), excluding reservations already resolved
+  as `:adopted`, `:block_absent`, or `:unrecoverable_journal` (`R.3`).
+  """
+  @spec list_unresolved_reservations(map() | keyword(), keyword()) ::
+          {:ok, [RecordingBlock.t()]} | {:error, term()}
+  def list_unresolved_reservations(filters_or_opts \\ [], opts \\ []) do
+    {filters, call_opts} = split_filters_and_opts(filters_or_opts, opts)
+
+    with :ok <- authorize_operator_page(call_opts),
+         {:ok, storage_id} <- parse_optional_uuid_filter(fetch_catalog_val(filters, :storage_id)),
+         {:ok, camera_id} <-
+           parse_optional_uuid_filter(fetch_catalog_val(filters, :camera_source_id)),
+         {:ok, limit} <- parse_unresolved_limit(fetch_catalog_val(filters, :limit)) do
+      args = %{storage_id: storage_id, camera_source_id: camera_id, limit: limit}
+
+      RecordingBlock
+      |> Ash.Query.for_read(:unresolved_reservations, args, actor: @catalog_actor)
+      |> Ash.read(actor: @catalog_actor)
+    end
+  end
+
+  @doc """
+  Resolves an `:open_local` `RecordingBlock` reservation whose block is absent on the
+  NVR volume once its writer is retired (`R.3`, `design.md` `R4`), marking
+  `reconciliation_state = :block_absent` and recording a `:block_absent` `RecordingGap`
+  in one CNPG transaction.
+  """
+  @spec resolve_reservation_absent(
+          RecordingBlock.t() | String.t(),
+          map() | keyword(),
+          keyword()
+        ) :: {:ok, %{block: RecordingBlock.t(), gap: RecordingGap.t() | nil}} | {:error, term()}
+  def resolve_reservation_absent(block_or_id, attrs_or_opts \\ %{}, opts \\ []) do
+    {attrs, call_opts} = split_filters_and_opts(attrs_or_opts, opts)
+
+    with :ok <- authorize_system_reconciler(call_opts),
+         :ok <- check_history_reconciliation_ready(call_opts) do
+      with_recovery(fn ->
+        transaction(fn ->
+          execute_resolve_absent(block_or_id, attrs, call_opts)
+        end)
+      end)
+    end
+  end
+
+  @doc """
+  Resolves an `:open_local` `RecordingBlock` reservation whose incomplete journal failed
+  explicit recovery once its writer is retired (`R.3`, `design.md` `R2`, `R4` step 5).
+
+  Marks `reconciliation_state = :unrecoverable_journal`, optionally registers the
+  never-frozen `:unrecoverable_journal` quarantined `RecordingCatalogEntry` when
+  `:quarantine_receipt` and `:quarantined_bytes` are supplied, and records a
+  `:quarantined` `RecordingGap` in the same transaction **only** when the block's own
+  media/timeline interval (`:start_us` and `:end_us`) is explicitly supplied (`R2`
+  quarantined-gap rule: no other interval is ever substituted).
+  """
+  @spec resolve_reservation_unrecoverable(
+          RecordingBlock.t() | String.t(),
+          map() | keyword(),
+          keyword()
+        ) ::
+          {:ok,
+           %{
+             block: RecordingBlock.t(),
+             gap: RecordingGap.t() | nil,
+             quarantined_entry: RecordingCatalogEntry.t() | nil
+           }}
+          | {:error, term()}
+  def resolve_reservation_unrecoverable(block_or_id, attrs_or_opts \\ %{}, opts \\ []) do
+    {attrs, call_opts} = split_filters_and_opts(attrs_or_opts, opts)
+
+    with :ok <- authorize_system_reconciler(call_opts),
+         :ok <- check_history_reconciliation_ready(call_opts) do
+      with_recovery(fn ->
+        transaction(fn ->
+          execute_resolve_unrecoverable(block_or_id, attrs, call_opts)
+        end)
+      end)
+    end
+  end
+
+  @doc """
+  Quarantines a block on an NVR volume that has no Core reservation authority (`R.3`,
+  `R4` step 6, `R2`), registering a never-frozen `RecordingCatalogEntry` with
+  `quarantine_reason = :unattributable`, structured `quarantine_evidence`, and
+  `operator_disposition_state = :awaiting_operator`, and recording a `:quarantined`
+  `RecordingGap` only when `camera_source_id` and explicit `[start_us, end_us]` are known.
+  """
+  @spec quarantine_unattributable_block(map() | keyword(), keyword()) ::
+          {:ok, %{entry: RecordingCatalogEntry.t(), gap: RecordingGap.t() | nil}}
+          | {:error, term()}
+  def quarantine_unattributable_block(attrs, opts \\ [])
+      when (is_map(attrs) or is_list(attrs)) and is_list(opts) do
+    attrs_map = if is_map(attrs), do: attrs, else: Map.new(attrs)
+
+    with :ok <- authorize_system_reconciler(opts),
+         :ok <- check_history_reconciliation_ready(opts) do
+      with_recovery(fn ->
+        transaction(fn ->
+          execute_quarantine_unattributable(attrs_map)
+        end)
+      end)
     end
   end
 
@@ -359,6 +592,50 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
        do: {:ok, block}
 
   defp freeze_descriptor(_, _, _, _), do: {:error, :recording_descriptor_conflict}
+
+  defp freeze_and_mark_adopted(%{state: :open_local} = block, descriptor, sha, detail, opts) do
+    params = %{
+      descriptor: descriptor,
+      descriptor_sha256: sha,
+      reconciled_at: block.database_now,
+      reconciliation_detail: detail
+    }
+
+    block
+    |> Ash.Changeset.for_update(:freeze_and_adopt, params)
+    |> Ash.Changeset.filter(expr(state == :open_local and reconciliation_state == :unresolved))
+    |> Ash.update(Keyword.put(opts, :load, [:database_now]))
+  end
+
+  defp freeze_and_mark_adopted(
+         %{descriptor: descriptor, descriptor_sha256: sha, reconciliation_state: :unresolved} =
+           block,
+         descriptor,
+         sha,
+         detail,
+         opts
+       ) do
+    params = %{
+      reconciled_at: block.database_now,
+      reconciliation_detail: detail
+    }
+
+    block
+    |> Ash.Changeset.for_update(:mark_adopted, params)
+    |> Ash.Changeset.filter(expr(reconciliation_state == :unresolved))
+    |> Ash.update(Keyword.put(opts, :load, [:database_now]))
+  end
+
+  defp freeze_and_mark_adopted(
+         %{descriptor: descriptor, descriptor_sha256: sha, reconciliation_state: :adopted} = block,
+         descriptor,
+         sha,
+         _detail,
+         _opts
+       ),
+       do: {:ok, block}
+
+  defp freeze_and_mark_adopted(_, _, _, _, _), do: {:error, :recording_descriptor_conflict}
 
   defp prepare_catalog_params(descriptor, bytes, raw_attrs)
        when is_map(raw_attrs) or is_list(raw_attrs) do
@@ -777,11 +1054,1011 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     end
   end
 
+  defp authorize_system_reconciler(opts) when is_list(opts) do
+    actor =
+      case Keyword.get(opts, :actor) do
+        nil -> opts |> Keyword.get(:scope) |> actor_from_scope()
+        explicit -> explicit
+      end
+
+    if match?(%{role: :system}, actor) do
+      :ok
+    else
+      {:error, Forbidden.exception([])}
+    end
+  end
+
+  defp check_history_reconciliation_ready(opts) when is_list(opts) do
+    if Keyword.get(opts, :awaiting_history_reconciliation?, false) == true do
+      {:error, :storage_awaiting_history_reconciliation}
+    else
+      :ok
+    end
+  end
+
+  defp split_catalog_attrs_and_opts(attrs, opts) when is_map(attrs) and is_list(opts) do
+    {attrs_from_opts, clean_opts} = extract_opts_catalog_attrs(opts)
+    {Map.merge(attrs_from_opts, attrs), clean_opts}
+  end
+
+  defp split_catalog_attrs_and_opts(opts_arg, []) when is_list(opts_arg) do
+    extract_opts_catalog_attrs(opts_arg)
+  end
+
+  defp split_catalog_attrs_and_opts(attrs_list, opts)
+       when is_list(attrs_list) and is_list(opts) do
+    split_catalog_attrs_and_opts(Map.new(attrs_list), opts)
+  end
+
+  defp split_catalog_attrs_and_opts(_, opts) when is_list(opts), do: {%{}, opts}
+
+  defp extract_opts_catalog_attrs(opts) when is_list(opts) do
+    explicit_map =
+      case Keyword.get(opts, :catalog_attrs) do
+        m when is_map(m) -> m
+        l when is_list(l) -> Map.new(l)
+        _ -> %{}
+      end
+
+    inline_attrs =
+      Enum.reduce(@catalog_attr_keys, %{}, fn key, acc ->
+        case Keyword.fetch(opts, key) do
+          {:ok, val} -> Map.put(acc, key, val)
+          :error -> acc
+        end
+      end)
+
+    {Map.merge(inline_attrs, explicit_map), opts}
+  end
+
+  defp split_filters_and_opts(filters, opts) when is_map(filters) and is_list(opts),
+    do: {filters, opts}
+
+  defp split_filters_and_opts(opts_arg, []) when is_list(opts_arg) do
+    {Map.new(opts_arg), opts_arg}
+  end
+
+  defp split_filters_and_opts(filters_list, opts) when is_list(filters_list) and is_list(opts) do
+    {Map.new(filters_list), opts}
+  end
+
+  defp split_filters_and_opts(_, opts) when is_list(opts), do: {%{}, opts}
+
+  defp parse_optional_uuid_filter(nil), do: {:ok, nil}
+  defp parse_optional_uuid_filter(""), do: {:ok, nil}
+
+  defp parse_optional_uuid_filter(val) when is_binary(val) do
+    case Ecto.UUID.cast(val) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_uuid_filter}
+    end
+  end
+
+  defp parse_optional_uuid_filter(_), do: {:error, :invalid_uuid_filter}
+
+  defp parse_unresolved_limit(nil), do: {:ok, @unresolved_default_limit}
+
+  defp parse_unresolved_limit(limit) when is_integer(limit) and limit >= 1 do
+    {:ok, min(limit, @unresolved_max_limit)}
+  end
+
+  defp parse_unresolved_limit(_), do: {:error, :invalid_page_limit}
+
+  defp resolve_implicit_candidate_key(explicit_key, _descriptor) when is_binary(explicit_key),
+    do: explicit_key
+
+  defp resolve_implicit_candidate_key(_explicit_key, %{"identity" => identity})
+       when is_map(identity) do
+    if Descriptor.valid_identity?(identity), do: Descriptor.block_key(identity), else: ""
+  end
+
+  defp resolve_implicit_candidate_key(_explicit_key, _descriptor), do: ""
+
+  defp execute_freeze_historical(block_or_id, descriptor, bytes, catalog_attrs, call_opts) do
+    sys_opts = [actor: @catalog_actor]
+
+    with {:ok, target} <- load_block_unlocked(block_or_id, sys_opts),
+         {:ok, _owner, claim, retained} <-
+           lock_owner_claim_and_block(target, sys_opts),
+         :ok <- verify_writer_retired(retained, claim, call_opts),
+         :ok <-
+           verify_historical_reservation_fence(retained, descriptor, catalog_attrs, call_opts),
+         effective_attrs =
+           default_historical_timeline_attrs(catalog_attrs, descriptor, retained),
+         {:ok, prepared} <- prepare_catalog_params(descriptor, bytes, effective_attrs),
+         {:ok, frozen} <-
+           freeze_and_mark_adopted(
+             retained,
+             descriptor,
+             prepared.descriptor_sha256,
+             %{"source" => "historical_freeze"},
+             sys_opts
+           ) do
+      ensure_historical_catalog_entry(frozen, retained.database_now, prepared, catalog_attrs)
+    end
+  end
+
+  defp load_block_unlocked(%RecordingBlock{} = block, _sys_opts), do: {:ok, block}
+
+  defp load_block_unlocked(block_id, sys_opts) when is_binary(block_id) do
+    case Ecto.UUID.cast(block_id) do
+      {:ok, uuid} ->
+        RecordingBlock
+        |> Ash.Query.filter(id == ^uuid)
+        |> Ash.read_one(sys_opts)
+        |> case do
+          {:ok, %RecordingBlock{} = block} -> {:ok, block}
+          {:ok, nil} -> {:error, :recording_block_not_found}
+          {:error, _} = error -> error
+        end
+
+      :error ->
+        {:error, :recording_block_not_found}
+    end
+  end
+
+  defp load_block_unlocked(_, _sys_opts), do: {:error, :recording_block_not_found}
+
+  defp lock_owner_claim_and_block(%RecordingBlock{} = target, sys_opts) do
+    owner_id = target.ingest_owner_id
+    claim_id = target.recorder_claim_id
+
+    with {:ok, owner} <- lock_ingest_owner(owner_id, sys_opts),
+         {:ok, claim} <- lock_recorder_claim(claim_id, sys_opts),
+         {:ok, retained} <- lock(target.id, sys_opts) do
+      {:ok, owner, claim, retained}
+    end
+  end
+
+  defp lock_ingest_owner(owner_id, sys_opts) do
+    IngestOwner
+    |> Ash.Query.filter(id == ^owner_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(sys_opts)
+    |> case do
+      {:ok, %IngestOwner{} = owner} -> Ash.load(owner, :database_now, sys_opts)
+      {:ok, nil} -> {:error, :ingest_owner_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp lock_recorder_claim(claim_id, sys_opts) do
+    RecorderClaim
+    |> Ash.Query.filter(id == ^claim_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(sys_opts)
+    |> case do
+      {:ok, %RecorderClaim{} = claim} -> Ash.load(claim, :database_now, sys_opts)
+      {:ok, nil} -> {:error, :recorder_claim_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp verify_writer_retired(%RecordingBlock{} = block, %RecorderClaim{} = claim, opts) do
+    cond do
+      Keyword.get(opts, :active_source_session?, false) == true ->
+        {:error, :writer_not_retired}
+
+      claim.recorder_epoch < block.recorder_epoch ->
+        {:error, :recording_block_mismatch}
+
+      writer_claim_live?(block, claim) ->
+        {:error, :writer_not_retired}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp writer_claim_live?(%RecordingBlock{} = block, %RecorderClaim{} = claim) do
+    claim.id == block.recorder_claim_id and
+      claim.recorder_epoch == block.recorder_epoch and
+      claim.state == :active and
+      match?(%DateTime{}, claim.lease_expires_at) and
+      DateTime.after?(claim.lease_expires_at, claim.database_now)
+  end
+
+  defp verify_historical_reservation_fence(retained, descriptor, catalog_attrs, call_opts) do
+    expected_storage =
+      fetch_catalog_val(catalog_attrs, :storage_id) || Keyword.get(call_opts, :storage_id)
+
+    expected_key =
+      fetch_catalog_val(catalog_attrs, :block_key) || Keyword.get(call_opts, :block_key)
+
+    cond do
+      retained.reconciliation_state in [:block_absent, :unrecoverable_journal] ->
+        {:error, {:reservation_already_resolved, retained.reconciliation_state}}
+
+      not is_nil(expected_storage) and
+          to_string(expected_storage) != to_string(retained.storage_id) ->
+        {:error, :recording_block_mismatch}
+
+      not is_nil(expected_key) and to_string(expected_key) != retained.block_key ->
+        {:error, :recording_block_mismatch}
+
+      Descriptor.block_key(descriptor["identity"]) != retained.block_key ->
+        {:error, :recording_block_mismatch}
+
+      descriptor["identity"] != RecordingBlock.identity(retained) ->
+        {:error, :recording_block_mismatch}
+
+      true ->
+        ensure_not_tombstoned(retained.storage_id, retained.block_key)
+    end
+  end
+
+  defp ensure_not_tombstoned(storage_id, block_key) do
+    has_catalog? =
+      RecordingCatalogEntry
+      |> Ash.Query.filter(storage_id == ^storage_id and block_key == ^block_key)
+      |> Ash.exists(actor: @catalog_actor)
+
+    case has_catalog? do
+      {:ok, true} ->
+        :ok
+
+      {:ok, false} ->
+        tombstoned? =
+          RecordingDisposition
+          |> Ash.Query.filter(
+            storage_id == ^storage_id and block_key == ^block_key and copy == :local and
+              step in [:requested, :executed, :verified_absent]
+          )
+          |> Ash.exists(actor: @catalog_actor)
+
+        case tombstoned? do
+          {:ok, true} -> {:error, :recording_block_tombstoned}
+          {:ok, false} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp default_historical_timeline_attrs(attrs, descriptor, %RecordingBlock{} = retained) do
+    has_timeline? =
+      not is_nil(fetch_catalog_val(attrs, :timeline_start_us)) or
+        not is_nil(fetch_catalog_val(attrs, :start_us)) or
+        not is_nil(fetch_catalog_val(attrs, :first_unit_received_at)) or
+        is_map(get_in(descriptor, ["identity", "clock", "utc_mapping"]))
+
+    if has_timeline? do
+      attrs
+    else
+      fallback_start_us = DateTime.to_unix(retained.inserted_at, :microsecond)
+      Map.put(attrs, :timeline_start_us, fallback_start_us)
+    end
+  end
+
+  defp ensure_historical_catalog_entry(frozen, now, prepared, explicit_attrs) do
+    storage_id = frozen.storage_id
+    block_key = frozen.block_key
+
+    existing_query =
+      RecordingCatalogEntry
+      |> Ash.Query.filter(storage_id == ^storage_id and block_key == ^block_key)
+      |> Ash.Query.lock(:for_update)
+
+    case Ash.read_one(existing_query, actor: @catalog_actor) do
+      {:ok, %RecordingCatalogEntry{} = existing} ->
+        verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs)
+
+      {:ok, nil} ->
+        insert_sealed_catalog_entry(frozen, now, prepared)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs) do
+    same_descriptor? =
+      existing.recording_block_id == frozen.id and
+        existing.descriptor_sha256 == prepared.descriptor_sha256 and
+        existing.camera_source_id == frozen.camera_source_id and
+        existing.stream_profile_id == frozen.stream_profile_id
+
+    cond do
+      not same_descriptor? ->
+        {:error, :recording_descriptor_conflict}
+
+      explicit_catalog_conflict?(existing, prepared, explicit_attrs) ->
+        {:error, :recording_descriptor_conflict}
+
+      true ->
+        {:ok, existing}
+    end
+  end
+
+  defp explicit_catalog_conflict?(existing, prepared, explicit_attrs) do
+    checks = [
+      {:policy_id, existing.policy_id == prepared.policy_id},
+      {:run_id, existing.run_id == prepared.run_id},
+      {:first_unit_pts, existing.first_unit_pts == prepared.first_unit_pts},
+      {:first_unit_received_at,
+       equal_optional_datetime?(existing.first_unit_received_at, prepared.first_unit_received_at)},
+      {:timeline_start_us, existing.timeline_start_us == prepared.timeline_start_us},
+      {:start_us, existing.timeline_start_us == prepared.timeline_start_us},
+      {:timeline_end_us, existing.timeline_end_us == prepared.timeline_end_us},
+      {:end_us, existing.timeline_end_us == prepared.timeline_end_us},
+      {:time_basis, existing.time_basis == prepared.time_basis},
+      {:anchor_id, existing.anchor_id == prepared.anchor_id},
+      {:reanchored, existing.reanchored == prepared.reanchored},
+      {:contiguous_with_previous,
+       existing.contiguous_with_previous == prepared.contiguous_with_previous}
+    ]
+
+    Enum.any?(checks, fn {key, matches?} ->
+      explicit_attr_present?(explicit_attrs, key) and not matches?
+    end)
+  end
+
+  defp explicit_attr_present?(attrs, key) when is_map(attrs) do
+    Map.has_key?(attrs, key) or Map.has_key?(attrs, Atom.to_string(key))
+  end
+
+  defp run_adopt_rotated_block(
+         predecessor_or_id,
+         candidate_block_key,
+         candidate_descriptor,
+         catalog_attrs,
+         call_opts
+       ) do
+    with :ok <- authorize_system_reconciler(call_opts),
+         :ok <- check_history_reconciliation_ready(call_opts) do
+      case Descriptor.encode(candidate_descriptor) do
+        {:ok, bytes} ->
+          with_recovery(fn ->
+            transaction(fn ->
+              execute_adopt_rotated_block(
+                predecessor_or_id,
+                candidate_block_key,
+                candidate_descriptor,
+                bytes,
+                catalog_attrs,
+                call_opts
+              )
+            end)
+          end)
+
+        {:error, _} ->
+          {:error,
+           unattributable_error(:invalid_descriptor, %{
+             "candidate_block_key" => candidate_block_key
+           })}
+      end
+    end
+  end
+
+  defp execute_adopt_rotated_block(
+         predecessor_or_id,
+         candidate_block_key,
+         candidate_descriptor,
+         bytes,
+         catalog_attrs,
+         call_opts
+       ) do
+    sys_opts = [actor: @catalog_actor]
+
+    case load_block_unlocked(predecessor_or_id, sys_opts) do
+      {:ok, pred_unlocked} ->
+        with {:ok, _owner, claim, pred} <- lock_owner_claim_and_block(pred_unlocked, sys_opts),
+             {:ok, next_seq, expected_key} <-
+               verify_pd1_predecessor_and_identity(
+                 pred,
+                 claim,
+                 candidate_block_key,
+                 candidate_descriptor,
+                 catalog_attrs,
+                 call_opts
+               ) do
+          persist_rotated_continuation(
+            pred,
+            claim,
+            next_seq,
+            expected_key,
+            candidate_descriptor,
+            bytes,
+            catalog_attrs,
+            sys_opts
+          )
+        end
+
+      {:error, :recording_block_not_found} ->
+        {:error,
+         unattributable_error(:predecessor_not_found, %{
+           "candidate_block_key" => candidate_block_key
+         })}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp verify_pd1_predecessor_and_identity(
+         pred,
+         claim,
+         candidate_block_key,
+         candidate_descriptor,
+         catalog_attrs,
+         call_opts
+       ) do
+    next_seq = pred.block_sequence + 1
+    expected_identity = Map.put(RecordingBlock.identity(pred), "block_sequence", next_seq)
+    expected_key = Descriptor.block_key(expected_identity)
+    candidate_identity = candidate_descriptor["identity"]
+
+    requested_storage =
+      fetch_catalog_val(catalog_attrs, :storage_id) || Keyword.get(call_opts, :storage_id)
+
+    base_evidence = %{
+      "predecessor_block_id" => pred.id,
+      "storage_id" => to_string(pred.storage_id),
+      "candidate_block_key" => candidate_block_key,
+      "expected_block_key" => expected_key,
+      "predecessor_sequence" => pred.block_sequence,
+      "expected_sequence" => next_seq,
+      "candidate_sequence" => candidate_identity["block_sequence"],
+      "expected_clock_epoch" => pred.clock["clock_epoch"],
+      "candidate_clock_epoch" => get_in(candidate_identity, ["clock", "clock_epoch"])
+    }
+
+    with :ok <- check_pd1_predecessor_adopted(pred, base_evidence),
+         :ok <- check_pd1_writer_retired(pred, claim, call_opts, base_evidence),
+         :ok <- check_pd1_storage(pred, requested_storage, base_evidence),
+         :ok <- check_pd1_sequence_and_identity(pred, next_seq, candidate_identity, base_evidence),
+         :ok <-
+           check_pd1_block_key(
+             candidate_block_key,
+             candidate_identity,
+             expected_key,
+             base_evidence
+           ) do
+      {:ok, next_seq, expected_key}
+    end
+  end
+
+  defp check_pd1_predecessor_adopted(%RecordingBlock{} = pred, evidence) do
+    cond do
+      pred.state not in [:sealed, :uploading] ->
+        {:error, unattributable_error(:predecessor_not_adopted, evidence)}
+
+      pred.reconciliation_state == :adopted ->
+        :ok
+
+      predecessor_has_sealed_catalog_entry?(pred.id) ->
+        :ok
+
+      true ->
+        {:error, unattributable_error(:predecessor_not_adopted, evidence)}
+    end
+  end
+
+  defp predecessor_has_sealed_catalog_entry?(pred_id) do
+    RecordingCatalogEntry
+    |> Ash.Query.filter(recording_block_id == ^pred_id and local_state != :quarantined)
+    |> Ash.exists(actor: @catalog_actor)
+    |> case do
+      {:ok, true} -> true
+      _ -> false
+    end
+  end
+
+  defp check_pd1_writer_retired(pred, claim, call_opts, evidence) do
+    case verify_writer_retired(pred, claim, call_opts) do
+      :ok ->
+        :ok
+
+      {:error, :writer_not_retired} ->
+        {:error, unattributable_error(:writer_not_retired, evidence)}
+
+      {:error, reason} ->
+        {:error, unattributable_error(reason, evidence)}
+    end
+  end
+
+  defp check_pd1_storage(_pred, nil, _evidence), do: :ok
+
+  defp check_pd1_storage(pred, requested_storage, evidence) do
+    if to_string(requested_storage) == to_string(pred.storage_id) do
+      :ok
+    else
+      {:error,
+       unattributable_error(
+         :storage_mismatch,
+         Map.put(evidence, "requested_storage_id", to_string(requested_storage))
+       )}
+    end
+  end
+
+  defp check_pd1_sequence_and_identity(pred, next_seq, candidate_identity, evidence) do
+    cond do
+      next_seq > @max_epoch or next_seq > @max_wire_rotation_blocks ->
+        {:error, unattributable_error(:rotation_bound_exceeded, evidence)}
+
+      candidate_identity["source_id"] != pred.camera_source_id ->
+        {:error, unattributable_error(:camera_source_mismatch, evidence)}
+
+      candidate_identity["profile"] != pred.stream_profile_id ->
+        {:error, unattributable_error(:stream_profile_mismatch, evidence)}
+
+      candidate_identity["recorder_epoch"] != pred.recorder_epoch ->
+        {:error, unattributable_error(:recorder_epoch_mismatch, evidence)}
+
+      candidate_identity["clock"] != pred.clock ->
+        {:error, unattributable_error(:clock_epoch_mismatch, evidence)}
+
+      candidate_identity["block_sequence"] != next_seq ->
+        {:error, unattributable_error(:sequence_mismatch, evidence)}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp check_pd1_block_key(candidate_block_key, candidate_identity, expected_key, evidence) do
+    derived_from_candidate = Descriptor.block_key(candidate_identity)
+
+    if candidate_block_key == expected_key and derived_from_candidate == expected_key do
+      :ok
+    else
+      {:error, unattributable_error(:block_key_mismatch, evidence)}
+    end
+  end
+
+  defp persist_rotated_continuation(
+         pred,
+         claim,
+         next_seq,
+         expected_key,
+         candidate_descriptor,
+         bytes,
+         catalog_attrs,
+         sys_opts
+       ) do
+    sha = :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+
+    evidence = %{
+      "predecessor_block_id" => pred.id,
+      "storage_id" => to_string(pred.storage_id),
+      "expected_block_key" => expected_key,
+      "expected_sequence" => next_seq
+    }
+
+    case lookup_existing_continuation_block(pred, next_seq, expected_key, sys_opts) do
+      {:ok, nil} ->
+        create_and_catalog_rotated_continuation(
+          pred,
+          claim,
+          next_seq,
+          expected_key,
+          candidate_descriptor,
+          bytes,
+          catalog_attrs,
+          sys_opts,
+          evidence
+        )
+
+      {:ok, %RecordingBlock{} = existing} ->
+        handle_existing_continuation_block(
+          existing,
+          pred,
+          candidate_descriptor,
+          bytes,
+          sha,
+          catalog_attrs,
+          evidence
+        )
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp lookup_existing_continuation_block(pred, next_seq, expected_key, sys_opts) do
+    cam_id = pred.camera_source_id
+    prof_id = pred.stream_profile_id
+    rec_epoch = pred.recorder_epoch
+
+    RecordingBlock
+    |> Ash.Query.filter(
+      block_key == ^expected_key or
+        (camera_source_id == ^cam_id and stream_profile_id == ^prof_id and
+           recorder_epoch == ^rec_epoch and block_sequence == ^next_seq)
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(sys_opts)
+  end
+
+  defp handle_existing_continuation_block(
+         %RecordingBlock{} = existing,
+         pred,
+         candidate_descriptor,
+         bytes,
+         sha,
+         catalog_attrs,
+         evidence
+       ) do
+    same_rotated_adoption? =
+      existing.reconciliation_state == :adopted and
+        get_in(existing.reconciliation_detail || %{}, ["source"]) == "rotated_adoption" and
+        get_in(existing.reconciliation_detail || %{}, ["predecessor_block_id"]) == pred.id
+
+    cond do
+      not same_rotated_adoption? ->
+        {:error, unattributable_error(:sequence_already_reserved, evidence)}
+
+      existing.descriptor_sha256 != sha ->
+        {:error, unattributable_error(:descriptor_conflict, evidence)}
+
+      true ->
+        effective_attrs =
+          default_historical_timeline_attrs(catalog_attrs, candidate_descriptor, existing)
+
+        with {:ok, prepared} <-
+               prepare_catalog_params(candidate_descriptor, bytes, effective_attrs),
+             {:ok, loaded} <- Ash.load(existing, :database_now, actor: @catalog_actor) do
+          ensure_historical_catalog_entry(loaded, loaded.database_now, prepared, catalog_attrs)
+        end
+    end
+  end
+
+  defp create_and_catalog_rotated_continuation(
+         pred,
+         claim,
+         next_seq,
+         expected_key,
+         candidate_descriptor,
+         bytes,
+         catalog_attrs,
+         sys_opts,
+         evidence
+       ) do
+    case ensure_not_tombstoned(pred.storage_id, expected_key) do
+      {:error, :recording_block_tombstoned} ->
+        {:error, unattributable_error(:block_tombstoned, evidence)}
+
+      {:error, _} = error ->
+        error
+
+      :ok ->
+        with {:ok, _claim} <-
+               maybe_advance_claim_sequence(claim, pred.recorder_epoch, next_seq, sys_opts),
+             {:ok, created} <- insert_continuation_block(pred, next_seq, expected_key, sys_opts),
+             {:ok, retained} <- Ash.load(created, :database_now, sys_opts),
+             effective_attrs =
+               default_historical_timeline_attrs(catalog_attrs, candidate_descriptor, retained),
+             {:ok, prepared} <-
+               prepare_catalog_params(candidate_descriptor, bytes, effective_attrs),
+             {:ok, frozen} <-
+               freeze_and_mark_adopted(
+                 retained,
+                 candidate_descriptor,
+                 prepared.descriptor_sha256,
+                 %{
+                   "source" => "rotated_adoption",
+                   "predecessor_block_id" => pred.id,
+                   "predecessor_sequence" => pred.block_sequence
+                 },
+                 sys_opts
+               ) do
+          ensure_historical_catalog_entry(frozen, retained.database_now, prepared, catalog_attrs)
+        end
+    end
+  end
+
+  defp maybe_advance_claim_sequence(%RecorderClaim{} = claim, pred_epoch, next_seq, sys_opts) do
+    if claim.recorder_epoch == pred_epoch and claim.next_block_sequence <= next_seq do
+      claim
+      |> Ash.Changeset.for_update(:transition, %{next_block_sequence: next_seq + 1})
+      |> Ash.Changeset.filter(expr(recorder_epoch == ^pred_epoch))
+      |> Ash.update(sys_opts)
+    else
+      {:ok, claim}
+    end
+  end
+
+  defp insert_continuation_block(pred, next_seq, expected_key, sys_opts) do
+    attrs = %{
+      block_key: expected_key,
+      camera_source_id: pred.camera_source_id,
+      stream_profile_id: pred.stream_profile_id,
+      ingest_owner_id: pred.ingest_owner_id,
+      ingest_epoch: pred.ingest_epoch,
+      recorder_claim_id: pred.recorder_claim_id,
+      recorder_epoch: pred.recorder_epoch,
+      block_sequence: next_seq,
+      relay_session_id: pred.relay_session_id,
+      media_ingest_id: pred.media_ingest_id,
+      storage_id: pred.storage_id,
+      clock: pred.clock
+    }
+
+    RecordingBlock
+    |> Ash.Changeset.for_create(:reserve, attrs)
+    |> Ash.create(sys_opts)
+  end
+
+  defp unattributable_error(reason, evidence) when is_atom(reason) and is_map(evidence) do
+    {:unattributable_block, reason, Map.put_new(evidence, "reason", Atom.to_string(reason))}
+  end
+
+  defp execute_resolve_absent(block_or_id, attrs, call_opts) do
+    sys_opts = [actor: @catalog_actor]
+
+    with {:ok, target} <- load_block_unlocked(block_or_id, sys_opts),
+         {:ok, _owner, claim, retained} <- lock_owner_claim_and_block(target, sys_opts),
+         :ok <- verify_writer_retired(retained, claim, call_opts) do
+      resolve_locked_absent(retained, attrs, sys_opts)
+    end
+  end
+
+  defp resolve_locked_absent(
+         %RecordingBlock{reconciliation_state: :block_absent} = retained,
+         _attrs,
+         _sys_opts
+       ) do
+    {:ok, %{block: retained, gap: nil}}
+  end
+
+  defp resolve_locked_absent(%RecordingBlock{} = retained, attrs, sys_opts) do
+    cond do
+      retained.state != :open_local ->
+        {:error, :recording_block_already_sealed}
+
+      retained.reconciliation_state != :unresolved ->
+        {:error, {:reservation_already_resolved, retained.reconciliation_state}}
+
+      true ->
+        detail = build_resolution_detail(attrs, "block_absent")
+
+        update_params = %{
+          reconciliation_state: :block_absent,
+          reconciled_at: retained.database_now,
+          reconciliation_detail: detail
+        }
+
+        with {:ok, resolved} <-
+               retained
+               |> Ash.Changeset.for_update(:resolve_reconciliation, update_params)
+               |> Ash.Changeset.filter(
+                 expr(state == :open_local and reconciliation_state == :unresolved)
+               )
+               |> Ash.update(sys_opts),
+             {:ok, gap} <- maybe_record_absent_gap(retained, attrs, sys_opts) do
+          {:ok, %{block: resolved, gap: gap}}
+        end
+    end
+  end
+
+  defp maybe_record_absent_gap(retained, attrs, sys_opts) do
+    if fetch_catalog_val(attrs, :record_gap?) == false do
+      {:ok, nil}
+    else
+      default_start_us = DateTime.to_unix(retained.inserted_at, :microsecond)
+      start_us = fetch_catalog_val(attrs, :start_us) || default_start_us
+
+      end_us =
+        case fetch_catalog_val(attrs, :end_us) do
+          explicit when is_integer(explicit) -> explicit
+          _ -> max(start_us, DateTime.to_unix(retained.database_now, :microsecond))
+        end
+
+      gap_params = %{
+        camera_source_id: retained.camera_source_id,
+        stream_profile_id: retained.stream_profile_id,
+        policy_id: fetch_catalog_val(attrs, :policy_id),
+        storage_id: retained.storage_id,
+        run_id: fetch_catalog_val(attrs, :run_id),
+        clock_epoch: retained.clock["clock_epoch"],
+        start_us: start_us,
+        end_us: end_us,
+        media_gap_ns: fetch_catalog_val(attrs, :media_gap_ns),
+        time_basis: fetch_catalog_val(attrs, :time_basis) || :received,
+        time_uncertainty_us: fetch_catalog_val(attrs, :time_uncertainty_us),
+        reason: :block_absent,
+        detail_class: fetch_catalog_val(attrs, :detail_class) || "reservation_block_absent"
+      }
+
+      RecordingGap
+      |> Ash.Changeset.for_create(:record, gap_params)
+      |> Ash.create(sys_opts)
+    end
+  end
+
+  defp execute_resolve_unrecoverable(block_or_id, attrs, call_opts) do
+    sys_opts = [actor: @catalog_actor]
+
+    with {:ok, target} <- load_block_unlocked(block_or_id, sys_opts),
+         {:ok, _owner, claim, retained} <- lock_owner_claim_and_block(target, sys_opts),
+         :ok <- verify_writer_retired(retained, claim, call_opts) do
+      resolve_locked_unrecoverable(retained, attrs, sys_opts)
+    end
+  end
+
+  defp resolve_locked_unrecoverable(
+         %RecordingBlock{reconciliation_state: :unrecoverable_journal} = retained,
+         _attrs,
+         _sys_opts
+       ) do
+    {:ok, %{block: retained, gap: nil, quarantined_entry: nil}}
+  end
+
+  defp resolve_locked_unrecoverable(%RecordingBlock{} = retained, attrs, sys_opts) do
+    cond do
+      retained.state != :open_local ->
+        {:error, :recording_block_already_sealed}
+
+      retained.reconciliation_state != :unresolved ->
+        {:error, {:reservation_already_resolved, retained.reconciliation_state}}
+
+      true ->
+        detail = build_resolution_detail(attrs, "unrecoverable_journal")
+
+        update_params = %{
+          reconciliation_state: :unrecoverable_journal,
+          reconciled_at: retained.database_now,
+          reconciliation_detail: detail
+        }
+
+        with {:ok, resolved} <-
+               retained
+               |> Ash.Changeset.for_update(:resolve_reconciliation, update_params)
+               |> Ash.Changeset.filter(
+                 expr(state == :open_local and reconciliation_state == :unresolved)
+               )
+               |> Ash.update(sys_opts),
+             {:ok, q_entry} <-
+               maybe_register_unrecoverable_quarantine(retained, attrs, detail, sys_opts),
+             {:ok, gap} <-
+               maybe_record_quarantined_gap(
+                 retained.camera_source_id,
+                 retained.stream_profile_id,
+                 retained.storage_id,
+                 retained.clock["clock_epoch"],
+                 attrs,
+                 sys_opts
+               ) do
+          {:ok, %{block: resolved, gap: gap, quarantined_entry: q_entry}}
+        end
+    end
+  end
+
+  defp maybe_register_unrecoverable_quarantine(retained, attrs, detail, sys_opts) do
+    receipt = fetch_catalog_val(attrs, :quarantine_receipt)
+    q_bytes = fetch_catalog_val(attrs, :quarantined_bytes)
+
+    if is_map(receipt) and is_integer(q_bytes) and q_bytes >= 0 do
+      q_attrs = %{
+        camera_source_id: retained.camera_source_id,
+        stream_profile_id: retained.stream_profile_id,
+        policy_id: fetch_catalog_val(attrs, :policy_id),
+        storage_id: retained.storage_id,
+        block_key: retained.block_key,
+        clock_epoch: retained.clock["clock_epoch"],
+        run_id: fetch_catalog_val(attrs, :run_id),
+        timeline_start_us:
+          fetch_catalog_val(attrs, :start_us) || fetch_catalog_val(attrs, :timeline_start_us),
+        timeline_end_us:
+          fetch_catalog_val(attrs, :end_us) || fetch_catalog_val(attrs, :timeline_end_us),
+        time_basis: fetch_catalog_val(attrs, :time_basis),
+        quarantine_reason: :unrecoverable_journal,
+        quarantine_receipt: receipt,
+        quarantined_bytes: q_bytes,
+        quarantine_evidence: fetch_catalog_val(attrs, :quarantine_evidence) || detail,
+        policy_storage: fetch_catalog_val(attrs, :policy_storage)
+      }
+
+      RecordingCatalogEntry.register_quarantined(
+        q_attrs,
+        Keyword.put(sys_opts, :now, retained.database_now)
+      )
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp execute_quarantine_unattributable(attrs) do
+    sys_opts = [actor: @catalog_actor]
+
+    q_attrs =
+      attrs
+      |> Map.put(:quarantine_reason, :unattributable)
+      |> Map.put_new(:quarantine_evidence, %{
+        "reason" => to_string(fetch_catalog_val(attrs, :reason) || "unattributable")
+      })
+
+    with {:ok, entry} <- RecordingCatalogEntry.register_quarantined(q_attrs, sys_opts),
+         {:ok, gap} <-
+           maybe_record_quarantined_gap(
+             entry.camera_source_id,
+             entry.stream_profile_id,
+             entry.storage_id,
+             entry.clock_epoch,
+             attrs,
+             sys_opts
+           ) do
+      {:ok, %{entry: entry, gap: gap}}
+    end
+  end
+
+  # Quarantined-gap rule (`design.md` `R2`): a quarantined gap is recorded ONLY when
+  # that block's camera AND its own media/timeline interval are known; no other
+  # interval is ever substituted.
+  defp maybe_record_quarantined_gap(
+         camera_id,
+         profile_id,
+         storage_id,
+         clock_epoch,
+         attrs,
+         sys_opts
+       ) do
+    start_us = fetch_catalog_val(attrs, :start_us) || fetch_catalog_val(attrs, :timeline_start_us)
+    end_us = fetch_catalog_val(attrs, :end_us) || fetch_catalog_val(attrs, :timeline_end_us)
+
+    if not is_nil(camera_id) and is_integer(start_us) and is_integer(end_us) and
+         end_us >= start_us do
+      gap_params = %{
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        policy_id: fetch_catalog_val(attrs, :policy_id),
+        storage_id: storage_id,
+        run_id: fetch_catalog_val(attrs, :run_id),
+        clock_epoch: clock_epoch,
+        start_us: start_us,
+        end_us: end_us,
+        media_gap_ns: fetch_catalog_val(attrs, :media_gap_ns),
+        time_basis: fetch_catalog_val(attrs, :time_basis) || :received,
+        time_uncertainty_us: fetch_catalog_val(attrs, :time_uncertainty_us),
+        reason: :quarantined,
+        detail_class:
+          fetch_catalog_val(attrs, :detail_class) ||
+            fetch_catalog_val(attrs, :verification_class) ||
+            "quarantined_block"
+      }
+
+      RecordingGap
+      |> Ash.Changeset.for_create(:record, gap_params)
+      |> Ash.create(sys_opts)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp build_resolution_detail(attrs, default_reason) do
+    case fetch_catalog_val(attrs, :reconciliation_detail) || fetch_catalog_val(attrs, :detail) do
+      detail when is_map(detail) ->
+        Map.put_new(detail, "reason", default_reason)
+
+      _ ->
+        base = %{"reason" => default_reason}
+
+        case fetch_catalog_val(attrs, :detail_class) ||
+               fetch_catalog_val(attrs, :verification_class) do
+          cls when is_binary(cls) and cls != "" -> Map.put(base, "detail_class", cls)
+          _ -> base
+        end
+    end
+  end
+
   defp transaction(fun) do
-    [RecordingBlock, RecordingCatalogEntry, LocalStorageBinding]
+    [
+      IngestOwner,
+      RecorderClaim,
+      RecordingBlock,
+      RecordingCatalogEntry,
+      RecordingGap,
+      RecordingDisposition,
+      LocalStorageBinding
+    ]
     |> Ash.transact(fn ->
       case fun.() do
-        {:error, reason} when is_atom(reason) ->
+        {:error, %_{}} = ash_error ->
+          ash_error
+
+        {:error, reason} ->
           {:error,
            InvalidArgument.exception(
              field: :recording_block,

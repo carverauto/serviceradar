@@ -79,7 +79,8 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
                reachability: :unreachable,
                node: nil,
                supervisor: :unknown,
-               nvr_installation: :unknown
+               nvr_installation: :unknown,
+               members: []
              }
     end
 
@@ -103,7 +104,8 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
                reachability: :reachable,
                node: Node.self(),
                supervisor: :disabled,
-               nvr_installation: :not_installed
+               nvr_installation: :not_installed,
+               members: []
              }
     end
 
@@ -137,8 +139,85 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
                reachability: :reachable,
                node: Node.self(),
                supervisor: :enabled,
-               nvr_installation: :installed
+               nvr_installation: :installed,
+               members: []
              }
+    end
+
+    test "discovers sorted NVR members from bounded config_file without reading token_file", %{
+      tmp_dir: tmp_dir
+    } do
+      start_supervised!(%{
+        id: EnabledSupervisorStub,
+        start: {Agent, :start_link, [fn -> :ok end, [name: EnabledSupervisorStub]]}
+      })
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_recording_remote_supervisor,
+        EnabledSupervisorStub
+      )
+
+      Application.put_env(:serviceradar_web_ng, :camera_recording_rpc_nodes, [Node.self()])
+
+      config_path = Path.join(tmp_dir, "nvr-client.json")
+      unreadable_token_path = Path.join(tmp_dir, "unreadable-nvr-token")
+      File.write!(unreadable_token_path, "synthetic-never-read-token")
+      File.chmod!(unreadable_token_path, 0o000)
+
+      on_exit(fn ->
+        File.chmod(unreadable_token_path, 0o600)
+      end)
+
+      File.write!(
+        config_path,
+        Jason.encode!(%{
+          "members" => %{
+            "nvr-1" => %{
+              "host" => "nvr-1.example.com",
+              "port" => 8443,
+              "storage_id" => "00000000-0000-4000-8000-0000000005B2"
+            },
+            "nvr-0" => %{
+              "host" => "nvr-0.example.com",
+              "port" => 8443,
+              "storage_id" => "00000000-0000-4000-8000-0000000005a1"
+            },
+            "INVALID_UPPER" => %{
+              "storage_id" => "00000000-0000-4000-8000-0000000005c3"
+            },
+            "nvr-bad-uuid" => %{
+              "storage_id" => "not-a-uuid"
+            }
+          }
+        })
+      )
+
+      Application.put_env(:serviceradar_core_elx, :camera_nvr_client_config_file, config_path)
+
+      Application.put_env(
+        :serviceradar_core_elx,
+        :camera_nvr_client_token_file,
+        unreadable_token_path
+      )
+
+      assert CameraRecordingRuntime.core_elx_status() == %{
+               reachability: :reachable,
+               node: Node.self(),
+               supervisor: :enabled,
+               nvr_installation: :installed,
+               members: [
+                 %{member: "nvr-0", storage_id: "00000000-0000-4000-8000-0000000005a1"},
+                 %{member: "nvr-1", storage_id: "00000000-0000-4000-8000-0000000005b2"}
+               ]
+             }
+
+      # Oversized config file (> 32 KiB) returns empty members list safely
+      oversized_path = Path.join(tmp_dir, "oversized-nvr-client.json")
+      File.write!(oversized_path, String.duplicate(" ", 32_769))
+      Application.put_env(:serviceradar_core_elx, :camera_nvr_client_config_file, oversized_path)
+
+      assert CameraRecordingRuntime.core_elx_status().members == []
     end
   end
 

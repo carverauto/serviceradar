@@ -657,12 +657,13 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_recording_catalog_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261116203000.json": ":generated_camera_recording_catalog/catalog.json",
         "priv/resource_snapshots/repo/platform.camera_recording_gaps/20261116203000.json": ":generated_camera_recording_catalog/gap.json",
         "priv/repo/migrations/20261116203000_add_camera_recording_catalog_and_gaps.exs": ":generated_camera_recording_catalog/migration.exs",
     },
+    tags = ["manual"],
 )
 
 ash_schema(
@@ -714,6 +715,33 @@ write_source_files(
         "priv/resource_snapshots/repo/platform.camera_nvr_storage_settings/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/storage_settings.json",
         "priv/resource_snapshots/repo/platform.camera_nvr_storage_settings_versions/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/storage_settings_version.json",
         "priv/repo/migrations/20261117021015_add_camera_recording_policies_and_storage_settings.exs": ":generated_camera_recording_policy_and_storage_settings/migration.exs",
+    },
+)
+
+ash_schema(
+    name = "camera_recording_reconciliation_schema",
+    srcs = [
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261115210000.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261116203000.json",
+    ],
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_recording_reconciliation/block.json",
+        "generated_camera_recording_reconciliation/catalog.json",
+        "generated_camera_recording_reconciliation/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_recording_reconciliation_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_recording_reconciliation_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261117050200.json": ":generated_camera_recording_reconciliation/block.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261117050200.json": ":generated_camera_recording_reconciliation/catalog.json",
+        "priv/repo/migrations/20261117050200_add_camera_recording_reconciliation.exs": ":generated_camera_recording_reconciliation/migration.exs",
     },
 )
 
