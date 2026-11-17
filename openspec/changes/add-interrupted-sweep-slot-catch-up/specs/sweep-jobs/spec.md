@@ -167,7 +167,8 @@ The lease pass SHALL keep an unstarted catch-up slot only while it still satisfi
 - the assignment's current epoch and lease id;
 - the network scope;
 - the agent's current check set;
-- the group's planned CIDRs equal the parent plan's CIDRs.
+- the group's planned CIDRs equal the parent plan's CIDRs;
+- the parent execution, if any, is not `cancelled`.
 
 The pass SHALL NOT drop a catch-up for falling off the schedule grid. It SHALL NOT count a catch-up as a scheduled slot when it fills the horizon. Revoking the assignment, deleting or disabling the group, or making it ineligible SHALL drop an unstarted catch-up like any unrun slot. A catch-up that has started SHALL be fenced like any started slot.
 
@@ -186,6 +187,12 @@ On each lease pass, a catch-up whose `slot_start` has passed and for which no `S
 - **WHEN** the operator changes the group's targets and the lease pass runs
 - **THEN** the pass SHALL drop the catch-up
 - **AND** the next full push SHALL remove it from the agent
+
+#### Scenario: Parent cancelled after minting
+- **GIVEN** an unstarted catch-up
+- **WHEN** the operator cancels the parent execution and the lease pass runs
+- **THEN** the pass SHALL drop the catch-up
+- **AND** SHALL mint no other catch-up for that parent
 
 #### Scenario: Group deleted
 - **GIVEN** an unstarted catch-up

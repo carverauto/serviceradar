@@ -110,7 +110,7 @@ Non-Goals:
 - An agent-side result journal, or late admission of records.
 - Re-running a slot cut off by its own window closing (Decision 8).
 - Run errors inside a live process, and operator cancels (Decision 1).
-- UI that shows a catch-up execution next to its parent (open question 5).
+- UI that shows a catch-up execution next to its parent (open question 4).
 
 ## Decisions
 
@@ -231,13 +231,17 @@ the drop-and-re-mint step below, live in the shared `plan_agent/4` ->
 run or a session refresh (`LeasePass.refresh_agent/4`). There is no mode
 gating. `plan_agent/4` mints under the delivery lock and the same transaction
 that plans the agent's other slots, and `deliver/4` pushes it after commit.
-The report arrives after the hello, so the refresh that the same connect
-starts usually runs before it is recorded. Minting therefore usually falls to
-the next pass, at most five minutes later, or to a later refresh.
+On a normal restart that is usually the reconnect refresh: the agent sends
+the report right after the hello, the gateway only queues the refresh
+(`LeaseRefresh.start/4` returns before planning reads any slot), and the
+report's single write commits before the spawned refresh plans. A catch-up is
+therefore usually minted within seconds of the reconnect. If that refresh
+misses the report, the next pass, at most five minutes later, or a later
+refresh mints it.
 
-The delay is useful. Records the old process spooled drain after the
-reconnect, so by the next planning most of them have committed. The completeness
-judged at mint time is then close to the truth (open question 1).
+Minting this early judges completeness before the old process's spooled
+records have committed, so a parent that did report every host can look
+incomplete and get a catch-up (open question 1).
 
 The catch-up slot looks like this:
 
@@ -280,7 +284,7 @@ another and pushes it. Once the agent acknowledges installing it, the 10:30
 pass leaves it alone. A send that returned `:ok` but
 was never installed is recovered the same way. A catch-up the agent did
 install is never dropped by this rule, so a run in progress is not cut off.
-An install whose ack was lost is open question 6.
+An install whose ack was lost is open question 5.
 
 ### Decision 5: The time-fit cutoff is derived, not hardcoded
 
@@ -306,8 +310,8 @@ itself (Decision 6).
 
 Example, synthetic. The interval is 1 h, the plan has 1,000 targets, and the
 last completed execution took 20 min for 1,000 hosts (1.2 s per host). The
-agent restarts 30 min into a slot with 400 hosts unreported, and the next pass
-mints at minute 33. The estimate is 20 min, which ends at minute 53 of a
+agent restarts 30 min into a slot with 400 hosts unreported, and the
+reconnect refresh mints at minute 31. The estimate is 20 min, which ends at minute 53 of a
 window that ends at minute 60, so core mints the catch-up. Had the restart
 come at minute 45, the 20 min would not fit, and the next slot covers those
 hosts.
@@ -340,7 +344,7 @@ Why this terminates:
   and a catch-up can never become a parent. A catch-up is replaced only when
   its install was never acknowledged and its start has passed (Decision 4),
   so the agent runs at most one of them outside the lost-ack case (open
-  question 6); replacements stop when the fit test fails, which
+  question 5); replacements stop when the fit test fails, which
   it must before the parent's window closes.
 - The windows of one assignment's slots do not overlap, and a catch-up's
   window lies inside its parent's. So an agent holds at most one open
@@ -416,8 +420,9 @@ downgraded after reporting still runs it correctly.
 - **`PinSilenceWorker`.** The catch-up result lands about `r + p + q` after
   the cut-off, where:
   - `r` is restart and reconnect time;
-  - `p` is the wait for the next planning of the agent, at most 5 min (the
-    next lease pass), plus the delivery lead;
+  - `p` is the wait for the planning that mints the catch-up, usually the
+    reconnect refresh (seconds) and at most 5 min (the next lease pass), plus
+    the delivery lead;
   - `q` is the host's position in the catch-up scan, which is its position
     `o` in the full plan.
 
@@ -473,12 +478,11 @@ downgraded after reporting still runs it correctly.
 - **A catch-up fits less often late in the window.** The fit test uses the
   full plan's target count, not the unreported count.
 - **A parent whose missing results are still in the spool gets a catch-up.**
-  Completeness is judged at mint time. See open question 1.
-- **Up to five minutes' delay.** This comes from minting in the next planning
-  of the agent, usually the periodic pass.
-  It is acceptable for the hourly and longer intervals this targets, and for
-  short intervals the Decision 5 fit test usually declines anyway. See open
-  question 4.
+  Completeness is judged at mint time, usually by the reconnect refresh before
+  the spool drains. See open question 1.
+- **Up to five minutes' delay when the refresh misses the report.** The next
+  lease pass then mints. That is acceptable for the hourly and longer
+  intervals this targets.
 - **The pace estimate can be wrong.** If the network got slower, the catch-up
   is cut off by its window, which is the same outcome as no catch-up for the
   hosts it did not reach. If it got faster, a catch-up that would have fit may
@@ -501,17 +505,21 @@ downgraded after reporting still runs it correctly.
 
 ## Open Questions
 
-1. **Spool-drain race (not designed in).**
-   - Failure mode: after a restart with a large unresolved spool backlog, the
-     next pass sees a parent as incomplete only because its last records are
-     still waiting to drain, and mints a catch-up that re-probes the plan.
-   - Likelihood: low. A healthy spool drains in seconds after reconnect, and
-     the pass runs up to five minutes later.
-   - Cost to prevent: gate minting on the hello's `edge_record_spool` showing
-     no unresolved records, or recompute the missing set at push time. This
-     adds a dependency on spool health reporting to lease planning.
+1. **Minting before the spool drains (not designed in).**
+   - Failure mode: the reconnect refresh usually mints before the old
+     process's spooled records commit. A parent that actually reported every
+     host, with some results still in the spool, looks incomplete and gets a
+     catch-up. Under Decision 3 that costs one extra full-plan scan inside the
+     parent window: duplicate results, harmless, and the newest event time
+     wins.
+   - Likelihood: common. It happens on most restarts where the old process
+     left records in the spool.
+   - Cost to prevent: a settle delay before minting, or a check that the
+     agent's spool has drained (for example the hello's `edge_record_spool`
+     showing no unresolved records). Either adds a wait or a dependency on
+     spool health reporting to lease planning.
 
-   Is the cost of one extra full-plan run acceptable?
+   Is one extra full-plan scan per such restart acceptable?
 2. **Window-close cut-offs.** Should the next scheduled slot scan the previous
    slot's unreported hosts first? That would help a slot cut off by its own
    window (Decision 8). It changes plan ordering, which is canonical and
@@ -520,15 +528,10 @@ downgraded after reporting still runs it correctly.
    also be reported? The causes are the agent's own run errors after
    admission. Today they are a cancel, a revoked or replaced slot, or a
    producer error, and none of them is helped by a re-run. Proposed: no.
-4. **Faster minting.** Minting at the next planning costs up to five
-   minutes. The alternative mints right after recording the report, by
-   running the planner for that one assignment. It saves up to five minutes,
-   but it widens the race in question 1 and adds a planning trigger on the
-   report. Proposed: keep the existing pass and refresh triggers.
-5. **UI.** Should the execution views show a catch-up next to its parent, or
+4. **UI.** Should the execution views show a catch-up next to its parent, or
    give the parent a reason more specific than "superseded by new execution"?
    Not needed for correctness. Proposed: separate follow-up if wanted.
-6. **Lost install ack (not designed in).**
+5. **Lost install ack (not designed in).**
    - Failure mode: the agent installs the catch-up but its `SweepLeaseAck` is
      lost. Once `slot_start` passes, core drops the catch-up and re-mints it
      (Decision 4). The projection refuses the first run's batches because

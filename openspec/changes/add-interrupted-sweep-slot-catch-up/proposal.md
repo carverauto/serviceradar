@@ -38,8 +38,9 @@ the cut-off slot, so the hosts it never reported get a fresh result.
   Re-sends change nothing.
 - **Core re-runs the interrupted slot's plan in one catch-up slot.** When the
   parent execution lacks a `SweepHostResult` for at least one planned address,
-  the next planning of the agent (the 5-minute lease pass or a session
-  refresh, through the shared `plan_agent/4` path) mints a catch-up slot: a new execution id and a new plan id
+  the first planning of the agent after the report (usually the reconnect
+  refresh, otherwise the 5-minute lease pass, through the shared
+  `plan_agent/4` path) mints a catch-up slot: a new execution id and a new plan id
   over the parent's full plan, with the same CIDR list as the parent and every
   other slot of the lease, under the parent's check set and the assignment's
   current epoch and lease id. Because the ranges are unchanged, the
@@ -64,8 +65,8 @@ the cut-off slot, so the hosts it never reported get a fresh result.
   never chain.
 - **Lease pass bookkeeping.** Every planning of the agent, pass or refresh,
   keeps an unstarted catch-up slot only
-  while its parent's plan is still the group's current plan for the agent, and
-  drops it otherwise. A catch-up whose `slot_start` has passed with no
+  while its parent's plan is still the group's current plan for the agent and
+  its parent execution is not cancelled, and drops it otherwise. A catch-up whose `slot_start` has passed with no
   installed `SweepLeaseAck` for any push that carried it is dropped and, if
   the bounds still hold, minted again, so one failed push does not cost the
   re-run. The shared `delivered_at` stamp, set before the send, is not used
