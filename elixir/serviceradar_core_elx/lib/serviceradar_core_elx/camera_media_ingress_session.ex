@@ -132,7 +132,8 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
     with :ok <- verify_relay_session(state.session, request.relay_session_id, request.media_ingest_id),
          :ok <-
            state.tracker.close_session(request.relay_session_id, request.media_ingest_id, %{
-             reason: request.reason
+             reason: request.reason,
+             failure_reason: request.failure_reason
            }) do
       {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session closed"}},
        close_after_grace(state)}

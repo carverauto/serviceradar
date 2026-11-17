@@ -336,6 +336,28 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
                VariableSchema.validated_non_secret_inputs(vars, %{"replicas" => "11"})
     end
 
+    test "rejects a URL carrying a username or password in any non-secret input" do
+      vars = [
+        %Var{name: "artifact_url", type: :text},
+        %Var{name: "mirrors", type: :multiselect, choices: []}
+      ]
+
+      assert {:ok, %{"artifact_url" => "https://files.example.com/pkg.tgz?version=1.2.3#sha"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 "artifact_url" => "https://files.example.com/pkg.tgz?version=1.2.3#sha"
+               })
+
+      assert {:error, {:credential_url_launch_input, "artifact_url"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 "artifact_url" => "https://deploy:hunter2@files.example.com/pkg.tgz"
+               })
+
+      assert {:error, {:credential_url_launch_input, "mirrors"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 "mirrors" => ["https://files.example.com/a", "ftp://deploy@files.example.com/b"]
+               })
+    end
+
     test "requires mandatory values" do
       vars = [%Var{name: "version", type: :text, required: true}]
 

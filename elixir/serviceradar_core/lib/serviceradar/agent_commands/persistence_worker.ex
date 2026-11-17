@@ -20,6 +20,7 @@ defmodule ServiceRadar.AgentCommands.PersistenceWorker do
     as: NorthboundCommandResultHandler
 
   alias ServiceRadar.ControlRepo
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Observability.MtrResultPublisher
   alias ServiceRadar.Repo
@@ -118,7 +119,10 @@ defmodule ServiceRadar.AgentCommands.PersistenceWorker do
 
   @impl true
   def handle_info({:command_ack, data}, state) do
-    data = AutomationResultSanitizer.sanitize_ack(data)
+    data =
+      data
+      |> AutomationResultSanitizer.sanitize_ack()
+      |> AgentCommandRecordPolicy.scrub_agent_report()
 
     if persist_update_with(data, state, :ack_persister, &persist_ack/2, :ack) == :ok do
       safe_broadcast_persisted_update(
@@ -136,7 +140,10 @@ defmodule ServiceRadar.AgentCommands.PersistenceWorker do
   end
 
   def handle_info({:command_progress, data}, state) do
-    data = AutomationResultSanitizer.sanitize_progress(data)
+    data =
+      data
+      |> AutomationResultSanitizer.sanitize_progress()
+      |> AgentCommandRecordPolicy.scrub_agent_report()
 
     if persist_update_with(data, state, :progress_persister, &persist_progress/2, :progress) ==
          :ok do
@@ -159,7 +166,14 @@ defmodule ServiceRadar.AgentCommands.PersistenceWorker do
   end
 
   def handle_info({:command_result, data}, state) do
-    safe_data = data |> AutomationResultSanitizer.sanitize() |> sanitize_cleanup_result()
+    # Agent text and payload strings are scrubbed before the row is written or
+    # any consumer sees them: older agents return raw errors quoting URLs.
+    safe_data =
+      data
+      |> AutomationResultSanitizer.sanitize()
+      |> sanitize_cleanup_result()
+      |> AgentCommandRecordPolicy.scrub_agent_report()
+
     persisted? = persist_result_with(safe_data, state) == :ok
 
     if persisted? do

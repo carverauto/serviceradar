@@ -359,7 +359,7 @@ Clicking it opens the launch flow with that device pre-filled. With `ansible.run
 
 1. **Targets**: read-only summary of selected canonical devices.
 2. **AWX playbook**: the picker contains only parse-valid AWX-sourced catalog rows. Selecting one resolves its current approved binding and the exact durable AWX memberships for every target.
-3. **Reviewed inputs**: the form renders only typed, non-secret fields declared by the approved binding. Supported fields are text, textarea, integer, float, single choice, and multiple choice. Password fields, raw JSON/YAML, undeclared names, transport variables, and callback-control fields are never accepted from the browser.
+3. **Reviewed inputs**: the form renders only typed, non-secret fields declared by the approved binding. Supported fields are text, textarea, integer, float, single choice, and multiple choice. Password fields, raw JSON/YAML, undeclared names, transport variables, and callback-control fields are never accepted from the browser. A value containing a URL with a username or password (`user@` or `user:password@` before the host) is rejected; supply that credential through a secret input instead.
 4. **Launch**: submit re-resolves the binding, memberships, current actor authority, and live AWX preflight before persisting or dispatching. On success, you're redirected to `/ansible/operations/:id`.
 
 ### Inspect an operation

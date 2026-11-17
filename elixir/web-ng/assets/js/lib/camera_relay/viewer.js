@@ -712,7 +712,10 @@ export class CameraRelayViewer {
     this.report("playback-state", `Playback state: ${payload.playback_state}`)
     this.report("viewer-count", `Viewer count: ${payload.viewer_count ?? 0}`)
     this.report("termination-kind", termination ? `Termination: ${termination}` : "")
-    this.report("failure-reason", payload.failure_reason ? `Failure reason: ${payload.failure_reason}` : "")
+    // failure_summary is the operator sentence for an agent-reported source failure.
+    const failureText =
+      payload.failure_summary || (payload.failure_reason ? `Failure reason: ${payload.failure_reason}` : "")
+    this.report("failure-reason", failureText)
     this.report("close-reason", payload.close_reason ? `Close reason: ${payload.close_reason}` : "")
     this.report(
       "relay-detail",
@@ -723,7 +726,10 @@ export class CameraRelayViewer {
     this.reportState("playback-state", payload.playback_state)
 
     if (payload.termination_kind === "failure") {
-      this.setState(CAMERA_VIEWER_STATES.FAILED, {reason: "relay_failure", message: payload.failure_reason})
+      this.setState(CAMERA_VIEWER_STATES.FAILED, {
+        reason: "relay_failure",
+        message: payload.failure_summary || payload.failure_reason,
+      })
     }
   }
 

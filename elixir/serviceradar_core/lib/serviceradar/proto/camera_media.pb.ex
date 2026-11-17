@@ -109,6 +109,7 @@ defmodule Camera.CloseRelaySessionRequest do
   field :media_ingest_id, 2, type: :string, json_name: "mediaIngestId"
   field :agent_id, 3, type: :string, json_name: "agentId"
   field :reason, 4, type: :string
+  field :failure_reason, 5, type: :string, json_name: "failureReason"
 end
 
 defmodule Camera.CloseRelaySessionResponse do

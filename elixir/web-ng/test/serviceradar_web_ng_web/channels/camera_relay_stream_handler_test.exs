@@ -185,6 +185,63 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
 
   @tag :db_free
 
+  test "a failed relay snapshot tells the viewer why the camera source failed" do
+    relay_session_id = Ecto.UUID.generate()
+    scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
+
+    fetcher = fn ^relay_session_id, _opts ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         camera_source_id: Ecto.UUID.generate(),
+         stream_profile_id: Ecto.UUID.generate(),
+         status: :active,
+         viewer_count: 1,
+         media_ingest_id: "core-media-1",
+         close_reason: nil,
+         failure_reason: nil,
+         lease_expires_at: DateTime.from_unix!(1_800_000_000),
+         updated_at: DateTime.from_unix!(1_800_000_000)
+       }}
+    end
+
+    for {failure_reason, summary} <- [
+          {"authentication_failed: describe rtsp stream: bad status code: 401 (Unauthorized)",
+           "The camera refused the stream: authentication failed (describe rtsp stream: bad status code: 401 (Unauthorized))."},
+          {"unsupported_codec", "The camera's video codec is not supported; the relay requires H.264."},
+          # Core's own failures are free text: the viewer keeps showing them as-is.
+          {"relay session failed", nil}
+        ] do
+      assert {:push, {:text, _payload}, state} =
+               CameraRelayStreamHandler.init(
+                 relay_session_id: relay_session_id,
+                 scope: scope,
+                 fetcher: fetcher,
+                 poll_interval_ms: 10_000
+               )
+
+      assert {:stop, :normal, 1000, [{:text, payload}], _state} =
+               CameraRelayStreamHandler.handle_info(
+                 {:camera_relay_state,
+                  %{
+                    relay_session_id: relay_session_id,
+                    status: "failed",
+                    playback_state: "failed",
+                    termination_kind: "failure",
+                    viewer_count: 0,
+                    close_reason: "source_start_failed",
+                    failure_reason: failure_reason,
+                    updated_at_unix: 1_800_000_010
+                  }},
+                 state
+               )
+
+      assert %{"failure_reason" => ^failure_reason, "failure_summary" => ^summary} = Jason.decode!(payload)
+    end
+  end
+
+  @tag :db_free
+
   test "stops when the relay session no longer exists" do
     relay_session_id = Ecto.UUID.generate()
     scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})

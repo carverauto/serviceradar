@@ -29,6 +29,7 @@ import (
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	codech264 "github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
@@ -47,8 +48,7 @@ const (
 
 var (
 	errCameraRelaySourceURLRequired    = errors.New("source_url is required")
-	errUnsupportedCameraRelaySource    = errors.New("unsupported camera relay source")
-	errCameraRelayNoH264MediaFormat    = errors.New("rtsp stream does not expose an H264 media format")
+	errUnsupportedCameraRelaySource    = errors.New("unsupported camera relay source, an rtsp or rtsps url is required")
 	errUnsupportedCameraRelayTransport = errors.New("unsupported rtsp_transport")
 )
 
@@ -74,7 +74,8 @@ func defaultCameraRelaySource(spec cameraRelaySessionSpec, log logger.Logger) (c
 		return newRTSPCameraRelayStream(spec, log)
 
 	default:
-		return nil, fmt.Errorf("%w %q", errUnsupportedCameraRelaySource, sourceURL)
+		// The URL itself is never quoted into an error: it may carry credentials.
+		return nil, errUnsupportedCameraRelaySource
 	}
 }
 
@@ -82,7 +83,8 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (c
 	sourceURL := strings.TrimSpace(spec.SourceURL)
 	u, err := base.ParseURL(sourceURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse rtsp source_url: %w", err)
+		// url.Parse errors quote the whole URL, credentials included.
+		return nil, errCameraRelayInvalidSourceURL
 	}
 
 	transport, err := parseCameraRelayRTSPTransport(spec.RTSPTransport)
@@ -105,13 +107,13 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (c
 	media := desc.FindFormat(&h264Format)
 	if media == nil {
 		client.Close()
-		return nil, errCameraRelayNoH264MediaFormat
+		return nil, cameraRelayMissingH264Error(desc)
 	}
 
 	decoder, err := h264Format.CreateDecoder()
 	if err != nil {
 		client.Close()
-		return nil, fmt.Errorf("create h264 decoder: %w", err)
+		return nil, fmt.Errorf("%w: create h264 decoder: %w", errCameraRelayMediaDecodeFailed, err)
 	}
 
 	if _, err := client.Setup(desc.BaseURL, media, 0, 0); err != nil {
@@ -153,7 +155,7 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (c
 				return
 			}
 
-			stream.fail(fmt.Errorf("decode h264 access unit: %w", decodeErr))
+			stream.fail(fmt.Errorf("%w: decode h264 access unit: %w", errCameraRelayMediaDecodeFailed, decodeErr))
 			return
 		}
 
@@ -172,7 +174,7 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (c
 
 		payload, marshalErr := codech264.AnnexB(accessUnit).Marshal()
 		if marshalErr != nil {
-			stream.fail(fmt.Errorf("marshal h264 annexb: %w", marshalErr))
+			stream.fail(fmt.Errorf("%w: marshal h264 annexb: %w", errCameraRelayMediaDecodeFailed, marshalErr))
 			return
 		}
 
@@ -221,6 +223,34 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec, log logger.Logger) (c
 	}()
 
 	return stream, nil
+}
+
+// cameraRelayMissingH264Error says whether the camera offers video in another
+// codec (commonly H265) or no video at all, which the operator fixes differently.
+func cameraRelayMissingH264Error(desc *description.Session) error {
+	codecs := make([]string, 0, len(desc.Medias))
+	for _, media := range desc.Medias {
+		if media.Type != description.MediaTypeVideo {
+			continue
+		}
+		for _, forma := range media.Formats {
+			codecs = append(codecs, cameraRelayFormatName(forma))
+		}
+	}
+	if len(codecs) == 0 {
+		return errCameraRelayNoVideoTrack
+	}
+	return fmt.Errorf("%w: camera offers %s", errCameraRelayUnsupportedCodec, strings.Join(codecs, ", "))
+}
+
+// cameraRelayFormatName is the encoding name from the format's rtpmap, such as
+// "H265" from "H265/90000".
+func cameraRelayFormatName(forma format.Format) string {
+	name, _, _ := strings.Cut(forma.RTPMap(), "/")
+	if name = strings.TrimSpace(name); name != "" {
+		return name
+	}
+	return fmt.Sprintf("payload type %d", forma.PayloadType())
 }
 
 func newCameraRelayRTSPClient(u *base.URL, transport gortsplib.Protocol, insecureSkipVerify bool) *gortsplib.Client {

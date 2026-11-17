@@ -572,8 +572,14 @@ type CloseRelaySessionRequest struct {
 	MediaIngestId  string                 `protobuf:"bytes,2,opt,name=media_ingest_id,json=mediaIngestId,proto3" json:"media_ingest_id,omitempty"`
 	AgentId        string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	Reason         string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Why the camera source failed, when it did: "<class>" or "<class>: <detail>".
+	// The class is a lower_snake_case identifier; the detail is at most 200
+	// printable ASCII characters with URLs, userinfo and query strings removed by
+	// the agent. Empty for a normal close and on older agents. Receivers validate
+	// it again before storing it.
+	FailureReason string `protobuf:"bytes,5,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CloseRelaySessionRequest) Reset() {
@@ -630,6 +636,13 @@ func (x *CloseRelaySessionRequest) GetAgentId() string {
 func (x *CloseRelaySessionRequest) GetReason() string {
 	if x != nil {
 		return x.Reason
+	}
+	return ""
+}
+
+func (x *CloseRelaySessionRequest) GetFailureReason() string {
+	if x != nil {
+		return x.FailureReason
 	}
 	return ""
 }
@@ -741,12 +754,13 @@ const file_camera_media_proto_rawDesc = "" +
 	"\x11RelayHeartbeatAck\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x121\n" +
 	"\x15lease_expires_at_unix\x18\x02 \x01(\x03R\x12leaseExpiresAtUnix\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\x9f\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xc6\x01\n" +
 	"\x18CloseRelaySessionRequest\x12(\n" +
 	"\x10relay_session_id\x18\x01 \x01(\tR\x0erelaySessionId\x12&\n" +
 	"\x0fmedia_ingest_id\x18\x02 \x01(\tR\rmediaIngestId\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\"M\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12%\n" +
+	"\x0efailure_reason\x18\x05 \x01(\tR\rfailureReason\"M\n" +
 	"\x19CloseRelaySessionResponse\x12\x16\n" +
 	"\x06closed\x18\x01 \x01(\bR\x06closed\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage2\xcf\x02\n" +

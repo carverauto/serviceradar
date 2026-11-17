@@ -9,9 +9,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Plugins.SecretRefs
 
   @now ~U[2026-07-13 23:30:00.000000Z]
+  @query_url "https://files.example.com/pkg.tgz?version=1.2.3#sha"
   @credential_id 401
 
   defmodule CaptureAttemptStore do
@@ -311,6 +313,75 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
     refute_received {:unexpected_scope_activation, _, _}
     refute_received {:unexpected_activation, _, _}
   end
+
+  test "a launch whose extra var URL carries a query and fragment is stored whole and correlates" do
+    env = put_in(environment(), [:operation, :declared_inputs], %{"artifact_url" => @query_url})
+    bundle = launch_bundle(env, 40_201, cleanup_only: false)
+    {:ok, request} = Contract.launch_request(env.operation, env.execution, @credential_id)
+    stored = stored_command(bundle.command)
+
+    assert get_in(bundle.command.payload, ["args", "extra_vars", "artifact_url"]) == @query_url
+
+    assert get_in(stored.payload, ["args", "extra_vars", "artifact_url"]) == @query_url
+
+    stored_body = Base.decode64!(stored.payload["authorized_request_body_b64"])
+    assert Jason.decode!(stored_body)["extra_vars"]["artifact_url"] == @query_url
+
+    assert get_in(stored.payload, ["credential_broker", "allow", "request_body", "sha256"]) ==
+             :sha256 |> :crypto.hash(stored_body) |> Base.encode16(case: :lower)
+
+    assert_correlates(bundle, request, stored)
+
+    legacy_row =
+      AgentCommandRecordPolicy.scrub_row(%{
+        "command_type" => bundle.command.command_type,
+        "payload" => json(bundle.command.payload),
+        "context" => json(bundle.command.context)
+      })
+
+    assert_correlates(bundle, request, %{
+      payload: legacy_row["payload"],
+      context: legacy_row["context"]
+    })
+
+    tampered =
+      put_in(
+        stored.payload,
+        ["args", "extra_vars", "artifact_url"],
+        "https://files.example.com/other.tgz"
+      )
+
+    refute Contract.persisted_payload_matches?(
+             bundle.attempt,
+             bundle.execution,
+             bundle.controller,
+             request,
+             tampered
+           )
+  end
+
+  defp assert_correlates(bundle, request, stored) do
+    assert Contract.context_matches?(bundle.attempt, bundle.execution, stored.context)
+
+    assert Contract.persisted_payload_matches?(
+             bundle.attempt,
+             bundle.execution,
+             bundle.controller,
+             request,
+             stored.payload
+           )
+  end
+
+  defp stored_command(command) do
+    %{
+      payload:
+        json(AgentCommandRecordPolicy.persisted_payload(command.command_type, command.payload)),
+      context:
+        json(AgentCommandRecordPolicy.persisted_context(command.command_type, command.context))
+    }
+  end
+
+  defp json(value), do: value |> Jason.encode!() |> Jason.decode!()
 
   test "deadline cleanup for credential creation persists a read-only cleanup retry" do
     env = environment_with_unbound_credential()
@@ -647,7 +718,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
              env.execution,
              env.controller,
              request,
-             payload
+             AgentCommandRecordPolicy.persisted_payload(attempt.command_type, payload)
            )
 
     command =

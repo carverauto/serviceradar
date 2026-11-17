@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Plugins.SecretRefs
 
   @context_schema "serviceradar.automation_execution_command/v1"
@@ -185,7 +186,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
 
     with {:ok, digest} <- CanonicalJSON.digest(expected),
          true <- secure_equal?(digest, value(attempt, :context_digest)) do
-      stringify_deep(actual) == expected
+      AgentCommandRecordPolicy.matches_persisted?(
+        :context,
+        value(attempt, :command_type),
+        stringify_deep(actual),
+        expected
+      )
     else
       _ -> false
     end
@@ -216,7 +222,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
         payload["controller_name"] == value(controller, :name) and
         payload["base_url"] == scope.base_url and
         payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
-        payload["args"] == args and
+        AgentCommandRecordPolicy.matches_persisted?(:payload, verb, payload["args"], args) and
         payload["authorized_request_body_b64"] == scope.authorized_request_body_b64 and
         broker_matches?(broker, attempt, controller, scope)
     else

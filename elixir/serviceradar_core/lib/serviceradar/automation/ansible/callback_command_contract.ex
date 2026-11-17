@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Plugins.SecretRefs
 
   @context_schema "serviceradar.automation_callback_command/v1"
@@ -280,7 +281,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
 
     with {:ok, digest} <- CanonicalJSON.digest(expected),
          true <- secure_equal?(digest, value(attempt, :context_digest)) do
-      stringify(actual) == expected
+      AgentCommandRecordPolicy.matches_persisted?(
+        :context,
+        value(attempt, :command_type),
+        stringify(actual),
+        expected
+      )
     else
       _ -> false
     end
@@ -321,9 +327,19 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
           payload["controller_name"] == value(controller, :name) and
           payload["base_url"] == scope.base_url and
           payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
-          payload["args"] == expected_args and
+          AgentCommandRecordPolicy.matches_persisted?(
+            :payload,
+            value(attempt, :command_type),
+            payload["args"],
+            expected_args
+          ) and
           payload["authorized_request_body_b64"] == scope.authorized_request_body_b64 and
-          payload["callback_credential_binding"] == expected_binding and
+          AgentCommandRecordPolicy.matches_persisted?(
+            :payload,
+            value(attempt, :command_type),
+            payload["callback_credential_binding"],
+            expected_binding
+          ) and
           broker_matches?(broker, attempt, controller, scope)
 
       _ ->

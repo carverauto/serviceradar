@@ -145,7 +145,28 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                  [command.command_id]
                )
 
-      assert stored_payload == payload
+      case operation do
+        :open ->
+          for key <- ["relay_session_id", "camera_source_id", "stream_profile_id"] do
+            assert Map.fetch!(stored_payload, key) == Map.fetch!(payload, key)
+          end
+
+          assert payload["source_url"] == "rtsp://host01.example.com/stream/main"
+          refute payload["lease_token"] in [nil, "REDACTED"]
+
+          assert stored_payload ==
+                   Map.merge(payload, %{
+                     "source_url" => "rtsp://host01.example.com/[redacted]",
+                     "lease_token" => "REDACTED"
+                   })
+
+          stored_text = Jason.encode!(stored_payload)
+          refute stored_text =~ "/stream/main"
+          refute stored_text =~ payload["lease_token"]
+
+        :close ->
+          assert stored_payload == payload
+      end
 
       Process.exit(caller, :kill)
       assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}

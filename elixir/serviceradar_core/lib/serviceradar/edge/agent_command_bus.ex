@@ -13,6 +13,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.ProcessRegistry
@@ -168,7 +169,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp do_dispatch_in_partition(agent_id, command_type, payload, opts, command_id, dispatch) do
     requested_command_id = Keyword.get(opts, :command_id)
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
-    payload_map = normalize_payload(payload)
+    # The row is operator-readable audit state; the agent gets transmit_payload
+    # from memory below. AgentCommandRecordPolicy decides what the row may hold.
+    stored_payload =
+      AgentCommandRecordPolicy.persisted_payload(command_type, normalize_payload(payload))
+
+    stored_context = AgentCommandRecordPolicy.persisted_context(command_type, dispatch.context)
 
     command_attrs =
       maybe_put(
@@ -176,8 +182,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
           command_type: command_type,
           agent_id: agent_id,
           partition_id: dispatch.partition_id,
-          payload: payload_map,
-          context: dispatch.context,
+          payload: stored_payload,
+          context: stored_context,
           ttl_seconds: dispatch.ttl_seconds,
           requested_by: requested_by_id(Keyword.get(opts, :actor))
         },
@@ -199,7 +205,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       payload_json =
         encode_payload(command_payload_for_transmit(command_type, transmit_payload, command))
 
-      context = command_context_for_transmit(command_type, dispatch.context, command)
+      context = command_context_for_transmit(command_type, stored_context, command)
 
       dispatch_created_command(command, %{
         agent_id: agent_id,
@@ -1035,8 +1041,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         add_context(opts, %{
           relay_session_id: payload.relay_session_id,
           camera_source_id: payload.camera_source_id,
-          stream_profile_id: payload.stream_profile_id,
-          source_url: payload[:source_url]
+          stream_profile_id: payload.stream_profile_id
         })
 
       dispatch(agent_id, "camera.open_relay", payload, opts)

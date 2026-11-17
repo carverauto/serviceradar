@@ -21,6 +21,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySessionLifecycle
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadar.Camera.RelayTermination
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
@@ -206,56 +207,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
   def handle_call({:close_session, relay_session_id, media_ingest_id, attrs}, _from, state) do
     case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
-      {:ok, session} ->
-        case sync_module(state).close_session(
-               relay_session_id,
-               media_ingest_id,
-               %{
-                 close_reason: Map.get(attrs, :reason) || Map.get(attrs, :close_reason),
-                 viewer_count: 0
-               },
-               sync_opts(state)
-             ) do
-          {:ok, persisted_session} ->
-            _ = pipeline_manager(state).close_session(relay_session_id)
-
-            close_reason =
-              persisted_value(
-                persisted_session,
-                :close_reason,
-                Map.get(attrs, :reason) || Map.get(attrs, :close_reason)
-              )
-
-            failure_reason = persisted_value(persisted_session, :failure_reason)
-            updated_at_unix = now_unix()
-
-            closed_session =
-              session
-              |> Map.put(:status, "closed")
-              |> Map.put(:media_ingest_id, media_ingest_id)
-              |> Map.put(:viewer_count, 0)
-              |> Map.put(:close_reason, close_reason)
-              |> Map.put(:failure_reason, failure_reason)
-              |> Map.put(:updated_at_unix, updated_at_unix)
-
-            log_session(:info, "Core camera relay closed", closed_session)
-            emit_session_event(:closed, closed_session)
-            maybe_record_viewer_idle_termination(closed_session)
-
-            :ok =
-              RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(closed_session))
-
-            {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
-
-          {:error, reason} ->
-            log_session(:warning, "Core camera relay close failed", session, %{reason: inspect(reason)})
-            emit_session_event(:failed, session, %{reason: inspect(reason), stage: "close"})
-            maybe_record_session_failure(session, %{reason: inspect(reason), stage: "close"})
-            {:reply, {:error, reason}, state}
-        end
-
-      error ->
-        {:reply, error, state}
+      {:ok, session} -> close_tracked_session(state, session, media_ingest_id, attrs)
+      error -> {:reply, error, state}
     end
   end
 
@@ -580,6 +533,86 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   defp closing_session?(%{status: status}), do: status in [:closing, "closing"]
   defp closing_session?(_session), do: false
 
+  defp close_tracked_session(state, session, media_ingest_id, attrs) do
+    relay_session_id = session.relay_session_id
+    requested_close_reason = Map.get(attrs, :reason) || Map.get(attrs, :close_reason)
+    source_failure = source_failure_reason(session, attrs)
+
+    case finish_persisted_session(state, relay_session_id, media_ingest_id, requested_close_reason, source_failure) do
+      {:ok, persisted_session} ->
+        _ = pipeline_manager(state).close_session(relay_session_id)
+
+        closed_session =
+          session
+          |> Map.put(:status, if(source_failure, do: "failed", else: "closed"))
+          |> Map.put(:media_ingest_id, media_ingest_id)
+          |> Map.put(:viewer_count, 0)
+          |> Map.put(:close_reason, persisted_value(persisted_session, :close_reason, requested_close_reason))
+          |> Map.put(:failure_reason, persisted_value(persisted_session, :failure_reason, source_failure))
+          |> Map.put(:updated_at_unix, now_unix())
+
+        log_closed_session(closed_session, source_failure)
+        emit_session_event(:closed, closed_session)
+        maybe_record_viewer_idle_termination(closed_session)
+
+        :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(closed_session))
+
+        {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
+
+      {:error, reason} ->
+        log_session(:warning, "Core camera relay close failed", session, %{reason: inspect(reason)})
+        emit_session_event(:failed, session, %{reason: inspect(reason), stage: "close"})
+        maybe_record_session_failure(session, %{reason: inspect(reason), stage: "close"})
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  # The agent reports why its camera source failed. That is edge input: only a
+  # validated, sanitized reason is stored, and a malformed one is dropped.
+  defp source_failure_reason(session, attrs) do
+    case RelaySourceFailure.normalize(Map.get(attrs, :failure_reason)) do
+      {:ok, reason} ->
+        reason
+
+      :none ->
+        nil
+
+      {:error, error} ->
+        log_session(:warning, "Core camera relay discarded a malformed source failure reason", session, %{
+          error: error
+        })
+
+        nil
+    end
+  end
+
+  defp finish_persisted_session(state, relay_session_id, media_ingest_id, close_reason, nil) do
+    sync_module(state).close_session(
+      relay_session_id,
+      media_ingest_id,
+      %{close_reason: close_reason, viewer_count: 0},
+      sync_opts(state)
+    )
+  end
+
+  defp finish_persisted_session(state, relay_session_id, media_ingest_id, close_reason, failure_reason) do
+    sync_module(state).fail_session(
+      relay_session_id,
+      media_ingest_id,
+      %{close_reason: close_reason, failure_reason: failure_reason, viewer_count: 0},
+      sync_opts(state)
+    )
+  end
+
+  # A source failure is the one close an operator has to act on, so it is the
+  # one logged as a warning, with the agent's classification and detail.
+  defp log_closed_session(session, nil), do: log_session(:info, "Core camera relay closed", session)
+
+  defp log_closed_session(session, _source_failure) do
+    log_session(:warning, "Core camera relay source failed", session)
+    maybe_record_session_failure(session, %{stage: "source"})
+  end
+
   defp put_optional_reason(session, _key, nil), do: session
 
   defp put_optional_reason(session, key, value) when is_binary(value) do
@@ -588,8 +621,6 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   end
 
   defp put_optional_reason(session, key, value), do: Map.put(session, key, to_string(value))
-
-  defp persisted_value(session, key, default \\ nil)
 
   defp persisted_value(%{} = session, key, default) do
     Map.get(session, key, default)

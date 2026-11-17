@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Plugins.SecretRefs
 
   @job_fields ~w(
@@ -606,7 +607,13 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
     with :ok <- exact_command_payload_keys(payload, boundary),
          true <- payload["schema"] == "serviceradar.awx_command.v1",
          true <- payload["verb"] == verb,
-         true <- payload["args"] == stringify(args),
+         true <-
+           AgentCommandRecordPolicy.matches_persisted?(
+             :payload,
+             verb,
+             payload["args"],
+             stringify(args)
+           ),
          true <- payload["base_url"] == boundary.base_url,
          true <- payload["controller_id"] == boundary.controller_id,
          true <- payload["controller_name"] == boundary.controller_name,

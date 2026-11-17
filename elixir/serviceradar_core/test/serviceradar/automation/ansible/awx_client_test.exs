@@ -811,6 +811,84 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                |> Base.encode16(case: :lower)
     end
 
+    # Invented credentials. Each launch string reaches the stored args and the
+    # authorized request body, so a URL with userinfo is refused by name.
+    test "rejects a URL with userinfo in any launch input, naming the input" do
+      userinfo_url = "https://deploy:hunter2@files.example.com/pkg.tgz"
+
+      for {launch_opts, name} <- [
+            {%{extra_vars: %{"artifact_url" => userinfo_url}}, "artifact_url"},
+            {%{extra_vars: %{"mirrors" => ["https://files.example.com/a", userinfo_url]}},
+             "mirrors"},
+            {%{extra_vars: %{"config" => %{"source" => userinfo_url}}}, "config"},
+            {%{job_tags: "deploy,#{userinfo_url}"}, "job_tags"},
+            {%{skip_tags: userinfo_url}, "skip_tags"},
+            {%{host_limit: "ftp://deploy@files.example.com/b"}, "host_limit"},
+            {%{host_limit: "viewer:hunter2@192.0.2.10"}, "host_limit"},
+            {%{host_limit: "viewer:hunter2@nvr_01.example.com"}, "host_limit"},
+            {%{extra_vars: %{"source" => "viewer:hunter2@nvr_01.example.com"}}, "source"},
+            {%{job_tags: "deploy,viewer:hunter2@host01.example.com"}, "job_tags"},
+            {%{skip_tags: "viewer:hunter2@host01.example.com:8554/stream"}, "skip_tags"},
+            {%{extra_vars: %{"config" => %{"source" => "viewer:hunter2@192.0.2.10"}}}, "config"},
+            # The credential shape itself: user `deploy`, password `prod`.
+            {%{host_limit: "deploy:prod@host01.example.com"}, "host_limit"},
+            # User `a`, password `b:c`.
+            {%{job_tags: "a:b:c@host01.example.com"}, "job_tags"}
+          ] do
+        assert {:error, {:credential_url_launch_input, ^name}} =
+                 AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
+      end
+
+      refute_received {:dispatch, _, "awx.launch_job", _, _}
+    end
+
+    test "launches a URL with a query and fragment whole in every accepted position" do
+      url = "https://files.example.com/pkg.tgz?version=1.2.3#sha"
+
+      launch_opts = %{
+        extra_vars: %{"artifact_url" => url, "mirrors" => [url]},
+        job_tags: url,
+        skip_tags: url,
+        host_limit: url
+      }
+
+      assert {:ok, _} = AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+
+      assert payload["args"]["extra_vars"] == %{"artifact_url" => url, "mirrors" => [url]}
+      assert payload["args"]["job_tags"] == url
+      assert payload["args"]["skip_tags"] == url
+      assert payload["args"]["host_limit"] == url
+
+      body = payload["authorized_request_body_b64"] |> Base.decode64!() |> Jason.decode!()
+      assert body["extra_vars"] == %{"artifact_url" => url, "mirrors" => [url]}
+      assert body["job_tags"] == url
+      assert body["skip_tags"] == url
+      assert body["limit"] == url
+    end
+
+    test "launches host patterns, tags and values that carry no password" do
+      launch_opts = %{
+        extra_vars: %{
+          "contact" => "ops@example.com",
+          "note" => "label: deploy@host01.example.com",
+          "window" => ["12:30@noon", "[2001:db8::1]"]
+        },
+        job_tags: "webservers:&staging",
+        skip_tags: "group1:group2,build_group:web_servers",
+        host_limit: "deploy@host01.example.com"
+      }
+
+      assert {:ok, _} = AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+
+      body = payload["authorized_request_body_b64"] |> Base.decode64!() |> Jason.decode!()
+      assert body["extra_vars"] == launch_opts.extra_vars
+      assert body["job_tags"] == "webservers:&staging"
+      assert body["skip_tags"] == "group1:group2,build_group:web_servers"
+      assert body["limit"] == "deploy@host01.example.com"
+    end
+
     test "passes reviewed immutable execution fields" do
       launch_opts = %{
         credential_ids: [5, 9],
