@@ -35,10 +35,10 @@ gate.
 ## B. Core catalog of NVR blocks (design B)
 
 ### serviceradar_core
-- [ ] B.1 `RecordingCatalogEntry` resource, migration and indexes (design B3), admitting sealed and quarantined entries (design B2); create-only registration identity on `(storage_id, block_key)`; database trigger refusing transitions out of `reclaimed` and `deleted`.
-- [ ] B.2 `RecordingGap` resource and migration (append-only except closing `end_us`).
-- [ ] B.3 `RecordingBlocks.freeze_and_catalog/6`: freeze plus catalog insert in one transaction under `RecorderOwnership.with_current`; exact retry returns the entry; conflicting descriptor refused.
-- [ ] B.4 `RecordingBlocks.acquire_upload/4` refuses blocks stored on an NVR `LocalStorageBinding`.
+- [x] B.1 `RecordingCatalogEntry` resource, migration and indexes (design B3), admitting sealed and quarantined entries (design B2); create-only registration identity on `(storage_id, block_key)`; database trigger refusing transitions out of `reclaimed` and `deleted`.
+- [x] B.2 `RecordingGap` resource and migration (append-only except closing `end_us`).
+- [x] B.3 `RecordingBlocks.freeze_and_catalog/6`: freeze plus catalog insert in one transaction under `RecorderOwnership.with_current`; exact retry returns the entry; conflicting descriptor refused.
+- [x] B.4 `RecordingBlocks.acquire_upload/4` refuses blocks stored on an NVR `LocalStorageBinding`.
 
 ### serviceradar_nvr and serviceradar_nvr_client
 - [ ] B.5 `GET /v1/blocks/<id>/descriptor` returning canonical descriptor bytes from the existing read pool; client function.
@@ -48,17 +48,17 @@ gate.
 - [ ] B.7 Time basis observation: inbox stamps admission UTC per access unit; worker records first-unit PTS and receipt time (design T).
 
 ### web-ng
-- [ ] B.8 Settings `cameras` tab block list reads catalog state (copy states, time basis) alongside the settings change's lookup join.
+- [x] B.8 Settings `cameras` tab block list reads catalog state (copy states, time basis) alongside the settings change's lookup join.
 
 ### Verification
-- [ ] B.9 Tests through the real freeze path: exact retry, conflicting descriptor, block with no Core authority cataloged only as a quarantined entry (never frozen or played), terminal-state trigger refuses revival. Follow the test-audit skill; tests delete the rows they create.
+- [x] B.9 Tests through the real freeze path: exact retry, conflicting descriptor, block with no Core authority cataloged only as a quarantined entry (never frozen or played), terminal-state trigger refuses revival. Follow the test-audit skill; tests delete the rows they create.
 
 ## R. Reconciliation: no stranded footage (design R)
 
 ### serviceradar_core
-- [ ] R.1 `RecordingBlocks.freeze_historical/3` (system actor, reconciler only): every live-freeze check except claim liveness, replaced by writer retirement; same row lock as the live freeze; catalog insert in the same transaction (design R3).
-- [ ] R.2 Rotated-block adoption: create the missing `RecordingBlock` row from the reserved predecessor when the capture identity is unallocated, advance the claim's `next_block_sequence` when it is the same epoch, then R.1 (design R3).
-- [ ] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantined catalog entries carry the evidence for unattributable and unrecoverable blocks (design B2, R2).
+- [x] R.1 `RecordingBlocks.freeze_historical/3` (system actor, reconciler only): every live-freeze check except claim liveness, replaced by writer retirement; same row lock as the live freeze; catalog insert in the same transaction (design R3).
+- [x] R.2 Rotated-block adoption: create the missing `RecordingBlock` row from the reserved predecessor when the capture identity is unallocated, advance the claim's `next_block_sequence` when it is the same epoch, then R.1 (design R3).
+- [x] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantined catalog entries carry the evidence for unattributable and unrecoverable blocks (design B2, R2).
 
 ### serviceradar_nvr and serviceradar_nvr_client
 - [ ] R.4 Inventory page reports block state (`sealed`, `incomplete`, `tombstoned`) and descriptor digest for sealed blocks (extends the settings change's `GET /v1/blocks` page); client function.
@@ -74,7 +74,7 @@ gate.
 - [ ] R.9 Backlog figures (unarchived count, bytes, oldest unarchived age, unreconciled count, quarantined blocks and bytes) published through the settings change's JetStream backlog telemetry.
 
 ### web-ng
-- [ ] R.10 Settings `health` tab: the R.9 figures and alarms per member; quarantine list with operator actions (audited disposition, export), gated by `settings.recording.operate`.
+- [x] R.10 Settings `health` tab: the R.9 figures and alarms per member; quarantine list with operator actions (audited disposition, export), gated by `settings.recording.operate`.
 
 ### Verification
 - [ ] R.11 Synthetic cases through the real NVR and Core paths: uncertain capture later reconciled; rotated second block adopted; mismatched identity or clock epoch is quarantined, never adopted; concurrent live and historical freeze yield one entry; archive outage then catch-up with no reclaim before verification; incomplete journal recovered with an `incomplete_tail` gap; unrecoverable journal is quarantined and stays until an operator disposes of it, where a quarantined gap is recorded only when that block's camera and its own media interval are known; otherwise the entry appears only on the health tab's quarantine list (design R2); each block ends in exactly one terminal outcome of design R2; an archive binding change does not stop pending blocks archiving to their registered binding; a recorded binding lost from retained history quarantines a pending entry and leaves a verified entry untouched, and a lost quarantine binding re-targets only an unverified quarantine copy (design A6 transition 3); reconciliation pauses while history is unresolved.
@@ -87,7 +87,7 @@ gate.
 - [ ] A.1.3 Release tests: full-cap refusal leaves reads, archive and receipts working; ledger rebuild after restart; audit mismatch closes admission without touching files; a request never rotates inside the coordinator's bounds.
 
 ### A.2 serviceradar_core
-- [ ] A.2.1 `CameraRecordingPolicy` fields from design E1 (resource named by the settings change), PaperTrail audited; policy edits are assignment transitions.
+- [x] A.2.1 `CameraRecordingPolicy` fields from design E1 (resource named by the settings change), PaperTrail audited; policy edits are assignment transitions.
 
 ### A.3 serviceradar_core_elx
 - [ ] A.3.1 `ContinuousRecorder` under the recording supervisor: relay open with recorder consumer lease, one claim per run, one inbox per run, block loop with soft and hard bounds (design A2, A3).
@@ -115,10 +115,10 @@ gate.
 ## C. Retention and reclaim (design C)
 
 ### serviceradar_core (C.1-C.2 parallel with B)
-- [ ] C.1 `ArchiveCredentialResolver` role `:retention` (DELETE, HEAD); `retention_credential_secret_id` on `RecordingArchiveSettings` with credential-usage loader, destroy guard and validation.
-- [ ] C.2 `RecordingHold` resource and migration, permission `devices.cameras.recordings.hold`, acceptance serialized with deletion intents on covered entries; pinned-copy rule (archive copy when verified, else local; pin moves on verification and back whenever the held entry's archive copy is `missing`, however found, design C4); daily bounded HEAD re-check of held archive copies as one discovery path.
-- [ ] C.3 `RecordingDisposition` append-only resource and migration.
-- [ ] C.4 Retention fields on `RecordingArchiveSettings` per design E1: watermarks; mode-plus-value pairs for maximum local age, window alert, local-only target, local-only maximum age and archive retention, each with a check constraint that the value is present and in bounds exactly when the mode needs it; `local_only_full_policy` with confirming actor and time; the per-policy archive retention override; a warning, not a refusal, when a limited archive retention is shorter than a limited maximum local age; `archive_deleted_reason` on the catalog entry (design B3).
+- [x] C.1 `ArchiveCredentialResolver` role `:retention` (DELETE, HEAD); `retention_credential_secret_id` on `RecordingArchiveSettings` with credential-usage loader, destroy guard and validation.
+- [x] C.2 `RecordingHold` resource and migration, permission `devices.cameras.recordings.hold`, acceptance serialized with deletion intents on covered entries; pinned-copy rule (archive copy when verified, else local; pin moves on verification and back whenever the held entry's archive copy is `missing`, however found, design C4); daily bounded HEAD re-check of held archive copies as one discovery path.
+- [x] C.3 `RecordingDisposition` append-only resource and migration.
+- [x] C.4 Retention fields on `RecordingArchiveSettings` per design E1: watermarks; mode-plus-value pairs for maximum local age, window alert, local-only target, local-only maximum age and archive retention, each with a check constraint that the value is present and in bounds exactly when the mode needs it; `local_only_full_policy` with confirming actor and time; the per-policy archive retention override; a warning, not a refusal, when a limited archive retention is shorter than a limited maximum local age; `archive_deleted_reason` on the catalog entry (design B3).
 - [ ] C.5 Receipt version 2 with per-object version ID; v1 still accepted.
 
 ### serviceradar_nvr and serviceradar_nvr_client
@@ -139,18 +139,18 @@ gate.
 - [ ] C.11b Raise the `SERVICERADAR_NVR_MAX_SPOOL_BYTES` ceiling from 1 TiB to 1 PiB (`config.ex:22`; decided, design C1); report effective budget in `GET /v1/status`.
 
 ### C9. Runtime budget and reserve (design C9)
-- [ ] C.13 serviceradar_core: `NVRStorageSettings` resource and migration keyed by storage UUID (budget and reserve mode-plus-value, monotonic revision, PaperTrail); save-time bounds against install values, volume capacity and pinned bytes from the catalog (design C1a).
+- [x] C.13 serviceradar_core: `NVRStorageSettings` resource and migration keyed by storage UUID (budget and reserve mode-plus-value, monotonic revision, PaperTrail); save-time bounds against install values, volume capacity and pinned bytes from the catalog (design C1a).
 - [ ] C.14 serviceradar_nvr: `PUT /v1/storage/settings` on the pinned listener (canonical JSON at most 1 KiB, storage UUID and recovery generation check, revision ordering, bounds against install values and a fresh volume measurement); persist `.storage-settings.json` beside `.storage-id` (temp, fsync, rename, directory fsync) charged to the control reserve; inventory accepts the root entry; `Capacity` applies it atomically; boot loads or refuses it; `GET /v1/status` reports applied values, revision, install ceiling and floor, volume capacity and settings state.
 - [ ] C.15 serviceradar_nvr_client: settings push function.
 - [ ] C.16 serviceradar_core_elx: `NVRStorageSettingsSyncJob` pushing desired revisions, retrying, recording refusals; health check for pending over 10 minutes or refused.
-- [ ] C.17 web-ng: `recorders` tab per-member budget and reserve with desired versus applied; read-only install values until C.13-C.16 land.
+- [x] C.17 web-ng: `recorders` tab per-member budget and reserve with desired versus applied; read-only install values until C.13-C.16 land.
 - [ ] C.18 Tests: revision ordering and idempotent retry; bounds refusals; lowering below usage stops admission without deleting; budget below pinned bytes refused by Core; persisted setting survives restart; lowered install ceiling refuses a persisted budget at boot.
 
 ### Object-tier capacity (design C3a)
-- [ ] C.19 serviceradar_core: object budget, watermarks and `object_capacity_policy` (with confirming actor and time, or the entitlement revision; the recorded `reap_oldest` selection states that it also authorizes later local eviction of blocks whose archive copy was reaped) on `RecordingArchiveSettings`; catalog-derived object usage summed over every retained binding in the active binding's bucket, including uploads in flight, with other buckets reported separately (design C3a); non-reapable bytes and usage as defined once in design C3a (including quarantine objects, each object counted once: a quarantine object only in the quarantine term, with or without a receipt, in flight or not).
+- [x] C.19 serviceradar_core: object budget, watermarks and `object_capacity_policy` (with confirming actor and time, or the entitlement revision; the recorded `reap_oldest` selection states that it also authorizes later local eviction of blocks whose archive copy was reaped) on `RecordingArchiveSettings`; catalog-derived object usage summed over every retained binding in the active binding's bucket, including uploads in flight, with other buckets reported separately (design C3a); non-reapable bytes and usage as defined once in design C3a (including quarantine objects, each object counted once: a quarantine object only in the quarantine term, with or without a receipt, in flight or not).
 - [ ] C.20 serviceradar_core_elx: object reaper in the retention job (archive copies only, oldest unheld blocks first, never a quarantined entry's `_quarantine/` copy; a remaining local copy is kept and the entry recorded as local only after archive reaping, never re-archived; audited dispositions with reason `object_capacity` recording whether the local copy remained; at most 500 blocks per pass, usage re-read each pass); `stop_archiving` holding archive jobs (design A6 "Held jobs"); non-reapable-bytes stop; gap reason `archive_capacity_exhausted` when the local tier then fills.
 - [ ] C.21 serviceradar_core_elx: health checks `storage.recordings.object_capacity_binds`, `object_days_to_capacity` (the design C3a `days_to_capacity` equation, branched on budget mode and recorded policy), `object_used_percent`, `object_overage_active`, `object_held_exceeds`, `object_archive_paused_capacity`, plus `archive_missing`, `held_archive_missing` and `archive_delete_blocked` (design C8); one OCSF event per reaper pass that deletes, through `OcsfEventPublisher.publish/2` (family `:camera`). The retention cutoff calculation is F.1; `days_to_capacity` is C3a.
-- [ ] C.22 web-ng: `retention` tab object budget, watermarks and policy with the "can delete the last copy, including by later local eviction of blocks whose archive copy was reaped" statement before confirmation; effective object retention beside configured retention; how much footage exists only on local storage and from when; read-only when a storage entitlement is applied (F.5).
+- [x] C.22 web-ng: `retention` tab object budget, watermarks and policy with the "can delete the last copy, including by later local eviction of blocks whose archive copy was reaped" statement before confirmation; effective object retention beside configured retention; how much footage exists only on local storage and from when; read-only when a storage entitlement is applied (F.5).
 
 ### Verification
 - [ ] C.12 Tests: reaper keeps usage within budget by deleting archive copies only; bucket full with a large local volume keeps local history local only after archive reaping, never re-archived; a reaped block is later evicted locally under the local budget; a held block is neither reaped nor loses its pinned copy; `stop_archiving` pauses archiving without deleting and recording continues locally; held archive bytes alone stop archiving with a critical alert; held blocks' local copies evictable once archived and pinned before; a hold covering an entry in `missing`, whether found by the re-check or before the hold was placed, raises `held_archive_missing` and moves the pin back; budget eviction from high to low water with archiving on; unlimited maximum local age evicts local copies only by budget while object retention deletes expired archive copies and keeps the local copies, local only after archive expiry; local-only with no destination records, plays, holds and retains with no archive work; maximum-age eviction; kind (c), unreconciled and pinned held copies never evicted; archive outage fills the volume, admission stops with a gap and alerts, then recovers; local-only ring buffer skips held blocks; local-only stop when full and unset policy behave the same; a mixed member evicts a local-only camera's oldest block under `overwrite_oldest` in one oldest-first order; a mixed member with `stop_when_full` counts local-only footage as pinned and reports it; a kind (c) copy (design C1), including `awaiting_binding`, is never selected, including by `overwrite_oldest`; a `not_required` block on a mixed member is not aged by `max_local_age` and is aged by `local_only_max_age` under each full policy; the per-kind window and pinned-growth time-to-full match the design C1a worked examples (24 h and about 54 days with 20 GB pinned; 0 and about 5.7 days with 82.8 GB pinned); `missing` and `deleting` local copies are pinned and never evicted, and `missing` raises `archive_missing` with or without a hold; a delete refused by a provider lock returns the entry to `verified`, counts its bytes as non-reapable, is skipped by the reaper, keeps its local copy kind (a) and raises `archive_delete_blocked` after 24 h (design A6 transition 7); a `deleting` entry left by a crash is finished by the next retention pass; holds inside P1 or P3 are counted once (design C1a holds table); time-to-full reports not filling when an age ceiling caps pinned growth (design C5 examples); the admission-stop alert names the pinned cause; turning archiving off moves pending and `failed_terminal` entries to `not_required`, keeping their recorded binding, cancelling jobs and clearing the failed-entry alarm (design A6 transition 5); uploads continue between object low and high water when T is 0; held footage filling the budget stops recording; alerts deduplicate and clear; hold before and after deletion intent; terminal states not revived by archive jobs, receipt import or registration; NVR crash mid-reclaim; versioned delete never uses a bare delete marker; object retention unenforced without a retention credential.
@@ -164,9 +164,9 @@ gate.
 - [ ] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
 
 ### web-ng
-- [ ] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4); quarantined catalog entries never served; a `quarantined` gap only when that block's camera and its own media interval are known, otherwise the entry is only on the health tab's quarantine list (design R2).
-- [ ] D.4 Authorization on every request and `RecordingAccessAudit` per playlist window (design D7); resource and migration in serviceradar_core.
-- [ ] D.5 Timeline mode on `/cameras/:camera_source_id/recordings`: coverage bar with copy states (including local only after archive expiry or reaping), gaps, not scheduled and deleted regions; time basis labels; automatic adjacent-window loading; served-copy indicator; holds. No database queries in disconnected mount.
+- [x] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4); quarantined catalog entries never served; a `quarantined` gap only when that block's camera and its own media interval are known, otherwise the entry is only on the health tab's quarantine list (design R2).
+- [x] D.4 Authorization on every request and `RecordingAccessAudit` per playlist window (design D7); resource and migration in serviceradar_core.
+- [x] D.5 Timeline mode on `/cameras/:camera_source_id/recordings`: coverage bar with copy states (including local only after archive expiry or reaping), gaps, not scheduled and deleted regions; time basis labels; automatic adjacent-window loading; served-copy indicator; holds. No database queries in disconnected mount.
 
 ### Verification
 - [ ] D.6 Synthetic footage played across a local-to-archive boundary, after local reclaim, after NVR loss, with forced sources, across a gap and across an epoch change; an independent decoder checks frames. Browser qualification of discontinuities and gap handling with the pinned hls.js.
@@ -178,10 +178,10 @@ gate.
 
 ## E. Settings and UI surface (design E)
 
-- [ ] E.1 `policy` tab: per-camera policy table with bytes-per-day estimates per profile and the what-if panel before saving (projected window, provider throughput needed against measured provider throughput, blocks per day against the cap, sessions against the limit).
-- [ ] E.2 New `retention` tab (added to the view's `supported_tabs/0`): watermarks, maximum local age with "no limit", alert threshold, local-only full policy with explicit confirmation, local-only target and maximum age with "keep until the volume is full", archive retention with "no limit"; preview of what a change would evict before saving; fully usable with archiving off. `archive` tab: retention credential slot, and "Local only: no object storage configured" as a normal state. Enabling archive requires an active binding; ending the only active binding while archive is enabled warns that footage registered while no destination is active, and quarantine copies not yet assigned one, will wait in `awaiting_binding`, while footage that recorded a binding ending in retained history for a reason that is not compromise-class keeps archiving under it (design PD10, A6, E1).
-- [ ] E.3 `health` tab: `missing` entries with audited re-archive and accept-the-loss actions (design A6 transitions 8 and 9; re-archive offered only when `local_state` is `present` or `quarantined` and refused, leaving the entry `missing`, unless transition 8's conditions hold; accept-the-loss changes `archive_state` only, so a quarantined entry stays row (q); accept-the-loss on a held entry requires the hold's release authority; disposition reason `archive_loss_accepted`); per member "local storage holds about N hours/minutes at the current rate" with its binding bound, used and pinned bytes against watermarks, time-to-full, current storage alerts, retention status, gaps by reason, ledger state.
-- [ ] E.4 Update `add-nvr-operator-settings` in whichever change lands second: its hot-window requirement becomes a maximum local age (ceiling) with capacity eviction, and its D13 local-only wording becomes the explicit full policy (design E2).
+- [x] E.1 `policy` tab: per-camera policy table with bytes-per-day estimates per profile and the what-if panel before saving (projected window, provider throughput needed against measured provider throughput, blocks per day against the cap, sessions against the limit).
+- [x] E.2 New `retention` tab (added to the view's `supported_tabs/0`): watermarks, maximum local age with "no limit", alert threshold, local-only full policy with explicit confirmation, local-only target and maximum age with "keep until the volume is full", archive retention with "no limit"; preview of what a change would evict before saving; fully usable with archiving off. `archive` tab: retention credential slot, and "Local only: no object storage configured" as a normal state. Enabling archive requires an active binding; ending the only active binding while archive is enabled warns that footage registered while no destination is active, and quarantine copies not yet assigned one, will wait in `awaiting_binding`, while footage that recorded a binding ending in retained history for a reason that is not compromise-class keeps archiving under it (design PD10, A6, E1).
+- [x] E.3 `health` tab: `missing` entries with audited re-archive and accept-the-loss actions (design A6 transitions 8 and 9; re-archive offered only when `local_state` is `present` or `quarantined` and refused, leaving the entry `missing`, unless transition 8's conditions hold; accept-the-loss changes `archive_state` only, so a quarantined entry stays row (q); accept-the-loss on a held entry requires the hold's release authority; disposition reason `archive_loss_accepted`); per member "local storage holds about N hours/minutes at the current rate" with its binding bound, used and pinned bytes against watermarks, time-to-full, current storage alerts, retention status, gaps by reason, ledger state.
+- [x] E.4 Update `add-nvr-operator-settings` in whichever change lands second: its hot-window requirement becomes a maximum local age (ceiling) with capacity eviction, and its D13 local-only wording becomes the explicit full policy (design E2).
 
 ## F. SaaS storage entitlements (design F)
 
@@ -190,8 +190,8 @@ decrease, provider sampling, metering, billing, notices) is in the control
 storage-entitlements issue and #182, referenced, not repeated here.
 
 ### P1: calculated retention and usage figures (no control dependency)
-- [ ] F.1 Shared calculator (serviceradar_core, pure functions): per-policy rates (24 h and 7-day mean, nominal estimate with the 1.02 overhead), the common cutoff T solved piecewise, effective retention and binding bound per policy; unit tests for vectors V1-V6 (design F5), published so control copies them.
-- [ ] F.2 web-ng: retention tab shows archive size, held bytes, rates and "holds about N days" per policy with configured versus effective and the binding bound; what-if before saving; self-hosted operator budget with alerts only while the reaper flag is off.
+- [x] F.1 Shared calculator (serviceradar_core, pure functions): per-policy rates (24 h and 7-day mean, nominal estimate with the 1.02 overhead), the common cutoff T solved piecewise, effective retention and binding bound per policy; unit tests for vectors V1-V6 (design F5), published so control copies them.
+- [x] F.2 web-ng: retention tab shows archive size, held bytes, rates and "holds about N days" per policy with configured versus effective and the binding bound; what-if before saving; self-hosted operator budget with alerts only while the reaper flag is off.
 
 ### P3: entitlement contract and delivery (depends on control issue)
 - [ ] F.3 serviceradar_core: `StorageEntitlement` singleton resource and migration (revision, canonical SHA-256, applied time, per-consumer fields, pending block), PaperTrail audited.
@@ -216,5 +216,5 @@ Out of scope: the StarRocks warehouse consumer, a separate product follow-up und
 
 ## Validation
 
-- [ ] V.1 `openspec validate add-nvr-retention-and-timeline-playback --strict`.
+- [x] V.1 `openspec validate add-nvr-retention-and-timeline-playback --strict`.
 - [ ] V.2 Each stage runs remote builds and tests and goes through the no-mistakes gate; fixtures are synthetic.

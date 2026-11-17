@@ -46,7 +46,7 @@ The catalog covers these areas:
 | **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; watching live camera video; viewing recorded camera footage and placing or releasing recording holds; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
-| **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), camera recording and archive storage (`settings.recording.*`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
+| **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), camera recording and archive storage (`settings.recording.*`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md) and [Camera Recording & NVR](./camera-recording.md). |
 | **Plugins** | Viewing, staging, approving, and assigning plugin packages. |
 | **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing canonical operation history; launching reviewed playbooks; authorizing operation cancellation. Reserved schedule keys expose no workflow. |
 | **Northbound Actions** | Viewing, managing, launching, and cancelling provider-neutral northbound actions; managing event handlers. |
@@ -92,49 +92,63 @@ The entity-to-permission mapping and scope authorization contract are owned by
 `ServiceRadarWebNG.SRQL.EntityAccess` in
 `elixir/web-ng/lib/serviceradar_web_ng/srql/entity_access.ex`.
 
+### Camera recording, holds, and storage settings
+
+Recorded camera playback, evidence holds on `/cameras/:camera_source_id/recordings`,
+and operator administration under **Settings -> System -> Camera Recording ->
+Recording & Storage** (`/settings/recording`) use dedicated permissions separate
+from live video (`devices.cameras.view`). All five camera recording permissions
+default to `admin` and can be delegated individually through custom role
+profiles (see [Camera Recording & NVR](./camera-recording.md)):
+
+| Permission | Grants | Default roles |
+| --- | --- | --- |
+| `devices.cameras.recordings.view` | Open `/cameras/:camera_source_id/recordings` (Timeline and Published modes), inspect recording metadata and timeline coverage, issue HLS VOD playlists, and stream verified recorded footage (`auto`, `local`, or `archive`). Requires `devices.view` as well. | `admin` |
+| `devices.cameras.recordings.hold` | Place and release `investigation` or `export` holds on recorded camera footage from the camera Timeline, and authorize **Accept Archive Loss** on `/settings/recording?tab=health` when an entry is covered by an active hold. | `admin` |
+| `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, per-member desired and applied storage budgets (`NVRStorageSettings`), immutable archive destination generations, redacted credential names, per-camera block locations and hold-pin status, recording policies, local and object retention projections, and health summaries. | `admin` |
+| `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, configure per-camera `CameraRecordingPolicy` assignments (`?tab=policy`), edit deployment local and object `retention` settings (`?tab=retention`), and configure per-member `NVRStorageSettings` local byte budgets and reserves (`?tab=recorders`). | `admin` |
+| `settings.recording.operate` | Start supervised recorder operations (bounded camera captures, block archive uploads, destination connectivity tests, and local or archive retrieval checks) and execute audited **Health** tab dispositions (`?tab=health`: quarantined block export/preserve intent, confirmed `operator_quarantine` delete intent, missing archive copy re-archive, and missing archive copy loss acceptance). | `admin` |
+
 ### Recording metadata and footage
 
-Opening a camera's Recordings page,
-listing historical camera recordings, inspecting their metadata, requesting an archive playlist,
-or reading recorded footage requires both
-`devices.cameras.recordings.view` and `devices.view`. The recording permission
-defaults to administrators and can be granted through custom role profiles;
-live-video permission does not grant it. Each inventory, metadata, playlist or footage request reloads the
-user's persisted active account and current permissions, so cached authority
-does not preserve revoked access. Fragment responses repeat authorization before
-releasing bytes. Recording access does not grant hold placement, export, or storage administration.
+Opening a camera's Recordings page, listing historical camera recordings,
+inspecting timeline coverage or metadata, requesting a timeline or archive
+playlist, or reading recorded footage requires both
+`devices.cameras.recordings.view` and `devices.view`. Live-video permission
+(`devices.cameras.view`) does not grant it. Each inventory, coverage, playlist,
+or fragment request reloads the user's persisted active account and current
+permissions, so cached authority does not preserve revoked access, and fragment
+responses repeat authorization before releasing bytes. Recording-read access
+does not grant hold placement, export, or `/settings/recording` access.
 
 ### Recording holds
 
 Placing or releasing an investigation or export hold on recorded camera footage
-requires `devices.cameras.recordings.hold` (default role: `admin`, assignable
-through custom role profiles) together with fresh camera scope. Holds keep at
-least one verified copy of every covered block until explicitly released: when a
+requires `devices.cameras.recordings.hold` together with `devices.view`,
+`devices.cameras.recordings.view`, and fresh camera scope. Holds keep at least
+one verified copy of every covered block until explicitly released: when a
 verified archive copy exists, the hold pins the archive copy so the local copy
 remains evictable under the local byte budget and maximum local age; in
-local-only mode, before archive verification completes, or if a held archive
-copy is found missing while the local copy remains, the hold pins the local
-copy. Accepting the loss of a missing archive copy when a hold covers the entry
-also requires `devices.cameras.recordings.hold`. Holds are placed and released
-on the camera Timeline, not in Settings; `/settings/recording` displays active
-hold counts, held and non-reapable byte capacity impact on `?tab=retention`, and
+local-only mode, before archive verification completes, after archive expiry or
+reaping, or if a held archive copy is found missing while the local copy
+remains, the hold pins the local copy. Accepting the loss of a missing archive
+copy on `/settings/recording?tab=health` when a hold covers the entry also
+requires `devices.cameras.recordings.hold`. Holds are placed and released on the
+camera Timeline, not in Settings; `/settings/recording` displays active hold
+counts, held and non-reapable byte capacity impact on `?tab=retention`, and
 per-block hold-pin status on `?tab=cameras`.
 
 ### Camera recording and storage settings
 
-Opening **Settings -> System -> Camera Recording -> Recording & Storage**
-(`/settings/recording`) requires at least one of three permissions. All three
-default to `admin` and can be assigned individually through custom role profiles:
+Opening `/settings/recording` requires at least one of
+`settings.recording.view`, `settings.recording.manage`, or
+`settings.recording.operate` (listing camera sources and relay-eligible stream
+profiles on `?tab=cameras` and `?tab=policy` additionally requires
+`devices.view`).
 
-| Permission | Grants | Default roles |
-| --- | --- | --- |
-| `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, immutable archive destination generations, selected credential names, held-byte capacity impact, per-camera block locations and hold-pin status, archive receipts, and operation history. | `admin` |
-| `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, and (once the recording-plane and retention tasks land) edit recording policy, retention, and per-member local budgets. | `admin` |
-| `settings.recording.operate` | Start supervised recorder operations (bounded camera captures, block archive uploads, destination connectivity tests, and local or archive retrieval checks). | `admin` |
-
-Selecting or changing the writer or optional reader `s3_compatible` archive
-credential on `/settings/recording?tab=archive` additionally requires
-`settings.credentials.manage` (see
+Selecting or changing the writer, optional reader, or optional retention delete
+`s3_compatible` archive credential on `/settings/recording?tab=archive`
+additionally requires `settings.credentials.manage` (see
 [Credential Management](./credentials.md#camera-archive-storage)), because
 listing reusable credentials is governed by that permission. A user holding
 `settings.recording.manage` without `settings.credentials.manage` can register
@@ -143,8 +157,9 @@ credential selectors render as disabled with only the bound credential's
 redacted name and an explanation of the missing permission.
 
 Every state-changing LiveView event, Core action, and operations call re-checks
-the specific permission for that operation (`manage` versus `operate`) against
-the current actor rather than relying on mount-time access. None of the
+the specific permission for that operation (`manage` versus `operate`, plus
+`devices.cameras.recordings.hold` when accepting archive loss on a held entry)
+against the current actor rather than relying on mount-time access. None of the
 `settings.recording.*` permissions grant recorded footage playback (which keeps
 `devices.cameras.recordings.view` plus `devices.view`) or recording hold
 placement and release (which require `devices.cameras.recordings.hold`), and
@@ -153,7 +168,7 @@ footage-read or hold access does not open `/settings/recording`.
 No RBAC permission opens, closes, or modifies the deployment recovery gate from
 the UI or API. The view reports Core and NVR recovery-gate state read-only; gate
 changes remain under deployment control outside CNPG backups and GitOps rollback
-(see
+(see [Camera Recording & NVR](./camera-recording.md) and
 [NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md#deployment-recovery-gate)).
 
 ## Custom role profiles
