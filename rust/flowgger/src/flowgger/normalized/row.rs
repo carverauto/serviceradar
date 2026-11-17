@@ -47,7 +47,7 @@ const SYSLOG_BEHIND_SECONDS: i128 = 30 * 24 * 3_600;
 
 /// Whether a syslog sender's time is too far from the receive time to file
 /// the record under. `ahead` is the sender's whole second minus the receive
-/// time's, the instants EventWriter keeps.
+/// time's, as EventWriter compares them.
 fn implausible_syslog_time(format: Option<&str>, ahead: i128) -> bool {
     match format {
         None => false,

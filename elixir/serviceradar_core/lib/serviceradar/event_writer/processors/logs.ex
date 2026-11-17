@@ -754,7 +754,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @hour_seconds 3_600
 
-  # `ahead` is in whole seconds, compared between the instants the row keeps.
+  # `ahead` is the sender's whole second minus the receive time's.
   defp implausible_syslog_time?(nil, _ahead), do: false
 
   # RFC 3164 has no zone, so a wrong assumed zone files a fresh log hours off.
