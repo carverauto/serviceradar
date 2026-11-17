@@ -87,6 +87,9 @@ test --test_output=errors
 test --remote_executor=
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
+# The Hegel property targets draw a fresh random seed per attempt, so a retry would
+# replace a failing seed with a new one and hide the counterexample.
+test --flaky_test_attempts=//rust/flowgger:flowgger_propert.*@1
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh

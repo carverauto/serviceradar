@@ -70,6 +70,10 @@ rust_library(
 
 rust_test(
     name = "flowgger_lib_test",
+    args = [
+        "--skip",
+        "props",
+    ],
     crate = ":flowgger_lib",
     # crate_features are NOT inherited from `crate`; they must mirror flowgger_lib or the
     # test compiles a different crate than the one that ships.
@@ -88,6 +92,32 @@ rust_test(
         "//third_party/binaries:nats_server_linux_amd64",
     ],
     env = {
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)
+
+# The Hegel properties, which flowgger_lib_test skips. They run in their own target so
+# that //:.bazelrc can give them a single attempt without taking the retry away from the
+# NATS and socket tests.
+rust_test(
+    name = "flowgger_properties_test",
+    args = ["props"],
+    crate = ":flowgger_lib",
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    data = [":normalized_log_parity"],
+    env = {
         # Hegel's CI profile keeps no example database, which a test sandbox cannot write.
         # It also fixes the seed; that is turned off so each run that is not served from
         # the cache tries inputs no run has tried. A failure prints a
@@ -95,7 +125,6 @@ rust_test(
         "HEGEL_DEFAULT_PROFILE": "ci",
         "HEGEL_DERANDOMIZE": "false",
         "HEGEL_TEST_CASES": "1000",
-        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },
     deps = all_crate_deps(
         cargo_only = True,
