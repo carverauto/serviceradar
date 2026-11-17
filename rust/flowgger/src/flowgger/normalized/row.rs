@@ -86,7 +86,7 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
         ],
     )
     .map_or(i128::from(received), |value| unix_nanos(value, received));
-    // Whole seconds, which is what EventWriter keeps of a timestamp.
+    // Whole seconds, which is what EventWriter compares.
     let sender_seconds = sender_time.div_euclid(NANOS_PER_SECOND);
     let received_seconds = i128::from(received).div_euclid(NANOS_PER_SECOND);
     // A record filed under a wrong clock drops out of every recent view, so

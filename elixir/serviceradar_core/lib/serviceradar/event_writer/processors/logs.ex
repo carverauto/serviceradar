@@ -662,8 +662,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     }
   end
 
+  # Microseconds are what both telemetry stores keep of a time.
   defp unix_nanos_timestamp(nanos) when is_integer(nanos) and nanos >= 0,
-    do: DateTime.from_unix!(div(nanos, 1_000_000_000), :second)
+    do: DateTime.from_unix!(div(nanos, 1_000), :microsecond)
 
   defp present(value) when value in ["", 0], do: nil
   defp present(value), do: value
@@ -694,7 +695,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp protobuf_scope_attributes(_), do: %{}
 
   defp protobuf_observed_timestamp(%LogRecord{observed_time_unix_nano: observed})
-       when is_integer(observed) and observed > 0, do: FieldParser.parse_timestamp(observed)
+       when is_integer(observed) and observed > 0, do: unix_nanos_timestamp(observed)
 
   defp protobuf_observed_timestamp(_), do: nil
 
@@ -714,8 +715,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_otel_timestamp(%LogRecord{time_unix_nano: time, observed_time_unix_nano: observed}) do
     cond do
-      is_integer(time) and time > 0 -> FieldParser.parse_timestamp(time)
-      is_integer(observed) and observed > 0 -> FieldParser.parse_timestamp(observed)
+      is_integer(time) and time > 0 -> unix_nanos_timestamp(time)
+      is_integer(observed) and observed > 0 -> unix_nanos_timestamp(observed)
       true -> DateTime.utc_now()
     end
   end
@@ -739,7 +740,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          ) do
       attributes =
         attributes
-        |> Map.put("_syslog_original_timestamp", DateTime.to_iso8601(timestamp))
+        |> Map.put(
+          "_syslog_original_timestamp",
+          timestamp |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        )
         |> Map.put("_syslog_timestamp_fallback", true)
 
       {received_at, attributes}
@@ -772,9 +776,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   # The log collector writes a syslog record's time as fractional Unix seconds,
-  # negative before 1970.
+  # negative before 1970. A double holds a current time to the microsecond.
   defp log_timestamp(seconds) when is_float(seconds) and abs(seconds) < 1.0e10,
-    do: DateTime.from_unix!(floor(seconds), :second)
+    do: DateTime.from_unix!(round(seconds * 1_000_000), :microsecond)
+
+  # The shared parser keeps whole seconds of a nanosecond time.
+  defp log_timestamp(nanos) when is_integer(nanos) and nanos > 1_000_000_000_000_000_000,
+    do: unix_nanos_timestamp(nanos)
 
   defp log_timestamp(value), do: FieldParser.parse_timestamp(value)
 

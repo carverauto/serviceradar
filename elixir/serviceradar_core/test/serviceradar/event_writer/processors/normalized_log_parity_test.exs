@@ -60,8 +60,8 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
 
     row = collector_normalized_row(shared)
 
-    assert DateTime.truncate(row.timestamp, :second) == ~U[2030-01-02 03:04:05Z]
-    assert DateTime.truncate(row.observed_timestamp, :second) == ~U[2030-01-02 03:04:06Z]
+    assert row.timestamp == ~U[2030-01-02 03:04:05.250000Z]
+    assert row.observed_timestamp == ~U[2030-01-02 03:04:06.000000Z]
 
     assert %{
              body: "synthetic message",

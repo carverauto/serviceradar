@@ -322,7 +322,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
           metadata: %{subject: "logs.syslog", received_at: ~U[2030-01-02 09:00:00Z]}
         })
 
-      assert row.timestamp == ~U[2030-01-02 03:04:05Z]
+      assert row.timestamp == ~U[2030-01-02 03:04:05.250000Z]
     end
 
     test "uses receive time for a zoned syslog time no working clock would write" do
@@ -522,8 +522,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.attributes == %{}
     end
 
-    test "handles nanosecond timestamps" do
-      timestamp_ns = 1_705_315_800_000_000_000
+    test "keeps the microseconds of a nanosecond timestamp" do
+      timestamp_ns = 1_705_315_800_123_456_789
 
       json_data =
         Jason.encode!(%{
@@ -535,7 +535,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       result = Logs.parse_message(message)
 
-      assert %DateTime{} = result.timestamp
+      assert result.timestamp == ~U[2024-01-15 10:50:00.123456Z]
     end
 
     test "returns nil for invalid JSON" do
@@ -742,6 +742,32 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.event_name == "session.start"
       assert row.source_ip == "192.0.2.10"
       assert row.scope_attributes == %{"scope.kind" => "library"}
+    end
+
+    test "an OTLP record keeps the microseconds of its times" do
+      request = %ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{
+            scope_logs: [
+              %ScopeLogs{
+                log_records: [
+                  %LogRecord{
+                    time_unix_nano: 1_705_315_800_123_456_789,
+                    observed_time_unix_nano: 1_705_315_801_000_250_000,
+                    body: %AnyValue{value: {:string_value, "sub-second"}}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      [row] =
+        Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+      assert row.timestamp == ~U[2024-01-15 10:50:00.123456Z]
+      assert row.observed_timestamp == ~U[2024-01-15 10:50:01.000250Z]
     end
 
     test "protobuf record without a trace, event name or observed time" do
