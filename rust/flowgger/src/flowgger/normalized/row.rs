@@ -52,7 +52,7 @@ fn implausible_syslog_time(format: Option<&str>, ahead: i128) -> bool {
     match format {
         None => false,
         Some("rfc3164") => ahead.abs() > RFC3164_TOLERANCE_SECONDS,
-        Some(_) => ahead > SYSLOG_AHEAD_SECONDS || ahead < -SYSLOG_BEHIND_SECONDS,
+        Some(_) => !(-SYSLOG_BEHIND_SECONDS..=SYSLOG_AHEAD_SECONDS).contains(&ahead),
     }
 }
 
