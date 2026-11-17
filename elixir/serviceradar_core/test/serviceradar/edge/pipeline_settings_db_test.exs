@@ -26,6 +26,9 @@ defmodule ServiceRadar.Edge.PipelineSettingsDbTest do
   test "a deployment with no rows runs on the defaults", ctx do
     assert {:ok, %{horizon_seconds: 7 * @day, spool_max_bytes: 1024 * @mib}} ==
              PipelineSettings.resolve(ctx.agent, ctx.partition)
+
+    # Late PRIMARY admission reaches back two weeks unless the global row says otherwise.
+    assert {:ok, 14 * @day} == PipelineSettings.late_admission_max_age_seconds()
   end
 
   test "an operator lowers one agent's budget and other agents keep the wider one", ctx do
@@ -45,11 +48,19 @@ defmodule ServiceRadar.Edge.PipelineSettingsDbTest do
 
   # The only test that writes the global row, so concurrent tests never wait on it.
   test "the global row's maximum caps every horizon and its budget is inherited", ctx do
-    put!(ctx.admin, :global, "", max_horizon_seconds: 3 * @day, spool_max_bytes: 512 * @mib)
+    put!(ctx.admin, :global, "",
+      max_horizon_seconds: 3 * @day,
+      spool_max_bytes: 512 * @mib,
+      late_admission_max_age_seconds: 21 * @day
+    )
+
     put!(ctx.admin, :agent, ctx.agent, horizon_seconds: 20 * @day)
 
     assert {:ok, %{horizon_seconds: 3 * @day, spool_max_bytes: 512 * @mib}} ==
              PipelineSettings.resolve(ctx.agent, ctx.partition)
+
+    # The late window is core-wide, so only the global row sets it.
+    assert {:ok, 21 * @day} == PipelineSettings.late_admission_max_age_seconds()
   end
 
   test "saving a scope again replaces its values in place", ctx do
@@ -114,6 +125,17 @@ defmodule ServiceRadar.Edge.PipelineSettingsDbTest do
              insert.("agent", ctx.agent, nil, nil, 16 * @mib - 1)
 
     assert {:ok, _} = insert.("agent", ctx.agent, nil, nil, 16 * @mib)
+
+    # The late window is core-wide: no partition or agent may set its own, and it is positive.
+    assert {:error, %{postgres: %{code: :check_violation}}} =
+             Repo.query(
+               """
+               INSERT INTO platform.edge_pipeline_settings
+                 (scope, scope_key, late_admission_max_age_seconds)
+               VALUES ('partition', $1, $2)
+               """,
+               [ctx.partition, @day]
+             )
   end
 
   defp put!(actor, scope, scope_key, attrs) do

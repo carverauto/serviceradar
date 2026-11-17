@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
   alias ServiceRadar.Edge.ContractRegistryEpoch
   alias ServiceRadar.Edge.EdgeLedgerRetentionWorker
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.LedgerCoverage
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.ProducerAssignments
@@ -357,5 +358,112 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
              edge_sweep_batch_slots: false,
              edge_sweep_projected_rows: false
            }
+  end
+
+  defp coverage do
+    %{rows: [[complete_since]]} =
+      Repo.query!("SELECT complete_since FROM platform.edge_ledger_coverage WHERE id = 1")
+
+    complete_since
+  end
+
+  test "ledger coverage advances to the prune cutoff only when ledger rows go, and never backward" do
+    # Clear anything already expired so the next pass deletes nothing. The migration seeds
+    # complete_since at its own run time minus 30 days, which may already be later than a
+    # prune's cutoff (now minus the horizon), so clear the row: absent means "never pruned".
+    assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
+    Repo.query!("DELETE FROM platform.edge_ledger_coverage WHERE id = 1")
+    assert LedgerCoverage.complete_since() == {:ok, nil}
+
+    # A pass that deletes no ledger rows leaves coverage alone.
+    assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
+    assert LedgerCoverage.complete_since() == {:ok, nil}
+
+    horizon = EdgeLedgerRetentionWorker.retention_horizon_seconds()
+    before = DateTime.utc_now()
+    expired = insert_record_bundle!(inserted_at: DateTime.shift(before, second: -(horizon + 60)))
+    assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
+    after_prune = DateTime.utc_now()
+
+    refute bundle_exists?(expired).event_ledger
+    # Every ledger row inserted at or after the cutoff is retained, so coverage is created at
+    # exactly this prune's cutoff.
+    advanced = coverage()
+    refute DateTime.before?(advanced, DateTime.shift(before, second: -horizon))
+    refute DateTime.after?(advanced, DateTime.shift(after_prune, second: -horizon))
+    assert {:ok, advanced} == LedgerCoverage.complete_since()
+
+    # Coverage already later than this pass's cutoff stays where it is.
+    later = DateTime.utc_now() |> DateTime.shift(day: -1) |> DateTime.truncate(:microsecond)
+
+    Repo.query!("UPDATE platform.edge_ledger_coverage SET complete_since = $1 WHERE id = 1", [
+      later
+    ])
+
+    again = insert_record_bundle!(inserted_at: DateTime.shift(before, second: -(horizon + 60)))
+    assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
+    refute bundle_exists?(again).event_ledger
+    assert coverage() == later
+
+    # Nothing may move it backward.
+    assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
+             Repo.query(
+               "UPDATE platform.edge_ledger_coverage SET complete_since = $1 WHERE id = 1",
+               [DateTime.shift(later, day: -1)]
+             )
+  end
+
+  test "prunes ended authority intervals past the late window, never terminal or open ones" do
+    now = DateTime.utc_now()
+    old = DateTime.shift(now, day: -20)
+    recent = DateTime.shift(now, day: -10)
+
+    insert_interval = fn ended_at, reason ->
+      assignment_id = Ecto.UUID.generate()
+
+      Repo.query!(
+        """
+        INSERT INTO platform.edge_authority_history
+          (assignment_id, assignment_kind, agent_id, network_scope_id, run_shard,
+           authority_epoch, active_from, active_until, ended_reason)
+        VALUES ($1::uuid, 'output_grant', 'agent-synthetic-history', $2::uuid, 0, 1, $3, $4, $5)
+        """,
+        [
+          Ecto.UUID.dump!(assignment_id),
+          Ecto.UUID.bingenerate(),
+          DateTime.shift(now, day: -40),
+          ended_at,
+          reason
+        ]
+      )
+
+      assignment_id
+    end
+
+    pruned = insert_interval.(old, "epoch_changed")
+    compromised = insert_interval.(old, "compromised")
+    inside_window = insert_interval.(recent, "epoch_changed")
+    certificate_revoked = insert_interval.(old, "certificate_revoked")
+    cause_unknown = insert_interval.(old, "revoked_cause_unknown")
+    open = insert_interval.(nil, nil)
+
+    assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
+
+    present? = fn id ->
+      row_exists?(
+        "SELECT 1 FROM platform.edge_authority_history WHERE assignment_id = $1::uuid",
+        [Ecto.UUID.dump!(id)]
+      )
+    end
+
+    # Past the 14-day window (plus tolerance) an ordinary or compromised interval may go: a
+    # record naming it then gets history_unknown, which is AUDIT, never PRIMARY.
+    refute present?.(pruned)
+    refute present?.(compromised)
+    assert present?.(inside_window)
+    # Terminal intervals keep their records quarantine-only for good; open ones are current.
+    assert present?.(certificate_revoked)
+    assert present?.(cause_unknown)
+    assert present?.(open)
   end
 end

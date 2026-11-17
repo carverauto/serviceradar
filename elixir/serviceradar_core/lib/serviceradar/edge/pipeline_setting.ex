@@ -12,6 +12,9 @@ defmodule ServiceRadar.Edge.PipelineSetting do
 
   The table also holds one setting that is not about the pipeline, because it is scoped the
   same way: `snmp_max_targets`, the most targets one SNMP profile may compile for one agent.
+
+  `late_admission_max_age_seconds`, like `max_horizon_seconds`, lives only on the global row:
+  it bounds how old a record core will still publish as late PRIMARY, for every agent.
   """
 
   use Ash.Resource,
@@ -25,7 +28,8 @@ defmodule ServiceRadar.Edge.PipelineSetting do
     :horizon_seconds,
     :max_horizon_seconds,
     :spool_max_bytes,
-    :snmp_max_targets
+    :snmp_max_targets,
+    :late_admission_max_age_seconds
   ]
 
   postgres do
@@ -49,6 +53,7 @@ defmodule ServiceRadar.Edge.PipelineSetting do
         :max_horizon_seconds,
         :spool_max_bytes,
         :snmp_max_targets,
+        :late_admission_max_age_seconds,
         :updated_at
       ]
     end
@@ -104,6 +109,13 @@ defmodule ServiceRadar.Edge.PipelineSetting do
       constraints min: 1
 
       description "The most targets one SNMP profile may compile for one agent; nil inherits, and the default is 10,000"
+    end
+
+    attribute :late_admission_max_age_seconds, :integer do
+      public? true
+      constraints min: 1
+
+      description "The oldest record core still publishes as late PRIMARY (global scope only); nil uses the default, 14 days"
     end
 
     create_timestamp :inserted_at
