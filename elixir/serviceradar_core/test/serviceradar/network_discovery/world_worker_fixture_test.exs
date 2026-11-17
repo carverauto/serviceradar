@@ -975,14 +975,15 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   defp verify_hosted_audit_ancestry(source, host, [first, second]) do
     # Repeated historical events must neither consume the unique-identity cap
     # nor keep a previously visited identity in the next ancestry frontier.
+    # An owner set too wide for one read is owned by
+    # ContainedDgraphProjectionTest, which runs on every pull request.
     histories = [
-      {List.duplicate({first, source}, 501), :complete},
-      {List.duplicate({first, source}, 2) ++
-         List.duplicate({second, first}, 2) ++ List.duplicate({source, second}, 2), :complete},
-      {Enum.map(1..500, &{"#{source}-ancestor-#{&1}", source}), :over_budget}
+      List.duplicate({first, source}, 501),
+      List.duplicate({first, source}, 2) ++
+        List.duplicate({second, first}, 2) ++ List.duplicate({source, second}, 2)
     ]
 
-    for {history, expected} <- histories do
+    for history <- histories do
       try do
         rows =
           Enum.map(history, fn {from, to} ->
@@ -997,12 +998,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
         assert %Ash.BulkResult{status: :success} =
                  Ash.bulk_create(rows, MergeAudit, :record, actor: actor(), return_errors?: true)
 
-        result = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
-
-        case expected do
-          :complete -> assert {:ok, %{"guests_done" => true, "edges_done" => true}} = result
-          :over_budget -> assert {:error, :incomplete_hosted_owner_ancestry} = result
-        end
+        assert {:ok, %{"guests_done" => true, "edges_done" => true, "edges_unresolved" => 0}} =
+                 HypervisorEnrichmentIngestor.reconcile_hosted_topology()
 
         assert [%{"target" => [%{"id" => ^host}], "observed_at" => "2030-02-03T04:05:06Z"}] =
                  hosted_projection(source)
