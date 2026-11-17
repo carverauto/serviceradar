@@ -31,11 +31,11 @@ defmodule ServiceRadar.Edge.RecordTrust do
   @max_assignments 10_000
   @clock_tolerance_nano 5 * 60 * 1_000_000_000
 
-  @doc "Reads current assignment authority with the installation's configured public key."
   @doc "How far a producer clock may run ahead of core's: five minutes."
   @spec clock_tolerance_nano() :: pos_integer()
   def clock_tolerance_nano, do: @clock_tolerance_nano
 
+  @doc "Reads current assignment authority with the installation's configured public key."
   def snapshot do
     with {:ok, key} <- IssuerKey.configured(), do: snapshot(key)
   end
