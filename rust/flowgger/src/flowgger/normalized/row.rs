@@ -33,24 +33,26 @@ type Json = Map<String, Value>;
 /// Record attributes that carry a stored column, not an attribute.
 pub const COLUMN_PREFIX: &str = "serviceradar.column.";
 
-const NANOS_PER_SECOND: u64 = 1_000_000_000;
-/// How far an RFC 3164 timestamp may be from the receive time. That format has
-/// no zone, so a wrong assumed zone would otherwise file a fresh log hours off.
-const RFC3164_TOLERANCE_NANOS: i128 = 3_600 * NANOS_PER_SECOND as i128;
-/// How far ahead of the receive time a zoned syslog timestamp may be. Nothing
-/// is logged before it happens, so more than this is a wrong clock.
-const SYSLOG_AHEAD_NANOS: i128 = 24 * 3_600 * NANOS_PER_SECOND as i128;
-/// How far behind the receive time a zoned syslog timestamp may be. A relay
-/// can hold logs through an outage, so this is generous.
-const SYSLOG_BEHIND_NANOS: i128 = 30 * 24 * 3_600 * NANOS_PER_SECOND as i128;
+const NANOS_PER_SECOND: i128 = 1_000_000_000;
+/// How far, in seconds, an RFC 3164 timestamp may be from the receive time.
+/// That format has no zone, so a wrong assumed zone would otherwise file a
+/// fresh log hours off.
+const RFC3164_TOLERANCE_SECONDS: i128 = 3_600;
+/// How far, in seconds, ahead of the receive time a zoned syslog timestamp may
+/// be. Nothing is logged before it happens, so more than this is a wrong clock.
+const SYSLOG_AHEAD_SECONDS: i128 = 24 * 3_600;
+/// How far, in seconds, behind the receive time a zoned syslog timestamp may
+/// be. A relay can hold logs through an outage, so this is generous.
+const SYSLOG_BEHIND_SECONDS: i128 = 30 * 24 * 3_600;
 
 /// Whether a syslog sender's time is too far from the receive time to file
-/// the record under. `ahead` is the sender's time minus the receive time.
+/// the record under. `ahead` is the sender's whole second minus the receive
+/// time's, the instants EventWriter keeps.
 fn implausible_syslog_time(format: Option<&str>, ahead: i128) -> bool {
     match format {
         None => false,
-        Some("rfc3164") => ahead.abs() > RFC3164_TOLERANCE_NANOS,
-        Some(_) => ahead > SYSLOG_AHEAD_NANOS || ahead < -SYSLOG_BEHIND_NANOS,
+        Some("rfc3164") => ahead.abs() > RFC3164_TOLERANCE_SECONDS,
+        Some(_) => ahead > SYSLOG_AHEAD_SECONDS || ahead < -SYSLOG_BEHIND_SECONDS,
     }
 }
 
@@ -73,7 +75,7 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
         }
     }
 
-    let mut time_unix_nano = first(
+    let sender_time = first(
         record,
         &[
             "timestamp",
@@ -83,21 +85,30 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
             "observedTimeUnixNano",
         ],
     )
-    .map_or(received, |value| unix_nanos(value, received));
+    .map_or(i128::from(received), |value| unix_nanos(value, received));
+    // Whole seconds, which is what EventWriter keeps of a timestamp.
+    let sender_seconds = sender_time.div_euclid(NANOS_PER_SECOND);
+    let received_seconds = i128::from(received).div_euclid(NANOS_PER_SECOND);
     // A record filed under a wrong clock drops out of every recent view, so
     // it is filed under the receive time and keeps what the sender wrote.
-    if implausible_syslog_time(
-        record.get("_syslog_format").and_then(Value::as_str),
-        i128::from(time_unix_nano) - i128::from(received),
-    ) {
-        // Whole seconds, which is what EventWriter keeps of a timestamp.
-        let whole_seconds = time_unix_nano / NANOS_PER_SECOND * NANOS_PER_SECOND;
-        if let Some(original) = rfc3339(whole_seconds) {
-            attributes.insert("_syslog_original_timestamp".to_owned(), original.into());
+    // OTLP cannot carry a time before 1970.
+    let time_unix_nano = match u64::try_from(sender_time) {
+        Ok(time)
+            if !implausible_syslog_time(
+                record.get("_syslog_format").and_then(Value::as_str),
+                sender_seconds - received_seconds,
+            ) =>
+        {
+            time
         }
-        attributes.insert("_syslog_timestamp_fallback".to_owned(), true.into());
-        time_unix_nano = received;
-    }
+        _ => {
+            if let Some(original) = rfc3339(sender_seconds * NANOS_PER_SECOND) {
+                attributes.insert("_syslog_original_timestamp".to_owned(), original.into());
+            }
+            attributes.insert("_syslog_timestamp_fallback".to_owned(), true.into());
+            received
+        }
+    };
     let observed_time_unix_nano = first(
         record,
         &[
@@ -107,7 +118,8 @@ pub fn resource_logs(record: &Json, received: u64) -> ResourceLogs {
             "observedTimeUnixNano",
         ],
     )
-    .map_or(received, |value| unix_nanos(value, received));
+    .and_then(|value| u64::try_from(unix_nanos(value, received)).ok())
+    .unwrap_or(received);
 
     let service = |snake: &str, camel: &str, resource_key: &str| {
         field(record, snake, camel).or_else(|| {
@@ -232,29 +244,29 @@ fn prune_object(fields: &Json) -> Json {
 
 /// A timestamp as Unix nanoseconds: RFC 3339 text, integer seconds,
 /// milliseconds or nanoseconds told apart by magnitude, or fractional seconds.
-/// Anything else is `fallback`.
-fn unix_nanos(value: &Value, fallback: u64) -> u64 {
+/// Anything else is `fallback`. A time before 1970 is negative.
+fn unix_nanos(value: &Value, fallback: u64) -> i128 {
     let parsed = match value {
         Value::String(text) => OffsetDateTime::parse(text, &Rfc3339)
             .ok()
-            .and_then(|time| u64::try_from(time.unix_timestamp_nanos()).ok()),
-        Value::Number(number) => match number.as_u64() {
+            .map(OffsetDateTime::unix_timestamp_nanos),
+        Value::Number(number) => match number.as_u64().map(i128::from) {
             Some(nanos) if nanos > 1_000_000_000_000_000_000 => Some(nanos),
-            Some(millis) if millis > 1_000_000_000_000 => millis.checked_mul(1_000_000),
-            Some(seconds) => seconds.checked_mul(NANOS_PER_SECOND),
+            Some(millis) if millis > 1_000_000_000_000 => Some(millis * 1_000_000),
+            Some(seconds) => Some(seconds * NANOS_PER_SECOND),
             // Whole microseconds: a double cannot hold more for a current time.
             None => number
                 .as_f64()
-                .filter(|seconds| number.is_f64() && (0.0..1.0e10).contains(seconds))
-                .map(|seconds| (seconds * 1.0e6).round() as u64 * 1_000),
+                .filter(|seconds| number.is_f64() && (-1.0e10..1.0e10).contains(seconds))
+                .map(|seconds| (seconds * 1.0e6).round() as i128 * 1_000),
         },
         _ => None,
     };
-    parsed.unwrap_or(fallback)
+    parsed.unwrap_or(i128::from(fallback))
 }
 
-fn rfc3339(unix_nanos: u64) -> Option<String> {
-    OffsetDateTime::from_unix_timestamp_nanos(i128::from(unix_nanos))
+fn rfc3339(unix_nanos: i128) -> Option<String> {
+    OffsetDateTime::from_unix_timestamp_nanos(unix_nanos)
         .ok()?
         .format(&Rfc3339)
         .ok()

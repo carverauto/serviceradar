@@ -730,7 +730,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     if match?(%DateTime{}, received_at) and
          implausible_syslog_time?(
            json["_syslog_format"],
-           DateTime.diff(timestamp, received_at, :microsecond)
+           DateTime.diff(
+             DateTime.truncate(timestamp, :second),
+             DateTime.truncate(received_at, :second),
+             :second
+           )
          ) do
       attributes =
         attributes
@@ -743,17 +747,18 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     end
   end
 
-  @hour_us 3_600_000_000
+  @hour_seconds 3_600
 
+  # `ahead` is in whole seconds, compared between the instants the row keeps.
   defp implausible_syslog_time?(nil, _ahead), do: false
 
   # RFC 3164 has no zone, so a wrong assumed zone files a fresh log hours off.
-  defp implausible_syslog_time?("rfc3164", ahead), do: abs(ahead) > @hour_us
+  defp implausible_syslog_time?("rfc3164", ahead), do: abs(ahead) > @hour_seconds
 
   # Nothing is logged before it happens. A relay can hold logs through an
   # outage, so the limit behind the receive time is generous.
   defp implausible_syslog_time?(_format, ahead),
-    do: ahead > 24 * @hour_us or ahead < -30 * 24 * @hour_us
+    do: ahead > 24 * @hour_seconds or ahead < -30 * 24 * @hour_seconds
 
   defp parse_timestamp(json) do
     log_timestamp(
@@ -765,9 +770,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     )
   end
 
-  # The log collector writes a syslog record's time as fractional Unix seconds.
-  defp log_timestamp(seconds) when is_float(seconds) and seconds >= 0 and seconds < 1.0e10,
-    do: DateTime.from_unix!(trunc(seconds), :second)
+  # The log collector writes a syslog record's time as fractional Unix seconds,
+  # negative before 1970.
+  defp log_timestamp(seconds) when is_float(seconds) and abs(seconds) < 1.0e10,
+    do: DateTime.from_unix!(floor(seconds), :second)
 
   defp log_timestamp(value), do: FieldParser.parse_timestamp(value)
 
