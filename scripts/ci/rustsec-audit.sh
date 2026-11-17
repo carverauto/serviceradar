@@ -66,6 +66,23 @@ ignores_for() {
       #   handling; srql enables only the `postgres` backend. The fix is 0.9.0, a
       #   breaking upgrade of srql's database layer tracked separately.
       echo RUSTSEC-2026-0138
+      # chrono 0.4.45 (unmaintained since 2026-09-14; no vulnerability reported, no
+      #   patched release): eight first-party crates use it directly, and diesel,
+      #   postgres-types, arrow-array, bgpkit-parser, procfs and zen-expression require
+      #   it, so first-party code alone cannot drop it from the lock.
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0543 . Accepted 2026-11-17; review
+      #   by 2027-02-17, and sooner if a vulnerability is reported against it.
+      echo RUSTSEC-2026-0543
+      # chrono-tz 0.10.4 (unmaintained, same notice as chrono): serviceradar-flowgger and
+      #   zen-expression use it for zone lookups. It leaves with chrono.
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0555 . Accepted 2026-11-17; review
+      #   by 2027-02-17.
+      echo RUSTSEC-2026-0555
+      # humantime 2.4.0 (unmaintained; no vulnerability reported): only zen-expression
+      #   requires it, through zen-engine's latest release (2.1.7).
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0542 . Accepted 2026-11-17; review
+      #   by 2027-02-17, and remove once a zen-engine release drops it.
+      echo RUSTSEC-2026-0542
       ;;
     rust/netprobe/ebpf/Cargo.lock)
       # anyhow 1.0.102 (unsound downcast_mut after context): only aya-build, the host
@@ -92,6 +109,12 @@ ignores_for() {
       #   https://rustsec.org/advisories/RUSTSEC-2026-0441 . Accepted 2026-11-06; review
       #   by 2027-02-01, and remove once an async-dnssd release drops pin-utils.
       echo RUSTSEC-2026-0441
+      # libz-sys 1.1.31 (unmaintained; no vulnerability reported): connector 0.10.0 ->
+      #   sspi 0.21.1 -> winscard -> flate2 -> libz-sys, in the same forced sspi/scard
+      #   subtree as atomic-polyfill above.
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0544 . Accepted 2026-11-17; review
+      #   by 2027-02-17, and remove once flate2 in this family stops requiring it.
+      echo RUSTSEC-2026-0544
       ;;
   esac
 }
