@@ -22,7 +22,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadDispatches do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -118,7 +120,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadDispatches do
     drop_if_exists(
       constraint(
         :camera_archive_upload_dispatches,
-        :camera_upload_dispatch_conflict_requires_response, prefix: "platform")
+        :camera_upload_dispatch_conflict_requires_response,
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
@@ -148,7 +152,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadDispatches do
     drop(
       constraint(
         :camera_archive_upload_dispatches,
-        "camera_archive_upload_dispatches_archive_upload_intent_id_fkey", prefix: "platform")
+        "camera_archive_upload_dispatches_archive_upload_intent_id_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_archive_upload_dispatches, prefix: "platform") do

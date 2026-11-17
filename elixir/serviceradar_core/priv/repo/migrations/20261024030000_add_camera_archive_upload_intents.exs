@@ -22,7 +22,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadIntents do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(
         :archive_binding_id,
@@ -32,7 +34,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadIntents do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(:descriptor_sha256, :text, null: false)
       add(:destination_sha256, :text, null: false)
@@ -83,13 +87,17 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraArchiveUploadIntents do
     drop(
       constraint(
         :camera_archive_upload_intents,
-        "camera_archive_upload_intents_archive_binding_id_fkey", prefix: "platform")
+        "camera_archive_upload_intents_archive_binding_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :camera_archive_upload_intents,
-        "camera_archive_upload_intents_recording_block_id_fkey", prefix: "platform")
+        "camera_archive_upload_intents_recording_block_id_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_archive_upload_intents, prefix: "platform") do

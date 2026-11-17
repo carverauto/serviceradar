@@ -148,6 +148,7 @@ exports_files([
     "camera_recording_access_audit_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
+    "format_generated_elixir.exs",
     "benchmark_runner.py",
     "elixir_test_config_loader.exs",
     "integration_shards.bzl",

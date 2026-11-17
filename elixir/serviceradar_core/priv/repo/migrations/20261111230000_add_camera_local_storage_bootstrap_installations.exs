@@ -22,7 +22,10 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageBootstrapInstallatio
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), primary_key: true, null: false)
+        ),
+        primary_key: true,
+        null: false
+      )
 
       add(:storage_id, :uuid, null: false)
     end
@@ -61,13 +64,17 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageBootstrapInstallatio
     drop_if_exists(
       constraint(
         :camera_local_storage_bootstrap_installations,
-        :camera_local_storage_installation_bounds, prefix: "platform")
+        :camera_local_storage_installation_bounds,
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :camera_local_storage_bootstrap_installations,
-        "camera_local_storage_installation_preparation_fkey", prefix: "platform")
+        "camera_local_storage_installation_preparation_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_local_storage_bootstrap_installations, prefix: "platform") do

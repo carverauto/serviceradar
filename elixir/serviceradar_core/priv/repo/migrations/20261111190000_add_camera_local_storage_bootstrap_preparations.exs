@@ -25,7 +25,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageBootstrapPreparation
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -62,13 +64,17 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageBootstrapPreparation
     drop_if_exists(
       constraint(
         :camera_local_storage_bootstrap_preparations,
-        :camera_local_storage_bootstrap_bounds, prefix: "platform")
+        :camera_local_storage_bootstrap_bounds,
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :camera_local_storage_bootstrap_preparations,
-        "camera_local_storage_bootstrap_binding_fkey", prefix: "platform")
+        "camera_local_storage_bootstrap_binding_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_local_storage_bootstrap_preparations, prefix: "platform") do

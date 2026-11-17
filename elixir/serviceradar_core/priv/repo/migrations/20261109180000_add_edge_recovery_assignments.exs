@@ -138,7 +138,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryAssignments do
           name: "edge_recovery_assignment_resolutions_key_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -167,7 +169,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryAssignments do
     drop(
       constraint(
         :edge_recovery_assignment_resolutions,
-        "edge_recovery_assignment_resolutions_key_id_fkey", prefix: "platform")
+        "edge_recovery_assignment_resolutions_key_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
@@ -184,7 +188,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryAssignments do
     drop(
       constraint(
         :edge_recovery_assignment_keys,
-        "edge_recovery_assignment_keys_selected_issuance_id_fkey", prefix: "platform")
+        "edge_recovery_assignment_keys_selected_issuance_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
@@ -207,13 +213,17 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryAssignments do
     drop(
       constraint(
         :edge_recovery_assignment_candidates,
-        "edge_recovery_assignment_candidates_issuance_id_fkey", prefix: "platform")
+        "edge_recovery_assignment_candidates_issuance_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :edge_recovery_assignment_candidates,
-        "edge_recovery_assignment_candidates_key_id_fkey", prefix: "platform")
+        "edge_recovery_assignment_candidates_key_id_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:edge_recovery_assignment_candidates, prefix: "platform") do

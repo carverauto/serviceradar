@@ -19,7 +19,10 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageHistoryGeneses do
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), primary_key: true, null: false)
+        ),
+        primary_key: true,
+        null: false
+      )
 
       add(:storage_id, :uuid, null: false)
     end
@@ -62,7 +65,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageHistoryGeneses do
     drop(
       constraint(
         :camera_local_storage_history_geneses,
-        "camera_local_storage_genesis_installation_fkey", prefix: "platform")
+        "camera_local_storage_genesis_installation_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_local_storage_history_geneses, prefix: "platform") do

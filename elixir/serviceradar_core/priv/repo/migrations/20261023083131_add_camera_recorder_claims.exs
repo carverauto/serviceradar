@@ -20,7 +20,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecorderClaims do
           name: "camera_recorder_claims_ingest_owner_id_fkey",
           type: :uuid,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(

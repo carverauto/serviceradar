@@ -24,7 +24,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageQualificationReports
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
-        ), null: false)
+        ),
+        null: false
+      )
 
       add(:revision, :bigint, null: false)
     end
@@ -82,13 +84,17 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraLocalStorageQualificationReports
     drop_if_exists(
       constraint(
         :camera_local_storage_qualification_reports,
-        :camera_local_storage_report_revision, prefix: "platform")
+        :camera_local_storage_report_revision,
+        prefix: "platform"
+      )
     )
 
     drop(
       constraint(
         :camera_local_storage_qualification_reports,
-        "camera_local_storage_report_binding_fkey", prefix: "platform")
+        "camera_local_storage_report_binding_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_local_storage_qualification_reports, prefix: "platform") do

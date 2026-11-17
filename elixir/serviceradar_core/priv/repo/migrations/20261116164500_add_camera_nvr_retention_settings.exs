@@ -23,7 +23,7 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrRetentionSettings do
       add(:local_high_water_percent, :bigint, null: false, default: 90)
       add(:local_low_water_percent, :bigint, null: false, default: 80)
       add(:max_local_age_mode, :text, null: false, default: "limited")
-      add(:max_local_age_seconds, :bigint, default: 86400)
+      add(:max_local_age_seconds, :bigint, default: 86_400)
       add(:local_window_alert_mode, :text, null: false, default: "enabled")
       add(:local_window_alert_seconds, :bigint, default: 3600)
       add(:local_only_full_policy, :text)
@@ -178,7 +178,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrRetentionSettings do
     drop_if_exists(
       constraint(
         :camera_recording_archive_settings,
-        :camera_archive_settings_object_capacity_policy, prefix: "platform")
+        :camera_archive_settings_object_capacity_policy,
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
@@ -214,7 +216,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrRetentionSettings do
     drop_if_exists(
       constraint(
         :camera_recording_archive_settings,
-        :camera_archive_settings_local_only_full_policy, prefix: "platform")
+        :camera_archive_settings_local_only_full_policy,
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
@@ -238,7 +242,9 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraNvrRetentionSettings do
     drop(
       constraint(
         :camera_recording_archive_settings,
-        "camera_archive_settings_retention_secret_fkey", prefix: "platform")
+        "camera_archive_settings_retention_secret_fkey",
+        prefix: "platform"
+      )
     )
 
     alter table(:camera_recording_archive_settings, prefix: "platform") do
