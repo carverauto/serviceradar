@@ -15,8 +15,8 @@ defmodule ServiceRadarAgentGateway.EdgeDeliveryGrants do
   (`ServiceRadar.Edge.DeliveryGrants`), but it only sees the coordinates this module extracts. So
   every record is verified HERE first, from its exact bytes, against the authenticated agent and
   the installed trust snapshot (`EdgeRecordAuthorization.grant_subject/3`): it admits, its origin
-  is this agent, its production grant verifies under a valid key, and its network scope is bound
-  to the agent. The agent cannot obtain a grant for bytes it did not produce, or name another
+  is this agent, its production grant verifies under a valid key, and (for a renewal) its network
+  scope is bound to the agent. The agent cannot obtain a grant for bytes it did not produce, or name another
   record's assignment.
 
   The request is bounded (`max_records/0`, `max_record_bytes/0`) so a renewal costs at most one
