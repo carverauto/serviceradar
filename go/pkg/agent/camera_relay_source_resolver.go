@@ -63,7 +63,7 @@ type cameraSourceResolution struct {
 }
 
 // cameraSourceResolutionError is a failure the plugin reported instead of an
-// address. Its class is one of cameraSourceResolutionFailureClasses.
+// address. Its class satisfies isCameraSourceResolutionFailureClass.
 type cameraSourceResolutionError struct {
 	class  string
 	detail string
@@ -76,18 +76,24 @@ func (e *cameraSourceResolutionError) Error() string {
 	return e.detail
 }
 
-// The classes a plugin resolver may report. Anything else is reported as
-// unknown, so a plugin cannot invent operator-facing classes.
-var cameraSourceResolutionFailureClasses = map[string]struct{}{
-	cameraRelayFailureSourceNotFound:  {},
-	cameraRelayFailureAuthentication:  {},
-	cameraRelayFailureDNS:             {},
-	cameraRelayFailureConnectRefused:  {},
-	cameraRelayFailureConnectTimeout:  {},
-	cameraRelayFailureHostUnreachable: {},
-	cameraRelayFailureConnectFailed:   {},
-	cameraRelayFailureTLSCertificate:  {},
-	cameraRelayFailureTLSHandshake:    {},
+// isCameraSourceResolutionFailureClass reports whether class is one a plugin
+// resolver may report. Anything else is reported as unknown, so a plugin
+// cannot invent operator-facing classes.
+func isCameraSourceResolutionFailureClass(class string) bool {
+	switch class {
+	case cameraRelayFailureSourceNotFound,
+		cameraRelayFailureAuthentication,
+		cameraRelayFailureDNS,
+		cameraRelayFailureConnectRefused,
+		cameraRelayFailureConnectTimeout,
+		cameraRelayFailureHostUnreachable,
+		cameraRelayFailureConnectFailed,
+		cameraRelayFailureTLSCertificate,
+		cameraRelayFailureTLSHandshake:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeCameraRelaySourceResolver(resolver cameraRelaySourceResolver) (cameraRelaySourceResolver, error) {
@@ -135,7 +141,7 @@ func decodeCameraSourceResolution(result []byte) (string, error) {
 	}
 
 	if class := strings.TrimSpace(resolution.FailureClass); class != "" {
-		if _, known := cameraSourceResolutionFailureClasses[class]; !known {
+		if !isCameraSourceResolutionFailureClass(class) {
 			class = cameraRelayFailureUnknown
 		}
 		return "", &cameraSourceResolutionError{class: class, detail: strings.TrimSpace(resolution.FailureDetail)}

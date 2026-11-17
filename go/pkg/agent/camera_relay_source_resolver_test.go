@@ -357,7 +357,7 @@ func assertGatewayNeverSaw(t *testing.T, gateway *fakeCameraRelayGateway, secret
 	gateway.mu.Lock()
 	defer gateway.mu.Unlock()
 
-	var messages []gproto.Message
+	messages := make([]gproto.Message, 0, len(gateway.openRequests)+len(gateway.closeRequests)+len(gateway.heartbeatReqs))
 	for _, request := range gateway.openRequests {
 		messages = append(messages, request)
 	}
