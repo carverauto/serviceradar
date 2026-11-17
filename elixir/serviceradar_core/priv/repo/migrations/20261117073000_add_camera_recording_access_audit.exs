@@ -23,9 +23,7 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingAccessAudit do
           type: :uuid,
           prefix: "platform",
           on_delete: :delete_all
-        ),
-        null: false
-      )
+        ), null: false)
 
       add(:stream_profile_id, :uuid)
       add(:recording_hold_id, :uuid)
@@ -125,9 +123,7 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraRecordingAccessAudit do
     drop(
       constraint(
         :camera_recording_access_audits,
-        "camera_recording_access_audits_camera_source_fkey",
-        prefix: "platform"
-      )
+        "camera_recording_access_audits_camera_source_fkey", prefix: "platform")
     )
 
     drop(table(:camera_recording_access_audits, prefix: "platform"))
