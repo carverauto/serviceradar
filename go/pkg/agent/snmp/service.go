@@ -231,10 +231,8 @@ func (s *SNMPService) Reconfigure(config *SNMPConfig) (ReconfigureSummary, error
 			continue
 		}
 
-		if rt.collector != nil {
-			if err := rt.collector.Stop(); err != nil {
-				s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
-			}
+		if err := rt.stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
 		}
 		delete(s.targets, name)
 
@@ -293,11 +291,7 @@ func (s *SNMPService) stopTargetsLocked() []error {
 	var errs []error
 
 	for name, rt := range s.targets {
-		if rt.collector == nil {
-			continue
-		}
-
-		if err := rt.collector.Stop(); err != nil {
+		if err := rt.stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
 			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
 		}
@@ -330,10 +324,8 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	if rt.collector != nil {
-		if err := rt.collector.Stop(); err != nil {
-			return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
-		}
+	if err := rt.stop(); err != nil {
+		return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
 	}
 
 	delete(s.targets, targetName)
@@ -506,8 +498,12 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		return ErrServiceNotStarted
 	}
 
-	// Start collector with the service context so it stops on service shutdown.
-	if err := collector.Start(serviceCtx); err != nil {
+	// The target's context derives from the service context, so the target
+	// stops on service shutdown as well as when it alone is replaced or removed.
+	targetCtx, cancel := context.WithCancel(serviceCtx)
+
+	if err := collector.Start(targetCtx); err != nil {
+		cancel()
 		return fmt.Errorf("%w %s: %w", errFailedToStartCollector, target.Name, err)
 	}
 
@@ -516,6 +512,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	// Start processing results
 	results := collector.GetResults()
 	if results == nil {
+		cancel()
 		if err := collector.Stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop collector after nil results channel")
 		}
@@ -526,6 +523,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		target:     target,
 		collector:  collector,
 		aggregator: aggregator,
+		cancel:     cancel,
 		hostName:   target.Name, // Target name for display until sysName is polled
 	}
 
@@ -533,7 +531,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	s.mu.Lock()
 	if _, exists := s.targets[target.Name]; exists {
 		s.mu.Unlock()
-		if err := collector.Stop(); err != nil {
+		if err := rt.stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop duplicate collector")
 		}
 		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
@@ -547,7 +545,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	go s.processResults(serviceCtx, rt, results)
+	go s.processResults(targetCtx, rt, results)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
@@ -614,6 +612,19 @@ func (s *SNMPService) handleDataPoint(rt *targetRuntime, point *DataPoint) {
 				Msg("Updating hostname")
 		}
 	}
+}
+
+// stop ends the target's result processing and stops its collector.
+func (rt *targetRuntime) stop() error {
+	if rt.cancel != nil {
+		rt.cancel()
+	}
+
+	if rt.collector == nil {
+		return nil
+	}
+
+	return rt.collector.Stop()
 }
 
 // setHostName records the target's polled sysName and reports the previous

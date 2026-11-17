@@ -337,7 +337,8 @@ func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 
 // A config change must only touch the targets it changes. Replacing every
 // collector on any change cancels in-flight requests and shifts every poll
-// schedule, which leaves a gap in every series.
+// schedule, which leaves a gap in every series. A replaced or removed target's
+// result processing must end with it.
 func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
 	t.Parallel()
 
@@ -351,6 +352,7 @@ func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
 			Community: "public",
 			Version:   Version2c,
 			Interval:  Duration(interval),
+			Timeout:   Duration(5 * time.Second),
 			Retries:   1,
 			MaxPoints: defaultMaxPoints,
 			OIDs: []OIDConfig{
@@ -359,10 +361,18 @@ func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
 		}
 	}
 
+	// keptTarget omits its timeout, so it relies on the default each time.
+	keptTarget := func() Target {
+		kept := target("kept", "192.0.2.1", time.Minute)
+		kept.Timeout = 0
+
+		return kept
+	}
+
 	config := &SNMPConfig{
 		Enabled: true,
 		Targets: []Target{
-			target("kept", "192.0.2.1", time.Minute),
+			keptTarget(),
 			target("changed", "192.0.2.2", time.Minute),
 			target("removed", "192.0.2.3", time.Minute),
 		},
@@ -375,39 +385,56 @@ func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
 	aggregatorFactory := NewMockAggregatorFactory(ctrl)
 	service.collectorFactory = collectorFactory
 	service.aggregatorFactory = aggregatorFactory
+	aggregator := NewMockAggregator(ctrl)
+	aggregator.EXPECT().AddPoint(gomock.Any()).AnyTimes()
 	aggregatorFactory.EXPECT().
 		CreateAggregator(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(NewMockAggregator(ctrl), nil).
+		Return(aggregator, nil).
 		AnyTimes()
 
 	// expectCollector expects one collector to be created and started for the
-	// named target. Stop is registered by the caller, so a Stop the test did
-	// not expect at that point fails it.
-	expectCollector := func(name string) *MockCollector {
+	// named target, and returns it with its results channel. Like the real
+	// factory, creation validates the target it is given. Stop is registered
+	// by the caller, so a Stop the test did not expect at that point fails it.
+	expectCollector := func(name string) (*MockCollector, chan DataPoint) {
 		collector := NewMockCollector(ctrl)
+		results := make(chan DataPoint)
 		collectorFactory.EXPECT().
 			CreateCollector(gomock.Cond(func(x any) bool { return x.(*Target).Name == name }), gomock.Any()).
-			Return(collector, nil)
+			DoAndReturn(func(target *Target, _ logger.Logger) (Collector, error) {
+				return collector, validateTarget(target)
+			})
 		collector.EXPECT().Start(gomock.Any()).Return(nil)
-		collector.EXPECT().GetResults().Return(make(chan DataPoint))
+		collector.EXPECT().GetResults().Return(results)
 
-		return collector
+		return collector, results
 	}
 
-	kept := expectCollector("kept")
-	changed := expectCollector("changed")
-	removed := expectCollector("removed")
+	// delivered reports whether the target's result processing takes a point
+	// from its results channel.
+	delivered := func(results chan DataPoint) bool {
+		select {
+		case results <- DataPoint{OIDName: "sysUptime"}:
+			return true
+		case <-time.After(200 * time.Millisecond):
+			return false
+		}
+	}
+
+	kept, keptResults := expectCollector("kept")
+	changed, changedResults := expectCollector("changed")
+	removed, removedResults := expectCollector("removed")
 	require.NoError(t, service.Start(context.Background()))
 
 	changed.EXPECT().Stop().Return(nil)
 	removed.EXPECT().Stop().Return(nil)
-	changedAgain := expectCollector("changed")
-	added := expectCollector("added")
+	changedAgain, changedAgainResults := expectCollector("changed")
+	added, _ := expectCollector("added")
 
 	summary, err := service.Reconfigure(&SNMPConfig{
 		Enabled: true,
 		Targets: []Target{
-			target("kept", "192.0.2.1", time.Minute),
+			keptTarget(),
 			target("changed", "192.0.2.2", 30*time.Second),
 			target("added", "192.0.2.4", time.Minute),
 		},
@@ -420,6 +447,11 @@ func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
 	assert.Same(t, changedAgain, service.targets["changed"].collector)
 	assert.NotContains(t, service.targets, "removed")
 	service.mu.RUnlock()
+
+	assert.True(t, delivered(keptResults), "unchanged target must keep processing results")
+	assert.True(t, delivered(changedAgainResults), "replacement collector must have its results processed")
+	assert.False(t, delivered(changedResults), "replaced collector's result processing must end")
+	assert.False(t, delivered(removedResults), "removed target's result processing must end")
 
 	kept.EXPECT().Stop().Return(nil)
 	changedAgain.EXPECT().Stop().Return(nil)

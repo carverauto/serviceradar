@@ -273,9 +273,10 @@ type SNMPService struct {
 // targetRuntime is the running state of one target.
 type targetRuntime struct {
 	target     *Target
-	collector  Collector  // nil when the target failed to start
-	aggregator Aggregator // nil when the target failed to start
-	startErr   string     // why the target failed to start
+	collector  Collector          // nil when the target failed to start
+	aggregator Aggregator         // nil when the target failed to start
+	startErr   string             // why the target failed to start
+	cancel     context.CancelFunc // ends the target's collector and result processing; nil when it failed to start
 
 	mu       sync.Mutex
 	hostName string // the target's sysName once polled, else its configured name

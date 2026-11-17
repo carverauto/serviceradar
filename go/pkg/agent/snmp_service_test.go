@@ -689,7 +689,7 @@ func TestSNMPRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
 				"community": "public",
 				"timeout": 1,
 				"oids": [
-					{"oid": ".1.3.6.1.2.1.1.3.0", "name": "sysUpTime", "type": "timeticks"}
+					{"oid": ".1.3.6.1.2.1.1.3.0", "name": "sysUpTime", "type": "gauge"}
 				]
 			}
 		]

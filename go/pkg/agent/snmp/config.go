@@ -125,6 +125,10 @@ func (*SNMPConfig) validateTarget(target *Target, targetNames map[string]bool) e
 		target.Interval = Duration(defaultInterval)
 	}
 
+	if target.Timeout == 0 {
+		target.Timeout = Duration(defaultTimeout)
+	}
+
 	// Set default retries if not specified
 	if target.Retries == 0 {
 		target.Retries = defaultRetries
