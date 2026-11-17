@@ -1208,3 +1208,66 @@ func TestParseProtoSNMPConfigKeepsEveryOfferedV3Protocol(t *testing.T) {
 			}).PrivProtocol)
 		})
 }
+
+// A remote config that changes some targets must reconfigure the running SNMP
+// service in place rather than replace it, so unchanged targets keep polling.
+func TestApplyProtoConfigReconfiguresRunningServiceInPlace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
+		AgentID:        "test-agent",
+		ConfigDir:      tmpDir,
+		CachePath:      filepath.Join(tmpDir, "cache", "snmp-config.json"),
+		Logger:         logger.NewTestLogger(),
+		ServiceFactory: &mockSNMPServiceFactory{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.Start(ctx))
+	defer func() { _ = svc.Stop(ctx) }()
+
+	protoTarget := func(name, host string, intervalSeconds uint32) *proto.SNMPTargetConfig {
+		return &proto.SNMPTargetConfig{
+			Id:                  "sr:" + name,
+			Name:                name,
+			Host:                host,
+			Port:                161,
+			Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+			Community:           "public",
+			PollIntervalSeconds: intervalSeconds,
+			TimeoutSeconds:      2,
+			Retries:             1,
+			Oids: []*proto.SNMPOIDConfig{
+				{Oid: ".1.3.6.1.2.1.1.3.0", Name: "sysUptime", DataType: proto.SNMPDataType_SNMP_DATA_TYPE_GAUGE},
+			},
+		}
+	}
+
+	require.NoError(t, svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled: true,
+		Targets: []*proto.SNMPTargetConfig{
+			protoTarget("switch-01", "192.0.2.10", 60),
+			protoTarget("switch-02", "192.0.2.11", 60),
+		},
+	}))
+
+	svc.mu.RLock()
+	running := svc.service
+	svc.mu.RUnlock()
+	require.NotNil(t, running)
+
+	require.NoError(t, svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled: true,
+		Targets: []*proto.SNMPTargetConfig{
+			protoTarget("switch-01", "192.0.2.10", 60),
+			protoTarget("switch-02", "192.0.2.11", 30),
+		},
+	}))
+
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	assert.Same(t, running, svc.service)
+	assert.Equal(t, 30*time.Second, time.Duration(svc.config.Targets[1].Interval))
+}

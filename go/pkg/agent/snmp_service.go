@@ -551,27 +551,11 @@ func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Stop current service
-	if s.service != nil {
-		if err := s.service.Stop(); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to stop SNMP service for reconfiguration")
-			return
-		}
-	}
-
-	// Create new service with new config using factory
-	service, err := s.serviceFactory.CreateService(newConfig, s.logger)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to create new SNMP service")
+	if err := s.runConfigLocked(ctx, newConfig); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to reconfigure SNMP service")
 		return
 	}
 
-	if err := service.Start(ctx); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to start new SNMP service")
-		return
-	}
-
-	s.service = service
 	s.config = newConfig
 	s.configHash = newHash
 	s.configSource = source
@@ -701,24 +685,10 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 		return nil
 	}
 
-	// Stop current service
-	if s.service != nil {
-		if err := s.service.Stop(); err != nil {
-			return fmt.Errorf("failed to stop SNMP service: %w", err)
-		}
+	if err := s.runConfigLocked(serviceCtx, config); err != nil {
+		return err
 	}
 
-	// Create and start new service using factory
-	service, err := s.serviceFactory.CreateService(config, s.logger)
-	if err != nil {
-		return fmt.Errorf("failed to create SNMP service: %w", err)
-	}
-
-	if err := service.Start(serviceCtx); err != nil {
-		return fmt.Errorf("failed to start SNMP service: %w", err)
-	}
-
-	s.service = service
 	s.config = config
 	s.configHash = newHash
 	s.configSource = snmpConfigSourceRemote
@@ -727,6 +697,44 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 	if err := s.cacheConfig(config); err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to cache new SNMP config")
 	}
+
+	return nil
+}
+
+// runConfigLocked makes config the running SNMP config. A running service is
+// reconfigured in place, so a target whose definition did not change keeps
+// polling on its own schedule; replacing the whole service on every change
+// cancelled every in-flight request and left a gap in every series. Without a
+// running service, a new one is created and started under ctx. The caller
+// holds s.mu.
+func (s *SNMPAgentService) runConfigLocked(ctx context.Context, config *snmp.SNMPConfig) error {
+	if s.service != nil {
+		summary, err := s.service.Reconfigure(config)
+		switch {
+		case err == nil:
+			s.logger.Info().
+				Int("unchanged_targets", summary.Unchanged).
+				Int("restarted_targets", summary.Restarted).
+				Int("added_targets", summary.Added).
+				Int("removed_targets", summary.Removed).
+				Msg("Reconfigured SNMP service in place")
+
+			return nil
+		case !errors.Is(err, snmp.ErrServiceNotStarted):
+			return fmt.Errorf("failed to reconfigure SNMP service: %w", err)
+		}
+	}
+
+	service, err := s.serviceFactory.CreateService(config, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create SNMP service: %w", err)
+	}
+
+	if err := service.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start SNMP service: %w", err)
+	}
+
+	s.service = service
 
 	return nil
 }

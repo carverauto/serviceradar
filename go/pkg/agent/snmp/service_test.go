@@ -334,3 +334,95 @@ func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 		assert.True(t, status["test-target"].Available)
 	}
 }
+
+// A config change must only touch the targets it changes. Replacing every
+// collector on any change cancels in-flight requests and shifts every poll
+// schedule, which leaves a gap in every series.
+func TestReconfigureTouchesOnlyChangedTargets(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+
+	target := func(name, host string, interval time.Duration) Target {
+		return Target{
+			Name:      name,
+			Host:      host,
+			Port:      161,
+			Community: "public",
+			Version:   Version2c,
+			Interval:  Duration(interval),
+			Retries:   1,
+			MaxPoints: defaultMaxPoints,
+			OIDs: []OIDConfig{
+				{OID: ".1.3.6.1.2.1.1.3.0", Name: "sysUptime", DataType: TypeGauge},
+			},
+		}
+	}
+
+	config := &SNMPConfig{
+		Enabled: true,
+		Targets: []Target{
+			target("kept", "192.0.2.1", time.Minute),
+			target("changed", "192.0.2.2", time.Minute),
+			target("removed", "192.0.2.3", time.Minute),
+		},
+	}
+
+	service, err := NewSNMPServiceForAgent(config, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	collectorFactory := NewMockCollectorFactory(ctrl)
+	aggregatorFactory := NewMockAggregatorFactory(ctrl)
+	service.collectorFactory = collectorFactory
+	service.aggregatorFactory = aggregatorFactory
+	aggregatorFactory.EXPECT().
+		CreateAggregator(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(NewMockAggregator(ctrl), nil).
+		AnyTimes()
+
+	// expectCollector expects one collector to be created and started for the
+	// named target. Stop is registered by the caller, so a Stop the test did
+	// not expect at that point fails it.
+	expectCollector := func(name string) *MockCollector {
+		collector := NewMockCollector(ctrl)
+		collectorFactory.EXPECT().
+			CreateCollector(gomock.Cond(func(x any) bool { return x.(*Target).Name == name }), gomock.Any()).
+			Return(collector, nil)
+		collector.EXPECT().Start(gomock.Any()).Return(nil)
+		collector.EXPECT().GetResults().Return(make(chan DataPoint))
+
+		return collector
+	}
+
+	kept := expectCollector("kept")
+	changed := expectCollector("changed")
+	removed := expectCollector("removed")
+	require.NoError(t, service.Start(context.Background()))
+
+	changed.EXPECT().Stop().Return(nil)
+	removed.EXPECT().Stop().Return(nil)
+	changedAgain := expectCollector("changed")
+	added := expectCollector("added")
+
+	summary, err := service.Reconfigure(&SNMPConfig{
+		Enabled: true,
+		Targets: []Target{
+			target("kept", "192.0.2.1", time.Minute),
+			target("changed", "192.0.2.2", 30*time.Second),
+			target("added", "192.0.2.4", time.Minute),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ReconfigureSummary{Unchanged: 1, Restarted: 1, Added: 1, Removed: 1}, summary)
+
+	service.mu.RLock()
+	assert.Same(t, kept, service.targets["kept"].collector)
+	assert.Same(t, changedAgain, service.targets["changed"].collector)
+	assert.NotContains(t, service.targets, "removed")
+	service.mu.RUnlock()
+
+	kept.EXPECT().Stop().Return(nil)
+	changedAgain.EXPECT().Stop().Return(nil)
+	added.EXPECT().Stop().Return(nil)
+	require.NoError(t, service.Stop())
+}
