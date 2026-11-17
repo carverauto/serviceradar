@@ -116,9 +116,13 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       @axis_contract_path |> File.read!() |> Jason.decode!(),
     {"axis-camera", "0.1.3", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
       @axis_contract_path |> File.read!() |> Jason.decode!(),
+    {"axis-camera", "0.1.4", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
+      @axis_contract_path |> File.read!() |> Jason.decode!(),
     {"unifi-protect-camera", "0.1.0", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
       @protect_contract_path |> File.read!() |> Jason.decode!(),
     {"unifi-protect-camera", "0.1.4", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
+      @protect_contract_path |> File.read!() |> Jason.decode!(),
+    {"unifi-protect-camera", "0.1.5", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
       @protect_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.1", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
