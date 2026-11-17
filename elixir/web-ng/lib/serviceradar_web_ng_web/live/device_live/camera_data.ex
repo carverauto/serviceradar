@@ -2,16 +2,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraData do
   @moduledoc false
 
   alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadarWebNGWeb.DeviceLive.CameraComponents
 
   require Ash.Query
 
+  @profile_load [stream_profiles: [:source_scheme]]
+
+  @doc """
+  The device's camera sources in display form
+  (`CameraComponents.normalize_camera_sources_for_display/1`): what the page
+  assigns holds no stream address and no profile structs.
+  """
   def load_sources(scope, device_uid, device_row, format_error) when is_function(format_error, 1) do
-    case CameraSource.list_for_device(device_uid, load: [:stream_profiles], scope: scope) do
+    case CameraSource.list_for_device(device_uid, load: @profile_load, scope: scope) do
       {:ok, []} ->
         load_sources_by_fallback(scope, device_row, format_error)
 
       {:ok, sources} ->
-        {sources, nil}
+        {CameraComponents.normalize_camera_sources_for_display(sources), nil}
 
       {:error, error} ->
         {[], "Failed to load camera inventory: #{format_error.(error)}"}
@@ -28,11 +36,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraData do
         CameraSource
         |> Ash.Query.for_read(:read)
         |> Ash.Query.filter(device_uid in ^fallback_ids)
-        |> Ash.Query.load(:stream_profiles)
+        |> Ash.Query.load(@profile_load)
         |> Ash.Query.sort(inserted_at: :asc)
 
       case read_camera_sources(query, scope) do
-        {:ok, sources} -> {sources, nil}
+        {:ok, sources} -> {CameraComponents.normalize_camera_sources_for_display(sources), nil}
         {:error, error} -> {[], "Failed to load camera inventory: #{format_error.(error)}"}
       end
     end

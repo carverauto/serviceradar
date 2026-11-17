@@ -1,6 +1,16 @@
 defmodule ServiceRadar.Camera.InventoryIngestor do
   @moduledoc """
   Ingests camera discovery descriptors from plugin results into normalized inventory.
+
+  `ServiceRadar.Observability.PluginResultIngestor` hands this handler a plugin
+  result already reduced by `ServiceRadar.Camera.StreamAddressReduction`, so no
+  stream address reaches profile, source or device metadata. The two relay
+  columns, `camera_sources.source_url` and
+  `camera_stream_profiles.source_url_override`, are set only by
+  `put_relay_addresses/2`, from the `:relay_addresses` option: the
+  `ServiceRadar.Camera.RelayAddressExtract` the ingestor took from the
+  unreduced result. A direct caller that omits the option gets the extract of
+  the payload it passed.
   """
 
   @behaviour ServiceRadar.Observability.PluginResultHandler
@@ -9,6 +19,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Camera.RelayAddressExtract
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
@@ -29,6 +40,19 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   @status_availability_labels %{true => "available", false => "unavailable"}
   @local_relay_metadata_keys [{"insecure_skip_verify", :insecure_skip_verify}]
+  @profile_metadata_keys ~w(
+    source width height fps bitrate auth_mode credential_reference_id protocol insecure_skip_verify
+  )
+  @source_url_keys ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
+  @profile_source_url_keys [
+    "source_url_override",
+    "sourceUrlOverride",
+    "source_url",
+    "sourceUrl",
+    "rtsp_url",
+    "rtspUrl"
+  ]
+  @profile_id_keys ["vendor_profile_id", "vendorProfileId", "profile_id", "profileId", "id"]
   @settled_reasons []
   @refused_reasons [
     :invalid_camera_inventory_payload,
@@ -185,11 +209,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
              context.status,
              context.observed_at
            ),
+         %{source: source_attrs, profiles: profiles} =
+           put_relay_addresses(
+             %{
+               source: source_attrs,
+               profiles: normalize_profiles(descriptor, context.observed_at)
+             },
+             context.relay_addresses
+           ),
          {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor),
          :ok <-
-           descriptor
-           |> normalize_profiles(context.observed_at)
-           |> Enum.reduce_while(:ok, fn profile_attrs, :ok ->
+           Enum.reduce_while(profiles, :ok, fn profile_attrs, :ok ->
              attrs = Map.put(profile_attrs, :camera_source_id, source_record.id)
 
              case context.profile_upsert.(attrs, context.actor) do
@@ -218,8 +248,70 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
       device_sync: Keyword.get(opts, :device_sync, &sync_device_inventory/4),
       resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
+      relay_addresses:
+        Keyword.get_lazy(opts, :relay_addresses, fn ->
+          RelayAddressExtract.from_result(payload)
+        end),
       descriptors: extract_camera_descriptors(payload)
     }
+  end
+
+  @doc """
+  Sets the two relay columns, `source_url` on the source attributes and
+  `source_url_override` on each profile's, from the relay address extract. It is
+  the only setter of those attributes: a camera or profile the extract holds no
+  address for gets nil, as an inventory report without an address always did.
+  """
+  @spec put_relay_addresses(%{source: map(), profiles: [map()]}, RelayAddressExtract.t()) ::
+          %{source: map(), profiles: [map()]}
+  def put_relay_addresses(%{source: source, profiles: profiles}, %RelayAddressExtract{} = extract) do
+    camera = {source.vendor, source.vendor_camera_id}
+
+    %{
+      source: Map.put(source, :source_url, RelayAddressExtract.source_url(extract, camera)),
+      profiles:
+        Enum.map(profiles, fn profile ->
+          Map.put(
+            profile,
+            :source_url_override,
+            RelayAddressExtract.profile_url(extract, camera, profile.profile_name)
+          )
+        end)
+    }
+  end
+
+  @doc false
+  # The relay addresses of an unreduced plugin result, per camera and profile, found
+  # with the same descriptor and profile normalization the upserts use. Only
+  # `ServiceRadar.Camera.RelayAddressExtract` calls this.
+  @spec relay_address_entries(map()) :: [
+          %{camera: {String.t(), String.t()}, source_url: String.t() | nil, profiles: list()}
+        ]
+  def relay_address_entries(payload) when is_map(payload) do
+    for descriptor <- extract_camera_descriptors(payload),
+        {vendor, vendor_camera_id} = source_identity(descriptor),
+        not blank?(vendor) and not blank?(vendor_camera_id) do
+      %{
+        camera: {vendor, vendor_camera_id},
+        source_url: string_value(descriptor, @source_url_keys),
+        profiles:
+          for profile <- list_value(descriptor, ["stream_profiles", "streamProfiles", "profiles"]),
+              is_map(profile),
+              profile_name = profile_name(profile),
+              not blank?(profile_name) do
+            {profile_name, string_value(profile, @profile_source_url_keys)}
+          end
+      }
+    end
+  end
+
+  @doc false
+  # Profile metadata keeps only the allowlisted keys, so a new vendor key cannot
+  # carry a stream secret into inventory. The stream secret scrub applies the same
+  # filter to rows stored before it.
+  @spec allowed_profile_metadata(map()) :: map()
+  def allowed_profile_metadata(metadata) when is_map(metadata) do
+    Map.filter(metadata, fn {key, _value} -> to_string(key) in @profile_metadata_keys end)
   end
 
   @doc """
@@ -245,18 +337,20 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   def extract_camera_descriptors(_payload), do: []
 
+  defp source_identity(descriptor) do
+    {string_value(descriptor, ["vendor"]),
+     string_value(descriptor, [
+       "vendor_camera_id",
+       "vendorCameraId",
+       "camera_id",
+       "cameraId",
+       "id"
+     ])}
+  end
+
   defp normalize_source(descriptor, descriptors, payload, status, observed_at)
        when is_map(descriptor) do
-    vendor = string_value(descriptor, ["vendor"])
-
-    vendor_camera_id =
-      string_value(descriptor, [
-        "vendor_camera_id",
-        "vendorCameraId",
-        "camera_id",
-        "cameraId",
-        "id"
-      ])
+    {vendor, vendor_camera_id} = source_identity(descriptor)
 
     device_uid =
       string_value(descriptor, [
@@ -291,7 +385,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          vendor: vendor,
          vendor_camera_id: vendor_camera_id,
          display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
-         source_url: string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
          assigned_agent_id:
            string_value(descriptor, [
              "assigned_agent_id",
@@ -325,57 +418,22 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
+  defp profile_name(profile) do
+    first_present([
+      string_value(profile, ["profile_name", "profileName", "name", "profile"]),
+      string_value(profile, @profile_id_keys)
+    ])
+  end
+
   defp normalize_profile(profile, observed_at) when is_map(profile) do
-    profile_name = string_value(profile, ["profile_name", "profileName", "name", "profile"])
-
-    profile_name =
-      cond do
-        not blank?(profile_name) ->
-          profile_name
-
-        not blank?(
-          string_value(profile, [
-            "vendor_profile_id",
-            "vendorProfileId",
-            "profile_id",
-            "profileId",
-            "id"
-          ])
-        ) ->
-          string_value(profile, [
-            "vendor_profile_id",
-            "vendorProfileId",
-            "profile_id",
-            "profileId",
-            "id"
-          ])
-
-        true ->
-          nil
-      end
+    profile_name = profile_name(profile)
 
     if blank?(profile_name) do
       nil
     else
       %{
         profile_name: profile_name,
-        vendor_profile_id:
-          string_value(profile, [
-            "vendor_profile_id",
-            "vendorProfileId",
-            "profile_id",
-            "profileId",
-            "id"
-          ]),
-        source_url_override:
-          string_value(profile, [
-            "source_url_override",
-            "sourceUrlOverride",
-            "source_url",
-            "sourceUrl",
-            "rtsp_url",
-            "rtspUrl"
-          ]),
+        vendor_profile_id: string_value(profile, @profile_id_keys),
         rtsp_transport: string_value(profile, ["rtsp_transport", "rtspTransport", "transport"]),
         codec_hint: string_value(profile, ["codec_hint", "codecHint", "codec"]),
         container_hint: string_value(profile, ["container_hint", "containerHint", "container"]),
@@ -389,14 +447,13 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp normalize_profile(_profile, _observed_at), do: nil
 
   defp normalize_default_profile(descriptor, observed_at) do
-    if blank?(string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"])) and
+    if blank?(string_value(descriptor, @source_url_keys)) and
          blank?(string_value(descriptor, ["codec_hint", "codecHint", "codec"])) do
       nil
     else
       %{
         profile_name: "default",
         vendor_profile_id: string_value(descriptor, ["vendor_profile_id", "vendorProfileId"]),
-        source_url_override: nil,
         rtsp_transport:
           string_value(descriptor, ["rtsp_transport", "rtspTransport", "transport"]),
         codec_hint: string_value(descriptor, ["codec_hint", "codecHint", "codec"]),
@@ -404,7 +461,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           string_value(descriptor, ["container_hint", "containerHint", "container"]),
         relay_eligible: boolean_value(descriptor, ["relay_eligible", "relayEligible"], true),
         last_seen_at: observed_at,
-        metadata: map_value(descriptor, ["profile_metadata", "profileMetadata"]) || %{}
+        metadata:
+          allowed_profile_metadata(
+            map_value(descriptor, ["profile_metadata", "profileMetadata"]) || %{}
+          )
       }
     end
   end
@@ -559,10 +619,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          metadata:
            %{}
            |> maybe_put("camera_vendor_camera_id", descriptor_vendor_camera_id(descriptor))
-           |> maybe_put(
-             "camera_source_url",
-             string_value(descriptor, ["source_url", "sourceUrl"])
-           )
            |> maybe_put("camera_host", descriptor_hostname(descriptor))
            |> maybe_put("camera_metadata", map_value(descriptor, ["metadata"]))
        }}
@@ -2170,6 +2226,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     metadata
     |> maybe_put("auth_mode", auth_mode)
     |> maybe_put("credential_reference_id", credential_reference_id)
+    |> allowed_profile_metadata()
   end
 
   defp normalize_profile_metadata(_metadata), do: %{}

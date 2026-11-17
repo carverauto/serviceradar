@@ -104,8 +104,14 @@ defmodule ServiceRadar.Camera.StreamProfile do
       public? true
     end
 
+    # The profile's stream address, which can carry a path alias or userinfo. Only the
+    # relay resolver selects it (`ServiceRadar.Camera.RelaySourceResolver`), and inventory
+    # ingest sets it only through `InventoryIngestor.put_relay_addresses/2`. Readers use
+    # `source_scheme`. Stage 3 of the resolve-camera-stream-sources-at-edge change removes it.
     attribute :source_url_override, :string do
-      public? true
+      public? false
+      sensitive? true
+      select_by_default? false
     end
 
     attribute :rtsp_transport, :string do
@@ -147,6 +153,23 @@ defmodule ServiceRadar.Camera.StreamProfile do
       source_attribute :camera_source_id
       destination_attribute :id
       define_attribute? false
+    end
+  end
+
+  calculations do
+    # The scheme of the address a relay of this profile opens (`rtsp`, `rtsps`, ...),
+    # lowercased, or nil when inventory holds none. It is computed in the database,
+    # so a reader learns whether the stream is TLS without loading the address.
+    calculate :source_scheme,
+              :string,
+              expr(
+                fragment(
+                  "lower(substring(coalesce(nullif(btrim(?), ''), nullif(btrim(?), '')) from '^([A-Za-z][A-Za-z0-9+.-]*)://'))",
+                  source_url_override,
+                  camera_source.source_url
+                )
+              ) do
+      public? true
     end
   end
 

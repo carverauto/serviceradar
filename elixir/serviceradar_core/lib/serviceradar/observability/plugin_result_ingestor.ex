@@ -11,11 +11,23 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   Host-stamped result provenance (assignment, package and module hash) is
   stored with each status row; `ServiceRadar.Observability.PluginResultProvenance`
   documents where it lives and how a rollout health gate reads it.
+
+  Both entry points, `ingest_durable/3` and `ingest/2`, first reduce the result
+  and its status with `ServiceRadar.Camera.StreamAddressReduction`, and build
+  everything they persist or pass on (status and state rows, the reported payload
+  digest, every handler's input, logs) from the reduced values only, so no camera
+  stream address or URL userinfo is stored from a plugin result. The one
+  exception is the relay address extract
+  (`ServiceRadar.Camera.RelayAddressExtract`), taken from the unreduced result
+  and handed to `ServiceRadar.Camera.InventoryIngestor` alone, which writes the
+  two relay columns from it.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.EventIngestor
   alias ServiceRadar.Camera.InventoryIngestor
+  alias ServiceRadar.Camera.RelayAddressExtract
+  alias ServiceRadar.Camera.StreamAddressReduction
   alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
@@ -75,6 +87,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def ingest_durable(payload, status, opts \\ [])
 
   def ingest_durable(payload, status, opts) when is_map(payload) do
+    relay_addresses = RelayAddressExtract.from_result(payload)
+    payload = StreamAddressReduction.reduce(payload)
+    status = StreamAddressReduction.reduce(status)
     actor = SystemActor.system(:plugin_result_ingestor)
     created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     observed_at = resolve_observed_at(payload, status)
@@ -82,6 +97,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
     defer_cleanup? = Keyword.get(opts, :defer_artifact_cleanup, true)
+    handler_context = %{defer_cleanup?: defer_cleanup?, relay_addresses: relay_addresses}
     persistence = Keyword.get(opts, :persistence, %{})
     handlers = Keyword.get_lazy(opts, :handlers, fn -> plugin_result_handlers() end)
 
@@ -109,7 +125,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
               observed_at,
               handlers,
               persistence,
-              defer_cleanup?,
+              handler_context,
               actor
             )
             |> strip_legacy_errors()
@@ -122,7 +138,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
               observed_at,
               handlers,
               persistence,
-              defer_cleanup?,
+              handler_context,
               actor
             )
             |> strip_legacy_errors()
@@ -140,7 +156,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   rescue
     e ->
-      maybe_discard_artifacts(Keyword.get(opts, :defer_artifact_cleanup, true), payload, status)
+      maybe_discard_artifacts(
+        Keyword.get(opts, :defer_artifact_cleanup, true),
+        StreamAddressReduction.reduce(payload),
+        StreamAddressReduction.reduce(status)
+      )
+
       error_text = handler_error_text(e)
       Logger.error("Plugin result ingest failed: #{error_text}")
       {:error, {:plugin_result_ingest_failed, error_text}}
@@ -151,6 +172,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
+    relay_addresses = RelayAddressExtract.from_result(payload)
+    payload = StreamAddressReduction.reduce(payload)
+    status = StreamAddressReduction.reduce(status)
+    handler_context = %{defer_cleanup?: false, relay_addresses: relay_addresses}
     actor = SystemActor.system(:plugin_result_ingestor)
     created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     observed_at = resolve_observed_at(payload, status)
@@ -174,12 +199,28 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         case insert_status(status_row, actor) do
           {:ok, reported_status, :inserted} ->
             reported_status
-            |> run_handlers_durable(payload, status, observed_at, handlers, %{}, false, actor)
+            |> run_handlers_durable(
+              payload,
+              status,
+              observed_at,
+              handlers,
+              %{},
+              handler_context,
+              actor
+            )
             |> to_legacy_ingest_result()
 
           {:ok, reported_status, :existing} ->
             reported_status
-            |> redeliver_durable(payload, status, observed_at, handlers, %{}, false, actor)
+            |> redeliver_durable(
+              payload,
+              status,
+              observed_at,
+              handlers,
+              %{},
+              handler_context,
+              actor
+            )
             |> to_legacy_ingest_result()
 
           {:error, persistence_error} ->
@@ -195,7 +236,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   rescue
     e ->
-      PluginIngestor.discard_artifacts(payload, status)
+      PluginIngestor.discard_artifacts(
+        StreamAddressReduction.reduce(payload),
+        StreamAddressReduction.reduce(status)
+      )
+
       error_text = handler_error_text(e)
       Logger.error("Plugin result ingest failed: #{error_text}")
       {:error, {:plugin_result_ingest_failed, error_text}}
@@ -211,7 +256,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       [entry | remaining] ->
         result = ingest(entry, status)
 
-        case PluginIngestor.discard_artifacts(remaining, status) do
+        case PluginIngestor.discard_artifacts(
+               StreamAddressReduction.reduce(remaining),
+               StreamAddressReduction.reduce(status)
+             ) do
           :ok ->
             result
 
@@ -256,7 +304,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          observed_at,
          handlers,
          persistence,
-         defer_cleanup?,
+         handler_context,
          actor
        ) do
     persist_ok_fn =
@@ -278,7 +326,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
            payload,
            status,
            observed_at,
-           defer_cleanup?,
+           handler_context,
            actor
          ) do
       {:applied, outcomes} ->
@@ -361,7 +409,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          observed_at,
          handlers,
          persistence,
-         defer_cleanup?,
+         handler_context,
          actor
        ) do
     if server_reported_status?(reported_status) do
@@ -380,7 +428,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             observed_at,
             handlers,
             persistence,
-            defer_cleanup?,
+            handler_context,
             actor
           )
       end
@@ -392,7 +440,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         observed_at,
         handlers,
         persistence,
-        defer_cleanup?,
+        handler_context,
         actor
       )
     end
@@ -877,7 +925,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     }
   end
 
-  defp evaluate_registered_handlers(handlers, payload, status, observed_at, defer_cleanup?, actor) do
+  defp evaluate_registered_handlers(
+         handlers,
+         payload,
+         status,
+         observed_at,
+         handler_context,
+         actor
+       ) do
     identity = outcome_identity_context(payload, status)
 
     outcomes =
@@ -885,7 +940,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       |> Enum.reduce([], fn handler, acc ->
         case handler_support(handler, payload, status) do
           {:ok, true} ->
-            raw = ingest_handler(handler, payload, status, observed_at, defer_cleanup?, actor)
+            raw = ingest_handler(handler, payload, status, observed_at, handler_context, actor)
             classified = classify_and_emit(handler, raw, identity)
             [classified | acc]
 
@@ -2219,10 +2274,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          payload,
          status,
          observed_at,
-         defer_cleanup?,
+         handler_context,
          actor
        ) do
-    ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, [])
+    ingest_proxmox(payload, status, observed_at, handler_context, actor, [])
   end
 
   defp ingest_handler(
@@ -2230,18 +2285,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          payload,
          status,
          observed_at,
-         defer_cleanup?,
+         handler_context,
          actor
        ) do
-    ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, opts)
+    ingest_proxmox(payload, status, observed_at, handler_context, actor, opts)
   end
 
-  defp ingest_handler(handler, payload, status, observed_at, defer_cleanup?, actor)
+  defp ingest_handler(handler, payload, status, observed_at, handler_context, actor)
        when is_atom(handler) do
-    handler.ingest(payload, status,
-      actor: actor,
-      observed_at: observed_at,
-      defer_artifact_cleanup: defer_cleanup?
+    handler.ingest(
+      payload,
+      status,
+      handler_opts(handler, [], observed_at, handler_context, actor)
     )
   rescue
     e ->
@@ -2251,14 +2306,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, {kind, reason}}
   end
 
-  defp ingest_handler({handler, opts}, payload, status, observed_at, defer_cleanup?, actor)
+  defp ingest_handler({handler, opts}, payload, status, observed_at, handler_context, actor)
        when is_atom(handler) do
-    merged_opts =
-      opts
-      |> Keyword.put_new(:defer_artifact_cleanup, defer_cleanup?)
-      |> Keyword.merge(actor: actor, observed_at: observed_at)
-
-    handler.ingest(payload, status, merged_opts)
+    handler.ingest(
+      payload,
+      status,
+      handler_opts(handler, opts, observed_at, handler_context, actor)
+    )
   rescue
     e ->
       {:error, e}
@@ -2267,16 +2321,29 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, {kind, reason}}
   end
 
-  defp ingest_handler(handler, _payload, _status, _observed_at, _defer_cleanup?, _actor) do
+  defp ingest_handler(handler, _payload, _status, _observed_at, _handler_context, _actor) do
     {:error, {:invalid_handler, handler}}
   end
 
-  defp ingest_proxmox(payload, status, observed_at, defer_cleanup?, actor, opts) do
+  # The relay address extract reaches InventoryIngestor and no other handler.
+  defp handler_opts(handler, opts, observed_at, handler_context, actor) do
+    opts
+    |> Keyword.put_new(:defer_artifact_cleanup, handler_context.defer_cleanup?)
+    |> Keyword.merge(actor: actor, observed_at: observed_at)
+    |> put_relay_addresses(handler, handler_context)
+  end
+
+  defp put_relay_addresses(opts, InventoryIngestor, %{relay_addresses: relay_addresses}),
+    do: Keyword.put(opts, :relay_addresses, relay_addresses)
+
+  defp put_relay_addresses(opts, _handler, _handler_context), do: opts
+
+  defp ingest_proxmox(payload, status, observed_at, handler_context, actor, opts) do
     case proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
       {:ok, source_scope} ->
         merged_opts =
           opts
-          |> Keyword.put_new(:defer_artifact_cleanup, defer_cleanup?)
+          |> Keyword.put_new(:defer_artifact_cleanup, handler_context.defer_cleanup?)
           |> Keyword.merge(
             actor: actor,
             observed_at: observed_at,

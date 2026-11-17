@@ -155,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
                           Open Relay
                         </.ui_button>
                         <.ui_button
-                          :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                          :if={camera_profile_supports_insecure_tls_override?(profile)}
                           phx-click="open_camera_relay"
                           phx-value-camera_source_id={source.id}
                           phx-value-stream_profile_id={profile.id}
@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
                           Open Relay
                         </.ui_button>
                         <.ui_button
-                          :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                          :if={camera_profile_supports_insecure_tls_override?(profile)}
                           phx-click="open_camera_relay"
                           phx-value-camera_source_id={source.id}
                           phx-value-stream_profile_id={profile.id}
@@ -283,26 +283,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
     """
   end
 
+  @doc """
+  The camera sources as the device page shows them: display fields only, with each
+  relay-eligible profile reduced to its id, name, media hints and `source_scheme`.
+  No stream address or profile metadata is kept, so none reaches a socket assign.
+  Applying it to its own output returns the same list.
+  """
   def normalize_camera_sources_for_display(sources) do
     sources
     |> Enum.map(fn source ->
       %{
-        id: source.id,
-        vendor: source.vendor || "camera",
+        id: Map.get(source, :id),
+        vendor: Map.get(source, :vendor) || "camera",
         display_name: camera_source_display_name(source),
-        source_url: source.source_url,
-        assigned_agent_id: source.assigned_agent_id,
-        assigned_gateway_id: source.assigned_gateway_id,
+        assigned_agent_id: Map.get(source, :assigned_agent_id),
+        assigned_gateway_id: Map.get(source, :assigned_gateway_id),
         availability_status: camera_source_availability_status(source),
         availability_reason: camera_source_availability_reason(source),
         stream_profiles:
           source
           |> Map.get(:stream_profiles, [])
           |> Enum.filter(&Map.get(&1, :relay_eligible, false))
+          |> Enum.map(&camera_profile_for_display/1)
           |> Enum.sort_by(fn profile ->
             {
-              String.downcase(to_string(Map.get(profile, :profile_name, ""))),
-              to_string(Map.get(profile, :id, ""))
+              String.downcase(to_string(profile.profile_name || "")),
+              to_string(profile.id || "")
             }
           end)
       }
@@ -315,8 +321,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
     end)
   end
 
+  defp camera_profile_for_display(profile) do
+    %{
+      id: Map.get(profile, :id),
+      profile_name: Map.get(profile, :profile_name),
+      codec_hint: Map.get(profile, :codec_hint),
+      container_hint: Map.get(profile, :container_hint),
+      rtsp_transport: Map.get(profile, :rtsp_transport),
+      relay_eligible: true,
+      source_scheme:
+        case Map.get(profile, :source_scheme) do
+          scheme when is_binary(scheme) -> scheme
+          _not_loaded -> nil
+        end
+    }
+  end
+
   def camera_source_display_name(source) do
-    source.display_name || source.vendor_camera_id || source.device_uid || "Camera"
+    Map.get(source, :display_name) || Map.get(source, :vendor_camera_id) ||
+      Map.get(source, :device_uid) || "Camera"
   end
 
   def camera_source_availability_status(source) when is_map(source) do
@@ -353,26 +376,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
     camera_source_availability_status(source) != "unavailable"
   end
 
-  defp camera_profile_supports_insecure_tls_override?(source, profile) do
-    source
-    |> camera_profile_source_url(profile)
-    |> case do
-      value when is_binary(value) ->
-        String.starts_with?(String.downcase(String.trim(value)), "rtsps://")
-
-      _other ->
-        false
-    end
-  end
-
-  def camera_profile_source_url(source, profile) when is_map(profile) do
-    case Map.get(profile, :source_url_override) do
-      value when is_binary(value) and value != "" -> value
-      _other -> if(is_map(source), do: Map.get(source, :source_url))
-    end
-  end
-
-  def camera_profile_source_url(_source, _profile), do: nil
+  defp camera_profile_supports_insecure_tls_override?(profile), do: profile.source_scheme == "rtsps"
 
   def camera_source_status_label(source) do
     case camera_source_availability_status(source) do

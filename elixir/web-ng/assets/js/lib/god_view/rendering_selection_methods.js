@@ -150,14 +150,8 @@ export const godViewRenderingSelectionMethods = {
                     typeof profile?.profile_name === "string" && profile.profile_name.trim() !== ""
                       ? profile.profile_name.trim()
                       : "Live"
-                  const sourceUrl =
-                    typeof profile?.source_url_override === "string" && profile.source_url_override.trim() !== ""
-                      ? profile.source_url_override.trim()
-                      : typeof source?.source_url === "string"
-                        ? source.source_url.trim()
-                        : ""
                   const supportsInsecureTls =
-                    typeof sourceUrl === "string" && sourceUrl.toLowerCase().startsWith("rtsps://")
+                    typeof profile?.source_scheme === "string" && profile.source_scheme.toLowerCase() === "rtsps"
 
                   if (typeof profile?.stream_profile_id !== "string" || profile.stream_profile_id.trim() === "") {
                     return ""

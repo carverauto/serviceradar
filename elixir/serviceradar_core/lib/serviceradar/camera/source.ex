@@ -135,8 +135,14 @@ defmodule ServiceRadar.Camera.Source do
       public? true
     end
 
+    # The camera's stream address, which can carry a path alias or userinfo. Only the
+    # relay resolver selects it (`ServiceRadar.Camera.RelaySourceResolver`), and inventory
+    # ingest sets it only through `InventoryIngestor.put_relay_addresses/2`. Stage 3 of the
+    # resolve-camera-stream-sources-at-edge change removes it.
     attribute :source_url, :string do
-      public? true
+      public? false
+      sensitive? true
+      select_by_default? false
     end
 
     attribute :assigned_agent_id, :string do
