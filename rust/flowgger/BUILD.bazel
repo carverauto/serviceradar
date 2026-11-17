@@ -88,10 +88,48 @@ rust_test(
         "//third_party/binaries:nats_server_linux_amd64",
     ],
     env = {
-        # Hegel's CI profile: cases derived from each test's name, so a run is repeatable.
+        # Hegel's CI profile keeps no example database, which a test sandbox cannot write.
+        # It also fixes the seed; that is turned off so each run that is not served from
+        # the cache tries inputs no run has tried. A failure prints a
+        # `#[hegel::reproduce_failure("...")]` line that replays it.
         "HEGEL_DEFAULT_PROFILE": "ci",
+        "HEGEL_DERANDOMIZE": "false",
+        "HEGEL_TEST_CASES": "1000",
         "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)
+
+# The Hegel properties over many more inputs than a pull request should wait for. Never
+# cached and never part of a wildcard build: the "RustPropertyExploration" workflow in
+# //:buildbuddy.yaml runs it on a schedule.
+rust_test(
+    name = "flowgger_property_exploration_test",
+    args = ["props"],
+    crate = ":flowgger_lib",
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    data = [":normalized_log_parity"],
+    env = {
+        "HEGEL_DEFAULT_PROFILE": "ci",
+        "HEGEL_DERANDOMIZE": "false",
+        "HEGEL_TEST_CASES": "2000000",
+    },
+    timeout = "long",
+    tags = [
+        "external",
+        "manual",
+    ],
     deps = all_crate_deps(
         cargo_only = True,
         normal_dev = True,
@@ -117,7 +155,6 @@ rust_test(
     data = ["//third_party/binaries:nats_server_linux_amd64"],
     env = {
         "FLOWGGER_REQUIRE_MANAGED_POLICY_TEST": "1",
-        "HEGEL_DEFAULT_PROFILE": "ci",
         "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
     },
     exec_properties = {"test.dockerUser": "0"},

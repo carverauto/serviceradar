@@ -248,7 +248,7 @@ fn any_object(tc: &TestCase, depth: u8) -> serde_json::Map<String, Value> {
 
 /// A rule can return any JSON object. Each one maps to a single record that
 /// survives the wire encoding; none makes the collector panic.
-#[hegel::test(test_cases = 1000)]
+#[hegel::test]
 fn any_object_a_rule_returns_maps_to_one_record(tc: TestCase) {
     let normalized = any_object(&tc, 2);
     let received = tc.draw(gs::integers::<u64>());

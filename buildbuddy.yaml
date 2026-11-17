@@ -1336,6 +1336,31 @@ actions:
           # concurrently.
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test //elixir/web-ng:plugin_config_cli_db_test //rust/dgraph-topology:schema_lifecycle_test
 
+  # Nightly, never on a pull request. The Hegel properties run on every pull request that
+  # changes their inputs, with a fresh random seed and 1,000 cases each. This runs them with
+  # 2,000,000 cases each, so inputs a pull request never tried are still tried. A failure
+  # prints a `#[hegel::reproduce_failure("...")]` line; paste it above the failing test to
+  # replay it.
+  - name: "RustPropertyExploration"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      schedule:
+        crons:
+          - "40 6 * * *"
+    resource_requests:
+      memory: "16GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel test -c opt --config=ci --test_output=errors
+          //rust/flowgger:flowgger_property_exploration_test
+
   - name: "LargeIngestionGate"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
