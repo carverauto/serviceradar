@@ -43,7 +43,6 @@ defmodule ServiceRadar.Edge.RecordTrust do
 
   @max_assignments 10_000
   @max_terminal_intervals 100_000
-  @terminal_reasons ["certificate_revoked", "revoked_cause_unknown"]
   @clock_tolerance_nano 5 * 60 * 1_000_000_000
 
   @doc "How far a producer clock may run ahead of core's: five minutes."
@@ -149,15 +148,15 @@ defmodule ServiceRadar.Edge.RecordTrust do
   defp read_terminal_intervals(agent_id, cap) do
     {agent_filter, params} =
       if agent_id,
-        do: {"AND agent_id = $3", [@terminal_reasons, cap + 1, agent_id]},
-        else: {"", [@terminal_reasons, cap + 1]}
+        do: {"AND agent_id = $2", [cap + 1, agent_id]},
+        else: {"", [cap + 1]}
 
     sql = """
     SELECT DISTINCT assignment_id, network_scope_id, run_shard, authority_epoch
       FROM platform.edge_authority_history
-     WHERE ended_reason = ANY($1) #{agent_filter}
+     WHERE ended_reason IN ('certificate_revoked', 'revoked_cause_unknown') #{agent_filter}
      ORDER BY assignment_id, authority_epoch, network_scope_id, run_shard
-     LIMIT $2
+     LIMIT $1
     """
 
     case Repo.query(sql, params) do

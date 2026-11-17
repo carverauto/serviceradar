@@ -80,7 +80,7 @@ defmodule ServiceRadar.Edge.RecordTrustTerminalIntervalsDbTest do
   end
 
   test "the global list fails closed past its cap, exactly like the assignment cap" do
-    cap = RecordTrust.max_terminal_intervals()
+    assert RecordTrust.max_terminal_intervals() == 100_000
 
     %{rows: [[existing]]} =
       Repo.query!("""
@@ -105,9 +105,9 @@ defmodule ServiceRadar.Edge.RecordTrustTerminalIntervalsDbTest do
       )
     end
 
-    insert_terminals.(cap - existing)
+    insert_terminals.(100_000 - existing)
     assert {:ok, document} = RecordTrust.snapshot(@key)
-    assert length(document["terminal_intervals"]) == cap
+    assert length(document["terminal_intervals"]) == 100_000
 
     insert_terminals.(1)
     assert {:error, :trust_snapshot_too_large} = RecordTrust.snapshot(@key)
