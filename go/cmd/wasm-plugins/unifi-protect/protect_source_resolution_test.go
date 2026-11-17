@@ -277,6 +277,46 @@ func TestProtectCameraSourceResolution(t *testing.T) {
 			wantRequests: []string{"GET " + fakeBootRTSPSPath},
 		},
 		{
+			name:      "null integration document for a quality is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "high",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusOK, body: `null`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
+			name:      "null integration document for the default profile is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusOK, body: ` null `},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
+			name:      "null bootstrap document is connect_failed",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "0",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootstrapPath: {status: http.StatusOK, body: `null`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootstrapPath},
+		},
+		{
+			name:      "empty integration document is source_not_found",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "high",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusOK, body: `{}`},
+			},
+			wantClass:    sdk.CameraSourceFailureNotFound,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
 			name:      "transport failure is connect_failed",
 			cameraID:  fakeIntegrationCamID,
 			profileID: "high",

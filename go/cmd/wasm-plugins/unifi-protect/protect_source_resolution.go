@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -98,6 +99,8 @@ func resolveProtectSourceFromController(
 	if profileID == "" || isProtectIntegrationQuality(profileID) {
 		streams, err := fetchProtectIntegrationRTSPSStreams(ctx, client, cameraID, headers)
 		switch {
+		case err == nil && streams == nil:
+			return "", protectUnreadableBody("rtsps-stream")
 		case err == nil:
 			return selectProtectIntegrationStream(streams, profileID)
 		case !protectIntegrationMissing(err):
@@ -105,9 +108,12 @@ func resolveProtectSourceFromController(
 		}
 	}
 
-	snapshot, _, err := requestProtectBootstrap(ctx, client, cfg, headers)
+	snapshot, resp, err := requestProtectBootstrap(ctx, client, cfg, headers)
 	if err != nil {
 		return "", classifyProtectControllerError("bootstrap", err)
+	}
+	if bytes.Equal(bytes.TrimSpace(resp.Body), []byte("null")) {
+		return "", protectUnreadableBody("bootstrap")
 	}
 	return selectProtectBootstrapStream(cfg, snapshot.Cameras, cameraID, profileID)
 }
@@ -180,6 +186,10 @@ func protectCredentialRejected(status int) bool {
 	return status == http.StatusUnauthorized || status == http.StatusForbidden
 }
 
+func protectUnreadableBody(stage string) *protectSourceFailure {
+	return &protectSourceFailure{sdk.CameraSourceFailureConnectFailed, "the controller answered the " + stage + " request with an unreadable body"}
+}
+
 // classifyProtectControllerError maps a failed controller request to a relay
 // failure class. stage names the request in the operator detail.
 func classifyProtectControllerError(stage string, err error) *protectSourceFailure {
@@ -199,7 +209,7 @@ func classifyProtectControllerError(stage string, err error) *protectSourceFailu
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
-		return &protectSourceFailure{sdk.CameraSourceFailureConnectFailed, "the controller answered the " + stage + " request with an unreadable body"}
+		return protectUnreadableBody(stage)
 	}
 	if errors.Is(err, errProtectLoginNoSessionCookie) {
 		return &protectSourceFailure{sdk.CameraSourceFailureAuthentication, "the controller login returned no session"}
