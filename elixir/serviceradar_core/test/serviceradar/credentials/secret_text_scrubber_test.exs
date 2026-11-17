@@ -51,7 +51,22 @@ defmodule ServiceRadar.Credentials.SecretTextScrubberTest do
     end
   end
 
+  @scrub_text_cases [
+    {"certificate issued for deploy@host01.example.com",
+     "certificate issued for deploy@host01.example.com"},
+    {"contact ops@example.com", "contact ops@example.com"},
+    {"12:30@noon", "12:30@noon"},
+    {"viewer:hunter2@nvr_01.example.com", "nvr_01.example.com"},
+    {"rtsp://viewer:hunter2@192.0.2.10:554/stream", "rtsp://192.0.2.10:554"}
+  ]
+
   describe "scrub_text/1" do
+    for {input, expected} <- @scrub_text_cases do
+      test "scrubs #{inspect(input)} to #{inspect(expected)}" do
+        assert SecretTextScrubber.scrub_text(unquote(input)) == unquote(expected)
+      end
+    end
+
     test "drops a scheme-less user and password and keeps the host" do
       assert SecretTextScrubber.scrub_text("dial viewer:hunter2@host01.example.com:8554 refused") ==
                "dial host01.example.com:8554 refused"

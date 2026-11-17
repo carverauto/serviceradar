@@ -21,10 +21,24 @@ defmodule ServiceRadar.Edge.AgentCommandRecordScrubWorker do
   pass `@max_passes`, it logs the remaining count and returns an error instead
   of completing.
 
-  Re-running is safe: a clean row is not rewritten. `pending/0` counts the rows
-  that still need it, writing nothing; it returns 0 once the cleanup is done:
+  Once a pass finds nothing pending the job completes and is not enqueued
+  again. During a rolling upgrade a Core pod still running the previous
+  release can write an unredacted `camera.open_relay` row (its `source_url`
+  and `lease_token`) after that point. Such rows are not cleaned by this job;
+  they leave the table with the command table's normal 2-day retention
+  (`AgentCommandCleanupWorker`).
 
-      bin/serviceradar_core eval 'ServiceRadar.Edge.AgentCommandRecordScrubWorker.pending() |> IO.inspect()'
+  Re-running is safe: a clean row is not rewritten. `pending/0` counts the rows
+  that still need it, writing nothing; it returns 0 once the cleanup is done.
+  Check it once the rollout has finished and again after the retention period,
+  from a running Core pod:
+
+      /app/bin/serviceradar_core_elx rpc 'ServiceRadar.Edge.AgentCommandRecordScrubWorker.pending() |> IO.inspect()'
+
+  To clean rows an old pod wrote without waiting for retention, run a pass by
+  hand; it returns `{:ok, %{scanned: _, rewritten: _, skipped: _}}`:
+
+      /app/bin/serviceradar_core_elx rpc 'ServiceRadar.Edge.AgentCommandRecordScrubWorker.run() |> IO.inspect()'
 
   The URLs in an `awx.launch_job` payload are not rewritten, by the policy's
   per-type rule: its args are bound to an authorized request body whose hash

@@ -72,10 +72,11 @@ var (
 )
 
 // Each pattern removes material that can carry a credential: a URL (userinfo,
-// path alias tokens, query tokens), bare userinfo, a query string, or a path.
+// path alias tokens, query tokens), a scheme-less user:password@ before a
+// dotted host or IP literal, a query string, or a path.
 var (
 	cameraRelayFailureURLPattern      = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*://[^\s"'<>]*`)
-	cameraRelayFailureUserinfoPattern = regexp.MustCompile(`[^\s"'<>@/]+@`)
+	cameraRelayFailureUserinfoPattern = regexp.MustCompile(`[^\s/:@"'<>=]+:[^\s/@"'<>]+@((?:\[[0-9A-Fa-f:.%]+\]|[A-Za-z0-9\-_]+(?:\.[A-Za-z0-9\-_]+)+)(?:[^A-Za-z0-9\-_@]|$))`)
 	cameraRelayFailureQueryPattern    = regexp.MustCompile(`\?[^\s"'<>]*`)
 	cameraRelayFailureHostPathPattern = regexp.MustCompile(`([A-Za-z0-9\-\]]+(?:\.[A-Za-z0-9\-]+)*(?::\d+)?)/[^\s"'<>)]*`)
 	cameraRelayFailurePathPattern     = regexp.MustCompile(`(^|[\s"'(=:])/[^\s"'<>)]*`)
@@ -273,7 +274,7 @@ func sanitizeCameraRelayFailureDetail(raw string) string {
 	}, raw)
 
 	detail = cameraRelayFailureURLPattern.ReplaceAllString(detail, "[url]")
-	detail = cameraRelayFailureUserinfoPattern.ReplaceAllString(detail, "")
+	detail = cameraRelayFailureUserinfoPattern.ReplaceAllString(detail, "$1")
 	detail = cameraRelayFailureQueryPattern.ReplaceAllString(detail, "")
 	detail = cameraRelayFailureHostPathPattern.ReplaceAllString(detail, "$1")
 	detail = cameraRelayFailurePathPattern.ReplaceAllString(detail, "$1[path]")

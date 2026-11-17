@@ -14,7 +14,8 @@ defmodule ServiceRadar.Credentials.SecretTextScrubber do
     * `scrub_text/1` is for free text an agent or library produced, such as a
       command result message or failure reason. Every URL is reduced to its
       origin (`scheme://host[:port]`), because its path can be the secret. A
-      bare `user:password@` and any `?query` are removed as well.
+      scheme-less `user:password@` before a host and any `?query` are removed
+      as well; an address such as `ops@example.com` is left alone.
     * `scrub_value/1` is for structured JSON values. A URL inside a string
       loses its userinfo, query and fragment but keeps its path, which is data
       that consumers of a structured payload read. A string with nothing to
@@ -28,7 +29,6 @@ defmodule ServiceRadar.Credentials.SecretTextScrubber do
   @redacted_path "/[redacted]"
 
   @url_pattern ~r/[a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^\s"'<>]*/
-  @userinfo_pattern ~r/[^\s"'<>@\/]+@(?=[A-Za-z0-9\[])/
   @query_pattern ~r/\?[^\s"'<>]*/
   # Characters of a host-name label, shared by every host pattern below.
   @host_label_chars "A-Za-z0-9\\-_"
@@ -39,18 +39,21 @@ defmodule ServiceRadar.Credentials.SecretTextScrubber do
   # optionally followed by a port and path. The host must be an IPv4 literal, a
   # bracketed IPv6 literal or a dotted host name, so an email address, a bare
   # `user@host` and a time such as `12:30@noon` are not matched.
-  @credential_authority_pattern Regex.compile!(
-                                  "[^\\s/:@\"'<>=]+:[^\\s/@\"'<>]+@" <>
-                                    "(?:\\[[0-9A-Fa-f:.%]+\\]|[#{@host_label_chars}]+(?:\\.[#{@host_label_chars}]+)+)" <>
-                                    "(?![#{@host_label_chars}@])"
-                                )
+  @credential_userinfo "[^\\s/:@\"'<>=]+:[^\\s/@\"'<>]+@"
+  @credential_host "(?:\\[[0-9A-Fa-f:.%]+\\]|[#{@host_label_chars}]+(?:\\.[#{@host_label_chars}]+)+)" <>
+                     "(?![#{@host_label_chars}@])"
+  @credential_authority_pattern Regex.compile!(@credential_userinfo <> @credential_host)
+  # The same authority, matching only its `user:password@` so the host is kept.
+  @credential_userinfo_pattern Regex.compile!(
+                                 @credential_userinfo <> "(?=" <> @credential_host <> ")"
+                               )
 
-  @doc "Reduces every URL in free text to its origin and drops bare userinfo and query strings."
+  @doc "Reduces every URL in free text to its origin and drops credentials and query strings."
   @spec scrub_text(term()) :: term()
   def scrub_text(text) when is_binary(text) do
     text
     |> String.replace(@url_pattern, &keep_trailing_punctuation(&1, fn url -> url_origin(url) end))
-    |> String.replace(@userinfo_pattern, "")
+    |> String.replace(@credential_userinfo_pattern, "")
     |> String.replace(@query_pattern, "")
   end
 
