@@ -938,6 +938,7 @@ func TestApplySystemdAddonHoldsACircuitOpenUnitUntilTheAssignmentChanges(t *test
 		return systemdUnitStatus{state: agentaddon.StateCircuitOpen, lastError: "systemd start limit hit"}
 	})
 
+	readinessChecks := 0
 	deliveries := 0
 	installs := 0
 	apply := func(a *proto.AddonAssignmentConfig) addonDeliveryDisposition {
@@ -948,7 +949,10 @@ func TestApplySystemdAddonHoldsACircuitOpenUnitUntilTheAssignmentChanges(t *test
 			addonSupervisionSystemdService,
 			time.Now(),
 			runtimeRoot,
-			func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+			func(context.Context, *proto.AddonAssignmentConfig, string) bool {
+				readinessChecks++
+				return false
+			},
 			func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
 				deliveries++
 				return filepath.Join(versionDir, "serviceradar-netprobe"), addonDeliverySucceeded, nil
@@ -965,6 +969,9 @@ func TestApplySystemdAddonHoldsACircuitOpenUnitUntilTheAssignmentChanges(t *test
 	}
 	if deliveries != 0 || installs != 0 {
 		t.Fatalf("deliveries = %d, installs = %d; an unchanged circuit-open unit must not be reinstalled", deliveries, installs)
+	}
+	if readinessChecks != 0 {
+		t.Fatalf("readiness checks = %d; an unchanged circuit-open unit is held, not reconciled", readinessChecks)
 	}
 
 	changed, ok := gproto.Clone(assignment).(*proto.AddonAssignmentConfig)

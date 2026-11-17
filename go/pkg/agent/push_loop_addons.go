@@ -773,16 +773,6 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
 		p.systemdAddonAssignmentCurrent(a, runtimeRoot) {
-		if runtimeReady(ctx, a, supervision) {
-			p.logger.Debug().
-				Str("addon", a.GetAddonId()).
-				Str("version", a.GetVersion()).
-				Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
-			p.clearAddonDeliveryFailure(a.GetAddonId())
-
-			return addonDeliverySucceeded
-		}
-
 		// systemd stopped restarting this unit because it kept failing. The same
 		// artifact and config would fail the same way, and reinstalling it here
 		// every config cycle is what made such a failure loop forever. Hold it
@@ -793,6 +783,16 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 				Str("addon", a.GetAddonId()).
 				Str("version", a.GetVersion()).
 				Msg("Systemd add-on unit stopped on its start limit; not reinstalling an unchanged assignment")
+
+			return addonDeliverySucceeded
+		}
+
+		if runtimeReady(ctx, a, supervision) {
+			p.logger.Debug().
+				Str("addon", a.GetAddonId()).
+				Str("version", a.GetVersion()).
+				Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
+			p.clearAddonDeliveryFailure(a.GetAddonId())
 
 			return addonDeliverySucceeded
 		}
