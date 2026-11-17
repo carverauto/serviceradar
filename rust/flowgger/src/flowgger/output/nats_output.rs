@@ -872,14 +872,10 @@ impl NATSWorker {
                 {
                     subject.clone_from(normalized_subject);
                     let (schema, schema_value) = normalized::SCHEMA_HEADER;
-                    let (version, version_value) = normalized::NORMALIZATION_VERSION_HEADER;
-                    let (epoch, epoch_value) = normalized::ROUTING_EPOCH_HEADER;
                     publish = publish
                         .header("Content-Type", "application/x-protobuf")
                         .header(schema, schema_value)
-                        .header(version, version_value)
-                        .header(normalized::RULESET_HEADER, ruleset.as_str())
-                        .header(epoch, epoch_value);
+                        .header(normalized::RULESET_HEADER, ruleset.as_str());
                 }
                 let publisher = Arc::clone(&publisher);
                 let connection = Arc::clone(&connection);

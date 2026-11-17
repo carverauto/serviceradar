@@ -37,12 +37,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The header naming the schema of a normalized batch, and its value.
 pub(crate) const SCHEMA_HEADER: (&str, &str) = ("Sr-Log-Schema", "otlp-normalized-v1");
-/// The header naming the version of the normalization contract.
-pub(crate) const NORMALIZATION_VERSION_HEADER: (&str, &str) = ("Sr-Normalization-Version", "1");
 /// The header carrying the digest of the ruleset a batch was normalized with.
 pub(crate) const RULESET_HEADER: &str = "Sr-Ruleset-Id";
-/// Routing epoch 0 is the single unsharded route.
-pub(crate) const ROUTING_EPOCH_HEADER: (&str, &str) = ("Sr-Routing-Epoch", "0");
 
 /// What the embedding collector supplies to normalize syslog itself.
 #[derive(Clone)]
