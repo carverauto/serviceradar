@@ -88,7 +88,7 @@ recording-plane tasks and stay unchecked until those land.
 
 ## Docs
 
-- [ ] D.1 Published operator page `docs/docs/camera-recording.md`: enabling,
+- [x] D.1 Published operator page `docs/docs/camera-recording.md`: enabling,
       the settings view, destination and credential setup, tests and checks,
       what each state means, what Stage A does not do (no reclamation, local
       disk grows until capacity refuses capture).

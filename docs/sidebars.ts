@@ -175,6 +175,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'database-bootstrap', label: 'Database Bootstrap'},
         {type: 'doc', id: 'cnpg-monitoring', label: 'CNPG Monitoring'},
         {type: 'doc', id: 'observability-rollup-recovery', label: 'Observability Rollup Recovery'},
+        {type: 'doc', id: 'camera-recording', label: 'Camera Recording & NVR'},
         {type: 'doc', id: 'object-store-retention', label: 'Object Store Retention'},
         {type: 'doc', id: 'release-artifact-integrity', label: 'Release Artifact Integrity'},
         {type: 'doc', id: 'troubleshooting-guide', label: 'Troubleshooting'},
