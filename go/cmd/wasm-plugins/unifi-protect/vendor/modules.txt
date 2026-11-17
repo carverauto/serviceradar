@@ -1,4 +1,4 @@
-# github.com/carverauto/serviceradar-sdk-go/v2 v2.0.0
+# github.com/carverauto/serviceradar-sdk-go/v2 v2.3.1
 ## explicit; go 1.25
 github.com/carverauto/serviceradar-sdk-go/v2/sdk
 # github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674

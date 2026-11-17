@@ -4,7 +4,7 @@ import "github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 
 const (
 	protectSignalSchemaProducerID             = "unifi-protect-camera"
-	protectSignalSchemaProducerVersion        = "0.1.4"
+	protectSignalSchemaProducerVersion        = "0.1.5"
 	protectSignalSchemaID                     = "com.carverauto.unifi_protect.camera_event"
 	protectSignalSchemaVersion                = "1.0.0"
 	protectSignalSchemaDisplayContractID      = "com.carverauto.unifi_protect.camera_event.display"

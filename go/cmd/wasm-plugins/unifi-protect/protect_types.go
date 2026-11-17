@@ -35,7 +35,8 @@ type EndpointResult struct {
 type StreamInfo struct {
 	ID                 string `json:"id"`
 	Protocol           string `json:"protocol"`
-	URL                string `json:"url"`
+	URL                string `json:"url,omitempty"`
+	SourceOrigin       string `json:"source_origin,omitempty"`
 	AuthMode           string `json:"auth_mode"`
 	Source             string `json:"source"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
@@ -59,6 +60,7 @@ type CameraStreamProfile struct {
 	ProfileName       string                 `json:"profile_name"`
 	VendorProfileID   string                 `json:"vendor_profile_id,omitempty"`
 	SourceURLOverride string                 `json:"source_url_override,omitempty"`
+	SourceOrigin      string                 `json:"source_origin,omitempty"`
 	RTSPTransport     string                 `json:"rtsp_transport,omitempty"`
 	CodecHint         string                 `json:"codec_hint,omitempty"`
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`

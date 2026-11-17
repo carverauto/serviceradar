@@ -1,6 +1,6 @@
 id: axis-camera
 name: AXIS Camera
-version: 0.1.3
+version: 0.1.4
 description: Collects AXIS VAPIX camera health, inventory and stream metadata
 entrypoint: run_check
 runtime: wasi-preview1

@@ -59,18 +59,20 @@ type ActionCallback struct {
 
 // ActionDescriptor describes a northbound action exported from plugin.yaml.
 type ActionDescriptor struct {
-	ActionID               string         `json:"action_id"`
-	Version                string         `json:"version,omitempty"`
-	Label                  string         `json:"label"`
-	Description            string         `json:"description,omitempty"`
-	Scopes                 []ActionScope  `json:"scopes"`
-	RequiredContext        []string       `json:"required_context,omitempty"`
-	InputSchema            map[string]any `json:"input_schema,omitempty"`
-	TimeoutSeconds         int            `json:"timeout_seconds,omitempty"`
-	SafetyClassification   ActionSafety   `json:"safety_classification,omitempty"`
-	RequiresConfirmation   bool           `json:"requires_confirmation,omitempty"`
-	CredentialRequirements map[string]any `json:"credential_requirements,omitempty"`
-	ResultSchemaVersion    string         `json:"result_schema_version,omitempty"`
+	ActionID        string         `json:"action_id"`
+	Version         string         `json:"version,omitempty"`
+	Label           string         `json:"label"`
+	Description     string         `json:"description,omitempty"`
+	Scopes          []ActionScope  `json:"scopes"`
+	RequiredContext []string       `json:"required_context,omitempty"`
+	InputSchema     map[string]any `json:"input_schema,omitempty"`
+	TimeoutSeconds  int            `json:"timeout_seconds,omitempty"`
+	// MaxOverrideDurationSeconds bounds the run overrides this action may set.
+	MaxOverrideDurationSeconds int            `json:"max_override_duration_seconds,omitempty"`
+	SafetyClassification       ActionSafety   `json:"safety_classification,omitempty"`
+	RequiresConfirmation       bool           `json:"requires_confirmation,omitempty"`
+	CredentialRequirements     map[string]any `json:"credential_requirements,omitempty"`
+	ResultSchemaVersion        string         `json:"result_schema_version,omitempty"`
 }
 
 func NewActionDescriptor(actionID, label string, scopes ...ActionScope) *ActionDescriptor {
@@ -335,6 +337,9 @@ type ActionResult struct {
 	ErrorClass            string               `json:"error_class,omitempty"`
 	ErrorMessage          string               `json:"error_message,omitempty"`
 	Metadata              map[string]any       `json:"metadata,omitempty"`
+	// RunOverrides changes the time-bounded overrides later runs of this
+	// assignment receive (see SetRunOverride / EndRunOverride).
+	RunOverrides []RunOverrideOperation `json:"run_overrides,omitempty"`
 }
 
 type ActionTargetResult struct {

@@ -34,6 +34,7 @@ var allowedCapabilities = []string{
 	"submit_result",
 	"emit_telemetry",
 	"http_request",
+	CapabilityGRPCRequest,
 	"websocket_connect",
 	"websocket_send",
 	"websocket_recv",

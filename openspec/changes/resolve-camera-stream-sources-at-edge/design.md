@@ -105,7 +105,9 @@ re-derive it.
   path, the channel id on the bootstrap path), and `rtsp_port` (default 7447) for
   the bootstrap path. The calls are
   `GET /proxy/protect/integration/v1/cameras/{id}/rtsps-stream`, falling back to
-  the bootstrap `channels[].rtspAlias`.
+  the bootstrap `channels[].rtspAlias` only when that request answers HTTP 404
+  (no integration API, or an unknown id). Any other status or an unreadable
+  body is `connect_failed`; a channel id goes straight to the bootstrap.
   `resolveProtectStreamSourceURL` (`protect_streams.go:10-45`) already does this
   re-derivation for the Wasm stream path.
 - Axis. The address carries no secret. The resolver rebuilds it and puts the
@@ -268,6 +270,12 @@ operator as sentences:
   `unknown`. A plugin run that exceeds the assignment timeout is
   `response_timeout`. Reported detail goes through the same sanitizer as every
   other relay failure.
+  A plugin resolver reaches its controller through the host HTTP call, which
+  reports a deadline and a policy denial separately and every other transport
+  failure (DNS, refused, unreachable, TLS) as one code. The Protect and Axis
+  resolvers therefore report `authentication_failed`, `connect_timeout`,
+  `connect_failed` or `source_not_found`; they do not guess the finer classes
+  from error text.
 
 ### D6. Version skew
 

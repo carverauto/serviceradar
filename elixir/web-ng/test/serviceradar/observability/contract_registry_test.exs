@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :plugin_id,
       ref: %{
         "producer_id" => "axis-camera",
-        "producer_version" => "0.1.3",
+        "producer_version" => "0.1.4",
         "schema_id" => "com.carverauto.axis_camera.event_log",
         "schema_version" => "1.0.0"
       }
@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :plugin_id,
       ref: %{
         "producer_id" => "unifi-protect-camera",
-        "producer_version" => "0.1.4",
+        "producer_version" => "0.1.5",
         "schema_id" => "com.carverauto.unifi_protect.camera_event",
         "schema_version" => "1.0.0"
       }

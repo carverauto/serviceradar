@@ -32,7 +32,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       manifest: "go/cmd/wasm-plugins/axis/plugin.yaml",
       contract: "go/cmd/wasm-plugins/axis/display/event_log_activity.display.json",
       producer_id: "axis-camera",
-      producer_version: "0.1.3"
+      producer_version: "0.1.4"
     },
     %{
       manifest: "go/cmd/wasm-plugins/proxmox/plugin.yaml",
@@ -44,7 +44,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       manifest: "go/cmd/wasm-plugins/unifi-protect/plugin.yaml",
       contract: "go/cmd/wasm-plugins/unifi-protect/display/camera_event.display.json",
       producer_id: "unifi-protect-camera",
-      producer_version: "0.1.4"
+      producer_version: "0.1.5"
     }
   ]
 

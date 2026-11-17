@@ -56,14 +56,17 @@
       assignment's params. A scheduled run holds no broker grant either: Core writes the
       resolved credential into the params. `ResolveCameraSource` therefore passes the
       assignment's params plus the request key (D1 step 2).
-- [ ] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
+- [x] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
       `serviceradar.camera_source_resolution{_request}.v1`, and the D8 config key constant with
       a helper that reports whether it is set; release, then re-vendor in both plugins.
-- [ ] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
+      Released as SDK v2.3.0; the plugins vendor v2.3.1, which reads a null
+      `_serviceradar_camera_stream_addresses` as an error (omit). Only the two camera plugins
+      (Protect, Axis) were re-vendored.
+- [x] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
       second), never creating streams; inventory results as D8 states (unchanged without the
       key; with it, `source_origin` and no `cameras[].channels` aliases, `streams[].url` or
       `source_url*`).
-- [ ] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
+- [x] 2.3 Axis plugin: a resolver that rebuilds the URL with the plugin credentials as its
       userinfo; inventory results as D8 states.
 - [x] 2.4 Agent: a `source_resolver` payload field; invoke the assignment on demand with its
       params (task 2.0); capture the resolved URL in memory and pass it to the native reader as `SourceURL`, never
@@ -74,6 +77,8 @@
       and without the D8 key (without it, the descriptor address fields match the current
       output); an agent test showing the address reaches the reader and nothing else, and that
       each D5 class is produced.
+      Plugin half done: `protect_source_resolution_test.go` and `axis_source_resolution_test.go`
+      run `run_check` against fake controllers through the SDK local host.
 
 ## 3. Core cutover (Stage 3)
 

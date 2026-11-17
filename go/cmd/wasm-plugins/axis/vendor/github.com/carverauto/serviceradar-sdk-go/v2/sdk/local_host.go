@@ -22,6 +22,23 @@ type LocalHTTPHandler func(context.Context, HTTPRequest) (*HTTPResponse, error)
 type LocalHostOptions struct {
 	ConfigJSON  []byte
 	HTTPHandler LocalHTTPHandler
+	// GRPCHandler serves grpc_unary calls. When nil, gRPC calls fail with
+	// host error -4, as on an agent without gRPC support.
+	GRPCHandler LocalGRPCHandler
+	// CredentialGrants are the broker grants the local host applies to
+	// outbound HTTP requests, as the agent does. Grants of type
+	// oauth2_client_credentials are emulated: a covered request gets a
+	// synthetic bearer token (see LocalOAuth2BearerToken). Other inject types
+	// are left to HTTPHandler.
+	CredentialGrants []CredentialBrokerGrant
+	// Credentials is the local credential material for CredentialGrants,
+	// usually LocalInputs.Credentials(). The plugin never reads it.
+	Credentials map[string]string
+	// ArtifactDir enables artifact staging. Committed artifacts are written
+	// under this directory at their object key, with owner-only permissions.
+	// When empty, artifact calls fail as they do on a host without an
+	// uploader.
+	ArtifactDir string
 }
 
 // LocalHostLog is one log message captured during a local run.
@@ -35,15 +52,21 @@ type LocalHostCapture struct {
 	ResultJSON    []byte
 	TelemetryJSON [][]byte
 	Logs          []LocalHostLog
+	Artifacts     []LocalHostArtifact
 }
 
 type localHostExecution struct {
 	mu            sync.Mutex
 	configJSON    []byte
 	httpHandler   LocalHTTPHandler
+	grpcHandler   LocalGRPCHandler
+	grants        []CredentialBrokerGrant
+	credentials   map[string]string
 	resultJSON    []byte
 	telemetryJSON [][]byte
 	logs          []LocalHostLog
+	artifactDir   string
+	artifacts     localArtifacts
 }
 
 var (
@@ -70,12 +93,17 @@ func RunLocalHost(options LocalHostOptions, run func() error) (LocalHostCapture,
 	execution := &localHostExecution{
 		configJSON:  append([]byte(nil), options.ConfigJSON...),
 		httpHandler: options.HTTPHandler,
+		grpcHandler: options.GRPCHandler,
+		grants:      append([]CredentialBrokerGrant(nil), options.CredentialGrants...),
+		credentials: cloneStringMap(options.Credentials),
+		artifactDir: options.ArtifactDir,
 	}
 	localHostMu.Lock()
 	previous := localHost
 	localHost = execution
 	localHostMu.Unlock()
 	defer func() {
+		execution.abortOpenArtifacts()
 		localHostMu.Lock()
 		localHost = previous
 		localHostMu.Unlock()
@@ -146,6 +174,9 @@ func (h *localHostExecution) httpRequest(encoded, responseBuf []byte) int32 {
 	if err != nil {
 		return hostErrInvalid
 	}
+	if err := h.applyLocalCredentialGrants(&request); err != nil {
+		return hostErrDenied
+	}
 
 	ctx := context.Background()
 	cancel := func() {}
@@ -180,6 +211,7 @@ func (h *localHostExecution) capture() LocalHostCapture {
 	capture := LocalHostCapture{
 		ResultJSON: append([]byte(nil), h.resultJSON...),
 		Logs:       append([]LocalHostLog(nil), h.logs...),
+		Artifacts:  append([]LocalHostArtifact(nil), h.artifacts.committed...),
 	}
 	for _, payload := range h.telemetryJSON {
 		capture.TelemetryJSON = append(capture.TelemetryJSON, append([]byte(nil), payload...))
@@ -218,7 +250,7 @@ func decodeLocalHTTPRequest(encoded []byte) (HTTPRequest, string, error) {
 }
 
 func encodeLocalHTTPResponse(mode string, response *HTTPResponse) ([]byte, error) {
-	if strings.EqualFold(strings.TrimSpace(mode), "status_body") || strings.TrimSpace(mode) == "" {
+	if strings.EqualFold(strings.TrimSpace(mode), ResponseModeStatusBody) || strings.TrimSpace(mode) == "" {
 		return append([]byte(strconv.Itoa(response.Status)+"\n"), response.Body...), nil
 	}
 	return json.Marshal(httpResponsePayload{

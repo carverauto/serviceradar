@@ -3,20 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
-func loadConfig() (Config, error) {
-	raw, err := loadRawConfigBytes()
-	if err != nil {
-		return defaultConfig(), err
-	}
-	return decodeConfig(raw)
-}
+var errProtectLoginNoSessionCookie = errors.New("login response missing session cookie")
 
 func (c Config) normalizedBootstrapPath() string {
 	path := strings.TrimSpace(c.BootstrapPath)
@@ -82,13 +76,13 @@ func protectSessionHeaders(ctx context.Context, cfg Config, client protectHTTPCl
 	}
 
 	if resp.Status != http.StatusOK && resp.Status != http.StatusNoContent {
-		return nil, "", fmt.Errorf("login failed with status %d", resp.Status)
+		return nil, "", protectStatusError{request: "login", status: resp.Status}
 	}
 
 	setCookie := headerValue(resp.Headers, "Set-Cookie")
 	cookie := extractSessionCookie(setCookie)
 	if cookie == "" {
-		return nil, "", fmt.Errorf("login response missing session cookie")
+		return nil, "", errProtectLoginNoSessionCookie
 	}
 
 	return map[string]string{"Cookie": cookie}, "session_cookie", nil

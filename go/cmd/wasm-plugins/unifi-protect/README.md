@@ -60,6 +60,42 @@ Runtime config after materialization looks like:
 - If Protect omits a per-camera host in bootstrap, RTSP alias fallback uses the configured controller host.
 - Future slices can expand event ingestion and broader controller auth/session variants without changing the host ABI.
 
+## Stream Source Resolution
+
+A stream address is a secret: a Protect RTSP alias works as a bearer token.
+ServiceRadar does not store it. When a camera stream opens, the agent runs
+`run_check` with the host-owned config key
+`_serviceradar_camera_source_resolution_request`
+(`serviceradar.camera_source_resolution_request.v1`, naming the
+`vendor_camera_id` and `vendor_profile_id` this plugin reported). The plugin
+then does no inventory work and submits only a
+`serviceradar.camera_source_resolution.v1` document:
+
+- A quality profile (`high`, `medium`, `low`, `package`) is read from
+  `GET /proxy/protect/integration/v1/cameras/{id}/rtsps-stream`, with
+  `enableSrtp` removed. Only when that request answers HTTP 404 (the
+  controller has no integration API or does not know that id) is the bootstrap
+  used instead. Any other status, or an unreadable body, is `connect_failed`
+  with no fallback, and a document without the requested quality is
+  `source_not_found`.
+- A channel id is read from the bootstrap `channels[].rtspAlias`
+  (`rtsp://<camera host>:<rtsp_port>/<alias>`). The camera may be named by its
+  Protect id or, when it has none, its MAC.
+- The plugin only reads; it never creates or enables a stream. An unknown
+  camera or profile, or a profile with RTSP disabled, is `source_not_found`.
+- HTTP 401/403 is `authentication_failed`; a host-reported timeout is
+  `connect_timeout`; any other transport failure is `connect_failed`, because
+  the agent reports DNS, refused, unreachable and TLS failures with one error
+  code. The failure detail never carries the address, alias or a credential,
+  and the plugin never logs the address.
+
+Inventory runs report addresses unless the assignment config carries
+`"_serviceradar_camera_stream_addresses": "omit"`, which Core sets once it
+opens streams through the resolver. With it, every stream and profile reports
+`source_origin` (`scheme://host:port`) and no `source_url`,
+`source_url_override`, `streams[].url`, `cameras[].channels`, alias metadata or
+raw controller response bodies.
+
 ## Live Controller Smoke Test
 
 You can validate the plugin against a real Protect controller with the gated Go smoke test:
