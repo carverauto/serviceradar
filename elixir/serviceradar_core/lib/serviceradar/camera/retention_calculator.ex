@@ -28,6 +28,7 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RecordingHolds
+  alias ServiceRadar.Storage.StorageEntitlements
 
   require Ash.Query
 
@@ -1094,13 +1095,22 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     with :ok <- RecordingArchiveSettings.authorize_recording_read(opts),
-         {:ok, settings} <- load_settings_for_summary(opts, loaders),
-         {:ok, bindings} <- load_bindings_for_summary(settings.active_archive_binding_id, loaders),
-         {:ok, receipts} <- load_all_receipts(settings.active_archive_binding_id, loaders),
+         {:ok, base_settings} <- load_settings_for_summary(opts, loaders),
+         {:ok, bindings} <-
+           load_bindings_for_summary(base_settings.active_archive_binding_id, loaders),
+         {:ok, receipts} <- load_all_receipts(base_settings.active_archive_binding_id, loaders),
          {:ok, catalog_entries} <- load_catalog_entries(loaders),
          {:ok, accepted_holds} <- load_accepted_holds(loaders),
          {:ok, policies} <- load_policies_for_summary(loaders),
          {:ok, blocks} <- load_reserved_blocks(loaders) do
+      base_entitlement = StorageEntitlements.effective_state(opts)
+
+      settings =
+        RecordingArchiveSettings.apply_entitlement_bounds(base_settings, base_entitlement)
+
+      eff_archive_ret =
+        RecordingArchiveSettings.effective_archive_retention(base_settings, base_entitlement)
+
       archive_stats =
         aggregate_object_usage(
           bindings,
@@ -1115,7 +1125,14 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
       avg_block_bytes = estimate_avg_block_bytes(archive_stats, block_stats)
 
       policy_summary =
-        summarize_policies_for_usage(policies, settings, catalog_entries, receipts, now)
+        summarize_policies_for_usage(
+          policies,
+          settings,
+          base_entitlement,
+          catalog_entries,
+          receipts,
+          now
+        )
 
       {r15m_bps, r6h_bps, local_history_sec} =
         resolve_summary_local_rates(block_stats, avg_block_bytes)
@@ -1187,9 +1204,32 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           opts
         )
 
+      entitlement =
+        enrich_entitlement_pending_projection(
+          base_entitlement,
+          policy_summary.archiving_specs,
+          projected.rate.bytes_per_day,
+          settings,
+          archive_stats.archive_used_bytes,
+          non_reapable
+        )
+
+      reaper_enabled? =
+        if entitlement.hosted? and entitlement.applied? and is_map(entitlement.recordings) do
+          entitlement.recordings.reaper_enabled?
+        else
+          Application.get_env(:serviceradar_core, :camera_object_reaper_enabled, false) == true and
+            settings.object_budget_mode == :limited and
+            settings.object_capacity_policy == :reap_oldest
+        end
+
       {:ok,
        %{
-         settings: settings,
+         settings: base_settings,
+         effective_settings: settings,
+         effective_archive_retention: eff_archive_ret,
+         entitlement: entitlement,
+         reaper_enabled?: reaper_enabled?,
          archive:
            Map.merge(archive_stats, %{
              measured_rate_bytes_per_day: measured_rate_bpd,
@@ -1205,6 +1245,46 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
        }}
     end
   end
+
+  defp enrich_entitlement_pending_projection(
+         %{hosted?: true, applied?: true, recordings: rec, pending: pending} = ent,
+         archiving_specs,
+         fallback_rate_bpd,
+         settings,
+         used_bytes,
+         non_reapable
+       )
+       when is_map(rec) and is_map(pending) do
+    policies =
+      if archiving_specs == [] do
+        [
+          %{
+            id: "deployment",
+            rate_bytes_per_day: fallback_rate_bpd,
+            retention_days:
+              if(settings.archive_retention_mode == :unlimited,
+                do: :unlimited,
+                else: settings.archive_retention_days || 30
+              )
+          }
+        ]
+      else
+        archiving_specs
+      end
+
+    proj =
+      StorageEntitlements.project_pending_impact(rec, pending, %{
+        policies: policies,
+        usage_bytes: used_bytes,
+        non_reapable_bytes: non_reapable,
+        object_high_water_percent: settings.object_high_water_percent || 90,
+        object_low_water_percent: settings.object_low_water_percent || 80
+      })
+
+    %{ent | pending_projection: proj}
+  end
+
+  defp enrich_entitlement_pending_projection(ent, _, _, _, _, _), do: ent
 
   defp load_settings_for_summary(opts, loaders) do
     case Keyword.get(opts, :settings) do
@@ -1404,7 +1484,14 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
     end
   end
 
-  defp summarize_policies_for_usage(policies, settings, catalog_entries, receipts, now) do
+  defp summarize_policies_for_usage(
+         policies,
+         settings,
+         entitlement,
+         catalog_entries,
+         receipts,
+         now
+       ) do
     continuous =
       Enum.filter(policies, &(fetch_val(&1, :mode) in [:continuous, "continuous"]))
 
@@ -1445,7 +1532,8 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
         rate_info =
           compute_policy_archive_rate(pol, est.bitrate_bps, catalog_entries, receipts_by_id, now)
 
-        configured_days = CameraRecordingPolicies.resolve_policy_archive_retention(pol, settings)
+        ret_details =
+          CameraRecordingPolicies.effective_policy_retention_details(pol, settings, entitlement)
 
         %{
           id: to_string(fetch_val(pol, :id) || "policy"),
@@ -1455,9 +1543,12 @@ defmodule ServiceRadar.Camera.RetentionCalculator do
           archive_retention_override_mode:
             fetch_val(pol, :archive_retention_override_mode) || :inherit,
           archive_retention_days_override: fetch_val(pol, :archive_retention_days_override),
+          raw_configured_days: ret_details.configured_days,
+          capped_by_plan?: ret_details.capped_by_plan?,
+          retention_summary_label: ret_details.summary_label,
           rate_bytes_per_day: rate_info.bytes_per_day,
           rate_basis: rate_info.basis,
-          retention_days: configured_days
+          retention_days: ret_details.effective_days
         }
       end)
 

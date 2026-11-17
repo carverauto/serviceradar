@@ -33,6 +33,7 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialDestroy do
 
     with :ok <- confirm_id(confirmed_id, changeset.data.id),
          {:ok, secret} <- lock_fresh_secret(changeset.data.id, actor, context),
+         :ok <- reject_control_plane_managed(secret, changeset),
          now = DateTime.utc_now(),
          {:ok, grants} <- lock_grants(secret.id, context),
          {:ok, %Result{} = usage} <- CredentialUsage.for_secret(secret.id, actor: actor, now: now),
@@ -43,6 +44,9 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialDestroy do
       |> Map.put(:data, secret)
       |> Ash.Changeset.put_context(:credential_deletion_audit, audit_attrs(secret, actor, now))
     else
+      {:error, :managed_by_control_plane} ->
+        invalid(changeset, :managed_by, "Managed by ServiceRadar Cloud")
+
       {:error, :confirmation_mismatch} ->
         invalid(changeset, :confirm_secret_id, "credential_confirmation_mismatch")
 
@@ -69,6 +73,16 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialDestroy do
 
   defp confirm_id(id, id), do: :ok
   defp confirm_id(_confirmed_id, _secret_id), do: {:error, :confirmation_mismatch}
+
+  defp reject_control_plane_managed(%{managed_by: :control_plane}, changeset) do
+    if Map.get(changeset.context, :control_plane_managed_allowed) == true do
+      :ok
+    else
+      {:error, :managed_by_control_plane}
+    end
+  end
+
+  defp reject_control_plane_managed(_secret, _changeset), do: :ok
 
   defp lock_fresh_secret(secret_id, actor, context) do
     opts = caller_opts(actor, context)

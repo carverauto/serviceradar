@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
 
   import Telemetry.Metrics
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Storage.StorageUsageReports
   alias ServiceRadar.Telemetry, as: ServiceRadarTelemetry
   alias ServiceRadarWebNG.TenantUsage
 
@@ -153,6 +155,20 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
         description: "Hosted-runtime contract gauge for current NATS leaf node count"
       ),
 
+      # Camera Recording Storage Gauges (F.6)
+      last_value("serviceradar.camera_recording.object_used_bytes",
+        description: "Current camera recording archive object bytes used"
+      ),
+      last_value("serviceradar.camera_recording.object_hard_limit_bytes",
+        description: "Current camera recording archive object hard limit bytes (0 when unlimited)"
+      ),
+      last_value("serviceradar.camera_recording.object_cutoff_days",
+        description: "Current calculated camera recording archive common age cutoff T in days (-1 when infinite)"
+      ),
+      last_value("serviceradar.camera_recording.object_held_bytes",
+        description: "Current camera recording archive bytes pinned by active holds"
+      ),
+
       # VM Metrics
       last_value("vm.memory.total", unit: {:byte, :kilobyte}),
       last_value("vm.total_run_queue_lengths.total"),
@@ -181,7 +197,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
     [
       # Cluster health measurements
       {__MODULE__, :measure_cluster_health, []},
-      {__MODULE__, :measure_tenant_usage, []}
+      {__MODULE__, :measure_tenant_usage, []},
+      {__MODULE__, :emit_camera_recording_storage_gauges, []}
     ]
   end
 
@@ -263,4 +280,50 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       %{}
     )
   end
+
+  @doc """
+  Emits current-day camera recording object storage gauges (`F.6`, `design.md` `F5`).
+  Safe in `:db_free` environments: rescues/catches repository unavailability so
+  `/metrics` never crashes.
+  """
+  @spec emit_camera_recording_storage_gauges(keyword()) :: :ok
+  def emit_camera_recording_storage_gauges(opts \\ []) when is_list(opts) do
+    gauges = read_camera_recording_storage_gauges(opts)
+
+    :telemetry.execute(
+      [:serviceradar, :camera_recording],
+      %{
+        object_used_bytes: normalize_gauge_bytes(gauges[:used_bytes] || gauges[:object_used_bytes]),
+        object_hard_limit_bytes: normalize_gauge_bytes(gauges[:hard_limit_bytes] || gauges[:object_hard_limit_bytes]),
+        object_cutoff_days: normalize_gauge_cutoff_days(gauges[:cutoff_days] || gauges[:object_cutoff_days]),
+        object_held_bytes: normalize_gauge_bytes(gauges[:held_bytes] || gauges[:object_held_bytes])
+      },
+      %{}
+    )
+  end
+
+  defp read_camera_recording_storage_gauges(opts) do
+    case Keyword.get(opts, :gauges) do
+      %{} = supplied ->
+        supplied
+
+      _ ->
+        call_opts = Keyword.put_new(opts, :actor, SystemActor.system(:telemetry_storage_gauges))
+
+        case StorageUsageReports.current_gauges(call_opts) do
+          {:ok, %{} = map} -> map
+          _ -> %{}
+        end
+    end
+  rescue
+    _ -> %{}
+  catch
+    _, _ -> %{}
+  end
+
+  defp normalize_gauge_bytes(val) when is_number(val) and val >= 0, do: trunc(val)
+  defp normalize_gauge_bytes(_), do: 0
+
+  defp normalize_gauge_cutoff_days(val) when is_number(val), do: val * 1.0
+  defp normalize_gauge_cutoff_days(_), do: -1.0
 end

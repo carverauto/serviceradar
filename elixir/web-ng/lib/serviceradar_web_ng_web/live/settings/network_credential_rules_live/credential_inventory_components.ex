@@ -68,7 +68,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
                   ]}
                 >
                   <td>
-                    <div class="font-medium">{secret.name}</div>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="font-medium">{secret.name}</span>
+                      <span
+                        :if={control_plane_managed?(secret)}
+                        data-role="managed-by-cloud-badge"
+                        class="inline-flex items-center rounded-full border border-sr-brand/30 bg-sr-brand/10 px-2 py-0.5 text-xs font-medium text-sr-ink"
+                      >
+                        Managed by ServiceRadar Cloud
+                      </span>
+                    </div>
                     <div
                       :if={secret.description not in [nil, ""]}
                       class="mt-0.5 max-w-72 truncate text-xs text-sr-muted"
@@ -80,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
                   <td>{kind_label(secret.credential_kind)}</td>
                   <td>{auth_method_label(secret, @integration_profiles)}</td>
                   <td>{public_identity(secret)}</td>
-                  <td>{source_label(secret.source_type)}</td>
+                  <td>{source_label(secret)}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
@@ -93,36 +102,54 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
                     <.credential_usage_summary
                       id={"credential-usage-#{secret.id}"}
                       usage={usage_for(@usage_by_id, secret.id)}
+                      managed_by_cloud?={control_plane_managed?(secret)}
                     />
                   </td>
                   <td class="text-right">
                     <div id={"credential-actions-#{secret.id}"}>
-                      <.ui_dropdown
-                        align="end"
-                        menu_class="w-48"
-                        aria_label={"Actions for #{secret.name}"}
-                      >
-                        <:trigger>
-                          <.ui_button type="button" size="xs" variant="ghost" tabindex="-1">
-                            Actions
-                          </.ui_button>
-                        </:trigger>
-                        <:item>
-                          <button type="button" phx-click="edit_credential" phx-value-id={secret.id}>
-                            Edit details
-                          </button>
-                        </:item>
-                        <:item>
-                          <button type="button" phx-click="rotate_credential" phx-value-id={secret.id}>
-                            Rotate
-                          </button>
-                        </:item>
-                        <:item>
-                          <button type="button" phx-click="delete_credential" phx-value-id={secret.id}>
-                            Delete
-                          </button>
-                        </:item>
-                      </.ui_dropdown>
+                      <%= if control_plane_managed?(secret) do %>
+                        <span
+                          data-role="credential-read-only"
+                          class="inline-flex items-center rounded-sr-control border border-sr-line bg-sr-subtle px-2 py-1 text-xs font-medium text-sr-muted"
+                        >
+                          Read-only
+                        </span>
+                      <% else %>
+                        <.ui_dropdown
+                          align="end"
+                          menu_class="w-48"
+                          aria_label={"Actions for #{secret.name}"}
+                        >
+                          <:trigger>
+                            <.ui_button type="button" size="xs" variant="ghost" tabindex="-1">
+                              Actions
+                            </.ui_button>
+                          </:trigger>
+                          <:item>
+                            <button type="button" phx-click="edit_credential" phx-value-id={secret.id}>
+                              Edit details
+                            </button>
+                          </:item>
+                          <:item>
+                            <button
+                              type="button"
+                              phx-click="rotate_credential"
+                              phx-value-id={secret.id}
+                            >
+                              Rotate
+                            </button>
+                          </:item>
+                          <:item>
+                            <button
+                              type="button"
+                              phx-click="delete_credential"
+                              phx-value-id={secret.id}
+                            >
+                              Delete
+                            </button>
+                          </:item>
+                        </.ui_dropdown>
+                      <% end %>
                     </div>
                   </td>
                 </tr>
@@ -137,12 +164,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   attr :id, :string, required: true
   attr :usage, :any, required: true
+  attr :managed_by_cloud?, :boolean, default: false
 
   def credential_usage_summary(assigns) do
-    assigns = assign(assigns, :summary, usage_summary(assigns.usage))
+    cloud_managed? =
+      assigns.managed_by_cloud? or usage_managed_by_cloud?(assigns.usage)
+
+    assigns =
+      assigns
+      |> assign(:summary, usage_summary(assigns.usage))
+      |> assign(:cloud_managed?, cloud_managed?)
 
     ~H"""
-    <div id={@id} class="min-w-44 text-sm">
+    <div id={@id} class="min-w-44 text-sm space-y-0.5">
+      <div
+        :if={@cloud_managed?}
+        data-role="credential-usage-cloud-managed"
+        class="text-xs font-medium text-sr-ink"
+      >
+        Managed by ServiceRadar Cloud
+      </div>
       <%= case @summary do %>
         <% :unavailable -> %>
           <span class="text-sr-muted">Usage unavailable</span>
@@ -537,9 +578,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp public_identity(_secret), do: "—"
 
+  defp source_label(%{managed_by: managed_by, credential_generation: gen})
+       when managed_by in [:control_plane, "control_plane"] and is_integer(gen) and gen > 0 do
+    "Encrypted here (gen #{gen})"
+  end
+
+  defp source_label(%{source_type: source_type}), do: source_label(source_type)
   defp source_label(:internal_encrypted), do: "Encrypted here"
   defp source_label(:external_reference), do: "External reference"
   defp source_label(value), do: humanize(value)
+
+  defp control_plane_managed?(secret) when is_map(secret) do
+    Map.get(secret, :managed_by) in [:control_plane, "control_plane"]
+  end
+
+  defp control_plane_managed?(_secret), do: false
+
+  defp usage_managed_by_cloud?(%Result{} = usage) do
+    Map.get(usage, :managed_by) in [:control_plane, "control_plane"] or
+      Map.get(usage, :management_label) == "Managed by ServiceRadar Cloud"
+  end
+
+  defp usage_managed_by_cloud?(_usage), do: false
 
   defp rotation_badge_class(:active), do: "badge-success"
   defp rotation_badge_class(:rotation_due), do: "badge-warning"

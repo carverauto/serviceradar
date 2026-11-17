@@ -41,6 +41,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
@@ -671,6 +672,242 @@ defmodule ServiceRadar.Camera.RecordingHolds do
       transact([RecordingCatalogEntry, RecordingOperation, ArchiveBinding], fn ->
         execute_missing_archive_rearchive(entry_uuid, actor_id, note, now)
       end)
+    end
+  end
+
+  @doc """
+  Returns a bounded, keyset-paginated manifest of active `:accepted` holds and
+  each covered held block's verified archive object keys, sizes/lengths, and
+  SHA-256 digests (`GET /v1/storage/holds?cursor=`, `F.9`, `design.md:2690-2695`,
+  `spec.md:779-782`).
+  """
+  @spec held_objects_manifest(map() | keyword(), keyword()) ::
+          {:ok, map()} | {:error, atom() | Exception.t()}
+  def held_objects_manifest(params \\ %{}, opts \\ [])
+      when (is_map(params) or is_list(params)) and is_list(opts) do
+    map_params = to_map(params)
+    actor = resolve_actor(opts)
+    loaders = Keyword.get(opts, :loaders, %{})
+
+    with :ok <- authorize_deletion_intent(actor),
+         {:ok, limit} <- parse_manifest_limit(fetch_val(map_params, :limit)),
+         {:ok, cursor_key} <- parse_manifest_cursor(fetch_val(map_params, :cursor)),
+         {:ok, holds} <- load_manifest_holds(loaders),
+         {:ok, entries} <- load_manifest_verified_entries(loaders),
+         {:ok, receipts_by_id} <- load_manifest_receipts(loaders) do
+      items =
+        holds
+        |> Enum.sort_by(&to_string(fetch_val(&1, :id)))
+        |> Enum.flat_map(&expand_hold_manifest_items(&1, entries, receipts_by_id))
+        |> filter_after_manifest_cursor(cursor_key)
+
+      page_items = Enum.take(items, limit)
+      has_more? = length(items) > limit
+
+      next_cursor =
+        if has_more? and page_items != [] do
+          encode_manifest_cursor(List.last(page_items))
+        end
+
+      grouped_holds = group_manifest_items_by_hold(page_items)
+      block_count = Enum.count(page_items, &(not is_nil(&1.entry)))
+
+      {:ok,
+       %{
+         "schema_version" => 1,
+         "holds" => grouped_holds,
+         "held_block_count" => block_count,
+         "next_cursor" => next_cursor
+       }}
+    end
+  rescue
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :hold_manifest_unavailable}
+  end
+
+  defp parse_manifest_limit(nil), do: {:ok, 50}
+  defp parse_manifest_limit(""), do: {:ok, 50}
+  defp parse_manifest_limit(n) when is_integer(n) and n in 1..100, do: {:ok, n}
+
+  defp parse_manifest_limit(raw) when is_binary(raw) do
+    case Integer.parse(String.trim(raw)) do
+      {n, ""} when n in 1..100 -> {:ok, n}
+      _ -> {:error, :invalid_hold_manifest_params}
+    end
+  end
+
+  defp parse_manifest_limit(_), do: {:error, :invalid_hold_manifest_params}
+
+  defp parse_manifest_cursor(nil), do: {:ok, nil}
+  defp parse_manifest_cursor(""), do: {:ok, nil}
+
+  defp parse_manifest_cursor(raw) when is_binary(raw) and byte_size(raw) <= 512 do
+    with {:ok, json} <- Base.url_decode64(raw, padding: false),
+         {:ok, %{"h" => hold_id, "e" => entry_id} = decoded} when map_size(decoded) == 2 <-
+           Jason.decode(json),
+         {:ok, h_uuid} <- Ecto.UUID.cast(to_string(hold_id)),
+         true <- entry_id == "" or match?({:ok, _}, Ecto.UUID.cast(to_string(entry_id))) do
+      {:ok, {h_uuid, to_string(entry_id)}}
+    else
+      _ -> {:error, :invalid_hold_manifest_cursor}
+    end
+  end
+
+  defp parse_manifest_cursor(_), do: {:error, :invalid_hold_manifest_cursor}
+
+  defp encode_manifest_cursor(%{hold_id: hold_id, entry_key: entry_key}) do
+    %{"h" => hold_id, "e" => entry_key}
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp expand_hold_manifest_items(hold, entries, receipts_by_id) do
+    hold_id = to_string(fetch_val(hold, :id))
+
+    covered =
+      entries
+      |> Enum.filter(&hold_protects_entry?(hold, &1))
+      |> Enum.sort_by(&to_string(fetch_val(&1, :id)))
+
+    if covered == [] do
+      [%{hold_id: hold_id, entry_key: "", hold: hold, entry: nil, objects: []}]
+    else
+      Enum.map(covered, fn entry ->
+        eid = to_string(fetch_val(entry, :id))
+        objects = extract_manifest_entry_objects(entry, receipts_by_id)
+        %{hold_id: hold_id, entry_key: eid, hold: hold, entry: entry, objects: objects}
+      end)
+    end
+  end
+
+  defp extract_manifest_entry_objects(entry, receipts_by_id) do
+    rid = fetch_val(entry, :nvr_archive_receipt_id)
+
+    case rid && Map.get(receipts_by_id, to_string(rid)) do
+      %{} = receipt ->
+        receipt
+        |> fetch_val(:objects)
+        |> List.wrap()
+        |> Enum.map(fn obj ->
+          len = fetch_val(obj, :length) || 0
+
+          base = %{
+            "name" => fetch_val(obj, :name),
+            "key" => fetch_val(obj, :key),
+            "length" => len,
+            "size" => len,
+            "sha256" => fetch_val(obj, :sha256)
+          }
+
+          case fetch_val(obj, :version_id) do
+            nil -> base
+            vid -> Map.put(base, "version_id", vid)
+          end
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp filter_after_manifest_cursor(items, nil), do: items
+
+  defp filter_after_manifest_cursor(items, {cursor_hold_id, cursor_entry_key}) do
+    Enum.filter(items, fn %{hold_id: h, entry_key: e} ->
+      {h, e} > {cursor_hold_id, cursor_entry_key}
+    end)
+  end
+
+  defp group_manifest_items_by_hold(items) do
+    items
+    |> Enum.chunk_by(& &1.hold_id)
+    |> Enum.map(fn [first | _] = group ->
+      hold = first.hold
+
+      blocks =
+        group
+        |> Enum.reject(&is_nil(&1.entry))
+        |> Enum.map(fn %{entry: entry, objects: objects} ->
+          %{
+            "catalog_entry_id" => to_string(fetch_val(entry, :id)),
+            "storage_id" => to_string(fetch_val(entry, :storage_id)),
+            "block_key" => fetch_val(entry, :block_key),
+            "timeline_start_us" => fetch_val(entry, :timeline_start_us),
+            "timeline_end_us" => fetch_val(entry, :timeline_end_us),
+            "archive_binding_id" =>
+              fetch_val(entry, :archive_binding_id) &&
+                to_string(fetch_val(entry, :archive_binding_id)),
+            "objects" => objects
+          }
+        end)
+
+      %{
+        "hold_id" => first.hold_id,
+        "camera_source_id" => to_string(fetch_val(hold, :camera_source_id)),
+        "stream_profile_id" =>
+          fetch_val(hold, :stream_profile_id) && to_string(fetch_val(hold, :stream_profile_id)),
+        "kind" => to_string(fetch_val(hold, :kind)),
+        "start_us" => fetch_val(hold, :start_us),
+        "end_us" => fetch_val(hold, :end_us),
+        "blocks" => blocks
+      }
+    end)
+  end
+
+  defp load_manifest_holds(loaders) do
+    case Map.get(loaders, :holds_loader) do
+      loader when is_function(loader, 0) ->
+        with {:ok, rows} <- loader.() do
+          {:ok, Enum.filter(rows, &(normalize_atom(fetch_val(&1, :state)) == :accepted))}
+        end
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
+      _ ->
+        RecordingHold
+        |> Ash.Query.filter(state == :accepted)
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp load_manifest_verified_entries(loaders) do
+    case Map.get(loaders, :catalog_loader) do
+      loader when is_function(loader, 0) ->
+        with {:ok, rows} <- loader.() do
+          {:ok,
+           Enum.filter(rows, fn e ->
+             normalize_atom(fetch_val(e, :local_state)) != :quarantined and
+               normalize_atom(fetch_val(e, :archive_state)) == :verified
+           end)}
+        end
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, []}
+
+      _ ->
+        RecordingCatalogEntry
+        |> Ash.Query.filter(local_state != :quarantined and archive_state == :verified)
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  defp load_manifest_receipts(loaders) do
+    case Map.get(loaders, :receipts_loader) do
+      loader when is_function(loader, 0) ->
+        with {:ok, rows} <- loader.() do
+          {:ok, Map.new(rows, &{to_string(fetch_val(&1, :id)), &1})}
+        end
+
+      _ when map_size(loaders) > 0 ->
+        {:ok, %{}}
+
+      _ ->
+        with {:ok, rows} <- Ash.read(NVRArchiveReceipt, actor: @system_actor) do
+          {:ok, Map.new(rows, &{to_string(&1.id), &1})}
+        end
     end
   end
 

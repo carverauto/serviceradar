@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents
   alias ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents
 
@@ -15,104 +16,122 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   ]
 
   attr :runtime, :map, required: true
+  attr :entitlement, :map, default: %{}
+  attr :active_tab, :string, default: "recorders"
   attr :can_view_any?, :boolean, default: true
 
   def install_and_gate_banner(assigns) do
     ~H"""
-    <section
-      id="recording-runtime-banner"
-      aria-label="Recording installation and recovery gate status"
-      class="rounded-xl border border-sr-line bg-sr-subtle/40 p-4 space-y-3"
-    >
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 class="text-sm font-semibold text-sr-ink">
-            Installation &amp; Deployment Recovery Gate
-          </h2>
-          <p class="mt-1 text-xs text-sr-muted">
-            Source: Core NVR reservations and verified archive receipts (distinct from the
-            <code class="font-mono">ArchiveUploads</code>
-            published catalog on camera recordings pages).
-          </p>
-        </div>
-        <.ui_button
-          id="refresh-recording-runtime"
-          type="button"
-          phx-click="refresh_status"
-          variant="outline"
-          size="xs"
-        >
-          <.icon name="hero-arrow-path" class="size-3.5" /> Refresh status
-        </.ui_button>
+    <div class="space-y-3">
+      <div
+        :if={Map.get(@entitlement, :waiting_for_entitlement?) == true and @active_tab != "retention"}
+        id="retention-waiting-entitlement-banner"
+        role="status"
+        class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-sr-ink"
+      >
+        <p class="font-semibold">
+          Waiting for a storage entitlement — archive jobs are held while recording continues locally
+        </p>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          id="recording-status-nvr-install"
-          class="rounded-lg border border-sr-line bg-sr-surface p-3"
-        >
-          <div class="text-xs text-sr-muted">NVR client installation</div>
-          <div class="mt-1 flex items-center gap-2">
-            <.ui_badge
-              size="xs"
-              variant={nvr_install_badge_variant(@runtime.core_elx.nvr_installation)}
-            >
-              {nvr_install_label(@runtime.core_elx.nvr_installation)}
-            </.ui_badge>
+      <section
+        id="recording-runtime-banner"
+        aria-label="Recording installation and recovery gate status"
+        class="rounded-xl border border-sr-line bg-sr-subtle/40 p-4 space-y-3"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold text-sr-ink">
+              Installation &amp; Deployment Recovery Gate
+            </h2>
+            <p class="mt-1 text-xs text-sr-muted">
+              Source: Core NVR reservations and verified archive receipts (distinct from the
+              <code class="font-mono">ArchiveUploads</code>
+              published catalog on camera recordings pages).
+            </p>
+          </div>
+          <.ui_button
+            id="refresh-recording-runtime"
+            type="button"
+            phx-click="refresh_status"
+            variant="outline"
+            size="xs"
+          >
+            <.icon name="hero-arrow-path" class="size-3.5" /> Refresh status
+          </.ui_button>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            id="recording-status-nvr-install"
+            class="rounded-lg border border-sr-line bg-sr-surface p-3"
+          >
+            <div class="text-xs text-sr-muted">NVR client installation</div>
+            <div class="mt-1 flex items-center gap-2">
+              <.ui_badge
+                size="xs"
+                variant={nvr_install_badge_variant(@runtime.core_elx.nvr_installation)}
+              >
+                {nvr_install_label(@runtime.core_elx.nvr_installation)}
+              </.ui_badge>
+            </div>
+          </div>
+
+          <div
+            id="recording-status-core-gate"
+            class="rounded-lg border border-sr-line bg-sr-surface p-3"
+          >
+            <div class="text-xs text-sr-muted">Core recovery gate</div>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <.ui_badge size="xs" variant={gate_badge_variant(@runtime.recovery_gate.state)}>
+                {gate_label(@runtime.recovery_gate.state)}
+              </.ui_badge>
+              <span
+                :if={@runtime.recovery_gate.generation}
+                class="font-mono text-[11px] text-sr-muted"
+              >
+                {String.slice(@runtime.recovery_gate.generation, 0, 8)}
+              </span>
+            </div>
+          </div>
+
+          <div
+            id="recording-status-core-elx"
+            class="rounded-lg border border-sr-line bg-sr-surface p-3"
+          >
+            <div class="text-xs text-sr-muted">core-elx reachability</div>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <.ui_badge
+                size="xs"
+                variant={reachability_badge_variant(@runtime.core_elx.reachability)}
+              >
+                {reachability_label(@runtime.core_elx.reachability)}
+              </.ui_badge>
+              <span :if={@runtime.core_elx.node} class="font-mono text-[11px] text-sr-muted">
+                {@runtime.core_elx.node}
+              </span>
+            </div>
+          </div>
+
+          <div
+            id="recording-status-supervisor"
+            class="rounded-lg border border-sr-line bg-sr-surface p-3"
+          >
+            <div class="text-xs text-sr-muted">Capture supervisor</div>
+            <div class="mt-1 flex items-center gap-2">
+              <.ui_badge size="xs" variant={supervisor_badge_variant(@runtime.core_elx.supervisor)}>
+                {supervisor_label(@runtime.core_elx.supervisor)}
+              </.ui_badge>
+            </div>
           </div>
         </div>
 
-        <div
-          id="recording-status-core-gate"
-          class="rounded-lg border border-sr-line bg-sr-surface p-3"
-        >
-          <div class="text-xs text-sr-muted">Core recovery gate</div>
-          <div class="mt-1 flex flex-wrap items-center gap-2">
-            <.ui_badge size="xs" variant={gate_badge_variant(@runtime.recovery_gate.state)}>
-              {gate_label(@runtime.recovery_gate.state)}
-            </.ui_badge>
-            <span
-              :if={@runtime.recovery_gate.generation}
-              class="font-mono text-[11px] text-sr-muted"
-            >
-              {String.slice(@runtime.recovery_gate.generation, 0, 8)}
-            </span>
-          </div>
-        </div>
-
-        <div
-          id="recording-status-core-elx"
-          class="rounded-lg border border-sr-line bg-sr-surface p-3"
-        >
-          <div class="text-xs text-sr-muted">core-elx reachability</div>
-          <div class="mt-1 flex flex-wrap items-center gap-2">
-            <.ui_badge size="xs" variant={reachability_badge_variant(@runtime.core_elx.reachability)}>
-              {reachability_label(@runtime.core_elx.reachability)}
-            </.ui_badge>
-            <span :if={@runtime.core_elx.node} class="font-mono text-[11px] text-sr-muted">
-              {@runtime.core_elx.node}
-            </span>
-          </div>
-        </div>
-
-        <div
-          id="recording-status-supervisor"
-          class="rounded-lg border border-sr-line bg-sr-surface p-3"
-        >
-          <div class="text-xs text-sr-muted">Capture supervisor</div>
-          <div class="mt-1 flex items-center gap-2">
-            <.ui_badge size="xs" variant={supervisor_badge_variant(@runtime.core_elx.supervisor)}>
-              {supervisor_label(@runtime.core_elx.supervisor)}
-            </.ui_badge>
-          </div>
-        </div>
-      </div>
-
-      <p id="recording-gate-guidance" class="text-xs text-sr-muted">
-        The Settings UI reports the deployment recovery gate and never opens or closes it. Follow the
-        deployment recovery gate procedure in <code class="font-mono">docs/nvr-runtime.md</code>.
-      </p>
-    </section>
+        <p id="recording-gate-guidance" class="text-xs text-sr-muted">
+          The Settings UI reports the deployment recovery gate and never opens or closes it. Follow the
+          deployment recovery gate procedure in <code class="font-mono">docs/nvr-runtime.md</code>.
+        </p>
+      </section>
+    </div>
     """
   end
 
@@ -270,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
   attr :runtime, :map, required: true
   attr :storage_mode, :atom, default: :local_only
+  attr :entitlement, :map, default: %{}
   attr :bindings, :list, required: true
   attr :credentials, :list, required: true
   attr :can_manage?, :boolean, required: true
@@ -283,6 +303,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :object_retention_enforced?, :boolean, default: false
   attr :credential_issue, :string, default: nil
   attr :active_binding_id, :string, default: nil
+  attr :active_binding_managed_by_cloud?, :boolean, default: false
+  attr :writer_managed_by_cloud?, :boolean, default: false
+  attr :reader_managed_by_cloud?, :boolean, default: false
+  attr :retention_managed_by_cloud?, :boolean, default: false
 
   def archive_panel(assigns) do
     ~H"""
@@ -342,6 +366,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         selected_retention_label={@selected_retention_label}
         object_retention_enforced?={@object_retention_enforced?}
         active_binding_id={@active_binding_id}
+        active_binding_managed_by_cloud?={@active_binding_managed_by_cloud?}
+        writer_managed_by_cloud?={@writer_managed_by_cloud?}
+        reader_managed_by_cloud?={@reader_managed_by_cloud?}
+        retention_managed_by_cloud?={@retention_managed_by_cloud?}
       />
 
       <.credentials_inventory_card
@@ -353,7 +381,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       />
 
       <.destination_registration_card
-        :if={@can_manage?}
+        :if={@can_manage? and not @active_binding_managed_by_cloud?}
         destination_form={@destination_form}
         destination_errors={@destination_errors}
       />
@@ -377,18 +405,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :selected_retention_label, :string, required: true
   attr :object_retention_enforced?, :boolean, default: false
   attr :active_binding_id, :string, default: nil
+  attr :active_binding_managed_by_cloud?, :boolean, default: false
+  attr :writer_managed_by_cloud?, :boolean, default: false
+  attr :reader_managed_by_cloud?, :boolean, default: false
+  attr :retention_managed_by_cloud?, :boolean, default: false
 
   defp archive_settings_card(assigns) do
     retention_unselected? =
-      if assigns.can_manage? and assigns.can_manage_credentials? do
+      if assigns.can_manage? and assigns.can_manage_credentials? and
+           not assigns.retention_managed_by_cloud? do
         assigns.settings_form["retention_credential_secret_id"] in [nil, ""]
       else
         not assigns.object_retention_enforced?
       end
 
+    operator_selectable_credentials =
+      Enum.reject(assigns.credentials, &credential_managed_by_cloud?/1)
+
     assigns =
       assigns
-      |> assign(:show_unenforced_notice?, assigns.settings_form["archive_enabled"] == "true" and retention_unselected?)
+      |> assign(:operator_credentials, operator_selectable_credentials)
+      |> assign(
+        :show_unenforced_notice?,
+        assigns.settings_form["archive_enabled"] == "true" and retention_unselected?
+      )
       |> assign(
         :show_awaiting_binding_warning?,
         assigns.settings_form["archive_enabled"] == "true" and
@@ -426,13 +466,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       >
         <div class="grid gap-4 md:grid-cols-2">
           <div>
-            <label for="active-archive-binding-select" class="block text-xs font-medium text-sr-ink">
-              Active destination generation
-            </label>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label for="active-archive-binding-select" class="block text-xs font-medium text-sr-ink">
+                Active destination generation
+              </label>
+              <.ui_badge
+                :if={@active_binding_managed_by_cloud?}
+                id="active-binding-cloud-managed-badge"
+                size="xs"
+                variant="info"
+              >
+                Managed by ServiceRadar Cloud
+              </.ui_badge>
+            </div>
             <select
               id="active-archive-binding-select"
               name="settings[active_archive_binding_id]"
-              disabled={!@can_manage?}
+              disabled={!@can_manage? or @active_binding_managed_by_cloud?}
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
             >
               <option value="" selected={@settings_form["active_archive_binding_id"] in [nil, ""]}>
@@ -476,11 +526,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
         <div class="grid gap-4 md:grid-cols-3">
           <div>
-            <label for="writer-credential-select" class="block text-xs font-medium text-sr-ink">
-              Writer credential (<code class="font-mono">s3_compatible</code>)
-            </label>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label for="writer-credential-select" class="block text-xs font-medium text-sr-ink">
+                Writer credential (<code class="font-mono">s3_compatible</code>)
+              </label>
+              <.ui_badge
+                :if={@writer_managed_by_cloud?}
+                id="writer-credential-cloud-managed-badge"
+                size="xs"
+                variant="info"
+              >
+                Managed by ServiceRadar Cloud
+              </.ui_badge>
+            </div>
             <select
-              :if={@can_manage? and @can_manage_credentials?}
+              :if={@can_manage? and @can_manage_credentials? and not @writer_managed_by_cloud?}
               id="writer-credential-select"
               name="settings[writer_credential_secret_id]"
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink"
@@ -489,7 +549,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 None selected
               </option>
               <option
-                :for={cred <- @credentials}
+                :for={cred <- @operator_credentials}
                 value={cred.id}
                 selected={@settings_form["writer_credential_secret_id"] == to_string(cred.id)}
               >
@@ -497,7 +557,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               </option>
             </select>
             <select
-              :if={!(@can_manage? and @can_manage_credentials?)}
+              :if={!(@can_manage? and @can_manage_credentials?) or @writer_managed_by_cloud?}
               id="writer-credential-disabled-select"
               disabled
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-muted opacity-70"
@@ -507,11 +567,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           </div>
 
           <div>
-            <label for="reader-credential-select" class="block text-xs font-medium text-sr-ink">
-              Optional reader credential (defaults to writer in reader role)
-            </label>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label for="reader-credential-select" class="block text-xs font-medium text-sr-ink">
+                Optional reader credential (defaults to writer in reader role)
+              </label>
+              <.ui_badge
+                :if={@reader_managed_by_cloud?}
+                id="reader-credential-cloud-managed-badge"
+                size="xs"
+                variant="info"
+              >
+                Managed by ServiceRadar Cloud
+              </.ui_badge>
+            </div>
             <select
-              :if={@can_manage? and @can_manage_credentials?}
+              :if={@can_manage? and @can_manage_credentials? and not @reader_managed_by_cloud?}
               id="reader-credential-select"
               name="settings[reader_credential_secret_id]"
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink"
@@ -520,7 +590,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 Use writer credential (reader role)
               </option>
               <option
-                :for={cred <- @credentials}
+                :for={cred <- @operator_credentials}
                 value={cred.id}
                 selected={@settings_form["reader_credential_secret_id"] == to_string(cred.id)}
               >
@@ -528,7 +598,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               </option>
             </select>
             <select
-              :if={!(@can_manage? and @can_manage_credentials?)}
+              :if={!(@can_manage? and @can_manage_credentials?) or @reader_managed_by_cloud?}
               id="reader-credential-disabled-select"
               disabled
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-muted opacity-70"
@@ -538,11 +608,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           </div>
 
           <div>
-            <label for="retention-credential-select" class="block text-xs font-medium text-sr-ink">
-              Optional retention delete credential (<code class="font-mono">DELETE</code>, <code class="font-mono">HEAD</code>)
-            </label>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label for="retention-credential-select" class="block text-xs font-medium text-sr-ink">
+                Optional retention delete credential (<code class="font-mono">DELETE</code>, <code class="font-mono">HEAD</code>)
+              </label>
+              <.ui_badge
+                :if={@retention_managed_by_cloud?}
+                id="retention-credential-cloud-managed-badge"
+                size="xs"
+                variant="info"
+              >
+                Managed by ServiceRadar Cloud
+              </.ui_badge>
+            </div>
             <select
-              :if={@can_manage? and @can_manage_credentials?}
+              :if={@can_manage? and @can_manage_credentials? and not @retention_managed_by_cloud?}
               id="retention-credential-select"
               name="settings[retention_credential_secret_id]"
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink"
@@ -554,7 +634,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                 None selected (object retention not enforced)
               </option>
               <option
-                :for={cred <- @credentials}
+                :for={cred <- @operator_credentials}
                 value={cred.id}
                 selected={@settings_form["retention_credential_secret_id"] == to_string(cred.id)}
               >
@@ -562,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               </option>
             </select>
             <select
-              :if={!(@can_manage? and @can_manage_credentials?)}
+              :if={!(@can_manage? and @can_manage_credentials?) or @retention_managed_by_cloud?}
               id="retention-credential-disabled-select"
               disabled
               class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-muted opacity-70"
@@ -674,7 +754,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               {cred.description}
             </span>
           </div>
-          <.ui_badge size="xs" variant="success">Enabled</.ui_badge>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <.ui_badge
+              :if={credential_managed_by_cloud?(cred)}
+              id={"archive-credential-cloud-badge-#{cred.id}"}
+              size="xs"
+              variant="info"
+            >
+              Managed by ServiceRadar Cloud
+            </.ui_badge>
+            <.ui_badge size="xs" variant="success">Enabled</.ui_badge>
+          </div>
         </li>
       </ul>
     </section>
@@ -878,7 +968,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
             >
               <td class="py-2.5 pr-3 font-mono text-sr-ink">
                 <div>{binding.provisioning_ref}</div>
-                <div class="mt-0.5 flex items-center gap-1.5 text-[11px] text-sr-muted">
+                <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-sr-muted">
                   <span>gen {binding.generation}</span>
                   <.ui_badge
                     :if={@active_binding_id == to_string(binding.id)}
@@ -886,6 +976,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
                     variant="success"
                   >
                     Active
+                  </.ui_badge>
+                  <.ui_badge
+                    :if={binding_managed_by_cloud?(binding)}
+                    id={"archive-binding-cloud-badge-#{binding.id}"}
+                    size="xs"
+                    variant="info"
+                  >
+                    Managed by ServiceRadar Cloud
                   </.ui_badge>
                 </div>
               </td>
@@ -1240,6 +1338,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
   attr :runtime, :map, required: true
   attr :storage_mode, :atom, default: :local_only
+  attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
   attr :sources, :list, required: true
   attr :sources_forbidden?, :boolean, required: true
@@ -1272,6 +1371,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         <PolicyComponents.policies_table_card
           policies={@policies}
           sources={@sources}
+          entitlement={@entitlement}
           can_manage?={@can_manage?}
         />
 
@@ -1284,6 +1384,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         <PolicyComponents.editor_form_card
           runtime={@runtime}
           policies={@policies}
+          entitlement={@entitlement}
           can_manage?={@can_manage?}
           sources={@sources}
           sources_forbidden?={@sources_forbidden?}
@@ -1298,6 +1399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   attr :storage_mode, :atom, default: :local_only
+  attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
   attr :settings_record, :any, default: nil
   attr :settings_struct, :map, required: true
@@ -1319,15 +1421,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         assigns.settings_struct
       )
 
-    assigns = assign(assigns, :holds_view, holds_view)
+    pending_view =
+      build_pending_consequence_view(
+        assigns.entitlement,
+        assigns.usage_summary,
+        assigns.settings_struct,
+        assigns.projection,
+        holds_view
+      )
+
+    assigns =
+      assigns
+      |> assign(:holds_view, holds_view)
+      |> assign(:pending_view, pending_view)
 
     ~H"""
     <div id="recording-tab-panel-retention" class="space-y-6">
       <.retention_stage_banner
         storage_mode={@storage_mode}
+        entitlement={@entitlement}
+        pending_view={@pending_view}
         object_retention_enforced?={@object_retention_enforced?}
         shorter_archive_than_local?={@projection.shorter_archive_than_local?}
         holds_view={@holds_view}
+        timezone={@timezone}
       />
 
       <.retention_usage_and_projection_card
@@ -1367,6 +1484,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
         <.retention_object_archive_card
           storage_mode={@storage_mode}
+          entitlement={@entitlement}
           can_manage?={@can_manage?}
           settings_record={@settings_record}
           retention_form={@retention_form}
@@ -1395,13 +1513,67 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   attr :storage_mode, :atom, required: true
+  attr :entitlement, :map, default: %{}
+  attr :pending_view, :any, default: nil
   attr :object_retention_enforced?, :boolean, required: true
   attr :shorter_archive_than_local?, :boolean, required: true
   attr :holds_view, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   defp retention_stage_banner(assigns) do
     ~H"""
     <div class="space-y-3">
+      <div
+        :if={Map.get(@entitlement, :waiting_for_entitlement?) == true}
+        id="retention-waiting-entitlement-banner"
+        role="status"
+        class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-sr-ink"
+      >
+        <p class="font-semibold">
+          Waiting for a storage entitlement — archive jobs are held while recording continues locally
+        </p>
+      </div>
+
+      <div
+        :if={@pending_view != nil}
+        id="retention-pending-entitlement-banner"
+        role="status"
+        class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-sr-ink space-y-1.5"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-sm font-semibold">Pending storage entitlement change</p>
+          <.ui_badge size="xs" variant="warning">Scheduled</.ui_badge>
+        </div>
+        <p>
+          New plan limits
+          <span :if={@pending_view.allocation_bytes}>
+            — allocation
+            <span class="font-mono font-semibold">{format_bytes(@pending_view.allocation_bytes)}</span>
+          </span>
+          <span :if={@pending_view.retention_max_days}>
+            — plan retention maximum
+            <span class="font-mono font-semibold">{@pending_view.retention_max_days} days</span>
+          </span>
+          <span :if={@pending_view.effective_at}>
+            take effect at
+            <.user_time
+              id="retention-pending-effective-at"
+              value={@pending_view.effective_at}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </span>
+        </p>
+        <p class="text-sr-muted">
+          Projected consequence at effective time:
+          <strong class="text-sr-ink">{format_pending_projected_days(@pending_view.projected_days)}</strong>
+          projected object retention ·
+          <strong class="font-mono text-sr-ink">{format_bytes(@pending_view.projected_delete_bytes)}</strong>
+          projected archive deletion. Capacity reaping continues against the current plan allocation
+          (<span class="font-mono">{format_bytes(@pending_view.current_hard_limit_bytes)}</span>) until the effective time.
+        </p>
+      </div>
+
       <section
         id="recording-retention-stage-notice"
         class="rounded-xl border border-sr-line bg-sr-subtle/40 p-4 space-y-2"
@@ -2265,6 +2437,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   end
 
   attr :storage_mode, :atom, required: true
+  attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
   attr :settings_record, :any, default: nil
   attr :retention_form, :map, required: true
@@ -2274,15 +2447,72 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :timezone, :string, required: true
 
   defp retention_object_archive_card(assigns) do
-    persisted_cap = assigns.settings_record && Map.get(assigns.settings_record, :object_capacity_policy)
-    confirmed_by = assigns.settings_record && Map.get(assigns.settings_record, :object_capacity_policy_confirmed_by_id)
-    confirmed_at = assigns.settings_record && Map.get(assigns.settings_record, :object_capacity_policy_confirmed_at)
+    entitlement_applied? = Map.get(assigns.entitlement, :applied?) == true
+    plan_max_days = if entitlement_applied?, do: Map.get(assigns.entitlement, :retention_max_days)
+
+    plan_default_days =
+      if entitlement_applied?, do: Map.get(assigns.entitlement, :retention_default_days)
+
+    stored_mode =
+      assigns.settings_record && Map.get(assigns.settings_record, :archive_retention_mode)
+
+    stored_days =
+      assigns.settings_record && Map.get(assigns.settings_record, :archive_retention_days)
+
+    stored_cap_label =
+      cond do
+        is_integer(plan_max_days) and is_integer(stored_days) and stored_days > plan_max_days ->
+          "configured #{stored_days} days, effective #{plan_max_days} days (plan maximum)"
+
+        is_integer(plan_max_days) and stored_mode in [:unlimited, "unlimited"] ->
+          "configured unlimited, effective #{plan_max_days} days (plan maximum)"
+
+        true ->
+          nil
+      end
+
+    persisted_cap =
+      if entitlement_applied? do
+        Map.get(assigns.entitlement, :capacity_policy)
+      else
+        assigns.settings_record && Map.get(assigns.settings_record, :object_capacity_policy)
+      end
+
+    confirmed_by =
+      assigns.settings_record &&
+        Map.get(assigns.settings_record, :object_capacity_policy_confirmed_by_id)
+
+    confirmed_at =
+      assigns.settings_record &&
+        Map.get(assigns.settings_record, :object_capacity_policy_confirmed_at)
+
+    effective_budget_mode =
+      if entitlement_applied?,
+        do: "limited",
+        else: assigns.retention_form["object_budget_mode"]
+
+    effective_budget_bytes =
+      if entitlement_applied?,
+        do: to_string(Map.get(assigns.entitlement, :hard_limit_bytes) || ""),
+        else: assigns.retention_form["object_budget_bytes"]
+
+    effective_cap_policy =
+      if entitlement_applied?,
+        do: to_string(Map.get(assigns.entitlement, :capacity_policy) || "stop_archiving"),
+        else: assigns.retention_form["object_capacity_policy"]
 
     assigns =
       assigns
+      |> assign(:entitlement_applied?, entitlement_applied?)
+      |> assign(:plan_max_days, plan_max_days)
+      |> assign(:plan_default_days, plan_default_days)
+      |> assign(:stored_cap_label, stored_cap_label)
       |> assign(:persisted_cap, persisted_cap)
       |> assign(:confirmed_by, confirmed_by)
       |> assign(:confirmed_at, confirmed_at)
+      |> assign(:effective_budget_mode, effective_budget_mode)
+      |> assign(:effective_budget_bytes, effective_budget_bytes)
+      |> assign(:effective_cap_policy, effective_cap_policy)
 
     ~H"""
     <section
@@ -2292,12 +2522,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 class="text-base font-semibold text-sr-ink">
-            Object Archive Retention &amp; Self-Hosted Object Budget
+            {if @entitlement_applied?,
+              do: "Object Archive Retention & Plan Object Budget",
+              else: "Object Archive Retention & Self-Hosted Object Budget"}
           </h2>
           <p class="mt-1 text-xs text-sr-muted">
-            Application-managed archive expiry (<code class="font-mono">1..3,650</code>
-            days, default <code class="font-mono">30</code>, or unlimited) and optional byte budget using the
-            <code class="font-mono">:retention</code>
+            Application-managed archive expiry (<code class="font-mono">1..{@plan_max_days || "3,650"}</code>
+            days, default <code class="font-mono">{@plan_default_days || 30}</code>{if is_nil(
+                                                                                         @plan_max_days
+                                                                                       ),
+                                                                                       do:
+                                                                                         ", or unlimited",
+                                                                                       else:
+                                                                                         " — limited by your plan"}) and {if @entitlement_applied?,
+              do: "plan-managed byte budget",
+              else: "optional byte budget"} using the <code class="font-mono">:retention</code>
             delete credential (<code class="font-mono">{@selected_retention_label}</code>).
           </p>
         </div>
@@ -2311,18 +2550,69 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
             Not used: local only
           </.ui_badge>
           <.ui_badge
+            :if={@entitlement_applied?}
+            id="retention-plan-budget-badge"
+            size="xs"
+            variant="info"
+          >
+            Set by plan
+          </.ui_badge>
+          <.ui_badge
             id="retention-object-capacity-effective-state"
             size="xs"
             variant={if(@persisted_cap, do: "success", else: "ghost")}
           >
-            {if @persisted_cap,
-              do: "Confirmed: #{@persisted_cap}",
-              else: "Unset (behaves as stop_archiving)"}
+            {cond do
+              @entitlement_applied? and @persisted_cap != nil -> "Set by plan: #{@persisted_cap}"
+              @persisted_cap != nil -> "Confirmed: #{@persisted_cap}"
+              true -> "Unset (behaves as stop_archiving)"
+            end}
           </.ui_badge>
         </div>
       </div>
 
+      <div
+        :if={@entitlement_applied?}
+        id="retention-plan-budget-summary"
+        class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 text-xs text-sr-ink space-y-1"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="font-semibold">Plan object storage terms:</span>
+          <span>
+            Allocation
+            <span class="font-mono font-semibold">
+              {format_bytes(Map.get(@entitlement, :allocation_bytes))}
+            </span>
+          </span>
+          <span :if={
+            Map.get(@entitlement, :overage_mode) == :metered and
+              is_integer(Map.get(@entitlement, :overage_cap_bytes))
+          }>
+            · Metered overage cap
+            <span class="font-mono font-semibold">
+              {format_bytes(Map.get(@entitlement, :overage_cap_bytes))}
+            </span>
+          </span>
+          <span>
+            · Hard limit
+            <span class="font-mono font-semibold">
+              {format_bytes(Map.get(@entitlement, :hard_limit_bytes))}
+            </span>
+          </span>
+          <span>
+            · Capacity policy
+            <code class="font-mono">{Map.get(@entitlement, :capacity_policy) || :stop_archiving}</code>
+          </span>
+          <.ui_badge size="xs" variant="info">Set by plan</.ui_badge>
+        </div>
+        <p class="text-sr-muted">
+          Object budget and capacity policy are set by your storage entitlement; high-water and
+          low-water percentages remain configurable below.
+        </p>
+      </div>
+
       <p
+        :if={!@entitlement_applied?}
         id="retention-reaper-flag-notice"
         class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 text-xs text-sr-muted"
       >
@@ -2332,7 +2622,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
       </p>
 
       <p
-        :if={@persisted_cap && @confirmed_by}
+        :if={!@entitlement_applied? && @persisted_cap && @confirmed_by}
         id="retention-object-capacity-confirmed-audit"
         class="text-xs text-sr-muted"
       >
@@ -2366,9 +2656,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
               value="limited"
               selected={@retention_form["archive_retention_mode"] == "limited"}
             >
-              Limited days (default 30)
+              Limited days (default {@plan_default_days || 30})
             </option>
             <option
+              :if={is_nil(@plan_max_days)}
               value="unlimited"
               selected={@retention_form["archive_retention_mode"] == "unlimited"}
             >
@@ -2382,19 +2673,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
             for="retention-archive-days-input"
             class="block text-xs font-medium text-sr-ink"
           >
-            Archive retention days (<code class="font-mono">1..3,650</code>)
+            Archive retention days (<code class="font-mono">1..{@plan_max_days || "3,650"}</code>)
           </label>
           <input
             id="retention-archive-days-input"
             type="number"
             min="1"
-            max="3650"
+            max={@plan_max_days || 3650}
             name="retention[archive_retention_days]"
             value={@retention_form["archive_retention_days"]}
             disabled={!@can_manage? or @retention_form["archive_retention_mode"] != "limited"}
-            placeholder="30"
+            placeholder={to_string(@plan_default_days || 30)}
             class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
           />
+          <p
+            :if={is_integer(@plan_max_days)}
+            id="retention-archive-plan-limit-note"
+            class="mt-1 text-xs text-sr-muted"
+          >
+            Maximum {@plan_max_days} days — limited by your plan.
+          </p>
+          <p
+            :if={@stored_cap_label != nil}
+            id="retention-archive-effective-plan-cap"
+            class="mt-1 text-xs font-medium text-amber-500"
+          >
+            {@stored_cap_label}
+          </p>
           <p
             :if={@retention_errors[:archive_retention_days]}
             id="retention-error-archive-retention-days"
@@ -2405,44 +2710,60 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         </div>
 
         <div>
-          <label
-            for="retention-object-budget-mode-select"
-            class="block text-xs font-medium text-sr-ink"
-          >
-            Object byte budget mode
-          </label>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label
+              for="retention-object-budget-mode-select"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Object byte budget mode
+            </label>
+            <.ui_badge :if={@entitlement_applied?} size="xs" variant="info">
+              Set by plan
+            </.ui_badge>
+          </div>
           <select
             id="retention-object-budget-mode-select"
             name="retention[object_budget_mode]"
-            disabled={!@can_manage?}
+            disabled={!@can_manage? or @entitlement_applied?}
             class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
           >
             <option
+              :if={!@entitlement_applied?}
               value="unlimited"
-              selected={@retention_form["object_budget_mode"] == "unlimited"}
+              selected={@effective_budget_mode == "unlimited"}
             >
               No limit
             </option>
-            <option value="limited" selected={@retention_form["object_budget_mode"] == "limited"}>
-              Limited byte budget (&gt;= 1 GiB)
+            <option value="limited" selected={@effective_budget_mode == "limited"}>
+              {if @entitlement_applied?,
+                do: "Set by plan (#{format_bytes(Map.get(@entitlement, :hard_limit_bytes))})",
+                else: "Limited byte budget (>= 1 GiB)"}
             </option>
           </select>
         </div>
 
         <div>
-          <label
-            for="retention-object-budget-bytes-input"
-            class="block text-xs font-medium text-sr-ink"
-          >
-            Object budget bytes (&gt;= <code class="font-mono">1,073,741,824</code>)
-          </label>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label
+              for="retention-object-budget-bytes-input"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Object budget bytes (&gt;= <code class="font-mono">1,073,741,824</code>)
+            </label>
+            <.ui_badge :if={@entitlement_applied?} size="xs" variant="info">
+              Set by plan
+            </.ui_badge>
+          </div>
           <input
             id="retention-object-budget-bytes-input"
             type="number"
             min="1073741824"
             name="retention[object_budget_bytes]"
-            value={@retention_form["object_budget_bytes"]}
-            disabled={!@can_manage? or @retention_form["object_budget_mode"] != "limited"}
+            value={@effective_budget_bytes}
+            disabled={
+              !@can_manage? or @entitlement_applied? or
+                @effective_budget_mode != "limited"
+            }
             placeholder="10737418240"
             class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
           />
@@ -2508,30 +2829,39 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
         </div>
 
         <div class="md:col-span-2 space-y-2">
-          <label
-            for="retention-object-capacity-policy-select"
-            class="block text-xs font-medium text-sr-ink"
-          >
-            Object capacity policy (required when object budget is limited)
-          </label>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label
+              for="retention-object-capacity-policy-select"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Object capacity policy (required when object budget is limited)
+            </label>
+            <.ui_badge :if={@entitlement_applied?} size="xs" variant="info">
+              Set by plan
+            </.ui_badge>
+          </div>
           <select
             id="retention-object-capacity-policy-select"
             name="retention[object_capacity_policy]"
-            disabled={!@can_manage?}
+            disabled={!@can_manage? or @entitlement_applied?}
             class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
           >
-            <option value="" selected={@retention_form["object_capacity_policy"] in [nil, ""]}>
+            <option
+              :if={!@entitlement_applied?}
+              value=""
+              selected={@effective_cap_policy in [nil, ""]}
+            >
               Leave unset (behaves as stop_archiving)
             </option>
             <option
               value="reap_oldest"
-              selected={@retention_form["object_capacity_policy"] == "reap_oldest"}
+              selected={@effective_cap_policy == "reap_oldest"}
             >
               reap_oldest — delete oldest unheld archive copies from high water down to low water
             </option>
             <option
               value="stop_archiving"
-              selected={@retention_form["object_capacity_policy"] == "stop_archiving"}
+              selected={@effective_cap_policy == "stop_archiving"}
             >
               stop_archiving — pause archive uploads at hard limit and keep footage pending locally
             </option>
@@ -2544,7 +2874,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           </p>
 
           <div
-            :if={@retention_form["object_capacity_policy"] == "reap_oldest"}
+            :if={
+              !@entitlement_applied? and @retention_form["object_capacity_policy"] == "reap_oldest"
+            }
             class="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2"
           >
             <label class="inline-flex items-center gap-2 text-xs font-medium text-sr-ink">
@@ -2970,4 +3302,144 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   defp supervisor_badge_variant(:enabled), do: "success"
   defp supervisor_badge_variant(:disabled), do: "ghost"
   defp supervisor_badge_variant(:unknown), do: "warning"
+
+  defp credential_managed_by_cloud?(cred) when is_map(cred) do
+    val = Map.get(cred, :managed_by) || Map.get(cred, "managed_by")
+    val in [:control_plane, "control_plane"]
+  end
+
+  defp credential_managed_by_cloud?(_), do: false
+
+  defp binding_managed_by_cloud?(binding) when is_map(binding) do
+    ref = to_string(Map.get(binding, :provisioning_ref) || Map.get(binding, "provisioning_ref") || "")
+    ref != "" and not String.starts_with?(ref, "operator:")
+  end
+
+  defp binding_managed_by_cloud?(_), do: false
+
+  defp build_pending_consequence_view(entitlement, usage_summary, settings_struct, projection, holds_view) do
+    pending = is_map(entitlement) && Map.get(entitlement, :pending)
+
+    if Map.get(entitlement || %{}, :applied?) == true and is_map(pending) do
+      summary_ent = Map.get(usage_summary, :entitlement) || %{}
+
+      supplied_proj =
+        Map.get(entitlement, :pending_projection) ||
+          Map.get(summary_ent, :pending_projection) ||
+          %{}
+
+      new_alloc = Map.get(pending, :allocation_bytes)
+      new_max_days = Map.get(pending, :retention_max_days)
+      current_hard = Map.get(entitlement, :hard_limit_bytes) || Map.get(entitlement, :allocation_bytes) || 0
+      new_budget = new_alloc || current_hard
+
+      low_pct = Map.get(settings_struct, :object_low_water_percent, 80)
+      new_low_water = if is_integer(new_budget) and new_budget > 0, do: div(new_budget * low_pct, 100)
+
+      archive_used =
+        usage_summary
+        |> Map.get(:archive, %{})
+        |> Map.get(:archive_used_bytes, 0)
+
+      non_reapable = Map.get(holds_view, :non_reapable_bytes, 0)
+
+      rate_bytes_per_day =
+        projection |> Map.get(:rate, %{}) |> Map.get(:bytes_per_day) ||
+          usage_summary |> Map.get(:archive, %{}) |> Map.get(:trailing_24h_bytes) ||
+          0
+
+      candidate_limit =
+        resolve_pending_candidate_limit(
+          settings_struct,
+          new_max_days,
+          Map.get(entitlement, :retention_max_days)
+        )
+
+      projected_days =
+        Map.get(supplied_proj, :projected_effective_days) ||
+          Map.get(supplied_proj, :projected_retention_days) ||
+          Map.get(supplied_proj, :effective_days) ||
+          Map.get(supplied_proj, :projected_cutoff_days) ||
+          Map.get(supplied_proj, :cutoff_days) ||
+          compute_pending_projected_days(
+            new_low_water,
+            non_reapable,
+            rate_bytes_per_day,
+            candidate_limit
+          )
+
+      projected_delete_bytes =
+        Map.get(supplied_proj, :projected_bytes_to_delete) ||
+          Map.get(supplied_proj, :projected_delete_bytes) ||
+          Map.get(supplied_proj, :bytes_to_delete) ||
+          compute_pending_delete_bytes(new_low_water, archive_used, non_reapable)
+
+      %{
+        effective_at: Map.get(pending, :effective_at),
+        allocation_bytes: new_alloc,
+        retention_max_days: new_max_days,
+        current_hard_limit_bytes: current_hard,
+        projected_days: projected_days,
+        projected_delete_bytes: projected_delete_bytes
+      }
+    end
+  end
+
+  defp resolve_pending_candidate_limit(settings_struct, new_max_days, current_max_days) do
+    stored_mode = Map.get(settings_struct, :archive_retention_mode, :limited)
+    stored_days = Map.get(settings_struct, :archive_retention_days)
+    cap_days = new_max_days || current_max_days
+
+    cond do
+      stored_mode in [:unlimited, "unlimited"] and is_integer(cap_days) ->
+        cap_days
+
+      stored_mode in [:unlimited, "unlimited"] ->
+        :unlimited
+
+      is_integer(stored_days) and is_integer(cap_days) ->
+        min(stored_days, cap_days)
+
+      is_integer(stored_days) ->
+        stored_days
+
+      is_integer(cap_days) ->
+        cap_days
+
+      true ->
+        :unlimited
+    end
+  end
+
+  defp compute_pending_projected_days(new_low_water, non_reapable, rate_bytes_per_day, limit)
+       when is_integer(new_low_water) and is_number(rate_bytes_per_day) and rate_bytes_per_day > 0 do
+    available = max(0, new_low_water - non_reapable)
+    cutoff = RetentionCalculator.solve_cutoff([%{rate: rate_bytes_per_day, limit: limit}], available)
+
+    case {cutoff, limit} do
+      {:infinity, lim} -> lim
+      {t, :unlimited} -> t
+      {t, lim} when is_number(lim) -> min(t, lim * 1.0)
+      {t, _} -> t
+    end
+  end
+
+  defp compute_pending_projected_days(_new_low_water, _non_reapable, _rate, limit), do: limit
+
+  defp compute_pending_delete_bytes(new_low_water, archive_used, non_reapable) when is_integer(new_low_water) do
+    reapable_total = max(0, archive_used - non_reapable)
+    excess_over_low = max(0, archive_used - new_low_water)
+    min(reapable_total, excess_over_low)
+  end
+
+  defp compute_pending_delete_bytes(_new_low_water, _archive_used, _non_reapable), do: 0
+
+  defp format_pending_projected_days(:unlimited), do: "unlimited"
+  defp format_pending_projected_days(:infinity), do: "unlimited"
+
+  defp format_pending_projected_days(days) when is_number(days) do
+    "about #{format_days(days)} days"
+  end
+
+  defp format_pending_projected_days(_), do: "unchanged"
 end

@@ -52,6 +52,8 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.ArchiveUploadIntent
     resource ServiceRadar.Camera.ArchiveUploadDispatch
     resource ServiceRadar.Camera.AnalysisWorker
+    resource ServiceRadar.Storage.StorageEntitlement
+    resource ServiceRadar.Storage.StorageUsageDailyReport
   end
 
   authorization do

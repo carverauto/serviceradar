@@ -144,6 +144,8 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
       username: secret.username,
       public_fingerprint: secret.public_fingerprint,
       source_type: secret.source_type,
+      managed_by: Map.get(secret, :managed_by, :operator),
+      credential_generation: Map.get(secret, :credential_generation),
       rotation_state: secret.rotation_state,
       last_rotated_at: format_datetime(secret.last_rotated_at),
       next_rotation_due_at: format_datetime(Map.get(secret, :next_rotation_due_at)),

@@ -1279,6 +1279,50 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ ~s(data-role="secondary-schedule-cadence")
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "Cloud-managed archive credential renders Managed by ServiceRadar Cloud and refuses edit, rotate, and delete",
+       %{conn: conn} do
+    sys_actor = ServiceRadar.Actors.SystemActor.system(:cloud_cred_live_test)
+    dep_ref = Ecto.UUID.generate()
+
+    {:ok, delivered} =
+      ServiceRadar.Camera.CloudArchiveCredentials.deliver(
+        %{deployment_ref: dep_ref, generation: "1"},
+        "writer",
+        %{
+          "schema_version" => 1,
+          "deployment_ref" => dep_ref,
+          "credential_generation" => 3,
+          "access_key_id" => "SYNTHLIVEACCESSKEY03",
+          "secret_access_key" => "synth-live-secret-never-rendered-03"
+        },
+        actor: sys_actor
+      )
+
+    secret_id = delivered["secret_id"]
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials")
+
+    refute html =~ "synth-live-secret-never-rendered-03"
+
+    assert has_element?(
+             lv,
+             "#credential-secret-#{secret_id} [data-role='managed-by-cloud-badge']",
+             "Managed by ServiceRadar Cloud"
+           )
+
+    assert has_element?(lv, "#credential-actions-#{secret_id}", "Read-only")
+    refute has_element?(lv, "#credential-actions-#{secret_id} button")
+
+    for event <- ["edit_credential", "rotate_credential", "delete_credential"] do
+      rendered = render_hook(lv, event, %{"id" => secret_id})
+      assert rendered =~ "Managed by ServiceRadar Cloud"
+      refute has_element?(lv, "#credential-edit-modal")
+      refute has_element?(lv, "#credential-rotate-modal")
+      refute has_element?(lv, "#credential-delete-modal")
+    end
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

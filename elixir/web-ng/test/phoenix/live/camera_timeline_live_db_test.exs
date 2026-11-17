@@ -287,6 +287,81 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(op_lv, "#camera-recordings-error", "permission")
   end
 
+  test "timeline renders datetime-local hold inputs in user timezone, converts local time to UTC microseconds, supports presets & jump picker, and shows empty state when no blocks play",
+       %{actor: actor} do
+    now = ~U[2026-11-16 20:00:00Z]
+    seeded = seed_rich_timeline_camera(actor, now)
+
+    {chicago_op, _} =
+      user_with_permissions(
+        [
+          "devices.view",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.view"
+        ],
+        actor
+      )
+
+    {:ok, _} =
+      SQL.query(
+        Repo,
+        "UPDATE platform.ng_users SET timezone = 'America/Chicago' WHERE id = $1",
+        [Ecto.UUID.dump!(chicago_op.id)]
+      )
+
+    chicago_op = %{chicago_op | timezone: "America/Chicago"}
+
+    {:ok, lv, html} =
+      live(authed_conn(chicago_op), ~p"/cameras/#{seeded.source.id}/recordings")
+
+    # #261: datetime-local inputs & presets, zero raw microsecond prompts
+    refute html =~ "Start (us UTC)"
+    refute html =~ "End (us UTC)"
+    assert has_element?(lv, "#timeline-hold-start-at[type='datetime-local']")
+    assert has_element?(lv, "#timeline-hold-end-at[type='datetime-local']")
+    assert has_element?(lv, "#camera-timeline-jump-at[type='datetime-local']")
+    assert has_element?(lv, "#timeline-hold-preset-15m")
+
+    lv |> element("#timeline-hold-preset-15m") |> render_click()
+
+    # Submit hold using America/Chicago wall-clock time (2026-11-16 13:30:00 CST == 2026-11-16 19:30:00 UTC)
+    lv
+    |> form("#place-timeline-hold-form", %{
+      "hold" => %{
+        "kind" => "investigation",
+        "start_at" => "2026-11-16T13:30:00",
+        "end_at" => "2026-11-16T13:45:00",
+        "reason" => "Chicago local datetime hold verification"
+      }
+    })
+    |> render_submit()
+
+    expected_start_us = DateTime.to_unix(~U[2026-11-16 19:30:00Z], :microsecond)
+    expected_end_us = DateTime.to_unix(~U[2026-11-16 19:45:00Z], :microsecond)
+
+    {:ok, holds} =
+      RecordingHolds.list_holds(seeded.source.id, actor: actor)
+
+    placed = Enum.find(holds, &(&1.reason == "Chicago local datetime hold verification"))
+    assert placed
+    assert placed.start_us == expected_start_us
+    assert placed.end_us == expected_end_us
+
+    # Jump to an earlier empty window (2026-11-15T06:00:00 CST) -> #262 empty state renders instead of blank video
+    lv
+    |> form("#camera-timeline-jump-form", %{"jump_at" => "2026-11-15T06:00:00"})
+    |> render_submit()
+
+    assert has_element?(
+             lv,
+             "#camera-timeline-empty-state",
+             "No playable footage in selected window"
+           )
+
+    assert has_element?(lv, "#camera-timeline-player.hidden")
+  end
+
   defp player_playlist_path(view) do
     view
     |> render()

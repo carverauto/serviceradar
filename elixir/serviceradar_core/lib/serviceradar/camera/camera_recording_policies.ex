@@ -33,6 +33,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Policies.Checks.ActorHasPermission
+  alias ServiceRadar.Storage.StorageEntitlements
 
   require Ash.Query
 
@@ -223,28 +224,90 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
 
   @doc """
   Resolves the effective configured archive retention (`pos_integer() | :unlimited`)
-  for a `CameraRecordingPolicy` (or map) given deployment `RecordingArchiveSettings`.
+  for a `CameraRecordingPolicy` (or map) given deployment `RecordingArchiveSettings`
+  and an optional SaaS `entitlement_state` (`F.5`).
   """
-  @spec resolve_policy_archive_retention(map(), map()) :: pos_integer() | :unlimited
-  def resolve_policy_archive_retention(policy, settings)
+  @spec resolve_policy_archive_retention(map(), map(), map() | nil) ::
+          pos_integer() | :unlimited
+  def resolve_policy_archive_retention(policy, settings, entitlement_state \\ nil)
+      when is_map(policy) and is_map(settings) do
+    effective_policy_retention_details(policy, settings, entitlement_state).effective_days
+  end
+
+  @doc """
+  Returns configured vs plan-bounded effective archive retention details for a
+  `CameraRecordingPolicy`, including `"configured X days, effective Y days (plan maximum)"`
+  when capped by a lowered plan `max_days` (`F.5`, `spec.md:724-732`).
+  """
+  @spec effective_policy_retention_details(map(), map(), map() | nil) :: %{
+          configured_days: pos_integer() | :unlimited,
+          effective_days: pos_integer() | :unlimited,
+          plan_max_days: pos_integer() | nil,
+          capped_by_plan?: boolean(),
+          summary_label: String.t() | nil
+        }
+  def effective_policy_retention_details(policy, settings, entitlement_state \\ nil)
       when is_map(policy) and is_map(settings) do
     override_mode =
       normalize_override_mode(fetch_field(policy, :archive_retention_override_mode))
 
-    case override_mode do
-      :unlimited ->
-        :unlimited
+    configured =
+      case override_mode do
+        :unlimited ->
+          :unlimited
 
-      :limited ->
-        case fetch_field(policy, :archive_retention_days_override) do
-          days when is_integer(days) and days > 0 -> days
-          _ -> deployment_archive_retention(settings)
-        end
+        :limited ->
+          case fetch_field(policy, :archive_retention_days_override) do
+            days when is_integer(days) and days > 0 -> days
+            _ -> deployment_archive_retention(settings)
+          end
 
-      :inherit ->
-        deployment_archive_retention(settings)
+        :inherit ->
+          deployment_archive_retention(settings)
+      end
+
+    max_days = extract_plan_max_days(entitlement_state)
+
+    cond do
+      is_integer(max_days) and configured == :unlimited ->
+        %{
+          configured_days: :unlimited,
+          effective_days: max_days,
+          plan_max_days: max_days,
+          capped_by_plan?: true,
+          summary_label: "configured unlimited, effective #{max_days} days (plan maximum)"
+        }
+
+      is_integer(max_days) and is_integer(configured) and configured > max_days ->
+        %{
+          configured_days: configured,
+          effective_days: max_days,
+          plan_max_days: max_days,
+          capped_by_plan?: true,
+          summary_label:
+            "configured #{configured} days, effective #{max_days} days (plan maximum)"
+        }
+
+      true ->
+        %{
+          configured_days: configured,
+          effective_days: configured,
+          plan_max_days: max_days,
+          capped_by_plan?: false,
+          summary_label: nil
+        }
     end
   end
+
+  defp extract_plan_max_days(%{
+         hosted?: true,
+         applied?: true,
+         recordings: %{retention_max_days: m}
+       })
+       when is_integer(m) and m >= 1, do: m
+
+  defp extract_plan_max_days(%{retention_max_days: m}) when is_integer(m) and m >= 1, do: m
+  defp extract_plan_max_days(_), do: nil
 
   @doc """
   Computes the pre-save `C1a` & `C3a` What-If projection for `candidate_change`
@@ -265,11 +328,13 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     with :ok <- RecordingArchiveSettings.authorize_recording_read(opts),
-         {:ok, settings} <- load_settings(opts, loaders),
+         {:ok, base_settings} <- load_settings(opts, loaders),
          {:ok, existing_policies} <- load_policies(loaders),
          {:ok, catalog_entries} <- load_catalog_entries(loaders),
          {:ok, holds} <- load_accepted_holds(loaders),
          {:ok, receipts} <- load_receipts(loaders) do
+      entitlement = StorageEntitlements.effective_state(opts)
+      settings = RecordingArchiveSettings.apply_entitlement_bounds(base_settings, entitlement)
       profiles_by_id = build_profiles_index(existing_policies, candidate_change, opts, loaders)
       candidate = normalize_candidate_policy(candidate_change, existing_policies, settings)
       merged_policies = merge_candidate_into_policies(existing_policies, candidate)
@@ -1311,9 +1376,28 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
   end
 
   defp build_changeset_context(opts) do
-    case Keyword.get(opts, :loaders) do
-      loaders when is_map(loaders) -> %{policy_loaders: loaders}
-      _ -> %{}
+    context =
+      case Keyword.get(opts, :loaders) do
+        loaders when is_map(loaders) -> %{policy_loaders: loaders}
+        _ -> %{}
+      end
+
+    context =
+      case Keyword.get(opts, :now) do
+        %DateTime{} = now -> Map.put(context, :policy_now, now)
+        _ -> context
+      end
+
+    context =
+      case Keyword.fetch(opts, :hosted_install?) do
+        {:ok, val} -> Map.put(context, :hosted_install?, val)
+        :error -> context
+      end
+
+    if Keyword.get(opts, :bypass_entitlement_bounds) == true do
+      Map.put(context, :bypass_entitlement_bounds, true)
+    else
+      context
     end
   end
 

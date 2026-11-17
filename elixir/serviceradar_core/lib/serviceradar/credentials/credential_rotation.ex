@@ -73,6 +73,7 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
     with {:ok, dependencies} <- dependencies(opts),
          {:ok, actor} <- authorize(dependencies, scope_or_actor),
          {:ok, current_secret} <- load_secret(dependencies, secret_id, actor),
+         :ok <- ensure_operator_managed(current_secret),
          {:ok, profile} <- load_profile(dependencies, current_secret),
          {:ok, attrs} <- build_rotation(dependencies, current_secret, profile, submitted_values),
          {:ok, rotating_secret} <- start_rotation(dependencies, current_secret, actor) do
@@ -159,6 +160,14 @@ defmodule ServiceRadar.Credentials.CredentialRotation do
         {:error, :credential_not_found}
     end
   end
+
+  defp ensure_operator_managed(%{managed_by: :control_plane}),
+    do: {:error, :credential_rotation_not_allowed}
+
+  defp ensure_operator_managed(%{"managed_by" => "control_plane"}),
+    do: {:error, :credential_rotation_not_allowed}
+
+  defp ensure_operator_managed(_secret), do: :ok
 
   defp load_profile(dependencies, %{provider: provider}) when is_binary(provider) do
     case invoke(dependencies.profile_for, [provider, @catalog_actor]) do

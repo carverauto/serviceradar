@@ -16,12 +16,94 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     # The primary read deliberately carries a select preparation; see `read :read`.
     primary_read_warning?: false
 
+  alias Ash.Changeset.OriginalDataNotAvailable
   alias ServiceRadar.Credentials.Changes.GuardCredentialDestroy
   alias ServiceRadar.Credentials.Changes.WriteSecretLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
   @credential_in_use_message "credential_in_use"
+
+  defmodule GuardControlPlaneManaged do
+    @moduledoc false
+    use Ash.Resource.Change
+
+    alias Ash.Error.Changes.InvalidAttribute
+
+    @impl true
+    def change(changeset, _opts, _context) do
+      case check(changeset) do
+        :ok -> changeset
+        {:error, err} -> Ash.Changeset.add_error(changeset, err)
+      end
+    end
+
+    @impl true
+    def atomic(changeset, _opts, _context) do
+      if changeset.action_type != :create and
+           match?(%OriginalDataNotAvailable{}, changeset.data) do
+        {:not_atomic, "verifying managed_by requires loaded credential state"}
+      else
+        case check(changeset) do
+          :ok -> :ok
+          {:error, err} -> {:error, [err]}
+        end
+      end
+    end
+
+    defp check(%{action_type: :create} = changeset) do
+      allowed? = Map.get(changeset.context, :control_plane_managed_allowed) == true
+      managed_by = proposed(changeset, :managed_by) || :operator
+      cred_gen = proposed(changeset, :credential_generation)
+
+      cond do
+        managed_by == :control_plane and not allowed? ->
+          {:error,
+           InvalidAttribute.exception(
+             field: :managed_by,
+             message: "Managed by ServiceRadar Cloud"
+           )}
+
+        not is_nil(cred_gen) and not allowed? ->
+          {:error,
+           InvalidAttribute.exception(
+             field: :credential_generation,
+             message: "Managed by ServiceRadar Cloud"
+           )}
+
+        true ->
+          :ok
+      end
+    end
+
+    defp check(changeset) do
+      allowed? = Map.get(changeset.context, :control_plane_managed_allowed) == true
+      existing_managed_by = is_map(changeset.data) && Map.get(changeset.data, :managed_by)
+
+      if existing_managed_by == :control_plane and not allowed? do
+        {:error,
+         InvalidAttribute.exception(
+           field: :managed_by,
+           message: "Managed by ServiceRadar Cloud"
+         )}
+      else
+        :ok
+      end
+    end
+
+    defp proposed(changeset, field) do
+      case Keyword.fetch(changeset.atomics, field) do
+        {:ok, val} ->
+          val
+
+        :error ->
+          case Ash.Changeset.fetch_change(changeset, field) do
+            {:ok, val} -> val
+            :error -> Map.get(changeset.attributes, field)
+          end
+      end
+    end
+  end
 
   @fields [
     :name,
@@ -30,6 +112,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :public_fingerprint,
+    :managed_by,
+    :credential_generation,
     :source_type,
     :secret_provider_id,
     :external_secret_ref,
@@ -61,7 +145,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :complete_rotation,
     :fail_rotation,
     :disable_rotation,
-    :enable_rotation
+    :enable_rotation,
+    :update_cloud_metadata
   ]
 
   @public_read_fields [:id, :inserted_at, :updated_at | @fields] ++ @rotation_read_fields
@@ -70,6 +155,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :provider,
     :credential_kind,
     :username,
+    :managed_by,
+    :credential_generation,
     :metadata,
     :source_type,
     :secret_provider_id,
@@ -210,24 +297,39 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     create :create do
       accept [:secret_payload | @fields]
+      change GuardControlPlaneManaged
     end
 
     update :edit_details do
       accept @editable_fields
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
+    end
+
+    update :update_cloud_metadata do
+      accept [:metadata, :last_resolved_at, :last_resolution_status, :last_resolution_message]
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
     end
 
     update :schedule_rotation do
       accept [:next_rotation_due_at]
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
     end
 
     update :mark_rotation_due do
       accept [:next_rotation_due_at]
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:rotation_due)
       change {WriteSecretLifecycleEvent, action: :mark_rotation_due}
     end
 
     update :start_rotation do
       accept []
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:rotating)
       change set_attribute(:rotation_started_at, &DateTime.utc_now/0)
       change {WriteSecretLifecycleEvent, action: :start_rotation}
@@ -242,6 +344,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
         :metadata
       ]
 
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:active)
       change set_attribute(:last_rotated_at, &DateTime.utc_now/0)
       change set_attribute(:rotation_started_at, nil)
@@ -252,6 +356,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :fail_rotation do
       argument :message, :string, allow_nil?: false
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:rotation_failed)
       change set_attribute(:rotation_started_at, nil)
       change set_attribute(:last_rotation_failed_at, &DateTime.utc_now/0)
@@ -261,12 +367,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :disable_rotation do
       accept []
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:disabled)
       change {WriteSecretLifecycleEvent, action: :disable_rotation}
     end
 
     update :enable_rotation do
       accept []
+      atomic_upgrade_with :read
+      change GuardControlPlaneManaged
       change transition_state(:active)
       change {WriteSecretLifecycleEvent, action: :enable_rotation}
     end
@@ -350,6 +460,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? true
       description "Optional public key, certificate, or token fingerprint"
+    end
+
+    attribute :managed_by, :atom do
+      allow_nil? false
+      public? true
+      default :operator
+      constraints one_of: [:operator, :control_plane]
+      description "Custody authority (:operator or :control_plane)"
+    end
+
+    attribute :credential_generation, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
+      description "Strictly increasing Cloud-delivered credential generation"
     end
 
     attribute :source_type, :atom do

@@ -7,9 +7,11 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveCredentialResolver
   alias ServiceRadar.Camera.ArchiveDestinations
   alias ServiceRadar.Camera.CameraRecordingPolicies
   alias ServiceRadar.Camera.CameraRecordingPolicy
+  alias ServiceRadar.Camera.CloudArchiveCredentials
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecorderClaim
@@ -17,6 +19,7 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.RecordingHealth
@@ -25,6 +28,8 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Camera.RecordingOperation
   alias ServiceRadar.Camera.RetentionCalculator
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialRotation
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.CredentialUsage
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
@@ -33,6 +38,9 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
   alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.AuditHistory
+  alias ServiceRadar.Storage.StorageEntitlement
+  alias ServiceRadar.Storage.StorageEntitlements
+  alias ServiceRadar.Storage.StorageUsageReports
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
   require Ash.Query
@@ -1548,6 +1556,812 @@ defmodule ServiceRadar.Camera.NVROperatorSettingsIntegrationTest do
              )
 
     refute Enum.any?(cleared_health.alerts, &(&1.check_id == check_name))
+  end
+
+  test "F.3, F.4, F.5 & F.11: StorageEntitlement enforces revision ordering, idempotent replay, PaperTrail AuditHistory, hosted pre-entitlement hold, plan bounds, and pending application" do
+    prev_hosted = Application.get_env(:serviceradar_core, :hosted_runtime_contract_version)
+
+    on_exit(fn ->
+      if is_nil(prev_hosted) do
+        Application.delete_env(:serviceradar_core, :hosted_runtime_contract_version)
+      else
+        Application.put_env(:serviceradar_core, :hosted_runtime_contract_version, prev_hosted)
+      end
+    end)
+
+    system_actor = SystemActor.system(:storage_entitlement_db_test)
+    deployment_ref = Ecto.UUID.generate()
+    installation = %{deployment_ref: deployment_ref, generation: 1}
+
+    admin = %{
+      id: "admin-entitlement-db",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.recording.operate",
+          "settings.credentials.manage",
+          "settings.audit.view"
+        ])
+    }
+
+    # 1. Self-hosted install: unaffected by entitlements; apply_document refused; 400-day retention allowed
+    Application.delete_env(:serviceradar_core, :hosted_runtime_contract_version)
+    assert StorageEntitlements.hosted_install?() == false
+
+    assert {:error, :self_hosted_install} =
+             StorageEntitlements.apply_document(
+               installation,
+               build_entitlement_doc(deployment_ref, 1),
+               actor: system_actor
+             )
+
+    assert {:ok, stored_400} =
+             RecordingArchiveSettings.save_settings(
+               %{archive_retention_mode: :limited, archive_retention_days: 400},
+               actor: admin
+             )
+
+    assert stored_400.archive_retention_days == 400
+
+    # 2. Switch to hosted install BEFORE first entitlement: archive jobs are held!
+    Application.put_env(:serviceradar_core, :hosted_runtime_contract_version, "1")
+    assert StorageEntitlements.hosted_install?() == true
+
+    assert {true, :waiting_for_entitlement} = StorageEntitlements.archive_uploads_held?()
+    assert {:ok, unconfigured} = StorageEntitlements.status(installation, actor: system_actor)
+    assert unconfigured["status"] == "unconfigured"
+    assert unconfigured["waiting_for_entitlement"] == true
+    assert unconfigured["archive_jobs_held"] == true
+
+    assert {:ok, waiting_overview} = RecordingArchiveSettings.get_overview(actor: admin)
+    assert waiting_overview.waiting_for_entitlement? == true
+    assert waiting_overview.archive_jobs_held? == true
+
+    # 3. Wrong deployment_ref and unknown fields are refused
+    assert {:error, :entitlement_deployment_mismatch} =
+             StorageEntitlements.apply_document(
+               installation,
+               build_entitlement_doc(Ecto.UUID.generate(), 7),
+               actor: system_actor
+             )
+
+    assert {:error, :invalid_storage_entitlement} =
+             StorageEntitlements.apply_document(
+               installation,
+               Map.put(build_entitlement_doc(deployment_ref, 7), "unknown_field", 123),
+               actor: system_actor
+             )
+
+    # 4. Apply revision 7 (max_days = 365, max_recording_cameras = 1, allocation = 500 GB)
+    doc_rev7 =
+      build_entitlement_doc(deployment_ref, 7, %{
+        "allocation_bytes" => 500_000_000_000,
+        "retention" => %{"max_days" => 365, "default_days" => 30},
+        "limits" => %{"max_recording_cameras" => 1}
+      })
+
+    assert {:ok, applied7} =
+             StorageEntitlements.apply_document(installation, doc_rev7, actor: system_actor)
+
+    assert applied7["status"] == "applied"
+    assert applied7["applied_revision"] == 7
+    assert applied7["waiting_for_entitlement"] == false
+    assert applied7["archive_jobs_held"] == false
+    assert {false, nil} = StorageEntitlements.archive_uploads_held?()
+
+    # PaperTrail AuditHistory recorded exactly 1 version for revision 7
+    versions_after_7 =
+      AuditHistory.list_recent(
+        actor: admin,
+        resource_types: [StorageEntitlement],
+        limit: 10
+      )
+
+    assert length(versions_after_7) == 1
+
+    # Exact replay of revision 7 succeeds idempotently with ZERO new PaperTrail versions!
+    assert {:ok, replayed7} =
+             StorageEntitlements.apply_document(installation, doc_rev7, actor: system_actor)
+
+    assert replayed7["document_sha256"] == applied7["document_sha256"]
+
+    assert length(
+             AuditHistory.list_recent(
+               actor: admin,
+               resource_types: [StorageEntitlement],
+               limit: 10
+             )
+           ) == 1
+
+    # Conflicting document under revision 7, stale revision 6, and stale generation are refused
+    conflicting_rev7 =
+      build_entitlement_doc(deployment_ref, 7, %{
+        "allocation_bytes" => 600_000_000_000
+      })
+
+    assert {:error, :entitlement_revision_conflict} =
+             StorageEntitlements.apply_document(installation, conflicting_rev7,
+               actor: system_actor
+             )
+
+    assert {:error, :entitlement_revision_stale} =
+             StorageEntitlements.apply_document(
+               installation,
+               build_entitlement_doc(deployment_ref, 6),
+               actor: system_actor
+             )
+
+    # 5. Stored 400-day retention is kept while effective is 365 (plan maximum)
+    assert {:ok, bounded_overview} = RecordingArchiveSettings.get_overview(actor: admin)
+    assert bounded_overview.settings.archive_retention_days == 400
+    assert bounded_overview.effective_archive_retention.configured_days == 400
+    assert bounded_overview.effective_archive_retention.effective_days == 365
+
+    assert bounded_overview.effective_archive_retention.summary_label ==
+             "configured 400 days, effective 365 days (plan maximum)"
+
+    assert bounded_overview.reaper_enabled? == true
+    assert bounded_overview.capacity_policy_source == "entitlement:7"
+
+    # Saving > 365 days, :unlimited, or object budget/policy is refused with "limited by your plan"
+    assert {:error, err_over} =
+             RecordingArchiveSettings.save_settings(
+               %{archive_retention_mode: :limited, archive_retention_days: 366},
+               actor: admin
+             )
+
+    assert Exception.message(err_over) =~ "limited by your plan"
+
+    assert {:error, err_unlim} =
+             RecordingArchiveSettings.save_settings(
+               %{archive_retention_mode: :unlimited, archive_retention_days: nil},
+               actor: admin
+             )
+
+    assert Exception.message(err_unlim) =~ "limited by your plan"
+
+    assert {:error, err_budget} =
+             RecordingArchiveSettings.save_settings(
+               %{
+                 object_budget_mode: :limited,
+                 object_budget_bytes: 200_000_000_000,
+                 object_capacity_policy: :stop_archiving
+               },
+               actor: admin
+             )
+
+    assert Exception.message(err_budget) =~ "limited by your plan"
+
+    # Watermarks remain editable on a hosted install!
+    assert {:ok, edited_watermarks} =
+             RecordingArchiveSettings.save_settings(
+               %{object_high_water_percent: 88, object_low_water_percent: 78},
+               actor: admin
+             )
+
+    assert edited_watermarks.object_high_water_percent == 88
+    assert edited_watermarks.archive_retention_days == 400
+
+    # Camera limit (max_recording_cameras == 1): 1st continuous camera succeeds, 2nd is refused
+    ctx1 = Fixtures.context()
+    ctx2 = Fixtures.context()
+
+    assert {:ok, _pol1} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx1.source.id,
+                 stream_profile_id: ctx1.profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-ent-0"
+               },
+               actor: admin
+             )
+
+    assert {:error, err_cam_limit} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx2.source.id,
+                 stream_profile_id: ctx2.profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-ent-0"
+               },
+               actor: admin
+             )
+
+    assert Exception.message(err_cam_limit) =~ "limited by your plan"
+
+    # 6. Pending allocation decrease (revision 8) before vs after effective_at, then cancelled by revision 9
+    t_now = DateTime.utc_now()
+    t_eff = DateTime.shift(t_now, day: 1)
+
+    doc_rev8 =
+      build_entitlement_doc(deployment_ref, 8, %{
+        "allocation_bytes" => 500_000_000_000,
+        "retention" => %{"max_days" => 365, "default_days" => 30},
+        "limits" => %{"max_recording_cameras" => 2},
+        "pending" => %{
+          "effective_at" => DateTime.to_iso8601(t_eff),
+          "allocation_bytes" => 250_000_000_000,
+          "retention" => %{"max_days" => 90}
+        }
+      })
+
+    assert {:ok, _} =
+             StorageEntitlements.apply_document(installation, doc_rev8,
+               actor: system_actor,
+               now: t_now
+             )
+
+    before_eff = StorageEntitlements.effective_state(now: DateTime.shift(t_eff, second: -10))
+    assert before_eff.recordings.allocation_bytes == 500_000_000_000
+    assert before_eff.recordings.retention_max_days == 365
+    assert is_map(before_eff.pending)
+    assert is_map(before_eff.pending_projection)
+
+    at_eff = StorageEntitlements.effective_state(now: t_eff)
+    assert at_eff.recordings.allocation_bytes == 250_000_000_000
+    assert at_eff.recordings.retention_max_days == 90
+    assert at_eff.recordings.pending_applied? == true
+    assert is_nil(at_eff.pending)
+
+    # Revision 9 without pending cancels the pending block
+    doc_rev9 = build_entitlement_doc(deployment_ref, 9, %{"allocation_bytes" => 500_000_000_000})
+
+    assert {:ok, applied9} =
+             StorageEntitlements.apply_document(installation, doc_rev9,
+               actor: system_actor,
+               now: t_now
+             )
+
+    assert is_nil(get_in(applied9, ["consumers", "recordings", "pending"]))
+
+    # SQL CHECK constraints on storage_entitlements reject non-singleton ID and invalid overage
+    assert_constraint_violation(
+      "storage_entitlements_singleton",
+      "UPDATE platform.storage_entitlements SET id = 'other' WHERE id = 'deployment'",
+      []
+    )
+
+    assert_constraint_violation(
+      "storage_entitlements_valid",
+      "UPDATE platform.storage_entitlements SET recordings_overage_mode = 'metered', recordings_overage_cap_bytes = NULL WHERE id = 'deployment'",
+      []
+    )
+  end
+
+  test "F.6, F.7, F.8, F.9 & F.11: CloudArchiveCredentials custody & rotation drain, C3a entitlement reaper under suspension, closed-day usage report replay, and held-object manifest" do
+    prev_hosted = Application.get_env(:serviceradar_core, :hosted_runtime_contract_version)
+    Application.put_env(:serviceradar_core, :hosted_runtime_contract_version, "1")
+
+    on_exit(fn ->
+      if is_nil(prev_hosted) do
+        Application.delete_env(:serviceradar_core, :hosted_runtime_contract_version)
+      else
+        Application.put_env(:serviceradar_core, :hosted_runtime_contract_version, prev_hosted)
+      end
+    end)
+
+    system_actor = SystemActor.system(:cloud_archive_db_test)
+    deployment_ref = Ecto.UUID.generate()
+    installation = %{deployment_ref: deployment_ref, generation: 1}
+    now = ~U[2026-11-17 14:00:00.000000Z]
+    yesterday = ~D[2026-11-16]
+    yesterday_ts = ~U[2026-11-16 12:00:00.000000Z]
+
+    admin = %{
+      id: "admin-cloud-creds-db",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "settings.recording.view",
+          "settings.recording.manage",
+          "settings.recording.operate",
+          "settings.credentials.manage",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold"
+        ])
+    }
+
+    # Register Cloud-managed ArchiveBinding (non-"operator:" provisioning_ref)
+    cloud_dest = Fixtures.archive_destination("cloud-recordings-#{Ecto.UUID.generate()}")
+    assert {:ok, cloud_binding} = ArchiveBinding.register(cloud_dest, actor: system_actor)
+
+    # 1. Deliver writer credential generation 1 (never echoes secret material!)
+    ak_g1 = String.duplicate("a", 20)
+    sk_g1 = String.duplicate("s", 40)
+
+    assert {:ok, delivered_g1} =
+             CloudArchiveCredentials.deliver(
+               installation,
+               "writer",
+               %{
+                 "deployment_ref" => deployment_ref,
+                 "credential_generation" => 1,
+                 "access_key_id" => ak_g1,
+                 "secret_access_key" => sk_g1
+               },
+               actor: system_actor,
+               now: now
+             )
+
+    encoded_g1 = Jason.encode!(delivered_g1)
+    refute encoded_g1 =~ ak_g1
+    refute encoded_g1 =~ sk_g1
+    assert delivered_g1["credential_generation"] == 1
+    assert delivered_g1["slot_bound"] == true
+    assert delivered_g1["draining_generations"] == []
+
+    # Enable archiving with the Cloud binding
+    assert {:ok, _} =
+             RecordingArchiveSettings.save_settings(
+               %{active_archive_binding_id: cloud_binding.id, archive_enabled: true},
+               actor: system_actor
+             )
+
+    {:ok, secret_g1} = NetworkCredentialSecret.get_by_id(delivered_g1["secret_id"], actor: admin)
+    assert secret_g1.managed_by == :control_plane
+    assert secret_g1.credential_generation == 1
+
+    # CredentialUsage reports "Managed by ServiceRadar Cloud"
+    assert {:ok, usage_g1} = CredentialUsage.for_secret(secret_g1.id, actor: admin, now: now)
+    assert usage_g1.managed_by == :control_plane
+    assert usage_g1.management_label == "Managed by ServiceRadar Cloud"
+
+    assert Enum.any?(
+             usage_g1.consumers,
+             &(&1.kind == :serviceradar_cloud and &1.label == "Managed by ServiceRadar Cloud")
+           )
+
+    # Tenant operator cannot edit, rotate, disable, delete, or clear/replace Cloud-managed credential or binding!
+    assert {:error, edit_err} =
+             secret_g1
+             |> Ash.Changeset.for_update(:edit_details, %{name: "Tampered"}, actor: admin)
+             |> Ash.update(actor: admin)
+
+    assert Exception.message(edit_err) =~ "Managed by ServiceRadar Cloud"
+
+    assert {:error, :credential_rotation_not_allowed} =
+             CredentialRotation.rotate(
+               secret_g1,
+               %{
+                 "access_key_id" => String.duplicate("b", 20),
+                 "secret_access_key" => String.duplicate("t", 40)
+               },
+               admin,
+               dependencies: %{
+                 authorize: fn _, _ -> {:ok, %{user: admin, permissions: admin.permissions}} end
+               }
+             )
+
+    assert {:error, disable_err} =
+             secret_g1
+             |> Ash.Changeset.for_update(:disable_rotation, %{}, actor: system_actor)
+             |> Ash.update(actor: system_actor)
+
+    assert Exception.message(disable_err) =~ "Managed by ServiceRadar Cloud"
+
+    assert {:error, destroy_err} =
+             secret_g1
+             |> Ash.Changeset.for_destroy(
+               :destroy_permanently,
+               %{confirm_secret_id: secret_g1.id},
+               actor: admin
+             )
+             |> Ash.destroy(actor: admin)
+
+    assert Exception.message(destroy_err) =~ "Managed by ServiceRadar Cloud"
+
+    assert {:error, slot_clear_err} =
+             RecordingArchiveSettings.save_settings(
+               %{writer_credential_secret_id: nil},
+               actor: admin
+             )
+
+    assert Exception.message(slot_clear_err) =~ "Managed by ServiceRadar Cloud"
+
+    assert {:error, binding_clear_err} =
+             RecordingArchiveSettings.save_settings(
+               %{active_archive_binding_id: nil, archive_enabled: false},
+               actor: admin
+             )
+
+    assert Exception.message(binding_clear_err) =~ "Managed by ServiceRadar Cloud"
+
+    # SQL CHECK constraint on network_credential_secrets rejects invalid managed_by or generation <= 0
+    assert_constraint_violation(
+      "network_credential_secrets_managed_by_valid",
+      "UPDATE platform.network_credential_secrets SET credential_generation = 0 WHERE id = $1",
+      [Ecto.UUID.dump!(secret_g1.id)]
+    )
+
+    # 2. Issue an active in-flight CredentialBrokerGrant on gen 1, then rotate to gen 2!
+    assert {:ok, in_flight_grant} =
+             ArchiveCredentialResolver.issue_or_reuse_grant(
+               cloud_binding,
+               :writer,
+               secret_g1.id,
+               actor: system_actor,
+               now: now,
+               ttl_seconds: 600
+             )
+
+    ak_g2 = String.duplicate("c", 20)
+    sk_g2 = String.duplicate("u", 40)
+
+    assert {:ok, delivered_g2} =
+             CloudArchiveCredentials.deliver(
+               installation,
+               :writer,
+               %{
+                 "deployment_ref" => deployment_ref,
+                 "credential_generation" => 2,
+                 "access_key_id" => ak_g2,
+                 "secret_access_key" => sk_g2
+               },
+               actor: system_actor,
+               now: now,
+               destination_tester: fn ctx ->
+                 {:ok,
+                  %{
+                    "status" => "passed",
+                    "members" => ["nvr-0"],
+                    "detail" => "gen=#{ctx.credential_generation}"
+                  }}
+               end
+             )
+
+    assert delivered_g2["credential_generation"] == 2
+    assert delivered_g2["slot_bound"] == true
+    assert delivered_g2["draining_generations"] == [1]
+    assert delivered_g2["destination_test"]["status"] == "passed"
+    refute Jason.encode!(delivered_g2) =~ sk_g2
+
+    # Previous generation 1 remains usable via its in-flight grant!
+    assert {:ok, resolved_g1} =
+             ArchiveCredentialResolver.resolve_runtime_credential(
+               cloud_binding,
+               :writer,
+               in_flight_grant,
+               actor: system_actor,
+               now: DateTime.shift(now, second: 30)
+             )
+
+    assert resolved_g1["generation"] == 1
+    assert resolved_g1["secret_access_key"] == sk_g1
+
+    # Once the in-flight grant finishes (consumed), status drains gen 1 to :disabled!
+    assert {:ok, _consumed} = CredentialBrokerGrant.consume(in_flight_grant, actor: system_actor)
+
+    assert {:ok, status_after_drain} =
+             CloudArchiveCredentials.status(installation, :writer, actor: system_actor, now: now)
+
+    assert status_after_drain["credential_generation"] == 2
+    assert status_after_drain["draining_generations"] == []
+
+    {:ok, drained_g1} = NetworkCredentialSecret.get_by_id(secret_g1.id, actor: admin)
+    assert drained_g1.rotation_state == :disabled
+
+    # 3. Seal 2 verified archive blocks on yesterday's closed UTC day (1 unheld + 1 held),
+    #    suspend recording via RecordingControl.stop, and verify C3a reaping + holds + closed-day usage + manifest!
+    gate_dir =
+      Path.join(System.tmp_dir!(), "nvr-entitlement-reap-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(gate_dir)
+    on_exit(fn -> File.rm_rf!(gate_dir) end)
+    _recovery = Fixtures.recording_recovery_gate(gate_dir)
+
+    ctx = Fixtures.context()
+    {:ok, session} = Fixtures.open(ctx)
+    {:ok, session} = Fixtures.activate(ctx, session, "media-entitlement-reap")
+    owner = Fixtures.owner(ctx)
+    storage_id = Ecto.UUID.generate()
+
+    clock = %{
+      "clock_epoch" => "entitlement-reap-clock",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    {:ok, claim} =
+      RecorderOwnership.acquire(
+        owner,
+        Ecto.UUID.generate(),
+        session.media_ingest_id,
+        storage_id,
+        30_000,
+        actor: system_actor
+      )
+
+    assert {:ok, _pol} =
+             CameraRecordingPolicies.save_policy(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 mode: :continuous,
+                 nvr_member: "nvr-reap-0",
+                 storage: :local_and_archive
+               },
+               actor: admin,
+               bypass_entitlement_bounds: true
+             )
+
+    # Block 1: older unheld block (6,000,000 bytes across 3 receipt objects)
+    {:ok, b1} = RecorderOwnership.reserve_block(owner, claim, clock, actor: system_actor)
+
+    {:ok, e1} =
+      RecordingBlocks.freeze_and_catalog(
+        owner,
+        claim,
+        b1,
+        recording_descriptor_with_length(b1, 5_990_000),
+        %{
+          first_unit_pts: 0,
+          first_unit_received_at: ~U[2026-11-16 10:00:00.000000Z],
+          policy_storage: :local_and_archive
+        },
+        actor: system_actor
+      )
+
+    r1 =
+      record_verified_receipt!(
+        cloud_binding,
+        storage_id,
+        b1,
+        "b1",
+        [1_000_000, 4_990_000, 10_000],
+        yesterday_ts,
+        system_actor
+      )
+
+    {:ok, %{entry: e1_ver}} =
+      RecordingHolds.mark_archive_verified_and_move_pin(
+        e1.id,
+        %{
+          nvr_archive_receipt_id: r1.id,
+          archive_binding_id: cloud_binding.id,
+          archived_at: ~U[2026-11-16 10:05:00.000000Z]
+        },
+        actor: system_actor,
+        now: ~U[2026-11-16 10:05:00.000000Z]
+      )
+
+    # Block 2: newer HELD block (6,000,000 bytes across 3 receipt objects)
+    {:ok, b2} = RecorderOwnership.reserve_block(owner, claim, clock, actor: system_actor)
+
+    {:ok, e2} =
+      RecordingBlocks.freeze_and_catalog(
+        owner,
+        claim,
+        b2,
+        recording_descriptor_with_length(b2, 5_990_000),
+        %{
+          first_unit_pts: 9_000_000,
+          first_unit_received_at: ~U[2026-11-16 11:00:00.000000Z],
+          policy_storage: :local_and_archive
+        },
+        actor: system_actor
+      )
+
+    r2 =
+      record_verified_receipt!(
+        cloud_binding,
+        storage_id,
+        b2,
+        "b2",
+        [1_000_000, 4_990_000, 10_000],
+        yesterday_ts,
+        system_actor
+      )
+
+    {:ok, %{entry: e2_ver}} =
+      RecordingHolds.mark_archive_verified_and_move_pin(
+        e2.id,
+        %{
+          nvr_archive_receipt_id: r2.id,
+          archive_binding_id: cloud_binding.id,
+          archived_at: ~U[2026-11-16 11:05:00.000000Z]
+        },
+        actor: system_actor,
+        now: ~U[2026-11-16 11:05:00.000000Z]
+      )
+
+    assert {:ok, hold} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 start_us: e2_ver.timeline_start_us,
+                 end_us: e2_ver.timeline_end_us,
+                 kind: :investigation,
+                 reason: "Preserve incident window"
+               },
+               actor: admin,
+               now: ~U[2026-11-16 11:30:00.000000Z]
+             )
+
+    # Apply entitlement rev 12: allocation = 10_000_000 bytes (high water 90% = 9MB, low water 80% = 8MB).
+    # Current usage = 12_000_000 bytes (> 9MB high water) -> C3a reaper must reap oldest unheld (e1_ver = 6MB)
+    # down to 6MB (<= 8MB low water), leaving local copy of e1_ver present and keeping held e2_ver!
+    doc_rev12 =
+      build_entitlement_doc(deployment_ref, 12, %{
+        "allocation_bytes" => 10_000_000,
+        "capacity_policy" => "reap_oldest"
+      })
+
+    assert {:ok, _} =
+             StorageEntitlements.apply_document(installation, doc_rev12,
+               actor: system_actor,
+               now: now
+             )
+
+    # Query closed UTC day (2026-11-16) BEFORE today's reaping — persists report_revision == 1
+    assert {:ok, usage_call_1} =
+             StorageUsageReports.query_closed_days(
+               %{"from" => Date.to_iso8601(yesterday)},
+               actor: system_actor,
+               now: now
+             )
+
+    assert [
+             %{
+               "date" => "2026-11-16",
+               "report_revision" => 1,
+               "consumers" => %{"recordings" => day_rec_1}
+             }
+           ] =
+             usage_call_1["days"]
+
+    assert day_rec_1["retained_bytes_end"] >= 12_000_000
+    assert day_rec_1["held_bytes"] >= 6_000_000
+    assert day_rec_1["object_count"] >= 6
+    refute Jason.encode!(usage_call_1) =~ to_string(ctx.source.display_name || "camera")
+    refute Jason.encode!(usage_call_1) =~ to_string(ctx.source.id)
+
+    # Enforce durable recording stop (suspension, F.9)!
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(
+               installation,
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               actor: system_actor
+             )
+
+    assert {true, :recording_suspended} = StorageEntitlements.archive_uploads_held?()
+
+    # Under suspension, C3a reaper STILL runs, reaps e1_ver archive copy (recording entitlement:12),
+    # keeps e1_ver.local_state == :present, and preserves held e2_ver!
+    assert {:ok, reap_res} =
+             StorageEntitlements.reap_object_capacity(
+               now: now,
+               complete_deletion?: true
+             )
+
+    assert reap_res.reaper_enabled? == true
+    assert reap_res.settings_revision == "entitlement:12"
+    assert reap_res.reaped_count >= 1
+
+    reloaded_e1 = Ash.get!(RecordingCatalogEntry, e1_ver.id, actor: system_actor)
+    assert reloaded_e1.archive_state == :deleted
+    assert reloaded_e1.archive_deleted_reason == :object_capacity
+    assert reloaded_e1.local_state == :present
+
+    reloaded_e2 = Ash.get!(RecordingCatalogEntry, e2_ver.id, actor: system_actor)
+    assert reloaded_e2.archive_state == :verified
+
+    reloaded_hold = Ash.get!(RecordingHold, hold.id, actor: system_actor)
+    assert reloaded_hold.state == :accepted
+
+    # Requesting the SAME closed UTC day again returns the EXACT same report_revision == 1 and figures!
+    assert {:ok, usage_call_2} =
+             StorageUsageReports.query_closed_days(
+               %{"from" => Date.to_iso8601(yesterday)},
+               actor: system_actor,
+               now: now
+             )
+
+    assert usage_call_2["days"] == usage_call_1["days"]
+
+    # Explicit recomputation increments report_revision to 2!
+    assert {:ok, recomputed_day} =
+             StorageUsageReports.recompute_closed_day(yesterday, actor: system_actor, now: now)
+
+    assert recomputed_day["report_revision"] == 2
+
+    # Current-day gauges return finite numbers for /metrics
+    assert {:ok, gauges} = StorageUsageReports.current_gauges(now: now)
+    assert is_integer(gauges.used_bytes) and gauges.used_bytes >= 6_000_000
+    assert gauges.hard_limit_bytes == 10_000_000
+    assert is_float(gauges.cutoff_days)
+    assert gauges.held_bytes >= 6_000_000
+
+    # Held-object manifest returns held archive object keys, sizes/lengths, and SHA-256 digests!
+    assert {:ok, manifest} =
+             RecordingHolds.held_objects_manifest(%{"limit" => 10}, actor: system_actor)
+
+    matching_hold_entry = Enum.find(manifest["holds"], &(&1["hold_id"] == hold.id))
+    assert matching_hold_entry
+
+    assert [%{"block_key" => block_key_out, "objects" => manifest_objs}] =
+             matching_hold_entry["blocks"]
+
+    assert block_key_out == b2.block_key
+    assert length(manifest_objs) == 3
+    assert Enum.map(manifest_objs, & &1["length"]) == [1_000_000, 4_990_000, 10_000]
+    assert Enum.map(manifest_objs, & &1["size"]) == [1_000_000, 4_990_000, 10_000]
+    assert Enum.all?(manifest_objs, &(String.length(&1["sha256"]) == 64))
+  end
+
+  defp build_entitlement_doc(deployment_ref, revision, rec_overrides \\ %{}) do
+    rec_base = %{
+      "enabled" => true,
+      "allocation_bytes" => 500_000_000_000,
+      "overage" => %{"mode" => "off"},
+      "capacity_policy" => "reap_oldest",
+      "retention" => %{"max_days" => 365, "default_days" => 30},
+      "limits" => %{"max_recording_cameras" => 4}
+    }
+
+    %{
+      "schema_version" => 1,
+      "deployment_ref" => deployment_ref,
+      "revision" => revision,
+      "issued_at" => "2026-11-17T10:00:00Z",
+      "consumers" => %{
+        "recordings" => Map.merge(rec_base, rec_overrides)
+      }
+    }
+  end
+
+  defp record_verified_receipt!(binding, storage_id, block, prefix, lengths, verified_at, actor) do
+    [l1, l2, l3] = lengths
+
+    payload = %{
+      "version" => 2,
+      "storage_id" => storage_id,
+      "block_key" => block.block_key,
+      "verified_at_ms" => DateTime.to_unix(verified_at, :millisecond),
+      "objects" => [
+        %{
+          "name" => "init.mp4",
+          "key" => "#{binding.namespace}/#{prefix}/init.mp4",
+          "length" => l1,
+          "sha256" => :sha256 |> :crypto.hash("#{prefix}:init") |> Base.encode16(case: :lower),
+          "etag" => "\"etag-#{prefix}-1\"",
+          "version_id" => "v1"
+        },
+        %{
+          "name" => "media.m4s",
+          "key" => "#{binding.namespace}/#{prefix}/media.m4s",
+          "length" => l2,
+          "sha256" => :sha256 |> :crypto.hash("#{prefix}:media") |> Base.encode16(case: :lower),
+          "etag" => "\"etag-#{prefix}-2\"",
+          "version_id" => "v1"
+        },
+        %{
+          "name" => "descriptor.json",
+          "key" => "#{binding.namespace}/#{prefix}/descriptor.json",
+          "length" => l3,
+          "sha256" => :sha256 |> :crypto.hash("#{prefix}:desc") |> Base.encode16(case: :lower),
+          "etag" => "\"etag-#{prefix}-3\"",
+          "version_id" => "v1"
+        }
+      ]
+    }
+
+    NVRArchiveReceipt
+    |> Ash.Changeset.for_create(
+      :record,
+      %{
+        archive_binding_id: binding.id,
+        receipt_bytes: Jason.encode!(payload),
+        recording_block_id: block.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp assert_constraint_violation(expected_constraint, sql, params) do

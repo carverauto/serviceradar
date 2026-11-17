@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
 
     with {:ok, %{scope: fresh_scope, secret: secret}} <-
            authorize_and_reload(scope, secret_id, dependencies),
+         :ok <- ensure_operator_managed(secret),
          attrs = %{
            name: param(params, "name"),
            description: params |> param("description") |> blank_to_nil()
@@ -45,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
     else
       {:error, :not_authorized} = error -> error
       {:error, :credential_not_found} = error -> error
+      {:error, :credential_managed_by_control_plane} = error -> error
       _other -> {:error, :credential_edit_failed}
     end
   rescue
@@ -63,6 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
 
     with {:ok, %{scope: fresh_scope, secret: secret}} <-
            authorize_and_reload(scope, secret_id, dependencies),
+         :ok <- ensure_operator_managed(secret),
          {:ok, normalized_values} <- normalize_submitted_rotation_values(submitted_values),
          {:ok, rotated} <- dependencies.rotate.(secret, normalized_values, fresh_scope) do
       {:ok, rotated}
@@ -87,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
 
     with {:ok, %{scope: fresh_scope, secret: secret} = context} <-
            authorize_and_reload(scope, secret_id, dependencies),
+         :ok <- ensure_operator_managed(secret),
          :ok <- exact_confirmation(secret, confirmation_id),
          {:ok, usage} <- load_usage_with_context(context, dependencies),
          :ok <- ensure_unused(usage, context) do
@@ -102,6 +106,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
         error
 
       {:error, :credential_not_found} = error ->
+        error
+
+      {:error, :credential_managed_by_control_plane} = error ->
         error
 
       {:error, :credential_confirmation_mismatch} = error ->
@@ -142,10 +149,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
 
   def usage_for_secrets(_scope, _secrets, _opts), do: {:error, :credential_usage_unavailable}
 
-  defp open_operation(:edit, context, _dependencies), do: {:ok, context}
+  defp open_operation(:edit, context, _dependencies) do
+    case ensure_operator_managed(context.secret) do
+      :ok -> {:ok, context}
+      error -> error
+    end
+  end
 
   defp open_operation(:rotate, context, dependencies) do
-    with :ok <- rotatable?(context.secret),
+    with :ok <- ensure_operator_managed(context.secret),
+         :ok <- rotatable?(context.secret),
          {:ok, profile} <- dependencies.profile_for.(context.secret.provider),
          {:ok, method} <- descriptor_method(context.secret, profile) do
       {:ok, Map.put(context, :descriptor, %{profile: profile, method: method})}
@@ -158,11 +171,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialMan
   end
 
   defp open_operation(:delete, context, dependencies) do
-    case load_usage(context.secret.id, context.scope, dependencies) do
-      {:ok, usage} -> {:ok, Map.put(context, :usage, usage)}
-      {:error, :credential_usage_unavailable} -> {:ok, Map.put(context, :usage, :unavailable)}
+    with :ok <- ensure_operator_managed(context.secret) do
+      case load_usage(context.secret.id, context.scope, dependencies) do
+        {:ok, usage} -> {:ok, Map.put(context, :usage, usage)}
+        {:error, :credential_usage_unavailable} -> {:ok, Map.put(context, :usage, :unavailable)}
+      end
     end
   end
+
+  defp ensure_operator_managed(secret) when is_map(secret) do
+    if Map.get(secret, :managed_by) in [:control_plane, "control_plane"] do
+      {:error, :credential_managed_by_control_plane}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_operator_managed(_secret), do: :ok
 
   defp authorize_and_reload(scope, secret_id, dependencies) do
     with {:ok, fresh_scope} <- dependencies.authorize_current.(scope, @permission),

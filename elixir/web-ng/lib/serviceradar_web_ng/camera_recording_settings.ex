@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
+  alias ServiceRadar.Storage.StorageEntitlements
 
   require Ash.Query
 
@@ -136,6 +137,149 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   @doc """
+  Default entitlement view used before connected mount or on self-hosted installs.
+  """
+  @spec default_entitlement_view() :: map()
+  def default_entitlement_view do
+    %{
+      hosted?: false,
+      applied?: false,
+      waiting_for_entitlement?: false,
+      archive_jobs_held?: false,
+      revision: nil,
+      recordings_enabled?: true,
+      allocation_bytes: nil,
+      overage_mode: nil,
+      overage_cap_bytes: nil,
+      hard_limit_bytes: nil,
+      capacity_policy: nil,
+      retention_max_days: nil,
+      retention_default_days: nil,
+      max_recording_cameras: nil,
+      pending: nil,
+      pending_projection: nil
+    }
+  end
+
+  @doc """
+  Normalizes a raw `StorageEntitlements.effective_state/1` (or test fixture) map
+  into a consistent UI view structure.
+  """
+  @spec normalize_entitlement_view(map() | nil) :: map()
+  def normalize_entitlement_view(nil), do: default_entitlement_view()
+
+  def normalize_entitlement_view(raw) when is_map(raw) do
+    base = default_entitlement_view()
+    rec = fetch_map_or_struct(raw, :recordings) || %{}
+    overage = fetch_map_or_struct(rec, :overage) || fetch_map_or_struct(raw, :overage) || %{}
+    ret = fetch_map_or_struct(rec, :retention) || fetch_map_or_struct(raw, :retention) || %{}
+    limits = fetch_map_or_struct(rec, :limits) || fetch_map_or_struct(raw, :limits) || %{}
+
+    hosted? = truthy_bool(fetch_first(raw, [:hosted?, :hosted_install?]), false)
+    applied? = truthy_bool(fetch_first(raw, [:applied?, :entitlement_applied?]), false)
+
+    waiting? =
+      truthy_bool(
+        fetch_first(raw, [:waiting_for_entitlement?]),
+        hosted? and not applied?
+      )
+
+    archive_held? =
+      truthy_bool(
+        fetch_first(raw, [:archive_jobs_held?]),
+        waiting?
+      )
+
+    rec_enabled? =
+      case fetch_first(rec, [:enabled, :recordings_enabled]) do
+        nil -> truthy_bool(fetch_first(raw, [:recordings_enabled, :recordings_enabled?]), not waiting?)
+        val -> truthy_bool(val, false)
+      end
+
+    allocation_bytes =
+      first_pos_int([
+        fetch_first(rec, [:allocation_bytes]),
+        fetch_first(raw, [:recordings_allocation_bytes, :allocation_bytes])
+      ])
+
+    overage_mode =
+      normalize_overage_mode(
+        fetch_first(overage, [:mode]) ||
+          fetch_first(rec, [:overage_mode]) ||
+          fetch_first(raw, [:recordings_overage_mode, :overage_mode])
+      )
+
+    overage_cap_bytes =
+      first_pos_int([
+        fetch_first(overage, [:cap_bytes]),
+        fetch_first(rec, [:overage_cap_bytes]),
+        fetch_first(raw, [:recordings_overage_cap_bytes, :overage_cap_bytes])
+      ])
+
+    hard_limit_bytes =
+      first_pos_int([
+        fetch_first(rec, [:hard_limit_bytes, :effective_object_budget_bytes]),
+        fetch_first(raw, [:hard_limit_bytes, :effective_object_budget_bytes]),
+        if(overage_mode == :metered, do: overage_cap_bytes, else: allocation_bytes)
+      ])
+
+    capacity_policy =
+      normalize_capacity_policy_atom(
+        fetch_first(rec, [:capacity_policy]) ||
+          fetch_first(raw, [:recordings_capacity_policy, :capacity_policy, :effective_capacity_policy])
+      )
+
+    retention_max_days =
+      first_pos_int([
+        fetch_first(ret, [:max_days]),
+        fetch_first(rec, [:retention_max_days, :max_days]),
+        fetch_first(raw, [:recordings_retention_max_days, :retention_max_days, :effective_max_days])
+      ])
+
+    retention_default_days =
+      first_pos_int([
+        fetch_first(ret, [:default_days]),
+        fetch_first(rec, [:retention_default_days, :default_days]),
+        fetch_first(raw, [:recordings_retention_default_days, :retention_default_days])
+      ])
+
+    max_recording_cameras =
+      first_pos_int([
+        fetch_first(limits, [:max_recording_cameras]),
+        fetch_first(rec, [:max_recording_cameras]),
+        fetch_first(raw, [:recordings_max_recording_cameras, :max_recording_cameras])
+      ])
+
+    pending =
+      normalize_pending_block(fetch_first(rec, [:pending]) || fetch_first(raw, [:recordings_pending, :pending]))
+
+    pending_projection =
+      fetch_first(rec, [:pending_projection]) ||
+        fetch_first(raw, [:pending_projection]) ||
+        (is_map(pending) && fetch_map_or_struct(pending, :projection))
+
+    %{
+      base
+      | hosted?: hosted?,
+        applied?: applied?,
+        waiting_for_entitlement?: waiting?,
+        archive_jobs_held?: archive_held?,
+        revision: first_pos_int([fetch_first(raw, [:revision, :applied_revision])]),
+        recordings_enabled?: rec_enabled?,
+        allocation_bytes: allocation_bytes,
+        overage_mode: overage_mode,
+        overage_cap_bytes: overage_cap_bytes,
+        hard_limit_bytes: hard_limit_bytes,
+        capacity_policy: capacity_policy,
+        retention_max_days: retention_max_days,
+        retention_default_days: retention_default_days,
+        max_recording_cameras: max_recording_cameras,
+        pending: pending,
+        pending_projection: if(is_map(pending_projection), do: pending_projection)
+    }
+  end
+
+  @doc """
   Default overview structure used before connected mount or on fallback.
   """
   @spec default_archive_settings_view() :: map()
@@ -145,10 +289,15 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     %{
       record: nil,
       settings: defaults,
+      entitlement: default_entitlement_view(),
       storage_mode: :local_only,
       form: default_settings_form(),
       retention_form: default_retention_form(),
       active_binding_id: nil,
+      active_binding_managed_by_cloud?: false,
+      writer_managed_by_cloud?: false,
+      reader_managed_by_cloud?: false,
+      retention_managed_by_cloud?: false,
       selected_writer_label: "None selected",
       selected_reader_label: "Use writer credential (reader role)",
       selected_retention_label: "None selected (object retention not enforced)",
@@ -219,13 +368,24 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   @doc """
-  Builds the retention form map from a `RecordingArchiveSettings` struct or map.
+  Builds the retention form map from a `RecordingArchiveSettings` struct or map,
+  incorporating plan bounds when a SaaS storage entitlement is applied.
   """
-  @spec retention_form_from_settings(map()) :: map()
-  def retention_form_from_settings(settings) when is_map(settings) do
+  @spec retention_form_from_settings(map(), map() | nil) :: map()
+  def retention_form_from_settings(settings, entitlement \\ nil) when is_map(settings) do
+    ent = normalize_entitlement_view(entitlement)
     local_policy = Map.get(settings, :local_only_full_policy)
-    object_mode = Map.get(settings, :object_budget_mode, :unlimited)
-    object_policy = Map.get(settings, :object_capacity_policy)
+
+    {object_mode, object_bytes, object_policy} =
+      if ent.applied? and is_integer(ent.hard_limit_bytes) do
+        {"limited", ent.hard_limit_bytes, ent.capacity_policy || :reap_oldest}
+      else
+        {
+          Map.get(settings, :object_budget_mode, :unlimited),
+          Map.get(settings, :object_budget_bytes),
+          Map.get(settings, :object_capacity_policy)
+        }
+      end
 
     {draft_local_policy, local_confirmed} =
       case local_policy do
@@ -247,6 +407,17 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
           {preselect, "false"}
       end
 
+    stored_arch_mode = Map.get(settings, :archive_retention_mode, :limited)
+    stored_arch_days = Map.get(settings, :archive_retention_days, 30)
+
+    {draft_arch_mode, draft_arch_days} =
+      if ent.applied? and is_integer(ent.retention_max_days) and
+           stored_arch_mode in [:unlimited, "unlimited"] do
+        {"limited", ent.retention_max_days}
+      else
+        {to_string(stored_arch_mode), to_string_or_empty(stored_arch_days)}
+      end
+
     %{
       "local_high_water_percent" => to_string(Map.get(settings, :local_high_water_percent, 90)),
       "local_low_water_percent" => to_string(Map.get(settings, :local_low_water_percent, 80)),
@@ -261,10 +432,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         to_string_or_empty(Map.get(settings, :local_only_retention_target_seconds, 604_800)),
       "local_only_max_age_mode" => to_string(Map.get(settings, :local_only_max_age_mode, :unlimited)),
       "local_only_max_age_seconds" => to_string_or_empty(Map.get(settings, :local_only_max_age_seconds)),
-      "archive_retention_mode" => to_string(Map.get(settings, :archive_retention_mode, :limited)),
-      "archive_retention_days" => to_string_or_empty(Map.get(settings, :archive_retention_days, 30)),
+      "archive_retention_mode" => draft_arch_mode,
+      "archive_retention_days" => draft_arch_days,
       "object_budget_mode" => to_string(object_mode),
-      "object_budget_bytes" => to_string_or_empty(Map.get(settings, :object_budget_bytes)),
+      "object_budget_bytes" => to_string_or_empty(object_bytes),
       "object_high_water_percent" => to_string(Map.get(settings, :object_high_water_percent, 90)),
       "object_low_water_percent" => to_string(Map.get(settings, :object_low_water_percent, 80)),
       "object_capacity_policy" => draft_object_policy,
@@ -408,15 +579,21 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     existing = Keyword.get(opts, :existing)
     storage_mode = Keyword.get(opts, :storage_mode, :local_only)
     scope = Keyword.get(opts, :scope)
+    entitlement = normalize_entitlement_view(Keyword.get(opts, :entitlement))
 
-    next_form = merge_retention_preview_form(prev_form, retention_params)
+    next_form = merge_retention_preview_form(prev_form, retention_params, entitlement)
     next_sim = merge_simulator_form(prev_sim, simulator_params)
 
-    {attrs, parse_errors} = build_retention_attrs(next_form, %{}, existing, :preview)
-    changeset_errors = validate_preview_changeset(attrs, existing, scope)
-    errors = Map.merge(changeset_errors, parse_errors)
+    {attrs, parse_errors} = build_retention_attrs(next_form, retention_params, existing, :preview, entitlement)
+    plan_errors = validate_retention_plan_bounds(attrs, retention_params, existing, entitlement)
+    changeset_errors = validate_preview_changeset(attrs, existing, scope, entitlement)
 
-    projection_attrs = build_safe_projection_attrs(next_form, existing)
+    errors =
+      changeset_errors
+      |> Map.merge(parse_errors)
+      |> Map.merge(plan_errors)
+
+    projection_attrs = build_safe_projection_attrs(next_form, existing, entitlement)
     sim_inputs = build_simulator_inputs(next_sim, usage_summary, storage_mode, projection_attrs)
     projection = RetentionCalculator.project_settings(projection_attrs, sim_inputs)
 
@@ -436,22 +613,39 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   @spec save_retention_settings(map(), map(), keyword()) ::
           {:ok, RecordingArchiveSettings.t()} | {:error, %{optional(atom()) => String.t()}}
   def save_retention_settings(scope, params, opts \\ []) when is_map(params) do
+    overview_res = RecordingArchiveSettings.get_overview(actor_opts(scope) ++ opts)
+
     existing =
-      case RecordingArchiveSettings.get_overview(actor_opts(scope) ++ opts) do
+      case overview_res do
         {:ok, %{persisted?: true, settings: settings}} -> settings
         {:ok, %{settings: settings}} -> settings
         {:error, _} -> nil
       end
 
+    entitlement =
+      resolve_entitlement_view(
+        Keyword.get(opts, :entitlement) ||
+          case overview_res do
+            {:ok, ov} -> Map.get(ov, :entitlement)
+            _ -> nil
+          end,
+        actor_opts(scope) ++ opts
+      )
+
     base_form =
       if existing,
-        do: retention_form_from_settings(existing),
+        do: retention_form_from_settings(existing, entitlement),
         else: default_retention_form()
 
     merged_form = merge_retention_submit_form(base_form, params)
-    {attrs, parse_errors} = build_retention_attrs(merged_form, params, existing, :submit)
-    gate_errors = confirmation_gate_errors(merged_form, existing)
-    pre_errors = Map.merge(parse_errors, gate_errors)
+    {attrs, parse_errors} = build_retention_attrs(merged_form, params, existing, :submit, entitlement)
+    gate_errors = confirmation_gate_errors(merged_form, existing, entitlement)
+    plan_errors = validate_retention_plan_bounds(attrs, params, existing, entitlement)
+
+    pre_errors =
+      parse_errors
+      |> Map.merge(gate_errors)
+      |> Map.merge(plan_errors)
 
     if pre_errors == %{} do
       save_fn =
@@ -519,13 +713,22 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   @spec save_archive_settings(map(), map(), boolean(), keyword()) ::
           {:ok, RecordingArchiveSettings.t()} | {:error, String.t()}
   def save_archive_settings(scope, params, can_manage_credentials?, opts \\ []) do
-    existing =
+    overview =
       case RecordingArchiveSettings.get_overview(actor_opts(scope) ++ opts) do
-        {:ok, %{settings: settings}} -> settings
+        {:ok, ov} -> ov
         {:error, _} -> nil
       end
 
-    with {:ok, attrs} <- build_archive_settings_attrs(params, existing, can_manage_credentials?),
+    existing = overview && overview.settings
+
+    with {:ok, attrs} <-
+           build_archive_settings_attrs(
+             params,
+             existing,
+             overview,
+             can_manage_credentials?,
+             opts
+           ),
          :ok <- ensure_credentials_rotation_active(attrs, opts) do
       save_fn =
         Keyword.get(opts, :save_fn, fn save_attrs ->
@@ -767,6 +970,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     policies = Keyword.get(opts, :policies, [])
     storage_mode = Keyword.get(opts, :storage_mode, :local_only)
     configured_members = Keyword.get(opts, :configured_members, [])
+    entitlement = normalize_entitlement_view(Keyword.get(opts, :entitlement))
 
     sanitized =
       if is_map(params) do
@@ -792,12 +996,13 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       |> attach_matching_policy_id(prev_form, policies, storage_mode, sanitized)
       |> maybe_autoselect_nvr_member(configured_members)
 
-    {_attrs, errors} = build_policy_attrs(merged, %{}, :preview)
+    {attrs, errors} = build_policy_attrs(merged, %{}, :preview)
+    plan_errors = validate_policy_plan_bounds(attrs, policies, entitlement, :preview)
     editing_revision = find_matching_policy_revision(policies, merged)
 
     %{
       form: merged,
-      errors: errors,
+      errors: Map.merge(errors, plan_errors),
       editing_revision: editing_revision
     }
   end
@@ -824,6 +1029,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   def save_policy(scope, params, opts \\ []) when is_map(params) do
     storage_mode = Keyword.get(opts, :storage_mode, :local_only)
     base_form = Keyword.get(opts, :base_form, default_policy_form(storage_mode))
+    policies = Keyword.get(opts, :policies, [])
+    entitlement = resolve_entitlement_view(Keyword.get(opts, :entitlement), actor_opts(scope) ++ opts)
 
     sanitized =
       params
@@ -836,8 +1043,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       |> clear_inactive_override_days(sanitized)
 
     {attrs, parse_errors} = build_policy_attrs(merged_form, params, :submit)
+    plan_errors = validate_policy_plan_bounds(attrs, policies, entitlement, :submit)
+    all_pre_errors = Map.merge(parse_errors, plan_errors)
 
-    if parse_errors == %{} do
+    if all_pre_errors == %{} do
       save_fn =
         Keyword.get(opts, :save_fn, fn save_attrs ->
           CameraRecordingPolicies.save_policy(save_attrs, actor_opts(scope) ++ opts)
@@ -848,7 +1057,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         {:error, reason} -> {:error, extract_retention_errors(reason)}
       end
     else
-      {:error, parse_errors}
+      {:error, all_pre_errors}
     end
   end
 
@@ -1251,10 +1460,22 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   defp build_archive_settings_view_from_overview(overview, opts) do
     settings = overview.settings
     active_binding_id = blank_to_nil(Map.get(settings, :active_archive_binding_id))
+    active_binding = Map.get(overview, :active_binding)
+
+    entitlement =
+      resolve_entitlement_view(
+        Keyword.get(opts, :entitlement) || Map.get(overview, :entitlement),
+        opts
+      )
 
     writer_summary = refine_credential_summary(Map.get(overview, :writer_credential), opts)
     reader_summary = refine_credential_summary(Map.get(overview, :reader_credential), opts)
     retention_summary = refine_credential_summary(Map.get(overview, :retention_credential), opts)
+
+    writer_cloud? = slot_managed_by_cloud?(writer_summary, Map.get(settings, :writer_credential_secret_id), opts)
+    reader_cloud? = slot_managed_by_cloud?(reader_summary, Map.get(settings, :reader_credential_secret_id), opts)
+    retention_cloud? = slot_managed_by_cloud?(retention_summary, Map.get(settings, :retention_credential_secret_id), opts)
+    binding_cloud? = binding_managed_by_cloud?(active_binding)
 
     {writer_label, writer_issue} =
       format_credential_summary(writer_summary, "None selected", "writer")
@@ -1282,9 +1503,17 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     object_retention_enforced? =
       not is_nil(retention_summary) and retention_summary.status == :available
 
+    effective_obj_policy =
+      if entitlement.applied? and not is_nil(entitlement.capacity_policy) do
+        entitlement.capacity_policy
+      else
+        RecordingArchiveSettings.effective_object_capacity_policy(settings)
+      end
+
     %{
       record: if(overview.persisted?, do: settings),
       settings: settings,
+      entitlement: entitlement,
       storage_mode: storage_mode,
       form: %{
         "active_archive_binding_id" => to_string_or_empty(active_binding_id),
@@ -1293,15 +1522,19 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         "reader_credential_secret_id" => to_string_or_empty(Map.get(settings, :reader_credential_secret_id)),
         "retention_credential_secret_id" => to_string_or_empty(Map.get(settings, :retention_credential_secret_id))
       },
-      retention_form: retention_form_from_settings(settings),
+      retention_form: retention_form_from_settings(settings, entitlement),
       active_binding_id: if(active_binding_id, do: to_string(active_binding_id)),
+      active_binding_managed_by_cloud?: binding_cloud?,
+      writer_managed_by_cloud?: writer_cloud?,
+      reader_managed_by_cloud?: reader_cloud?,
+      retention_managed_by_cloud?: retention_cloud?,
       selected_writer_label: writer_label,
       selected_reader_label: reader_label,
       selected_retention_label: retention_label,
       object_retention_enforced?: object_retention_enforced?,
       shorter_archive_than_local?: RecordingArchiveSettings.shorter_archive_than_local?(settings),
       effective_local_only_full_policy: RecordingArchiveSettings.effective_local_only_full_policy(settings),
-      effective_object_capacity_policy: RecordingArchiveSettings.effective_object_capacity_policy(settings),
+      effective_object_capacity_policy: effective_obj_policy,
       credential_issue: writer_issue || reader_issue || retention_issue
     }
   end
@@ -1394,18 +1627,59 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end)
   end
 
-  defp build_archive_settings_attrs(params, existing, can_manage_credentials?) do
+  defp build_archive_settings_attrs(params, existing, overview, can_manage_credentials?, opts) do
+    active_binding = overview && Map.get(overview, :active_binding)
+    binding_cloud? = binding_managed_by_cloud?(active_binding)
+    existing_binding_id = existing && blank_to_nil(Map.get(existing, :active_archive_binding_id))
+
+    submitted_binding_id =
+      if Map.has_key?(params, "active_archive_binding_id") do
+        blank_to_nil(params["active_archive_binding_id"])
+      else
+        if binding_cloud?, do: existing_binding_id
+      end
+
     base_attrs = %{
-      active_archive_binding_id: blank_to_nil(params["active_archive_binding_id"]),
+      active_archive_binding_id: submitted_binding_id,
       archive_enabled: truthy?(params["archive_enabled"])
     }
 
     if can_manage_credentials? do
+      writer_id =
+        resolve_submitted_or_cloud_slot(
+          params,
+          "writer_credential_secret_id",
+          existing,
+          :writer_credential_secret_id,
+          overview && Map.get(overview, :writer_credential),
+          opts
+        )
+
+      reader_id =
+        resolve_submitted_or_cloud_slot(
+          params,
+          "reader_credential_secret_id",
+          existing,
+          :reader_credential_secret_id,
+          overview && Map.get(overview, :reader_credential),
+          opts
+        )
+
+      retention_id =
+        resolve_submitted_or_cloud_slot(
+          params,
+          "retention_credential_secret_id",
+          existing,
+          :retention_credential_secret_id,
+          overview && Map.get(overview, :retention_credential),
+          opts
+        )
+
       {:ok,
        Map.merge(base_attrs, %{
-         writer_credential_secret_id: blank_to_nil(params["writer_credential_secret_id"]),
-         reader_credential_secret_id: blank_to_nil(params["reader_credential_secret_id"]),
-         retention_credential_secret_id: blank_to_nil(params["retention_credential_secret_id"])
+         writer_credential_secret_id: writer_id,
+         reader_credential_secret_id: reader_id,
+         retention_credential_secret_id: retention_id
        })}
     else
       if any_credential_param_changed?(params, existing) do
@@ -1413,6 +1687,44 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       else
         {:ok, base_attrs}
       end
+    end
+  end
+
+  defp resolve_submitted_or_cloud_slot(params, param_key, existing, field_key, summary, opts) do
+    existing_id = existing && blank_to_nil(Map.get(existing, field_key))
+
+    if Map.has_key?(params, param_key) do
+      blank_to_nil(params[param_key])
+    else
+      if slot_managed_by_cloud?(summary, existing_id, opts), do: existing_id
+    end
+  end
+
+  defp binding_managed_by_cloud?(nil), do: false
+
+  defp binding_managed_by_cloud?(binding) when is_map(binding) do
+    ref = to_string(fetch_map_or_struct(binding, :provisioning_ref) || "")
+    ref != "" and not String.starts_with?(ref, "operator:")
+  end
+
+  defp slot_managed_by_cloud?(nil, nil, _opts), do: false
+
+  defp slot_managed_by_cloud?(summary, secret_id, opts) do
+    cond do
+      is_map(summary) and fetch_map_or_struct(summary, :managed_by) in [:control_plane, "control_plane"] ->
+        true
+
+      not is_nil(secret_id) ->
+        case load_secret_for_check(secret_id, opts) do
+          {:ok, secret} when is_map(secret) ->
+            fetch_map_or_struct(secret, :managed_by) in [:control_plane, "control_plane"]
+
+          _ ->
+            false
+        end
+
+      true ->
+        false
     end
   end
 
@@ -1439,7 +1751,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  defp merge_retention_preview_form(prev_form, params) when is_map(params) do
+  defp merge_retention_preview_form(prev_form, params, entitlement) when is_map(params) do
     sanitized =
       params
       |> Map.take(@retention_form_keys)
@@ -1449,13 +1761,21 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
     merged =
       Enum.reduce(@mode_value_pairs, merged, fn {mode_k, val_k, active_mode, default_str}, acc ->
-        apply_preview_mode_transition(acc, prev_form, sanitized, mode_k, val_k, active_mode, default_str)
+        effective_default =
+          if mode_k == "archive_retention_mode" and entitlement.applied? and
+               is_integer(entitlement.retention_max_days) do
+            Integer.to_string(min(30, entitlement.retention_max_days))
+          else
+            default_str
+          end
+
+        apply_preview_mode_transition(acc, prev_form, sanitized, mode_k, val_k, active_mode, effective_default)
       end)
 
     maybe_preselect_object_policy(merged, prev_form, sanitized)
   end
 
-  defp merge_retention_preview_form(prev_form, _params), do: prev_form
+  defp merge_retention_preview_form(prev_form, _params, _entitlement), do: prev_form
 
   defp apply_preview_mode_transition(acc, prev_form, sanitized, mode_k, val_k, active_mode, default_str) do
     prev_mode = prev_form[mode_k]
@@ -1513,7 +1833,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   defp merge_simulator_form(prev_sim, _sim_params), do: prev_sim
 
-  defp build_retention_attrs(form, raw_params, _existing, phase) do
+  defp build_retention_attrs(form, raw_params, existing, phase, entitlement) do
+    raw_map = if is_map(raw_params), do: raw_params, else: %{}
     errors = %{}
 
     {local_high, errors} = parse_required_int(form, "local_high_water_percent", :local_high_water_percent, errors)
@@ -1540,7 +1861,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {max_local_sec, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "max_local_age_seconds",
         :max_local_age_seconds,
         max_local_mode == :limited,
@@ -1551,7 +1872,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {alert_sec, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "local_window_alert_seconds",
         :local_window_alert_seconds,
         alert_mode == :enabled,
@@ -1562,7 +1883,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {target_sec, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "local_only_retention_target_seconds",
         :local_only_retention_target_seconds,
         target_mode == :target,
@@ -1573,7 +1894,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {lo_max_sec, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "local_only_max_age_seconds",
         :local_only_max_age_seconds,
         lo_max_mode == :limited,
@@ -1584,7 +1905,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {arch_days, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "archive_retention_days",
         :archive_retention_days,
         arch_ret_mode == :limited,
@@ -1595,7 +1916,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     {obj_bytes, errors} =
       parse_paired_int(
         form,
-        raw_params,
+        raw_map,
         "object_budget_bytes",
         :object_budget_bytes,
         obj_budget_mode == :limited,
@@ -1619,7 +1940,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         errors
       )
 
-    attrs = %{
+    base_attrs = %{
       local_high_water_percent: local_high,
       local_low_water_percent: local_low,
       max_local_age_mode: max_local_mode,
@@ -1633,14 +1954,29 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       local_only_max_age_seconds: lo_max_sec,
       archive_retention_mode: arch_ret_mode,
       archive_retention_days: arch_days,
-      object_budget_mode: obj_budget_mode,
-      object_budget_bytes: obj_bytes,
       object_high_water_percent: obj_high,
-      object_low_water_percent: obj_low,
-      object_capacity_policy: object_policy
+      object_low_water_percent: obj_low
     }
 
+    attrs =
+      if entitlement.applied? and phase == :submit and
+           not explicit_plan_budget_param?(raw_map, existing) do
+        base_attrs
+      else
+        Map.merge(base_attrs, %{
+          object_budget_mode: obj_budget_mode,
+          object_budget_bytes: obj_bytes,
+          object_capacity_policy: object_policy
+        })
+      end
+
     {attrs, errors}
+  end
+
+  defp explicit_plan_budget_param?(raw_params, _existing) when is_map(raw_params) do
+    Map.has_key?(raw_params, "object_budget_mode") or
+      Map.has_key?(raw_params, "object_budget_bytes") or
+      Map.has_key?(raw_params, "object_capacity_policy")
   end
 
   defp parse_required_int(form, key, field, errors) do
@@ -1697,7 +2033,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  defp confirmation_gate_errors(form, _existing) do
+  defp confirmation_gate_errors(form, _existing, entitlement) do
     errors = %{}
 
     errors =
@@ -1712,7 +2048,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         errors
       end
 
-    if form["object_capacity_policy"] == "reap_oldest" and
+    if not entitlement.applied? and form["object_capacity_policy"] == "reap_oldest" and
          not truthy?(form["confirm_reap_oldest"]) do
       Map.put(
         errors,
@@ -1724,11 +2060,133 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end
   end
 
-  defp validate_preview_changeset(attrs, existing, scope) do
+  defp validate_retention_plan_bounds(attrs, raw_params, existing, entitlement) do
+    if entitlement.applied? do
+      raw_map = if is_map(raw_params), do: raw_params, else: %{}
+      max_days = entitlement.retention_max_days
+      arch_mode = Map.get(attrs, :archive_retention_mode)
+      arch_days = Map.get(attrs, :archive_retention_days)
+      existing_days = existing && Map.get(existing, :archive_retention_days)
+      existing_mode = existing && Map.get(existing, :archive_retention_mode)
+
+      explicit_arch_change? =
+        Map.has_key?(raw_map, "archive_retention_mode") or
+          Map.has_key?(raw_map, "archive_retention_days")
+
+      errors = %{}
+
+      errors =
+        cond do
+          is_integer(max_days) and arch_mode == :unlimited and
+              (explicit_arch_change? or existing_mode != :unlimited) ->
+            Map.put(errors, :archive_retention_days, "Archive retention is limited by your plan (max #{max_days} days).")
+
+          is_integer(max_days) and arch_mode == :limited and is_integer(arch_days) and
+            arch_days > max_days and
+              (explicit_arch_change? or arch_days != existing_days) ->
+            Map.put(errors, :archive_retention_days, "Archive retention is limited by your plan (max #{max_days} days).")
+
+          true ->
+            errors
+        end
+
+      errors =
+        if Map.has_key?(raw_map, "object_budget_mode") or Map.has_key?(raw_map, "object_budget_bytes") do
+          Map.put(errors, :object_budget_bytes, "Object budget is limited by your plan.")
+        else
+          errors
+        end
+
+      if Map.has_key?(raw_map, "object_capacity_policy") do
+        Map.put(errors, :object_capacity_policy, "Object capacity policy is limited by your plan.")
+      else
+        errors
+      end
+    else
+      %{}
+    end
+  end
+
+  defp validate_policy_plan_bounds(attrs, policies, entitlement, phase) do
+    if entitlement.applied? do
+      max_days = entitlement.retention_max_days
+      max_cams = entitlement.max_recording_cameras
+      override_mode = Map.get(attrs, :archive_retention_override_mode)
+      override_days = Map.get(attrs, :archive_retention_days_override)
+      mode = Map.get(attrs, :mode)
+
+      errors = %{}
+
+      errors =
+        cond do
+          is_integer(max_days) and override_mode == :unlimited ->
+            Map.put(
+              errors,
+              :archive_retention_days_override,
+              "Archive retention override is limited by your plan (max #{max_days} days)."
+            )
+
+          is_integer(max_days) and override_mode == :limited and is_integer(override_days) and
+              override_days > max_days ->
+            Map.put(
+              errors,
+              :archive_retention_days_override,
+              "Archive retention override is limited by your plan (max #{max_days} days)."
+            )
+
+          true ->
+            errors
+        end
+
+      if is_integer(max_cams) and mode == :continuous and policies != [] do
+        candidate_id = to_string_or_empty(Map.get(attrs, :id))
+        candidate_cam = to_string_or_empty(Map.get(attrs, :camera_source_id))
+        candidate_prof = to_string_or_empty(Map.get(attrs, :stream_profile_id))
+
+        other_continuous =
+          Enum.count(policies, fn pol ->
+            pol_id = to_string_or_empty(fetch_map_or_struct(pol, :id))
+            pol_cam = to_string_or_empty(fetch_map_or_struct(pol, :camera_source_id))
+            pol_prof = to_string_or_empty(fetch_map_or_struct(pol, :stream_profile_id))
+
+            same? =
+              (candidate_id != "" and pol_id == candidate_id) or
+                (candidate_cam != "" and candidate_prof != "" and pol_cam == candidate_cam and
+                   pol_prof == candidate_prof)
+
+            not same? and fetch_map_or_struct(pol, :mode) in [:continuous, "continuous"]
+          end)
+
+        if other_continuous + 1 > max_cams and (phase == :preview or policies != []) do
+          msg = "Continuous recording cameras are limited by your plan (maximum #{max_cams})."
+
+          errors
+          |> Map.put(:mode, msg)
+          |> Map.put(:base, msg)
+        else
+          errors
+        end
+      else
+        errors
+      end
+    else
+      %{}
+    end
+  end
+
+  defp validate_preview_changeset(attrs, existing, scope, entitlement) do
     base_struct = coerce_settings_struct(existing)
+
+    preview_attrs =
+      if entitlement.applied? do
+        Map.drop(attrs, [:object_budget_mode, :object_budget_bytes, :object_capacity_policy])
+      else
+        attrs
+      end
 
     preview_loaders = %{
       binding_loader: fn id -> {:ok, %{id: id}} end,
+      entitlement_loader: fn -> {:ok, nil} end,
       secret_loader: fn id ->
         {:ok,
          %{
@@ -1750,7 +2208,7 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
     changeset =
       RecordingArchiveSettings.preview_changeset(
-        attrs,
+        preview_attrs,
         opts
         |> Keyword.put(:existing, base_struct)
         |> Keyword.put(:loaders, preview_loaders)
@@ -1795,8 +2253,35 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     end)
   end
 
-  defp build_safe_projection_attrs(form, existing) do
+  defp build_safe_projection_attrs(form, existing, entitlement) do
     defaults = RecordingArchiveSettings.default_settings()
+    raw_arch_mode = safe_mode(form["archive_retention_mode"], [:limited, :unlimited], :limited)
+    raw_arch_days = safe_optional_int(form["archive_retention_days"])
+
+    {eff_arch_mode, eff_arch_days} =
+      cond do
+        entitlement.applied? and is_integer(entitlement.retention_max_days) and
+            raw_arch_mode == :unlimited ->
+          {:limited, entitlement.retention_max_days}
+
+        entitlement.applied? and is_integer(entitlement.retention_max_days) and
+            is_integer(raw_arch_days) ->
+          {:limited, min(raw_arch_days, entitlement.retention_max_days)}
+
+        true ->
+          {raw_arch_mode, raw_arch_days}
+      end
+
+    {eff_obj_mode, eff_obj_bytes, eff_obj_policy} =
+      if entitlement.applied? and is_integer(entitlement.hard_limit_bytes) do
+        {:limited, entitlement.hard_limit_bytes, entitlement.capacity_policy || :reap_oldest}
+      else
+        {
+          safe_mode(form["object_budget_mode"], [:limited, :unlimited], :unlimited),
+          safe_optional_int(form["object_budget_bytes"]),
+          safe_mode(form["object_capacity_policy"], [:reap_oldest, :stop_archiving], nil)
+        }
+      end
 
     %{
       active_archive_binding_id: existing && Map.get(existing, :active_archive_binding_id),
@@ -1812,13 +2297,13 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       local_only_retention_target_seconds: safe_optional_int(form["local_only_retention_target_seconds"]),
       local_only_max_age_mode: safe_mode(form["local_only_max_age_mode"], [:limited, :unlimited], :unlimited),
       local_only_max_age_seconds: safe_optional_int(form["local_only_max_age_seconds"]),
-      archive_retention_mode: safe_mode(form["archive_retention_mode"], [:limited, :unlimited], :limited),
-      archive_retention_days: safe_optional_int(form["archive_retention_days"]),
-      object_budget_mode: safe_mode(form["object_budget_mode"], [:limited, :unlimited], :unlimited),
-      object_budget_bytes: safe_optional_int(form["object_budget_bytes"]),
+      archive_retention_mode: eff_arch_mode,
+      archive_retention_days: eff_arch_days,
+      object_budget_mode: eff_obj_mode,
+      object_budget_bytes: eff_obj_bytes,
       object_high_water_percent: safe_int(form["object_high_water_percent"], defaults.object_high_water_percent),
       object_low_water_percent: safe_int(form["object_low_water_percent"], defaults.object_low_water_percent),
-      object_capacity_policy: safe_mode(form["object_capacity_policy"], [:reap_oldest, :stop_archiving], nil)
+      object_capacity_policy: eff_obj_policy
     }
   end
 
@@ -3176,6 +3661,109 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
     extract_changeset_field_errors(changeset.errors)
   end
+
+  defp resolve_entitlement_view(%{} = supplied, _opts) do
+    normalize_entitlement_view(supplied)
+  end
+
+  defp resolve_entitlement_view(nil, opts) do
+    loaders = Keyword.get(opts, :loaders, %{})
+
+    cond do
+      is_function(Map.get(loaders, :entitlement_loader), 0) ->
+        case loaders.entitlement_loader.() do
+          {:ok, raw} -> normalize_entitlement_view(raw)
+          %{} = raw -> normalize_entitlement_view(raw)
+          _ -> default_entitlement_view()
+        end
+
+      map_size(loaders) > 0 ->
+        default_entitlement_view()
+
+      true ->
+        load_live_entitlement_view(opts)
+    end
+  end
+
+  defp load_live_entitlement_view(opts) do
+    opts
+    |> StorageEntitlements.effective_state()
+    |> normalize_entitlement_view()
+  rescue
+    _ -> default_entitlement_view()
+  catch
+    _, _ -> default_entitlement_view()
+  end
+
+  defp fetch_first(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn k -> fetch_map_or_struct(map, k) end)
+  end
+
+  defp fetch_first(_, _), do: nil
+
+  defp truthy_bool(nil, default), do: default
+  defp truthy_bool(val, _default) when is_boolean(val), do: val
+  defp truthy_bool(val, _default), do: truthy?(val)
+
+  defp first_pos_int(candidates) when is_list(candidates) do
+    Enum.find_value(candidates, fn
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end)
+  end
+
+  defp normalize_overage_mode(m) when m in [:off, "off"], do: :off
+  defp normalize_overage_mode(m) when m in [:metered, "metered"], do: :metered
+  defp normalize_overage_mode(_), do: nil
+
+  defp normalize_capacity_policy_atom(p) when p in [:reap_oldest, "reap_oldest"], do: :reap_oldest
+  defp normalize_capacity_policy_atom(p) when p in [:stop_archiving, "stop_archiving"], do: :stop_archiving
+  defp normalize_capacity_policy_atom(_), do: nil
+
+  defp normalize_pending_block(nil), do: nil
+
+  defp normalize_pending_block(raw) when is_map(raw) do
+    eff_at =
+      case fetch_first(raw, [:effective_at]) do
+        %DateTime{} = dt ->
+          dt
+
+        iso when is_binary(iso) ->
+          case DateTime.from_iso8601(iso) do
+            {:ok, dt, _} -> dt
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    ret = fetch_map_or_struct(raw, :retention) || %{}
+
+    alloc =
+      first_pos_int([
+        fetch_first(raw, [:allocation_bytes, :pending_allocation_bytes])
+      ])
+
+    max_days =
+      first_pos_int([
+        fetch_first(ret, [:max_days]),
+        fetch_first(raw, [:retention_max_days, :max_days, :pending_retention_max_days])
+      ])
+
+    if is_nil(eff_at) and is_nil(alloc) and is_nil(max_days) do
+      nil
+    else
+      %{
+        effective_at: eff_at,
+        allocation_bytes: alloc,
+        retention_max_days: max_days,
+        raw: raw
+      }
+    end
+  end
+
+  defp normalize_pending_block(_), do: nil
 
   defp fetch_map_or_struct(map, key) when is_map(map) do
     case Map.fetch(map, key) do

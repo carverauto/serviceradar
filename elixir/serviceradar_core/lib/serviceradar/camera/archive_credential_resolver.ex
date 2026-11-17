@@ -241,6 +241,7 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolver do
   defp resolve_generation(secret, opts) do
     candidate =
       Keyword.get(opts, :generation) ||
+        field(secret, :credential_generation) ||
         field(secret, :generation) ||
         metadata_generation(field(secret, :metadata)) ||
         1

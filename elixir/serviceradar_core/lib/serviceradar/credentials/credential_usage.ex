@@ -75,20 +75,57 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   defp resolve_all(ids, opts) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
-    with {:ok, direct} <- load_direct_consumers(ids),
+    with {:ok, managed_by_map} <- load_managed_by_map(ids),
+         {:ok, direct} <- load_direct_consumers(ids),
          {:ok, bound} <- load_bound_consumers(ids),
          {:ok, grants} <- load_live_grants(ids, now) do
-      consumers_by_secret = group_consumers(ids, direct ++ bound)
+      cloud_entries = build_cloud_managed_consumers(managed_by_map)
+      consumers_by_secret = group_consumers(ids, direct ++ bound ++ cloud_entries)
       grants_by_secret = group_grants(ids, grants)
 
       {:ok,
        Map.new(ids, fn id ->
+         managed_by = Map.get(managed_by_map, id, :operator)
+         label = if managed_by == :control_plane, do: "Managed by ServiceRadar Cloud"
+
          {id,
           %Result{
+            managed_by: managed_by,
+            management_label: label,
             consumers: Map.fetch!(consumers_by_secret, id),
             live_grants: Map.fetch!(grants_by_secret, id)
           }}
        end)}
+    end
+  end
+
+  defp load_managed_by_map(ids) do
+    case read_selected(
+           NetworkCredentialSecret,
+           Ash.Query.filter(NetworkCredentialSecret, id in ^ids),
+           [:id, :managed_by]
+         ) do
+      {:ok, rows} ->
+        {:ok, Map.new(rows, &{to_string(&1.id), &1.managed_by || :operator})}
+
+      {:error, _} ->
+        unavailable(:network_credential_secrets)
+    end
+  rescue
+    _ -> unavailable(:network_credential_secrets)
+  catch
+    _, _ -> unavailable(:network_credential_secrets)
+  end
+
+  defp build_cloud_managed_consumers(managed_by_map) do
+    for {secret_id, :control_plane} <- managed_by_map do
+      {secret_id,
+       %Consumer{
+         kind: :serviceradar_cloud,
+         id: "control_plane",
+         label: "Managed by ServiceRadar Cloud",
+         slot: :control_plane
+       }}
     end
   end
 

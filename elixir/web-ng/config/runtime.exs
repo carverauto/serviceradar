@@ -154,7 +154,26 @@ config :serviceradar_web_ng, :control_plane_runtime,
     token: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN"),
     deployment_ref: System.get_env("SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF"),
     generation: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION")
+  ],
+  entitlements: [
+    token: System.get_env("SERVICERADAR_CONTROL_PLANE_ENTITLEMENT_TOKEN"),
+    deployment_ref: System.get_env("SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF"),
+    generation: System.get_env("SERVICERADAR_CONTROL_PLANE_ENTITLEMENT_GENERATION")
   ]
+
+case System.get_env("SERVICERADAR_HOSTED_RUNTIME_CONTRACT_VERSION") do
+  nil ->
+    :ok
+
+  raw ->
+    case String.trim(raw) do
+      "" ->
+        :ok
+
+      contract_version ->
+        config :serviceradar_core, :hosted_runtime_contract_version, contract_version
+    end
+end
 
 config :serviceradar_web_ng, :nvr_publication_listener,
   enabled: System.get_env("SERVICERADAR_NVR_PUBLICATION_ENABLED", "false") == "true",
