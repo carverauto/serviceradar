@@ -297,18 +297,26 @@ func TestAxisInventoryStreamAddresses(t *testing.T) {
 	cases := []struct {
 		name       string
 		omit       bool
+		keyValue   any
 		wantURLs   []string
 		wantOrigin string
 	}{
 		{name: "without the D8 key", wantURLs: []string{fakeAxisMainURL, fakeAxisSubURL}},
-		{name: "with the D8 key", omit: true, wantURLs: []string{"", ""}, wantOrigin: "rtsp://192.0.2.20"},
+		{
+			name: "with the D8 key", omit: true, keyValue: sdk.CameraStreamAddressesOmit,
+			wantURLs: []string{"", ""}, wantOrigin: "rtsp://192.0.2.20",
+		},
+		{
+			name: "with a null D8 key", omit: true, keyValue: nil,
+			wantURLs: []string{"", ""}, wantOrigin: "rtsp://192.0.2.20",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			config := axisConfig(true)
 			if tc.omit {
-				config[sdk.CameraStreamAddressesConfigKey] = sdk.CameraStreamAddressesOmit
+				config[sdk.CameraStreamAddressesConfigKey] = tc.keyValue
 			}
 			capture := runAxisCheck(t, config, newFakeAxisCamera(nil))
 			serialized := string(capture.ResultJSON)

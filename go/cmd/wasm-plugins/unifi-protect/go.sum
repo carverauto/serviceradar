@@ -1,5 +1,5 @@
-github.com/carverauto/serviceradar-sdk-go/v2 v2.3.0 h1:/lmZHDFtN5kBueyPj9Qg5AF6X2MTlEGdcU9xybwv5ks=
-github.com/carverauto/serviceradar-sdk-go/v2 v2.3.0/go.mod h1:7/ERA5vL8QA048qtUSjlVXLA+B3Ff1Ehh2Y8dCXaSgE=
+github.com/carverauto/serviceradar-sdk-go/v2 v2.3.1 h1:QYZGiQ1DkLK7YWR+TIavh+3p5YFtXg999Fi2M12plVA=
+github.com/carverauto/serviceradar-sdk-go/v2 v2.3.1/go.mod h1:7/ERA5vL8QA048qtUSjlVXLA+B3Ff1Ehh2Y8dCXaSgE=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 h1:JeSE6pjso5THxAzdVpqr6/geYxZytqFMBCOtn/ujyeo=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w70xmWCQKmi1ONH4KIaBptdivuRPyosB9RmPlGEwA=
 golang.org/x/net v0.58.0 h1:ynWG7rqYi4ccpTEuPZ2QGWHktVEM9DMCj9yzDE0Q7To=

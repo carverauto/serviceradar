@@ -59,7 +59,9 @@
 - [x] 2.1 `serviceradar-sdk-go`: request and response types and a helper for
       `serviceradar.camera_source_resolution{_request}.v1`, and the D8 config key constant with
       a helper that reports whether it is set; release, then re-vendor in both plugins.
-      Released as SDK v2.3.0; only the two camera plugins (Protect, Axis) were re-vendored.
+      Released as SDK v2.3.0; the plugins vendor v2.3.1, which reads a null
+      `_serviceradar_camera_stream_addresses` as an error (omit). Only the two camera plugins
+      (Protect, Axis) were re-vendored.
 - [x] 2.2 Protect plugin: a resolver for one camera (integration `rtsps-stream` first, bootstrap
       second), never creating streams; inventory results as D8 states (unchanged without the
       key; with it, `source_origin` and no `cameras[].channels` aliases, `streams[].url` or

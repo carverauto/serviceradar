@@ -105,7 +105,9 @@ re-derive it.
   path, the channel id on the bootstrap path), and `rtsp_port` (default 7447) for
   the bootstrap path. The calls are
   `GET /proxy/protect/integration/v1/cameras/{id}/rtsps-stream`, falling back to
-  the bootstrap `channels[].rtspAlias`.
+  the bootstrap `channels[].rtspAlias` only when that request answers HTTP 404
+  (no integration API, or an unknown id). Any other status or an unreadable
+  body is `connect_failed`; a channel id goes straight to the bootstrap.
   `resolveProtectStreamSourceURL` (`protect_streams.go:10-45`) already does this
   re-derivation for the Wasm stream path.
 - Axis. The address carries no secret. The resolver rebuilds it and puts the

@@ -73,8 +73,11 @@ then does no inventory work and submits only a
 
 - A quality profile (`high`, `medium`, `low`, `package`) is read from
   `GET /proxy/protect/integration/v1/cameras/{id}/rtsps-stream`, with
-  `enableSrtp` removed. When the controller has no integration API or does not
-  know that id, the bootstrap is used instead.
+  `enableSrtp` removed. Only when that request answers HTTP 404 (the
+  controller has no integration API or does not know that id) is the bootstrap
+  used instead. Any other status, or an unreadable body, is `connect_failed`
+  with no fallback, and a document without the requested quality is
+  `source_not_found`.
 - A channel id is read from the bootstrap `channels[].rtspAlias`
   (`rtsp://<camera host>:<rtsp_port>/<alias>`). The camera may be named by its
   Protect id or, when it has none, its MAC.

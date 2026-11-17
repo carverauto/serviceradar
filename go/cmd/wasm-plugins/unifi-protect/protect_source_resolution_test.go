@@ -26,6 +26,7 @@ const (
 	fakeBootstrapCamMAC   = "02:00:00:00:0B:02"
 	fakeMACOnlyCamMAC     = "02:00:00:00:0C:03"
 	fakeRTSPSStreamsPath  = "/proxy/protect/integration/v1/cameras/" + fakeIntegrationCamID + "/rtsps-stream"
+	fakeBootRTSPSPath     = "/proxy/protect/integration/v1/cameras/" + fakeBootstrapCamID + "/rtsps-stream"
 	fakeIntegrationList   = "/proxy/protect/integration/v1/cameras"
 	fakeBootstrapPath     = "/proxy/protect/api/bootstrap"
 	fakeLoginPath         = "/api/auth/login"
@@ -159,7 +160,7 @@ func TestProtectCameraSourceResolution(t *testing.T) {
 			profileID: "",
 			wantURL:   "rtsp://192.0.2.22:7447/InventedAliasBootHigh",
 			wantRequests: []string{
-				"GET /proxy/protect/integration/v1/cameras/" + fakeBootstrapCamID + "/rtsps-stream",
+				"GET " + fakeBootRTSPSPath,
 				"GET " + fakeBootstrapPath,
 			},
 		},
@@ -234,6 +235,46 @@ func TestProtectCameraSourceResolution(t *testing.T) {
 			},
 			wantClass:    sdk.CameraSourceFailureAuthentication,
 			wantRequests: []string{"POST " + fakeLoginPath},
+		},
+		{
+			name:      "integration 500 for a quality is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "high",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusInternalServerError, body: `{"error":"internal"}`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
+			name:      "integration 500 for the default profile is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusInternalServerError, body: `{"error":"internal"}`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
+			name:      "unreadable integration body for a quality is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "high",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusOK, body: `<html>gateway</html>`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
+		},
+		{
+			name:      "non-object integration body for the default profile is connect_failed without the bootstrap",
+			cameraID:  fakeBootstrapCamID,
+			profileID: "",
+			routes: map[string]fakeProtectRoute{
+				"GET " + fakeBootRTSPSPath: {status: http.StatusOK, body: `["not","a","stream","document"]`},
+			},
+			wantClass:    sdk.CameraSourceFailureConnectFailed,
+			wantRequests: []string{"GET " + fakeBootRTSPSPath},
 		},
 		{
 			name:      "transport failure is connect_failed",
@@ -478,30 +519,30 @@ func TestProtectInventoryReportsAddressesWithoutOmitKey(t *testing.T) {
 }
 
 func TestProtectInventoryOmitsAddressesWithOmitKey(t *testing.T) {
+	integrationOrigins := map[string]string{
+		"high": "rtsps://192.0.2.10:7441",
+		"low":  "rtsps://192.0.2.10:7441",
+	}
+	bootstrapOrigins := map[string]string{
+		"0": "rtsp://192.0.2.22:7447",
+		"1": "",
+	}
 	cases := []struct {
+		name        string
 		path        string
+		keyValue    any
 		wantOrigins map[string]string
 	}{
-		{
-			path: "integration",
-			wantOrigins: map[string]string{
-				"high": "rtsps://192.0.2.10:7441",
-				"low":  "rtsps://192.0.2.10:7441",
-			},
-		},
-		{
-			path: "bootstrap",
-			wantOrigins: map[string]string{
-				"0": "rtsp://192.0.2.22:7447",
-				"1": "",
-			},
-		},
+		{name: "integration", path: "integration", keyValue: sdk.CameraStreamAddressesOmit, wantOrigins: integrationOrigins},
+		{name: "bootstrap", path: "bootstrap", keyValue: sdk.CameraStreamAddressesOmit, wantOrigins: bootstrapOrigins},
+		{name: "integration with a null key", path: "integration", keyValue: nil, wantOrigins: integrationOrigins},
+		{name: "bootstrap with a null key", path: "bootstrap", keyValue: nil, wantOrigins: bootstrapOrigins},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.path, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			config, controller := protectInventoryFixture(tc.path)
-			config[sdk.CameraStreamAddressesConfigKey] = sdk.CameraStreamAddressesOmit
+			config[sdk.CameraStreamAddressesConfigKey] = tc.keyValue
 			capture := runProtectCheck(t, config, controller)
 
 			serialized := string(capture.ResultJSON)

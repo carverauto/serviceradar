@@ -83,8 +83,8 @@ func resolveProtectCameraSource(
 // from the controller with GET requests only; it never creates or enables a
 // stream. A quality profile (the integration inventory path) is read from the
 // camera's integration rtsps-stream document; a channel id (the bootstrap
-// inventory path), or a controller without the integration API, is read from
-// the bootstrap channel alias.
+// inventory path), or an integration request answered with HTTP 404, is read
+// from the bootstrap channel alias.
 func resolveProtectSourceFromController(
 	ctx context.Context,
 	client protectHTTPClient,
@@ -100,7 +100,7 @@ func resolveProtectSourceFromController(
 		switch {
 		case err == nil:
 			return selectProtectIntegrationStream(streams, profileID)
-		case !protectIntegrationUnavailable(err):
+		case !protectIntegrationMissing(err):
 			return "", classifyProtectControllerError("rtsps-stream", err)
 		}
 	}
@@ -121,17 +121,12 @@ func isProtectIntegrationQuality(profileID string) bool {
 	return false
 }
 
-// protectIntegrationUnavailable reports an integration answer that does not
-// rule the bootstrap out: the controller lacks the API or this camera id
-// (404), or answered with something other than a credential rejection.
-func protectIntegrationUnavailable(err error) bool {
+// protectIntegrationMissing reports an integration answer that sends the
+// resolver to the bootstrap: HTTP 404, from a controller without the
+// integration API or without this camera id. Every other failure is final.
+func protectIntegrationMissing(err error) bool {
 	var statusErr protectStatusError
-	if errors.As(err, &statusErr) {
-		return !protectCredentialRejected(statusErr.status)
-	}
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
+	return errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound
 }
 
 func selectProtectIntegrationStream(streams protectRTSPSStreams, profileID string) (string, *protectSourceFailure) {
@@ -200,6 +195,11 @@ func classifyProtectControllerError(stage string, err error) *protectSourceFailu
 			sdk.CameraSourceFailureConnectFailed,
 			fmt.Sprintf("the controller answered the %s request with HTTP %d", stage, statusErr.status),
 		}
+	}
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+		return &protectSourceFailure{sdk.CameraSourceFailureConnectFailed, "the controller answered the " + stage + " request with an unreadable body"}
 	}
 	if errors.Is(err, errProtectLoginNoSessionCookie) {
 		return &protectSourceFailure{sdk.CameraSourceFailureAuthentication, "the controller login returned no session"}

@@ -46,6 +46,7 @@ var (
 	errCameraSourceRequestSchema   = errors.New("unsupported camera source resolution request schema")
 	errCameraSourceRequestCameraID = errors.New("camera source resolution request has no vendor_camera_id")
 	errCameraSourceResolutionShape = errors.New("camera source resolution needs exactly one of url and failure_class")
+	errCameraStreamAddressesNotStr = errors.New(CameraStreamAddressesConfigKey + " is not a string")
 )
 
 // Failure classes a resolver may report. The host reports any other class as
@@ -160,18 +161,24 @@ func OmitCameraStreamAddresses() (bool, error) {
 }
 
 // ParseOmitCameraStreamAddresses reads CameraStreamAddressesConfigKey from a
-// run config document.
+// run config document. A missing key reads as false; a value that is not a
+// string, including null, is an error.
 func ParseOmitCameraStreamAddresses(configJSON []byte) (bool, error) {
 	raw, ok, err := hostConfigValue(configJSON, CameraStreamAddressesConfigKey)
 	if err != nil || !ok {
 		return false, err
 	}
 
-	var value string
+	// A pointer tells JSON null apart from a string: null decodes without an
+	// error and must not read as "report addresses".
+	var value *string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return false, fmt.Errorf("decode %s: %w", CameraStreamAddressesConfigKey, err)
 	}
-	return value == CameraStreamAddressesOmit, nil
+	if value == nil {
+		return false, errCameraStreamAddressesNotStr
+	}
+	return *value == CameraStreamAddressesOmit, nil
 }
 
 func hostConfigValue(configJSON []byte, key string) (json.RawMessage, bool, error) {
