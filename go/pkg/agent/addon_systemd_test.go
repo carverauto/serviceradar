@@ -1645,9 +1645,14 @@ func TestInstallAddonSystemdUnitsEmptyKeyUsesEmbeddedKeyOverEnvironment(t *testi
 // content, the operator's fix, so it must clear that state rather than fail
 // the install and leave the old failure in place.
 func TestServiceActivationClearsAStartLimitStop(t *testing.T) {
+	const (
+		unitFailed = "failed"
+		unitActive = "active"
+	)
+
 	root := t.TempDir()
 	state := filepath.Join(root, "service-state")
-	if err := os.WriteFile(state, []byte("failed"), 0o600); err != nil {
+	if err := os.WriteFile(state, []byte(unitFailed), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	host := systemHost{systemctlPath: installServiceSystemctlFixture(t, root, state)}
@@ -1655,8 +1660,8 @@ func TestServiceActivationClearsAStartLimitStop(t *testing.T) {
 	if err := host.activateAddonSystemdUnits(context.Background(), "serviceradar-np.service", ""); err != nil {
 		t.Fatalf("activating new content on a start-limited unit failed: %v", err)
 	}
-	if got, err := os.ReadFile(state); err != nil || string(got) != "active" {
-		t.Fatalf("unit state after activation = %q, %v; want active", got, err)
+	if got, err := os.ReadFile(state); err != nil || string(got) != unitActive {
+		t.Fatalf("unit state after activation = %q, %v; want %s", got, err, unitActive)
 	}
 }
 
