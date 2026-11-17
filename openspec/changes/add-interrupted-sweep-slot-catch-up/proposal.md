@@ -38,8 +38,9 @@ the cut-off slot, so the hosts it never reported get a fresh result.
   Re-sends change nothing.
 - **Core re-runs the interrupted slot's plan in one catch-up slot.** When the
   parent execution lacks a `SweepHostResult` for at least one planned address,
-  the first planning of the agent after the report (usually the reconnect
-  refresh, otherwise the 5-minute lease pass, through the shared
+  the first planning of the agent that reads the slot after the report is
+  recorded (the reconnect refresh, which is unordered with the report, or
+  otherwise the 5-minute lease pass or a later refresh, through the shared
   `plan_agent/4` path) mints a catch-up slot: a new execution id and a new plan id
   over the parent's full plan, with the same CIDR list as the parent and every
   other slot of the lease, under the parent's check set and the assignment's

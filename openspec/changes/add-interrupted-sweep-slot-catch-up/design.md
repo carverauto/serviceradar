@@ -231,17 +231,16 @@ the drop-and-re-mint step below, live in the shared `plan_agent/4` ->
 run or a session refresh (`LeasePass.refresh_agent/4`). There is no mode
 gating. `plan_agent/4` mints under the delivery lock and the same transaction
 that plans the agent's other slots, and `deliver/4` pushes it after commit.
-On a normal restart that is usually the reconnect refresh: the agent sends
-the report right after the hello, the gateway only queues the refresh
-(`LeaseRefresh.start/4` returns before planning reads any slot), and the
-report's single write commits before the spawned refresh plans. A catch-up is
-therefore usually minted within seconds of the reconnect. If that refresh
-misses the report, the next pass, at most five minutes later, or a later
-refresh mints it.
+The refresh that the same connect starts is unordered with the report. The
+gateway queues it when it registers the session on the hello, before it reads
+the report frame, and nothing makes it wait for `interrupted_at`. It mints the
+catch-up only if it happens to read the slot after the report commits.
+Otherwise the next five-minute pass, or a later refresh, mints it. This
+design makes no claim about which is usual and adds no barrier.
 
-Minting this early judges completeness before the old process's spooled
-records have committed, so a parent that did report every host can look
-incomplete and get a catch-up (open question 1).
+Whichever planning mints may run before the old process's spooled records
+have committed, so a parent that did report every host can look incomplete
+and get a catch-up (open question 1).
 
 The catch-up slot looks like this:
 
@@ -310,8 +309,8 @@ itself (Decision 6).
 
 Example, synthetic. The interval is 1 h, the plan has 1,000 targets, and the
 last completed execution took 20 min for 1,000 hosts (1.2 s per host). The
-agent restarts 30 min into a slot with 400 hosts unreported, and the
-reconnect refresh mints at minute 31. The estimate is 20 min, which ends at minute 53 of a
+agent restarts 30 min into a slot with 400 hosts unreported, and the first
+planning after the report mints at minute 33. The estimate is 20 min, which ends at minute 53 of a
 window that ends at minute 60, so core mints the catch-up. Had the restart
 come at minute 45, the 20 min would not fit, and the next slot covers those
 hosts.
@@ -354,8 +353,10 @@ Agent limits need no new machinery:
 
 - The catch-up runs through the same executor, run lock and spool admission
   (`appendWithBackpressure`) as any slot.
-- At the measured pace it occupies the executor for no longer than one
-  uninterrupted run of the plan, and it must finish before the next slot.
+- The executor runs due slots one at a time, across groups. Two catch-ups
+  from one restart can each pass their own group's fit test, and the second
+  then starts only after the first finishes and may overrun its window. It is
+  cut off like any long slot (Decision 5). There is no cross-group budget.
 
 ### Decision 7: The lease pass keeps a catch-up only while its parent's plan is current
 
@@ -420,9 +421,9 @@ downgraded after reporting still runs it correctly.
 - **`PinSilenceWorker`.** The catch-up result lands about `r + p + q` after
   the cut-off, where:
   - `r` is restart and reconnect time;
-  - `p` is the wait for the planning that mints the catch-up, usually the
-    reconnect refresh (seconds) and at most 5 min (the next lease pass), plus
-    the delivery lead;
+  - `p` is the wait for the planning that mints the catch-up: the reconnect
+    refresh if it reads the slot after the report commits, otherwise at most
+    5 min (the next lease pass), plus the delivery lead;
   - `q` is the host's position in the catch-up scan, which is its position
     `o` in the full plan.
 
@@ -449,8 +450,10 @@ downgraded after reporting still runs it correctly.
     supersedes the still-running parent (`status = failed`, "superseded by new
     execution"). That is today's behaviour for a newer run, and an accurate
     end for a run that will not finish.
-  - Late parent records still store their host rows, but do not bump the
-    closed parent's progress.
+  - Late parent batches still write `SweepHostResult` rows, and
+    `finish_if_complete/4` still updates the closed parent's
+    `hosts_available` and `hosts_failed` counters from them. Its status stays
+    `failed`, and it does not complete.
   - The relation between the two is the slot's `catch_up_of`.
   - `SweepServiceState` and the group's `last_run_at` follow the catch-up like
     any execution.
@@ -478,8 +481,8 @@ downgraded after reporting still runs it correctly.
 - **A catch-up fits less often late in the window.** The fit test uses the
   full plan's target count, not the unreported count.
 - **A parent whose missing results are still in the spool gets a catch-up.**
-  Completeness is judged at mint time, usually by the reconnect refresh before
-  the spool drains. See open question 1.
+  Completeness is judged at mint time, which may be before the spool drains.
+  See open question 1.
 - **Up to five minutes' delay when the refresh misses the report.** The next
   lease pass then mints. That is acceptable for the hourly and longer
   intervals this targets.
@@ -506,14 +509,16 @@ downgraded after reporting still runs it correctly.
 ## Open Questions
 
 1. **Minting before the spool drains (not designed in).**
-   - Failure mode: the reconnect refresh usually mints before the old
-     process's spooled records commit. A parent that actually reported every
+   - Failure mode: whichever planning mints, the reconnect refresh or a later
+     pass, may run before the old process's spooled records commit. A parent
+     that actually reported every
      host, with some results still in the spool, looks incomplete and gets a
      catch-up. Under Decision 3 that costs one extra full-plan scan inside the
      parent window: duplicate results, harmless, and the newest event time
      wins.
-   - Likelihood: common. It happens on most restarts where the old process
-     left records in the spool.
+   - Likelihood: it needs a restart that left records in the spool and a
+     planning that reads the slot before they commit. The ordering is not
+     controlled, so this design makes no claim about how often that is.
    - Cost to prevent: a settle delay before minting, or a check that the
      agent's spool has drained (for example the hello's `edge_record_spool`
      showing no unresolved records). Either adds a wait or a dependency on
