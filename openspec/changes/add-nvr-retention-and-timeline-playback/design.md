@@ -563,7 +563,8 @@ Transitions:
    quarantine copy is `verified` is unaffected. The settings page warns
    before the only active binding ends (E1).
 4. **Job outcome**: `pending` or `failed_retryable` to `verified`,
-   `failed_retryable` or `failed_terminal`.
+   `failed_retryable` or `failed_terminal`; a refused re-archive request
+   returns to `missing` (transition 8).
 5. **No longer owed a copy** (archiving disabled, or policy changed to
    `local_only`): `awaiting_binding`, `pending`, `failed_retryable` and
    `failed_terminal` move to `not_required`, keeping any recorded binding;
@@ -580,17 +581,42 @@ Transitions:
    succeeds its bytes are non-reapable (C3a), the reaper skips it and its
    local copy stays kind (a).
 8. **Operator re-archives a `missing` entry** (health tab, E2): offered only
-   when the local copy is present and verified. The entry returns to
-   `pending` under its recorded binding, `archive_missing` and
-   `held_archive_missing` clear, and the normal `ArchiveBlockJob` uploads and
-   verifies it. Audited with actor, time and reason.
+   when `local_state` is `present` or `quarantined`. "Recorded binding" here
+   is the owed copy's binding: `archive_binding_id` for an ordinary entry,
+   `quarantine_binding_id` for a quarantined one. The entry moves to
+   `pending` under that binding, `archive_missing` and `held_archive_missing`
+   clear, and one `ArchiveBlockJob` runs as a re-archive request. The job
+   recognizes it by the receipt the entry already records (only this
+   transition brings an entry with a recorded receipt back to `pending`), so
+   a retry or an R5 re-enqueue applies the same rule. This is the one rule
+   for re-archive, and there is no exception to never-overwrite: the request
+   is refused, and the entry returns to `missing` with its alarms, unless all
+   of these hold:
+   - the local bytes match the frozen descriptor, or for a quarantined entry
+     the quarantine receipt's per-file digests;
+   - a HEAD shows the copy's objects absent;
+   - the recorded binding is still in retained history and was not ended for
+     a compromise-class reason.
+
+   Only then does the job PUT the copy and read it back, and a read-back
+   match is the only success; a retained local `archive-receipt.json` alone
+   is never success for this request. An object that exists but differs is
+   never overwritten: that request is refused as above and the entry is
+   `missing` again, so the operator's remaining choice is transition 9.
+   Transition 3's quarantine and re-target do not apply to a re-archive
+   request; a recorded binding that fails the third condition refuses it
+   instead. A provider error or unknown outcome retries as in job step 4
+   under this same rule. Audited with actor, time and reason.
 9. **Operator accepts the loss of a `missing` archive copy** (health tab, E2):
    the entry moves to `not_required` with a `RecordingDisposition` of reason
-   `archive_loss_accepted` (C7), `archive_missing` and `held_archive_missing`
-   clear, and the local copy, if present, returns to kind (b) retention. When
-   a hold covers the entry, the action requires the hold's own release
-   authority (`devices.cameras.recordings.hold`, C4) and is refused otherwise.
-   Audited with actor, time and reason.
+   `archive_loss_accepted` (C7), and `archive_missing` and
+   `held_archive_missing` clear. This changes `archive_state` only; the local
+   pin follows C1. A local copy with `local_state = present` becomes kind (b).
+   A quarantined entry stays row (q) and is not kind (b): its bytes are
+   removed only by an `operator_quarantine` disposition (R2). When a hold
+   covers the entry, the action requires the hold's own release authority
+   (`devices.cameras.recordings.hold`, C4) and is refused otherwise. Audited
+   with actor, time and reason.
 
 The `ArchiveBlockJob` (unique per catalog entry, queue `nvr_archive`):
 
@@ -604,14 +630,18 @@ The `ArchiveBlockJob` (unique per catalog entry, queue `nvr_archive`):
    that request.
 3. On 200, records the receipt (`NVRArchiveReceipt`, settings change D9, or
    the quarantine-destination receipt) and moves the entry to `verified` in
-   one transaction.
+   one transaction. For a re-archive request (transition 8), a 200 answered
+   from a retained receipt is not success; the entry moves to `verified` only
+   after the PUT to objects a HEAD showed absent and a read-back match.
 4. On `archive_busy` (503), snoozes without consuming an attempt. On 502,
    other 503s and unknown outcomes, retries with jittered exponential backoff
    (30 s doubling to 30 min) indefinitely while the block exists. Retrying is
    safe by the archive contract: existing objects are verified, never
    overwritten, and an identical retained receipt is returned without provider
-   calls. On 409 `archive_receipt_conflict` or 422, marks the entry
-   `failed_terminal` with the error class and stops; these need an operator.
+   calls. A re-archive request (transition 8) never takes a retained receipt
+   as its answer; it follows transition 8. On 409 `archive_receipt_conflict`
+   or 422, marks the entry `failed_terminal` with the error class and stops;
+   these need an operator.
    Its alarm (R5) stays on the health tab until an operator resolves it or
    transition 5 clears it; it is never a silent end state.
 
@@ -927,7 +957,7 @@ acts on:
   and exactly one term (P5) of the C1a pinned bytes;
 - its archive state follows the archive state machine (A6), where predicate
   (b) decides whether it is owed a copy; its `_quarantine/` objects count in object usage and as non-reapable bytes
-  (C3a), and object retention and the reaper never select them;
+  (C3a), once each, as the quarantine term, and object retention and the reaper never select them;
 - it is never playable: timeline coverage, playlists and fragment routes
   exclude quarantined entries (D);
 - it is counted in volume usage, in the ledger and in a quarantined-bytes
@@ -1630,10 +1660,13 @@ object tier gets a byte budget symmetric with the local tier.
 
 **Usage** is what ServiceRadar wrote: the sum of object lengths in the receipts
 of archive copies that are `verified` or `deleting`, plus the bytes of uploads
-in flight and of quarantine objects (R2), over every retained binding whose
+in flight, plus the bytes of quarantine objects (R2), over every retained binding whose
 destination is the same bucket as the active binding (same endpoint and
 bucket; the prefix may differ), whatever that binding's active flag,
-maintained in the catalog. A retained binding in a different bucket is
+maintained in the catalog. Each object is counted once: a quarantine object
+counts only in the quarantine term, whether it already has a receipt or is
+still in flight, and the verified, deleting and in-flight terms count the
+other copies. A retained binding in a different bucket is
 reported separately and is not part of this budget. This is the one
 definition; the reaper, the alerts and the F5 usage report use it. It does not
 list the bucket (costly, and providers report usage differently); in SaaS the
@@ -1706,8 +1739,9 @@ until the local budget fills, then stops with a gap with reason
 **Held and non-reapable bytes reach high water.** Holds pin verified archive
 copies (PD5) and the reaper never deletes them. Non-reapable bytes are held archive
 bytes plus uploads in flight plus quarantine objects (R2) plus archive copies
-whose delete is `blocked_by_provider` (A6 transition 7); this is the one
-definition. When they alone reach object high water, nothing
+whose delete is `blocked_by_provider` (A6 transition 7), each object counted
+once as in usage (a quarantine object only in the quarantine term); this is
+the one definition. When they alone reach object high water, nothing
 can be reaped: new archive uploads pause (as in `stop_archiving`), recording
 continues locally, and a critical alert names the held bytes and holds. Between
 object low water and high water the calculated T is already 0 (no reapable
@@ -1895,7 +1929,7 @@ copy, and how each is closed:
 | Writer | Hazard | Closure |
 | --- | --- | --- |
 | `ArchiveBlockJob` | Re-uploads a block whose archive copy was deleted, including one whose local copy remains | Runs only from `pending` or `failed_retryable`; `deleting` and `deleted` are terminal, so a block that is local only after archive expiry or reaping is never re-archived |
-| NVR retained-receipt reply | NVR answers a stale `archive-receipt.json` for an object since deleted | Core never requests archive for a terminal entry, so the retained receipt of a local copy that outlived its archive copy is never consulted; the NVR reclaim removes the receipt with the block |
+| NVR retained-receipt reply | NVR answers a stale `archive-receipt.json` for an object since deleted | Core never requests archive for a terminal entry, so the retained receipt of a local copy that outlived its archive copy is never consulted; the NVR reclaim removes the receipt with the block. The one stated exception is A6 transition 8, re-archive of a `missing` copy, and the stale receipt is not consulted there either: that request never takes a retained receipt as its answer and succeeds only under transition 8's rule, a PUT to absent objects and a read-back match |
 | `receipt_import` (settings change) | Records a receipt for a deleted copy | Receipt rows stay append-only evidence; import never changes catalog state out of a terminal state |
 | Catalog registration and reconciliation | Recreates or revives an entry | Registration is create-only on `(storage_id, block_key)`; a database trigger refuses any update of `local_state` or `archive_state` out of `reclaimed` or `deleted` |
 | NVR boot recovery / `recover_block` | Recovers a half-deleted block directory | NVR writes a tombstone to a disposition journal (fsynced) before unlinking; boot finishes the unlink and lookup reports `reclaimed`, never `incomplete` |
