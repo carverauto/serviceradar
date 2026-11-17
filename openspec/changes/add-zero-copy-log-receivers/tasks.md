@@ -14,3 +14,4 @@
 - [ ] 3.2 Package accelerated device/capability requirements and explicit/automatic fallback reporting.
 - [ ] 3.3 Verify overload, shutdown, MTU/fragmentation, TLS and buffer reuse.
 - [ ] 3.4 Benchmark receive and durable searchable throughput with equivalent downstream work.
+- [ ] 3.5 Model every lock-free structure shared between a receive thread and workers with Loom (https://github.com/tokio-rs/loom) in the change that adds it: buffer leases and their return (2.2), and any ring or queue between receive and processing. Loom does not model the Tokio scheduler, so async paths are covered by property tests instead.
