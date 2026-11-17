@@ -420,6 +420,32 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_connection_that_lasted_resets_the_retry_interval() {
+        let store = Fake::default();
+        {
+            let mut store = store.store();
+            store.stored = Some(two_rules());
+            // Five refusals grow the next wait to the 30 second ceiling.
+            store.refuse_connections = 5;
+        }
+        let rules = start(&store);
+        status(&rules, |status| *status == current(TWO_RULES)).await;
+        watching(&store).await;
+
+        // The watch stays healthy for a minute, then ends.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let ended = Instant::now();
+        store.store().watch = None;
+
+        while store.store().connects.len() < 7 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let reconnected = store.store().connects[6];
+        assert_eq!((reconnected - ended).as_secs(), 1);
+        assert_eq!(rules.current().unwrap().digest, TWO_RULES);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn an_unreachable_store_is_retried_at_a_bounded_growing_interval() {
         let store = Fake::default();
         {
