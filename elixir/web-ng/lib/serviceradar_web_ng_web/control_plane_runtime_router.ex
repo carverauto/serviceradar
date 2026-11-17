@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveBindings
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveCredentials
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveQualifications
+  alias ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneRecordingConfiguration
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneStorageEntitlements
@@ -24,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
   plug ControlPlaneArchiveBindings
   plug ControlPlaneArchiveCredentials
   plug ControlPlaneArchiveAuthorities
+  plug ControlPlaneMediaWorkerGrants
   plug ControlPlaneRecordingConfiguration
   plug ControlPlaneArchiveQualifications
   plug ControlPlaneStorageEntitlements

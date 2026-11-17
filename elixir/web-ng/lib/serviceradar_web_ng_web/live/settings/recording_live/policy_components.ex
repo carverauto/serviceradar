@@ -109,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
               <th class="py-2 pr-3 font-medium">NVR Member</th>
               <th class="py-2 pr-3 font-medium">Storage</th>
               <th class="py-2 pr-3 font-medium">Archive Retention Override</th>
+              <th class="py-2 pr-3 font-medium">Visual Indexing</th>
               <th class="py-2 pr-3 font-medium">Revision</th>
               <th :if={@can_manage?} class="py-2 font-medium">Action</th>
             </tr>
@@ -151,6 +152,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
               </td>
               <td class="py-2.5 pr-3 text-sr-ink">
                 {format_override_label(policy, @plan_max_days)}
+              </td>
+              <td class="py-2.5 pr-3 text-sr-ink">
+                <.ui_badge
+                  size="xs"
+                  variant={
+                    if(fetch_val(policy, :visual_index_mode) in [:keyframes, "keyframes"],
+                      do: "info",
+                      else: "ghost"
+                    )
+                  }
+                >
+                  {format_visual_index_summary(policy)}
+                </.ui_badge>
               </td>
               <td class="py-2.5 pr-3">
                 <.ui_badge
@@ -725,6 +739,97 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
           </div>
         </div>
 
+        <div class="grid gap-4 md:grid-cols-3">
+          <div>
+            <label
+              for="policy-visual-index-mode-select"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Visual indexing mode
+            </label>
+            <select
+              id="policy-visual-index-mode-select"
+              name="policy[visual_index_mode]"
+              disabled={!@can_manage?}
+              class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm text-sr-ink disabled:opacity-60"
+            >
+              <option
+                value="off"
+                selected={(@policy_form["visual_index_mode"] || "off") == "off"}
+              >
+                off
+              </option>
+              <option
+                value="keyframes"
+                selected={@policy_form["visual_index_mode"] == "keyframes"}
+              >
+                keyframes (sampled IDR frames)
+              </option>
+            </select>
+            <p
+              :if={@policy_errors[:visual_index_mode]}
+              id="policy-error-visual-index-mode"
+              class="mt-1 text-xs text-rose-500"
+            >
+              {@policy_errors[:visual_index_mode]}
+            </p>
+          </div>
+
+          <div>
+            <label
+              for="policy-visual-min-interval-input"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Min keyframe interval (ms)
+            </label>
+            <input
+              id="policy-visual-min-interval-input"
+              type="number"
+              min="500"
+              max="60000"
+              name="policy[visual_index_min_interval_ms]"
+              value={@policy_form["visual_index_min_interval_ms"] || "2000"}
+              disabled={!@can_manage? or @policy_form["visual_index_mode"] != "keyframes"}
+              placeholder="2000"
+              class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm font-mono text-sr-ink disabled:opacity-60"
+            />
+            <p
+              :if={@policy_errors[:visual_index_min_interval_ms]}
+              id="policy-error-visual-min-interval"
+              class="mt-1 text-xs text-rose-500"
+            >
+              {@policy_errors[:visual_index_min_interval_ms]}
+            </p>
+          </div>
+
+          <div>
+            <label
+              for="policy-visual-max-frames-input"
+              class="block text-xs font-medium text-sr-ink"
+            >
+              Max indexed frames / block
+            </label>
+            <input
+              id="policy-visual-max-frames-input"
+              type="number"
+              min="1"
+              max="512"
+              name="policy[visual_index_max_frames_per_block]"
+              value={@policy_form["visual_index_max_frames_per_block"] || "64"}
+              disabled={!@can_manage? or @policy_form["visual_index_mode"] != "keyframes"}
+              placeholder="64"
+              class="mt-1 w-full rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-sm font-mono text-sr-ink disabled:opacity-60"
+            />
+            <p
+              :if={@policy_errors[:visual_index_max_frames_per_block]}
+              id="policy-error-visual-max-frames"
+              class="mt-1 text-xs text-rose-500"
+            >
+              {@policy_errors[:visual_index_max_frames_per_block]}
+            </p>
+          </div>
+        </div>
+
         <p :if={@policy_errors[:base]} id="policy-error-base" class="text-xs text-rose-500">
           {@policy_errors[:base]}
         </p>
@@ -808,6 +913,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
 
       _ ->
         "inherit"
+    end
+  end
+
+  defp format_visual_index_summary(policy) do
+    case fetch_val(policy, :visual_index_mode) do
+      mode when mode in [:keyframes, "keyframes"] ->
+        interval_ms = fetch_val(policy, :visual_index_min_interval_ms) || 2000
+        max_frames = fetch_val(policy, :visual_index_max_frames_per_block) || 64
+        "keyframes (#{interval_ms}ms · max #{max_frames})"
+
+      _ ->
+        "off"
     end
   end
 

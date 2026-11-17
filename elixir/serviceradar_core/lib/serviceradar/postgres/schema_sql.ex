@@ -251,6 +251,9 @@ defmodule ServiceRadar.Postgres.SchemaSql do
     |> String.replace("platform.st_setsrid(", "st_setsrid(")
     |> String.replace("platform.st_makepoint(", "st_makepoint(")
     |> String.replace("platform.vector(", "vector(")
+    |> String.replace("::platform.vector", "::vector")
+    |> String.replace(" platform.vector", " vector")
+    |> String.replace("platform.vector_dims(", "vector_dims(")
     |> String.replace(" platform.vector_cosine_ops", " vector_cosine_ops")
   end
 end

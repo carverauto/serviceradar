@@ -26,7 +26,7 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
 
   require Ash.Query
 
-  @event_kinds [:playlist_window, :hold_placed, :hold_released]
+  @event_kinds [:playlist_window, :hold_placed, :hold_released, :semantic_search]
   @source_modes [:auto, :local, :archive]
   @time_bases [:received, :camera_reported]
 
@@ -65,13 +65,16 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
 
     @impl true
     def validate(changeset, _opts, _context) do
+      event_kind = proposed_value(changeset, :event_kind)
+      camera_source_id = proposed_value(changeset, :camera_source_id)
       actor_id = proposed_value(changeset, :actor_id)
       start_us = proposed_value(changeset, :window_start_us)
       end_us = proposed_value(changeset, :window_end_us)
       segment_count = proposed_value(changeset, :segment_count)
       details = proposed_value(changeset, :details)
 
-      with :ok <- validate_actor_id(actor_id),
+      with :ok <- validate_camera_source_id(event_kind, camera_source_id),
+           :ok <- validate_actor_id(actor_id),
            :ok <- validate_window(start_us, end_us),
            :ok <- validate_segment_count(segment_count) do
         validate_details(details)
@@ -81,6 +84,18 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
     @impl true
     def atomic(changeset, opts, context) do
       validate(changeset, opts, context)
+    end
+
+    defp validate_camera_source_id(:semantic_search, _camera_source_id), do: :ok
+    defp validate_camera_source_id("semantic_search", _camera_source_id), do: :ok
+    defp validate_camera_source_id(_event_kind, id) when is_binary(id) and id != "", do: :ok
+
+    defp validate_camera_source_id(_event_kind, _missing) do
+      {:error,
+       InvalidAttribute.exception(
+         field: :camera_source_id,
+         message: "is required unless event_kind is semantic_search"
+       )}
     end
 
     defp validate_actor_id(actor_id) when is_binary(actor_id) do
@@ -263,7 +278,8 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
       check_constraint :window_end_us, "camera_recording_access_audits_valid",
         check: """
         window_end_us > window_start_us AND
-        event_kind IN ('playlist_window', 'hold_placed', 'hold_released') AND
+        event_kind IN ('playlist_window', 'hold_placed', 'hold_released', 'semantic_search') AND
+        (event_kind = 'semantic_search' OR camera_source_id IS NOT NULL) AND
         btrim(actor_id) <> '' AND octet_length(actor_id) <= 255 AND
         (source_mode IS NULL OR source_mode IN ('auto', 'local', 'archive')) AND
         (time_basis IS NULL OR time_basis IN ('received', 'camera_reported')) AND
@@ -313,7 +329,6 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
       validate present([
                  :event_kind,
                  :actor_id,
-                 :camera_source_id,
                  :window_start_us,
                  :window_end_us
                ])
@@ -357,7 +372,7 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
     end
 
     attribute :camera_source_id, :uuid do
-      allow_nil? false
+      allow_nil? true
       public? true
     end
 
@@ -410,7 +425,7 @@ defmodule ServiceRadar.Camera.RecordingAccessAudit do
 
   relationships do
     belongs_to :camera_source, Source do
-      allow_nil? false
+      allow_nil? true
       public? true
       define_attribute? false
       source_attribute :camera_source_id

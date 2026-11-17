@@ -24,6 +24,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
   import Ash.Expr
 
   alias Ash.Changeset.OriginalDataNotAvailable
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
@@ -32,6 +33,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
   @modes [:off, :continuous]
   @storage_modes [:local_and_archive, :local_only]
   @override_modes [:inherit, :limited, :unlimited]
+  @visual_index_modes [:off, :keyframes]
   @member_name_pattern ~r/\A[a-z0-9][a-z0-9-]{0,62}\z/
 
   @view_check {ActorHasPermission, permission: "settings.recording.view"}
@@ -46,7 +48,10 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
     :nvr_member,
     :storage,
     :archive_retention_override_mode,
-    :archive_retention_days_override
+    :archive_retention_days_override,
+    :visual_index_mode,
+    :visual_index_min_interval_ms,
+    :visual_index_max_frames_per_block
   ]
 
   @update_fields [
@@ -54,7 +59,10 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
     :nvr_member,
     :storage,
     :archive_retention_override_mode,
-    :archive_retention_days_override
+    :archive_retention_days_override,
+    :visual_index_mode,
+    :visual_index_min_interval_ms,
+    :visual_index_max_frames_per_block
   ]
 
   defmodule ValidatePolicy do
@@ -68,6 +76,10 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
     @member_regex ~r/\A[a-z0-9][a-z0-9-]{0,62}\z/
     @min_override_days 1
     @max_override_days 3_650
+    @min_visual_interval_ms 500
+    @max_visual_interval_ms 60_000
+    @min_visual_frames 1
+    @max_visual_frames 512
 
     @impl true
     def change(changeset, _opts, _context) do
@@ -107,6 +119,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
         |> check_source_and_profile(changeset, loaders)
         |> check_mode_and_member(changeset, normalized_member)
         |> check_retention_override(changeset)
+        |> check_visual_indexing(changeset)
         |> check_entitlement_bounds(changeset, loaders)
 
       {Enum.reverse(errors), stamped}
@@ -332,6 +345,51 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
       ]
     end
 
+    defp check_visual_indexing(errors, changeset) do
+      interval_ms = proposed_value(changeset, :visual_index_min_interval_ms)
+      max_frames = proposed_value(changeset, :visual_index_max_frames_per_block)
+
+      errors
+      |> validate_visual_interval(interval_ms)
+      |> validate_visual_max_frames(max_frames)
+    end
+
+    defp validate_visual_interval(errors, nil), do: errors
+
+    defp validate_visual_interval(errors, interval_ms)
+         when is_integer(interval_ms) and interval_ms >= @min_visual_interval_ms and
+                interval_ms <= @max_visual_interval_ms do
+      errors
+    end
+
+    defp validate_visual_interval(errors, _interval_ms) do
+      [
+        InvalidAttribute.exception(
+          field: :visual_index_min_interval_ms,
+          message: "must be between #{@min_visual_interval_ms} and #{@max_visual_interval_ms}"
+        )
+        | errors
+      ]
+    end
+
+    defp validate_visual_max_frames(errors, nil), do: errors
+
+    defp validate_visual_max_frames(errors, max_frames)
+         when is_integer(max_frames) and max_frames >= @min_visual_frames and
+                max_frames <= @max_visual_frames do
+      errors
+    end
+
+    defp validate_visual_max_frames(errors, _max_frames) do
+      [
+        InvalidAttribute.exception(
+          field: :visual_index_max_frames_per_block,
+          message: "must be between #{@min_visual_frames} and #{@max_visual_frames}"
+        )
+        | errors
+      ]
+    end
+
     defp check_entitlement_bounds(errors, changeset, loaders) do
       if Map.get(changeset.context, :bypass_entitlement_bounds) == true do
         errors
@@ -344,6 +402,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
           errors
           |> check_plan_override_ceiling(changeset, rec.retention_max_days)
           |> check_plan_camera_limit(changeset, loaders, rec.max_recording_cameras)
+          |> check_plan_visual_indexing(changeset, loaders, rec)
         else
           errors
         end
@@ -456,7 +515,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
         _ ->
           require Ash.Query
 
-          query = Ash.Query.filter(ServiceRadar.Camera.CameraRecordingPolicy, mode == :continuous)
+          query = Ash.Query.filter(CameraRecordingPolicy, mode == :continuous)
 
           query =
             if is_nil(exclude_id) do
@@ -469,6 +528,129 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
             {:ok, count} -> count
             _ -> 0
           end
+      end
+    end
+
+    defp check_plan_visual_indexing(errors, changeset, loaders, rec) do
+      if proposed_value(changeset, :visual_index_mode) == :keyframes do
+        vi_enabled = extract_plan_visual_enabled(rec)
+        max_vi_cams = extract_plan_max_visual_cameras(rec)
+
+        cond do
+          vi_enabled == false ->
+            [
+              InvalidAttribute.exception(
+                field: :visual_index_mode,
+                message: "limited by your plan"
+              )
+              | errors
+            ]
+
+          is_integer(max_vi_cams) and max_vi_cams >= 0 ->
+            enforce_visual_camera_limit(errors, changeset, loaders, max_vi_cams)
+
+          true ->
+            errors
+        end
+      else
+        errors
+      end
+    end
+
+    defp enforce_visual_camera_limit(errors, changeset, loaders, max_vi_cams) do
+      current_id =
+        if changeset.action_type == :update and is_map(changeset.data) and
+             not match?(%OriginalDataNotAvailable{}, changeset.data) do
+          Map.get(changeset.data, :id)
+        end
+
+      other_count = count_other_visual_index_policies(current_id, loaders)
+
+      if other_count + 1 > max_vi_cams do
+        [
+          InvalidAttribute.exception(
+            field: :visual_index_mode,
+            message: "limited by your plan"
+          )
+          | errors
+        ]
+      else
+        errors
+      end
+    end
+
+    defp extract_plan_visual_enabled(rec) when is_map(rec) do
+      limits = Map.get(rec, :limits) || Map.get(rec, "limits") || %{}
+
+      first_non_nil([
+        Map.get(rec, :visual_indexing_enabled),
+        Map.get(rec, :visual_index_enabled),
+        Map.get(rec, "visual_indexing_enabled"),
+        Map.get(rec, "visual_index_enabled"),
+        is_map(limits) && Map.get(limits, :visual_indexing_enabled),
+        is_map(limits) && Map.get(limits, :visual_index_enabled),
+        is_map(limits) && Map.get(limits, "visual_indexing_enabled"),
+        is_map(limits) && Map.get(limits, "visual_index_enabled")
+      ])
+    end
+
+    defp extract_plan_max_visual_cameras(rec) when is_map(rec) do
+      limits = Map.get(rec, :limits) || Map.get(rec, "limits") || %{}
+
+      first_non_nil([
+        Map.get(rec, :max_visual_index_cameras),
+        Map.get(rec, "max_visual_index_cameras"),
+        is_map(limits) && Map.get(limits, :max_visual_index_cameras),
+        is_map(limits) && Map.get(limits, "max_visual_index_cameras")
+      ])
+    end
+
+    defp first_non_nil(values) do
+      Enum.find(values, &(not is_nil(&1)))
+    end
+
+    defp count_other_visual_index_policies(exclude_id, loaders) do
+      case Map.get(loaders, :policies_loader) do
+        loader when is_function(loader, 0) ->
+          count_loaded_visual_policies(loader.(), exclude_id)
+
+        _ when map_size(loaders) > 0 ->
+          0
+
+        _ ->
+          count_persisted_visual_policies(exclude_id)
+      end
+    end
+
+    defp count_loaded_visual_policies({:ok, rows}, exclude_id) when is_list(rows) do
+      Enum.count(rows, fn r ->
+        vi_mode = Map.get(r, :visual_index_mode) || Map.get(r, "visual_index_mode")
+        id = Map.get(r, :id) || Map.get(r, "id")
+        vi_mode in [:keyframes, "keyframes"] and to_string(id) != to_string(exclude_id)
+      end)
+    end
+
+    defp count_loaded_visual_policies(_, _exclude_id), do: 0
+
+    defp count_persisted_visual_policies(exclude_id) do
+      require Ash.Query
+
+      query =
+        Ash.Query.filter(
+          CameraRecordingPolicy,
+          visual_index_mode == :keyframes
+        )
+
+      query =
+        if is_nil(exclude_id) do
+          query
+        else
+          Ash.Query.filter(query, id != ^exclude_id)
+        end
+
+      case Ash.count(query, actor: @system_actor) do
+        {:ok, count} -> count
+        _ -> 0
       end
     end
 
@@ -579,6 +761,14 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
                        check: """
                        (archive_retention_override_mode = 'limited' AND archive_retention_days_override IS NOT NULL AND archive_retention_days_override BETWEEN 1 AND 3650) OR
                        (archive_retention_override_mode IN ('inherit', 'unlimited') AND archive_retention_days_override IS NULL)
+                       """
+
+      check_constraint :visual_index_mode,
+                       "camera_recording_policies_visual_index",
+                       check: """
+                       visual_index_mode IN ('off', 'keyframes') AND
+                       visual_index_min_interval_ms BETWEEN 500 AND 60000 AND
+                       visual_index_max_frames_per_block BETWEEN 1 AND 512
                        """
     end
   end
@@ -710,6 +900,25 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
       public? true
     end
 
+    attribute :visual_index_mode, :atom do
+      allow_nil? false
+      default :off
+      public? true
+      constraints one_of: @visual_index_modes
+    end
+
+    attribute :visual_index_min_interval_ms, :integer do
+      allow_nil? false
+      default 2000
+      public? true
+    end
+
+    attribute :visual_index_max_frames_per_block, :integer do
+      allow_nil? false
+      default 64
+      public? true
+    end
+
     attribute :policy_revision, :integer do
       allow_nil? false
       default 1
@@ -753,6 +962,10 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicy do
   @doc "Allowed `archive_retention_override_mode` values (`:inherit | :limited | :unlimited`)."
   @spec override_modes() :: [atom()]
   def override_modes, do: @override_modes
+
+  @doc "Allowed `visual_index_mode` values (`:off | :keyframes`)."
+  @spec visual_index_modes() :: [atom()]
+  def visual_index_modes, do: @visual_index_modes
 
   @doc "Valid NVR member name regex (`[a-z0-9][a-z0-9-]{0,62}`)."
   @spec member_name_pattern() :: Regex.t()

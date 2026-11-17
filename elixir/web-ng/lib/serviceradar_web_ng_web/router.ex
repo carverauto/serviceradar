@@ -643,6 +643,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       :open_observation
     )
 
+    get("/cameras/search", CameraSemanticSearchController, :index)
     get("/cameras/:camera_source_id/recordings", CameraRecordingController, :index)
     get("/cameras/:camera_source_id/recordings/:id", CameraRecordingController, :show)
     get("/cameras/:camera_source_id/timeline", CameraTimelineController, :coverage)

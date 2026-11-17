@@ -2958,6 +2958,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           alerts={@health_summary.alerts}
           timezone={@timezone}
         />
+
+        <HealthComponents.visual_indexing_card
+          visual_indexing={Map.get(@health_summary, :visual_indexing, %{})}
+          timezone={@timezone}
+        />
       <% end %>
     </div>
     """

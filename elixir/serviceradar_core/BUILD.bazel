@@ -708,7 +708,7 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_recording_policy_and_storage_settings_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/policy.json",
         "priv/resource_snapshots/repo/platform.camera_recording_policies_versions/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/policy_version.json",
@@ -716,6 +716,7 @@ write_source_files(
         "priv/resource_snapshots/repo/platform.camera_nvr_storage_settings_versions/20261117021015.json": ":generated_camera_recording_policy_and_storage_settings/storage_settings_version.json",
         "priv/repo/migrations/20261117021015_add_camera_recording_policies_and_storage_settings.exs": ":generated_camera_recording_policy_and_storage_settings/migration.exs",
     },
+    tags = ["manual"],
 )
 
 ash_schema(
@@ -759,11 +760,12 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_recording_access_audit_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117073000.json": ":generated_camera_recording_access_audit/access_audit.json",
         "priv/repo/migrations/20261117073000_add_camera_recording_access_audit.exs": ":generated_camera_recording_access_audit/migration.exs",
     },
+    tags = ["manual"],
 )
 
 ash_schema(
@@ -782,12 +784,52 @@ ash_schema(
 
 write_source_files(
     name = "update_storage_entitlement_and_cloud_archive_credentials_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.storage_entitlements/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/entitlement.json",
         "priv/resource_snapshots/repo/platform.storage_entitlement_versions/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/entitlement_version.json",
         "priv/resource_snapshots/repo/platform.storage_usage_daily_reports/20261117173000.json": ":generated_storage_entitlement_and_cloud_archive_credentials/usage_report.json",
         "priv/repo/migrations/20261117173000_add_storage_entitlement_and_cloud_archive_credentials.exs": ":generated_storage_entitlement_and_cloud_archive_credentials/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "camera_semantic_clip_search_schema",
+    # do not sort: generator arguments are positional.
+    srcs = [
+        "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117021015.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_policies_versions/20261117021015.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117073000.json",
+        "priv/resource_snapshots/repo/platform.storage_entitlements/20261117173000.json",
+        "priv/resource_snapshots/repo/platform.storage_entitlement_versions/20261117173000.json",
+    ],
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_semantic_clip_search/policy.json",
+        "generated_camera_semantic_clip_search/access_audit.json",
+        "generated_camera_semantic_clip_search/entitlement.json",
+        "generated_camera_semantic_clip_search/visual_job.json",
+        "generated_camera_semantic_clip_search/visual_frame.json",
+        "generated_camera_semantic_clip_search/visual_embedding.json",
+        "generated_camera_semantic_clip_search/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_semantic_clip_search_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_semantic_clip_search_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117223000.json": ":generated_camera_semantic_clip_search/policy.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117223000.json": ":generated_camera_semantic_clip_search/access_audit.json",
+        "priv/resource_snapshots/repo/platform.storage_entitlements/20261117223000.json": ":generated_camera_semantic_clip_search/entitlement.json",
+        "priv/resource_snapshots/repo/platform.camera_visual_index_jobs/20261117223000.json": ":generated_camera_semantic_clip_search/visual_job.json",
+        "priv/resource_snapshots/repo/platform.camera_visual_frames/20261117223000.json": ":generated_camera_semantic_clip_search/visual_frame.json",
+        "priv/resource_snapshots/repo/platform.camera_visual_embeddings/20261117223000.json": ":generated_camera_semantic_clip_search/visual_embedding.json",
+        "priv/repo/migrations/20261117223000_add_camera_semantic_clip_search.exs": ":generated_camera_semantic_clip_search/migration.exs",
     },
 )
 

@@ -39,7 +39,12 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
     pending
   )
   @allowed_retention_keys ~w(max_days default_days)
-  @allowed_limits_keys ~w(max_recording_cameras)
+  @allowed_limits_keys ~w(
+    max_recording_cameras
+    visual_indexing_enabled
+    visual_index_enabled
+    max_visual_index_cameras
+  )
   @allowed_pending_keys ~w(effective_at allocation_bytes retention)
   @allowed_pending_retention_keys ~w(max_days)
 
@@ -464,6 +469,8 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
       recordings_retention_max_days: rec.retention_max_days,
       recordings_retention_default_days: rec.retention_default_days,
       recordings_max_cameras: rec.max_recording_cameras,
+      recordings_visual_indexing_enabled: rec.visual_indexing_enabled,
+      recordings_max_visual_index_cameras: rec.max_visual_index_cameras,
       recordings_pending: rec.pending,
       warehouse_present: wh.present?,
       warehouse_enabled: wh.enabled,
@@ -506,6 +513,13 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
       retention_max_days: active_max_days,
       retention_default_days: row.recordings_retention_default_days,
       max_recording_cameras: row.recordings_max_cameras,
+      visual_indexing_enabled: Map.get(row, :recordings_visual_indexing_enabled),
+      max_visual_index_cameras: Map.get(row, :recordings_max_visual_index_cameras),
+      limits: %{
+        max_recording_cameras: row.recordings_max_cameras,
+        visual_indexing_enabled: Map.get(row, :recordings_visual_indexing_enabled),
+        max_visual_index_cameras: Map.get(row, :recordings_max_visual_index_cameras)
+      },
       pending_applied?: pending_applied?
     }
 
@@ -672,9 +686,7 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
             "max_days" => rec.retention_max_days,
             "default_days" => rec.retention_default_days
           },
-          "limits" => %{
-            "max_recording_cameras" => rec.max_recording_cameras
-          },
+          "limits" => build_limits_json(rec),
           "pending" => eff.pending,
           "pending_projection" => pending_proj_json
         },
@@ -690,6 +702,15 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
   defp json_cutoff(:infinity), do: nil
   defp json_cutoff(:unlimited), do: nil
   defp json_cutoff(val), do: val
+
+  defp build_limits_json(rec) do
+    %{"max_recording_cameras" => rec.max_recording_cameras}
+    |> maybe_put_limit_json("visual_indexing_enabled", Map.get(rec, :visual_indexing_enabled))
+    |> maybe_put_limit_json("max_visual_index_cameras", Map.get(rec, :max_visual_index_cameras))
+  end
+
+  defp maybe_put_limit_json(map, _key, nil), do: map
+  defp maybe_put_limit_json(map, key, val), do: Map.put(map, key, val)
 
   ## Strict schema v1 parsing
 
@@ -734,6 +755,8 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
        retention_max_days: nil,
        retention_default_days: nil,
        max_recording_cameras: nil,
+       visual_indexing_enabled: nil,
+       max_visual_index_cameras: nil,
        pending: nil
      }}
   end
@@ -766,7 +789,7 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
          {:ok, {ov_mode, ov_cap}} <- parse_overage(entry, alloc, enabled),
          {:ok, cap_policy} <- parse_capacity_policy(entry, enabled),
          {:ok, {max_days, def_days}} <- parse_retention(entry, enabled),
-         {:ok, max_cams} <- parse_limits(Map.fetch(entry, "limits")),
+         {:ok, limits_parsed} <- parse_limits(Map.fetch(entry, "limits")),
          {:ok, pending} <- parse_pending(Map.fetch(entry, "pending")) do
       {:ok,
        %{
@@ -778,7 +801,9 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
          capacity_policy: cap_policy,
          retention_max_days: max_days,
          retention_default_days: def_days,
-         max_recording_cameras: max_cams,
+         max_recording_cameras: limits_parsed.max_recording_cameras,
+         visual_indexing_enabled: limits_parsed.visual_indexing_enabled,
+         max_visual_index_cameras: limits_parsed.max_visual_index_cameras,
          pending: pending
        }}
     end
@@ -849,20 +874,63 @@ defmodule ServiceRadar.Storage.StorageEntitlements do
 
   defp valid_default_vs_max?(_def_d, _max_d), do: true
 
-  defp parse_limits(:error), do: {:ok, nil}
-  defp parse_limits({:ok, nil}), do: {:ok, nil}
+  defp parse_limits(:error), do: {:ok, empty_limits()}
+  defp parse_limits({:ok, nil}), do: {:ok, empty_limits()}
 
   defp parse_limits({:ok, limits}) when is_map(limits) do
-    with :ok <- ensure_only_keys(limits, @allowed_limits_keys) do
-      case Map.get(limits, "max_recording_cameras") do
-        nil -> {:ok, nil}
-        n when is_integer(n) and n >= 0 and n <= 100_000 -> {:ok, n}
-        _ -> :error
-      end
+    with :ok <- ensure_only_keys(limits, @allowed_limits_keys),
+         {:ok, max_cams} <- parse_optional_camera_cap(Map.get(limits, "max_recording_cameras")),
+         {:ok, vi_enabled} <- parse_optional_visual_enabled(limits),
+         {:ok, max_vi_cams} <-
+           parse_optional_camera_cap(Map.get(limits, "max_visual_index_cameras")) do
+      {:ok,
+       %{
+         max_recording_cameras: max_cams,
+         visual_indexing_enabled: vi_enabled,
+         max_visual_index_cameras: max_vi_cams
+       }}
     end
   end
 
   defp parse_limits(_), do: :error
+
+  defp empty_limits do
+    %{
+      max_recording_cameras: nil,
+      visual_indexing_enabled: nil,
+      max_visual_index_cameras: nil
+    }
+  end
+
+  defp parse_optional_camera_cap(nil), do: {:ok, nil}
+
+  defp parse_optional_camera_cap(n) when is_integer(n) and n >= 0 and n <= 100_000, do: {:ok, n}
+
+  defp parse_optional_camera_cap(_), do: :error
+
+  defp parse_optional_visual_enabled(limits) do
+    has_vi? = Map.has_key?(limits, "visual_indexing_enabled")
+    has_legacy? = Map.has_key?(limits, "visual_index_enabled")
+
+    cond do
+      has_vi? and has_legacy? and
+          limits["visual_indexing_enabled"] != limits["visual_index_enabled"] ->
+        :error
+
+      has_vi? ->
+        parse_nullable_bool(limits["visual_indexing_enabled"])
+
+      has_legacy? ->
+        parse_nullable_bool(limits["visual_index_enabled"])
+
+      true ->
+        {:ok, nil}
+    end
+  end
+
+  defp parse_nullable_bool(nil), do: {:ok, nil}
+  defp parse_nullable_bool(val) when is_boolean(val), do: {:ok, val}
+  defp parse_nullable_bool(_), do: :error
 
   defp parse_pending(:error), do: {:ok, nil}
   defp parse_pending({:ok, nil}), do: {:ok, nil}
