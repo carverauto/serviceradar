@@ -8,32 +8,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
   alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
-  alias ServiceRadarAgentGateway.Config
-
-  setup do
-    previous_config =
-      try do
-        Config.get()
-      rescue
-        # credo:disable-for-next-line ExSlop.Check.Warning.BlanketRescue
-        ArgumentError -> nil
-      end
-
-    on_exit(fn ->
-      if previous_config do
-        Config.setup(
-          gateway_id: previous_config.gateway_id,
-          domain: previous_config.domain,
-          capabilities: previous_config.capabilities
-        )
-      end
-    end)
-
-    :ok
-  end
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
 
   test "uses configured logical gateway id for external attribution" do
-    Config.setup(gateway_id: "gateway-platform", domain: "demo")
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-platform", domain: "demo")
 
     assert AgentGatewayServer.gateway_id() == "gateway-platform"
     refute AgentGatewayServer.gateway_id() == Atom.to_string(node())
@@ -234,7 +212,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       if !Process.whereis(AgentRegistryProxy), do: start_supervised!(AgentRegistryProxy)
       CertificateTestHelpers.ensure_revocation_store!()
-      Config.setup(gateway_id: "gateway-host-identity", domain: "test", capabilities: [])
+      ConfigTestHelpers.put_config!(gateway_id: "gateway-host-identity", domain: "test", capabilities: [])
 
       parent_dir = CertificateTestHelpers.unique_tmp_dir!("gateway-host-identity")
       on_exit(fn -> File.rm_rf(parent_dir) end)
@@ -330,7 +308,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       end
 
       if !Process.whereis(AgentRegistryProxy), do: start_supervised!(AgentRegistryProxy)
-      Config.setup(gateway_id: "gateway-renewal-test", domain: "default")
+      ConfigTestHelpers.put_config!(gateway_id: "gateway-renewal-test", domain: "default")
       start_supervised!({Task.Supervisor, name: ServiceRadarAgentGateway.DeliveryTaskSupervisor})
 
       parent_dir = CertificateTestHelpers.unique_tmp_dir!("gateway-server-renewal")

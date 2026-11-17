@@ -26,7 +26,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
   alias ServiceRadar.NATS.Connection
-  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.EdgeRecoveryRPC
@@ -141,15 +141,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   end
 
   test "recovery refuses oversized serialized headers before credits or broker publication" do
-    previous =
-      try do
-        {:ok, Config.get()}
-      rescue
-        ArgumentError -> :missing
-      end
-
-    on_exit(fn -> restore_config(previous) end)
-    Config.setup(gateway_id: String.duplicate("x", 16_384), domain: "example.test")
+    ConfigTestHelpers.put_config!(gateway_id: String.duplicate("x", 16_384), domain: "example.test")
     Process.put(:isolation_test_pid, self())
     pools = start_pools()
     pool = Map.fetch!(pools, :recovery)
@@ -172,7 +164,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     assert PublisherPool.capacity(pool) == before
     refute_received {:jetstream_request, _, _, _, _}
 
-    Config.setup(gateway_id: "synthetic-gateway", domain: "example.test")
+    ConfigTestHelpers.put_config!(gateway_id: "synthetic-gateway", domain: "example.test")
     assert {:ok, _} = JetStreamPublisher.publish_record(publication, pools: pools, connection: FakeConn)
     assert_receive {:jetstream_request, _, subject, ^raw, headers}
     assert byte_size(subject) + 12 + IO.iodata_length(Gnat.Headers.encode(headers)) <= 16_384
@@ -206,15 +198,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   describe "never enters StatusBuffer" do
     setup do
       # StatusBuffer reports its depth tagged with the gateway id, so it needs gateway config.
-      previous_config =
-        try do
-          {:ok, Config.get()}
-        rescue
-          ArgumentError -> :missing
-        end
-
-      Config.setup(gateway_id: "gateway-test", domain: "test", capabilities: [])
-      on_exit(fn -> restore_config(previous_config) end)
+      ConfigTestHelpers.put_config!(gateway_id: "gateway-test", domain: "test", capabilities: [])
 
       buffer =
         case Process.whereis(StatusBuffer) do
@@ -659,10 +643,4 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   defp header(headers, name), do: Enum.find_value(headers, fn {k, v} -> if k == name, do: v end)
 
   defp put_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
-
-  defp restore_config({:ok, config}) do
-    Config.setup(gateway_id: config.gateway_id, domain: config.domain, capabilities: config.capabilities)
-  end
-
-  defp restore_config(:missing), do: :persistent_term.erase(Config)
 end
