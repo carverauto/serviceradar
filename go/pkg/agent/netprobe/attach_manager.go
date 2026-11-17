@@ -82,6 +82,9 @@ type AttachManager struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	status  sidecar.Status
+	// degradation is the reason from the last successful AddonService Health
+	// call, or "" when that call reported healthy or none has succeeded yet.
+	degradation string
 }
 
 // NewAttachManager creates an attach-only manager for netprobe.
@@ -295,11 +298,12 @@ const addonHealthTimeout = 2 * time.Second
 // capture interface does not exist on this host: it keeps running flow
 // attribution, so the add-on is up but the operator has something to fix.
 //
-// An unavailable AddonService returns "": an older netprobe does not serve it,
-// and the Ping that just succeeded already established that netprobe is up.
-func (m *AttachManager) addonHealth(ctx context.Context) string {
+// ok is false when Health could not be read: an older netprobe does not serve
+// AddonService, and a newer one can miss a call. Neither says anything about
+// degradation, so the caller keeps the last answer it had.
+func (m *AttachManager) addonHealth(ctx context.Context) (degradation string, ok bool) {
 	if m.addon == nil {
-		return ""
+		return "", false
 	}
 
 	healthCtx, cancel := context.WithTimeout(ctx, addonHealthTimeout)
@@ -307,34 +311,37 @@ func (m *AttachManager) addonHealth(ctx context.Context) string {
 
 	health, err := m.addon.Health(healthCtx)
 	if err != nil {
-		m.cfg.Logger.Debug().Err(err).Msg("netprobe AddonService health unavailable; reporting liveness only")
-		return ""
+		m.cfg.Logger.Debug().Err(err).Msg("netprobe AddonService health unavailable; keeping the last reported health")
+		return "", false
 	}
 
-	status := health.GetStatus()
-	if status != addonpb.HealthResponse_STATUS_DEGRADED && status != addonpb.HealthResponse_STATUS_UNHEALTHY {
-		return ""
+	if health.GetStatus() != addonpb.HealthResponse_STATUS_DEGRADED {
+		return "", true
 	}
 	if reason := strings.TrimSpace(health.GetDegradationReason()); reason != "" {
-		return reason
+		return reason, true
 	}
 
-	return "netprobe reported " + status.String() + " without a reason"
+	return "netprobe reported degraded without a reason", true
 }
 
 // setHealthy records a live netprobe: running, or degraded with the reason
-// netprobe gave.
-func (m *AttachManager) setHealthy(degradation string) {
+// from the last successful Health call. ok reports whether degradation is a
+// fresh Health answer.
+func (m *AttachManager) setHealthy(degradation string, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if ok {
+		m.degradation = degradation
+	}
 	m.status.State = sidecar.StateRunning
-	if degradation != "" {
+	if m.degradation != "" {
 		m.status.State = sidecar.StateDegraded
 	}
 	m.status.PID = 0
 	m.status.LastHealthAt = time.Now().UTC()
-	m.status.LastError = degradation
+	m.status.LastError = m.degradation
 }
 
 func (m *AttachManager) setUnhealthy(err error) {

@@ -9,7 +9,7 @@ When at least one configured interface is absent, netprobe SHALL report
 `STATUS_DEGRADED` from AddonService `Health`, with a `degradation_reason` that
 names each absent interface and lists the interfaces the host does have, and
 with structured `details` keys `capture_interfaces.missing`,
-`capture_interfaces.active` and `capture_interfaces.available`. When none of the
+`capture_interfaces.present` and `capture_interfaces.available`. When none of the
 configured interfaces exist, netprobe SHALL run attribution-only. An empty
 `capture_interfaces` SHALL remain attribution-only and report healthy.
 
@@ -52,8 +52,9 @@ liveness probe and SHALL report a `STATUS_DEGRADED` answer as add-on state
 still count as running for capability reporting, and core SHALL record a
 `degraded` add-on status as active.
 
-An unreachable AddonService SHALL NOT change the liveness-derived state, because
-older netprobe builds do not serve it.
+A failed `Health` call SHALL keep the result of the last successful one, and a
+netprobe whose AddonService has never answered SHALL be reported `running`,
+because older netprobe builds do not serve it.
 
 #### Scenario: Degraded netprobe surfaces its reason
 - **GIVEN** netprobe answers liveness probes and its `Health` returns

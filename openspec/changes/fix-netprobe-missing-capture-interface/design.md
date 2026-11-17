@@ -36,7 +36,7 @@ its state as an `addon:netprobe` sidecar status that core stores in
   `Health` answers `DEGRADED`, matching the generic add-on runner, which keeps
   degraded distinct from unhealthy so a host-side gap does not fail a rollout.
   The prose reason is for the operator. `details` carries
-  `capture_interfaces.missing`, `capture_interfaces.active` and
+  `capture_interfaces.missing`, `capture_interfaces.present` and
   `capture_interfaces.available` (comma-separated, bounded) for anything that
   needs to read it. The available list excludes loopback and is capped, with a
   count of the omitted names.
@@ -47,8 +47,9 @@ its state as an `addon:netprobe` sidecar status that core stores in
 - **The agent reads Health after liveness.** The legacy IPC `Ping` still decides
   reachability. When it succeeds, the attach manager asks AddonService `Health`.
   `DEGRADED` becomes sidecar state `degraded` with the reason as `last_error`.
-  An unreachable or older AddonService leaves the state `running`; it is not an
-  error, because an older netprobe does not serve it.
+  Any other status is `running`. A failed Health call keeps the last successful
+  answer, and a netprobe that never answered (an older build) stays `running`;
+  it is not an error, because an older netprobe does not serve it.
 - **The unit state outranks the IPC state when the process is down.** When the
   systemd unit is not running, its state (`circuit_open`, `unhealthy` with the
   exit status) is reported instead of the IPC dial failure, which is only a

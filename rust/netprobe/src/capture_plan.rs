@@ -22,7 +22,7 @@ use crate::config::Config;
 const MAX_LISTED_INTERFACES: usize = 16;
 
 pub const DETAIL_MISSING: &str = "capture_interfaces.missing";
-pub const DETAIL_ACTIVE: &str = "capture_interfaces.active";
+pub const DETAIL_PRESENT: &str = "capture_interfaces.present";
 pub const DETAIL_AVAILABLE: &str = "capture_interfaces.available";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -84,10 +84,12 @@ impl CapturePlan {
     }
 
     /// The config capture runs with: `config` restricted to the present
-    /// interfaces. Everything that compares configs keeps the requested list.
+    /// interfaces. Everything that compares configs keeps the requested list,
+    /// so the flow table keeps the size the requested list implies.
     pub fn capture_config(&self, config: &Config) -> Config {
         Config {
             capture_interfaces: self.present.clone(),
+            flow_table_max_entries: config.effective_flow_table_max_entries(),
             ..config.clone()
         }
     }
@@ -106,7 +108,7 @@ impl CapturePlan {
         let consequence = if self.present.is_empty() {
             "packet capture is off; flow attribution is running".to_owned()
         } else {
-            format!("capturing on {}", self.present.join(", "))
+            format!("present: {}", bounded_list(&self.present))
         };
 
         Some(format!(
@@ -124,7 +126,7 @@ impl CapturePlan {
 
         BTreeMap::from([
             (DETAIL_MISSING.to_owned(), bounded_list(&self.missing)),
-            (DETAIL_ACTIVE.to_owned(), bounded_list(&self.present)),
+            (DETAIL_PRESENT.to_owned(), bounded_list(&self.present)),
             (DETAIL_AVAILABLE.to_owned(), bounded_list(&self.available)),
         ])
     }
@@ -164,7 +166,8 @@ fn host_interface_names() -> std::io::Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CapturePlan, DETAIL_ACTIVE, DETAIL_AVAILABLE, DETAIL_MISSING};
+    use super::{CapturePlan, DETAIL_AVAILABLE, DETAIL_MISSING, DETAIL_PRESENT};
+    use crate::config::Config;
 
     fn names(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
@@ -182,13 +185,30 @@ mod tests {
             plan.degradation_reason().as_deref(),
             Some(
                 "capture interface eth-test0 not present on this host \
-                 (available: br-test0, eth-test1); capturing on eth-test1"
+                 (available: br-test0, eth-test1); present: eth-test1"
             )
         );
         let details = plan.health_details();
         assert_eq!(details[DETAIL_MISSING], "eth-test0");
-        assert_eq!(details[DETAIL_ACTIVE], "eth-test1");
+        assert_eq!(details[DETAIL_PRESENT], "eth-test1");
         assert_eq!(details[DETAIL_AVAILABLE], "br-test0, eth-test1");
+    }
+
+    #[test]
+    fn capture_config_sizes_the_flow_table_from_the_requested_list() {
+        let host = names(&["eth-test1"]);
+        let requested = names(&["eth-test0", "eth-test1"]);
+        let plan = CapturePlan::new(&requested, Some(&host));
+        let config = Config {
+            capture_interfaces: requested,
+            flow_table_max_entries: 0,
+            ..Config::default()
+        };
+
+        let capture = plan.capture_config(&config);
+
+        assert_eq!(capture.capture_interfaces, names(&["eth-test1"]));
+        assert_eq!(capture.effective_flow_table_max_entries(), 131_072);
     }
 
     #[test]

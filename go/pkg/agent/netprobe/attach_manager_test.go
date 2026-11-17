@@ -26,6 +26,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	"github.com/rs/zerolog"
@@ -281,9 +284,13 @@ type fakeAddonHealthServer struct {
 	addonpb.UnimplementedAddonServiceServer
 
 	response atomic.Pointer[addonpb.HealthResponse]
+	failing  atomic.Bool
 }
 
 func (f *fakeAddonHealthServer) Health(context.Context, *addonpb.HealthRequest) (*addonpb.HealthResponse, error) {
+	if f.failing.Load() {
+		return nil, status.Error(codes.Unavailable, "health unavailable")
+	}
 	return f.response.Load(), nil
 }
 
@@ -321,6 +328,32 @@ func TestAttachManagerReportsAddonServiceDegradation(t *testing.T) {
 	if !sc.Healthy() {
 		t.Fatal("a degraded netprobe is still running and must stay marked healthy")
 	}
+
+	// A Health call that fails says nothing new: the last answer stands.
+	health.failing.Store(true)
+	failures := 0
+	mgr.probeHealth(ctx, attachFakeClient{}, &failures)
+	if got := mgr.Status()[0]; got.State != sidecar.StateDegraded || got.LastError != reason {
+		t.Fatalf("a failed Health call cleared the degradation: state=%q last_error=%q", got.State, got.LastError)
+	}
+	health.failing.Store(false)
+
+	// Only DEGRADED folds into the degraded state.
+	health.response.Store(&addonpb.HealthResponse{
+		Status:            addonpb.HealthResponse_STATUS_UNHEALTHY,
+		DegradationReason: "not a degradation",
+	})
+	waitForAttachStatus(t, mgr, func(status sidecar.Status) bool {
+		return status.State == sidecar.StateRunning && status.LastError == ""
+	})
+
+	health.response.Store(&addonpb.HealthResponse{
+		Status:            addonpb.HealthResponse_STATUS_DEGRADED,
+		DegradationReason: reason,
+	})
+	waitForAttachStatus(t, mgr, func(status sidecar.Status) bool {
+		return status.State == sidecar.StateDegraded && status.LastError == reason
+	})
 
 	health.response.Store(&addonpb.HealthResponse{Status: addonpb.HealthResponse_STATUS_HEALTHY})
 	waitForAttachStatus(t, mgr, func(status sidecar.Status) bool {
