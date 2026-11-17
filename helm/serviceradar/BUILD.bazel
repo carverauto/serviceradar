@@ -115,6 +115,15 @@ py_test(
     deps = ["@pyyaml//:yaml"],
 )
 
+# The runtime certificate generator's rotation record: every reissued public
+# certificate named with the fingerprint it replaced, and no key material. Core
+# records a reissued certificate on its adopted component only from this record.
+py_test(
+    name = "runtime_cert_rotation_test",
+    srcs = ["runtime_cert_rotation_test.py"],
+    data = ["files/runtime-cert-rotation.py"],
+)
+
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
 # checkpoint every ~14s at this product's ingest rate and parked every backend on
 # LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the

@@ -125,6 +125,42 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     end
   end
 
+  @doc """
+  Records the certificate that replaced a recorded infrastructure certificate.
+
+  The chart's runtime certificate generator reissues every chart certificate
+  from the same CA when the certificate layout changes, and names each replaced
+  fingerprint with its replacement (`ServiceRadar.Edge.RuntimeCertificateRotation`).
+  The replacement is recorded on the component that holds the replaced
+  fingerprint, exactly as `record_infrastructure_successor/3` records it:
+  generation and stored grant stay unchanged, and the predecessor stays
+  authorized until it is revoked.
+
+  The replaced certificate must belong to the component's current generation and
+  must not be revoked, and the replacement must name the same issuer. A revoked
+  or superseded certificate therefore cannot name a successor, and a certificate
+  from another issuer is refused.
+  """
+  def record_rotated_infrastructure_successor(previous_fingerprint, attrs, opts \\ [])
+      when is_binary(previous_fingerprint) do
+    issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+
+    # The predecessor is looked up first: a certificate that was never adopted
+    # names its replacement as `:unknown_certificate`, whatever that replacement is.
+    fn ->
+      with {:ok, predecessor} <- find_certificate(previous_fingerprint, opts),
+           {:ok, issuance} <- InfrastructureCertificateAdoption.prepare_certificate(attrs),
+           {:ok, component} <- lock_component(predecessor.component_id, opts),
+           :ok <- infrastructure_successor(component),
+           {:ok, certificate} <-
+             rotated_successor(component, predecessor, issuance, opts, issuance_opts) do
+        {:ok, %{component: component, certificate: certificate}}
+      end
+    end
+    |> transaction()
+    |> notify()
+  end
+
   def set_infrastructure_permissions(component_id, expected_generation, permissions, opts \\ []) do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts) do
@@ -484,6 +520,60 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     case Ash.read_one(query, opts) do
       {:ok, %ComponentCertificate{}} -> :ok
       {:ok, nil} -> {:error, :unknown_certificate}
+      error -> error
+    end
+  end
+
+  # A replacement already recorded on this component at its current generation
+  # stays recorded after its predecessor is revoked, so repeating the rotation
+  # returns it.
+  defp rotated_successor(component, predecessor, issuance, opts, issuance_opts) do
+    case find_certificate(issuance.fingerprint, issuance_opts) do
+      {:ok, %{component_id: component_id} = certificate}
+      when component_id == component.component_id ->
+        if certificate.generation == component.generation,
+          do: reuse_certificate(certificate, issuance_opts),
+          else: {:error, :stale_generation}
+
+      {:ok, _other_component} ->
+        {:error, :certificate_metadata_conflict}
+
+      {:error, :unknown_certificate} ->
+        with :ok <- current_predecessor(component, predecessor, issuance, opts) do
+          changeset = successor_changeset(component, issuance, issuance_opts)
+          bound_issuance(component.component_id, changeset, issuance_opts)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp current_predecessor(component, predecessor, issuance, opts) do
+    cond do
+      predecessor.generation != component.generation ->
+        {:error, :stale_generation}
+
+      predecessor.issuer_fingerprint != issuance.issuer_fingerprint ->
+        {:error, :untrusted_issuer}
+
+      true ->
+        unrevoked(component, predecessor.fingerprint, opts)
+    end
+  end
+
+  defp unrevoked(component, certificate_fingerprint, opts) do
+    query =
+      RevokedComponentCertificate
+      |> Ash.Query.filter(
+        component_id == ^component.component_id and generation == ^component.generation and
+          (is_nil(fingerprint) or fingerprint == ^certificate_fingerprint)
+      )
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, opts) do
+      {:ok, nil} -> :ok
+      {:ok, _} -> {:error, :certificate_revoked}
       error -> error
     end
   end

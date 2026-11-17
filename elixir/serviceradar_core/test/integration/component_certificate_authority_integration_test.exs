@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   alias ServiceRadar.Edge.ManagedCertificatePolicyKey
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
+  alias ServiceRadar.Edge.RuntimeCertificateRotation
 
   require Ash.Query
 
@@ -510,6 +511,136 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
 
     assert {:ok, snapshot} = Authority.snapshot()
     refute renewed.fingerprint in snapshot.allowed_fingerprints
+  end
+
+  # The chart reissues every runtime certificate from the same CA when its
+  # layout changes. An adopted component is admitted by recorded fingerprint, so
+  # the reissued certificate must be recorded from the generator's rotation
+  # record or the component loses NATS access.
+  @tag :tmp_dir
+  test "records a chart-rotated certificate on the adopted component that held its predecessor",
+       ctx do
+    root =
+      :public_key.pkix_test_root_cert(~c"example-root", validity: {{2026, 1, 1}, {2027, 6, 1}})
+
+    other_root = self_signed_certificate(~c"example-other-root")
+    adopted = issued_certificate(root)
+    rotated = issued_certificate(root)
+    foreign = issued_certificate(:public_key.pkix_test_root_cert(~c"example-foreign-root", []))
+    id = "example-core-#{System.unique_integer([:positive])}"
+
+    operator = %{
+      id: "example-operator",
+      role: :operator,
+      permissions: MapSet.new(["settings.edge.manage"])
+    }
+
+    assert {:ok, %{certificate: first}} =
+             Authority.adopt_existing_certificate(
+               %{
+                 component_id: id,
+                 component_type: "core",
+                 partition_id: "example-partition",
+                 certificate_pem: adopted.pem,
+                 permissions: %{
+                   "publish" => %{"allow" => ["metrics.example.>"], "deny" => []},
+                   "subscribe" => %{"allow" => ["events.example.>"], "deny" => []}
+                 }
+               },
+               actor: operator
+             )
+
+    path = rotation_record(ctx.tmp_dir, first.fingerprint, rotated, other_root, foreign)
+
+    assert {:ok, outcomes} = RuntimeCertificateRotation.reconcile(path)
+
+    assert {:recorded, rotated.fingerprint, id} in outcomes
+    assert {:skipped, fingerprint(other_root.der), :predecessor_not_recorded} in outcomes
+    assert {:refused, foreign.fingerprint, :untrusted_issuer} in outcomes
+
+    assert {:ok, snapshot} = Authority.snapshot()
+    assert first.fingerprint in snapshot.allowed_fingerprints
+    assert rotated.fingerprint in snapshot.allowed_fingerprints
+    refute foreign.fingerprint in snapshot.allowed_fingerprints
+
+    assert snapshot.nats_permissions[rotated.fingerprint] ==
+             snapshot.nats_permissions[first.fingerprint]
+
+    assert {:ok, %{generation: 1}} = Ash.get(ManagedComponent, id, ctx.opts)
+
+    # Revoking the replaced certificate keeps its recorded replacement, and a
+    # revoked certificate names no further replacement.
+    assert {:ok, _} = Authority.revoke_certificate(first.fingerprint, "rotated", ctx.opts)
+    assert {:ok, outcomes} = RuntimeCertificateRotation.reconcile(path)
+    assert {:recorded, rotated.fingerprint, id} in outcomes
+
+    later = issued_certificate(root)
+
+    assert {:error, :certificate_revoked} =
+             Authority.record_rotated_infrastructure_successor(
+               first.fingerprint,
+               %{certificate_pem: later.pem},
+               ctx.opts
+             )
+
+    # A certificate superseded by re-enrollment names no replacement either.
+    assert {:ok, %{generation: 2}} = Authority.reenroll_component(id, ctx.opts)
+
+    assert {:error, :stale_generation} =
+             Authority.record_rotated_infrastructure_successor(
+               rotated.fingerprint,
+               %{certificate_pem: later.pem},
+               ctx.opts
+             )
+
+    assert {:ok, outcomes} = RuntimeCertificateRotation.reconcile(path)
+    assert {:refused, rotated.fingerprint, :stale_generation} in outcomes
+
+    assert {:ok, recorded} = certificates(id, ctx.opts)
+
+    assert Enum.sort(Enum.map(recorded, & &1.fingerprint)) ==
+             Enum.sort([first.fingerprint, rotated.fingerprint])
+  end
+
+  defp issued_certificate(root) do
+    data = :public_key.pkix_test_data(%{root: root, peer: [], intermediates: []})
+    [issuer | _] = data[:cacerts]
+
+    %{
+      der: data[:cert],
+      fingerprint: fingerprint(data[:cert]),
+      pem:
+        :public_key.pem_encode([
+          {:Certificate, data[:cert], :not_encrypted},
+          {:Certificate, issuer, :not_encrypted}
+        ])
+    }
+  end
+
+  # The record names the adopted certificate's replacement, a replacement for a
+  # certificate that was never adopted, and one from another CA.
+  defp rotation_record(dir, adopted_fingerprint, rotated, other_root, foreign) do
+    entries = [
+      %{
+        previous_fingerprint: adopted_fingerprint,
+        fingerprint: rotated.fingerprint,
+        certificate_pem: rotated.pem
+      },
+      %{
+        previous_fingerprint: fingerprint("example-never-adopted"),
+        fingerprint: fingerprint(other_root.der),
+        certificate_pem: other_root.pem
+      },
+      %{
+        previous_fingerprint: adopted_fingerprint,
+        fingerprint: foreign.fingerprint,
+        certificate_pem: foreign.pem
+      }
+    ]
+
+    path = Path.join(dir, "runtime-cert-rotation.json")
+    File.write!(path, Jason.encode!(%{version: 1, certificates: entries}))
+    path
   end
 
   defp certificates(component_id, opts) do
