@@ -5,16 +5,38 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveUploads
+  alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingHolds
+  alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadarWebNG.CameraArchiveWindow
+  alias ServiceRadarWebNG.CameraRecordingSettings
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
+
+  require Ash.Query
+
+  @recording_view_permissions ["devices.view", "devices.cameras.recordings.view"]
+  @recording_hold_permissions [
+    "devices.view",
+    "devices.cameras.recordings.view",
+    "devices.cameras.recordings.hold"
+  ]
 
   @recording_settings_permissions [
     "settings.recording.view",
     "settings.recording.manage",
     "settings.recording.operate"
   ]
+
+  @max_playlist_window_us 3_600_000_000
+
+  @span_durations_us %{
+    "1h" => 3_600_000_000,
+    "6h" => 6 * 3_600_000_000,
+    "24h" => 24 * 3_600_000_000,
+    "7d" => 7 * 24 * 3_600_000_000
+  }
 
   @impl true
   def mount(%{"camera_source_id" => source_id}, _session, socket) do
@@ -27,14 +49,56 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         srql: %{enabled: false, page_path: path},
         camera_source_id: source_id,
         source: nil,
+        mode: :published,
+        requested_mode: nil,
         items: [],
         next_cursor: nil,
         selected: nil,
+        stream_profiles: [],
+        timeline_profile_id: "",
+        timeline_span: "1h",
+        timeline_source: "auto",
+        timeline_custom_from_us: nil,
+        timeline_anchor_to_us: nil,
+        timeline_coverage: nil,
+        timeline_playlist_path: nil,
+        timeline_play_from_us: nil,
+        timeline_play_to_us: nil,
+        timeline_has_adjacent_window: false,
+        timeline_holds: [],
+        hold_form: to_form(default_hold_form_params(nil, nil), as: :hold),
         error: nil,
         loading: true
       )
 
-    {:ok, if(connected?(socket), do: load_inventory(socket, nil), else: socket)}
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    requested_mode = parse_mode_param(params["mode"])
+    span = parse_span_param(params["span"])
+    source_mode = parse_source_param(params["source"])
+    profile_id = parse_profile_param(params["profile"])
+    custom_from_us = parse_optional_int(params["from"])
+    custom_to_us = parse_optional_int(params["to"])
+
+    socket =
+      assign(socket,
+        requested_mode: requested_mode,
+        mode: requested_mode || socket.assigns.mode,
+        timeline_span: span,
+        timeline_source: source_mode,
+        timeline_profile_id: profile_id,
+        timeline_custom_from_us: custom_from_us,
+        timeline_anchor_to_us: custom_to_us
+      )
+
+    if connected?(socket) do
+      {:noreply, load_initial_or_switched_mode(socket)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -43,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <RecordingsComponents.recordings
         source={@source}
+        mode={@mode}
         items={@items}
         next_cursor={@next_cursor}
         selected={@selected}
@@ -50,12 +115,39 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         loading={@loading}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
         can_view_recording_settings={can_view_recording_settings?(@current_scope)}
+        can_manage_holds={RBAC.can?(@current_scope, "devices.cameras.recordings.hold")}
+        stream_profiles={@stream_profiles}
+        timeline_profile_id={@timeline_profile_id}
+        timeline_span={@timeline_span}
+        timeline_source={@timeline_source}
+        timeline_coverage={@timeline_coverage}
+        timeline_playlist_path={@timeline_playlist_path}
+        timeline_play_from_us={@timeline_play_from_us}
+        timeline_play_to_us={@timeline_play_to_us}
+        timeline_has_adjacent_window={@timeline_has_adjacent_window}
+        timeline_holds={@timeline_holds}
+        hold_form={@hold_form}
       />
     </Layouts.app>
     """
   end
 
   @impl true
+  def handle_event("switch_recordings_mode", %{"mode" => raw_mode}, socket) do
+    case parse_mode_param(raw_mode) do
+      :timeline ->
+        socket = assign(socket, mode: :timeline, requested_mode: :timeline, error: nil)
+        {:noreply, load_timeline(socket)}
+
+      :published ->
+        socket = assign(socket, mode: :published, requested_mode: :published, error: nil)
+        {:noreply, load_inventory(socket, nil)}
+
+      nil ->
+        {:noreply, authorize_only_or_unavailable(socket)}
+    end
+  end
+
   def handle_event("refresh_recordings", _, socket), do: {:noreply, load_inventory(socket, nil)}
 
   def handle_event("next_recordings", _, socket), do: {:noreply, load_inventory(socket, socket.assigns.next_cursor)}
@@ -73,8 +165,224 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
+  def handle_event("refresh_timeline", _, socket) do
+    {:noreply, load_timeline(socket)}
+  end
+
+  def handle_event("select_timeline_profile", params, socket) do
+    profile_id = parse_profile_param(params["stream_profile_id"])
+
+    socket =
+      assign(socket,
+        timeline_profile_id: profile_id,
+        error: nil
+      )
+
+    {:noreply, load_timeline(socket)}
+  end
+
+  def handle_event("select_timeline_span", %{"span" => span}, socket) do
+    if Map.has_key?(@span_durations_us, span) do
+      socket =
+        assign(socket,
+          timeline_span: span,
+          timeline_custom_from_us: nil,
+          error: nil
+        )
+
+      {:noreply, load_timeline(socket)}
+    else
+      {:noreply, authorize_only_or_unavailable(socket)}
+    end
+  end
+
+  def handle_event("select_timeline_source", %{"source" => source}, socket) do
+    if source in ["auto", "local", "archive"] do
+      socket = assign(socket, timeline_source: source, error: nil)
+      {:noreply, load_timeline(socket)}
+    else
+      {:noreply, authorize_only_or_unavailable(socket)}
+    end
+  end
+
+  def handle_event("navigate_timeline_window", %{"direction" => direction}, socket) do
+    span_us = Map.fetch!(@span_durations_us, socket.assigns.timeline_span)
+    now_us = System.system_time(:microsecond)
+    current_to_us = socket.assigns.timeline_anchor_to_us || now_us
+
+    next_anchor_to_us =
+      case direction do
+        "previous" -> max(current_to_us - span_us, span_us)
+        "next" -> min(current_to_us + span_us, now_us)
+        "latest" -> nil
+        _ -> current_to_us
+      end
+
+    socket =
+      assign(socket,
+        timeline_custom_from_us: nil,
+        timeline_anchor_to_us: next_anchor_to_us,
+        error: nil
+      )
+
+    {:noreply, load_timeline(socket)}
+  end
+
+  def handle_event("select_timeline_bucket", params, socket) do
+    with {:ok, scope, source} <- authorize_timeline_view(socket),
+         {:ok, bucket_start} <- parse_required_int(params["start_us"]),
+         {:ok, bucket_end} <- parse_required_int(params["end_us"]),
+         true <- bucket_end > bucket_start do
+      cov = socket.assigns.timeline_coverage
+      cov_to_us = (cov && cov.to_us) || bucket_end
+      play_from_us = bucket_start
+      play_to_us = min(bucket_start + @max_playlist_window_us, max(cov_to_us, bucket_end))
+
+      playlist_path =
+        build_playlist_path_if_playable(
+          source.id,
+          cov,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_profile_id,
+          socket.assigns.timeline_source
+        )
+
+      has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
+
+      {:noreply,
+       assign(socket,
+         current_scope: scope,
+         source: source,
+         timeline_play_from_us: play_from_us,
+         timeline_play_to_us: play_to_us,
+         timeline_playlist_path: playlist_path,
+         timeline_has_adjacent_window: has_adjacent?,
+         hold_form: to_form(default_hold_form_params(play_from_us, play_to_us), as: :hold),
+         error: nil
+       )}
+    else
+      {:error, reason} -> {:noreply, unavailable(socket, reason)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("advance_timeline_window", _params, socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        socket = assign(socket, current_scope: scope, source: source)
+        {:noreply, advance_playback_window(socket, source)}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
+  end
+
+  def handle_event("place_timeline_hold", params, socket) do
+    hold_params = Map.get(params, "hold", params)
+
+    with {:ok, scope, source} <- authorize_timeline_hold(socket),
+         {:ok, kind} <- parse_hold_kind(hold_params["kind"]),
+         {:ok, start_us, end_us} <- parse_hold_bounds(hold_params, socket),
+         reason = String.trim(to_string(hold_params["reason"] || "")),
+         {:ok, _hold} <-
+           RecordingHolds.place_hold(
+             %{
+               camera_source_id: source.id,
+               stream_profile_id: blank_to_nil(socket.assigns.timeline_profile_id),
+               start_us: start_us,
+               end_us: end_us,
+               kind: kind,
+               reason: reason
+             },
+             scope: scope
+           ) do
+      socket =
+        socket
+        |> assign(current_scope: scope, source: source, error: nil)
+        |> put_flash(:info, "Recording hold placed.")
+        |> load_timeline()
+
+      {:noreply, socket}
+    else
+      {:error, reason}
+      when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
+        {:noreply, unavailable(socket, reason)}
+
+      {:error, %Forbidden{}} ->
+        {:noreply, unavailable(socket, :permission_revoked)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, error: hold_error_message(reason))}
+    end
+  end
+
+  def handle_event("release_timeline_hold", params, socket) do
+    release_params = Map.get(params, "release", params)
+    hold_id = to_string(release_params["hold_id"] || "")
+    release_reason = blank_to_nil(release_params["release_reason"])
+
+    with {:ok, scope, source} <- authorize_timeline_hold(socket),
+         {:ok, _released} <-
+           RecordingHolds.release_hold(
+             hold_id,
+             %{release_reason: release_reason},
+             scope: scope
+           ) do
+      socket =
+        socket
+        |> assign(current_scope: scope, source: source, error: nil)
+        |> put_flash(:info, "Recording hold released.")
+        |> load_timeline()
+
+      {:noreply, socket}
+    else
+      {:error, reason}
+      when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
+        {:noreply, unavailable(socket, reason)}
+
+      {:error, %Forbidden{}} ->
+        {:noreply, unavailable(socket, :permission_revoked)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, error: hold_error_message(reason))}
+    end
+  end
+
+  defp load_initial_or_switched_mode(socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        effective_mode =
+          case socket.assigns.requested_mode do
+            mode when mode in [:timeline, :published] ->
+              mode
+
+            nil ->
+              if RecordingTimeline.has_timeline_data?(source.id, scope: scope) do
+                :timeline
+              else
+                :published
+              end
+          end
+
+        socket = assign(socket, current_scope: scope, source: source, mode: effective_mode)
+
+        case effective_mode do
+          :timeline -> load_timeline_for_authorized(socket, scope, source)
+          :published -> load_inventory(socket, nil)
+        end
+
+      {:error, reason} ->
+        unavailable(socket, reason)
+    end
+  end
+
   defp load_inventory(socket, cursor) do
-    with {:ok, scope, source} <- CameraArchiveAccess.source(socket.assigns.current_scope, socket.assigns.camera_source_id),
+    with {:ok, scope, source} <-
+           CameraArchiveAccess.source(
+             socket.assigns.current_scope,
+             socket.assigns.camera_source_id
+           ),
          {:ok, inventory} <-
            ArchiveUploads.archive_inventory(source.id, [limit: 10, cursor: cursor],
              actor: SystemActor.system(:camera_archive_metadata)
@@ -82,6 +390,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       assign(socket,
         current_scope: scope,
         source: source,
+        mode: :published,
         items: inventory.items,
         next_cursor: inventory.next_cursor,
         selected: nil,
@@ -95,7 +404,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp select_recording(socket, block_id, index) do
     with {:ok, scope, source_id, block_id} <-
-           CameraArchiveAccess.recording(socket.assigns.current_scope, socket.assigns.camera_source_id, block_id),
+           CameraArchiveAccess.recording(
+             socket.assigns.current_scope,
+             socket.assigns.camera_source_id,
+             block_id
+           ),
          {:ok, metadata} <-
            ArchiveUploads.archive_metadata(source_id, block_id, actor: SystemActor.system(:camera_archive_metadata)),
          {:ok, window} <- CameraArchiveWindow.select(metadata, index) do
@@ -112,9 +425,390 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp unavailable(socket, reason) do
-    assign(socket, source: nil, items: [], next_cursor: nil, selected: nil, loading: false, error: message(reason))
+  defp load_timeline(socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        load_timeline_for_authorized(socket, scope, source)
+
+      {:error, reason} ->
+        unavailable(socket, reason)
+    end
   end
+
+  defp load_timeline_for_authorized(socket, scope, source) do
+    {cov_from_us, cov_to_us} = resolve_coverage_bounds(socket)
+    profile_id = blank_to_nil(socket.assigns.timeline_profile_id)
+    profiles = CameraRecordingSettings.list_relay_profiles(scope, source.id)
+
+    coverage_params = %{
+      from_us: cov_from_us,
+      to_us: cov_to_us,
+      stream_profile_id: profile_id,
+      bucket_count: 120
+    }
+
+    with {:ok, coverage} <-
+           RecordingTimeline.coverage(source.id, coverage_params, scope: scope),
+         {:ok, all_holds} <- load_enriched_camera_holds(source.id, coverage, scope) do
+      {play_from_us, play_to_us} =
+        initial_playback_window(
+          coverage,
+          cov_from_us,
+          cov_to_us,
+          socket.assigns.timeline_source
+        )
+
+      playlist_path =
+        build_playlist_path_if_playable(
+          source.id,
+          coverage,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_profile_id,
+          socket.assigns.timeline_source
+        )
+
+      has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
+
+      assign(socket,
+        current_scope: scope,
+        source: source,
+        mode: :timeline,
+        stream_profiles: profiles,
+        timeline_coverage: coverage,
+        timeline_play_from_us: play_from_us,
+        timeline_play_to_us: play_to_us,
+        timeline_playlist_path: playlist_path,
+        timeline_has_adjacent_window: has_adjacent?,
+        timeline_holds: all_holds,
+        hold_form: to_form(default_hold_form_params(play_from_us, play_to_us), as: :hold),
+        error: nil,
+        loading: false
+      )
+    else
+      {:error, reason} -> unavailable(socket, reason)
+    end
+  end
+
+  defp advance_playback_window(socket, source) do
+    cov = socket.assigns.timeline_coverage
+    current_from = socket.assigns.timeline_play_from_us
+    current_to = socket.assigns.timeline_play_to_us
+
+    if is_map(cov) and is_integer(current_from) and is_integer(current_to) do
+      step_us = min(max(current_to - current_from, 60_000_000), @max_playlist_window_us)
+      now_us = System.system_time(:microsecond)
+      upper_us = max(cov.to_us, now_us)
+      next_from = current_to
+      next_to = min(next_from + step_us, upper_us)
+
+      cond do
+        next_to <= next_from ->
+          assign(socket, timeline_has_adjacent_window: false)
+
+        next_to > cov.to_us ->
+          span_us = Map.fetch!(@span_durations_us, socket.assigns.timeline_span)
+
+          socket
+          |> assign(
+            timeline_custom_from_us: max(next_to - span_us, 0),
+            timeline_anchor_to_us: next_to
+          )
+          |> load_timeline()
+          |> assign_advanced_subwindow(source.id, next_from, next_to)
+
+        true ->
+          assign_advanced_subwindow(socket, source.id, next_from, next_to)
+      end
+    else
+      socket
+    end
+  end
+
+  defp assign_advanced_subwindow(socket, source_id, next_from, next_to) do
+    cov = socket.assigns.timeline_coverage
+    cov_to_us = (cov && cov.to_us) || next_to
+
+    playlist_path =
+      build_playlist_path_if_playable(
+        source_id,
+        cov,
+        next_from,
+        next_to,
+        socket.assigns.timeline_profile_id,
+        socket.assigns.timeline_source
+      )
+
+    assign(socket,
+      timeline_play_from_us: next_from,
+      timeline_play_to_us: next_to,
+      timeline_playlist_path: playlist_path,
+      timeline_has_adjacent_window: adjacent_window_available?(next_to, cov_to_us),
+      hold_form: to_form(default_hold_form_params(next_from, next_to), as: :hold)
+    )
+  end
+
+  defp resolve_coverage_bounds(socket) do
+    span_us = Map.fetch!(@span_durations_us, socket.assigns.timeline_span)
+    now_us = System.system_time(:microsecond)
+    to_us = socket.assigns.timeline_anchor_to_us || now_us
+
+    from_us =
+      case socket.assigns.timeline_custom_from_us do
+        custom when is_integer(custom) and custom >= 0 and custom < to_us -> custom
+        _ -> max(to_us - span_us, 0)
+      end
+
+    {from_us, to_us}
+  end
+
+  defp initial_playback_window(coverage, cov_from_us, cov_to_us, source_str) do
+    if cov_to_us - cov_from_us <= @max_playlist_window_us do
+      {cov_from_us, cov_to_us}
+    else
+      playable_blocks = Enum.filter(coverage.blocks, &block_playable_for_source?(&1, source_str))
+
+      case playable_blocks do
+        [first | _] ->
+          start_us = max(first.timeline_start_us, cov_from_us)
+          {start_us, min(start_us + @max_playlist_window_us, cov_to_us)}
+
+        [] ->
+          {max(cov_to_us - @max_playlist_window_us, cov_from_us), cov_to_us}
+      end
+    end
+  end
+
+  defp build_playlist_path_if_playable(source_id, coverage, play_from_us, play_to_us, profile_id, source_str) do
+    has_playable? =
+      is_map(coverage) and
+        Enum.any?(coverage.blocks, fn block ->
+          block.timeline_end_us > play_from_us and
+            block.timeline_start_us < play_to_us and
+            block_playable_for_source?(block, source_str)
+        end)
+
+    if has_playable? do
+      query_items =
+        [
+          {"from", Integer.to_string(play_from_us)},
+          {"to", Integer.to_string(play_to_us)},
+          {"source", source_str}
+        ] ++
+          if(profile_id in [nil, ""], do: [], else: [{"profile", profile_id}])
+
+      "/api/cameras/#{source_id}/timeline/playlist.m3u8?" <> URI.encode_query(query_items)
+    end
+  end
+
+  defp block_playable_for_source?(block, "local"), do: block.local_state == :present
+  defp block_playable_for_source?(block, "archive"), do: block.archive_state == :verified
+
+  defp block_playable_for_source?(block, _auto), do: block.local_state == :present or block.archive_state == :verified
+
+  defp adjacent_window_available?(play_to_us, cov_to_us) do
+    now_us = System.system_time(:microsecond)
+    play_to_us < cov_to_us or cov_to_us < now_us - 1_000_000
+  end
+
+  defp load_enriched_camera_holds(camera_source_id, coverage, scope) do
+    in_window_by_id = Map.new(coverage.holds || [], &{to_string(&1.id), &1})
+
+    with {:ok, holds} <- RecordingHolds.list_holds(camera_source_id, scope: scope) do
+      enriched =
+        Enum.map(holds, fn hold ->
+          case Map.get(in_window_by_id, to_string(hold.id)) do
+            %{} = formatted ->
+              formatted
+
+            nil ->
+              format_out_of_window_hold(hold)
+          end
+        end)
+
+      {:ok, enriched}
+    end
+  end
+
+  defp format_out_of_window_hold(hold) do
+    covered =
+      if hold.state == :accepted do
+        load_covered_entries_for_hold(hold)
+      else
+        []
+      end
+
+    pinned_copies =
+      covered
+      |> Enum.filter(&RecordingHolds.hold_protects_entry?(hold, &1))
+      |> Enum.map(&RecordingHolds.pinned_copy_for_entry/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    pinned_copy =
+      cond do
+        hold.state != :accepted -> nil
+        :local in pinned_copies -> :local
+        :archive in pinned_copies -> :archive
+        true -> nil
+      end
+
+    archive_missing? =
+      hold.state == :accepted and
+        Enum.any?(covered, fn entry ->
+          RecordingHolds.hold_protects_entry?(hold, entry) and entry.archive_state == :missing
+        end)
+
+    %{
+      id: hold.id,
+      camera_source_id: hold.camera_source_id,
+      stream_profile_id: hold.stream_profile_id,
+      start_us: hold.start_us,
+      end_us: hold.end_us,
+      kind: hold.kind,
+      state: hold.state,
+      reason: hold.reason,
+      created_by_id: hold.created_by_id,
+      accepted_at: hold.accepted_at,
+      released_by_id: hold.released_by_id,
+      released_at: hold.released_at,
+      release_reason: hold.release_reason,
+      unavailable_blocks: hold.unavailable_blocks || [],
+      pinned_copy: pinned_copy,
+      archive_missing?: archive_missing?
+    }
+  end
+
+  defp load_covered_entries_for_hold(hold) do
+    RecordingCatalogEntry
+    |> Ash.Query.for_read(:read, %{}, actor: SystemActor.system(:camera_recording_timeline))
+    |> Ash.Query.filter(
+      camera_source_id == ^hold.camera_source_id and
+        local_state != :quarantined and
+        not is_nil(timeline_start_us) and
+        not is_nil(timeline_end_us) and
+        timeline_end_us > ^hold.start_us and
+        timeline_start_us < ^hold.end_us
+    )
+    |> Ash.read(actor: SystemActor.system(:camera_recording_timeline))
+    |> case do
+      {:ok, rows} -> rows
+      _ -> []
+    end
+  end
+
+  defp authorize_timeline_view(socket) do
+    with {:ok, refreshed_scope} <-
+           RBAC.authorize_current(socket.assigns.current_scope, @recording_view_permissions) do
+      CameraArchiveAccess.source(refreshed_scope, socket.assigns.camera_source_id)
+    end
+  end
+
+  defp authorize_timeline_hold(socket) do
+    with {:ok, refreshed_scope} <-
+           RBAC.authorize_current(socket.assigns.current_scope, @recording_hold_permissions) do
+      CameraArchiveAccess.source(refreshed_scope, socket.assigns.camera_source_id)
+    end
+  end
+
+  defp authorize_only_or_unavailable(socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} -> assign(socket, current_scope: scope, source: source)
+      {:error, reason} -> unavailable(socket, reason)
+    end
+  end
+
+  defp default_hold_form_params(start_us, end_us) do
+    %{
+      "kind" => "investigation",
+      "start_us" => if(is_integer(start_us), do: Integer.to_string(start_us), else: ""),
+      "end_us" => if(is_integer(end_us), do: Integer.to_string(end_us), else: ""),
+      "reason" => ""
+    }
+  end
+
+  defp parse_mode_param("timeline"), do: :timeline
+  defp parse_mode_param("published"), do: :published
+  defp parse_mode_param(_), do: nil
+
+  defp parse_span_param(span) when span in ["1h", "6h", "24h", "7d"], do: span
+  defp parse_span_param(_), do: "1h"
+
+  defp parse_source_param(source) when source in ["auto", "local", "archive"], do: source
+  defp parse_source_param(_), do: "auto"
+
+  defp parse_profile_param(val) when is_binary(val) do
+    case Ecto.UUID.cast(String.trim(val)) do
+      {:ok, uuid} -> uuid
+      :error -> ""
+    end
+  end
+
+  defp parse_profile_param(_), do: ""
+
+  defp parse_hold_kind("investigation"), do: {:ok, :investigation}
+  defp parse_hold_kind("export"), do: {:ok, :export}
+  defp parse_hold_kind(_), do: {:error, :invalid_hold_kind}
+
+  defp parse_hold_bounds(hold_params, socket) do
+    start_us =
+      parse_optional_int(hold_params["start_us"]) || socket.assigns.timeline_play_from_us
+
+    end_us =
+      parse_optional_int(hold_params["end_us"]) || socket.assigns.timeline_play_to_us
+
+    if is_integer(start_us) and is_integer(end_us) and end_us > start_us do
+      {:ok, start_us, end_us}
+    else
+      {:error, :invalid_hold_window}
+    end
+  end
+
+  defp parse_required_int(val) do
+    case parse_optional_int(val) do
+      n when is_integer(n) -> {:ok, n}
+      nil -> {:error, :invalid_integer}
+    end
+  end
+
+  defp parse_optional_int(val) when is_integer(val), do: val
+
+  defp parse_optional_int(val) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_int(_), do: nil
+
+  defp blank_to_nil(nil), do: nil
+
+  defp blank_to_nil(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp unavailable(socket, reason) do
+    assign(socket,
+      source: nil,
+      items: [],
+      next_cursor: nil,
+      selected: nil,
+      timeline_coverage: nil,
+      timeline_playlist_path: nil,
+      timeline_holds: [],
+      loading: false,
+      error: message(reason)
+    )
+  end
+
+  defp hold_error_message(:invalid_hold_kind), do: "Select a valid hold kind."
+
+  defp hold_error_message(:invalid_hold_window), do: "Hold end time must be strictly after start time."
+
+  defp hold_error_message(:hold_already_released), do: "This hold has already been released."
+  defp hold_error_message(_), do: "Unable to complete recording hold action. Check hold inputs."
 
   defp message(reason) when reason in [:unauthorized, :permission_revoked],
     do: "You no longer have permission to view camera recordings."
@@ -124,8 +818,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp message(:recording_block_not_found), do: "The camera or recording could not be found."
   defp message(:archive_unavailable), do: "This recording is no longer available for playback."
 
-  defp message(reason) when reason in [:invalid_recording_window, :recording_window_too_large],
-    do: "This recording window cannot be played within the current playback limits."
+  defp message(reason)
+       when reason in [
+              :invalid_recording_window,
+              :recording_window_too_large,
+              :timeline_window_too_large,
+              :playlist_window_too_large
+            ], do: "This recording window cannot be played within the current playback limits."
 
   defp message(_), do: "Camera recordings are temporarily unavailable. Try refreshing."
 

@@ -7,8 +7,10 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.LocalPublicationIntents
   alias ServiceRadar.Camera.LocalStorageBinding
+  alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
+  alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
@@ -18,6 +20,8 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RecordingOperation
+  alias ServiceRadar.Camera.RecordingTimeline
+  alias ServiceRadar.Camera.RecordingTimeline.RedactedCredential
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -2157,6 +2161,403 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert loss_disp.step == :verified_absent
     assert loss_disp.local_copy_remained == true
     assert loss_disp.hold_check_result["decision"] == "accepted_with_hold_authority"
+  end
+
+  test "Stage D & review-74: RecordingAccessAudit append-only trigger, hold/playlist audits, RecordingTimeline coverage & copy resolution, local integrity failure, and quarantined missing re-archive eligibility",
+       ctx do
+    t0 = ~U[2026-11-17 03:00:00.000000Z]
+    t0_us = DateTime.to_unix(t0, :microsecond)
+
+    binding_main =
+      register_binding(ctx, Fixtures.archive_destination("stage-d-main-#{Ecto.UUID.generate()}"))
+
+    binding_quar =
+      register_binding(ctx, Fixtures.archive_destination("stage-d-quar-#{Ecto.UUID.generate()}"))
+
+    viewer_actor = %{
+      id: "stage-d-viewer",
+      role: :viewer,
+      permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+    }
+
+    hold_and_operate_actor = %{
+      id: "stage-d-investigator",
+      role: :admin,
+      permissions:
+        MapSet.new([
+          "devices.view",
+          "devices.cameras.recordings.view",
+          "devices.cameras.recordings.hold",
+          "settings.recording.operate",
+          "settings.recording.view"
+        ])
+    }
+
+    # 1. Freeze and catalog block 0 (dual-copy: local present + archive verified with receipt):
+    desc_0 = Fixtures.recording_descriptor(ctx.block)
+
+    assert {:ok, entry_0} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               ctx.block,
+               desc_0,
+               %{
+                 first_unit_pts: 0,
+                 first_unit_received_at: t0,
+                 anchor_id: "anchor-stage-d-1",
+                 reanchored: false,
+                 policy_storage: :local_and_archive,
+                 archive_binding_id: binding_main.id
+               },
+               ctx.opts
+             )
+
+    receipt_doc =
+      Jason.encode!(%{
+        "version" => 2,
+        "storage_id" => ctx.claim.storage_id,
+        "block_key" => ctx.block.block_key,
+        "destination_sha256" => binding_main.destination_sha256,
+        "verified_at_ms" => 1_763_348_405_000,
+        "objects" => [
+          %{
+            "name" => "init.mp4",
+            "key" => "recordings/v1/#{ctx.claim.storage_id}/#{ctx.block.block_key}/init.mp4",
+            "length" => desc_0["init"]["length"],
+            "sha256" => desc_0["init"]["sha256"],
+            "etag" => "\"stage-d-init-etag\"",
+            "version_id" => "ver-init-1"
+          },
+          %{
+            "name" => "media.m4s",
+            "key" => "recordings/v1/#{ctx.claim.storage_id}/#{ctx.block.block_key}/media.m4s",
+            "length" => desc_0["media"]["length"],
+            "sha256" => desc_0["media"]["sha256"],
+            "etag" => "\"stage-d-media-etag\"",
+            "version_id" => "ver-media-1"
+          }
+        ]
+      })
+
+    assert {:ok, %NVRArchiveReceipt{} = receipt_0} =
+             NVRArchiveReceipt.record(
+               binding_main.id,
+               receipt_doc,
+               %{recording_block_id: ctx.block.id},
+               ctx.opts
+             )
+
+    on_exit(fn ->
+      receipt_bin = Ecto.UUID.dump!(receipt_0.id)
+
+      Repo.query!(
+        "UPDATE platform.camera_recording_catalog SET nvr_archive_receipt_id = NULL WHERE nvr_archive_receipt_id = $1",
+        [receipt_bin]
+      )
+
+      Repo.query!("DELETE FROM platform.camera_nvr_archive_receipts WHERE id = $1", [receipt_bin])
+    end)
+
+    assert {:ok, %{entry: entry_0}} =
+             RecordingHolds.mark_archive_verified_and_move_pin(
+               entry_0.id,
+               %{archive_binding_id: binding_main.id, nvr_archive_receipt_id: receipt_0.id},
+               actor: hold_and_operate_actor
+             )
+
+    # Reserve and catalog block 1 (reanchored + local_only_after_archive):
+    assert {:ok, block_1} =
+             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    desc_1 = Fixtures.recording_descriptor(block_1)
+
+    assert {:ok, entry_1} =
+             RecordingBlocks.freeze_and_catalog(
+               ctx.owner,
+               ctx.claim,
+               block_1,
+               desc_1,
+               %{
+                 first_unit_pts: 90_000,
+                 first_unit_received_at: DateTime.shift(t0, second: 1),
+                 anchor_id: "anchor-stage-d-2",
+                 reanchored: true,
+                 contiguous_with_previous: true,
+                 policy_storage: :local_and_archive,
+                 archive_binding_id: binding_main.id
+               },
+               ctx.opts
+             )
+
+    {:ok, entry_1} =
+      entry_1
+      |> Ash.Changeset.for_update(:transition_archive_state, %{
+        archive_state: :deleted,
+        archive_state_at: DateTime.shift(t0, second: 10),
+        archive_deleted_reason: :object_retention
+      })
+      |> Ash.update(ctx.opts)
+
+    # Reserve block 2 and resolve as unrecoverable with known interval ->
+    # quarantined entry + RecordingGap(reason: :quarantined):
+    assert {:ok, block_2} =
+             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    q_receipt_2 = %{
+      "partition_path" => ".quarantine/#{block_2.block_key}",
+      "placed_at_ms" => 1_763_348_410_000,
+      "files" => [%{"name" => "journal.bin", "length" => 2048, "sha256" => digest("stage-d-j2")}]
+    }
+
+    assert {:ok,
+            %{
+              gap: %RecordingGap{reason: :quarantined},
+              quarantined_entry: %RecordingCatalogEntry{} = q_entry
+            }} =
+             RecordingBlocks.resolve_reservation_unrecoverable(
+               block_2,
+               %{
+                 verification_class: "corrupt_tail",
+                 start_us: t0_us + 5_000_000,
+                 end_us: t0_us + 7_000_000,
+                 quarantine_receipt: q_receipt_2,
+                 quarantined_bytes: 2048,
+                 quarantine_binding_id: binding_quar.id
+               },
+               ctx.opts
+             )
+
+    # 2. has_timeline_data?/2 + coverage/3 (before LocalStorageBinding registration -> provisional?: true):
+    assert RecordingTimeline.has_timeline_data?(ctx.source.id, actor: viewer_actor) == true
+
+    assert {:ok, cov_provisional} =
+             RecordingTimeline.coverage(
+               ctx.source.id,
+               %{from_us: t0_us - 1_000_000, to_us: t0_us + 10_000_000, bucket_count: 10},
+               actor: viewer_actor
+             )
+
+    assert cov_provisional.time_basis == "received"
+    assert cov_provisional.time_uncertainty == "unmeasured"
+    assert Enum.map(cov_provisional.blocks, & &1.id) == [entry_0.id, entry_1.id]
+    refute Enum.any?(cov_provisional.blocks, &(&1.id == q_entry.id))
+    assert Enum.all?(cov_provisional.blocks, &(&1.provisional? == true))
+
+    assert Enum.find(cov_provisional.blocks, &(&1.id == entry_1.id)).copy_state ==
+             :local_only_after_archive
+
+    assert [%{entry_id: reanchor_id}] = cov_provisional.reanchors
+    assert reanchor_id == entry_1.id
+    assert Enum.any?(cov_provisional.gaps, &(&1.reason == :quarantined))
+
+    # Register LocalStorageBinding for storage_id -> provisional? becomes false!
+    provision_actor = %{
+      id: "stage-d-provisioner",
+      role: :system,
+      nvr_storage_id: ctx.claim.storage_id,
+      nvr_storage_purpose: :provision
+    }
+
+    assert {:ok, local_binding} =
+             LocalStorageBinding.register(
+               %{
+                 "schema_version" => 1,
+                 "storage_id" => ctx.claim.storage_id,
+                 "generation" => 1,
+                 "provider_resource_ref" => "pvc:synthetic-stage-d-0",
+                 "profile_sha256" => digest("stage-d-profile")
+               },
+               actor: provision_actor
+             )
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.camera_local_storage_bindings WHERE id = $1",
+        [Ecto.UUID.dump!(local_binding.id)]
+      )
+    end)
+
+    assert {:ok, cov_registered} =
+             RecordingTimeline.coverage(
+               ctx.source.id,
+               %{from_us: t0_us - 1_000_000, to_us: t0_us + 10_000_000, bucket_count: 10},
+               actor: viewer_actor
+             )
+
+    assert Enum.all?(cov_registered.blocks, &(&1.provisional? == false))
+
+    # 3. place_hold/2, release_hold/3, and issue_playlist_window/3 write RecordingAccessAudit rows,
+    #    and PostgreSQL trigger camera_recording_access_audits_append_only_trigger rejects UPDATE and DELETE!
+    assert {:ok, hold} =
+             RecordingHolds.place_hold(
+               %{
+                 camera_source_id: ctx.source.id,
+                 stream_profile_id: ctx.profile.id,
+                 start_us: t0_us,
+                 end_us: t0_us + 3_000_000,
+                 kind: :investigation,
+                 reason: "stage D access audit verification"
+               },
+               actor: hold_and_operate_actor
+             )
+
+    assert {:ok, _released} =
+             RecordingHolds.release_hold(
+               hold.id,
+               %{release_reason: "completed stage D check"},
+               actor: hold_and_operate_actor
+             )
+
+    assert {:ok, playlist_win} =
+             RecordingTimeline.issue_playlist_window(
+               ctx.source.id,
+               %{from_us: t0_us, to_us: t0_us + 5_000_000, source_mode: :auto},
+               actor: viewer_actor
+             )
+
+    assert playlist_win.segment_count == 2
+    assert %RecordingAccessAudit{event_kind: :playlist_window} = playlist_win.audit
+
+    assert {:ok, audits} =
+             RecordingAccessAudit.list_for_camera(ctx.source.id, actor: hold_and_operate_actor)
+
+    assert Enum.sort(Enum.map(audits, & &1.event_kind)) == [
+             :hold_placed,
+             :hold_released,
+             :playlist_window
+           ]
+
+    audit_id_bin = Ecto.UUID.dump!(playlist_win.audit.id)
+
+    assert_raise Postgrex.Error, ~r/camera_recording_access_audits is append-only/, fn ->
+      Repo.query!(
+        "UPDATE platform.camera_recording_access_audits SET actor_id = 'tampered' WHERE id = $1",
+        [audit_id_bin]
+      )
+    end
+
+    assert_raise Postgrex.Error, ~r/camera_recording_access_audits is append-only/, fn ->
+      Repo.query!(
+        "DELETE FROM platform.camera_recording_access_audits WHERE id = $1",
+        [audit_id_bin]
+      )
+    end
+
+    # 4. resolve_read_plans/5 + mark_local_integrity_failure/2:
+    # Quarantined entry is strictly refused:
+    assert {:error, :recording_unavailable} =
+             RecordingTimeline.resolve_read_plans(
+               ctx.source.id,
+               q_entry.id,
+               {:fragment, 0},
+               :auto,
+               actor: viewer_actor
+             )
+
+    secret_val = String.duplicate("s", 34)
+
+    assert {:ok, [local_plan, archive_plan]} =
+             RecordingTimeline.resolve_read_plans(
+               ctx.source.id,
+               entry_0.id,
+               {:fragment, 0},
+               :auto,
+               actor: viewer_actor,
+               credential_resolver: fn _b, :reader ->
+                 {:ok,
+                  %{
+                    "reference" =>
+                      "network_credential_secret:00000000-0000-4000-8000-000000000777",
+                    "generation" => 1,
+                    "access_key_id" => String.duplicate("a", 20),
+                    "secret_access_key" => secret_val
+                  }}
+               end
+             )
+
+    assert local_plan.copy == :local
+    assert local_plan.provisional? == false
+    assert archive_plan.copy == :archive
+    assert %RedactedCredential{} = archive_plan.credential
+    refute inspect(archive_plan) =~ secret_val
+
+    # Local integrity failure marks local_state: :present -> :missing and reports archive_verified?: true!
+    assert {:ok, %{entry: marked_missing, archive_verified?: true}} =
+             RecordingTimeline.mark_local_integrity_failure(entry_0.id, actor: viewer_actor)
+
+    assert marked_missing.local_state == :missing
+
+    # Forced :local now fails with NO fallback, while :auto resolves directly to [:archive]:
+    assert {:error, :recording_unavailable} =
+             RecordingTimeline.resolve_read_plans(
+               ctx.source.id,
+               entry_0.id,
+               {:fragment, 0},
+               :local,
+               actor: viewer_actor
+             )
+
+    assert {:ok, [only_archive_plan]} =
+             RecordingTimeline.resolve_read_plans(
+               ctx.source.id,
+               entry_0.id,
+               {:fragment, 0},
+               :auto,
+               actor: viewer_actor
+             )
+
+    assert only_archive_plan.copy == :archive
+
+    # 5. review-74: Quarantined entry missing re-archive eligibility checks quarantine_binding_id in retained history!
+    # First: quarantined entry with archive_state == :missing and NO quarantine_binding_id -> refused!
+    {:ok, q_no_binding} =
+      q_entry
+      |> Ash.Changeset.for_update(:transition_archive_state, %{
+        archive_state: :missing,
+        archive_state_at: DateTime.shift(t0, second: 20),
+        quarantine_binding_id: nil,
+        archive_binding_id: binding_main.id,
+        archive_last_error_class: "object_absent"
+      })
+      |> Ash.update(ctx.opts)
+
+    assert {:error, :archive_binding_not_retained} =
+             RecordingHolds.request_missing_archive_rearchive(
+               q_no_binding.id,
+               %{note: "attempt rearchive without quarantine binding"},
+               actor: hold_and_operate_actor
+             )
+
+    # Second: set retained quarantine_binding_id -> RecordingHealth reports rearchive_eligible?: true
+    # and request_missing_archive_rearchive uses quarantine_binding_id (NOT archive_binding_id)!
+    {:ok, q_with_binding} =
+      q_no_binding
+      |> Ash.Changeset.for_update(:transition_archive_state, %{
+        archive_state: :missing,
+        archive_state_at: DateTime.shift(t0, second: 25),
+        quarantine_binding_id: binding_quar.id,
+        archive_last_error_class: "object_absent"
+      })
+      |> Ash.update(ctx.opts)
+
+    assert {:ok, health_r74} = RecordingHealth.summary(actor: hold_and_operate_actor)
+    q_missing_row = Enum.find(health_r74.missing_archive_entries, &(&1.id == q_with_binding.id))
+    assert q_missing_row.rearchive_eligible? == true
+    assert q_missing_row.owed_binding_id == binding_quar.id
+
+    assert {:ok, %{entry: rearchived_q, operation: %RecordingOperation{} = rearch_op}} =
+             RecordingHolds.request_missing_archive_rearchive(
+               q_with_binding.id,
+               %{note: "rearchive missing quarantine copy under owed binding"},
+               actor: hold_and_operate_actor
+             )
+
+    assert rearchived_q.archive_state == :pending
+    assert rearch_op.kind == :missing_rearchive
+    assert rearch_op.archive_binding_id == binding_quar.id
   end
 
   defp close_recovery_during_query(ctx, query?, work) do

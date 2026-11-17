@@ -1792,6 +1792,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
       cleanup_unboxed_dispositions_by_operation(op_bin)
     end
 
+    cleanup_unboxed_access_audits_by_camera(id)
+
     SQL.query!(
       Repo,
       "DELETE FROM platform.camera_recording_holds_versions WHERE version_source_id IN " <>
@@ -1889,6 +1891,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
         SQL.query!(
           Repo,
           "ALTER TABLE platform.camera_recording_dispositions ENABLE TRIGGER trg_camera_recording_dispositions_append_only"
+        )
+      end)
+  end
+
+  defp cleanup_unboxed_access_audits_by_camera(camera_bin) do
+    {:ok, _} =
+      Repo.transaction(fn ->
+        SQL.query!(
+          Repo,
+          "ALTER TABLE platform.camera_recording_access_audits DISABLE TRIGGER camera_recording_access_audits_append_only_trigger"
+        )
+
+        SQL.query!(
+          Repo,
+          "DELETE FROM platform.camera_recording_access_audits WHERE camera_source_id = $1",
+          [camera_bin]
+        )
+
+        SQL.query!(
+          Repo,
+          "ALTER TABLE platform.camera_recording_access_audits ENABLE TRIGGER camera_recording_access_audits_append_only_trigger"
         )
       end)
   end
