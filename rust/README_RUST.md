@@ -246,6 +246,16 @@ git add MODULE.bazel.lock
 > vendors the whole lock. Cargo prunes what Bazel still builds. Always finish with
 > `bazel build //rust/...` before claiming a dependency change works.
 
+> **One update can move links between crates it did not touch.** Some crates accept
+> several major versions of a dependency (`windows-sys`, `socket2`, `getrandom`), and
+> Cargo attaches such a crate to whichever accepted version the graph already holds. Those
+> links move when the graph changes shape, and that is harmless. It is not harmless when
+> first-party code shares that dependency's types with the crate: `diesel` accepts
+> `uuid` 0.7 to 1.x, and while a second, older `uuid` was in the lock an unrelated update
+> could attach `diesel` to it and stop `//rust/srql` compiling. Keep one major version of
+> any crate whose types cross a crate boundary, and read the whole `Cargo.lock` diff after
+> an update, not only the crate you meant to move.
+
 ### Adding a dependency
 
 1. Add it to `[workspace.dependencies]` in the root `Cargo.toml` (alphabetically).
