@@ -51,3 +51,33 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[0].name
           value: wait-for-cnpg
+
+  # The hook runs after the runtime certificate generator (-4) and before any
+  # workload rolls. It records each reissued certificate on its adopted
+  # component from the generator's rotation record, and it is given that
+  # record alone: no key from the runtime certificate Secret.
+  - it: reads the runtime certificate rotation record on upgrade, without any key
+    release:
+      upgrade: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RUNTIME_CERT_ROTATION_FILE
+            value: /etc/serviceradar/runtime-cert-rotation/runtime-cert-rotation.json
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: runtime-cert-rotation
+            mountPath: /etc/serviceradar/runtime-cert-rotation
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: runtime-cert-rotation
+            secret:
+              secretName: serviceradar-runtime-certs
+              optional: true
+              items:
+                - key: runtime-cert-rotation.json
+                  path: runtime-cert-rotation.json

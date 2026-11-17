@@ -49,6 +49,18 @@ data:
 
     [health]
     listen_addr = "0.0.0.0:50044"
+{{- if .Values.kv.enabled }}
+
+    # The Zen ruleset core publishes for syslog, read through datasvc.
+    [rules.datasvc]
+    address = {{ default (printf "serviceradar-datasvc.%s.svc.cluster.local:50057" .Release.Namespace) .Values.kv.address | quote }}
+
+    [rules.datasvc.tls]
+    cert_file = "/etc/serviceradar/certs/log-collector.pem"
+    key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
+    server_name = "datasvc.serviceradar"
+{{- end }}
 
   flowgger.toml: |
     [input]

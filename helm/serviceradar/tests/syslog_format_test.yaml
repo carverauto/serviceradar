@@ -20,6 +20,25 @@ tests:
           path: data["log-collector.toml"]
           pattern: '\[otel\]\nenabled = true'
 
+  - it: points the collector at datasvc for its Zen ruleset
+    template: templates/log-collector.yaml
+    release: {namespace: sr-logs}
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}
+    asserts:
+      - matchRegex:
+          path: data["log-collector.toml"]
+          pattern: '(?m)^\[rules\.datasvc\]\naddress = "serviceradar-datasvc\.sr-logs\.svc\.cluster\.local:50057"\n\n\[rules\.datasvc\.tls\]\ncert_file = "/etc/serviceradar/certs/log-collector\.pem"\nkey_file = "/etc/serviceradar/certs/log-collector-key\.pem"\nca_file = "/etc/serviceradar/certs/root\.pem"\nserver_name = "datasvc\.serviceradar"$'
+
+  - it: follows no ruleset when datasvc is not deployed
+    template: templates/log-collector.yaml
+    documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}
+    set:
+      kv.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: data["log-collector.toml"]
+          pattern: '\[rules'
+
   - it: applies the configured timezone and TCP codec to the unified config
     template: templates/log-collector.yaml
     documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}

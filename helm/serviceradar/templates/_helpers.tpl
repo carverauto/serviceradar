@@ -165,6 +165,33 @@ need.
 {{- end -}}
 
 {{/*
+The runtime certificate generator's rotation record (runtime-cert-rotation.json),
+read by core to record each reissued certificate on the adopted component that
+held its predecessor. Public certificates only; no key from the Secret is
+projected. Optional: a Secret written before the record existed has no such key.
+*/}}
+{{- define "serviceradar.runtimeCertRotationEnv" -}}
+- name: SERVICERADAR_RUNTIME_CERT_ROTATION_FILE
+  value: "/etc/serviceradar/runtime-cert-rotation/runtime-cert-rotation.json"
+{{- end -}}
+
+{{- define "serviceradar.runtimeCertRotationVolumeMount" -}}
+- name: runtime-cert-rotation
+  mountPath: /etc/serviceradar/runtime-cert-rotation
+  readOnly: true
+{{- end -}}
+
+{{- define "serviceradar.runtimeCertRotationVolume" -}}
+- name: runtime-cert-rotation
+  secret:
+    secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+    optional: true
+    items:
+    - key: runtime-cert-rotation.json
+      path: runtime-cert-rotation.json
+{{- end -}}
+
+{{/*
 Hosted runtimes receive their certificate Secret from the control plane. The
 presence of the hosted runtime contract is the authoritative hosted-mode
 signal; tenant-side certificate generation must stay disabled even if a base

@@ -34,6 +34,22 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--bootstrap-stream"
+  # The Job connects to NATS with the flow-collector certificate. It sorts after
+  # the certificate generator (-4) and the core migrations hook (-1), which
+  # records a reissued certificate, so the callout can admit what it presents;
+  # and a refused connection fails the hook instead of outliving the upgrade.
+  - it: runs after certificate recording and gives up within a deadline
+    set:
+      flowCollector.enabled: true
+      analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "0"
+      - equal:
+          path: spec.activeDeadlineSeconds
+          value: 600
   - it: is absent when the collector is disabled
     set:
       flowCollector.enabled: false
