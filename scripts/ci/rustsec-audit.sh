@@ -109,12 +109,6 @@ ignores_for() {
       #   https://rustsec.org/advisories/RUSTSEC-2026-0441 . Accepted 2026-11-06; review
       #   by 2027-02-01, and remove once an async-dnssd release drops pin-utils.
       echo RUSTSEC-2026-0441
-      # libz-sys 1.1.31 (unmaintained; no vulnerability reported): connector 0.10.0 ->
-      #   sspi 0.21.1 -> winscard -> flate2 -> libz-sys, in the same forced sspi/scard
-      #   subtree as atomic-polyfill above.
-      #   https://rustsec.org/advisories/RUSTSEC-2026-0544 . Accepted 2026-11-17; review
-      #   by 2027-02-17, and remove once flate2 in this family stops requiring it.
-      echo RUSTSEC-2026-0544
       ;;
   esac
 }
