@@ -5,13 +5,19 @@ defmodule ServiceRadarAgentGateway.ConfigTest do
   Config stores only the gateway's own identity (gateway_id, domain, capabilities).
   """
 
-  use ExUnit.Case, async: true
+  # Config is one global persistent_term; these tests write it, so they cannot run beside
+  # the async modules that read it.
+  use ExUnit.Case, async: false
 
   alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
+
+  setup do
+    ConfigTestHelpers.preserve_config!()
+  end
 
   describe "setup/1" do
     test "stores gateway identity in persistent_term" do
-      # Use unique key to avoid conflicts with other tests
       Config.setup(
         gateway_id: "test-gw-1",
         domain: "test-domain"

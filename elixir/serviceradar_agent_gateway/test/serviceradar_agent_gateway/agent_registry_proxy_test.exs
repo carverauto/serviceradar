@@ -7,9 +7,13 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
   alias ServiceRadar.Edge.GatewayProcess
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentRegistryProxy
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.ControlStreamSession
 
   setup do
+    # The control sessions these tests start report their connection tagged with the gateway id.
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-test", domain: "test")
+
     {:ok, _apps} = Application.ensure_all_started(:horde)
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
 

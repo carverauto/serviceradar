@@ -1620,7 +1620,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         CameraSource
         |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(device_uid in ^device_uid_chunk)
-        |> Ash.Query.load([:stream_profiles])
+        |> Ash.Query.load(stream_profiles: [:source_scheme])
 
       case Ash.read(query, actor: actor) do
         {:ok, sources} when is_list(sources) ->
@@ -2042,7 +2042,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           profile_name: Map.get(profile, :profile_name),
           codec_hint: Map.get(profile, :codec_hint),
           container_hint: Map.get(profile, :container_hint),
-          rtsp_transport: Map.get(profile, :rtsp_transport)
+          rtsp_transport: Map.get(profile, :rtsp_transport),
+          source_scheme: topology_source_scheme(profile)
         }
       end)
       |> Enum.reject(
@@ -2078,6 +2079,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp normalize_camera_source_for_topology(_source), do: nil
+
+  defp topology_source_scheme(profile) do
+    case Map.get(profile, :source_scheme) do
+      scheme when is_binary(scheme) -> scheme
+      _not_loaded -> nil
+    end
+  end
 
   defp summarize_camera_state(camera_sources) when is_list(camera_sources) do
     latest_source =

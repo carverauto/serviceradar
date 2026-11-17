@@ -170,10 +170,9 @@ describe("rendering_selection_methods", () => {
               {
                 stream_profile_id: "22222222-2222-2222-2222-222222222222",
                 profile_name: "Main Stream",
-                source_url_override: "rtsps://controller.local:7441/front-door",
+                source_scheme: "rtsps",
               },
             ],
-            source_url: "rtsps://controller.local:7441/front-door",
           },
         ],
       },

@@ -871,7 +871,9 @@ Three guardrails apply to bound archive credentials:
   credential or a broker grant remains active; clear or replace the reference on
   `/settings/recording?tab=archive` and wait for active grants to expire first.
 
-For NVR workload identity, local spool durability, and the deployment recovery
+For end-to-end archive destination setup, retention rules, timeline playback,
+and NVR settings tabs, see [Camera Recording & NVR](./camera-recording.md). For
+NVR workload identity, local spool durability, and the deployment recovery
 gate, see
 [NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md).
 
@@ -1222,5 +1224,6 @@ host-call entries.
 - [Ansible Integration](./ansible.md)
 - [SNMP Ingest Guide](./snmp.md)
 - [Wasm Plugins](./wasm-plugins.md)
+- [Camera Recording & NVR](./camera-recording.md)
 - [RBAC and Roles](./rbac-and-roles.md)
 - [TLS Security](./tls-security.md)

@@ -15,7 +15,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
-  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
@@ -43,13 +43,6 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
   setup do
     StatusHandlerTestHelpers.legacy_core_transport!()
 
-    previous_config =
-      try do
-        {:ok, Config.get()}
-      rescue
-        ArgumentError -> :missing
-      end
-
     {:ok, _apps} = Application.ensure_all_started(:horde)
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
 
@@ -71,8 +64,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     end
 
     CertificateTestHelpers.ensure_revocation_store!()
-    Config.setup(gateway_id: "gateway-1", domain: "test", capabilities: [])
-    on_exit(fn -> restore_config(previous_config) end)
+    ConfigTestHelpers.put_config!(gateway_id: "gateway-1", domain: "test", capabilities: [])
 
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
@@ -497,10 +489,4 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
 
     CertificateTestHelpers.certificate_der!(bundle.certificate_pem)
   end
-
-  defp restore_config({:ok, config}) do
-    Config.setup(gateway_id: config.gateway_id, domain: config.domain, capabilities: config.capabilities)
-  end
-
-  defp restore_config(:missing), do: :persistent_term.erase(Config)
 end

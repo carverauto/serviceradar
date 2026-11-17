@@ -4323,8 +4323,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
          }}
       )
 
+      # Invented address: the path alias works as a bearer token, so no socket assign
+      # may hold it; the TLS-bypass control comes from the profile's source_scheme.
       {:ok, source} =
-        CameraSource.update_source(source, %{source_url: "rtsps://camera.local/stream"},
+        CameraSource.update_source(
+          source,
+          %{source_url: "rtsps://192.0.2.10:7441/InventedAliasXyz01"},
           actor: AshTestHelpers.system_actor()
         )
 
@@ -4336,6 +4340,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         "Skip TLS Verify"
       )
       |> render_click()
+
+      assigns = :erlang.term_to_binary(:sys.get_state(view.pid).socket.assigns)
+      assert :binary.match(assigns, "InventedAliasXyz01") == :nomatch
 
       source_id = source.id
       profile_id = profile.id

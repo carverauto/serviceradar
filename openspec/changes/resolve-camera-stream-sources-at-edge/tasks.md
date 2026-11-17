@@ -1,29 +1,29 @@
 ## 1. Containment (Stage 1; Core and web-ng only)
 
-- [ ] 1.0a Verify that the installed Ash version supports `select_by_default? false` on an
+- [x] 1.0a Verify that the installed Ash version supports `select_by_default? false` on an
       attribute. If it does not, 1.1 must instead remove the two attributes from every read
       action's default select explicitly.
-- [ ] 1.0b Verify how a `service_status` row stored before Stage 1 behaves when the same plugin
+- [x] 1.0b Verify how a `service_status` row stored before Stage 1 behaves when the same plugin
       result is redelivered after D7 reduced its details and recomputed its payload digest: no
       duplicate row and no resurrection of the unreduced payload. If either occurs, the D2
       digest and the D7 scrub must be changed so a redelivery matches the reduced row before
       1.3 and 1.5 land.
-- [ ] 1.1 `Source.source_url` and `StreamProfile.source_url_override`: `public? false`,
+- [x] 1.1 `Source.source_url` and `StreamProfile.source_url_override`: `public? false`,
       `sensitive? true`, `select_by_default? false`; `RelaySourceResolver` selects them
       explicitly (D4).
-- [ ] 1.2 Add the `source_scheme` calculation; switch the device camera panel and the God View
+- [x] 1.2 Add the `source_scheme` calculation; switch the device camera panel and the God View
       payload and JS to it; drop `source_url` and full profile structs from device assigns.
-- [ ] 1.3 Add `ServiceRadar.Camera.StreamAddressReduction` (D2) and apply it at both
+- [x] 1.3 Add `ServiceRadar.Camera.StreamAddressReduction` (D2) and apply it at both
       `PluginResultIngestor` entry points under the D2 Stage 1 ingest rule: build every
       persisted and passed-on value from the reduced result; add `RelayAddressExtract` and
       `InventoryIngestor.put_relay_addresses/2` as the only source and setter of the two
       columns; digest the reduced payload.
-- [ ] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
+- [x] 1.4 `InventoryIngestor`: stop writing `camera_source_url`; filter profile metadata against
       the allowlist.
-- [ ] 1.5 `StreamSecretScrubWorker` with the D7 target list and job-stage rule, plus the migration
+- [x] 1.5 `StreamSecretScrubWorker` with the D7 target list and job-stage rule, plus the migration
       that enqueues the stage 1 job; bump `core.migrations.expectedVersion`; run
       `scripts/db/check-migration-startup-safety.sh`.
-- [ ] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
+- [x] 1.6 Tests at the owning boundaries: a reduction unit table; a plugin-result ingest test
       asserting that no stored status, state, device, source or profile row holds an invented
       `rtsps://` path or alias outside `source_url` and `source_url_override`, that those two
       columns hold it, and that a report arriving after a scrub pass that left in-scope
@@ -36,7 +36,7 @@
       max-passes error, a target held while an older or unresponsive node is connected, and a
       stage 3 job run by stage 1 code snoozed and not completed; and a
       web-ng test asserting that assigns hold no address.
-- [ ] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
+- [x] 1.7 `StreamSecretScrubWorker.pending/0` (D7) and a test that feeds invented rows through
       it and through the worker's scrub of the same in-scope target and asserts they agree: an
       origin only (not pending); `rtsps://` with a path; `rtsp://` with userinfo; `https://`
       with userinfo; an alias key in profile, source and device metadata; a path and a

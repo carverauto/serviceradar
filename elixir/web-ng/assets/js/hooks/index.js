@@ -2,6 +2,7 @@ import AllMetadataCard from "./AllMetadataCard"
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraArchivePlayer from "./CameraArchivePlayer"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
+import CameraTimelinePlayer from "./CameraTimelinePlayer"
 import CommandPalette from "./CommandPalette"
 import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
 import ValueBrowser from "./ValueBrowser"
@@ -56,6 +57,7 @@ export default {
   BulkEditTagsToggle,
   CameraArchivePlayer,
   CameraRelayStatusStream,
+  CameraTimelinePlayer,
   CommandPalette,
   CredentialDeepLinkFocus,
   DialogTopLayer,

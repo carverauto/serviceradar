@@ -2818,7 +2818,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
           now: now,
           loaders: %{
             settings_loader: fn -> {:ok, RecordingArchiveSettings.default_settings()} end,
-            bindings_loader: fn -> {:ok, []} end,
+            bindings_loader: fn ->
+              {:ok,
+               [
+                 %ArchiveBinding{
+                   id: binding_id,
+                   provisioning_ref: "operator:primary",
+                   generation: 1,
+                   endpoint: "https://objects.example.com",
+                   region: "example-1",
+                   bucket: "synthetic-archive",
+                   namespace: "recordings/v1"
+                 }
+               ]}
+            end,
             all_receipts_loader: fn -> {:ok, []} end,
             catalog_loader: fn -> {:ok, [quarantined_entry, missing_held_entry]} end,
             holds_loader: fn -> {:ok, [active_hold]} end,

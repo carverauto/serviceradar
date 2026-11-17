@@ -402,6 +402,13 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       validate present([:local_state, :local_state_at])
     end
 
+    update :mark_local_missing do
+      accept [:local_state_at]
+      change set_attribute(:local_state, :missing)
+      validate changing(:local_state, from: :present, to: :missing)
+      validate present([:local_state_at])
+    end
+
     update :transition_archive_state do
       accept [
         :archive_state,

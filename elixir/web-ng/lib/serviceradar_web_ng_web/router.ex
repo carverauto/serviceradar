@@ -598,12 +598,15 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/cameras/:camera_source_id/recordings/:id/init", CameraRecordingController, :init_object)
     get("/cameras/:camera_source_id/recordings/:id/fragments/:index", CameraRecordingController, :fragment)
+    get("/cameras/:camera_source_id/timeline/blocks/:entry_id/init", CameraTimelineController, :init_object)
+    get("/cameras/:camera_source_id/timeline/blocks/:entry_id/fragments/:index", CameraTimelineController, :fragment)
   end
 
   scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through([:archive_playlist_api, :rate_limit_api_default])
 
     get("/cameras/:camera_source_id/recordings/:id/playlist.m3u8", CameraRecordingController, :playlist)
+    get("/cameras/:camera_source_id/timeline/playlist.m3u8", CameraTimelineController, :playlist)
   end
 
   # Other scopes may use custom stacks.
@@ -642,6 +645,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/cameras/:camera_source_id/recordings", CameraRecordingController, :index)
     get("/cameras/:camera_source_id/recordings/:id", CameraRecordingController, :show)
+    get("/cameras/:camera_source_id/timeline", CameraTimelineController, :coverage)
     post("/proxmox/console-sessions", ProxmoxConsoleSessionController, :create)
     get("/proxmox/console-sessions/:id", ProxmoxConsoleSessionController, :show)
     post("/proxmox/console-sessions/:id/close", ProxmoxConsoleSessionController, :close)

@@ -179,9 +179,10 @@ This is the only definition of "reduced"; the ingest path, the D7 scrub and
 `PluginResultIngestor.ingest_durable/3` and `ingest/2` apply the rule to the
 whole result before anything else, with no exemption. Everything persisted or
 passed on is built only from the reduced result: `service_status.details`,
-`service_state.message` and `service_state.details`, edge-record handling, every
-handler, the profile, source and device metadata that `InventoryIngestor`
-writes, events and logs. None of them sees the secret, whatever the agent or
+`service_status.message`, `service_state.message` and `service_state.details`,
+edge-record handling, every handler, the profile, source and device metadata
+and the source event and availability text that `InventoryIngestor` writes,
+events and logs. None of them sees the secret, whatever the agent or
 plugin version. The status payload digest is computed over the reduced payload.
 From Stage 3 the ingestor sets `source_origin` from the reduced result: the
 descriptor's `source_origin` field, or else the rule's origin function applied
@@ -319,12 +320,16 @@ for it:
 
 1. [Stage 1] `camera_stream_profiles.metadata`: reduce, and drop
    non-allowlisted keys.
-2. [Stage 1] `camera_sources.metadata`: reduce.
+2. [Stage 1] `camera_sources.metadata`: reduce. `camera_sources.last_event_message`,
+   `camera_sources.last_event_type` and `camera_sources.availability_reason`,
+   which hold plugin event text and the result summary: reduce, as strings.
 3. [Stage 1] `ocsf_devices.metadata`: drop `camera_source_url`, and reduce the
    rest, including `camera_metadata`.
 4. [Stage 1] `service_status.details`, `service_state.message` and
    `service_state.details`: reduce, and recompute the reported marker's payload
-   digest with the ingest function.
+   digest (and a handler marker's `downstream_ingest.payload_digest`) with the
+   ingest function, where it matched the stored payload. `service_status.message`
+   (the result summary, part of a redelivery's match): reduce, as a string.
 5. [Stage 3] `camera_stream_profiles.source_url_override`: set `source_origin`
    from it with the D2 origin function only where `source_origin` is null, as
    its own compare-and-set on `source_origin` being null, so a value written by

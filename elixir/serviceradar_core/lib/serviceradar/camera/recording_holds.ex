@@ -40,6 +40,8 @@ defmodule ServiceRadar.Camera.RecordingHolds do
   alias Ash.Error.Changes.InvalidArgument
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingHold
@@ -107,7 +109,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
          :ok <- authorize_camera_source_scope(camera_source_id, stream_profile_id, actor, opts) do
       write_opts = hold_write_opts(actor, opts)
 
-      transact([RecordingCatalogEntry, RecordingHold], fn ->
+      transact([RecordingCatalogEntry, RecordingHold, RecordingAccessAudit], fn ->
         covered =
           lock_covered_catalog_entries(
             camera_source_id,
@@ -130,9 +132,18 @@ defmodule ServiceRadar.Camera.RecordingHolds do
           unavailable_blocks: unavailable_blocks
         }
 
-        RecordingHold
-        |> Ash.Changeset.for_create(:accept, create_params, write_opts)
-        |> Ash.create(write_opts)
+        with {:ok, hold} <-
+               RecordingHold
+               |> Ash.Changeset.for_create(:accept, create_params, write_opts)
+               |> Ash.create(write_opts),
+             {:ok, _audit} <-
+               record_hold_access_audit(:hold_placed, hold, created_by_id, %{
+                 "kind" => to_string(hold.kind),
+                 "covered_block_count" => length(covered),
+                 "unavailable_block_count" => length(unavailable_blocks)
+               }) do
+          {:ok, hold}
+        end
       end)
     end
   end
@@ -155,22 +166,29 @@ defmodule ServiceRadar.Camera.RecordingHolds do
            parse_optional_reason(fetch_val(params, :release_reason) || fetch_val(params, :reason)) do
       write_opts = hold_write_opts(actor, opts)
 
-      transact([RecordingHold], fn ->
+      transact([RecordingHold, RecordingAccessAudit], fn ->
         with {:ok, hold} <- lock_hold(hold_uuid),
              :ok <- authorize_camera_source_scope(hold.camera_source_id, nil, actor, opts),
-             :ok <- ensure_hold_accepted(hold) do
-          hold
-          |> Ash.Changeset.for_update(
-            :release,
-            %{
-              released_by_id: released_by_id,
-              released_at: now,
-              release_reason: release_reason
-            },
-            write_opts
-          )
-          |> Ash.Changeset.filter(expr(state == :accepted))
-          |> Ash.update(write_opts)
+             :ok <- ensure_hold_accepted(hold),
+             {:ok, released} <-
+               hold
+               |> Ash.Changeset.for_update(
+                 :release,
+                 %{
+                   released_by_id: released_by_id,
+                   released_at: now,
+                   release_reason: release_reason
+                 },
+                 write_opts
+               )
+               |> Ash.Changeset.filter(expr(state == :accepted))
+               |> Ash.update(write_opts),
+             {:ok, _audit} <-
+               record_hold_access_audit(:hold_released, released, released_by_id, %{
+                 "kind" => to_string(released.kind),
+                 "had_release_reason" => not is_nil(released.release_reason)
+               }) do
+          {:ok, released}
         end
       end)
     end
@@ -650,7 +668,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
          {:ok, entry_uuid} <- cast_required_uuid(catalog_entry_id, :catalog_entry_id),
          {:ok, actor_id} <- resolve_intent_actor_id(actor, fetch_val(params, :actor_id)),
          {:ok, note} <- parse_operator_note(params, "operator_requested_rearchive") do
-      transact([RecordingCatalogEntry, RecordingOperation], fn ->
+      transact([RecordingCatalogEntry, RecordingOperation, ArchiveBinding], fn ->
         execute_missing_archive_rearchive(entry_uuid, actor_id, note, now)
       end)
     end
@@ -1296,13 +1314,22 @@ defmodule ServiceRadar.Camera.RecordingHolds do
   defp execute_missing_archive_rearchive(entry_uuid, actor_id, note, now) do
     with {:ok, entry} <- lock_catalog_entry(entry_uuid),
          :ok <- ensure_archive_is_missing(entry),
-         :ok <- ensure_rearchive_eligible(entry),
+         {:ok, owed_binding_id} <- ensure_rearchive_eligible(entry),
          {:ok, operation} <-
-           start_operator_operation(:missing_rearchive, entry, actor_id, now, %{
-             "catalog_entry_id" => entry.id,
-             "action" => "rearchive_missing_copy",
-             "operator_note" => note
-           }),
+           start_operator_operation(
+             :missing_rearchive,
+             entry,
+             actor_id,
+             now,
+             %{
+               "catalog_entry_id" => entry.id,
+               "action" => "rearchive_missing_copy",
+               "owed_copy_kind" =>
+                 if(entry.local_state == :quarantined, do: "quarantine", else: "archive"),
+               "operator_note" => note
+             },
+             owed_binding_id
+           ),
          {:ok, updated_entry} <-
            entry
            |> Ash.Changeset.for_update(:transition_archive_state, %{
@@ -1315,20 +1342,58 @@ defmodule ServiceRadar.Camera.RecordingHolds do
     end
   end
 
-  defp ensure_rearchive_eligible(%RecordingCatalogEntry{} = entry) do
-    cond do
-      entry.local_state != :present ->
-        {:error, {:local_copy_not_present, entry.local_state}}
+  defp ensure_rearchive_eligible(%RecordingCatalogEntry{local_state: :present} = entry) do
+    verify_retained_archive_binding(entry.archive_binding_id)
+  end
 
-      is_nil(entry.archive_binding_id) ->
-        {:error, :missing_recorded_archive_binding}
+  defp ensure_rearchive_eligible(
+         %RecordingCatalogEntry{local_state: :quarantined, quarantine_reason: reason} = entry
+       )
+       when not is_nil(reason) do
+    verify_retained_archive_binding(entry.quarantine_binding_id)
+  end
 
-      true ->
-        :ok
+  defp ensure_rearchive_eligible(%RecordingCatalogEntry{local_state: state}) do
+    {:error, {:local_copy_not_present, state}}
+  end
+
+  defp verify_retained_archive_binding(nil), do: {:error, :archive_binding_not_retained}
+
+  defp verify_retained_archive_binding(binding_id) do
+    case Ash.get(ArchiveBinding, binding_id, actor: @system_actor, not_found_error?: false) do
+      {:ok, %ArchiveBinding{id: id}} -> {:ok, id}
+      {:ok, nil} -> {:error, :archive_binding_not_retained}
+      {:error, _} = error -> error
     end
   end
 
-  defp start_operator_operation(kind, %RecordingCatalogEntry{} = entry, actor_id, now, summary) do
+  defp record_hold_access_audit(event_kind, %RecordingHold{} = hold, actor_id, details) do
+    RecordingAccessAudit.record(%{
+      event_kind: event_kind,
+      actor_id: actor_id,
+      camera_source_id: hold.camera_source_id,
+      stream_profile_id: hold.stream_profile_id,
+      recording_hold_id: hold.id,
+      window_start_us: hold.start_us,
+      window_end_us: hold.end_us,
+      details: details
+    })
+  end
+
+  defp start_operator_operation(
+         kind,
+         %RecordingCatalogEntry{} = entry,
+         actor_id,
+         now,
+         summary,
+         explicit_binding_id \\ nil
+       ) do
+    resolved_binding_id =
+      case explicit_binding_id do
+        nil -> entry.archive_binding_id || entry.quarantine_binding_id
+        explicit -> explicit
+      end
+
     op_params = %{
       kind: kind,
       actor_id: actor_id,
@@ -1337,7 +1402,7 @@ defmodule ServiceRadar.Camera.RecordingHolds do
       recording_block_id: entry.recording_block_id,
       block_key: entry.block_key,
       storage_id: entry.storage_id,
-      archive_binding_id: entry.archive_binding_id || entry.quarantine_binding_id,
+      archive_binding_id: resolved_binding_id,
       result_summary: summary,
       started_at: now,
       deadline_at: DateTime.shift(now, second: @operator_deadline_seconds)

@@ -1,5 +1,7 @@
 defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
-  use ExUnit.Case, async: true
+  # async: false because the header-wiring test sets the global gateway Config, which
+  # the publisher reads at plan time.
+  use ExUnit.Case, async: false
 
   import Bitwise
 
@@ -10,7 +12,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
-  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigTestHelpers
   alias ServiceRadarAgentGateway.JetStreamPublisher
 
   # A fake connection module driven by the test process mailbox: it records the
@@ -878,21 +880,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # have missed a rollover- or late-fenced-only one. Distinct provenance (above) is
       # additional evidence, NOT a substitute for asserting the exact key set here.
       # The unit target does not start the gateway application, so the identity is set here.
-      previous =
-        try do
-          :persistent_term.get(Config)
-        catch
-          :error, :badarg -> :missing
-        end
-
-      on_exit(fn ->
-        case previous do
-          :missing -> :persistent_term.erase(Config)
-          config -> :persistent_term.put(Config, config)
-        end
-      end)
-
-      Config.setup(gateway_id: "gw-at-publish", domain: "publisher-header-test")
+      ConfigTestHelpers.put_config!(gateway_id: "gw-at-publish", domain: "publisher-header-test")
 
       for {label, pub} <-
             Enum.map(all_delivery_modes(), fn {name, mode} ->

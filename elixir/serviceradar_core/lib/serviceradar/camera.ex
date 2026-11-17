@@ -35,6 +35,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.RecordingGap
     resource ServiceRadar.Camera.RecordingHold
     resource ServiceRadar.Camera.RecordingDisposition
+    resource ServiceRadar.Camera.RecordingAccessAudit
     resource ServiceRadar.Camera.ArchiveBinding
     resource ServiceRadar.Camera.NVRArchiveReceipt
     resource ServiceRadar.Camera.RecordingOperation

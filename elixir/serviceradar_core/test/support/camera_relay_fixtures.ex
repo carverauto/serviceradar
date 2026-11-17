@@ -200,6 +200,7 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
   def cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
 
+    cleanup_source_access_audits(id)
     cleanup_source_dispositions(id)
 
     Repo.query!(
@@ -391,6 +392,32 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
           Repo.query!(
             "ALTER TABLE platform.camera_recording_dispositions ENABLE TRIGGER trg_camera_recording_dispositions_append_only"
+          )
+        end)
+    end
+  end
+
+  defp cleanup_source_access_audits(source_id_bin) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.camera_recording_access_audits WHERE camera_source_id = $1",
+        [source_id_bin]
+      )
+
+    if count > 0 do
+      {:ok, _} =
+        Repo.transaction(fn ->
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_access_audits DISABLE TRIGGER camera_recording_access_audits_append_only_trigger"
+          )
+
+          Repo.query!(
+            "DELETE FROM platform.camera_recording_access_audits WHERE camera_source_id = $1",
+            [source_id_bin]
+          )
+
+          Repo.query!(
+            "ALTER TABLE platform.camera_recording_access_audits ENABLE TRIGGER camera_recording_access_audits_append_only_trigger"
           )
         end)
     end

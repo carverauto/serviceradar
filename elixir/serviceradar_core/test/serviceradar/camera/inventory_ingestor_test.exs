@@ -2,6 +2,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Camera.InventoryIngestor
+  alias ServiceRadar.Camera.RelayAddressExtract
+  alias ServiceRadar.Camera.StreamAddressReduction
 
   describe "merge_local_relay_metadata/2" do
     test "preserves local relay metadata when incoming plugin metadata omits it" do
@@ -614,6 +616,64 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
 
     refute_receive {:device_sync, _}
     refute_receive {:source_upsert, _}
+  end
+
+  test "relay columns come only from the relay address extract, and profile metadata keeps the allowlist" do
+    # Invented address; the path alias works as a bearer token.
+    alias_url = "rtsps://192.0.2.10:7441/AbCdEfInvented03"
+
+    unreduced = %{
+      "camera_descriptors" => [
+        %{
+          "device_uid" => "device-relay",
+          "vendor" => "ubiquiti",
+          "camera_id" => "cam-relay",
+          "source_url" => alias_url,
+          "stream_profiles" => [
+            %{
+              "name" => "High",
+              "source_url_override" => alias_url,
+              "metadata" => %{
+                "rtsps_alias" => "AbCdEfInvented03",
+                "width" => 1920,
+                "vendor_note" => "x"
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    extract = RelayAddressExtract.from_result(unreduced)
+    refute inspect(extract) =~ "AbCdEfInvented03"
+
+    for {relay_addresses, expected_url} <- [
+          {extract, alias_url},
+          {RelayAddressExtract.empty(), nil}
+        ] do
+      parent = self()
+
+      assert :ok =
+               unreduced
+               |> StreamAddressReduction.reduce()
+               |> InventoryIngestor.ingest(%{},
+                 relay_addresses: relay_addresses,
+                 source_upsert: fn attrs, _actor ->
+                   send(parent, {:source_upsert, attrs})
+                   {:ok, %{id: Ecto.UUID.generate()}}
+                 end,
+                 profile_upsert: fn attrs, _actor ->
+                   send(parent, {:profile_upsert, attrs})
+                   {:ok, attrs}
+                 end,
+                 resolve_device_uid: &preserve_explicit_device_uid/3,
+                 device_sync: fn _, _, _, _ -> :ok end
+               )
+
+      assert_receive {:source_upsert, %{source_url: ^expected_url}}
+      assert_receive {:profile_upsert, %{source_url_override: ^expected_url, metadata: metadata}}
+      assert metadata == %{"width" => 1920}
+    end
   end
 
   defp preserve_explicit_device_uid(_descriptor, _status, _actor), do: nil
