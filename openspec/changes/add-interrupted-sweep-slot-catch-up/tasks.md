@@ -85,7 +85,8 @@
         test to the full plan's target count (Decision 5);
       - build the plan with `SweepPlan.build/2` over the parent's CIDR list
         and check set, with a fresh plan id.
-- [ ] 6.2 In `LeasePass.plan_agent/4`, mint catch-ups in the agent's planning
+- [ ] 6.2 In `LeasePass.plan_agent/4`, shared by the periodic pass and the
+      session refresh, mint catch-ups in the agent's planning
       transaction, under the delivery lock, with
       `ExecutionSlots.schedule_catch_up`. Add a `catch_ups` count to the pass
       summary and its log line.
@@ -94,7 +95,7 @@
       - keep or drop catch-ups by Decision 7;
       - drop a catch-up with no `install_acked_at` whose `slot_start` has
         passed, with a new `ExecutionSlots` drop limited to such rows, and
-        let the same pass re-mint it (Decision 4);
+        let the same planning, pass or refresh, re-mint it (Decision 4);
       - exclude them from `fill/6`'s present set.
 - [ ] 6.4 In `LeaseDelivery.record_ack/3`, when an ack with
       `installed = true` is stored, stamp `install_acked_at` on the catch-up
@@ -112,7 +113,8 @@
         `SweepProjection`;
       - the supersede of the parent execution;
       - a catch-up whose push failed after `delivered_at` was stamped,
-        dropped and re-minted by the next pass;
+        dropped and re-minted by the reconnect refresh, then left alone by
+        the next pass once installed;
       - an installed catch-up kept after its `slot_start`;
       - no catch-up for a group with no completed execution;
       - `LeaseMisses` marking an installed catch-up that never commits missed.

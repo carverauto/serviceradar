@@ -224,15 +224,19 @@ Alternatives considered:
 ### Decision 4: When and how a catch-up is minted
 
 The report is recorded at once
-(`ExecutionSlots.record_interruption/2` sets `interrupted_at`). The catch-up
-is minted by the next `LeasePassWorker` run, at most five minutes later.
-`plan_agent/4` mints it under the delivery lock and the same transaction that
-plans the agent's other slots, and `deliver/4` pushes it after commit. The
-session refresh cannot do this, because it starts on the hello and the report
-arrives after the hello.
+(`ExecutionSlots.record_interruption/2` sets `interrupted_at`). Minting, and
+the drop-and-re-mint step below, live in the shared `plan_agent/4` ->
+`sync_slots/4` path, so whichever planning of the agent runs first after
+`interrupted_at` is recorded performs them: the 5-minute `LeasePassWorker`
+run or a session refresh (`LeasePass.refresh_agent/4`). There is no mode
+gating. `plan_agent/4` mints under the delivery lock and the same transaction
+that plans the agent's other slots, and `deliver/4` pushes it after commit.
+The report arrives after the hello, so the refresh that the same connect
+starts usually runs before it is recorded. Minting therefore usually falls to
+the next pass, at most five minutes later, or to a later refresh.
 
 The delay is useful. Records the old process spooled drain after the
-reconnect, so by the next pass most of them have committed. The completeness
+reconnect, so by the next planning most of them have committed. The completeness
 judged at mint time is then close to the truth (open question 1).
 
 The catch-up slot looks like this:
@@ -265,13 +269,15 @@ for a push, it stamps `install_acked_at` on the catch-up slots that push
 carried; the delivery row keeps only the latest push, so the slot has to hold
 this itself. The shared `delivered_at` stamp is unchanged.
 
-The next lease pass drops a catch-up that has no `install_acked_at` and whose
-`slot_start` has passed, then mints a fresh one for the same parent if
-Decision 5 and Decision 6 still hold. Example: the 10:25 pass mints a catch-up
-with `slot_start` 10:25:05 while the agent is disconnected, and the push
-stamps `delivered_at` and then fails; the agent reconnects at 10:26; the 10:30
-pass drops that row and, if the plan still fits before the parent's window
-closes, mints another that the push carries. A send that returned `:ok` but
+The next planning of the agent, pass or refresh, drops a catch-up that has
+no `install_acked_at` and whose `slot_start` has passed, then mints a fresh
+one for the same parent if Decision 5 and Decision 6 still hold. Example: the
+10:25 pass mints a catch-up with `slot_start` 10:25:05 while the agent is
+disconnected, and the push stamps `delivered_at` and then fails. The agent
+reconnects at 10:26, and the session refresh that connect starts drops that
+row and, if the plan still fits before the parent's window closes, mints
+another and pushes it. Once the agent acknowledges installing it, the 10:30
+pass leaves it alone. A send that returned `:ok` but
 was never installed is recovered the same way. A catch-up the agent did
 install is never dropped by this rule, so a run in progress is not cut off.
 An install whose ack was lost is open question 6.
@@ -410,8 +416,8 @@ downgraded after reporting still runs it correctly.
 - **`PinSilenceWorker`.** The catch-up result lands about `r + p + q` after
   the cut-off, where:
   - `r` is restart and reconnect time;
-  - `p` is the wait for the next lease pass, at most 5 min, plus the delivery
-    lead;
+  - `p` is the wait for the next planning of the agent, at most 5 min (the
+    next lease pass), plus the delivery lead;
   - `q` is the host's position in the catch-up scan, which is its position
     `o` in the full plan.
 
@@ -468,7 +474,8 @@ downgraded after reporting still runs it correctly.
   full plan's target count, not the unreported count.
 - **A parent whose missing results are still in the spool gets a catch-up.**
   Completeness is judged at mint time. See open question 1.
-- **Up to five minutes' delay.** This comes from minting in the periodic pass.
+- **Up to five minutes' delay.** This comes from minting in the next planning
+  of the agent, usually the periodic pass.
   It is acceptable for the hourly and longer intervals this targets, and for
   short intervals the Decision 5 fit test usually declines anyway. See open
   question 4.
@@ -513,11 +520,11 @@ downgraded after reporting still runs it correctly.
    also be reported? The causes are the agent's own run errors after
    admission. Today they are a cancel, a revoked or replaced slot, or a
    producer error, and none of them is helped by a re-run. Proposed: no.
-4. **Faster minting.** Minting at the next pass costs up to five minutes. The
-   alternative mints right after recording the report, by running the planner
-   for that one assignment. It saves up to five minutes, but it widens the
-   race in question 1 and adds a second planning entry point. Proposed: keep
-   the pass.
+4. **Faster minting.** Minting at the next planning costs up to five
+   minutes. The alternative mints right after recording the report, by
+   running the planner for that one assignment. It saves up to five minutes,
+   but it widens the race in question 1 and adds a planning trigger on the
+   report. Proposed: keep the existing pass and refresh triggers.
 5. **UI.** Should the execution views show a catch-up next to its parent, or
    give the parent a reason more specific than "superseded by new execution"?
    Not needed for correctness. Proposed: separate follow-up if wanted.

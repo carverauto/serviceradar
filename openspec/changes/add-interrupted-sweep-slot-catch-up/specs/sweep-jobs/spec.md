@@ -49,7 +49,7 @@ Any other report SHALL change nothing.
 - **AND** the slot SHALL behave exactly as before this change
 
 ### Requirement: Core re-runs an interrupted slot's plan in one catch-up slot
-For each slot with `interrupted_at` that passes the catch-up bounds, the lease pass SHALL mint exactly one non-dropped catch-up slot that re-runs the parent's full plan.
+For each slot with `interrupted_at` that passes the catch-up bounds, core SHALL mint exactly one non-dropped catch-up slot that re-runs the parent's full plan. Minting SHALL happen in the shared planning of the agent's slots, so whichever runs first after `interrupted_at` is recorded mints it: the periodic lease pass or a session refresh. In this capability, "lease pass" means either planning.
 
 The catch-up slot SHALL have:
 
@@ -198,11 +198,13 @@ On each lease pass, a catch-up whose `slot_start` has passed and for which no `S
   `collection_expires` 11:00
 - **AND** the push carrying it stamped `delivered_at` and then failed because
   the agent was disconnected, so no installed ack exists for it
-- **AND** the agent reconnects at 10:26
-- **WHEN** the 10:30 lease pass runs and the plan still fits before 11:00
-- **THEN** the pass SHALL drop that catch-up
-- **AND** SHALL mint a new catch-up for the same parent, which the push
-  carries to the agent
+- **WHEN** the agent reconnects at 10:26 and the session refresh that
+  connect starts plans the agent, and the plan still fits before 11:00
+- **THEN** the refresh SHALL drop that catch-up
+- **AND** SHALL mint a new catch-up for the same parent and push it to the
+  agent
+- **AND** once the agent acknowledges installing the replacement, the 10:30
+  lease pass SHALL leave it `scheduled` and mint no other catch-up
 
 #### Scenario: Installed catch-up is not re-minted
 - **GIVEN** a catch-up whose push the agent acknowledged with
