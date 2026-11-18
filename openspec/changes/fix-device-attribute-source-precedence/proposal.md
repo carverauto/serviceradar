@@ -170,7 +170,9 @@ inventory state rather than of nondeterministic compilation.
   exception. Every such writer (hypervisor and Proxmox enrichment, camera
   inventory, WiFi-map ingestion, endpoint inventory) goes through the same
   strength decision, with no bypassing update. The agent gateway check-in's
-  hostname and type are corroboration and no longer write identity fields,
+  hostname and type are corroboration and no longer write identity fields
+  on an existing device (a device the check-in creates records them at an
+  agent check-in tier below every other tier, design.md decision 13),
   and a defaulted vendor (such as a WiFi-map batch filler) never writes
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
