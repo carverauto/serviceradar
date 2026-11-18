@@ -310,9 +310,12 @@ which does not list the self-hosted log. Each run:
   against the log's signed tree head, which must verify under `docs/sigstore/rekor.pub`; a tree
   head that does not verify, or a recomputed root that does not match it, fails the run and
   alerts;
-- except on the bootstrap dispatch, requires the previous checkpoint to be a prefix of the log
-  (same leaves up to its size, same root); a scheduled run that finds no checkpoint artifact, or a
-  checkpoint that is not a prefix, fails and alerts. The checkpoint artifact is retained 90 days,
+- requires the previous checkpoint to be a prefix of the log (same leaves up to its size, same
+  root); only a `bootstrap=true` dispatch while no checkpoint exists skips this check. Every run
+  other than a bootstrap dispatch, scheduled or manual, that finds no checkpoint artifact, a
+  checkpoint that is not a prefix, a tree head that does not verify or a root that does not match
+  fails, alerts and does not replace the checkpoint; a bootstrap dispatch while a checkpoint exists
+  still applies the prefix check. The checkpoint artifact is retained 90 days,
   as long as the signing ledgers, and every successful run replaces it, carrying forward the
   per-entry decisions and the first checkpoint's integrated time; it expires only if the monitor
   stops for 90 days;
@@ -347,15 +350,17 @@ A Rekor entry is pending while a run of any release-key signing workflow that wa
 entry's `integratedTime` (started before it, and still running or ended after it) is in progress.
 It is explained when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
 published ledger of one of those runs, when the acknowledged-entries file lists it, or when the
-monitor's checkpoint state already records it as explained (an earlier run found the ledger match
-or the acknowledgement). Because the
+monitor's checkpoint state already records it as explained by a ledger match an earlier run
+found. An acknowledgement explains an entry only while the file lists it, so a retracted
+acknowledgement restores detection. Because the
 ledger is
 uploaded only when the job ends, the monitor does not decide on an entry while a release-key
 signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
 and no alert is raised. Once every such run has ended, the entry is explained by any of those
 three, and unexplained otherwise. The monitor keeps each entry's state
 in its checkpoint state: pending, explained with its reason (the ledger run or the
-acknowledgement), or reported. Later scans re-evaluate pending and reported entries; an entry
+acknowledgement), or reported. Later scans re-evaluate pending, reported and acknowledged
+entries; an entry
 explained by a ledger stays explained after that run and its 90-day ledger artifact age out of the
 lookback.
 
@@ -387,8 +392,9 @@ existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_wat
 **The monitor must be able to fail.**
 
 - A run that fails (a tree head that does not verify under the pinned key or a recomputed root
-  that does not match it, Rekor unreachable, checkpoint artifact missing or not a
-  prefix of the log on a scheduled run, bad config) fails the workflow, opens an issue and posts to Discord.
+  that does not match it, Rekor unreachable, checkpoint not a prefix of the log, checkpoint
+  artifact missing on any run other than a bootstrap dispatch, bad config) fails the workflow,
+  opens an issue, posts to Discord and does not replace the checkpoint.
 - The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
   reports the monitor when its last successful run is older than three scan intervals (three hours
   at the hourly default). `build/ci/scheduled_job_watch.py` only reads BuildBuddy commit statuses
@@ -407,8 +413,8 @@ existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_wat
 
 **Historical entries.** Every run, the bootstrap run included, reads and judges every release-key
 entry in the whole log, including entries integrated before the first checkpoint. Each needs a
-ledger match, an entry in `docs/sigstore/rekor-acknowledged-entries.json`, or an explained decision
-already recorded in the monitor's checkpoint state, and alerts otherwise once no release-key
+ledger match, a current entry in `docs/sigstore/rekor-acknowledged-entries.json`, or a ledger-match
+decision already recorded in the monitor's checkpoint state, and alerts otherwise once no release-key
 signing run active at its `integratedTime` is still in progress (the pending rule above).
 Release-key entries made before the ledger existed (the manual signings in Context) have no ledger,
 so they are listed in the acknowledged-entries file in the PR that enables the monitor, and that
@@ -481,7 +487,9 @@ second line does not depend on the log.
   capacity monitoring and alerting as a database volume.
 - **Watch.** A scheduled job reads the audit log and reports every `transit/sign/cosign-release`
   request whose input hash (Transit signs the payload digest) matches no `sign` line in any signing
-  ledger. Alerts go where the monitor's alerts go.
+  ledger. The watch keeps a position in its own state and examines each audit record once, only
+  records newer than that position, so a sign call checked while its ledger was retained is never
+  re-examined after the ledger ages out. Alerts go where the monitor's alerts go.
 - **Scope.** This change specifies the device and the watch; the watch is implemented once the
   device exists. Until then the audit log is not available and the forged-receipt case is
   undetected.
