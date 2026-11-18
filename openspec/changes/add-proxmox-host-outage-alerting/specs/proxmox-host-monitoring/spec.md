@@ -24,7 +24,8 @@ periodic ok/warning/critical resource-pressure summaries it already emits.
 The Proxmox plugin SHALL read the hypervisor runtime state of every QEMU guest
 whose status is `running` and SHALL report a guest whose runtime state is not
 `running` as not available. The plugin keeps no state between polls. Each
-node's guest list has its own guest-runtime condition scope. For every node
+node's guest list has its own guest-runtime condition scope, and a guest's
+condition key is derived from its node, guest type and VMID alone. For every node
 whose guest list it read fully in a poll, the plugin SHALL emit a
 `com.carverauto.proxmox.guest_runtime_paused` condition event for each guest
 of that list in a non-running runtime state and SHALL emit that node's
@@ -32,13 +33,8 @@ scope-complete marker. The marker SHALL list the condition keys of those
 guests and of every guest the list shows as `running` whose runtime state
 could not be read, and SHALL omit every other guest, including a guest the
 list shows as not running and a guest absent from the list. The marker's key
-list is empty when no key qualifies.
-The agent's condition debounce forwards a condition event on its first
-observation, on a level change and on its unchanged-level refresh. A
-scope-complete marker that omits a key the agent still remembers at a non-ok
-level makes the agent forward one clearing event for that key. A marker never
-opens a key, and no marker, another scope's marker, an agent restart or the
-expiry of the remembered key clears nothing.
+list is empty when no key qualifies. Clearing follows the Scoped Condition
+Recovery requirement.
 
 #### Scenario: Guest is paused on an I/O error
 - **GIVEN** a QEMU guest whose status is `running`
@@ -68,8 +64,9 @@ expiry of the remembered key clears nothing.
 - **THEN** the plugin SHALL report the guest as available
 - **AND** SHALL emit the node's scope-complete marker without that guest's
   condition key
-- **AND** if the agent still remembers that key at a non-ok level, it SHALL
-  forward exactly one clearing event for that key
+- **AND** if the agent still remembers that key at a non-ok level in that
+  node's guest-runtime scope, it SHALL forward exactly one clearing event for
+  that key
 
 #### Scenario: Paused guest stops or disappears
 - **GIVEN** a guest whose condition key was listed in its node's previous
@@ -78,8 +75,9 @@ expiry of the remembered key clears nothing.
   guest as not running or does not contain it
 - **THEN** the plugin SHALL emit the node's scope-complete marker without
   that guest's condition key
-- **AND** if the agent still remembers that key at a non-ok level, it SHALL
-  forward exactly one clearing event for that key
+- **AND** if the agent still remembers that key at a non-ok level in that
+  node's guest-runtime scope, it SHALL forward exactly one clearing event for
+  that key
 
 #### Scenario: Runtime state of one guest cannot be read
 - **WHEN** a poll reads a node's guest list fully but cannot read the runtime
@@ -88,8 +86,8 @@ expiry of the remembered key clears nothing.
   status
 - **AND** SHALL NOT emit a `guest_runtime_paused` event for that guest
 - **AND** SHALL list that guest's condition key in the node's scope-complete
-  marker, so the failed read clears nothing for that guest while the other
-  guests of the node clear as usual
+  marker, which keeps an alert the agent remembers for that guest open and
+  opens none, while the other guests of the node clear as usual
 
 #### Scenario: Guest list cannot be read
 - **WHEN** the guest list of a polled node cannot be read fully
@@ -109,13 +107,8 @@ datastore at or above the critical threshold and SHALL emit that node's
 scope-complete marker listing the condition keys of those datastores, with an
 empty key list when none is critical. The plugin's band classification decides
 membership, so the event SHALL NOT carry the ratio and threshold fields the
-agent uses for hysteresis.
-The agent's condition debounce forwards a condition event on its first
-observation, on a level change and on its unchanged-level refresh. A
-scope-complete marker that omits a key the agent still remembers at a non-ok
-level makes the agent forward one clearing event for that key. A marker never
-opens a key, and no marker, another scope's marker, an agent restart or the
-expiry of the remembered key clears nothing.
+agent uses for hysteresis. Clearing follows the Scoped Condition Recovery
+requirement.
 
 #### Scenario: Datastore is at critical capacity
 - **WHEN** a poll reads a node's storage fully and observes a datastore at or
@@ -143,8 +136,9 @@ expiry of the remembered key clears nothing.
   below the critical threshold or no longer reports it
 - **THEN** the plugin SHALL emit the node's scope-complete marker without
   that datastore's condition key
-- **AND** if the agent still remembers that key at a non-ok level, it SHALL
-  forward exactly one clearing event for that key
+- **AND** if the agent still remembers that key at a non-ok level in that
+  node's node-storage scope, it SHALL forward exactly one clearing event for
+  that key
 
 #### Scenario: Node storage cannot be read
 - **WHEN** the storage of a polled node cannot be read fully
@@ -152,6 +146,32 @@ expiry of the remembered key clears nothing.
   key of that node is cleared by the incomplete read
 - **AND** SHALL still emit the scope-complete marker of every other node whose
   storage it read fully
+
+### Requirement: Scoped Condition Recovery
+The guest-runtime and node-storage conditions SHALL rely on the agent's
+existing condition debounce for de-duplication and recovery, with no state in
+the plugin. The agent forwards a condition event on its first observation, on
+a level change and on its unchanged-level refresh. When a scope-complete
+marker omits a key the agent still remembers at a non-ok level in that same
+scope, the agent forwards one clearing event for that key. A marker never
+opens a key. No marker, another scope's marker, an agent restart, or the
+expiry of the remembered key clears nothing; an alert left open that way
+stays open until an operator resolves it.
+
+#### Scenario: Marker of the same scope omits a remembered key
+- **GIVEN** the agent remembers a key at a non-ok level in a scope
+- **WHEN** a scope-complete marker for that scope omits the key
+- **THEN** the agent SHALL forward exactly one clearing event for that key
+
+#### Scenario: Marker cannot open or clear outside its scope
+- **WHEN** a scope-complete marker lists a key the agent does not remember,
+  or a marker for another scope omits a remembered key
+- **THEN** the agent SHALL forward nothing for that key
+
+#### Scenario: Remembered key is lost
+- **GIVEN** the agent restarted or the remembered key expired
+- **WHEN** a later scope-complete marker omits the key
+- **THEN** the agent SHALL forward no clearing event for that key
 
 ### Requirement: Host OOM-Kill Detection
 The Proxmox plugin SHALL detect Linux OOM-killer activity on each polled
@@ -178,8 +198,7 @@ and `node-oom-kill` using the plugin-manifest alert-rule mechanism, so an
 operator can enable them without hand-authoring rule definitions, and without
 any rule being armed automatically. The `guest-runtime-paused` and
 `node-storage-capacity` rules SHALL declare as their recovery the clearing
-event the agent synthesizes when a scope-complete marker omits a key it
-still remembers.
+event the agent synthesizes under the Scoped Condition Recovery requirement.
 
 #### Scenario: Plugin package is approved
 - **WHEN** an operator approves a Proxmox plugin package whose manifest
@@ -192,8 +211,8 @@ still remembers.
 #### Scenario: Storage alert clears when the datastore recovers
 - **GIVEN** the `plugin:proxmox:node-storage-capacity` rule is enabled and has
   an open alert for a datastore
-- **WHEN** the node's next scope-complete marker no longer lists that
-  datastore's condition key and the agent forwards the clearing event
+- **WHEN** the node's next node-storage scope-complete marker no longer lists
+  that datastore's condition key and the agent forwards the clearing event
 - **THEN** the alert SHALL resolve and no new alert SHALL open
 
 #### Scenario: Operator enables a materialized rule

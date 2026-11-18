@@ -71,8 +71,8 @@ of the plugin work in sections 2-5.
       read fully. Keep no state between polls.
 - [ ] 4a.4 Unit test the plugin output for a single invented observation: a
       guest in `io-error` emits the condition, is marked not available and
-      its key is listed; a running guest and a stopped guest emit no
-      condition and their keys are absent; a running guest with an unreadable
+      its key is listed; a running guest, a stopped guest and a guest absent
+      from the list emit no condition and their keys are absent; a running guest with an unreadable
       runtime state emits no condition but its key is listed; a node with an
       unreadable guest list emits no marker while a fully read sibling node
       still emits its marker.

@@ -88,16 +88,21 @@ not establish OOM as the cause.
   read fully emits its active conditions and a scope-complete marker listing
   their keys, with an empty list when nothing is active, which is what clears
   its last key. The guest-runtime marker also lists a guest the list shows
-  running whose runtime state could not be read, so a failed per-guest read
-  holds only that guest's alert, and it omits a guest the list shows stopped
-  or no longer contains, so stopping or deleting a paused guest clears its
-  alert. The agent's condition debounce already forwards a condition event on
-  first sight, on a level change and on its unchanged-level refresh, and
-  forwards one clear for a key it still remembers that its scope's marker no
-  longer lists. A marker never opens a key. A scope that could not be read
-  fully emits no marker, which the agent treats as a partial view of that
-  scope only. An agent restart or the expiry of a remembered key clears
-  nothing, so such an alert stays open until an operator resolves it.
+  running whose runtime state could not be read, with no condition event for
+  it. That is safe because the agent never opens a key from a marker: a
+  listed key the agent remembers stays open and an unknown one is ignored, so
+  a failed per-guest read holds only that guest's alert and raises none. A
+  guest's condition key is derived from its node, type and VMID, so the
+  plugin can list it without memory. The marker omits a guest the list
+  shows stopped or no longer contains, so stopping or deleting a paused guest
+  clears its alert. The agent's condition debounce already forwards a
+  condition event on first sight, on a level change and on its
+  unchanged-level refresh, and forwards one clear for a key it still
+  remembers in a scope whose marker no longer lists it. A scope that could
+  not be read fully emits no marker, which the agent treats as a partial view
+  of that scope only. Another scope's marker, an agent restart or the expiry
+  of a remembered key clears nothing, so such an alert stays open until an
+  operator resolves it.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 

@@ -72,8 +72,9 @@ Repository context:
   read stays listed; a guest the list shows stopped or absent is omitted. The
   agent forwards a condition event on first sight, on a level change and on
   its refresh, and forwards one clear when a marker omits a key it still
-  remembers. A scope that could not be read fully emits no marker, so only
-  its own keys stay untouched.
+  remembers in that same scope. A scope that could not be read fully emits
+  no marker, so only its own keys stay untouched; another scope's marker, an
+  agent restart or expiry of the remembered key clears nothing.
 - **Manifest alert catalog:** declare `guest-availability-changed`,
   `guest-runtime-paused`, `node-storage-capacity` and `node-oom-kill` under
   `alert_rules:` so package approval provisions disabled rules that an
