@@ -26,7 +26,7 @@
 
 - [ ] 5.1 Agent detail: helper version, state, reason, operations, last observation.
 - [ ] 5.2 Agents list: helper state column, filter and counts; Edge Ops notice while any agent is `package_upgrade_required` or `unavailable`.
-- [ ] 5.3 Remedy panel: for `package_upgrade_required`, the package command built from the host's package family and the required version, and the fleet-wide playbook route; for `unavailable`, the failed safety check and a package reinstall or repair; for a missing operation, the operation and a package reinstall.
+- [ ] 5.3 Remedy panel: for `package_upgrade_required`, the package command built from the host's package family and the required version, and the fleet-wide playbook route; for `unavailable`, the failed safety check and a package reinstall or repair; for a `current` helper missing a declared operation, the operation and a package reinstall. A `package_upgrade_required` or `unavailable` helper keeps its own remedy even when its operation list is short.
 - [ ] 5.4 Add-on and release rollout views name the agent, the reason and the remedy for targets excluded for their helper.
 
 ## 6. Tests

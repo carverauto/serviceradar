@@ -39,6 +39,14 @@ The release and add-on rollout views SHALL name each agent excluded because of i
 - **AND** SHALL give a package reinstall or repair as the remedy
 
 #### Scenario: Add-on target excluded for a missing updater operation
-- **WHEN** an add-on rollout excludes an agent whose updater lacks an operation the release declares
+- **GIVEN** an agent whose updater state is `current`: it passes the safety checks, answers self-description and meets the minimum version
+- **WHEN** an add-on rollout excludes that agent because its updater lacks an operation the release declares
 - **THEN** the row SHALL name the agent and state `updater lacks operation <name>`
 - **AND** SHALL give a package reinstall as the remedy and SHALL NOT present a package upgrade
+
+#### Scenario: Short operation list does not replace another remedy
+- **GIVEN** an agent whose updater state is `package_upgrade_required` or `unavailable`
+- **AND** its operation list lacks an operation the release declares
+- **WHEN** an add-on rollout excludes that agent or an operator opens it
+- **THEN** the row and the page SHALL show the reason and remedy of that state
+- **AND** SHALL NOT show `updater lacks operation <name>` or a reinstall in its place
