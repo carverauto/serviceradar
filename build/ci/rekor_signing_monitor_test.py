@@ -395,6 +395,16 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
 
+    def test_blindness_canary_reads_the_ledger_of_a_long_running_release(self):
+        log_id = hashlib.sha256(monitor.pem_der(self.world.log_pub.read_text())).hexdigest()
+        # Created ten days ago (a release waiting on its environment), ended three hours ago.
+        self.world.add_run("release.yml", 13, NOW - timedelta(days=10), NOW - timedelta(hours=3), [
+            {"event": "logged", "log_id": log_id, "log_index": 99,
+             "integrated_time": int((NOW - timedelta(hours=4)).timestamp()),
+             "subject": "registry.example/core@sha256:" + "b" * 64}])
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
+
     def test_state_fetch_reads_the_newest_staging_scans_checkpoint(self):
         def state_zip(size):
             archive = io.BytesIO()

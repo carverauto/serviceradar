@@ -404,7 +404,7 @@ def run(args, environ, now):
     decided = state.setdefault("decisions", {})
     undecided = [integrated(match) for match in matches
                  if decided.get(match["uuid"], {}).get("status") != "explained" and match["uuid"] not in acknowledged]
-    runs = signing_runs(github, min([now - CANARY_LOOKBACK] + [when - RUN_MARGIN for when in undecided]))
+    runs = signing_runs(github, min([now - CANARY_LOOKBACK] + undecided) - RUN_MARGIN)
     ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs
                if run["ended"] is not None
                and (run["ended"] >= now - CANARY_LOOKBACK or any(active_at(run, when) for when in undecided))}
