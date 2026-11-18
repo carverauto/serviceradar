@@ -108,7 +108,9 @@
   non-prefix checkpoint fails and alerts; each entry's decision (explained with its reason, or
   reported) and the first checkpoint's integrated time kept in the checkpoint state; the
   checkpoint artifact retained 90 days, as long as the ledgers, and replaced by every successful
-  run, so it expires only if the monitor stops for 90 days; ledger matching against every release-key signing workflow, with entries left pending (no alert)
+  run, so it expires only if the monitor stops for 90 days; an entry is explained by a matching
+  ledger, the acknowledged-entries file, or an explained decision already in the checkpoint state;
+  ledger matching against every release-key signing workflow, with entries left pending (no alert)
   while a run active at their integrated time is still in progress;
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or

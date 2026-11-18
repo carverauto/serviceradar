@@ -345,13 +345,15 @@ the ledger.
 
 A Rekor entry is pending while a run of any release-key signing workflow that was active at the
 entry's `integratedTime` (started before it, and still running or ended after it) is in progress.
-It is explained only when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
-published ledger of one of those runs, or when the acknowledged-entries file lists it. Because the
+It is explained when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
+published ledger of one of those runs, when the acknowledged-entries file lists it, or when the
+monitor's checkpoint state already records it as explained (an earlier run found the ledger match
+or the acknowledgement). Because the
 ledger is
 uploaded only when the job ends, the monitor does not decide on an entry while a release-key
 signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
-and no alert is raised. Once every such run has ended, the entry is explained if one of their
-ledgers holds its payload hash, and unexplained otherwise. The monitor keeps each entry's state
+and no alert is raised. Once every such run has ended, the entry is explained by any of those
+three, and unexplained otherwise. The monitor keeps each entry's state
 in its checkpoint state: pending, explained with its reason (the ledger run or the
 acknowledgement), or reported. Later scans re-evaluate pending and reported entries; an entry
 explained by a ledger stays explained after that run and its 90-day ledger artifact age out of the

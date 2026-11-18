@@ -82,7 +82,8 @@ Rekor, so no installation depends on that log being up.
   under the pinned key, requires the previous checkpoint to be a prefix of the log (except on the manual bootstrap
   dispatch that seeds the first checkpoint), and selects the entries signed by the
   release key. It alerts on any entry that does not match a payload
-  recorded by one of the repository's release-key signing runs, within about one scan interval
+  recorded by one of the repository's release-key signing runs, is not acknowledged, and was not
+  already recorded as explained in the monitor's checkpoint state, within about one scan interval
   after the entry becomes decidable (every release-key signing run active at its integrated time
   has ended; a few hours at worst for an entry overlapping a long `release.yml` run), and
   on its own failure or blindness. The blindness canary alerts on a ledgered entry still unseen two
