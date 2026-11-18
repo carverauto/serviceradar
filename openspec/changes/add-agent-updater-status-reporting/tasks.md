@@ -13,7 +13,7 @@
 
 - [ ] 3.1 Report `not_applicable` without further checks on a platform whose installer provides no helper; otherwise apply the safety checks (present, regular file, root-owned, not group or world writable, setuid) before anything else and report `unavailable` with the failed check on any failure; then inspect a safe helper through self-description, and keep the help-text probe only to find the operations of a safe helper that does not answer it, which stays `package_upgrade_required` and rollout-ineligible.
 - [ ] 3.2 Classify the helper state and report version (unknown for a helper that does not describe itself), required version, state, reason, operations and observation time in the capability status; keep reporting `addon.systemd.updater.unavailable` for older cores.
-- [ ] 3.3 Gate privileged features on named operations and report a blocked feature with the missing operation instead of a flag error.
+- [ ] 3.3 For a helper that passes the safety checks, gate privileged features on named operations and report a blocked feature with the missing operation instead of a flag error; for a helper that fails them, execute nothing and report every privileged feature blocked with `unavailable`.
 - [ ] 3.4 Report the host's package family (deb or rpm) and installed package version so the remedy can be exact.
 
 ## 4. Core

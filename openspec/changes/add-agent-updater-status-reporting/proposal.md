@@ -71,9 +71,10 @@ the version floor, and the package payload layout. Those remain in the parked
   (`ServiceRadar.Plugins.AddonRolloutArtifact`, `AddonRolloutCoordinator`,
   `AddonProfileReconciler`), web-ng agent and rollout views, and the agent release,
   platform package and Ansible documentation.
-- Hosts already in the field: a helper installed before this change does not answer the
-  self-description invocation, so it is reported `package_upgrade_required` until its
-  package is upgraded once. That is the intended result, and it is the same package
+- Hosts already in the field: a helper installed before this change that passes the
+  safety checks does not answer the self-description invocation, so it is reported
+  `package_upgrade_required` until its package is upgraded once. A pre-change helper that
+  fails the safety checks is reported `unavailable` and is never executed. That is the intended result, and it is the same package
   upgrade those hosts need today.
 - Related changes: `add-agent-updater-self-update` (parked; its status, self-description,
   operation gating, eligibility and remedy requirements moved here),

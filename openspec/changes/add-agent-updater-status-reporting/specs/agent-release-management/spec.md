@@ -4,13 +4,16 @@
 The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. The agent SHALL NOT execute an updater that fails the safety checks, including for self-description, and SHALL treat none of its operations as available. When an updater that passes the safety checks answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when an updater that passes the safety checks does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL remain `package_upgrade_required`.
 
 #### Scenario: Agent reads the updater's operations
-- **GIVEN** an installed updater that supports self-description
+- **GIVEN** a platform whose installer provides a privileged updater
+- **AND** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
+- **AND** it answers the self-description invocation
 - **WHEN** the agent inspects it
 - **THEN** the agent SHALL obtain the updater's version and the named operations it supports
 - **AND** SHALL NOT execute any privileged change to obtain them
 
 #### Scenario: Updater predates self-description
-- **GIVEN** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
+- **GIVEN** a platform whose installer provides a privileged updater
+- **AND** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
 - **AND** it does not answer the self-description invocation
 - **WHEN** the agent inspects it
 - **THEN** the agent SHALL classify the updater as `package_upgrade_required`
@@ -57,16 +60,19 @@ The agent SHALL require privileged operations by name, SHALL NOT invoke the upda
 
 #### Scenario: Agent needs an operation the updater lacks
 - **GIVEN** an agent feature that needs a named updater operation
-- **AND** the installed updater does not list it
+- **AND** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
+- **AND** its operation list, from self-description or, when it does not answer, from its usage text, does not include that operation
 - **WHEN** the feature is requested
 - **THEN** the agent SHALL report the feature blocked with the missing operation
 - **AND** SHALL NOT invoke the updater
 
 #### Scenario: Updater fails the safety checks
-- **GIVEN** an installed updater that fails any safety check
+- **GIVEN** a platform whose installer provides a privileged updater
+- **AND** the updater is absent, not a regular file, not root-owned, writable by group or others, or lacks the setuid bit
 - **WHEN** a privileged feature is requested or the agent inspects the updater
 - **THEN** the agent SHALL NOT execute it, including for self-description
 - **AND** SHALL report every privileged feature blocked with the updater `unavailable`
+- **AND** SHALL NOT report a missing operation in place of `unavailable`
 
 ### Requirement: The privileged updater is changed only by the operating system package
 The system SHALL NOT replace, patch or reconfigure the installed privileged updater through a control-plane command, an agent release or an add-on. The operating system package, installed by a root operator or by automation acting as root on that host, SHALL be the only writer of the updater.
