@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -87,11 +88,22 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 // NewSNMPServiceForAgent creates a new SNMP monitoring service for agent use.
 // This uses less strict validation that doesn't require NodeAddress, ListenAddr, and Partition.
 func NewSNMPServiceForAgent(config *SNMPConfig, log logger.Logger) (*SNMPService, error) {
+	if err := validateForAgent(config, log); err != nil {
+		return nil, err
+	}
+
+	return newSNMPServiceInternal(config, log), nil
+}
+
+// validateForAgent applies the agent's target validation to config, dropping
+// invalid targets.
+//
+// Rejections are logged whether or not validation ultimately succeeds. A
+// dropped target is silent data loss otherwise: the service starts, reports
+// healthy, and simply never polls that device.
+func validateForAgent(config *SNMPConfig, log logger.Logger) error {
 	rejections, err := config.ValidateForAgent()
 
-	// Log rejections whether or not validation ultimately succeeded. A dropped
-	// target is silent data loss otherwise: the service starts, reports
-	// healthy, and simply never polls that device.
 	for _, rejection := range rejections {
 		log.Warn().
 			Int("target_index", rejection.Index).
@@ -102,10 +114,10 @@ func NewSNMPServiceForAgent(config *SNMPConfig, log logger.Logger) (*SNMPService
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
+		return fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
 
-	return newSNMPServiceInternal(config, log), nil
+	return nil
 }
 
 // newSNMPServiceInternal creates the service without validation.
@@ -172,6 +184,84 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	return nil
 }
 
+// ReconfigureSummary counts what Reconfigure did to the running targets.
+type ReconfigureSummary struct {
+	Unchanged int // kept running: same collector, socket and poll schedule
+	Restarted int // definition changed, so the collector was replaced
+	Added     int
+	Removed   int
+}
+
+// Reconfigure moves a started service to config, validated as for
+// NewSNMPServiceForAgent.
+//
+// Only targets whose definition changed are touched. A target whose definition
+// is identical keeps its collector, its socket, its in-flight requests and its
+// poll phase. Stopping and restarting every collector on any change cancels
+// in-flight requests and shifts every poll schedule, which leaves a gap in
+// every series even when the target itself was not changed.
+//
+// A target that previously failed to start is retried. A config that fails
+// validation leaves the running targets as they are. A service that was never
+// started, or has been stopped, returns ErrServiceNotStarted.
+func (s *SNMPService) Reconfigure(config *SNMPConfig) (ReconfigureSummary, error) {
+	if err := validateForAgent(config, s.logger); err != nil {
+		return ReconfigureSummary{}, err
+	}
+
+	desired := make(map[string]*Target, len(config.Targets))
+	for i := range config.Targets {
+		desired[config.Targets[i].Name] = &config.Targets[i]
+	}
+
+	var summary ReconfigureSummary
+
+	s.mu.Lock()
+	if s.serviceCtx == nil || s.serviceCtx.Err() != nil {
+		s.mu.Unlock()
+		return summary, ErrServiceNotStarted
+	}
+
+	keep := make(map[string]bool, len(s.targets))
+	for name, rt := range s.targets {
+		want, ok := desired[name]
+		if ok && rt.collector != nil && reflect.DeepEqual(*rt.target, *want) {
+			keep[name] = true
+			summary.Unchanged++
+			continue
+		}
+
+		if err := rt.stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
+		}
+		delete(s.targets, name)
+
+		if ok {
+			summary.Restarted++
+		} else {
+			summary.Removed++
+		}
+	}
+
+	s.config = config
+	s.mu.Unlock()
+
+	for i := range config.Targets {
+		target := &config.Targets[i]
+		if keep[target.Name] {
+			continue
+		}
+
+		if err := s.initializeTarget(target); err != nil {
+			s.recordFailedTarget(target, err)
+		}
+	}
+
+	summary.Added = len(config.Targets) - summary.Unchanged - summary.Restarted
+
+	return summary, nil
+}
+
 // Stop shuts down the SNMP service and all its collectors.
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
@@ -201,11 +291,7 @@ func (s *SNMPService) stopTargetsLocked() []error {
 	var errs []error
 
 	for name, rt := range s.targets {
-		if rt.collector == nil {
-			continue
-		}
-
-		if err := rt.collector.Stop(); err != nil {
+		if err := rt.stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector")
 			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
 		}
@@ -238,10 +324,8 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	if rt.collector != nil {
-		if err := rt.collector.Stop(); err != nil {
-			return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
-		}
+	if err := rt.stop(); err != nil {
+		return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
 	}
 
 	delete(s.targets, targetName)
@@ -414,8 +498,12 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		return ErrServiceNotStarted
 	}
 
-	// Start collector with the service context so it stops on service shutdown.
-	if err := collector.Start(serviceCtx); err != nil {
+	// The target's context derives from the service context, so the target
+	// stops on service shutdown as well as when it alone is replaced or removed.
+	targetCtx, cancel := context.WithCancel(serviceCtx)
+
+	if err := collector.Start(targetCtx); err != nil {
+		cancel()
 		return fmt.Errorf("%w %s: %w", errFailedToStartCollector, target.Name, err)
 	}
 
@@ -424,6 +512,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	// Start processing results
 	results := collector.GetResults()
 	if results == nil {
+		cancel()
 		if err := collector.Stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop collector after nil results channel")
 		}
@@ -434,6 +523,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		target:     target,
 		collector:  collector,
 		aggregator: aggregator,
+		cancel:     cancel,
 		hostName:   target.Name, // Target name for display until sysName is polled
 	}
 
@@ -441,7 +531,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 	s.mu.Lock()
 	if _, exists := s.targets[target.Name]; exists {
 		s.mu.Unlock()
-		if err := collector.Stop(); err != nil {
+		if err := rt.stop(); err != nil {
 			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop duplicate collector")
 		}
 		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
@@ -455,7 +545,7 @@ func (s *SNMPService) initializeTarget(target *Target) error {
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	go s.processResults(serviceCtx, rt, results)
+	go s.processResults(targetCtx, rt, results)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
@@ -522,6 +612,19 @@ func (s *SNMPService) handleDataPoint(rt *targetRuntime, point *DataPoint) {
 				Msg("Updating hostname")
 		}
 	}
+}
+
+// stop ends the target's result processing and stops its collector.
+func (rt *targetRuntime) stop() error {
+	if rt.cancel != nil {
+		rt.cancel()
+	}
+
+	if rt.collector == nil {
+		return nil
+	}
+
+	return rt.collector.Stop()
 }
 
 // setHostName records the target's polled sysName and reports the previous
