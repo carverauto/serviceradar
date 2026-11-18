@@ -1,6 +1,6 @@
 use super::{
-    composite_results, devices, endpoint_inventory_scans, endpoint_package_catalog,
-    endpoint_packages, gateways, interfaces, *,
+    composite_results, declarative_check_results, devices, endpoint_inventory_scans,
+    endpoint_package_catalog, endpoint_packages, gateways, interfaces, *,
 };
 use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
 use std::time::Duration as StdDuration;

@@ -732,6 +732,22 @@ fn parses_composite_results_entity_aliases() {
 }
 
 #[test]
+fn parses_declarative_check_results_entity_aliases() {
+    for raw in [
+        "declarative_check_results",
+        "declarative_results",
+        "declarative_verdicts",
+    ] {
+        let ast = parse(&format!("in:{raw} check_slug:checkout-api-health limit:10")).unwrap();
+        assert_eq!(
+            ast.entity,
+            Entity::DeclarativeCheckResults,
+            "entity alias {raw}"
+        );
+    }
+}
+
+#[test]
 fn parses_dashboard_service_view_entities() {
     let cases = [
         ("service_availability", Entity::ServiceAvailability),

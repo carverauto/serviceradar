@@ -167,6 +167,57 @@ class AssembleBundleTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("bundle source must be a regular file", result.stderr)
 
+    def test_accepts_reverse_dns_plugin_id(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            manifest = tmp / "plugin.yaml"
+            wasm = tmp / "plugin.wasm"
+            schema = tmp / "config.schema.json"
+            bundle = tmp / "bundle.zip"
+            sha = tmp / "bundle.sha256"
+            metadata = tmp / "bundle.metadata.json"
+
+            manifest.write_text(
+                "id: io.serviceradar.declarative-check-runner\nname: Declarative Check Runner\nversion: 0.1.0\n",
+                encoding="utf-8",
+            )
+            wasm.write_bytes(b"\x00asm")
+            schema.write_text('{"type":"object"}\n', encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--bundle-out",
+                    str(bundle),
+                    "--sha-out",
+                    str(sha),
+                    "--metadata-out",
+                    str(metadata),
+                    "--plugin-id",
+                    "io.serviceradar.declarative-check-runner",
+                    "--repository-name",
+                    "wasm-plugin-declarative-check-runner",
+                    "--artifact-type",
+                    "application/test",
+                    "--bundle-media-type",
+                    "application/zip",
+                    "--upload-signature-media-type",
+                    "application/test+json",
+                    "--entry",
+                    f"plugin.yaml={manifest}",
+                    "--entry",
+                    f"plugin.wasm={wasm}",
+                    "--entry",
+                    f"config.schema.json={schema}",
+                ],
+                check=True,
+            )
+
+            metadata_json = json.loads(metadata.read_text(encoding="utf-8"))
+            self.assertEqual(metadata_json["plugin_id"], "io.serviceradar.declarative-check-runner")
+            self.assertEqual(metadata_json["repository_name"], "wasm-plugin-declarative-check-runner")
+
 
 if __name__ == "__main__":
     unittest.main()

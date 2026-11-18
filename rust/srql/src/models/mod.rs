@@ -5,6 +5,7 @@
 
 mod common;
 mod composite_checks;
+mod declarative_checks;
 mod endpoint_inventory;
 mod events;
 mod inventory;
@@ -12,6 +13,7 @@ mod metrics;
 mod observability;
 
 pub use composite_checks::CompositeResultRow;
+pub use declarative_checks::DeclarativeCheckResultRow;
 pub use endpoint_inventory::{
     EndpointInventoryScanRow, EndpointPackageCatalogRow, EndpointPackageRow,
 };

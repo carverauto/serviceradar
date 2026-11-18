@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
   attr(:entries, :list, required: true)
   attr(:can_manage, :boolean, default: false)
+  attr(:can_clone_declarative, :boolean, default: false)
 
   def check_list(assigns) do
     ~H"""
@@ -49,9 +50,22 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
             </p>
           </div>
 
-          <div :if={@can_manage} class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div
+            :if={@can_manage or @can_clone_declarative}
+            class="flex shrink-0 flex-wrap items-center justify-end gap-2"
+          >
             <button
-              :if={entry.check.state == :enabled}
+              :if={@can_clone_declarative}
+              id={"clone-declarative-composite-#{entry.check.id}"}
+              type="button"
+              phx-click="clone_as_declarative_check"
+              phx-value-id={entry.check.id}
+              class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+            >
+              Clone as Declarative Check
+            </button>
+            <button
+              :if={@can_manage and entry.check.state == :enabled}
               type="button"
               phx-click="disable"
               phx-value-id={entry.check.id}
@@ -60,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
               Disable
             </button>
             <button
+              :if={@can_manage}
               type="button"
               phx-click="delete_check"
               phx-value-id={entry.check.id}
@@ -137,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr(:device_facts, :list, default: [])
   attr(:fact_key_suggestions, :list, default: [])
   attr(:agents, :list, default: [])
+  attr(:can_clone_declarative, :boolean, default: false)
 
   def check_form(assigns) do
     ~H"""
@@ -159,6 +175,16 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
         </div>
         <div class="flex shrink-0 gap-2">
           <.button navigate={~p"/settings/networks/composite-checks"}>Cancel</.button>
+          <button
+            :if={@mode == :edit and not is_nil(@check_id) and @can_clone_declarative}
+            id="clone-editing-composite-declarative-btn"
+            type="button"
+            phx-click="clone_as_declarative_check"
+            phx-value-id={@check_id}
+            class="rounded-sr-control border border-sr-border px-3 py-1.5 text-sm text-sr-ink-muted hover:text-sr-ink"
+          >
+            Clone as Declarative Check
+          </button>
           <button
             :if={@mode == :edit and @state == :enabled}
             type="button"

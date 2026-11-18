@@ -59,12 +59,17 @@ defmodule ServiceRadar.DeclarativeChecks.NodeEvaluators do
   end
 
   def interpolate(list, effective_inputs, target_ctx) when is_list(list) do
-    Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
+    list
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
       case interpolate(item, effective_inputs, target_ctx) do
         {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
         {:error, _} = err -> {:halt, err}
       end
     end)
+    |> case do
+      {:ok, rev} -> {:ok, Enum.reverse(rev)}
+      {:error, _} = err -> err
+    end
   end
 
   def interpolate(str, effective_inputs, target_ctx) when is_binary(str) do
@@ -408,12 +413,13 @@ defmodule ServiceRadar.DeclarativeChecks.NodeEvaluators do
   defp cast_extracted(nil, _cast), do: {:ok, nil}
   defp cast_extracted(val, nil), do: {:ok, val}
 
-  defp cast_extracted(val, "number") when is_number(val), do: {:ok, val * 1.0}
+  defp cast_extracted(val, type) when type in ["number", "float"] and is_number(val),
+    do: {:ok, val * 1.0}
 
-  defp cast_extracted(val, "number") when is_binary(val) do
+  defp cast_extracted(val, type) when type in ["number", "float"] and is_binary(val) do
     case Float.parse(String.trim(val)) do
       {num, ""} -> {:ok, num}
-      _ -> {:error, "cannot cast #{inspect(val)} to number"}
+      _ -> {:error, "cannot cast #{inspect(val)} to #{type}"}
     end
   end
 

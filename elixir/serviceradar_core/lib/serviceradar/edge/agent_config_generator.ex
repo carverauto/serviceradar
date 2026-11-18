@@ -49,6 +49,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.SecretBroker
+  alias ServiceRadar.DeclarativeChecks.AssignmentCompiler
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
@@ -498,14 +499,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     grant_mode = plugin_credential_grant_mode(agent_id, actor)
 
-    assignments
-    |> Enum.map(&PluginAssignment.put_effective_package/1)
-    |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
-    |> Enum.filter(&has_approved_package?/1)
-    |> drop_conflicting_assignments()
-    |> Enum.map(&build_plugin_assignment_config(&1, grant_mode))
-    |> Enum.reject(&is_nil/1)
-    |> attach_run_overrides(actor)
+    stored_assignments =
+      assignments
+      |> Enum.map(&PluginAssignment.put_effective_package/1)
+      |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
+      |> Enum.filter(&has_approved_package?/1)
+      |> drop_conflicting_assignments()
+      |> Enum.map(&build_plugin_assignment_config(&1, grant_mode))
+      |> Enum.reject(&is_nil/1)
+      |> attach_run_overrides(actor)
+
+    declarative_assignments =
+      AssignmentCompiler.compile_for_agent(agent_id, partition_id, actor: actor)
+
+    stored_assignments ++ declarative_assignments
   rescue
     e ->
       Logger.warning("Error loading plugin assignments: #{inspect(e)}")

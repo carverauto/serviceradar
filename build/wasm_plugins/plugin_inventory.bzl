@@ -68,6 +68,12 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/starlink:main_tinygo.go",
         "tags": ["tinygo"],
     },
+    {
+        "name": "declarative_check_runner",
+        "srcs": ["//go/cmd/wasm-plugins/declarative-check-runner:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/declarative-check-runner:main.go",
+        "tags": [],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -258,6 +264,17 @@ WASM_PLUGIN_BUNDLES = [
             ("config.schema.json", "//go/cmd/wasm-plugins/starlink:config.local.schema.json"),
             ("schemas/ocsf_alert_event.schema.json", "//go/cmd/wasm-plugins/starlink:schemas/ocsf_alert_event.schema.json"),
             ("display/alert_event.display.json", "//go/cmd/wasm-plugins/starlink:display/alert_event.display.json"),
+        ],
+    },
+    {
+        "name": "declarative_check_runner_bundle",
+        "plugin_id": "io.serviceradar.declarative-check-runner",
+        "repository_name": "wasm-plugin-declarative-check-runner",
+        "wasm_target": ":declarative_check_runner_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/declarative-check-runner:plugin.yaml"),
+            ("plugin.wasm", ":declarative_check_runner_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/declarative-check-runner:config.schema.json"),
         ],
     },
 ]

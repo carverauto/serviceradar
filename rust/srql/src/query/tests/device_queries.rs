@@ -1677,6 +1677,84 @@ fn a_mixed_case_composite_field_is_normalized_rather_than_rejected() {
 }
 
 #[test]
+fn declarative_verdict_filter_compiles_to_a_correlated_exists() {
+    let plan = plan_for("in:devices declarative.edge-tls-expiry:cert_expiring_soon");
+    let (sql, params) =
+        devices::to_sql_and_params(&plan).expect("should build declarative filter SQL");
+
+    assert!(sql.contains("EXISTS"), "expected EXISTS, got: {sql}");
+    assert!(
+        sql.contains("declarative_check_instances"),
+        "expected declarative_check_instances table, got: {sql}"
+    );
+    assert!(
+        sql.contains("declarative_checks"),
+        "expected declarative_checks table, got: {sql}"
+    );
+    assert!(
+        sql.contains("r.device_uid = ocsf_devices.uid"),
+        "expected device_uid correlation predicate, got: {sql}"
+    );
+    assert!(
+        !sql.contains("JOIN declarative_check_instances"),
+        "declarative instances must be correlated, not outer-joined: {sql}"
+    );
+    assert!(
+        matches!(&params[0], BindParam::Text(slug) if slug == "edge-tls-expiry"),
+        "first bind must be slug, got: {params:?}"
+    );
+    assert!(
+        matches!(&params[1], BindParam::TextArray(values) if values == &["cert_expiring_soon"]),
+        "second bind must be value array, got: {params:?}"
+    );
+}
+
+#[test]
+fn declarative_status_list_and_negated_filters_compile_cleanly() {
+    let plan = plan_for("in:devices declarative.edge-tls-expiry.status:(degraded,down)");
+    let (sql, params) =
+        devices::to_sql_and_params(&plan).expect("should build declarative status list SQL");
+
+    assert!(sql.contains("r.status"), "expected r.status, got: {sql}");
+    assert!(
+        !sql.contains("r.verdict"),
+        "status filter must not compare verdict column: {sql}"
+    );
+    assert!(
+        matches!(
+            &params[1],
+            BindParam::TextArray(values) if values == &["degraded", "down"]
+        ),
+        "expected list bind, got: {params:?}"
+    );
+
+    let neg_plan = plan_for("in:devices !declarative.edge-tls-expiry.status:healthy");
+    let (neg_sql, _neg_params) =
+        devices::to_sql_and_params(&neg_plan).expect("should build negated declarative SQL");
+    let lower = neg_sql.to_lowercase();
+    assert!(
+        lower.contains("not") && lower.contains("exists"),
+        "expected NOT EXISTS, got: {neg_sql}"
+    );
+}
+
+#[test]
+fn malformed_declarative_device_fields_fail_cleanly() {
+    for query in [
+        "in:devices declarative.:x",
+        "in:devices declarative.-leading:x",
+        "in:devices declarative.trailing-:x",
+        "in:devices declarative.edge-tls-expiry.verdict:x",
+    ] {
+        let plan = plan_for(query);
+        assert!(
+            devices::to_sql_and_params(&plan).is_err(),
+            "expected a query error for {query}"
+        );
+    }
+}
+
+#[test]
 fn devices_sort_hostname_asc_orders_by_hostname_then_uid() {
     let plan = plan_for("in:devices type:\"IP Camera\" sort:hostname:asc");
     let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");

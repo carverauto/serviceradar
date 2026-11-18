@@ -1,6 +1,7 @@
 use super::{
     availability::freshness_threshold,
     composite::{filter_values as composite_filter_values, parse_composite_field},
+    declarative::{filter_values as declarative_filter_values, parse_declarative_field},
     identity::collect_mac_params,
     ip::collect_ip_params,
     jsonb::{is_valid_jsonb_key, parse_bool},
@@ -173,6 +174,28 @@ pub(in crate::query::devices) fn collect_filter_params(
             })?;
 
             let values = composite_filter_values(filter);
+            if values.is_empty() {
+                return Ok(());
+            }
+
+            params.push(BindParam::Text(slug));
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        field if field.starts_with("declarative.") => {
+            let (slug, _column) = parse_declarative_field(field).ok_or_else(|| {
+                ServiceError::InvalidRequest(format!("invalid declarative check field '{field}'"))
+            })?;
+            if !matches!(
+                filter.op,
+                FilterOp::Eq | FilterOp::In | FilterOp::NotEq | FilterOp::NotIn
+            ) {
+                return Err(ServiceError::InvalidRequest(
+                    "declarative check filters only support equality and list membership".into(),
+                ));
+            }
+
+            let values = declarative_filter_values(filter);
             if values.is_empty() {
                 return Ok(());
             }

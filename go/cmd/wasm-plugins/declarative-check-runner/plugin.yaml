@@ -1,0 +1,35 @@
+id: io.serviceradar.declarative-check-runner
+name: Declarative Check Runner
+version: 0.1.0
+description: Executes compiled declarative service and posture check Edge subgraphs across HTTP journeys, TCP, TLS, DNS, and pure evaluators
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+  - tcp_connect
+  - tcp_read
+  - tcp_write
+  - tcp_close
+permissions:
+  allowed_domains:
+    - "*"
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 53
+    - 80
+    - 443
+    - 8080
+    - 8443
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 4000
+  max_open_connections: 8

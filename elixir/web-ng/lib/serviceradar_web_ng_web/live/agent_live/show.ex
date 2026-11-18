@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.AgentCapabilities
+  alias ServiceRadarWebNG.DeclarativeChecks
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
@@ -165,6 +166,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       save_agent_details(socket, scope, params)
     else
       {:noreply, put_flash(socket, :error, "You cannot edit this agent.")}
+    end
+  end
+
+  def handle_event("clone_as_declarative_check", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "declarative_checks.manage") do
+      source =
+        Enum.find(socket.assigns.checks || [], &(to_string(&1.id) == to_string(id))) || id
+
+      mod = Application.get_env(:serviceradar_web_ng, :declarative_checks, DeclarativeChecks)
+
+      case mod.clone_service_check(source, scope: scope) do
+        {:ok, created} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Cloned service check as draft declarative check #{created["slug"]}")
+           |> push_navigate(to: ~p"/settings/declarative-checks/#{created["slug"]}")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to clone service check as declarative check.")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage declarative checks.")}
     end
   end
 
@@ -569,7 +594,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           />
           <.plugin_assignments_card assignments={@plugin_assignments} />
           <.addon_assignments_card rows={@addon_reconciliation} />
-          <.service_checks_card checks={@checks} />
+          <.service_checks_card
+            checks={@checks}
+            can_clone_declarative={RBAC.can?(@current_scope, "declarative_checks.manage")}
+          />
         </div>
       </div>
     </Layouts.app>
@@ -1818,6 +1846,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :checks, :list, required: true
+  attr :can_clone_declarative, :boolean, default: false
 
   defp service_checks_card(assigns) do
     ~H"""
@@ -1847,6 +1876,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               <div class="text-xs text-sr-muted truncate">{check.target}</div>
             </div>
             <div class="flex items-center gap-2">
+              <button
+                :if={@can_clone_declarative}
+                id={"clone-declarative-service-check-#{check.id}"}
+                type="button"
+                phx-click="clone_as_declarative_check"
+                phx-value-id={check.id}
+                class="rounded-sr-control border border-sr-line px-2 py-1 text-xs text-sr-muted hover:text-sr-ink"
+              >
+                Clone as Declarative Check
+              </button>
               <span class="text-xs text-sr-muted">{check.interval_seconds}s</span>
               <.status_indicator enabled={check.enabled} />
             </div>

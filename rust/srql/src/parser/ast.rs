@@ -56,6 +56,7 @@ pub enum Entity {
     ProcessMetrics,
     CapacityForecasts,
     CompositeResults,
+    DeclarativeCheckResults,
     TimeseriesMetrics,
     TimeseriesMetricInterfaceHourly,
     TimeseriesMetricDiskHourly,
