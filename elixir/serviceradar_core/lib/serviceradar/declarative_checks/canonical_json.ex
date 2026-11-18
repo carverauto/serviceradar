@@ -88,7 +88,7 @@ defmodule ServiceRadar.DeclarativeChecks.CanonicalJSON do
       "slug" => to_string(fetch_field(raw, "slug", "")),
       "schedule" => normalize_schedule(fetch_field(raw, "schedule", %{})),
       "target_binding" =>
-        normalize_map(fetch_field(raw, "target_binding", @default_target_binding)),
+        normalize_target_binding(fetch_field(raw, "target_binding", @default_target_binding)),
       "inputs" => normalize_list(fetch_field(raw, "inputs", [])),
       "credential_slots" => normalize_list(fetch_field(raw, "credential_slots", [])),
       "nodes" => normalize_list(fetch_field(raw, "nodes", [])),
@@ -170,6 +170,19 @@ defmodule ServiceRadar.DeclarativeChecks.CanonicalJSON do
   end
 
   def normalize_schedule(_), do: @default_schedule
+
+  @doc """
+  Normalizes target_binding fields with canonical singleton default when omitted or empty.
+  """
+  @spec normalize_target_binding(term()) :: map()
+  def normalize_target_binding(binding) when is_map(binding) do
+    case normalize_map(binding) do
+      empty when map_size(empty) == 0 -> @default_target_binding
+      normalized -> normalized
+    end
+  end
+
+  def normalize_target_binding(_), do: @default_target_binding
 
   @doc """
   Normalizes alert_policy fields with canonical defaults.

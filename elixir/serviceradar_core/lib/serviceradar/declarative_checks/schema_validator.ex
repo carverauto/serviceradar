@@ -460,7 +460,7 @@ defmodule ServiceRadar.DeclarativeChecks.SchemaValidator do
       "managed" => Map.get(doc, "managed", false) == true,
       "parameter_overrides" => Map.get(doc, "parameter_overrides") || %{},
       "schedule" => CanonicalJSON.normalize_schedule(Map.get(doc, "schedule")),
-      "target_binding" => Map.get(doc, "target_binding") || %{"mode" => "singleton"},
+      "target_binding" => CanonicalJSON.normalize_target_binding(Map.get(doc, "target_binding")),
       "inputs" => Map.get(doc, "inputs") || [],
       "credential_slots" => Map.get(doc, "credential_slots") || [],
       "nodes" => nodes,
@@ -702,6 +702,7 @@ defmodule ServiceRadar.DeclarativeChecks.SchemaValidator do
   end
 
   defp validate_target_binding(errors, nil, _opts), do: errors
+  defp validate_target_binding(errors, binding, _opts) when binding == %{}, do: errors
 
   defp validate_target_binding(errors, binding, opts) when is_map(binding) do
     errors = check_allowed_keys(errors, binding, @allowed_target_binding_keys, "$.target_binding")
