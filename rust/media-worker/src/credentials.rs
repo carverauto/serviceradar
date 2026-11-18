@@ -1,7 +1,7 @@
-//! Redacted, zeroized short-lived credential wrappers (`2.3`).
+//! Redacted, zeroized short-lived credential and pre-signed URL wrappers (`2.3`).
 //!
-//! Ensures control-plane workload tokens and ephemeral `:reader` S3 credentials
-//! resolved from `platform.network_credential_secrets` are zeroed out of process
+//! Ensures control-plane workload tokens, short-lived AWS SigV4 pre-signed `GET`
+//! URLs, and optional test/fallback reader credentials are zeroed out of process
 //! memory on drop and never appear in `Debug` or `Serialize` output.
 
 use core::fmt::{self, Debug, Formatter};
@@ -9,6 +9,55 @@ use serde::de::Deserializer;
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
+
+/// Short-lived AWS SigV4 query-string pre-signed `GET` URL (`Zeroizing<String>`)
+/// whose query signature (`X-Amz-Signature`, `X-Amz-Security-Token`, `X-Amz-Credential`)
+/// is zeroed from worker RAM on drop and redacted on `Debug` and `Serialize`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RedactedPresignedUrl(Zeroizing<String>);
+
+impl RedactedPresignedUrl {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self(Zeroizing::new(url.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// Returns `<scheme>://<authority><path>?[REDACTED]` with query parameters stripped.
+    pub fn redacted_target(&self) -> String {
+        match self.0.split_once('?') {
+            Some((base, _)) => format!("{base}?[REDACTED]"),
+            None => "[REDACTED]".to_string(),
+        }
+    }
+}
+
+impl Debug for RedactedPresignedUrl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("\"[REDACTED]\"")
+    }
+}
+
+impl Serialize for RedactedPresignedUrl {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("[REDACTED]")
+    }
+}
+
+impl<'de> Deserialize<'de> for RedactedPresignedUrl {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Ok(Self::new(raw))
+    }
+}
 
 /// Domain-separated `media_worker` workload authentication credentials for
 /// `POST /v1/media/workers/read-grants`.

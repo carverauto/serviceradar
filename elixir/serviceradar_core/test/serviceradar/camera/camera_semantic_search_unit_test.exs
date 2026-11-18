@@ -392,9 +392,10 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                )
     end
 
-    test "issues archive range plan with <= 4 MiB coalescing, GET/HEAD-only CredentialBrokerGrant, and zero leaked secrets" do
+    test "issues archive range plan with <= 4 MiB coalescing, GET/HEAD-only CredentialBrokerGrant, 5m SigV4 pre-signed URLs, and zero leaked secrets" do
       installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
-      synthetic_secret_key = "SYNTHETIC_NEVER_LOG_SECRET_MATERIAL_0123456789"
+      synthetic_secret_key = "test-reader-secret-key-0000000000"
+      signed_at = ~U[2026-11-17 12:00:00Z]
 
       req = %{
         "schema_version" => 1,
@@ -407,9 +408,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       loaders = grant_loaders(entry, synthetic_secret_key)
 
       assert {:ok, plan} =
-               VisualWorkerReadGrants.issue_read_grant(installation, req, loaders: loaders)
+               VisualWorkerReadGrants.issue_read_grant(installation, req,
+                 loaders: loaders,
+                 now: signed_at,
+                 ttl_seconds: 300
+               )
 
       assert plan.backing == :archive
+      assert plan.source == "archive"
       assert plan.init_sha256 == @init_sha
       assert Enum.map(plan.fragments, & &1["sequence"]) == [0, 2]
       assert Enum.all?(plan.coalesced_ranges, &(&1["length"] <= 4 * 1_048_576))
@@ -420,9 +426,152 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       refute "PUT" in plan.grant["allowed_methods"]
       refute "DELETE" in plan.grant["allowed_methods"]
 
+      init_url = plan.archive["init_presigned_url"]
+      media_url = plan.archive["media_presigned_url"]
+      assert is_binary(init_url)
+      assert is_binary(media_url)
+      assert plan.init["presigned_url"] == init_url
+      assert plan.media["presigned_url"] == media_url
+
+      init_uri = URI.parse(init_url)
+      init_query = URI.decode_query(init_uri.query)
+      assert init_uri.scheme == "https"
+      assert init_uri.host == "objects.example.com"
+
+      assert init_uri.path ==
+               "/synthetic-archive/nvr/archive-v2/#{@storage_id}/#{@block_key}/init.mp4"
+
+      assert init_query["X-Amz-Algorithm"] == "AWS4-HMAC-SHA256"
+
+      assert init_query["X-Amz-Credential"] ==
+               "test-reader-access-key/20261117/us-east-1/s3/aws4_request"
+
+      assert init_query["X-Amz-Date"] == "20261117T120000Z"
+      assert init_query["X-Amz-Expires"] == "300"
+      assert init_query["X-Amz-SignedHeaders"] == "host"
+      assert init_query["versionId"] == "synth-init-v1"
+      assert init_query["X-Amz-Signature"] =~ ~r/\A[0-9a-f]{64}\z/
+
+      media_uri = URI.parse(media_url)
+      media_query = URI.decode_query(media_uri.query)
+
+      assert media_uri.path ==
+               "/synthetic-archive/nvr/archive-v2/#{@storage_id}/#{@block_key}/media.m4s"
+
+      assert media_query["X-Amz-Algorithm"] == "AWS4-HMAC-SHA256"
+      assert media_query["X-Amz-Expires"] == "300"
+      assert media_query["X-Amz-SignedHeaders"] == "host"
+      assert media_query["versionId"] == "synth-media-v1"
+      assert media_query["X-Amz-Signature"] =~ ~r/\A[0-9a-f]{64}\z/
+      assert media_query["X-Amz-Signature"] != init_query["X-Amz-Signature"]
+
+      expected_init_url =
+        [
+          access_key_id: "test-reader-access-key",
+          secret_access_key: synthetic_secret_key,
+          region: "us-east-1",
+          service: "s3",
+          datetime: signed_at,
+          method: :get,
+          url:
+            "https://objects.example.com/synthetic-archive/nvr/archive-v2/#{@storage_id}/#{@block_key}/init.mp4",
+          expires: 300,
+          headers: [],
+          query: [{"versionId", "synth-init-v1"}]
+        ]
+        |> Req.Utils.aws_sigv4_url()
+        |> URI.to_string()
+
+      assert init_url == expected_init_url
+
       refute inspect(plan) =~ synthetic_secret_key
       encoded_json = Jason.encode!(plan)
       refute encoded_json =~ synthetic_secret_key
+      decoded_plan = Jason.decode!(encoded_json)
+      refute Map.has_key?(decoded_plan["credential"], "secret_access_key")
+      refute Map.has_key?(decoded_plan["credential"], "access_key_id")
+      refute Map.has_key?(decoded_plan["credential"], "session_token")
+    end
+
+    test "signs optional X-Amz-Security-Token and omits versionId when unversioned while keeping credential redacted" do
+      installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
+      synthetic_secret_key = "test-reader-secret-key-0000000000"
+      synthetic_session_token = "test-sts-session-token-001"
+      signed_at = ~U[2026-11-17 12:30:00Z]
+
+      req = %{
+        "schema_version" => 1,
+        "job_id" => @job_id,
+        "catalog_entry_id" => @catalog_id,
+        "descriptor_sha256" => @desc_sha
+      }
+
+      base_loaders = grant_loaders(playable_archive_entry(), synthetic_secret_key)
+
+      unversioned_sts_loaders = %{
+        base_loaders
+        | receipt_loader: fn _entry ->
+            {:ok,
+             %{
+               recording_block_id: @block_id,
+               archive_binding_id: @binding_id,
+               objects: [
+                 %{
+                   "name" => "init.mp4",
+                   "key" => "nvr/archive-v2/#{@storage_id}/#{@block_key}/init.mp4",
+                   "length" => 1_024,
+                   "sha256" => @init_sha,
+                   "etag" => "\"etag-init\""
+                 },
+                 %{
+                   "name" => "media.m4s",
+                   "key" => "nvr/archive-v2/#{@storage_id}/#{@block_key}/media.m4s",
+                   "length" => 212_992,
+                   "sha256" => @media_sha,
+                   "etag" => "\"etag-media\""
+                 }
+               ]
+             }}
+          end,
+          credential_resolver: fn binding, _role, ttl ->
+            {:ok, grant_attrs} =
+              ArchiveCredentialResolver.grant_attrs(binding, :reader, @secret_id,
+                ttl_seconds: ttl
+              )
+
+            {:ok,
+             %{
+               grant: grant_attrs,
+               credential: %{
+                 "secret_id" => @secret_id,
+                 "generation" => 2,
+                 "access_key_id" => "test-reader-access-key",
+                 "secret_access_key" => synthetic_secret_key,
+                 "session_token" => synthetic_session_token
+               }
+             }}
+          end
+      }
+
+      assert {:ok, plan} =
+               VisualWorkerReadGrants.issue_read_grant(installation, req,
+                 loaders: unversioned_sts_loaders,
+                 now: signed_at,
+                 ttl_seconds: 900
+               )
+
+      init_query =
+        plan.init["presigned_url"] |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+      assert init_query["X-Amz-Expires"] == "900"
+      assert init_query["X-Amz-Security-Token"] == synthetic_session_token
+      assert init_query["X-Amz-SignedHeaders"] == "host"
+      refute Map.has_key?(init_query, "versionId")
+
+      refute inspect(plan.credential) =~ synthetic_secret_key
+      refute inspect(plan.credential) =~ synthetic_session_token
+      refute Jason.encode!(plan.credential) =~ synthetic_secret_key
+      refute Jason.encode!(plan.credential) =~ synthetic_session_token
     end
 
     test "issues local analysis_read pool plan when block is local_only / unarchived" do
@@ -766,7 +915,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     }
   end
 
-  defp grant_loaders(entry, secret_key \\ "SYNTHETIC_READER_SECRET") do
+  defp grant_loaders(entry, secret_key \\ "test-reader-secret-key-0000000000") do
     sampled = VisualIndexDispatcher.sample_descriptor_fragments(sample_descriptor(), 2_000, 64)
 
     %{
@@ -827,14 +976,16 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                "key" => "nvr/archive-v2/#{@storage_id}/#{@block_key}/init.mp4",
                "length" => 1_024,
                "sha256" => @init_sha,
-               "etag" => "\"etag-init\""
+               "etag" => "\"etag-init\"",
+               "version_id" => "synth-init-v1"
              },
              %{
                "name" => "media.m4s",
                "key" => "nvr/archive-v2/#{@storage_id}/#{@block_key}/media.m4s",
                "length" => 212_992,
                "sha256" => @media_sha,
-               "etag" => "\"etag-media\""
+               "etag" => "\"etag-media\"",
+               "version_id" => "synth-media-v1"
              }
            ]
          }}
@@ -856,7 +1007,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
            credential: %{
              "secret_id" => @secret_id,
              "generation" => 1,
-             "access_key_id" => "AKIA_SYNTHETIC_TEST",
+             "access_key_id" => "test-reader-access-key",
              "secret_access_key" => secret_key
            }
          }}
