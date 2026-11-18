@@ -21,7 +21,10 @@ names agent software; the IEEE OUI registrant of the MAC address, or an
 explicit metadata vendor on an update that is not from an integration; a
 vendor derived from a sysObjectID under a hardware vendor's enterprise number,
 a vendor inferred from other device-reported evidence (sysDescr inference or a
-classification rule), or a vendor reported by an integration.
+classification rule), or a vendor reported by an integration. The tier SHALL
+follow the vendor derived for the update, not the sysObjectID enterprise alone:
+a hardware vendor inferred from sysDescr or a classification rule ranks in the
+strongest tier even when the sysObjectID is under an agent-software enterprise.
 
 The same rule SHALL apply when two updates for one device are merged inside one
 ingestion batch.
@@ -56,8 +59,13 @@ ingestion batch.
 
 #### Scenario: A generic SNMP agent vendor does not outrank the OUI vendor
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
-- **WHEN** an SNMP update whose sysObjectID is under the Net-SNMP enterprise (8072) is ingested
+- **WHEN** an SNMP update whose derived vendor names SNMP agent software (such as Net-SNMP) is ingested
 - **THEN** the stored vendor SHALL remain the OUI vendor
+
+#### Scenario: A hardware vendor inferred under an agent-software enterprise outranks the OUI vendor
+- **GIVEN** a device whose vendor was recorded from the MAC OUI
+- **WHEN** an SNMP update whose sysObjectID is under the Net-SNMP enterprise (8072) and whose sysDescr or classification rule yields a hardware vendor is ingested
+- **THEN** the stored vendor SHALL become that hardware vendor
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets are selected and named from device attributes

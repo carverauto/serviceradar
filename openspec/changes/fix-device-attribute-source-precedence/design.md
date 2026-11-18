@@ -30,6 +30,9 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
       reported by an integration.
    The agent-software enterprises are a fixed, named list kept next to the
    enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
+   The tier follows the vendor derived for the update, not the enterprise
+   alone: a hardware vendor inferred from `sysDescr` or a classification rule
+   is tier 3 even when the `sysObjectID` is under enterprise 8072.
 4. A write replaces the stored value when its strength is equal to or greater
    than the stored strength. A weaker write fills the attribute only when no
    value is stored. Nothing else decides: there is no test comparing the stored
@@ -37,7 +40,9 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
    strength (rows written before this change) is kept against a weakest-tier
    write (address fallback name, generic agent-software vendor); the next
    write of a middle or strongest tier (passive census sighting, IEEE OUI,
-   SNMP `sysName`, hardware-enterprise `sysObjectID`, or integration-reported)
+   non-integration metadata vendor, SNMP `sysName`, hardware-enterprise
+   `sysObjectID`, `sysDescr` inference, classification-rule inference, or
+   integration-reported)
    replaces it and records its strength. A missing strength is never treated
    as a recorded weak strength. So the first census pass after rollout may
    change an unrecorded spelling once (for example a legacy `Net-SNMP` or

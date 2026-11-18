@@ -93,8 +93,11 @@ is the SNMP-derived vendor. A credential rule written against the OUI spelling
 spelling differs, and the rule's SNMPv3 credential no longer applies; the
 profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
-was stored. A device whose SNMP agent reports only a generic agent-software
-enterprise (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
+was stored. A hardware vendor inferred from `sysDescr` or a classification
+rule also outranks the OUI, even when the `sysObjectID` is under a generic
+agent-software enterprise such as Net-SNMP (8072), so exact-OUI rules stop
+matching those devices too. Only a device whose derived vendor names agent
+software (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
 OUI spelling keep matching it. On rows written before rollout, the first
 census pass replaces a stored agent-software vendor with no recorded strength
 by the OUI vendor, so exact-OUI credential rules match that device again after
@@ -102,8 +105,9 @@ that pass. That first census pass may also change any other vendor stored
 before rollout once, to the OUI vendor, and a name stored before rollout once,
 to a census name that carries an observed hostname, until the mapper records a
 stronger value. A hostname-less census name is the address fallback, the
-weakest tier, and never replaces any populated name, recorded or not. Release notes must call this out, and such rules should select
-devices by a stable key (uid list, tag, or a prefix match) instead of an exact
+weakest tier, and never replaces any populated name, recorded or not.
+Release notes must call this out, and such rules should select devices by a
+stable key (uid list, tag, or a prefix match) instead of an exact
 vendor string.
 
 ## Impact

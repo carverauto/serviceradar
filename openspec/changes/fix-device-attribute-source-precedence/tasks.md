@@ -29,8 +29,10 @@
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table
 - [ ] 3.3 Test: a hardware-enterprise vendor with recorded strength survives
-      an OUI update; an OUI vendor survives a Net-SNMP agent vendor; OUI
-      replaces OUI
+      an OUI update; an OUI vendor survives an update whose derived vendor
+      names agent software (Net-SNMP); a hardware vendor from `sysDescr` or a
+      classification rule replaces the OUI vendor even when the `sysObjectID`
+      is under enterprise 8072; OUI replaces OUI
 - [ ] 3.4 Test: a `sysDescr`-inferred hardware vendor with recorded strength
       survives an OUI-only update
 
@@ -43,13 +45,16 @@
 ## 5. Rollout
 
 - [ ] 5.1 Release note: credential rules keyed on an exact OUI vendor string
-      stop matching devices with a hardware-enterprise SNMP vendor, and start
-      matching legacy rows whose stored vendor was a generic agent-software
-      vendor once the first census pass records the OUI vendor
+      stop matching devices with a hardware-enterprise SNMP vendor or a
+      hardware vendor from `sysDescr` or a classification rule (even when the
+      `sysObjectID` is under enterprise 8072); only devices whose derived
+      vendor names agent software keep the OUI vendor, and legacy rows whose
+      stored vendor was agent software start matching once the first census
+      pass records the OUI vendor
 - [ ] 5.2 Verify on a deployment with existing inventory: config version of an
       affected agent changes at most once at the first census pass after
       rollout (a census name carrying an observed hostname, or an OUI vendor,
       replaces a value with no recorded strength; a hostname-less census name
-      is the address fallback and never replaces a populated name) and at most once at the first mapper run (a stronger value
-      replaces it), then stays constant across further census passes and
-      mapper runs
+      is the address fallback and never replaces a populated name) and at
+      most once at the first mapper run (a stronger value replaces it), then
+      stays constant across further census passes and mapper runs
