@@ -82,6 +82,7 @@ image:
     trivySidecar: *appTag
     k8sInventory: *appTag
     dgraphMigrate: *appTag
+    mediaWorker: *appTag
   # Optional per-service digest pins. Keys match image.tags service names
   # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
   # either "sha256:..." or "@sha256:..."; when set they override tags.
@@ -472,6 +473,79 @@ archiveReader:
       cpu: "2"
       memory: 512Mi
       ephemeral-storage: 64Mi
+
+# Standalone stateless Rust GPU media worker (serviceradar-media-worker) for
+# recorded-block keyframe decoding, Stage 1 subject detection, Stage 2
+# vision-language embedding, and reserved interactive search text embeddings.
+# Runs completely outside the BEAM ERTS cluster with zero CNPG or StarRocks
+# connectivity; all jobs/results traverse NATS JetStream and media access uses
+# short-lived execution-time read grants from web-ng.
+mediaWorker:
+  enabled: false
+  replicas: 1
+  image:
+    # Optional repository/tag overrides; when blank, resolved via
+    # serviceradar.imageRef (image.registry/serviceradar-media-worker).
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+  port: 8096
+  # "cuda" | "tensorrt" | "cpu_explicit" (fails closed if GPU runtime is
+  # unavailable unless explicitly set to "cpu_explicit").
+  executionProvider: "cuda"
+  gpuResourceName: "nvidia.com/gpu"
+  gpuCount: 1
+  runtimeClassName: ""
+  ortDylibPath: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+  concurrency:
+    indexJobs: 2
+    textEmbeds: 4
+  models:
+    existingClaim: ""
+    mountPath: "/var/lib/serviceradar-media-worker/models"
+    detectorModelId: "rtdetr-v2-s"
+    detectorModelVersion: "1"
+    detectorPath: ""
+    detectorSha256: ""
+    embedderModelId: "siglip-base-patch16-384"
+    embedderModelVersion: "1"
+    embeddingDim: 768
+    embedderPath: ""
+    embedderSha256: ""
+    textPath: ""
+    textSha256: ""
+  auth:
+    existingSecret: ""
+    tokenKey: "media-worker-token"
+    deploymentRef: ""
+    generation: "1"
+  # Empty derives 4-dot intra-cluster FQDNs for the release namespace:
+  #   controlPlaneUrl -> http://serviceradar-web-ng-headless.<ns>.svc.cluster.local:<controlPlanePort>
+  #   natsUrl         -> nats://serviceradar-nats.<ns>.svc.cluster.local:4222
+  #   otelEndpoint    -> http://serviceradar-log-collector.<ns>.svc.cluster.local:4317
+  controlPlaneUrl: ""
+  natsUrl: ""
+  otelEndpoint: ""
+  networkPolicy:
+    enabled: true
+    allowNvrRead: false
+    nvrReadPort: 8444
+    s3EgressCidrs:
+      - "0.0.0.0/0"
+    s3ExceptCidrs:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
 
 core:
   replicas: 3
@@ -1641,6 +1715,17 @@ webNg:
       # Never supply token bytes in values or extraEnv.
       existingSecretName: serviceradar-control-plane-media-access
       tokenSecretKey: token
+    mediaWorker:
+      enabled: false
+      # Installed deployment identity, not a caller-supplied tenant selector.
+      deploymentRef: ""
+      # Quote the canonical decimal generation (1..9223372036854775807).
+      # Increment it when rotating the media-worker token so existing pods restart.
+      generation: ""
+      # Infrastructure custody supplies a distinct media-worker-purpose token here.
+      # Never supply token bytes in values or extraEnv.
+      existingSecret: ""
+      secretKey: "media-worker-token"
   # Storage-workload-only HTTPS listener. Its Service is private and separate
   # from account/media administration and every public web route.
   archiveStorage:

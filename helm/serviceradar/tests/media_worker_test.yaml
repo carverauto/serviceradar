@@ -1,0 +1,520 @@
+suite: standalone Rust GPU media worker and web-ng media-worker runtime auth
+templates:
+  - templates/media-worker.yaml
+  - templates/web.yaml
+release:
+  name: serviceradar
+  namespace: sr-test
+tests:
+  - it: renders zero media-worker documents by default
+    template: templates/media-worker.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders amd64 CUDA GPU deployment, ClusterIP service, and strict NetworkPolicy denying CNPG and StarRocks
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.replicas: 2
+      mediaWorker.executionProvider: cuda
+      mediaWorker.gpuResourceName: nvidia.com/gpu
+      mediaWorker.gpuCount: 1
+      mediaWorker.runtimeClassName: nvidia
+      mediaWorker.nodeSelector:
+        kubernetes.io/arch: amd64
+        serviceradar.io/gpu-pool: gpu-pool
+      mediaWorker.tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: present
+          effect: NoSchedule
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.onnx
+      mediaWorker.models.detectorSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.tokenKey: media-worker-token
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec
+          value:
+            type: ClusterIP
+            selector:
+              app: serviceradar-media-worker
+            ports:
+              - name: http-metrics
+                port: 8096
+                targetPort: http-metrics
+                protocol: TCP
+        documentSelector:
+          path: kind
+          value: Service
+      - equal:
+          path: spec.replicas
+          value: 2
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/part-of"]
+          value: serviceradar-media
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.runtimeClassName
+          value: nvidia
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: amd64
+            serviceradar.io/gpu-pool: gpu-pool
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: present
+              effect: NoSchedule
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /healthz
+            port: http-metrics
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /readyz
+            port: http-metrics
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER
+            value: cuda
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: example-media-worker-auth
+                key: media-worker-token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_DEPLOYMENT_REF
+            value: "00000000-0000-4000-8000-000000000001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RELEASE_COOKIE
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CNPG_HOST
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: models
+            mountPath: /var/lib/serviceradar-media-worker/models
+            readOnly: true
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - protocol: TCP
+                  port: 8096
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: kube-system
+              ports:
+                - protocol: UDP
+                  port: 53
+                - protocol: TCP
+                  port: 53
+            - to:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-nats
+              ports:
+                - protocol: TCP
+                  port: 4222
+            - to:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-web-ng
+              ports:
+                - protocol: TCP
+                  port: 4001
+            - to:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-otel
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-log-collector
+              ports:
+                - protocol: TCP
+                  port: 4317
+            - to:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+                    except:
+                      - 10.0.0.0/8
+                      - 172.16.0.0/12
+                      - 192.168.0.0/16
+              ports:
+                - protocol: TCP
+                  port: 443
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 5432
+          any: true
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 9030
+          any: true
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8030
+          any: true
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8040
+          any: true
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+
+  - it: renders arm64 TensorRT GPU profile and optional NVR analysis read egress
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: tensorrt
+      mediaWorker.gpuCount: 2
+      mediaWorker.nodeSelector:
+        kubernetes.io/arch: arm64
+      mediaWorker.models.embeddingDim: 512
+      mediaWorker.models.embedderModelId: mobileclip-s2
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      mediaWorker.auth.generation: "5"
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8444
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: arm64
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["nvidia.com/gpu"]
+          value: 2
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests["nvidia.com/gpu"]
+          value: 2
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER
+            value: tensorrt
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_EMBEDDING_DIM
+            value: "512"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app: serviceradar-nvr
+            ports:
+              - protocol: TCP
+                port: 8444
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+
+  - it: omits GPU resource requests and limits when executionProvider is cpu_explicit
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+      - notExists:
+          path: spec.template.spec.containers[0].resources.requests["nvidia.com/gpu"]
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["nvidia.com/gpu"]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER
+            value: cpu_explicit
+
+  - it: fails rendering when mediaWorker.auth.existingSecret is missing
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaWorker.auth.existingSecret is required when mediaWorker.enabled is true
+
+  - it: fails rendering when mediaWorker.auth.deploymentRef is missing or not a canonical lowercase UUID
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-00000000000A"
+      mediaWorker.auth.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaWorker.auth.deploymentRef must be a canonical lowercase UUID
+
+  - it: fails rendering when mediaWorker.auth.generation is non-positive
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "0"
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaWorker.auth.generation must be a positive integer
+
+  - it: wires domain-separated mediaWorker token into web-ng without exposing Service port 4001
+    template: templates/web.yaml
+    set:
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.secretKey: media-worker-token
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "4"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 4001
+            name: control-runtime
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
+            value: "4001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF
+            value: "00000000-0000-4000-8000-000000000001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: example-media-worker-auth
+                key: media-worker-token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION
+            value: "4"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/media-worker-deployment-ref"]
+          value: "00000000-0000-4000-8000-000000000001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/media-worker-generation"]
+          value: "4"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4001
+          any: true
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web-ng
+
+  - it: rejects SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN passed through webNg.extraEnv
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN: synthetic-raw-token
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN must be configured through webNg.controlPlaneRuntime.mediaWorker
