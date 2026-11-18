@@ -95,7 +95,7 @@ config:
       - 10.43.0.0/16
       - 192.168.6.87/32
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.7
     warmup_timeout_secs: 300
   max_shutdown_duration: 3570s
 extraInitContainers:
