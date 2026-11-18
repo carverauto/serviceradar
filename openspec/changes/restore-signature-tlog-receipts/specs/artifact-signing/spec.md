@@ -52,13 +52,19 @@ A missing or invalid receipt on a signature created in the run fails the release
 - **THEN** verification SHALL fail
 
 ### Requirement: Pinned Rekor public key
-The repository SHALL hold the accepted Rekor v1 public key or keys in `docs/sigstore/rekor.pub`, taken from Sigstore's TUF-signed trusted root.
-The copy shipped in the web-ng image is byte-identical to it, and a contract test enforces that.
+The repository SHALL hold the full set of accepted Rekor v1 public keys in `docs/sigstore/rekor-keys/`, one file per accepted log ID, taken from Sigstore's TUF-signed trusted root, and the key of the log the signer currently writes to in `docs/sigstore/rekor.pub`.
+The web-ng image ships the whole set, byte-identical to the committed files, and a contract test enforces that. A key update adds the new key and keeps every key whose log ID is still accepted; a rotation SHALL NOT drop a key that an accepted receipt names.
 
 #### Scenario: Image copy drifts from the committed key
-- **GIVEN** the Rekor key shipped in the web-ng image differs from `docs/sigstore/rekor.pub`
+- **GIVEN** a Rekor key shipped in the web-ng image differs from its file in `docs/sigstore/rekor-keys/`, or a committed key is missing from the image
 - **WHEN** the contract tests run
 - **THEN** the test SHALL fail
+
+#### Scenario: Receipt under a rotated-out signing log
+- **GIVEN** a receipt whose log ID names a Rekor key that the signer no longer writes to but that is still accepted
+- **WHEN** a web-ng release that follows the rotation verifies it
+- **THEN** the key for that log ID SHALL still be in the shipped key set
+- **AND** the receipt SHALL verify
 
 #### Scenario: Sigstore changes the Rekor v1 key set
 - **GIVEN** the published public-good trusted root adds a Rekor v1 key, removes the pinned key, or sets an end date on the pinned key
@@ -76,7 +82,7 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 - **AND** it SHALL contain the payload SHA-256 of the logged signature
 
 ### Requirement: Transparency-log monitoring for the release key
-A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new public-good Rekor v1 entry for the release public key's fingerprint at least every hour, verifying log consistency between checkpoints.
+A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new public-good Rekor v1 entry for the release public key's fingerprint at a configured scan interval, verifying log consistency between checkpoints. The scan interval is one hour unless a measured scan cost forces a longer one.
 It SHALL alert on every matching entry that is not explained. An entry is explained when it is a `hashedrekord` whose payload hash appears in a signing ledger that a run of any release-key signing workflow active at the entry's integrated time has published or will publish, or when it is listed in the committed acknowledged-entries file. While such a run is still in progress, the monitor SHALL NOT alert on the entry and SHALL evaluate it after the run ends. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue.
 
 #### Scenario: Signature made outside the signing workflows
@@ -110,12 +116,13 @@ It SHALL alert on every matching entry that is not explained. An entry is explai
 - **AND** an alert SHALL be raised
 
 #### Scenario: Monitor stops running
-- **GIVEN** the monitor's last successful run is more than three hours old
+- **GIVEN** the monitor's last successful GitHub Actions run is older than three scan intervals (three hours at the hourly default)
 - **WHEN** the scheduled job watch runs
-- **THEN** it SHALL report the monitor as stale to Discord
+- **THEN** it SHALL find that run through a GitHub Actions workflow-run lookup, not a BuildBuddy commit status
+- **AND** it SHALL report the monitor as stale to Discord
 
 #### Scenario: Monitor is blind to its own signatures
-- **GIVEN** a ledger line with a log index from a signing run that ended more than two hours ago
+- **GIVEN** a ledger line with a log index from a signing run that ended more than two scan intervals ago (two hours at the hourly default)
 - **AND** the entry was integrated after the monitor's first retained checkpoint
 - **AND** the monitor has not observed that entry as a match
 - **WHEN** the monitor runs

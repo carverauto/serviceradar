@@ -142,26 +142,33 @@ Wasm plugin and native add-on digests and is not consulted by release verificati
 
 ## Decision 5: The pinned Rekor key and how it is updated
 
-- **Source of truth:** `docs/sigstore/rekor.pub`, the public-good Rekor v1 key, whose log ID is
-  `c0d23d6a...801d`. `cosign_export_trust_overrides` already exports this path as
-  `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer and the release verifiers pick it
-  up without new wiring. The signer's own post-upload check then uses the same key.
-- **Image copy:** the web-ng image carries the same bytes at a fixed path. `runtime.exs` points
-  `first_party_plugin_import` at it. There is no runtime override: no operator-supplied mounted
-  file, setting or environment variable replaces the pinned key. The key changes only through a reviewed change of
-  `docs/sigstore/rekor.pub` that ships in a web-ng image. A `build/contracts` test keeps the image copy byte-identical to `docs/sigstore/rekor.pub`, as
-  `first_party_plugin_cosign_key_consistency_test` does for `docs/cosign.pub`.
+- **Source of truth:** `docs/sigstore/rekor-keys/` holds the full accepted key set, one PEM file
+  per accepted Rekor v1 log ID, named `<logID>.pub`. At the start it holds one key, the public-good
+  Rekor v1 key whose log ID is `c0d23d6a...801d`. `docs/sigstore/rekor.pub` is the key of the log
+  the signer currently writes to, byte-identical to that log's file in the set.
+  `cosign_export_trust_overrides` already exports `docs/sigstore/rekor.pub` as
+  `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer and the release verifiers, which
+  only verify signatures created in the current run against the current log, pick it up without
+  new wiring. The signer's own post-upload check then uses the same key.
+- **Image copy:** the web-ng image carries the whole `docs/sigstore/rekor-keys/` set at a fixed
+  path. `runtime.exs` points `first_party_plugin_import` at it. There is no runtime override: no
+  operator-supplied mounted file, setting or environment variable replaces the pinned keys. The keys
+  change only through a reviewed change of `docs/sigstore/rekor-keys/` (and `docs/sigstore/rekor.pub`
+  with it) that ships in a web-ng image. A `build/contracts` test keeps the image copy of every key
+  in the set byte-identical to the committed set, and `docs/sigstore/rekor.pub` byte-identical to
+  one member of it, as `first_party_plugin_cosign_key_consistency_test` does for `docs/cosign.pub`.
 - **Initial value:** the key comes from Sigstore's signed TUF `trusted_root.json` (`tlogs` entry
   whose `logId` matches), not from a Rekor `/api/v1/log/publicKey` response. The commit records the
   TUF root version it was taken from.
 - **Update process:** the monitor workflow (Decision 7) also fetches the current public-good
   `trusted_root.json` through TUF once a day. It compares the Rekor v1 `tlogs` entries with the
   pinned keys. It alerts when a new Rekor v1 key appears, the pinned key's `validFor.end` is set, or
-  the pinned key is removed. A person then updates `docs/sigstore/rekor.pub` in a reviewed PR, and
-  the change ships in the next release. Old keys stay as long as an accepted receipt names their log
-  ID. `SIGSTORE_REKOR_PUBLIC_KEY` holds one PEM key, so if more than one log ID must be accepted,
-  `CosignVerifier` reads `logID` from the annotation, selects the matching pinned key file, and
-  rejects an unknown log ID before it runs cosign.
+  the pinned key is removed. A person then adds the new key to `docs/sigstore/rekor-keys/` in a
+  reviewed PR, keeps every key whose log ID is still accepted, and points `docs/sigstore/rekor.pub`
+  at the log the signer writes to from then on. The change ships in the next release. A rotation
+  never drops a key that an accepted receipt names. `SIGSTORE_REKOR_PUBLIC_KEY` holds one PEM key,
+  so `CosignVerifier` reads `logID` from the annotation, selects the matching key file from the
+  set, and rejects a log ID with no file in the set before it runs cosign.
 - **Air-gapped installs** get a new key only by upgrading. Sigstore keeps validity windows on old
   keys, so a receipt verified against the key that was valid at `integratedTime` stays valid after
   a rotation. A rotation therefore affects only newly signed releases, which reach an install
@@ -184,10 +191,12 @@ and v3.0.4.
 
 ## Decision 7: The monitor
 
-**What runs.** `.github/workflows/rekor-signing-monitor.yml`, scheduled hourly, on
+**What runs.** `.github/workflows/rekor-signing-monitor.yml`, scheduled at a configured scan
+interval, on
 `arc-runner-set`, with `permissions: contents: read, actions: read, issues: write`. It runs
 `rekor_monitor` from `sigstore/rekor-monitor`, built from a pinned commit with a verified checksum
-(the project publishes no release tags). Its config has
+(the project publishes no release tags). The scan interval is hourly unless the measurement in
+Open Question 1 forces a longer one. Its config has
 `monitoredValues.fingerprints: [<hex SHA-256 of the DER PKIX release public key>]`. The monitor
 verifies log consistency from the previous checkpoint to the current one, and lists every new entry
 whose key fingerprint matches. The reusable workflow `rekor-monitor` publishes is not used directly,
@@ -250,11 +259,15 @@ Question 2 asks whether security alerts should have their own channel.
 
 - A run that fails (log inconsistency, Rekor unreachable, checkpoint artifact missing, bad config)
   fails the workflow, opens an issue and posts to Discord.
-- `build/ci/scheduled_job_watch.py` (daily, ARC, Discord) also reports the monitor workflow when
-  its last successful run is more than three hours old. A monitor that stopped running is then
-  noticed even if no run is left to report on itself.
+- The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
+  reports the monitor when its last successful run is older than three scan intervals (three hours
+  at the hourly default). `build/ci/scheduled_job_watch.py` only reads BuildBuddy commit statuses
+  for `WATCHED_JOBS`, and the monitor posts none, so the monitor is not added to `WATCHED_JOBS`. A
+  separate lookup lists the GitHub Actions runs of `rekor-signing-monitor.yml` through the Actions
+  API and finds the last successful one; `scheduled-job-watch.yml` gains `actions: read` for it. A
+  monitor that stopped running is then noticed even if no run is left to report on itself.
 - *Blindness canary:* every ledger line with a `logIndex` from a signing run that ended more than
-  two hours ago, whose entry was integrated after the monitor's first retained checkpoint, must
+  two scan intervals ago (two hours at the hourly default), whose entry was integrated after the monitor's first retained checkpoint, must
   have been seen by the monitor as a matching entry. Entries integrated before that checkpoint
   were never in the monitor's scan range (see Historical entries) and are not checked. A ledger entry the monitor
   never saw means the monitor is blind (wrong fingerprint, broken scan) or the receipt is bogus.
@@ -321,7 +334,7 @@ accepted artifact must have a public, append-only record in Rekor v1, made by th
 holder of the release key. Without a receipt requirement, someone who can sign with the key can
 produce an importable package that leaves no public trace. With it they must log the signature, and
 the monitor reports any logged signature that none of our signing runs accounts for, within about
-an hour. The log is also an independent record of everything the key signed, available to anyone,
+one scan interval (an hour at the hourly default). The log is also an independent record of everything the key signed, available to anyone,
 which bounds the investigation after an incident.
 
 **What it does not add.**
@@ -370,7 +383,8 @@ monitor's alerts need an owner.
 
 ## Migration plan
 
-1. Upgrade cosign (signer and image), add `docs/sigstore/rekor.pub`, and add the consistency tests.
+1. Upgrade cosign (signer and image), add `docs/sigstore/rekor-keys/` and `docs/sigstore/rekor.pub`,
+   and add the consistency tests.
 2. Ship the signer change (receipt annotation and ledger) and the receipt check in the release
    verification scripts. From then on every new signature carries a receipt.
 3. Enable the monitor once the scan cost is measured. Release N+1's ledger is the first end-to-end

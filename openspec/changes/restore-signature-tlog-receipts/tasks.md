@@ -10,10 +10,12 @@
 - [ ] 1.2 Re-read the chosen version's `sign_blob.go`, `verify.go` (`VerifyBundle`,
   `verifySignature`) and `cmd/cosign/cli/verify/common.go`, and confirm design.md, Decisions 1
   and 4 still hold. Record the result in the PR.
-- [ ] 1.3 Add `docs/sigstore/rekor.pub` from Sigstore's TUF `trusted_root.json`, recording the
-  root version in the commit message. Ship the same bytes in the web-ng image.
-- [ ] 1.4 Add `build/contracts` tests: image Rekor key byte-identical to `docs/sigstore/rekor.pub`;
-  signer and image cosign versions equal.
+- [ ] 1.3 Add the accepted key set `docs/sigstore/rekor-keys/<logID>.pub` and the signing-log key
+  `docs/sigstore/rekor.pub` from Sigstore's TUF `trusted_root.json`, recording the root version in
+  the commit message. Ship the whole key set in the web-ng image.
+- [ ] 1.4 Add `build/contracts` tests: every image Rekor key byte-identical to the committed key
+  set; `docs/sigstore/rekor.pub` byte-identical to one member of the set; signer and image cosign
+  versions equal.
 
 ## 2. Signer
 
@@ -48,7 +50,7 @@
 ## 4. Import verifier (web-ng)
 
 - [ ] 4.1 `CosignVerifier`: receipt-required mode for non-allowlisted digests, key-only mode for
-  allowlisted digests, and selection of the pinned key by `logID`. No `--trusted-root`, no TUF,
+  allowlisted digests, and selection of the pinned key from the shipped key set by `logID`. No `--trusted-root`, no TUF,
   isolated home and cache directories, bounded timeout.
 - [ ] 4.2 Generate and commit the frozen pre-cutover digest allowlist from every published
   `serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json`. Ship it in
@@ -72,10 +74,13 @@
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
   missing state.
-- [ ] 5.3 Add the blindness canary (ledger entries older than two hours, integrated after the
+- [ ] 5.3 Add the blindness canary (ledger entries older than two scan intervals, two hours at the
+  hourly default, integrated after the
   monitor's first retained checkpoint, that were never observed) and the daily TUF trusted-root comparison for the pinned Rekor key.
-- [ ] 5.4 Extend `build/ci/scheduled_job_watch.py` to report the monitor when its last successful
-  run is more than three hours old.
+- [ ] 5.4 Add a separate GitHub Actions workflow-run lookup for `rekor-signing-monitor.yml` to the
+  scheduled job watch, give `.github/workflows/scheduled-job-watch.yml` `actions: read`, and report
+  the monitor when its last successful run is older than three scan intervals (three hours at the
+  hourly default). Do not add the monitor to `WATCHED_JOBS`.
 - [ ] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
   the result in the PR.
 

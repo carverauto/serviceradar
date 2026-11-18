@@ -49,14 +49,17 @@ detection value.
 - **Cosign upgrade.** The signer (`scripts/install-cosign.sh`) and the web-ng image
   (`MODULE.bazel`) move together from v3.0.3 to a release with the fixes for
   GHSA-whqx-f9j3-ch6m and GHSA-fx35-mq7g-6g98. GHSA-whqx-f9j3-ch6m (fixed in 3.0.4) lets a
-  receipt for an unrelated Rekor entry pass verification on the trusted-root path, which is the
-  check this change relies on.
+  receipt for an unrelated Rekor entry pass verification on the trusted-root path. The check this
+  change relies on is the pinned-key path (`SIGSTORE_REKOR_PUBLIC_KEY`, no trusted root), which
+  binds the receipt to the artifact and is the advisory's own workaround; the upgrade also closes
+  the gap in the trusted-root branch.
 - **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` scans new Rekor v1
-  entries for the release key's fingerprint. It alerts on any entry that does not match a payload
+  entries for the release key's fingerprint, hourly unless measurement forces a longer interval. It alerts on any entry that does not match a payload
   recorded by one of the repository's release-key signing runs, and on its own failure or
   blindness.
-- **Pinned-key update process.** The same workflow compares the pinned Rekor key with Sigstore's
-  published trusted root and raises an alert when the active Rekor v1 key set changes.
+- **Pinned-key update process.** The same workflow compares the pinned Rekor keys with Sigstore's
+  published trusted root and raises an alert when the active Rekor v1 key set changes. A reviewed
+  update adds the new key and keeps every key an accepted receipt names.
 
 ## Non-goals
 
@@ -79,7 +82,7 @@ detection value.
   import must have a public Rekor record of its signature, unless its digest is on the frozen
   pre-cutover allowlist. A signature made with the release key outside the repository's signing workflows, for
   example by a stolen OpenBao token or an abused Transit role, is publicly detectable. The monitor
-  reports it within about an hour. The log is also a third-party-auditable history of everything
+  reports it within about one scan interval (an hour at the hourly default). The log is also a third-party-auditable history of everything
   the key signed, which helps the forensics after an incident.
 - **Does not add:** prevention, protection against a compromised run of the signing workflow
   itself (its ledger explains its own entries), or protection before the cutover release. Until
@@ -103,7 +106,8 @@ detection value.
   `elixir/web-ng/lib/serviceradar_web_ng/plugins/first_party_importer.ex` (verification metadata),
   `.github/workflows/` (new monitor workflow; ledger upload in every release-key signing workflow:
   `release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml`,
-  `external-wasm-plugin.yml`), `build/ci/scheduled_job_watch.py`,
+  `external-wasm-plugin.yml`; `actions: read` in `scheduled-job-watch.yml`),
+  `build/ci/scheduled_job_watch.py` (separate Actions run lookup for the monitor),
   `build/contracts/` (new consistency tests)
 - Affected docs: `docs/sigstore/README.md`, `docs/RELEASE_PUBLISHING.md`, `docs/agent-runbooks.md`
   (manual demo signing), `docs/docs/wasm-plugins.md`, `docs/docs/native-addons.md`
