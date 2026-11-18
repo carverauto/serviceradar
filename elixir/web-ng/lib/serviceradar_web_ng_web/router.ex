@@ -980,6 +980,24 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/open_api", OpenApiV2Controller, :show)
   end
 
+  # Declarative service and posture checks REST/JSON API (`/api/v2/declarative-checks*`).
+  # Defined before the JSON:API data forward below so `/api/v2/declarative-checks`
+  # resolves here, authenticated via session cookie or bearer token with default API
+  # rate limiting and per-action RBAC (`declarative_checks.view|manage|evaluate`).
+  scope "/api/v2", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api_auth, :rate_limit_api_default])
+
+    get("/declarative-checks", DeclarativeCheckController, :index)
+    post("/declarative-checks", DeclarativeCheckController, :create)
+    post("/declarative-checks/import", DeclarativeCheckController, :import_check)
+    post("/declarative-checks/test-run", DeclarativeCheckController, :test_run_inline)
+    get("/declarative-checks/:slug", DeclarativeCheckController, :show)
+    put("/declarative-checks/:slug", DeclarativeCheckController, :update)
+    delete("/declarative-checks/:slug", DeclarativeCheckController, :delete)
+    get("/declarative-checks/:slug/export", DeclarativeCheckController, :export)
+    post("/declarative-checks/:slug/test-run", DeclarativeCheckController, :test_run)
+  end
+
   # Interactive docs UIs — authenticated internal tools.
   #
   # SwaggerUI is an RBAC-backed API console: because the user is already logged

@@ -4,6 +4,9 @@ defmodule ServiceRadar.CompositeChecks.MergeReassignmentTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+  alias ServiceRadar.DeclarativeChecks
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckEdgeObservation
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckInstance
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Identity.Reassignments
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -149,6 +152,96 @@ defmodule ServiceRadar.CompositeChecks.MergeReassignmentTest do
       # Asserting the survivor alone would pass even with the merge wiring
       # removed, since its row was never touched. The losing row must be gone.
       assert {:ok, []} = DeviceCompositeCheckResult.list_by_device(from_uid, actor: actor())
+    end
+
+    test "declarative check instances and edge observations move onto the survivor and deduplicate collisions" do
+      from_uid = "sr:" <> Ecto.UUID.generate()
+      to_uid = "sr:" <> Ecto.UUID.generate()
+      now = DateTime.utc_now()
+
+      assert {:ok, _} = create_device(actor(), from_uid, "decl-merge-from")
+      assert {:ok, _} = create_device(actor(), to_uid, "decl-merge-to")
+
+      {:ok, dcheck} =
+        DeclarativeChecks.create_check(
+          %{
+            "schema_version" => 1,
+            "slug" => "decl-merge-#{System.unique_integer([:positive])}",
+            "name" => "Declarative Merge Check",
+            "state" => "draft",
+            "target_binding" => %{"mode" => "srql_devices", "scope_query" => "in:devices"},
+            "nodes" => [
+              %{
+                "id" => "q_1",
+                "kind" => "srql_query",
+                "config" => %{"query" => "in:devices", "limit" => 10}
+              },
+              %{
+                "id" => "assert_1",
+                "kind" => "threshold_assert",
+                "config" => %{"field" => "row_count", "crit" => %{"op" => "==", "value" => 0}}
+              },
+              %{
+                "id" => "out_1",
+                "kind" => "alert_output",
+                "config" => %{}
+              }
+            ],
+            "edges" => [
+              %{"id" => "e1", "source" => "q_1", "target" => "assert_1"},
+              %{"id" => "e2", "source" => "assert_1", "target" => "out_1"}
+            ]
+          },
+          actor: actor(),
+          skip_srql_nif?: true
+        )
+
+      assert {:ok, _} =
+               DeclarativeCheckInstance.upsert_instance(
+                 %{
+                   check_id: dcheck.id,
+                   target_key: "device:#{from_uid}",
+                   target_kind: :device,
+                   device_uid: from_uid,
+                   verdict: "healthy",
+                   status: :healthy,
+                   summary: "ok",
+                   node_snapshots: %{},
+                   evaluated_at: now,
+                   changed_at: now
+                 },
+                 actor: actor()
+               )
+
+      assert {:ok, _} =
+               DeclarativeCheckEdgeObservation.upsert_observation(
+                 %{
+                   check_id: dcheck.id,
+                   node_id: "q_1",
+                   target_key: "device:#{from_uid}",
+                   device_uid: from_uid,
+                   agent_id: "agent-example-1",
+                   status: :healthy,
+                   value: "1",
+                   payload: %{"ok" => true},
+                   duration_ms: 12,
+                   observed_at: now
+                 },
+                 actor: actor()
+               )
+
+      assert :ok = IdentityReconciler.merge_devices(from_uid, to_uid, actor: actor())
+
+      assert {:ok, []} = DeclarativeCheckInstance.list_by_device(from_uid, actor: actor())
+      assert {:ok, [moved_inst]} = DeclarativeCheckInstance.list_by_device(to_uid, actor: actor())
+      assert moved_inst.target_key == "device:#{to_uid}"
+
+      assert {:ok, []} = DeclarativeCheckEdgeObservation.list_by_device(from_uid, actor: actor())
+
+      assert {:ok, [moved_obs]} =
+               DeclarativeCheckEdgeObservation.list_by_device(to_uid, actor: actor())
+
+      assert moved_obs.target_key == "device:#{to_uid}"
     end
   end
 end

@@ -31,8 +31,9 @@ defmodule ServiceRadar.Events.InternalEventRuleExposureTest do
     "serviceradar.sync",
     "internal.causal.mtr",
     "integrations.armis.northbound",
-    # Composite checks, credentials
+    # Composite checks, declarative checks, credentials
     "composite_check.verdict.changed",
+    "declarative_check.health.state_change",
     "credential.secret_provider.lifecycle",
     "credential.secret.lifecycle",
     "credential.secret_resolution",

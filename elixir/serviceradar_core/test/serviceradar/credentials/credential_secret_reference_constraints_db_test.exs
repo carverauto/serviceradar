@@ -582,6 +582,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
       "credential_broker_grant_versions_version_source_id_fkey" => "c",
       "credential_secret_resolution_audits_secret_id_fkey" => "n",
       "credential_broker_grants_secret_id_fkey" => "r",
+      "declarative_check_credential_bindings_credential_secret_id_fkey" => "r",
       "device_snmp_credentials_credential_secret_id_fkey" => "r",
       "integration_sources_credential_secret_id_fkey" => "r",
       "mapper_jobs_snmp_credential_secret_id_fkey" => "r",

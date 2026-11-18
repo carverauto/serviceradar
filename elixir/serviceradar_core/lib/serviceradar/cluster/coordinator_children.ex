@@ -35,6 +35,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         zen_rule_seeder_child(),
         zen_rule_sync_child(),
         rule_seeder_child(),
+        declarative_check_pack_seeder_child(),
         notification_provider_seeder_child(),
         notification_template_seeder_child(),
         job_schedule_seeder_child(),
@@ -176,6 +177,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp rule_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
+    end
+  end
+
+  defp declarative_check_pack_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.DeclarativeChecks.PackSeeder
     end
   end
 
