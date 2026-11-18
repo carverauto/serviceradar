@@ -11,14 +11,21 @@ synthetic TCP or UDP traffic and measures how the network handles it.
 
 For each test, netperf reports:
 
-- **Throughput** - bits per second (`rperf.throughput.bits_per_second`) achieved
-  for TCP or UDP traffic.
-- **Jitter** - variation in packet delay (`rperf.jitter.ms`), in milliseconds
+- **Availability and duration** - test success indicator (`rperf.available`)
+  and measured duration in seconds (`rperf.duration_seconds`).
+- **Throughput** - bits per second (`rperf.bits_per_second`) achieved for TCP
+  or UDP traffic.
+- **Jitter** - variation in packet delay (`rperf.jitter_ms`), in milliseconds
   (UDP).
-- **Packet loss** - packets sent versus received (`rperf.packets.sent`,
-  `rperf.packets.received`) and loss percentage (`rperf.loss_percent`) (UDP).
-- **Bytes transferred** - total bytes sent and received (`rperf.bytes.sent`,
-  `rperf.bytes.received`) over the test duration.
+- **Packet loss** - packets sent, received, and lost (`rperf.packets_sent`,
+  `rperf.packets_received`, `rperf.packets_lost`) and loss percentage
+  (`rperf.loss_percent`) (UDP).
+- **Bytes transferred** - total bytes sent and received (`rperf.bytes_sent`,
+  `rperf.bytes_received`) over the test duration.
+
+Agents running with Hub Responder enabled also emit responder session gauges:
+`rperf.responder_active_sessions`, `rperf.responder_sessions_total`,
+`rperf.responder_busy_rejections_total`, and `rperf.responder_bytes_total`.
 
 ## Architecture
 
@@ -79,23 +86,32 @@ Spoke-only agents require no inbound netperf ports.
 
 Netperf measurements are stored as `rperf` time-series metrics. In SRQL,
 `in:netperf`, `in:netperf_metrics`, `in:rperf`, and `in:rperf_metrics` all resolve
-to the same metric scope (`metric_type = 'rperf'`):
+to the same metric scope (`metric_type = 'rperf'`).
 
-```sql
--- Recent netperf measurements
-in:netperf | sort timestamp desc | limit 50
+Recent netperf measurements:
 
--- Throughput for a target over the last day
-in:rperf metric_name:"rperf.bits_per_second" target_device_ip:"192.0.2.20"
-  | sort timestamp desc
+```srql
+in:netperf sort:timestamp:desc limit:50
+```
 
--- UDP packet loss
-in:netperf metric_name:"rperf.loss_percent" | sort timestamp desc
+Throughput for a target over the last day:
+
+```srql
+in:rperf metric_name:"rperf.bits_per_second" tags.target:"hub-01" time:last_24h sort:timestamp:desc
+```
+
+UDP packet loss:
+
+```srql
+in:netperf metric_name:"rperf.loss_percent" tags.protocol:udp sort:timestamp:desc
 ```
 
 See the [SRQL Language Reference](./srql-language-reference.md) for the full
 `timeseries_metrics` field list (`metric_name`, `metric_type`, `value`,
-`target_device_ip`, `agent_id`, `timestamp`, and related metadata).
+`agent_id`, `timestamp`, and point tags such as `tags.target`,
+`tags.responder_agent_id`, `tags.policy_id`, `tags.profile_id`,
+`tags.direction`, `tags.protocol`, `tags.execution_source`, and
+`tags.parallel`).
 
 ## Network Performance Dashboard
 
