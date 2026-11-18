@@ -268,6 +268,8 @@ its first retained checkpoint in its state, and the blindness canary uses it as 
 **Unverified:** how long an hourly scan of public-good Rekor v1 takes on an ARC runner, and how
 much it downloads. The first task measures it before the schedule is enabled. If an hourly scan
 does not fit, the fallback is a less frequent scan with a longer window, not the index search.
+A high scan cost never removes the scheduled release-key monitor; only the scan interval may grow,
+with a correspondingly longer window.
 
 ## Decision 8: Record the receipt status on the imported package
 
@@ -386,7 +388,9 @@ annotation offline (Decision 3), and the release gate has already checked it.
 ### Open Question 1: Is an hourly full-log scan affordable on ARC?
 
 Recommendation: measure first (task 5.1). Keep `rekor-monitor` log scanning even if the interval
-has to grow. Do not fall back to the incomplete index search.
+has to grow. Do not fall back to the incomplete index search. A high scan cost never removes the
+scheduled release-key monitor; only the scan interval may grow, with a correspondingly longer
+window.
 
 ### Open Question 2: Where do signing-monitor alerts go?
 
