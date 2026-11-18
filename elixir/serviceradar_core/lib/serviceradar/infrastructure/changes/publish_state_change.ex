@@ -45,19 +45,28 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
 
   @impl true
   def change(changeset, opts, context) do
-    # Capture the old state before the transition
-    old_state = Ash.Changeset.get_data(changeset, :status)
+    # Capture the old state before the transition. An upsert has no loaded
+    # record to read it from, so its caller passes the state it read as
+    # `previous_state` in the changeset context.
+    old_state = Map.get(changeset.context, :previous_state) || loaded_status(changeset)
 
     # Add after_action hook to publish the event
     AfterAction.after_action(changeset, &publish_event(&1, old_state, opts, context))
   end
 
+  # The transition actions are atomic, so Ash calls this callback and never
+  # `change/3`. Returning `:ok` here registered no hook and the transition was
+  # never recorded.
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
+
+  # An atomic update built from a query has no loaded record to read from.
+  defp loaded_status(%Ash.Changeset{data: %{status: status}}), do: status
+  defp loaded_status(_changeset), do: nil
 
   defp publish_event(record, old_state, opts, context) do
-    new_state = opts.new_state
-    entity_type = opts.entity_type
+    new_state = Keyword.fetch!(opts, :new_state)
+    entity_type = Keyword.fetch!(opts, :entity_type)
 
     # Don't publish if state didn't actually change
     if old_state == new_state do
