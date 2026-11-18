@@ -94,9 +94,14 @@ function shouldUseMapbox(mapbox) {
 }
 
 function createSrqlApi({frames, pushQuery, pageFrame}) {
+  const resolveFrames = () => {
+    const list = typeof frames === "function" ? frames() : frames
+    return Array.isArray(list) ? list : []
+  }
   const currentQuery = (frameId = "sites") => {
-    const preferred = frames.find((frame) => String(frame?.id || "") === String(frameId || ""))
-    return preferred?.query || frames[0]?.query || ""
+    const list = resolveFrames()
+    const preferred = list.find((frame) => String(frame?.id || "") === String(frameId || ""))
+    return preferred?.query || list[0]?.query || ""
   }
   const update = (query, frameQueries = {}) => pushQuery(query, frameQueries)
   const page = (frameId, cursor) => {
@@ -785,10 +790,11 @@ const DashboardWasmHost = {
   browserModuleApi(host, options = {}) {
     const capabilities = new Set(Array.isArray(host?.package?.capabilities) ? host.package.capabilities : [])
     const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
-    const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
+    const initialFrames = Array.isArray(host?.package?.frames) ? host.package.frames : []
+    const currentFrames = () => (Array.isArray(this._host?.package?.frames) ? this._host.package.frames : initialFrames)
     const resolveFrame = (idOrFrame) => {
       if (idOrFrame && typeof idOrFrame === "object") return idOrFrame
-      return frames.find((frame) => String(frame?.id) === String(idOrFrame))
+      return currentFrames().find((frame) => String(frame?.id) === String(idOrFrame))
     }
     const arrowBytes = (idOrFrame) => {
       const frame = resolveFrame(idOrFrame)
@@ -839,7 +845,7 @@ const DashboardWasmHost = {
 
       this._frameChannel.push("frames:page", {frame_id: id, cursor: token})
     }
-    const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery, pageFrame})
+    const srql = createSrqlApi({frames: currentFrames, pushQuery: pushSrqlQuery, pageFrame})
     const navigate = (target) => {
       if (!capabilityAllowed("navigation.open")) {
         throw new Error("dashboard capability is not approved: navigation.open")
@@ -911,7 +917,7 @@ const DashboardWasmHost = {
       },
       theme: () => (this.isDarkMode() ? "dark" : "light"),
       isDarkMode: () => this.isDarkMode(),
-      frames: () => frames,
+      frames: () => currentFrames(),
       frame: (id) => resolveFrame(id),
       srql,
       setSrqlQuery: srql.update,
@@ -1182,6 +1188,7 @@ const DashboardWasmHost = {
       } else {
         currentFrames.push(frame)
       }
+      this._host.package.frames = currentFrames
 
       this._pendingBinaryFrameIds?.delete(String(id))
       if (!this._pendingBinaryFrameIds || this._pendingBinaryFrameIds.size === 0) {

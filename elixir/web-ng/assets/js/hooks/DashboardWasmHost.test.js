@@ -1482,4 +1482,102 @@ describe("DashboardWasmHost async boot/updated/destroyed race hardening", () => 
       }
     }
   }, 30_000)
+
+  test("api.frames(), api.frame(), and api.srql.query() reflect updated() and replaceBinaryFramePayload() when initial package.frames is omitted", async () => {
+    const hook = createLifecycleHookContext()
+    let capturedApi = null
+    const updates = []
+
+    globalThis.__t5OmittedFramesMount = (_el, _host, api) => {
+      capturedApi = api
+      api.onFrameUpdate((upd) => updates.push(upd))
+      return {destroy() {}}
+    }
+
+    const rendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5OmittedFramesMount(el, host, api)}"
+
+    try {
+      const initialHost = baseHost({
+        package: {
+          name: "Test Dashboard",
+          capabilities: [],
+          renderer_url: rendererUrl,
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+        },
+      })
+
+      hook.el.dataset.host = JSON.stringify(initialHost)
+      hook.mounted()
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(capturedApi).not.toBeNull()
+      expect(capturedApi.frames()).toEqual([])
+      expect(capturedApi.frame("f1")).toBeUndefined()
+      expect(capturedApi.srql.query("f1")).toBe("")
+
+      const updatedFrames = [{id: "f1", query: "in:devices", status: "ok", results: [{v: 99}]}]
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({
+          package: {
+            ...initialHost.package,
+            frames: updatedFrames,
+          },
+        }),
+      )
+      hook.updated()
+
+      expect(capturedApi.frames()).toEqual(updatedFrames)
+      expect(capturedApi.frame("f1")).toEqual(updatedFrames[0])
+      expect(capturedApi.srql.query("f1")).toBe("in:devices")
+      expect(updates).toHaveLength(1)
+
+      // Also verify replaceBinaryFramePayload updates this._host.package.frames when frames were initially omitted
+      const binHook = hookContext({
+        _host: baseHost({
+          package: {
+            name: "Test Dashboard",
+            capabilities: [],
+            renderer: {
+              kind: "browser_module",
+              interface_version: "dashboard-browser-module-v1",
+              trust: "trusted",
+            },
+          },
+        }),
+      })
+      const binApi = binHook.browserModuleApi(binHook._host)
+      expect(binApi.frames()).toEqual([])
+
+      const enc = new TextEncoder()
+      const idBytes = enc.encode("f2")
+      const metaBytes = enc.encode(JSON.stringify({query: "in:flows limit:5", encoding: "arrow_ipc", status: "ok"}))
+      const payloadBytes = new Uint8Array([10, 20, 30])
+      const buf = new Uint8Array(10 + idBytes.length + metaBytes.length + payloadBytes.length)
+      buf.set(enc.encode("DFB1"), 0)
+      const dv = new DataView(buf.buffer)
+      dv.setUint16(4, idBytes.length, false)
+      dv.setUint32(6, metaBytes.length, false)
+      buf.set(idBytes, 10)
+      buf.set(metaBytes, 10 + idBytes.length)
+      buf.set(payloadBytes, 10 + idBytes.length + metaBytes.length)
+
+      binHook.replaceBinaryFramePayload(buf.buffer)
+
+      expect(Array.isArray(binHook._host.package.frames)).toBe(true)
+      expect(binApi.frames()).toHaveLength(1)
+      expect(binApi.frame("f2")).toMatchObject({id: "f2", query: "in:flows limit:5", encoding: "arrow_ipc"})
+      expect(binApi.srql.query("f2")).toBe("in:flows limit:5")
+      expect(Array.from(binApi.arrow.frameBytes("f2"))).toEqual([10, 20, 30])
+
+      hook.destroyed()
+    } finally {
+      delete globalThis.__t5OmittedFramesMount
+    }
+  }, 30_000)
 })
