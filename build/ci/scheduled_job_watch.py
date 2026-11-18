@@ -10,10 +10,14 @@ and posts one Discord message naming every watched job whose newest status is
   * pending for longer than STALLED_AFTER, or
   * absent, or a success older than EXPECTED_WITHIN (the job did not run).
 
+The Rekor signing monitor is a GitHub Actions workflow and posts no commit status, so it is not
+in WATCHED_JOBS: a separate Actions run lookup reports it when its last successful run is older
+than MONITOR_EXPECTED_WITHIN (three of its hourly scan intervals).
+
 It runs from .github/workflows/scheduled-job-watch.yml, after the last nightly.
 
 Environment:
-  GITHUB_TOKEN                     reads commit statuses
+  GITHUB_TOKEN                     reads commit statuses and Actions runs
   GITHUB_REPOSITORY                owner/name
   CI_FAILURE_DISCORD_WEBHOOK_URL   where the message goes (a credential)
 
@@ -46,6 +50,10 @@ STALLED_AFTER = timedelta(hours=6)
 LOOKBACK = timedelta(hours=72)
 WEBHOOK_ENV = "CI_FAILURE_DISCORD_WEBHOOK_URL"
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
+GITHUB_API = "https://api.github.com"
+MONITOR_WORKFLOW = "rekor-signing-monitor.yml"
+MONITOR_NAME = "Rekor Signing Monitor"
+MONITOR_EXPECTED_WITHIN = timedelta(hours=3)
 # Discord rejects a message longer than 2000 characters.
 MESSAGE_LIMIT = 2000
 TIMEOUT_SECONDS = 30
@@ -83,6 +91,27 @@ def request_json(url, payload, headers):
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         body = response.read()
     return json.loads(body) if body else None
+
+
+def get_json(url, headers):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        return json.loads(response.read())
+
+
+def monitor_problems(api, token, repository, now):
+    """A line when the Rekor signing monitor has not succeeded within MONITOR_EXPECTED_WITHIN."""
+    reply = get_json(
+        f"{api.rstrip('/')}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success&per_page=1",
+        {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+         "User-Agent": "scheduled-job-watch/1"},
+    )
+    runs = reply.get("workflow_runs") or []
+    last = parse_time(runs[0]["updated_at"]) if runs else None
+    if last is not None and now - last <= MONITOR_EXPECTED_WITHIN:
+        return []
+    seen = f"last success {last:%Y-%m-%d %H:%M} UTC" if last else "no successful run found"
+    return [f"**{MONITOR_NAME}** has not succeeded in the last {hours(MONITOR_EXPECTED_WITHIN)} hours ({seen})."]
 
 
 def parse_time(text):
@@ -169,7 +198,7 @@ def post(webhook, content):
     )
 
 
-def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL):
+def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB_API):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--self-test",
@@ -186,10 +215,11 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL):
             newest = newest_statuses(
                 graphql_url, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now
             )
+            monitor = monitor_problems(actions_api, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now)
         except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
-            print(f"could not read commit statuses: {type(error).__name__}: {error}", file=sys.stderr)
+            print(f"could not read commit statuses or Actions runs: {type(error).__name__}: {error}", file=sys.stderr)
             return 1
-        found = problems(newest, now)
+        found = problems(newest, now) + monitor
         if not found:
             print("every scheduled job is healthy")
             return 0

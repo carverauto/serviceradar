@@ -29,11 +29,23 @@ class Server:
     A queued reply is (status, body), or a function of the request that returns one.
     """
 
-    def __init__(self, *replies):
+    def __init__(self, *replies, monitor_runs=None):
         received = self.received = []
         queue = list(replies)
+        # GET: the Rekor signing monitor's successful Actions runs, newest first.
+        self.monitor_runs = monitor_runs if monitor_runs is not None else [{"updated_at": iso(1)}]
+        server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if "/actions/workflows/rekor-signing-monitor.yml/runs" not in self.path:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"workflow_runs": server.monitor_runs}).encode())
+
             def do_POST(self):
                 length = int(self.headers["Content-Length"])
                 received.append(json.loads(self.rfile.read(length)))
@@ -53,6 +65,10 @@ class Server:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+def iso(hours_ago):
+    return (NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def status(context, state, hours_ago, description=""):
@@ -106,8 +122,8 @@ def history(*commits):
 
 
 class ScheduledJobWatchTest(unittest.TestCase):
-    def serve(self, *replies):
-        server = Server(*replies)
+    def serve(self, *replies, monitor_runs=None):
+        server = Server(*replies, monitor_runs=monitor_runs)
         self.addCleanup(server.close)
         return server
 
@@ -117,7 +133,7 @@ class ScheduledJobWatchTest(unittest.TestCase):
             environ[watch.WEBHOOK_ENV] = webhook.url
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = watch.main(list(argv), environ, now=NOW, graphql_url=github.url)
+            code = watch.main(list(argv), environ, now=NOW, graphql_url=github.url, actions_api=github.url)
         return code, out.getvalue(), err.getvalue()
 
     def test_healthy_jobs_send_nothing(self):
@@ -129,6 +145,19 @@ class ScheduledJobWatchTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual([], webhook.received)
         self.assertEqual("refs/heads/staging", github.received[0]["variables"]["ref"])
+
+    def test_a_rekor_monitor_without_a_recent_success_is_reported(self):
+        for runs, expected in (([{"updated_at": iso(4)}], "last success"), ([], "no successful run found")):
+            with self.subTest(runs=runs):
+                github = self.serve(page([("a", healthy())]), monitor_runs=runs)
+                webhook = self.serve((204, None))
+
+                code, _, _ = self.run_watch(github, webhook)
+
+                self.assertEqual(0, code)
+                content = webhook.received[0]["content"]
+                self.assertIn("**Rekor Signing Monitor** has not succeeded in the last 3 hours", content)
+                self.assertIn(expected, content)
 
     def test_failed_stalled_and_missing_jobs_are_named_in_one_message(self):
         # The newest status wins across commits and pages: the gate failed on an older
