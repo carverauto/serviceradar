@@ -41,6 +41,7 @@ defmodule ServiceRadar.NATS.AccountClient do
   """
 
   alias Proto.NATSAccountService.Stub
+  alias ServiceRadar.Otel.GRPCClientInterceptor
 
   require Logger
 
@@ -509,7 +510,11 @@ defmodule ServiceRadar.NATS.AccountClient do
     endpoint = "#{host}:#{port}"
 
     {:ok, cred_opts} = build_cred_opts()
-    connect_opts = Keyword.put(cred_opts, :adapter_opts, connect_timeout: 5_000)
+
+    connect_opts =
+      cred_opts
+      |> Keyword.put(:adapter_opts, connect_timeout: 5_000)
+      |> Keyword.put(:interceptors, [GRPCClientInterceptor])
 
     case GRPC.Stub.connect(endpoint, connect_opts) do
       {:ok, channel} ->
