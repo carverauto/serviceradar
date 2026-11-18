@@ -43,8 +43,10 @@
 
 ## 5. Root-span-ratio worker
 
-- [ ] 5.1 Breach warning: accurate cause wording plus top contributors
-      (service, kind, roots); threshold, window and exclusions unchanged
+- [ ] 5.1 Breach warning: state that the roots carry neither a parent nor a
+      link, without naming a cause, and list the top contributors (service,
+      kind, roots); threshold, window, floor and linked-consumer exclusion
+      unchanged
 
 ## 6. Demo validation (supersedes refactor-otel-signal-correlation 4.5)
 

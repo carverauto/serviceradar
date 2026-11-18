@@ -59,7 +59,7 @@ NATS producer and consumer spans SHALL record `messaging.destination.name` as a 
 - **AND** no span attribute SHALL contain the series key
 
 ### Requirement: Root-span ratio breach names its contributors
-The root-span-ratio health signal SHALL report a breach without asserting a single cause, and SHALL include the services and span kinds contributing the most unparented, unlinked roots. Its threshold, window, floor, and linked-consumer exclusion are unchanged by this requirement.
+The root-span-ratio health signal SHALL report a breach as roots that carry neither a parent nor a link, without naming a cause, and SHALL include the services and span kinds contributing the most unparented, unlinked roots. Its threshold, window, floor, and linked-consumer exclusion are unchanged by this requirement.
 
 #### Scenario: Breach warning is actionable
 - **WHEN** the ratio exceeds the threshold
