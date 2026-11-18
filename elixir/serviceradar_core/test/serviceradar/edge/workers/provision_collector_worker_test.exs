@@ -132,7 +132,13 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
     :sys.replace_state(
       Client,
       fn state ->
-        %{state | channel: %GRPC.Channel{adapter: FakeDatasvcAdapter}, connect_task: nil}
+        # grpc 1.1 serves a call on a channel it did not pool only when the channel
+        # carries an adapter payload, as one returned by an adapter's connect/2 does.
+        %{
+          state
+          | channel: %GRPC.Channel{adapter: FakeDatasvcAdapter, adapter_payload: %{}},
+            connect_task: nil
+        }
       end,
       15_000
     )
