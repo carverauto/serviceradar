@@ -96,6 +96,7 @@ type lateFixture struct {
 	policy   AuthorizationPolicy
 	frameFor func(*edgev1.EdgeSignedCapabilityV1) *edgev1.EdgeDeliveryFrameV1
 	grant    func(*edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1
+	grantAt  func(*edgev1.EdgeDeliveryClaimsV1, int64) *edgev1.EdgeSignedCapabilityV1
 	late     func(edgev1.EdgeLatePublication, edgev1.EdgeLateDecisionReason) *edgev1.EdgeDeliveryClaimsV1
 }
 
@@ -117,21 +118,23 @@ func newLateFixture(t *testing.T) lateFixture {
 		t.Fatal(err)
 	}
 	now := policy.NowUnixNano
+	grantAt := func(claims *edgev1.EdgeDeliveryClaimsV1, at int64) *edgev1.EdgeSignedCapabilityV1 {
+		claims.EventId, claims.RecordSha256, claims.SpoolId, claims.Sequence = r.GetEventId(), sum[:], spool, 1
+		dc := &edgev1.EdgeSignedCapabilityV1{
+			CapabilityVersion: 1, IssuerId: dIssuer, IssuerKeyId: dKey, Algorithm: "ed25519",
+			NotBeforeUnixNano: at - 60_000_000_000, ExpiresAtUnixNano: at + 900_000_000_000,
+			Claims: &edgev1.EdgeSignedCapabilityV1_Delivery{Delivery: claims},
+		}
+		SignCapability(dc, dpriv)
+		return dc
+	}
 	return lateFixture{
 		record: r, policy: policy,
 		frameFor: func(dc *edgev1.EdgeSignedCapabilityV1) *edgev1.EdgeDeliveryFrameV1 {
 			return &edgev1.EdgeDeliveryFrameV1{SpoolId: spool, Sequence: 1, RecordSha256: sum[:], RecordBytes: rb, DeliveryCapability: dc}
 		},
-		grant: func(claims *edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1 {
-			claims.EventId, claims.RecordSha256, claims.SpoolId, claims.Sequence = r.GetEventId(), sum[:], spool, 1
-			dc := &edgev1.EdgeSignedCapabilityV1{
-				CapabilityVersion: 1, IssuerId: dIssuer, IssuerKeyId: dKey, Algorithm: "ed25519",
-				NotBeforeUnixNano: now - 60_000_000_000, ExpiresAtUnixNano: now + 900_000_000_000,
-				Claims: &edgev1.EdgeSignedCapabilityV1_Delivery{Delivery: claims},
-			}
-			SignCapability(dc, dpriv)
-			return dc
-		},
+		grant:   func(claims *edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1 { return grantAt(claims, now) },
+		grantAt: grantAt,
 		late: func(publication edgev1.EdgeLatePublication, reason edgev1.EdgeLateDecisionReason) *edgev1.EdgeDeliveryClaimsV1 {
 			return &edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{
 				ProducedAtUnixNano: producedAt, AuthorityEpoch: r.GetProducerContext().GetAuthorityEpoch(),
@@ -318,6 +321,22 @@ func TestValidateLiveFrameSignedResolvesWhatCannotBeLiveAsLateAdmissionRequired(
 			if d, err := ValidateLiveFrameSigned(f.frameFor(lateGrant), principal, c.policy, version); !errors.Is(err, ErrLateAdmissionGrantMismatch) {
 				t.Fatalf("late grant, %s, at version %d = (%+v, %v), want ErrLateAdmissionGrantMismatch", c.name, version, d, err)
 			}
+		}
+	}
+	early := missing
+	early.NowUnixNano = f.record.GetProductionCapability().GetNotBeforeUnixNano() - clampTolerance(early.ClockToleranceNano) - 60_000_000_000
+	earlyGrants := map[string]*edgev1.EdgeSignedCapabilityV1{
+		"no grant": nil,
+		"renewal": f.grantAt(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Renewal{Renewal: &edgev1.EdgeDeliveryRenewalV1{
+			RenewedNotBeforeUnixNano: early.NowUnixNano - 60_000_000_000, RenewedExpiresUnixNano: early.NowUnixNano + 60_000_000_000,
+		}}}, early.NowUnixNano),
+		"rollover": f.grantAt(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+			RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+		}}}, early.NowUnixNano),
+	}
+	for name, dc := range earlyGrants {
+		if d, err := ValidateLiveFrameSigned(f.frameFor(dc), principal, early, LateAdmissionProtocolVersion); !errors.Is(err, ErrAuthorityNotYetValid) {
+			t.Fatalf("missing fence, window not yet open, %s = (%+v, %v), want ErrAuthorityNotYetValid", name, d, err)
 		}
 	}
 	ahead := f.policy

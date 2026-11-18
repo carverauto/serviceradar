@@ -72,7 +72,9 @@ var ErrLateAdmissionRequired = errors.New("edgerecord: late admission required (
 // no grant or a renewal grant (today a forever-withhold). A missing fence with a
 // verified rollover grant is the gateway's grant-backed audit drain (AUDIT,
 // LATE_FENCED), as is a stale fence with a grant; a fence the gateway has not
-// learned yet is unchanged. The gateway
+// learned yet is unchanged. A missing fence on a production window that has not
+// opened is ErrAuthorityNotYetValid (withheld), never relocated or drained, as the
+// gateway checks the window before the missing fence. The gateway
 // resolves a network scope no longer bound to the agent the same way; that binding
 // is gateway-local and not part of AuthorizationPolicy. At every version, a frame
 // carrying a late-admission grant is refused first (ErrLateAdmissionGrantMismatch),
@@ -99,6 +101,9 @@ func ValidateLiveFrameSigned(f *edgev1.EdgeDeliveryFrameV1, authenticatedPrincip
 		return decision, nil
 	}
 	missing := policy.ActiveFence.relation(record.GetProducerContext().GetAuthorityEpoch()) == FenceUnavailable
+	if missing && errors.Is(err, ErrFenceNotReady) && policy.notYetValid(record.GetProductionCapability().GetNotBeforeUnixNano()) {
+		return FrameDecision{}, fmt.Errorf("production_capability: %w", ErrAuthorityNotYetValid)
+	}
 	dc := f.GetDeliveryCapability()
 	switch {
 	case errors.Is(err, ErrFenceStale):
