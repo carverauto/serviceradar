@@ -290,6 +290,20 @@ func TestValidateLiveFrameSignedResolvesWhatCannotBeLiveAsLateAdmissionRequired(
 	if d, err := ValidateLiveFrameSigned(f.frameFor(renewal), principal, stale, LateAdmissionProtocolVersion); err != nil || d.Publication != FramePublicationAudit {
 		t.Fatalf("stale fence with a renewal = (%+v, %v), want the late-fenced audit drain", d, err)
 	}
+	rollover := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+		RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+	}}})
+	d, err := ValidateLiveFrameSigned(f.frameFor(rollover), principal, missing, LateAdmissionProtocolVersion)
+	if err != nil || d.Publication != FramePublicationAudit || d.DeliveryMode != FrameDeliveryModeLateFenced || d.GrantTransition != FrameGrantRollover {
+		t.Fatalf("missing fence with a rollover = (%+v, %v), want the Audit/LateFenced rollover drain", d, err)
+	}
+	forged := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+		RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+	}}})
+	forged.Signature[0] ^= 0xff
+	if _, err := ValidateLiveFrameSigned(f.frameFor(forged), principal, missing, LateAdmissionProtocolVersion); !errors.Is(err, ErrCapabilitySignatureInvalid) {
+		t.Fatalf("missing fence with a forged rollover = %v, want ErrCapabilitySignatureInvalid", err)
+	}
 	ahead := f.policy
 	ahead.ActiveFence = ResolvedFence(epoch - 1)
 	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), principal, ahead, LateAdmissionProtocolVersion); !errors.Is(err, ErrFenceNotReady) {

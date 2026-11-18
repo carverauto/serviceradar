@@ -154,7 +154,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
     payload = Keyword.get(opts, :payload, "synthetic generic telemetry batch")
 
     record = %EdgeRecordV1{
-      event_id: uuidv7(div(not_before, 1_000_000) + 1),
+      event_id: Keyword.get_lazy(opts, :event_id, fn -> uuidv7(div(not_before, 1_000_000) + 1) end),
       payload_family: Keyword.get(opts, :payload_family, :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1),
       compression: :EDGE_RECORD_COMPRESSION_NONE,
       encoded_size: byte_size(payload),

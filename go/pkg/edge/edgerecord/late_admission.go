@@ -69,8 +69,10 @@ var ErrLateAdmissionRequired = errors.New("edgerecord: late admission required (
 // record that cannot be delivered live resolves as ErrLateAdmissionRequired instead
 // of today's dead end: a foreign origin principal (today an identity conflict), a
 // stale fence with no delivery grant (today ErrFenceStale), and a missing fence with
-// no grant or a renewal grant (today a forever-withhold). The grant-backed audit
-// drains and a fence the gateway has not learned yet are unchanged. The gateway
+// no grant or a renewal grant (today a forever-withhold). A missing fence with a
+// verified rollover grant is the gateway's grant-backed audit drain (AUDIT,
+// LATE_FENCED), as is a stale fence with a grant; a fence the gateway has not
+// learned yet is unchanged. The gateway
 // resolves a network scope no longer bound to the agent the same way; that binding
 // is gateway-local and not part of AuthorizationPolicy.
 func ValidateLiveFrameSigned(f *edgev1.EdgeDeliveryFrameV1, authenticatedPrincipal []byte, policy AuthorizationPolicy, lateVersion uint32) (FrameDecision, error) {
@@ -99,6 +101,12 @@ func ValidateLiveFrameSigned(f *edgev1.EdgeDeliveryFrameV1, authenticatedPrincip
 		return FrameDecision{}, ErrLateAdmissionRequired
 	case errors.Is(err, ErrFenceNotReady) && missing && (dc == nil || dc.GetDelivery().GetRenewal() != nil):
 		return FrameDecision{}, ErrLateAdmissionRequired
+	case errors.Is(err, ErrFenceNotReady) && missing && dc.GetDelivery().GetRollover() != nil:
+		grant, grantErr := verifyDeliveryGrant(dc, policy)
+		if grantErr != nil {
+			return FrameDecision{}, grantErr
+		}
+		return FrameDecision{Publication: FramePublicationAudit, DeliveryMode: FrameDeliveryModeLateFenced, GrantTransition: grant}, nil
 	default:
 		return FrameDecision{}, err
 	}

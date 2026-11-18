@@ -27,6 +27,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordLateAuthorizationTest do
   @mode_late_fenced 4
   @mode_late_admission 5
   @day 24 * 3600 * 1_000_000_000
+  # RFC 9562 UUIDv7: the first 48 bits are big-endian Unix milliseconds. produced_at is that
+  # instant in nanoseconds (Go edgerecord.UUIDv7Nanos), written out here rather than derived.
+  @fixed_event_millis 1_784_000_000_123
+  @fixed_event_id <<0x019F_5EAF_B07B::48, 7::4, 0xABC::12, 2::2, 0x1234_5678_9ABC::62>>
+  @fixed_produced_at_nanos 1_784_000_000_123_000_000
 
   setup do
     keys = Factory.keypair()
@@ -45,6 +50,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordLateAuthorizationTest do
   defp days_old_record(ctx, opts \\ []) do
     not_before = now() - 3 * @day
     Factory.record(ctx.keys.private, Keyword.merge([not_before: not_before, expires: not_before + @day], opts))
+  end
+
+  # A days-old record whose event id carries a known production instant.
+  defp fixed_time_record(ctx) do
+    not_before = @fixed_event_millis * 1_000_000 - 1_000_000_000
+    Factory.record(ctx.keys.private, event_id: @fixed_event_id, not_before: not_before, expires: not_before + @day)
   end
 
   defp grant(ctx, record, opts \\ []) do
@@ -71,9 +82,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordLateAuthorizationTest do
 
   describe "a late session" do
     test "publishes a days-old record its grant admits PRIMARY, though its fence and scope are gone", ctx do
-      record = days_old_record(ctx)
+      record = fixed_time_record(ctx)
 
-      assert {:ok, decision} = late(ctx, record, delivery_capability: grant(ctx, record))
+      assert {:ok, decision} =
+               late(ctx, record, delivery_capability: grant(ctx, record, produced_at: @fixed_produced_at_nanos))
+
       assert decision.publication == :primary
       assert decision.delivery_mode == @mode_late_admission
       assert byte_size(decision.delivery_proof) == 32

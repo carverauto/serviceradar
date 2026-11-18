@@ -260,8 +260,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   # under the grant's decision, stamped LATE_ADMISSION.
   test "opens a LATE session, withholds a frame without a late grant and publishes one under it" do
     days_old = days_old_record()
-    granted = days_old_record()
-    grant = Factory.late_admission_capability(granted, signing_keys().private, spool_id: @spool_id, sequence: 2)
+    # RFC 9562 UUIDv7: big-endian Unix milliseconds 1_784_000_000_123 lead the event id, so the
+    # grant's produced_at is that instant in nanoseconds (Go edgerecord.UUIDv7Nanos).
+    event_id = <<0x019F_5EAF_B07B::48, 7::4, 0xABC::12, 2::2, 0x1234_5678_9ABC::62>>
+    not_before = 1_784_000_000_123 * 1_000_000 - 1_000_000_000
+    granted = record(event_id: event_id, not_before: not_before, expires: not_before + 24 * Factory.hour_nanos())
+
+    grant =
+      Factory.late_admission_capability(granted, signing_keys().private,
+        spool_id: @spool_id,
+        sequence: 2,
+        produced_at: 1_784_000_000_123_000_000
+      )
+
     install_trust(fences: [], scopes: [])
     late = %{lane_open() | late_admission: true}
 
