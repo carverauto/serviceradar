@@ -20,7 +20,7 @@ The privileged agent updater SHALL report its version, platform and supported op
 - **AND** operations found that way SHALL NOT make the agent eligible for a privileged add-on or managed certificate rollout
 
 ### Requirement: Agent releases declare the updater they need
-Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses. The agent SHALL classify the installed updater in this order: `not_applicable` when the platform provides no privileged updater; otherwise `unavailable` when the updater fails any safety check (it must be present, a regular file, root-owned, not writable by group or others, and setuid), whether or not it answers self-description; otherwise `package_upgrade_required` when it does not answer self-description or is below the release's minimum version; otherwise `current`. The agent SHALL report the result with the updater's version, the required version, operations, a reason, the host's package family and installed package version, and the time of observation.
+Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses, and the declared minimum SHALL always be a version whose updater answers self-description. The agent SHALL classify the installed updater in this order: `not_applicable` when the platform's installer provides no privileged updater, without applying the safety checks; otherwise `unavailable` when the updater fails any safety check (it must be present, a regular file, root-owned, not writable by group or others, and setuid), whether or not it answers self-description; otherwise `package_upgrade_required` when it does not answer self-description or is below the release's minimum version; otherwise `current`. The agent SHALL report the result with the updater's version, the required version, operations, a reason, the host's package family and installed package version, and the time of observation.
 
 #### Scenario: Updater meets the release's requirement
 - **GIVEN** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
@@ -36,9 +36,16 @@ Each agent release SHALL declare the minimum updater version it requires and the
 - **AND** the reason SHALL name the installed and the required version
 
 #### Scenario: Updater is missing or unsafe to execute
+- **GIVEN** a platform whose installer provides a privileged updater
 - **WHEN** the updater is absent, not a regular file, not root-owned, writable by group or others, or lacks the setuid bit
 - **THEN** the updater state SHALL be `unavailable` with a reason that says which check failed
 - **AND** this SHALL hold whether or not the updater answers self-description and whatever version it reports
+
+#### Scenario: Minimum version answers self-description
+- **GIVEN** an agent release that declares a minimum updater version
+- **WHEN** a host installs the agent package at that version
+- **THEN** its updater SHALL answer self-description
+- **AND** a safe updater from that package SHALL be classified `current`
 
 #### Scenario: Agent release does not raise the minimum
 - **GIVEN** a new agent release whose minimum updater version equals the previous release's
@@ -96,6 +103,14 @@ The control plane SHALL decide whether an agent can receive a privileged add-on 
 - **THEN** the agent SHALL be ineligible and SHALL receive no install command
 - **AND** the recorded reason SHALL name the agent and the safety check that failed
 - **AND** SHALL give a package reinstall or repair of the updater as the remedy
+
+#### Scenario: Current updater lacks a declared operation
+- **GIVEN** an agent whose updater passes the safety checks, answers self-description and meets the minimum version
+- **AND** its operation list does not include an operation the release declares for the rollout's feature
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
+- **THEN** the agent SHALL be ineligible and SHALL receive no install command
+- **AND** the recorded reason SHALL be `updater lacks operation <name>`
+- **AND** SHALL give a package reinstall as the remedy, not a package upgrade
 
 #### Scenario: Excluded host does not pause the rollout
 - **GIVEN** a rollout whose scope contains eligible agents and agents excluded for their updater

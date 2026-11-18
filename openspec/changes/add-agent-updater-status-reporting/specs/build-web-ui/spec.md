@@ -37,3 +37,8 @@ The release and add-on rollout views SHALL name each agent excluded because of i
 - **WHEN** an add-on rollout excludes an agent whose updater is `unavailable`
 - **THEN** the row SHALL name the agent and the failed safety check
 - **AND** SHALL give a package reinstall or repair as the remedy
+
+#### Scenario: Add-on target excluded for a missing updater operation
+- **WHEN** an add-on rollout excludes an agent whose updater lacks an operation the release declares
+- **THEN** the row SHALL name the agent and state `updater lacks operation <name>`
+- **AND** SHALL give a package reinstall as the remedy and SHALL NOT present a package upgrade

@@ -35,6 +35,8 @@ changes.
 - **Each agent release declares the helper it needs**: a minimum helper version and the
   operations its features use. The minimum is raised only when a helper fix or operation
   matters to the agent, so an ordinary agent release does not ask for a package upgrade.
+  It is never below the first helper version that answers self-description, so the
+  package upgrade it names installs a helper that can be reported `current`.
 - **The agent reports a helper state**: `current`, `package_upgrade_required`,
   `unavailable` or `not_applicable`, with the version, operations, reason and observation
   time. Core records `unknown` for an agent that reports nothing.
@@ -42,10 +44,12 @@ changes.
   feature with the missing operation, and never calls the helper with a flag it does not
   define.
 - **Rollouts exclude stale hosts before dispatch.** An add-on or managed-certificate
-  target whose helper is below the release's minimum, or lacks a needed operation, is
-  ineligible up front, and the row names the agent and the package upgrade. A target whose
-  helper is unavailable is excluded too, with the failed safety check and a package
-  reinstall or repair as its remedy. Neither is attempted, failed and rolled back.
+  target whose helper is below the release's minimum is ineligible up front, and the row
+  names the agent and the package upgrade. A target whose helper is unavailable is
+  excluded too, with the failed safety check and a package reinstall or repair as its
+  remedy. A target whose helper meets the minimum but lacks a needed operation is
+  excluded with `updater lacks operation <name>` and a package reinstall as its remedy.
+  None is attempted, failed and rolled back.
 - **The fleet view names the hosts and the remedy**: a filter and count by helper state,
   a notice while any host needs a package upgrade, and per host the package command for
   its package family with the required helper version, plus the fleet-wide route through the
