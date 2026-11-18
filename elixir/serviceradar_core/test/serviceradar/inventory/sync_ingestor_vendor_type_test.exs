@@ -10,7 +10,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.Plugins.PluginInputPayloadBuilder
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -377,7 +380,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         "integration_id" => armis_id,
         "integration_type" => "armis",
         "armis_device_id" => armis_id,
-        "type" => "Unknown"
+        "type" => "Unknown",
+        "manufacturer" => "Example Hardware Co"
       }
     }
 
@@ -408,7 +412,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.uid == armis_device.uid
     assert "armis" in device.discovery_sources
     assert "passive-netprobe" in device.discovery_sources
-    assert device.vendor_name == "Linux"
+    # The fingerprint names an operating system, which is not vendor evidence:
+    # the integration's vendor stays, and Linux lands in the OS fields below.
+    assert device.vendor_name == "Example Hardware Co"
     assert device.type == "Server"
     assert device.type_id == 1
     assert device.metadata["armis_device_id"] == armis_id
@@ -692,12 +698,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert fetch_device_by_ip!(actor, ip).type == "rids"
   end
 
-  test "one integration still reclassifies a type another integration inferred", %{actor: actor} do
+  test "a second integration at the same tier keeps the type the first recorded", %{
+    actor: actor
+  } do
     ip = unique_ip()
 
-    # No "manual" anywhere in this device's history, so the guard must not fire.
-    # Without this the change would silently become "first writer wins", which
-    # freezes every integration-discovered device at its first classification.
+    # Both are platform inventories, so their types share a tier, and a different
+    # source at the same tier keeps the recorded value until something strictly
+    # stronger writes (fix-device-attribute-source-precedence, decision 6): two
+    # integrations that disagree must not flip the type on every cycle.
     #
     # ORDER IS LOAD-BEARING, and not incidentally. `integration_id` is a strong
     # identifier for netbox but explicitly NOT for armis
@@ -715,9 +724,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # than by refusing the reclassification, which is a confusing way to learn
     # that.
     #
-    # netbox-first is the ordering that actually exercises what this test is
-    # named for: one integration reclassifying a type another integration
-    # inferred, on one device.
+    # netbox-first is the ordering that keeps both writes on one device.
     assert :ok =
              SyncIngestor.ingest_updates(
                [
@@ -756,10 +763,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
              )
 
     reclassified = fetch_device_by_ip!(actor, ip)
-    assert reclassified.type == "Tablet"
+    assert reclassified.type == "Switch"
 
-    # One device, not two: the reclassification landed on the netbox row rather
-    # than forking. This is what regresses if the exemption above is dropped.
+    # One device, not two: the armis write landed on the netbox row rather than
+    # forking. This is what regresses if the exemption above is dropped.
     assert "netbox" in reclassified.discovery_sources
     assert "armis" in reclassified.discovery_sources
   end
@@ -770,7 +777,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # classifies first, then a strong-identified netbox record claims the same
     # IP. Same hostname on both sides and neither strong identifier registered
     # anywhere else, so the netbox record adopts the armis row instead of
-    # forking an IP-less duplicate -- and the better inference lands.
+    # forking an IP-less duplicate. Both are platform inventories, so the type
+    # armis recorded first stays (same tier, different source).
     ip = unique_ip()
     hostname = "converge-type-test-#{System.unique_integer([:positive])}"
 
@@ -812,8 +820,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
              )
 
     reclassified = fetch_device_by_ip!(actor, ip)
-    assert reclassified.type == "Switch"
-    assert reclassified.type_id == 10
+    assert reclassified.type == "Tablet"
+    assert reclassified.type_id == 4
     assert "netbox" in reclassified.discovery_sources
     assert "armis" in reclassified.discovery_sources
   end
@@ -1585,6 +1593,265 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert vendor_count!(vendor) == baseline_vendor + 2
   end
 
+  # fix-device-attribute-source-precedence: name / hostname, vendor / model, type /
+  # type_id / device_role, integration_type and owned metadata keys are ranked by the
+  # source and evidence strength recorded with them, not last-writer-wins. Every write
+  # here targets one existing device by device_id, as a source with a resolved
+  # identity does, so only the ranking is under test.
+  describe "ranked device attributes" do
+    setup %{actor: actor} do
+      seed_oui!(%{0x1CB3C9 => "Example NIC Vendor", 0x24A43C => "Example Radio Co"})
+      {:ok, actor: actor}
+    end
+
+    test "a hostname-less census sighting keeps the SNMP sysName, in any batch composition",
+         %{actor: actor} do
+      for batches <- [
+            [[:mapper], [:census]],
+            [[:mapper, :census]],
+            [[:census, :mapper]]
+          ] do
+        device = new_device!(actor)
+
+        updates = %{
+          mapper: source_update(device, "mapper", hostname: "ap-01"),
+          census: census_update(device)
+        }
+
+        ingest_batches!(actor, batches, updates)
+
+        assert %{name: "ap-01", hostname: "ap-01"} = stored(device),
+               "batches: #{inspect(batches)}"
+      end
+    end
+
+    test "a hypervisor node's name settles on the platform inventory name", %{actor: actor} do
+      orders = [
+        [[:awx], [:hypervisor_without_name]],
+        [[:awx], [:mapper], [:hypervisor], [:awx], [:mapper]],
+        [[:hypervisor, :mapper, :awx]],
+        [[:awx, :mapper, :hypervisor]]
+      ]
+
+      for batches <- orders do
+        device = new_device!(actor)
+
+        updates = %{
+          awx: source_update(device, "awx", hostname: "hv-node-01", metadata: awx_metadata()),
+          mapper: source_update(device, "mapper", hostname: "pve-a"),
+          hypervisor:
+            source_update(device, "hypervisor_enrichment",
+              hostname: "pve-node-a",
+              metadata: hypervisor_metadata()
+            ),
+          hypervisor_without_name:
+            source_update(device, "hypervisor_enrichment", metadata: hypervisor_metadata())
+        }
+
+        ingest_batches!(actor, batches, updates)
+
+        expected = if :hypervisor in List.flatten(batches), do: "pve-node-a", else: "hv-node-01"
+
+        assert %{name: ^expected, hostname: ^expected} = stored(device),
+               "batches: #{inspect(batches)}"
+      end
+    end
+
+    test "vendor evidence is ranked: agent software < OUI registrant < hardware vendor", %{
+      actor: actor
+    } do
+      hardware_snmp = %{"sys_object_id" => ".1.3.6.1.4.1.41112.1.6", "sys_descr" => "UAP"}
+      net_snmp = %{"sys_object_id" => ".1.3.6.1.4.1.8072.3.2.10", "sys_descr" => "Linux 6.1"}
+
+      net_snmp_on_juniper = %{
+        "sys_object_id" => ".1.3.6.1.4.1.8072.3.2.10",
+        "sys_descr" => "Juniper Networks vSRX"
+      }
+
+      cases = [
+        {"a sysObjectID hardware vendor survives an OUI registrant spelling it differently",
+         [{"mapper", mac: :oui_mac, metadata: hardware_snmp}, {:census, mac: :oui_mac}],
+         "Ubiquiti"},
+        {"a sysDescr hardware vendor survives an OUI update",
+         [
+           {"mapper", mac: :oui_mac, metadata: %{"sys_descr" => "Cisco IOS Software"}},
+           {:census, mac: :oui_mac}
+         ], "Cisco"},
+        {"an OUI vendor survives a sysObjectID naming agent software",
+         [{:census, mac: :oui_mac}, {"mapper", metadata: net_snmp}], "Example NIC Vendor"},
+        {"a sysDescr hardware vendor under the agent-software enterprise replaces the OUI",
+         [{:census, mac: :oui_mac}, {"mapper", metadata: net_snmp_on_juniper}], "Juniper"},
+        {"an OUI vendor replaces the same source's OUI vendor",
+         [{:census, mac: :oui_mac}, {:census, mac: :other_oui_mac}], "Example Radio Co"},
+        {"a metadata agent-software vendor leaves the OUI vendor",
+         [{:census, mac: :oui_mac}, {"armis", metadata: %{"vendor" => "Net-SNMP"}}],
+         "Example NIC Vendor"},
+        {"a metadata hardware vendor replaces the OUI vendor",
+         [{:census, mac: :oui_mac}, {"armis", metadata: %{"vendor" => "Example Switch Co"}}],
+         "Example Switch Co"},
+        {"an automation inventory's own platform name is not a vendor",
+         [
+           {:census, mac: :oui_mac},
+           {"awx", metadata: Map.put(awx_metadata(), "vendor", "Ansible")}
+         ], "Example NIC Vendor"}
+      ]
+
+      for {description, writes, expected} <- cases do
+        device = new_device!(actor)
+        macs = %{oui_mac: oui_mac("1C:B3:C9"), other_oui_mac: oui_mac("24:A4:3C")}
+
+        Enum.each(writes, fn {source, opts} ->
+          opts = Keyword.update(opts, :mac, nil, &Map.fetch!(macs, &1))
+
+          case source do
+            :census -> ingest!(actor, [census_update(device, opts)])
+            source -> ingest!(actor, [source_update(device, source, opts)])
+          end
+        end)
+
+        assert %{vendor_name: ^expected} = stored(device), description
+      end
+    end
+
+    test "a platform product name writes neither vendor nor model", %{actor: actor} do
+      device = new_device!(actor)
+
+      ingest!(actor, [
+        source_update(device, "mapper",
+          metadata: %{"sys_descr" => "Example Board X1, Juniper Networks", "model" => "X1"}
+        )
+      ])
+
+      ingest!(actor, [
+        source_update(device, "proxmox",
+          metadata: %{
+            "integration_type" => "proxmox",
+            "vendor_name" => "Proxmox",
+            "model" => "PVE"
+          }
+        )
+      ])
+
+      assert %{vendor_name: "Juniper", model: "X1"} = stored(device)
+    end
+
+    test "an operating system classification is not a vendor and does not suppress the OUI", %{
+      actor: actor
+    } do
+      with_rule_file!("""
+      rules:
+        - id: test-os-as-vendor
+          enabled: true
+          priority: 900
+          confidence: 65
+          reason: "An override that names an operating system as the vendor"
+          match:
+            any:
+              metadata.passive_fingerprint.tcp.os_family: ["linux"]
+          set:
+            vendor_name: "Linux"
+            type: "Server"
+            type_id: 1
+            os_family: "Linux"
+      """)
+
+      fingerprint = %{"passive_fingerprint.tcp.os_family" => "linux"}
+      vendored = new_device!(actor)
+      empty = new_device!(actor)
+
+      ingest!(actor, [census_update(vendored, mac: oui_mac("1C:B3:C9"))])
+
+      ingest!(actor, [
+        source_update(vendored, "passive-netprobe", metadata: fingerprint),
+        source_update(empty, "passive-netprobe", mac: oui_mac("24:A4:3C"), metadata: fingerprint)
+      ])
+
+      assert %{vendor_name: "Example NIC Vendor", model: nil} = stored(vendored)
+      assert %{vendor_name: "Example Radio Co", os_family: "Linux"} = stored(empty)
+    end
+
+    test "type and integration type are ranked, and a role-only write keeps the type", %{
+      actor: actor
+    } do
+      hypervisor = new_device!(actor)
+      routed = new_device!(actor)
+
+      ingest!(actor, [
+        source_update(hypervisor, "hypervisor_enrichment", metadata: hypervisor_metadata())
+      ])
+
+      ingest!(actor, [source_update(hypervisor, "awx", metadata: awx_metadata())])
+      ingest!(actor, [source_update(hypervisor, "mapper", metadata: %{"ip_forwarding" => "1"})])
+      MapperResultsIngestor.persist_role_metadata([role_update(hypervisor, "host")], actor)
+
+      assert %{
+               type: "Hypervisor",
+               type_id: 99,
+               device_role: "hypervisor",
+               integration_type: "hypervisor"
+             } = stored(hypervisor)
+
+      assert [%{"target_kind" => "pve_host"}] =
+               PluginInputPayloadBuilder.normalize_rows("devices", [device_row(hypervisor)])
+
+      ingest!(actor, [source_update(routed, "mapper", metadata: %{"ip_forwarding" => "1"})])
+      MapperResultsIngestor.persist_role_metadata([role_update(routed, "switch_l2")], actor)
+
+      assert %{type: "Router", type_id: 12, device_role: "switch_l2"} = stored(routed)
+    end
+
+    test "an owned metadata key is replaced only by its owner", %{actor: actor} do
+      owned = new_device!(actor)
+      absent = new_device!(actor)
+
+      ingest!(actor, [
+        source_update(owned, "hypervisor_enrichment",
+          metadata: Map.put(hypervisor_metadata(), "proxmox_node", "pve-a")
+        )
+      ])
+
+      for device <- [owned, absent] do
+        ingest!(actor, [
+          source_update(device, "awx", metadata: Map.put(awx_metadata(), "proxmox_node", "pve-b"))
+        ])
+      end
+
+      assert stored(owned).proxmox_node == "pve-a"
+      assert stored(absent).proxmox_node == "pve-b"
+    end
+  end
+
+  describe "the attribute strength decision" do
+    # platform.sr_attribute_write_accepted/4 decides in the upsert and the ranked
+    # writes; AttributeStrength.accepted?/4 decides in-batch. They must agree.
+    test "the SQL decision and its Elixir mirror agree" do
+      tag = fn source, strength -> %{"group" => %{"source" => source, "strength" => strength}} end
+
+      cases = [
+        # {stored, incoming, stored_populated?, accepted?}
+        {%{}, tag.("census", 1), false, true},
+        {%{}, tag.("census", 1), true, false},
+        {%{}, tag.("awx", 3), true, true},
+        {tag.("mapper", 4), tag.("census", 1), true, false},
+        {tag.("mapper", 4), tag.("hypervisor", 5), true, true},
+        {tag.("mapper", 4), tag.("mapper", 4), true, true},
+        {tag.("camera", 4), tag.("mapper", 4), true, false},
+        {tag.("camera", 2), tag.("mapper", 1), false, false},
+        {tag.("camera", 2), %{}, false, false}
+      ]
+
+      for {stored, incoming, populated?, expected} <- cases do
+        assert AttributeStrength.accepted?(stored, incoming, "group", populated?) == expected
+
+        assert %{rows: [[^expected]]} =
+                 Repo.query!(
+                   "SELECT platform.sr_attribute_write_accepted($1::jsonb, $2::jsonb, 'group', $3)",
+                   [stored, incoming, populated?]
+                 )
+      end
+    end
+  end
+
   describe "captured Ubiquiti payload fixtures" do
     test "router fixture classifies as Ubiquiti Router", %{actor: actor} do
       ip = unique_ip()
@@ -1659,6 +1926,159 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
     assert Enum.any?(tasks, &(&1.device_uids == pair and &1.status == :open)),
            "no open de-duplication task for the pair"
+  end
+
+  defp new_device!(actor) do
+    uid = "sr:" <> Ecto.UUID.generate()
+    ip = unique_ip()
+
+    assert {:ok, device} =
+             Device
+             |> Ash.Changeset.for_create(:create, %{uid: uid, ip: ip, partition: "default"})
+             |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp source_update(device, source, opts \\ []) do
+    %{
+      "device_id" => device.uid,
+      "ip" => device.ip,
+      "partition" => "default",
+      "source" => source,
+      "metadata" => Keyword.get(opts, :metadata, %{})
+    }
+    |> put_present("hostname", Keyword.get(opts, :hostname))
+    |> put_present("mac", Keyword.get(opts, :mac))
+  end
+
+  # The passive census sends the address and MAC of a binding, never a hostname.
+  defp census_update(device, opts \\ []) do
+    mac = Keyword.get(opts, :mac)
+
+    device
+    |> source_update("netprobe-census", mac: mac)
+    |> Map.put("metadata", if(mac, do: %{"mac" => mac}, else: %{}))
+  end
+
+  # A unique MAC under a seeded OUI prefix, so no two devices share one.
+  defp oui_mac(prefix) do
+    suffix =
+      [:positive, :monotonic]
+      |> System.unique_integer()
+      |> rem(0xFFFFFF)
+      |> Integer.to_string(16)
+      |> String.pad_leading(6, "0")
+
+    suffix
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map_join(":", &Enum.join/1)
+    |> then(&"#{prefix}:#{&1}")
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp awx_metadata do
+    %{"integration_type" => "awx", "type" => "host", "device_role" => "ansible_host"}
+  end
+
+  defp hypervisor_metadata do
+    %{
+      "integration_type" => "hypervisor",
+      "device_role" => "hypervisor",
+      "hypervisor_provider_ref" => "proxmox:node:pve-node-a"
+    }
+  end
+
+  defp role_update(device, role) do
+    %{
+      device_id: device.uid,
+      role: %{role: role, confidence: 0.9, source: "mapper_role_heuristic_v1"}
+    }
+  end
+
+  defp ingest!(actor, updates),
+    do: assert(:ok = SyncIngestor.ingest_updates(updates, actor: actor))
+
+  defp ingest_batches!(actor, batches, updates) do
+    Enum.each(batches, fn batch -> ingest!(actor, Enum.map(batch, &Map.fetch!(updates, &1))) end)
+  end
+
+  defp stored(device) do
+    %{rows: [row]} =
+      Repo.query!(
+        """
+        SELECT ip, name, hostname, vendor_name, model, type, type_id,
+               metadata->>'device_role', metadata->>'integration_type',
+               metadata->>'proxmox_node', os->>'family'
+        FROM platform.ocsf_devices WHERE uid = $1
+        """,
+        [device.uid]
+      )
+
+    [:ip, :name, :hostname, :vendor_name, :model, :type, :type_id, :device_role]
+    |> Kernel.++([:integration_type, :proxmox_node, :os_family])
+    |> Enum.zip(row)
+    |> Map.new()
+  end
+
+  defp device_row(device) do
+    %{rows: [[uid, metadata]]} =
+      Repo.query!("SELECT uid, metadata FROM platform.ocsf_devices WHERE uid = $1", [device.uid])
+
+    %{"uid" => uid, "metadata" => metadata}
+  end
+
+  # Registers OUI prefixes in the active dataset snapshot (inside the test's
+  # sandbox transaction), creating the snapshot when none is active.
+  defp seed_oui!(prefixes) do
+    snapshot_id =
+      case Repo.query!(
+             "SELECT id FROM platform.netflow_oui_dataset_snapshots WHERE is_active LIMIT 1"
+           ) do
+        %{rows: [[id]]} ->
+          id
+
+        %{rows: []} ->
+          %{rows: [[id]]} =
+            Repo.query!("""
+            INSERT INTO platform.netflow_oui_dataset_snapshots (id, source_url, fetched_at, is_active)
+            VALUES (gen_random_uuid(), 'https://oui.example.invalid/oui.csv', now(), true)
+            RETURNING id
+            """)
+
+          id
+      end
+
+    Enum.each(prefixes, fn {prefix, organization} ->
+      Repo.query!(
+        """
+        INSERT INTO platform.netflow_oui_prefixes (snapshot_id, oui_prefix_int, oui_prefix_hex, organization)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (snapshot_id, oui_prefix_int) DO UPDATE SET organization = EXCLUDED.organization
+        """,
+        [
+          snapshot_id,
+          prefix,
+          prefix |> Integer.to_string(16) |> String.pad_leading(6, "0"),
+          organization
+        ]
+      )
+    end)
+  end
+
+  defp with_rule_file!(yaml) do
+    dir = Application.fetch_env!(:serviceradar_core, :device_enrichment_rules_dir)
+    path = Path.join(dir, "ranked-attributes-#{System.unique_integer([:positive])}.yaml")
+    File.write!(path, yaml)
+    DeviceEnrichmentRules.reload()
+
+    on_exit(fn ->
+      File.rm(path)
+      DeviceEnrichmentRules.reload()
+    end)
   end
 
   defp fetch_device_by_ip!(actor, ip) do

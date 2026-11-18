@@ -10,7 +10,6 @@ rules:
         metadata.passive_fingerprint.tcp.os_name: ["linux"]
         metadata.passive_fingerprint.tcp.signature: ["linux"]
     set:
-      vendor_name: "Linux"
       type: "Server"
       type_id: 1
       os_family: "Linux"
@@ -26,7 +25,6 @@ rules:
         metadata.passive_fingerprint.tcp.os_name: ["windows"]
         metadata.passive_fingerprint.tcp.signature: ["windows"]
     set:
-      vendor_name: "Microsoft"
       type: "Desktop"
       type_id: 2
       os_family: "Windows"
@@ -56,7 +54,6 @@ rules:
       any:
         metadata.passive_fingerprint.http.server: ["nginx"]
     set:
-      vendor_name: "NGINX"
       type: "Server"
       type_id: 1
 
@@ -69,7 +66,6 @@ rules:
       any:
         metadata.passive_fingerprint.http.server: ["apache"]
     set:
-      vendor_name: "Apache"
       type: "Server"
       type_id: 1
 
@@ -82,7 +78,6 @@ rules:
       any:
         metadata.passive_fingerprint.http.server: ["microsoft-iis", "iis"]
     set:
-      vendor_name: "Microsoft"
       type: "Server"
       type_id: 1
       os_family: "Windows"
@@ -96,7 +91,6 @@ rules:
       any:
         metadata.passive_fingerprint.http.server: ["caddy"]
     set:
-      vendor_name: "Caddy"
       type: "Server"
       type_id: 1
 

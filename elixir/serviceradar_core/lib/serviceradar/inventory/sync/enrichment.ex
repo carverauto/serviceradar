@@ -14,39 +14,93 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
     classification_reason
   )
 
-  def infer_vendor_name(update, classification) do
+  # OS, software and platform product names. They say what runs on a device or
+  # which system reported it, not who made it, so they are never written to
+  # vendor_name from any channel (fingerprint rule, integration report or
+  # explicit metadata). A write whose vendor is one of these does not write its
+  # model either (Proxmox discovery's `Proxmox` / `PVE`).
+  @not_vendor_evidence MapSet.new(~w(
+    linux
+    microsoft
+    windows
+    nginx
+    apache
+    caddy
+    microsoft-iis
+    iis
+    ansible
+    awx
+    proxmox
+  ))
+
+  @doc """
+  The vendor and model one update carries as evidence.
+
+  Returns `%{vendor: v, vendor_class: class, model: m}` where `class` is
+  `:hardware`, `:agent_software` (a name that names SNMP agent software, see
+  `agent_software_vendor?/1`) or `nil` when no vendor evidence is present. The
+  channels are tried in order (explicit metadata, classification rule,
+  `sysObjectID`, `sysDescr`); OS, software and platform names are dropped
+  (`not_vendor_evidence?/1`), and the first hardware vendor wins over agent
+  software whatever channel carried it: the name, not the channel or the
+  enterprise number, decides. The MAC OUI is not consulted here; DeviceRecords
+  ranks it between the two classes.
+  """
+  def infer_vendor_and_model(update, classification) do
     metadata = update.metadata || %{}
+    explicit_vendor = Normalize.first_meaningful_string(metadata, FieldAliases.vendor_aliases())
     ruled_vendor = Map.get(classification, :vendor_name)
+    sys_object_id = sys_object_id_from_metadata(metadata)
+    sys_descr = sys_descr_from_metadata(metadata)
 
-    explicit = Normalize.first_meaningful_string(metadata, FieldAliases.vendor_aliases())
-
-    cond do
-      explicit not in [nil, ""] ->
-        explicit
-
-      ruled_vendor not in [nil, ""] ->
-        ruled_vendor
-
-      (sys_object_id = sys_object_id_from_metadata(metadata)) not in [nil, ""] ->
-        vendor_from_sys_object_id(sys_object_id) ||
-          vendor_from_sys_descr(sys_descr_from_metadata(metadata))
-
-      (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
+    candidates =
+      [
+        explicit_vendor,
+        ruled_vendor,
+        vendor_from_sys_object_id(sys_object_id),
         vendor_from_sys_descr(sys_descr)
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.reject(&not_vendor_evidence?/1)
 
-      true ->
-        nil
-    end
+    {vendor, vendor_class} =
+      case Enum.find(candidates, &(not agent_software_vendor?(&1))) do
+        nil ->
+          case candidates do
+            [agent | _] -> {agent, :agent_software}
+            [] -> {nil, nil}
+          end
+
+        hardware ->
+          {hardware, :hardware}
+      end
+
+    model =
+      infer_model(
+        metadata,
+        if(not_vendor_evidence?(explicit_vendor), do: nil, else: :explicit),
+        if(not_vendor_evidence?(ruled_vendor), do: nil, else: Map.get(classification, :model))
+      )
+
+    %{vendor: vendor, vendor_class: vendor_class, model: model}
   end
 
-  def infer_model(update, classification) do
-    metadata = update.metadata || %{}
-    explicit = Normalize.first_meaningful_string(metadata, FieldAliases.model_aliases())
-    ruled_model = Map.get(classification, :model)
+  @doc "True for an OS, software or platform name, which is not vendor evidence."
+  def not_vendor_evidence?(value) when is_binary(value),
+    do: MapSet.member?(@not_vendor_evidence, value |> String.trim() |> String.downcase())
+
+  def not_vendor_evidence?(_value), do: false
+
+  # `explicit` is :explicit when the update's explicit model may be used, nil when
+  # it rode on a vendor that is not vendor evidence; likewise the rule's model.
+  defp infer_model(metadata, explicit, ruled_model) do
+    explicit_model =
+      if explicit == :explicit,
+        do: Normalize.first_meaningful_string(metadata, FieldAliases.model_aliases())
 
     cond do
-      explicit not in [nil, ""] ->
-        explicit
+      explicit_model not in [nil, ""] ->
+        explicit_model
 
       ruled_model not in [nil, ""] ->
         ruled_model
@@ -211,8 +265,6 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
     end)
   end
 
-  defp vendor_from_sys_object_id(nil), do: nil
-
   @sys_object_id_vendor_prefixes [
     {"1.3.6.1.4.1.41112", "Ubiquiti"},
     {"1.3.6.1.4.1.4413", "Ubiquiti"},
@@ -223,6 +275,23 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
     {"1.3.6.1.4.1.2011", "Huawei"},
     {"1.3.6.1.4.1.8072", "Net-SNMP"}
   ]
+
+  # Entries of the table above whose name is SNMP agent software, not a hardware
+  # vendor. Only marks names: a hardware vendor from sysDescr or a classification
+  # rule outranks it even under the 8072 enterprise.
+  @agent_software_vendors MapSet.new(["net-snmp"])
+
+  @doc """
+  True for a vendor name that names SNMP agent software rather than the
+  hardware it runs on (the agent-software entries of
+  `@sys_object_id_vendor_prefixes`, such as Net-SNMP under enterprise 8072).
+  """
+  def agent_software_vendor?(value) when is_binary(value),
+    do: MapSet.member?(@agent_software_vendors, value |> String.trim() |> String.downcase())
+
+  def agent_software_vendor?(_value), do: false
+
+  defp vendor_from_sys_object_id(nil), do: nil
 
   defp vendor_from_sys_object_id(sys_object_id) when is_binary(sys_object_id) do
     normalized =
@@ -298,6 +367,13 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
       (is_binary(sys_descr) and String.contains?(String.downcase(sys_descr), "routeros"))
   end
 
+  @doc """
+  The device type one update carries, with the channel it came from:
+  `{type, type_id, evidence}` where `evidence` is `:rule` (a classification
+  rule), `:reported` (an explicit type or role the source reported), `:snmp`
+  (inferred from SNMP system fields) or `nil` when there is no type.
+  `AttributeStrength.type_tier/2` ranks it.
+  """
   def infer_device_type(update, classification) do
     metadata = update.metadata || %{}
     explicit_type = infer_explicit_type(metadata)
@@ -307,30 +383,30 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
 
     cond do
       ruled_type not in [nil, ""] and is_integer(ruled_type_id) ->
-        {ruled_type, ruled_type_id}
+        {ruled_type, ruled_type_id, :rule}
 
       explicit_type != nil ->
-        explicit_type
+        with_evidence(explicit_type, :reported)
 
-      role in ["router"] ->
-        {"Router", 12}
-
-      role in ["switch_l2"] ->
-        {"Switch", 10}
-
-      role in ["ap_bridge"] ->
-        {"Access Point", 99}
-
-      role in ["hypervisor"] ->
-        {"Hypervisor", 99}
-
-      role in ["virtual-guest", "virtual_guest"] ->
-        {"Virtual", 6}
+      (role_type = role_type(role)) != nil ->
+        with_evidence(role_type, :reported)
 
       true ->
-        infer_device_type_from_snmp(metadata)
+        case infer_device_type_from_snmp(metadata) do
+          {nil, _type_id} -> {nil, 0, nil}
+          {type, type_id} -> {type, type_id, :snmp}
+        end
     end
   end
+
+  defp with_evidence({type, type_id}, evidence), do: {type, type_id, evidence}
+
+  defp role_type("router"), do: {"Router", 12}
+  defp role_type("switch_l2"), do: {"Switch", 10}
+  defp role_type("ap_bridge"), do: {"Access Point", 99}
+  defp role_type("hypervisor"), do: {"Hypervisor", 99}
+  defp role_type(role) when role in ["virtual-guest", "virtual_guest"], do: {"Virtual", 6}
+  defp role_type(_role), do: nil
 
   defp infer_explicit_type(metadata) do
     explicit = Normalize.first_meaningful_string(metadata, FieldAliases.device_type_aliases())

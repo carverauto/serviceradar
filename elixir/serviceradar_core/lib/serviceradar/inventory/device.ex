@@ -103,7 +103,8 @@ defmodule ServiceRadar.Inventory.Device do
     :is_available,
     :availability_source_agent_id,
     :availability_source_profile_id,
-    :metadata
+    :metadata,
+    :attribute_provenance
   ]
   @device_update_fields [
     :type_id,
@@ -142,12 +143,14 @@ defmodule ServiceRadar.Inventory.Device do
     :group_id,
     :last_seen_time
   ]
+  # No name, hostname, type or type_id: an agent check-in's hostname and type are
+  # corroboration, not identity (fix-device-attribute-source-precedence, design
+  # decision 13), so the check-in actions cannot write them. :gateway_restore also
+  # takes a hostname, for the agent-link remediation that restores a device whose
+  # identity was purged (it has no name left to overwrite).
   @gateway_sync_fields [
-    :type_id,
-    :type,
     :agent_id,
     :management_device_id,
-    :hostname,
     :ip,
     :is_available,
     :is_managed,
@@ -157,6 +160,7 @@ defmodule ServiceRadar.Inventory.Device do
     :identity_observed_at,
     :metadata
   ]
+  @gateway_restore_fields @gateway_sync_fields ++ [:hostname]
   @group_fields [:group_id]
   @availability_fields [:is_available]
   @availability_source_fields [:availability_source_agent_id, :availability_source_profile_id]
@@ -391,7 +395,7 @@ defmodule ServiceRadar.Inventory.Device do
       no other live device holds it (ReleaseContestedAddress).
       """
 
-      accept @gateway_sync_fields
+      accept @gateway_restore_fields
 
       validate RetainedTombstone
 
@@ -993,6 +997,19 @@ defmodule ServiceRadar.Inventory.Device do
       default %{}
       public? true
       description "User-defined tags (key/value map)"
+    end
+
+    attribute :attribute_provenance, :map do
+      default %{}
+      allow_nil? false
+      public? true
+
+      description """
+      Source and evidence strength of each single-valued attribute group (name,
+      vendor, type, integration_type, management_device_id), written by the ranked
+      writes in ServiceRadar.Inventory.Sync.AttributeStrength. A group without a
+      tag has no recorded strength.
+      """
     end
 
     attribute :is_available, :boolean do

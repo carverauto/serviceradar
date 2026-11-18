@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Repo
@@ -119,6 +120,78 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                """,
                [guest_uid]
              ).rows
+  end
+
+  # fix-device-attribute-source-precedence, decision 2: the inventory record's name
+  # is the platform-inventory name of a host, carried by the repeating update for an
+  # existing device too, which used to send no hostname and so renamed the node to
+  # its address every cycle.
+  describe "host names" do
+    test "a host keeps its inventory name across mapper passes and enrichment cycles", %{
+      actor: actor
+    } do
+      suffix = System.unique_integer([:positive])
+      host_ref = "testhv:node:pve-named-#{suffix}"
+      name = "pve-node-#{suffix}"
+      ip = "198.51.100.#{rem(suffix, 200) + 1}"
+      payload = host_payload(host_ref, name, ip)
+
+      assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+      host_uid = host_device_uid!(host_ref)
+
+      for _cycle <- 1..2 do
+        assert :ok =
+                 SyncIngestor.ingest_updates([mapper_update(host_uid, ip, "pve-a")], actor: actor)
+
+        assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+        assert {^name, ^name} = device_names!(host_uid)
+      end
+    end
+  end
+
+  defp host_payload(host_ref, name, ip) do
+    host =
+      then(
+        %{"provider_ref" => host_ref, "status" => "online", "metadata" => %{"ip" => "#{ip}/24"}},
+        &if(name, do: Map.put(&1, "name", name), else: &1)
+      )
+
+    %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => "testhv",
+        "hosts" => [host],
+        "guests" => [],
+        "network_interfaces" => []
+      }
+    }
+  end
+
+  defp mapper_update(uid, ip, sys_name) do
+    %{
+      "device_id" => uid,
+      "ip" => ip,
+      "partition" => "default",
+      "source" => "mapper",
+      "hostname" => sys_name
+    }
+  end
+
+  defp host_device_uid!(host_ref) do
+    [[uid]] =
+      Repo.query!(
+        "SELECT device_uid FROM platform.virtualization_hosts WHERE provider = 'testhv' AND provider_ref = $1",
+        [host_ref]
+      ).rows
+
+    uid
+  end
+
+  defp device_names!(uid) do
+    [[name, hostname]] =
+      Repo.query!("SELECT name, hostname FROM platform.ocsf_devices WHERE uid = $1", [uid]).rows
+
+    {name, hostname}
   end
 
   test "links a streamed Proxmox guest batch to a host persisted by the node batch", %{

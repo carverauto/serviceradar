@@ -19,6 +19,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
+  alias ServiceRadar.Inventory.Sync.RankedAttributeWrite
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -888,6 +890,48 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       refute get_in(tombstone.metadata || %{}, ["_seed_successor"])
       refute device_row?(Ids.reseeded_device_id(uid))
     end
+  end
+
+  # fix-device-attribute-source-precedence, decision 12: a platform inventory's
+  # management_device_id outranks the mapper's, including a clear to none, so the
+  # mapper's fill of an empty parent must not put one back.
+  test "the mapper does not refill a management parent a platform inventory cleared", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 58, uniq)
+    ap_ip = unique_test_ip(198, 51, 59, uniq + 1)
+
+    payload =
+      managed_pair_payload(
+        controller_ip,
+        unique_global_test_mac(uniq),
+        ap_ip,
+        unique_global_test_mac(uniq + 1)
+      )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    # The camera inventory's write: platform tier, clear to none.
+    assert :ok =
+             RankedAttributeWrite.write(ap_uid, %{management_device_id: nil}, %{
+               "management_device_id" =>
+                 AttributeStrength.tag(
+                   "management_device_id",
+                   :platform_inventory,
+                   "camera_plugin"
+                 )
+             })
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: ^controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert {:ok, %Device{management_device_id: nil}} =
+             Device.get_by_uid(ap_uid, false, actor: actor)
   end
 
   test "same-poll rediscovery links a dependent to the controller successor", %{actor: actor} do

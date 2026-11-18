@@ -183,11 +183,54 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       # Should be the same device
       assert device_uid1 == device_uid2
 
-      # Verify device was updated
+      # Verify device was updated. The hostname is not: a check-in's hostname is
+      # corroboration, not identity (see the virtual-guest test below).
       {:ok, device} = Device.get_by_uid(device_uid2, false, actor: actor)
-      assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
+    end
+
+    # fix-device-attribute-source-precedence, decision 13: the check-in wrote its
+    # hostname and a "Server" type over the inventory's identity on every check-in.
+    test "a check-in leaves a virtual guest's name, hostname and type", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      ip = "10.78.#{rem(unique_id, 200)}.10"
+
+      create_attrs = %{
+        uid: "guest-agent-sync-#{unique_id}",
+        hostname: "guest-01",
+        name: "guest-01",
+        ip: ip,
+        type: "Virtual",
+        type_id: 6,
+        metadata: %{"device_role" => "virtual-guest"},
+        discovery_sources: ["hypervisor_enrichment"],
+        is_available: true
+      }
+
+      assert {:ok, _device} =
+               Device
+               |> Ash.Changeset.for_create(:create, create_attrs)
+               |> Ash.create(actor: actor)
+
+      assert {:ok, device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "guest-host-01",
+                 source_ip: ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      assert {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert device.uid == create_attrs.uid
+
+      assert %{name: "guest-01", hostname: "guest-01", type: "Virtual", type_id: 6} =
+               Map.take(device, [:name, :hostname, :type, :type_id])
+
+      assert device.metadata["device_role"] == "virtual-guest"
     end
 
     test "does not downgrade a discovered hypervisor host to server during agent sync", %{
@@ -738,7 +781,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
 
       assert moving_device.ip == original_ip
-      assert moving_device.hostname == "moving-host-renamed-#{uniq}"
       assert holder_device.ip == held_ip
       assert holder_device.agent_id == holder_agent_id
       refute get_in(holder_device.metadata || %{}, ["released_conflicting_active_ip"])
