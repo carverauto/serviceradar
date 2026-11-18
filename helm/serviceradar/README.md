@@ -272,7 +272,6 @@ demo-specific external ingest settings. Its effective replica layout is:
 - `agentGateway.replicas=3`
 - `datasvc.replicaCount=3`
 - `logCollector.replicaCount=3`
-- `logCollector.tcpCollector.replicaCount=3`
 - `trapd.replicaCount=3`
 - `flowCollector.replicaCount=1` (single pod + Recreate + RWO marker PVC; JetStream HA is `config.stream_replicas=3`)
 - `bmpCollector.replicaCount=3` (demo only; `values-ha.yaml` does not enable or scale BMP)
@@ -306,7 +305,6 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `logCollector.rfc3164Timezone` | Assumed IANA time zone for RFC3164 messages without a zone, shared by UDP and TCP collectors | `UTC` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | unset (profile supplies it; 2 GiB in `small`) |
-| `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
 | `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `3` |
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
 | `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | unset (profile supplies it; 2 GiB in `small`) |
