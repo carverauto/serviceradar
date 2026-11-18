@@ -154,10 +154,17 @@
       routable = chooser-accepted, not link-local, not a directed broadcast,
       not host-internal, ULA included);
       IPv6 only on IPv6-only devices (no usable IPv4; a `169.254/16`
-      address does not count); the preference ranks only addresses a chooser accepts; IPv4 to IPv4
-      re-IP replaces; the #3905 rank applies within a family
-- [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule; extend
-      the existing SQL / Elixir rank parity test to the family rule
+      address does not count); the preference ranks only addresses a
+      chooser accepts; the stored primary is kept unless the incoming
+      address is strictly stronger or the stored address is absent from the
+      sightings of the source that recorded it (another source's
+      single-address update never counts as absence); equal rank never
+      replaces, for two usable IPv4s and for `fe80::` vs `169.254/16` on a
+      link-local-only device
+- [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
+      `better?/2`'s equal-rank-never-replaces); extend the existing SQL /
+      Elixir rank parity test to the family rule and the keep-unless-stronger
+      rule
 - [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
       and the camera and succession primary-IP paths follow the same rule;
       `GuestAddress.primary/1` keeps skipping host-internal addresses (for
@@ -209,13 +216,19 @@
       holder
 - [ ] 7.11 Test: dual-stack census keeps the IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
-      sighting records no alias, primary or name; a guest's `172.17.0.1` on
+      sighting of a device with a routable address records no alias,
+      primary or name; a guest's `172.17.0.1` on
       `docker0` never becomes primary or an alias; a bare `192.0.2.255` on a
       known `192.0.2.0/24` is never an alias; a link-local-only device keeps
       its link-local primary with no address-fallback name, and a later
       routable address replaces it (the existing "a device with only
-      link-local addresses keeps one" sync test stays); an IPv6-only device that
-      gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
+      link-local addresses keeps one" sync test stays); an IPv6-only device
+      that gains a usable IPv4 switches primary, and one that gains only a
+      `169.254/16` address keeps its routable IPv6; an IPv4 re-IP replaces
+      once the old address leaves the recording source's window; two NICs
+      both sighted keep the first primary; another source reporting a
+      different IPv4 does not move the primary; fe80 and 169.254 sightings
+      on a link-local-only device do not alternate the primary; two compiles of
       an unchanged inventory produce identical sweep targets and
       `device_uid` attribution; a stale cross-device alias is expired on
       confirmed re-attribution

@@ -304,9 +304,14 @@ address is link-local SHALL keep that link-local as its primary ip under the
 never-downgrade rank, with no address-fallback name (it keeps a stronger
 recorded name, or none), and any routable address (a usable IPv4, or a
 global or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
-and a usable IPv4 that device later gains SHALL take over. A change between two
-usable IPv4s SHALL replace the primary, and the never-downgrade address rank
-SHALL still apply within a family. Every primary-IP chooser SHALL follow this
+and a usable IPv4 that device later gains SHALL take over. A stored primary ip SHALL be kept unless the incoming address is strictly
+stronger (a higher rank, or a usable IPv4 over an IPv6), or the stored address
+is absent from the sightings of the source that recorded it (that source's
+snapshot no longer contains it, or it has aged out of that source's window); a
+single-address update from another source SHALL NOT count as the stored
+address being absent. An equal-rank address SHALL NOT replace the stored
+primary, for two usable IPv4s and for equal-rank link-locals (fe80::/10 and
+169.254/16) on a link-local-only device alike. Every primary-IP chooser SHALL follow this
 rule, including the upsert guard, the Elixir address ranking, hypervisor guest
 primary-IP selection, hypervisor host primary-IP selection, the discovery
 ingestor's guest address fallback, the Proxmox plugin's guest primary-IP
@@ -360,9 +365,19 @@ routable IPv6.
 - **AND** 2001:db8::5 SHALL remain a live alias
 
 #### Scenario: An IPv4 re-IP still replaces the primary
-- **GIVEN** a device whose primary ip is 192.0.2.6
-- **WHEN** the device is confirmed at 198.51.100.6 instead
+- **GIVEN** a device whose primary ip 192.0.2.6 was recorded by the passive census
+- **WHEN** 192.0.2.6 has left the census window and the census sights the device at 198.51.100.6
 - **THEN** the primary ip SHALL become 198.51.100.6
+
+#### Scenario: Two NICs both sighted keep the first primary
+- **GIVEN** a device whose primary ip 192.0.2.6 was recorded by the passive census
+- **WHEN** census snapshots contain both 192.0.2.6 and 198.51.100.6, in either order
+- **THEN** the primary ip SHALL remain 192.0.2.6
+
+#### Scenario: Another source reporting a different IPv4 does not move the primary
+- **GIVEN** a device whose primary ip 192.0.2.6 was recorded by the passive census and is still in its window
+- **WHEN** an integration update reporting only 198.51.100.6 for the device is ingested
+- **THEN** the primary ip SHALL remain 192.0.2.6
 
 ### Requirement: Each address has one live holder and own addresses stay live aliases
 Sync ingestion SHALL keep every aliasable address a device owns, in both

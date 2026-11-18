@@ -199,10 +199,17 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     `GuestAddress.primary/1` keeps skipping host-internal addresses such as
     a docker bridge, and the rule never promotes an address a chooser
     rejects. An IPv6 is primary only on an IPv6-only
-    device; if that device later gains a usable IPv4, the IPv4 takes over. A
-    change between two usable IPv4s is a real re-IP and replaces the
-    primary, and the #3905 never-downgrade rank still applies within a
-    family. The rule holds in every primary-IP chooser, including: the SQL
+    device; if that device later gains a usable IPv4, the IPv4 takes over.
+    A stored primary is kept unless the incoming address is strictly
+    stronger (higher rank, or a usable IPv4 over an IPv6) or the stored
+    address is absent from the sightings of the source that recorded it
+    (that source's snapshot no longer contains it, or it aged out of that
+    source's window); a single-address update from another source never
+    counts as absence. Equal rank never replaces, matching
+    `Identity.Address.better?/2`, for two usable IPv4s and for equal-rank
+    link-locals (`fe80::` vs `169.254/16`) on a link-local-only device. A
+    real re-IP replaces the primary once the old address leaves the
+    recording source's window. The rule holds in every primary-IP chooser, including: the SQL
     upsert guard in `DeviceWrites`, `Identity.Address.best/1` and its rank
     (kept in step by the existing parity test, extended to the family rule),
     the hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`),

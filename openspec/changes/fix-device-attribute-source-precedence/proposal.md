@@ -187,10 +187,15 @@ inventory state rather than of nondeterministic compilation.
   recorded as an alias. The rule
   only ranks addresses a chooser already accepts, so it never promotes one
   the chooser rejects (for example a host-internal docker bridge address
-  that `GuestAddress.primary/1` skips). An IPv6 is primary only on an IPv6-only device, and
-  an IPv4 it later gains takes over. A change between two usable IPv4s is a
-  real re-IP and replaces the primary; the #3905 never-downgrade rank still
-  applies within a family. Every primary-IP chooser follows this rule,
+  that `GuestAddress.primary/1` skips). An IPv6 is primary only on an
+  IPv6-only device, and a usable IPv4 it later gains takes over (a
+  `169.254/16` address does not). A stored primary is kept unless the
+  incoming address is strictly stronger or the stored address is absent
+  from the sightings of the source that recorded it; a single-address
+  update from another source never counts as absence, and equal rank never
+  replaces (two usable IPv4s, or `fe80::` vs `169.254/16` on a link-local-only
+  device). A real re-IP replaces once the old address leaves the recording
+  source's window. Every primary-IP chooser follows this rule,
   including the SQL upsert guard, `Identity.Address.best/1` and its rank
   (kept in step by the existing parity test), the hypervisor guest and host
   primary-IP selection (`primary_ip_by_guest`, `primary_ip_by_host/1`), the
@@ -201,9 +206,9 @@ inventory state rather than of nondeterministic compilation.
   the camera path; each keeps its own order among accepted IPv4s and none
   submits a link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
-  stored addresses, never replaces a usable IPv4 with an IPv6 or a usable
-  primary address with a link-local, and takes a link-local only when the
-  survivor has no routable address. A link-local-only device keeps its link-local primary under
+  stored addresses, never replaces a usable IPv4 with an IPv6 or a routable
+  address with a link-local, and takes a link-local only when the survivor
+  has no routable address. A link-local-only device keeps its link-local primary under
   the #3905 rank, without an address-fallback name.
 - Every aliasable address a device owns, in both families, stays a live
   alias, so the sweep targets both families. Aliasable means
