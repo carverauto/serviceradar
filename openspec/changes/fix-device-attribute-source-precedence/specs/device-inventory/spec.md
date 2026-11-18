@@ -17,11 +17,12 @@ a passive census sighting; a name reported by an automation inventory (such as
 AWX); an SNMP sysName; a name reported by the hypervisor platform inventory. A
 name derived from an address SHALL use the address the device keeps after the
 address rank guard. The hostname SHALL be gated by the same tiers and SHALL be
-accepted or rejected together with the name as one value. The repeating
-hypervisor-enrichment update for an existing host or guest SHALL carry the
+accepted or rejected together with the name as one value. Every
+hypervisor-enrichment update for a host or guest, both the repeating update for
+an existing device and the placeholder update that creates one, SHALL carry the
 inventory record's name as the strongest-tier name and hostname pair when the
-record has one; a provider reference or an address is not that name, and an
-update that still has no name stays an address fallback.
+record has one; a provider reference or an address is never that name, and an
+update with no record name stays an address fallback.
 
 Vendor strength, weakest first: a name that names SNMP agent software (such as
 Net-SNMP), from device, integration or metadata evidence; the IEEE OUI
@@ -37,15 +38,21 @@ the strongest tier. An OS, software or platform name (such as Linux,
 Microsoft, NGINX, or an automation platform's own product name) is not vendor
 evidence and SHALL NOT be written to the vendor, from any source; it is
 ignored for the vendor (an OS or software name goes to the OS / software
-fields) while the same update's OUI or hardware vendor is still ranked.
+fields) while the same update's OUI or hardware vendor is still ranked. The
+model SHALL be accepted or rejected together with the vendor as one value, at
+the vendor's write strength.
 
 Type strength, weakest first: a generic type set without device evidence (such
 as host from an automation inventory); a type inferred from a passive
 fingerprint or classification rule; a type derived from SNMP (such as Router
 from ip_forwarding); a type reported by the inventory that owns the device's
-platform role (such as Hypervisor from the hypervisor inventory). Type and
-type_id SHALL be accepted or rejected together as one value. Manual type
-ownership SHALL keep precedence over both. Integration type strength, weakest
+platform role (such as Hypervisor from the hypervisor inventory). Type,
+type_id and the metadata device_role SHALL be accepted or rejected together as
+one value on this ladder: a platform-inventory role (hypervisor, virtual-guest)
+outranks an SNMP / mapper role (router, ap_bridge, switch_l2, host), which
+outranks a fingerprint role, which outranks a generic host. A mapper role
+SHALL NOT replace a hypervisor or virtual-guest role. Manual type ownership
+SHALL keep precedence over all three fields. Integration type strength, weakest
 first: a generic automation inventory; the inventory that discovers the device
 as its own platform object.
 
@@ -144,6 +151,19 @@ ingestion batch.
 - **THEN** the device type SHALL remain Hypervisor
 - **AND** the device type_id SHALL remain the Hypervisor type_id
 
+#### Scenario: A hypervisor node scored as a host keeps its platform role
+- **GIVEN** a hypervisor node whose type and device_role hypervisor were recorded from the hypervisor inventory
+- **WHEN** a mapper pass scores the node's role as host
+- **THEN** the device_role SHALL remain hypervisor
+- **AND** the node's plugin input item SHALL keep target_kind pve_host
+- **AND** the Proxmox plugin assignment inputs SHALL NOT change
+
+#### Scenario: A hypervisor placeholder without a record name is an address fallback
+- **GIVEN** a hypervisor inventory record with a provider reference and the address 192.0.2.40 but no name
+- **WHEN** the placeholder update that creates its device is ingested
+- **THEN** the device name and hostname SHALL be recorded as the address fallback 192.0.2.40, not the provider reference
+- **AND** a later SNMP sysName SHALL replace them
+
 #### Scenario: A hypervisor node settles on its platform inventory name
 - **GIVEN** a hypervisor node reported by an automation inventory as hv-node-01, by the mapper with sysName pve-a, and by the hypervisor inventory as pve-node-a
 - **WHEN** automation-inventory, mapper and hypervisor-inventory writes alternate, in one batch in either order or across batches
@@ -152,9 +172,37 @@ ingestion batch.
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets and plugin assignments are selected and named from device attributes
-- **AND** the name, hostname, vendor, type and integration type of those devices already have recorded strengths
+- **AND** the name, hostname, vendor, model, type, type_id, device_role and integration type of those devices already have recorded strengths
 - **WHEN** mapper passes, passive census passes, automation-inventory cycles and hypervisor-enrichment cycles alternate with no change on the network
 - **THEN** the compiled agent config version SHALL NOT change
+
+### Requirement: Attributes read by agent configuration have one writer or a rank
+Sync ingestion SHALL give every single-valued device attribute read by plugin
+input building or agent configuration compilation exactly one owning writer or
+a rank by recorded strength. A metadata key with an owning writer SHALL be
+replaced only by that owner; any other ingestor MAY fill the key only when it
+is absent. The owned keys are hypervisor_provider_ref, proxmox_node,
+proxmox_cluster, hypervisor_guest_type, hypervisor_vmid and proxmox_base_url
+(owned by the hypervisor platform inventory) and proxmox_candidate,
+proxmox_tls_sans_recorded and proxmox_tls_san_ips (owned by the mapper Proxmox
+candidate probe). The management_device_id SHALL be ranked with the camera
+platform inventory above the mapper, and a mapper write SHALL NOT replace a
+camera-inventory value.
+
+#### Scenario: A non-owner does not overwrite an owned metadata key
+- **GIVEN** a hypervisor node whose proxmox_node pve-a was written by the hypervisor inventory
+- **WHEN** an automation inventory update carrying proxmox_node pve-b is ingested
+- **THEN** proxmox_node SHALL remain pve-a
+
+#### Scenario: A non-owner fills an absent metadata key
+- **GIVEN** a device with no proxmox_node
+- **WHEN** an automation inventory update carrying proxmox_node pve-b is ingested
+- **THEN** proxmox_node SHALL become pve-b
+
+#### Scenario: The mapper does not replace a camera-inventory management device
+- **GIVEN** a camera whose management_device_id was written by the camera inventory
+- **WHEN** a mapper update carrying a different management_device_id is ingested
+- **THEN** the management_device_id SHALL be unchanged
 
 ### Requirement: Integration identifiers are kept per integration
 A device observed by more than one integration SHALL keep each integration's

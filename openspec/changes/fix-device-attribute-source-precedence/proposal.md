@@ -120,9 +120,11 @@ inventory state rather than of nondeterministic compilation.
   - `type`, weakest to strongest: generic `host` < passive fingerprint type <
     SNMP-derived type (for example `Router` from `ip_forwarding`) <
     platform-inventory type (for example `Hypervisor` from the hypervisor
-    inventory). `type` and `type_id` are accepted or rejected together,
-    manual ownership included. `integration_type` follows the tiers in
-    design.md. The
+    inventory). `type`, `type_id` and `metadata.device_role` are accepted or
+    rejected together, manual ownership included, so a mapper `host` /
+    `router` role no longer replaces a `hypervisor` role and flips the
+    Proxmox plugin item's `target_kind`. `model` is decided together with
+    `vendor_name`. `integration_type` follows the tiers in design.md. The
     automation inventory's generic `host` / `awx` no longer replaces the
     hypervisor inventory's `Hypervisor` / `Virtual` / `hypervisor`, and a
     mapper `Router` no longer replaces `Hypervisor` on a node that routes VM
@@ -136,6 +138,11 @@ inventory state rather than of nondeterministic compilation.
 - Proxmox plugin inputs read the hypervisor provider ref from
   `device_identifiers` (a single writer), and `integration_id` is no longer
   copied into input items for plugins that do not own it.
+- Every single-valued attribute read by plugin inputs or config
+  compilation has one owning writer or a rank (design.md decision 12): the
+  Proxmox metadata keys have one owner and other ingestors only fill them
+  when absent, and the camera inventory's `management_device_id` outranks
+  the mapper's.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
@@ -164,7 +171,8 @@ agent-software, OS or software vendor with no recorded strength by the OUI
 vendor, so exact-OUI credential rules match that device again after that
 pass. That first census pass may also change any other vendor stored before
 rollout once, to the OUI vendor. Each attribute (name / hostname,
-`vendor_name`, `type` / `type_id`, `integration_type`) changes at most once per
+`vendor_name` / `model`, `type` / `type_id` / `device_role`,
+`integration_type`) changes at most once per
 strictly stronger tier first recorded, then stays constant: a name stored
 before rollout may move to a census hostname, then an automation-inventory
 name, then the mapper `sysName`, and on a hypervisor node finally to the

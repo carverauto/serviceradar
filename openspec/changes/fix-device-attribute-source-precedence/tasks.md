@@ -18,10 +18,10 @@
       hypervisor platform inventory name; `hostname` is gated by the same
       tiers and accepted or rejected together with `name`;
       `HypervisorEnrichmentIngestor`'s repeating existing-device host and
-      guest update carries the inventory record's name as the strongest-tier
-      name / hostname pair when the record has one (a `provider_ref` or an
-      address is not that name; an update with no name stays address
-      fallback)
+      guest update and `placeholder_device_update` (create path) carry the
+      inventory record's name as the strongest-tier name / hostname pair when
+      the record has one (a `provider_ref` or an address is never that name;
+      an update with no record name stays address fallback)
 - [ ] 2.2 Test: a `sysName` survives a hostname-less census update, in one
       batch and across batches
 - [ ] 2.3 Test: a hostname-less sighting of a rejected address, including an
@@ -32,6 +32,9 @@
       `sysName` and hypervisor-inventory writes leave `name` and `hostname` at
       the hypervisor inventory value in either batch order, and Proxmox plugin
       assignment inputs do not change
+- [ ] 2.6 Test: a hypervisor placeholder with no record name records the
+      address fallback, not the `provider_ref`, and a later `sysName`
+      replaces it
 
 ## 3. Vendor precedence
 
@@ -69,14 +72,17 @@
 
 - [ ] 4.1 Writers tag `type`: generic `host` / default < fingerprint or
       classification-rule type < SNMP-derived type < platform-inventory type;
-      `type` and `type_id` are accepted or rejected together; manual
-      ownership keeps precedence over both
+      `type`, `type_id` and `metadata.device_role` are accepted or rejected
+      together (mapper `persist_role_metadata` included); manual ownership
+      keeps precedence over all three
 - [ ] 4.2 Writers tag `integration_type`: generic automation inventory <
       platform inventory that discovers the device as its own object
 - [ ] 4.3 Test: alternating automation-inventory and hypervisor writes leave
       `type` and `integration_type` at the hypervisor values; a mapper
       `ip_forwarding` update leaves a hypervisor node's type `Hypervisor` and
-      its `type_id` unchanged
+      its `type_id` unchanged; a mapper pass scoring a hypervisor node as
+      `host` leaves `device_role` `hypervisor`, `target_kind` `pve_host`, and
+      the Proxmox assignment inputs unchanged
 
 ## 5. Integration identifiers and plugin inputs
 
@@ -94,9 +100,21 @@
 - [ ] 5.4 Test: alternating automation-inventory and hypervisor writes leave
       Proxmox plugin assignment inputs unchanged
 
-## 6. Rollout
+## 6. Attribute ownership
 
-- [ ] 6.1 Release note: credential rules keyed on an exact OUI vendor string
+- [ ] 6.1 Accept or reject `model` together with `vendor_name`
+- [ ] 6.2 Owned metadata keys (design.md decision 12) are replaced only by
+      their owner; other ingestors (for example the automation inventory's
+      `proxmox_node`) only fill an absent key
+- [ ] 6.3 Rank `management_device_id`: camera inventory > mapper
+- [ ] 6.4 Test: for every attribute in the decision 12 table, drive the
+      upsert with a non-owner or weaker write after an owner or stronger
+      write and assert the stored value is unchanged, and with a fill into
+      an absent value and assert it is stored
+
+## 7. Rollout
+
+- [ ] 7.1 Release note: credential rules keyed on an exact OUI vendor string
       stop matching devices whose SNMP evidence derives a hardware vendor
       (hardware `sysObjectID` enterprise, or a hardware vendor from
       `sysDescr` or a classification rule even when the `sysObjectID` is under
@@ -107,10 +125,11 @@
       start matching once the first census pass records the OUI vendor; rules
       keyed on fingerprint OS / software names in `vendor_name` must move to
       the OS / software fields
-- [ ] 6.2 Verify on a deployment with existing inventory: config version of an
+- [ ] 7.2 Verify on a deployment with existing inventory: config version of an
       affected agent changes at most once per strictly stronger tier first
-      recorded for each attribute (name / hostname, `vendor_name`, `type` /
-      `type_id`, `integration_type`), then stays constant across further
+      recorded for each attribute (name / hostname, `vendor_name` / `model`,
+      `type` / `type_id` / `device_role`, `integration_type`), then stays
+      constant across further
       census passes, mapper runs, automation-inventory cycles and
       hypervisor-enrichment cycles. Example name ladder on a hypervisor node:
       census hostname, then AWX name, then mapper `sysName`, then hypervisor

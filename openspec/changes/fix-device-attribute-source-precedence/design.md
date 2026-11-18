@@ -23,11 +23,12 @@ address rank, #3905) and manual `type` ownership.
    5. a name reported by the hypervisor platform inventory.
    The `hostname` column is gated by the same tiers and is accepted or
    rejected together with `name` as one value, because plugin inputs prefer
-   `hostname` over `name`. `HypervisorEnrichmentIngestor`'s repeating
-   existing-device host and guest update carries the inventory record's name
-   as the tier 5 name / hostname pair when the record has one; a
-   `provider_ref` or an address is not that name, and an update that still
-   has no name is a tier 1 address fallback.
+   `hostname` over `name`. Both `HypervisorEnrichmentIngestor` paths, the
+   repeating existing-device host and guest update and
+   `placeholder_device_update` on the create path, carry the inventory
+   record's name as the tier 5 name / hostname pair when the record has one;
+   a `provider_ref` or an address is never that name, and an update with no
+   record name is a tier 1 address fallback.
 3. Strength order for `vendor_name`, weakest first:
    1. a name that names SNMP agent software (Net-SNMP and similar), from
       device, integration or metadata evidence;
@@ -52,6 +53,9 @@ address rank, #3905) and manual `type` ownership.
    names are written to the OS / software fields instead. Such a name is
    ignored for `vendor_name`; the same update's OUI or hardware vendor is
    still ranked normally.
+   `model` is accepted or rejected together with `vendor_name` as one value,
+   at the vendor's write strength, because the mapper `sysDescr`, the
+   automation inventory and the hypervisor / UniFi sources all write it.
 4. Strength order for `type`, weakest first:
    1. a generic type set without device evidence (`host` from an automation
       inventory, or a default);
@@ -60,9 +64,15 @@ address rank, #3905) and manual `type` ownership.
    4. a type reported by the inventory that owns the device's platform role
       (hypervisor inventory `Hypervisor` / `Virtual`), strictly above SNMP so
       a hypervisor node that routes VM traffic keeps `Hypervisor`.
-   `type` and `type_id` are accepted or rejected together as one value, so a
-   rejected `Router` cannot leave its `type_id` beside a kept `Hypervisor`.
-   Manual `type` ownership keeps precedence over all four, for both fields.
+   `type`, `type_id` and `metadata.device_role` are accepted or rejected
+   together as one value, so a rejected `Router` cannot leave its `type_id`
+   beside a kept `Hypervisor`, and a mapper role (`router`, `ap_bridge`,
+   `switch_l2` or `host` from `role_for_metrics` / `persist_role_metadata`)
+   never replaces a platform `hypervisor` / `virtual-guest` role. That keeps
+   `PluginInputPayloadBuilder`'s `device_role` and `target_kind` and
+   `ProxmoxHostAuthority`'s role read stable; `device_role` is still copied
+   into plugin inputs. Manual `type` ownership keeps precedence over all
+   four, for all three fields.
 5. Strength order for `integration_type`, weakest first:
    1. a generic automation inventory that lists the device as a host;
    2. the inventory that discovers the device as its own platform object
@@ -103,6 +113,24 @@ address rank, #3905) and manual `type` ownership.
     owns it. Proxmox inputs read the hypervisor provider ref from
     `device_identifiers`, which only the hypervisor inventory writes, so
     `ProxmoxHostAuthority.target_ids` sees a stable id.
+
+12. Every single-valued attribute read by plugin input building or agent
+    configuration compilation has one owning writer or a rank. Owned
+    metadata keys are replaced only by their owner; another ingestor may only
+    fill an absent key.
+
+    | Attribute | Readers | Rule |
+    | --- | --- | --- |
+    | `name` / `hostname` | SNMP compiler, plugin inputs | ranked (decision 2) |
+    | `vendor_name` / `model` | credential-rule target queries, plugin inputs | ranked (decision 3), one value |
+    | `type` / `type_id` / `metadata.device_role` | plugin inputs (`target_kind`), `ProxmoxHostAuthority` | ranked (decision 4), one value |
+    | `integration_type` | plugin inputs, unmerge | ranked (decision 5) |
+    | metadata `integration_id` | (dropped) | provider-scoped identifiers (decision 10) |
+    | `ip` | SNMP compiler, plugin inputs | existing address rank guard |
+    | `hypervisor_provider_ref`, `proxmox_node`, `proxmox_cluster`, `hypervisor_guest_type`, `hypervisor_vmid`, `proxmox_base_url` | plugin inputs, `ProxmoxHostAuthority` | owner: hypervisor platform inventory |
+    | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
+    | `management_device_id` | SNMP compiler (polling host) | ranked: camera inventory > mapper |
+    | tags / labels | target queries | merged maps (union), not single-valued |
 
 ## Open questions
 
