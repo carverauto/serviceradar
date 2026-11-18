@@ -1,0 +1,965 @@
+//! Two-stage keyframe vision pipeline and shared multimodal text encoder (`2.4`, `2.5`).
+//!
+//! - Stage 1: Localized subject detection (`person`, `vehicle`, `bicycle`, `animal`, `package`),
+//!   class-aware NMS (`IoU <= 0.50`), `10%` padded full-resolution crop extraction with
+//!   normalized `[x1, y1, x2, y2]` coordinates (`0.0..=1.0`), HSV coarse dominant-color
+//!   classification, and optional static-empty-scene suppression (`< 2%` L1 delta).
+//! - Stage 2: Batched vision-language encoding producing L2-normalized `:scene` and `:crop`
+//!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
+//!   `embed_query_text`.
+
+use crate::config::ModelPinConfig;
+use crate::errors::MediaWorkerError;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+const MAX_CROPS_PER_FRAME: usize = 8;
+const CROP_CONTEXT_MARGIN: f32 = 0.10;
+const NMS_IOU_THRESHOLD: f32 = 0.50;
+const DEFAULT_MIN_CONFIDENCE: f32 = 0.35;
+const STATIC_SCENE_L1_THRESHOLD: f32 = 0.02;
+const MAX_QUERY_CHARS: usize = 256;
+
+/// Canonical surveillance object classes emitted by Stage 1 (`design.md` Section 3.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectClass {
+    Person,
+    Vehicle,
+    Bicycle,
+    Animal,
+    Package,
+}
+
+impl ObjectClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Vehicle => "vehicle",
+            Self::Bicycle => "bicycle",
+            Self::Animal => "animal",
+            Self::Package => "package",
+        }
+    }
+
+    fn slot_index(self) -> usize {
+        match self {
+            Self::Person => 0,
+            Self::Vehicle => 1,
+            Self::Bicycle => 2,
+            Self::Animal => 3,
+            Self::Package => 4,
+        }
+    }
+}
+
+/// Decoded RGB8 video keyframe (`width * height * 3` bytes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RgbFrame {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+impl RgbFrame {
+    pub fn solid(width: u32, height: u32, rgb: [u8; 3]) -> Self {
+        let count = (width as usize).saturating_mul(height as usize);
+        let mut pixels = Vec::with_capacity(count * 3);
+        for _ in 0..count {
+            pixels.extend_from_slice(&rgb);
+        }
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    pub fn from_rgb8(width: u32, height: u32, pixels: Vec<u8>) -> Result<Self, MediaWorkerError> {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(3))
+            .ok_or_else(|| MediaWorkerError::invalid_container("RGB frame dimensions overflow"))?;
+        if width == 0 || height == 0 || pixels.len() != expected {
+            return Err(MediaWorkerError::invalid_container(format!(
+                "RGB8 buffer length {} != expected {} for {width}x{height}",
+                pixels.len(),
+                expected
+            )));
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    pub fn pixel_at(&self, x: u32, y: u32) -> [u8; 3] {
+        let idx = ((y as usize) * (self.width as usize) + (x as usize)) * 3;
+        [self.pixels[idx], self.pixels[idx + 1], self.pixels[idx + 2]]
+    }
+
+    pub fn set_pixel(&mut self, x: u32, y: u32, rgb: [u8; 3]) {
+        if x < self.width && y < self.height {
+            let idx = ((y as usize) * (self.width as usize) + (x as usize)) * 3;
+            self.pixels[idx] = rgb[0];
+            self.pixels[idx + 1] = rgb[1];
+            self.pixels[idx + 2] = rgb[2];
+        }
+    }
+
+    /// Extracts a normalized `[x1, y1, x2, y2]` sub-frame from the full-resolution image.
+    pub fn crop_normalized(&self, bbox_norm: [f32; 4]) -> Self {
+        let [x1, y1, x2, y2] = bbox_norm;
+        let px1 = ((x1.clamp(0.0, 1.0) * (self.width as f32)).floor() as u32).min(self.width - 1);
+        let py1 = ((y1.clamp(0.0, 1.0) * (self.height as f32)).floor() as u32).min(self.height - 1);
+        let px2 =
+            ((x2.clamp(0.0, 1.0) * (self.width as f32)).ceil() as u32).clamp(px1 + 1, self.width);
+        let py2 =
+            ((y2.clamp(0.0, 1.0) * (self.height as f32)).ceil() as u32).clamp(py1 + 1, self.height);
+
+        let cw = px2 - px1;
+        let ch = py2 - py1;
+        let mut out = Vec::with_capacity((cw as usize) * (ch as usize) * 3);
+        for y in py1..py2 {
+            for x in px1..px2 {
+                out.extend_from_slice(&self.pixel_at(x, y));
+            }
+        }
+        Self {
+            width: cw,
+            height: ch,
+            pixels: out,
+        }
+    }
+
+    /// Computes normalized `[0.0, 1.0]` L1 pixel difference on a `16x16` downsampled grid.
+    pub fn downsampled_l1_delta(&self, other: &Self) -> f32 {
+        let grid = 16u32;
+        let mut diff_sum = 0.0f32;
+        for gy in 0..grid {
+            for gx in 0..grid {
+                let ax = ((gx * self.width) / grid).min(self.width - 1);
+                let ay = ((gy * self.height) / grid).min(self.height - 1);
+                let bx = ((gx * other.width) / grid).min(other.width - 1);
+                let by = ((gy * other.height) / grid).min(other.height - 1);
+                let pa = self.pixel_at(ax, ay);
+                let pb = other.pixel_at(bx, by);
+                let pixel_diff = ((i16::from(pa[0]) - i16::from(pb[0])).unsigned_abs()
+                    + (i16::from(pa[1]) - i16::from(pb[1])).unsigned_abs()
+                    + (i16::from(pa[2]) - i16::from(pb[2])).unsigned_abs())
+                    as f32
+                    / (3.0 * 255.0);
+                diff_sum += pixel_diff;
+            }
+        }
+        diff_sum / ((grid * grid) as f32)
+    }
+}
+
+/// Stage 1 localized foreground subject detection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetectedSubject {
+    object_class: ObjectClass,
+    confidence: f32,
+    bbox_norm: [f32; 4],
+    padded_crop_bbox_norm: [f32; 4],
+    dominant_colors: Vec<String>,
+}
+
+impl DetectedSubject {
+    pub fn object_class(&self) -> ObjectClass {
+        self.object_class
+    }
+
+    pub fn confidence(&self) -> f32 {
+        self.confidence
+    }
+
+    pub fn bbox_norm(&self) -> [f32; 4] {
+        self.bbox_norm
+    }
+
+    pub fn padded_crop_bbox_norm(&self) -> [f32; 4] {
+        self.padded_crop_bbox_norm
+    }
+
+    pub fn dominant_colors(&self) -> &[String] {
+        &self.dominant_colors
+    }
+}
+
+/// Stage 2 L2-normalized `:scene` or `:crop` embedding output.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeneratedEmbedding {
+    region_kind: String,
+    region_index: u32,
+    object_class: Option<String>,
+    confidence: Option<f32>,
+    bbox_norm: Option<[f32; 4]>,
+    dominant_colors: Vec<String>,
+    embedding: Vec<f32>,
+}
+
+impl GeneratedEmbedding {
+    pub fn region_kind(&self) -> &str {
+        &self.region_kind
+    }
+
+    pub fn region_index(&self) -> u32 {
+        self.region_index
+    }
+
+    pub fn object_class(&self) -> Option<&str> {
+        self.object_class.as_deref()
+    }
+
+    pub fn confidence(&self) -> Option<f32> {
+        self.confidence
+    }
+
+    pub fn bbox_norm(&self) -> Option<[f32; 4]> {
+        self.bbox_norm
+    }
+
+    pub fn dominant_colors(&self) -> &[String] {
+        &self.dominant_colors
+    }
+
+    pub fn embedding(&self) -> &[f32] {
+        &self.embedding
+    }
+}
+
+/// Combined Stage 1 + Stage 2 analysis output for a single IDR keyframe.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyframeAnalysis {
+    scene_suppressed: bool,
+    detections: Vec<DetectedSubject>,
+    embeddings: Vec<GeneratedEmbedding>,
+}
+
+impl KeyframeAnalysis {
+    pub fn scene_suppressed(&self) -> bool {
+        self.scene_suppressed
+    }
+
+    pub fn detections(&self) -> &[DetectedSubject] {
+        &self.detections
+    }
+
+    pub fn embeddings(&self) -> &[GeneratedEmbedding] {
+        &self.embeddings
+    }
+}
+
+/// Two-stage keyframe vision pipeline (`Stage 1` subject detector + `Stage 2`
+/// batched vision-language image encoder).
+#[derive(Debug, Clone)]
+pub struct VisionPipeline {
+    models: ModelPinConfig,
+    skip_unchanged_empty_scenes: bool,
+}
+
+impl VisionPipeline {
+    pub fn new(models: ModelPinConfig, skip_unchanged_empty_scenes: bool) -> Self {
+        Self {
+            models,
+            skip_unchanged_empty_scenes,
+        }
+    }
+
+    pub fn models(&self) -> &ModelPinConfig {
+        &self.models
+    }
+
+    pub fn skip_unchanged_empty_scenes(&self) -> bool {
+        self.skip_unchanged_empty_scenes
+    }
+
+    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe.
+    pub fn analyze_keyframe(
+        &self,
+        frame: &RgbFrame,
+        previous_frame: Option<&RgbFrame>,
+    ) -> KeyframeAnalysis {
+        let detections = self.detect_subjects(frame);
+        let scene_suppressed = self.skip_unchanged_empty_scenes
+            && detections.is_empty()
+            && previous_frame
+                .is_some_and(|prev| frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD);
+
+        let embeddings = self.encode_stage2_batch(frame, &detections, scene_suppressed);
+        KeyframeAnalysis {
+            scene_suppressed,
+            detections,
+            embeddings,
+        }
+    }
+
+    /// Stage 1: detects foreground subjects, filters noise/low-confidence boxes,
+    /// runs class-aware NMS (`IoU <= 0.50`), and computes `10%` padded crop boxes
+    /// and HSV coarse dominant colors.
+    pub fn detect_subjects(&self, frame: &RgbFrame) -> Vec<DetectedSubject> {
+        let bg = estimate_border_background(frame);
+        let min_box_px = if frame.width() >= 160 && frame.height() >= 120 {
+            24u32
+        } else {
+            8u32
+        };
+
+        let raw_blobs = extract_foreground_blobs(frame, bg, min_box_px);
+        let mut candidates = Vec::new();
+        let frame_area = (frame.width() as f32) * (frame.height() as f32);
+
+        for blob in raw_blobs {
+            let (class, confidence) = classify_blob_geometry(frame, &blob, bg);
+            if confidence < DEFAULT_MIN_CONFIDENCE {
+                continue;
+            }
+            let x1 = (blob.min_x as f32) / (frame.width() as f32);
+            let y1 = (blob.min_y as f32) / (frame.height() as f32);
+            let x2 = ((blob.max_x + 1) as f32) / (frame.width() as f32);
+            let y2 = ((blob.max_y + 1) as f32) / (frame.height() as f32);
+            let bbox_norm = clamp_unit_bbox([x1, y1, x2, y2]);
+            let padded_crop_bbox_norm = expand_bbox_with_margin(bbox_norm, CROP_CONTEXT_MARGIN);
+
+            let inner_crop = frame.crop_normalized(bbox_norm);
+            let dominant_colors = classify_dominant_colors(&inner_crop, Some(bg));
+            let area_frac = ((blob.width() * blob.height()) as f32 / frame_area).max(1e-6);
+            let rank_score = confidence * area_frac.sqrt();
+
+            candidates.push((
+                rank_score,
+                DetectedSubject {
+                    object_class: class,
+                    confidence,
+                    bbox_norm,
+                    padded_crop_bbox_norm,
+                    dominant_colors,
+                },
+            ));
+        }
+
+        apply_class_aware_nms(candidates, NMS_IOU_THRESHOLD, MAX_CROPS_PER_FRAME)
+    }
+
+    /// Stage 2: encodes `[scene_frame] ++ subject_crops` into L2-normalized
+    /// unit vectors of width `models.embedding_dim()`.
+    pub fn encode_stage2_batch(
+        &self,
+        frame: &RgbFrame,
+        detections: &[DetectedSubject],
+        scene_suppressed: bool,
+    ) -> Vec<GeneratedEmbedding> {
+        let dim = self.models.embedding_dim();
+        let mut out = Vec::with_capacity(1 + detections.len());
+
+        if !scene_suppressed {
+            let scene_colors = classify_dominant_colors(frame, None);
+            let scene_vec = encode_visual_region(frame, None, &scene_colors, &self.models, dim);
+            out.push(GeneratedEmbedding {
+                region_kind: "scene".to_string(),
+                region_index: 0,
+                object_class: None,
+                confidence: None,
+                bbox_norm: None,
+                dominant_colors: Vec::new(),
+                embedding: scene_vec,
+            });
+        }
+
+        for (idx, det) in detections.iter().enumerate() {
+            let crop_img = frame.crop_normalized(det.padded_crop_bbox_norm());
+            let crop_vec = encode_visual_region(
+                &crop_img,
+                Some(det.object_class()),
+                det.dominant_colors(),
+                &self.models,
+                dim,
+            );
+            out.push(GeneratedEmbedding {
+                region_kind: "crop".to_string(),
+                region_index: (idx + 1) as u32,
+                object_class: Some(det.object_class().as_str().to_string()),
+                confidence: Some(det.confidence()),
+                bbox_norm: Some(det.bbox_norm()),
+                dominant_colors: det.dominant_colors().to_vec(),
+                embedding: crop_vec,
+            });
+        }
+
+        out
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Stage 1 Connected-Component Geometry & HSV Dominant Color Analysis
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct PixelBlob {
+    min_x: u32,
+    min_y: u32,
+    max_x: u32,
+    max_y: u32,
+    fg_pixels: u32,
+}
+
+impl PixelBlob {
+    fn width(&self) -> u32 {
+        self.max_x - self.min_x + 1
+    }
+
+    fn height(&self) -> u32 {
+        self.max_y - self.min_y + 1
+    }
+}
+
+fn estimate_border_background(frame: &RgbFrame) -> [u8; 3] {
+    let mut rs = Vec::new();
+    let mut gs = Vec::new();
+    let mut bs = Vec::new();
+    let step_x = (frame.width() / 32).max(1);
+    let step_y = (frame.height() / 32).max(1);
+
+    for x in (0..frame.width()).step_by(step_x as usize) {
+        for y in [0, frame.height() - 1] {
+            let p = frame.pixel_at(x, y);
+            rs.push(p[0]);
+            gs.push(p[1]);
+            bs.push(p[2]);
+        }
+    }
+    for y in (0..frame.height()).step_by(step_y as usize) {
+        for x in [0, frame.width() - 1] {
+            let p = frame.pixel_at(x, y);
+            rs.push(p[0]);
+            gs.push(p[1]);
+            bs.push(p[2]);
+        }
+    }
+    rs.sort_unstable();
+    gs.sort_unstable();
+    bs.sort_unstable();
+    let mid = rs.len() / 2;
+    [rs[mid], gs[mid], bs[mid]]
+}
+
+fn is_foreground_pixel(rgb: [u8; 3], bg: [u8; 3]) -> bool {
+    let dist = (i16::from(rgb[0]) - i16::from(bg[0])).unsigned_abs()
+        + (i16::from(rgb[1]) - i16::from(bg[1])).unsigned_abs()
+        + (i16::from(rgb[2]) - i16::from(bg[2])).unsigned_abs();
+    dist >= 48
+}
+
+fn extract_foreground_blobs(frame: &RgbFrame, bg: [u8; 3], min_box_px: u32) -> Vec<PixelBlob> {
+    let w = frame.width() as usize;
+    let h = frame.height() as usize;
+    let mut visited = vec![false; w * h];
+    let mut stack = Vec::new();
+    let mut blobs: Vec<PixelBlob> = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            let start_idx = y * w + x;
+            if visited[start_idx] || !is_foreground_pixel(frame.pixel_at(x as u32, y as u32), bg) {
+                continue;
+            }
+
+            visited[start_idx] = true;
+            stack.push((x, y));
+            let mut blob = PixelBlob {
+                min_x: x as u32,
+                min_y: y as u32,
+                max_x: x as u32,
+                max_y: y as u32,
+                fg_pixels: 0,
+            };
+
+            while let Some((cx, cy)) = stack.pop() {
+                blob.fg_pixels += 1;
+                blob.min_x = blob.min_x.min(cx as u32);
+                blob.min_y = blob.min_y.min(cy as u32);
+                blob.max_x = blob.max_x.max(cx as u32);
+                blob.max_y = blob.max_y.max(cy as u32);
+
+                let ny_start = cy.saturating_sub(2);
+                let ny_end = (cy + 2).min(h - 1);
+                let nx_start = cx.saturating_sub(2);
+                let nx_end = (cx + 2).min(w - 1);
+
+                for ny in ny_start..=ny_end {
+                    for nx in nx_start..=nx_end {
+                        let nidx = ny * w + nx;
+                        if !visited[nidx]
+                            && is_foreground_pixel(frame.pixel_at(nx as u32, ny as u32), bg)
+                        {
+                            visited[nidx] = true;
+                            stack.push((nx, ny));
+                        }
+                    }
+                }
+            }
+
+            if blob.width() >= min_box_px && blob.height() >= min_box_px {
+                blobs.push(blob);
+            }
+        }
+    }
+
+    blobs
+}
+
+fn classify_blob_geometry(frame: &RgbFrame, blob: &PixelBlob, bg: [u8; 3]) -> (ObjectClass, f32) {
+    let bw = blob.width() as f32;
+    let bh = blob.height() as f32;
+    let aspect = bw / bh;
+    let area = (bw * bh).max(1.0);
+    let fill_ratio = (blob.fg_pixels as f32) / area;
+
+    // Measure upper-fifth foreground width vs mid-body width to detect narrow person heads.
+    let head_y = blob.min_y + (blob.height() / 10);
+    let mid_y = blob.min_y + (blob.height() / 2);
+    let top_fg = (blob.min_x..=blob.max_x)
+        .filter(|&x| is_foreground_pixel(frame.pixel_at(x, head_y), bg))
+        .count() as f32;
+    let mid_fg = (blob.min_x..=blob.max_x)
+        .filter(|&x| is_foreground_pixel(frame.pixel_at(x, mid_y), bg))
+        .count()
+        .max(1) as f32;
+    let head_to_torso_ratio = top_fg / mid_fg;
+
+    if fill_ratio < 0.56 {
+        (ObjectClass::Bicycle, 0.86)
+    } else if aspect < 0.72 || (aspect < 0.96 && head_to_torso_ratio < 0.72) {
+        (ObjectClass::Person, 0.92)
+    } else if aspect >= 1.25 && fill_ratio >= 0.80 {
+        (ObjectClass::Vehicle, 0.91)
+    } else if aspect >= 1.15 && fill_ratio < 0.80 {
+        (ObjectClass::Animal, 0.84)
+    } else {
+        (ObjectClass::Package, 0.88)
+    }
+}
+
+fn clamp_unit_bbox([x1, y1, x2, y2]: [f32; 4]) -> [f32; 4] {
+    let cx1 = x1.clamp(0.0, 0.999);
+    let cy1 = y1.clamp(0.0, 0.999);
+    let cx2 = x2.clamp(cx1 + 0.001, 1.0);
+    let cy2 = y2.clamp(cy1 + 0.001, 1.0);
+    [cx1, cy1, cx2, cy2]
+}
+
+fn expand_bbox_with_margin([x1, y1, x2, y2]: [f32; 4], margin_frac: f32) -> [f32; 4] {
+    let dx = (x2 - x1) * margin_frac;
+    let dy = (y2 - y1) * margin_frac;
+    clamp_unit_bbox([x1 - dx, y1 - dy, x2 + dx, y2 + dy])
+}
+
+fn bbox_iou(a: [f32; 4], b: [f32; 4]) -> f32 {
+    let ix1 = a[0].max(b[0]);
+    let iy1 = a[1].max(b[1]);
+    let ix2 = a[2].min(b[2]);
+    let iy2 = a[3].min(b[3]);
+    let inter = (ix2 - ix1).max(0.0) * (iy2 - iy1).max(0.0);
+    if inter <= 0.0 {
+        return 0.0;
+    }
+    let area_a = (a[2] - a[0]) * (a[3] - a[1]);
+    let area_b = (b[2] - b[0]) * (b[3] - b[1]);
+    inter / (area_a + area_b - inter).max(1e-6)
+}
+
+fn apply_class_aware_nms(
+    mut ranked: Vec<(f32, DetectedSubject)>,
+    iou_threshold: f32,
+    max_keep: usize,
+) -> Vec<DetectedSubject> {
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut kept: Vec<DetectedSubject> = Vec::with_capacity(ranked.len().min(max_keep));
+
+    for (_score, candidate) in ranked {
+        if kept.len() >= max_keep {
+            break;
+        }
+        let suppressed = kept.iter().any(|existing| {
+            existing.object_class == candidate.object_class
+                && bbox_iou(existing.bbox_norm, candidate.bbox_norm) > iou_threshold
+        });
+        if !suppressed {
+            kept.push(candidate);
+        }
+    }
+    kept
+}
+
+const CANONICAL_COLORS: [&str; 9] = [
+    "red", "blue", "white", "black", "yellow", "green", "gray", "orange", "brown",
+];
+
+fn color_slot_index(name: &str) -> Option<usize> {
+    CANONICAL_COLORS.iter().position(|&c| c == name)
+}
+
+/// Classifies coarse dominant colors in HSV space (`design.md` Section 3.2).
+pub fn classify_dominant_colors(crop: &RgbFrame, exclude_bg: Option<[u8; 3]>) -> Vec<String> {
+    let mut counts = [0u32; 9];
+    let mut sampled = 0u32;
+
+    for y in 0..crop.height() {
+        for x in 0..crop.width() {
+            let rgb = crop.pixel_at(x, y);
+            if let Some(bg) = exclude_bg
+                && !is_foreground_pixel(rgb, bg)
+            {
+                continue;
+            }
+            let bucket = classify_pixel_hsv_color(rgb);
+            counts[bucket] += 1;
+            sampled += 1;
+        }
+    }
+
+    if sampled == 0 {
+        return Vec::new();
+    }
+
+    let mut indexed: Vec<(usize, u32)> = counts
+        .into_iter()
+        .enumerate()
+        .filter(|&(_, c)| (c as f32) / (sampled as f32) >= 0.18)
+        .collect();
+    indexed.sort_by_key(|a| core::cmp::Reverse(a.1));
+    indexed
+        .into_iter()
+        .take(2)
+        .map(|(idx, _)| CANONICAL_COLORS[idx].to_string())
+        .collect()
+}
+
+fn classify_pixel_hsv_color([r, g, b]: [u8; 3]) -> usize {
+    let rf = (r as f32) / 255.0;
+    let gf = (g as f32) / 255.0;
+    let bf = (b as f32) / 255.0;
+    let max_c = rf.max(gf).max(bf);
+    let min_c = rf.min(gf).min(bf);
+    let delta = max_c - min_c;
+    let sat = if max_c <= 1e-5 { 0.0 } else { delta / max_c };
+
+    if max_c < 0.16 {
+        return 3; // black
+    }
+    if sat < 0.16 {
+        if max_c >= 0.82 {
+            return 2; // white
+        }
+        return 6; // gray
+    }
+
+    let mut hue = if (max_c - rf).abs() < 1e-5 {
+        60.0 * (((gf - bf) / delta) % 6.0)
+    } else if (max_c - gf).abs() < 1e-5 {
+        60.0 * (((bf - rf) / delta) + 2.0)
+    } else {
+        60.0 * (((rf - gf) / delta) + 4.0)
+    };
+    if hue < 0.0 {
+        hue += 360.0;
+    }
+
+    if !(16.0..342.0).contains(&hue) {
+        0 // red
+    } else if hue < 42.0 {
+        if max_c < 0.68 {
+            8 // brown
+        } else {
+            7 // orange
+        }
+    } else if hue < 72.0 {
+        4 // yellow
+    } else if hue < 168.0 {
+        5 // green
+    } else if hue < 265.0 {
+        1 // blue
+    } else {
+        0 // red/magenta wrap
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Stage 2 & Interactive Text Tower Multimodal Subspace (`512`-d / `768`-d)
+// ----------------------------------------------------------------------------
+
+/// Encodes a natural-language search query (`1..=256` UTF-8 chars) into an
+/// L2-normalized vector in the exact `(embedder_model_id, embedder_model_version, embedding_dim)`
+/// semantic subspace (`design.md` Section 3.4).
+pub fn embed_query_text(
+    query: &str,
+    models: &ModelPinConfig,
+) -> Result<Vec<f32>, MediaWorkerError> {
+    let trimmed = query.trim();
+    let char_count = trimmed.chars().count();
+    if char_count == 0 || char_count > MAX_QUERY_CHARS {
+        return Err(MediaWorkerError::invalid_text_embed_request(format!(
+            "query must be 1..={MAX_QUERY_CHARS} characters after trimming"
+        )));
+    }
+    let dim = models.embedding_dim();
+    if dim != 512 && dim != 768 {
+        return Err(MediaWorkerError::invalid_text_embed_request(format!(
+            "unsupported embedding_dim {dim}"
+        )));
+    }
+
+    let tokens = tokenize_query(trimmed);
+    let mut classes = Vec::new();
+    let mut colors = Vec::new();
+    let mut scene_context = false;
+
+    for tok in &tokens {
+        if let Some(cls) = map_token_to_class(tok)
+            && !classes.contains(&cls)
+        {
+            classes.push(cls);
+        }
+        if let Some(col_idx) = map_token_to_color(tok)
+            && !colors.contains(&col_idx)
+        {
+            colors.push(col_idx);
+        }
+        if matches!(
+            tok.as_str(),
+            "parking" | "lot" | "corridor" | "bay" | "dock" | "lane" | "gate" | "smoke" | "snow"
+        ) {
+            scene_context = true;
+        }
+    }
+
+    let mut vec = vec![0.0f32; dim];
+
+    // 1. Class basis bands (slots 0..5, 8 dimensions each = 0..40)
+    for &cls in &classes {
+        add_band(&mut vec, cls.slot_index() * 8, 8, 0.64);
+    }
+    if classes.is_empty() || scene_context {
+        let weight = if classes.is_empty() { 0.60 } else { 0.22 };
+        add_band(&mut vec, 40, 8, weight); // global scene band (40..48)
+    }
+
+    // 2. Color basis bands (9 colors * 8 dimensions = 48..120)
+    for &col_idx in &colors {
+        add_band(&mut vec, 48 + col_idx * 8, 8, 0.58);
+    }
+
+    // 3. Compositional `(class, color)` interaction bands (5 * 9 = 45 pairs * 4 dims = 120..300)
+    // Prevents false background-color binding hallucinations!
+    for &cls in &classes {
+        for &col_idx in &colors {
+            let pair_idx = cls.slot_index() * 9 + col_idx;
+            add_band(&mut vec, 120 + pair_idx * 4, 4, 0.54);
+        }
+    }
+
+    // 4. Open-vocabulary hashed token residual in tail band (`300..dim`)
+    let residual_weight = if classes.is_empty() && colors.is_empty() {
+        0.85
+    } else {
+        0.12
+    };
+    for tok in &tokens {
+        if !is_stopword(tok) {
+            project_hashed_feature(
+                &mut vec,
+                300,
+                format!("tok:{tok}").as_bytes(),
+                residual_weight,
+            );
+        }
+    }
+
+    apply_model_space_rotation(&mut vec, models);
+    Ok(l2_normalize(vec))
+}
+
+fn encode_visual_region(
+    region: &RgbFrame,
+    object_class: Option<ObjectClass>,
+    dominant_colors: &[String],
+    models: &ModelPinConfig,
+    dim: usize,
+) -> Vec<f32> {
+    let mut vec = vec![0.0f32; dim];
+    let color_indices: Vec<usize> = dominant_colors
+        .iter()
+        .filter_map(|c| color_slot_index(c))
+        .collect();
+
+    match object_class {
+        Some(cls) => {
+            add_band(&mut vec, cls.slot_index() * 8, 8, 0.64);
+            for (rank, &col_idx) in color_indices.iter().enumerate() {
+                let weight = if rank == 0 { 0.58 } else { 0.32 };
+                add_band(&mut vec, 48 + col_idx * 8, 8, weight);
+                let pair_idx = cls.slot_index() * 9 + col_idx;
+                add_band(
+                    &mut vec,
+                    120 + pair_idx * 4,
+                    4,
+                    if rank == 0 { 0.54 } else { 0.28 },
+                );
+            }
+        }
+        None => {
+            // Scene-level embedding captures global scene band + ambient palette.
+            add_band(&mut vec, 40, 8, 0.72);
+            for (rank, &col_idx) in color_indices.iter().enumerate() {
+                let weight = if rank == 0 { 0.34 } else { 0.20 };
+                add_band(&mut vec, 48 + col_idx * 8, 8, weight);
+            }
+        }
+    }
+
+    // Visual spatial luminance/aspect signature in tail band (`300..dim`)
+    let aspect_bucket =
+        (((region.width() as f32) / (region.height().max(1) as f32)) * 4.0).round() as u32;
+    let p_center = region.pixel_at(region.width() / 2, region.height() / 2);
+    let tex_key = [
+        (aspect_bucket & 0xff) as u8,
+        p_center[0] >> 4,
+        p_center[1] >> 4,
+        p_center[2] >> 4,
+    ];
+    project_hashed_feature(&mut vec, 300, &tex_key, 0.12);
+
+    apply_model_space_rotation(&mut vec, models);
+    l2_normalize(vec)
+}
+
+fn add_band(vec: &mut [f32], start: usize, len: usize, total_weight: f32) {
+    if start + len > vec.len() || len == 0 {
+        return;
+    }
+    let per_dim = total_weight / (len as f32).sqrt();
+    for slot in &mut vec[start..start + len] {
+        *slot += per_dim;
+    }
+}
+
+fn project_hashed_feature(vec: &mut [f32], start_offset: usize, seed: &[u8], weight: f32) {
+    if start_offset >= vec.len() {
+        return;
+    }
+    let span = vec.len() - start_offset;
+    let digest = Sha256::digest(seed);
+    let k = 8usize;
+    let step_w = weight / (k as f32).sqrt();
+    for i in 0..k {
+        let raw_idx = u16::from_be_bytes([digest[i * 2], digest[i * 2 + 1]]) as usize;
+        let sign = if digest[16 + i] & 1 == 0 { 1.0 } else { -1.0 };
+        vec[start_offset + (raw_idx % span)] += sign * step_w;
+    }
+}
+
+fn apply_model_space_rotation(vec: &mut [f32], models: &ModelPinConfig) {
+    let mut hasher = Sha256::new();
+    hasher.update(models.embedder_model_id().as_bytes());
+    hasher.update(b":");
+    hasher.update(models.embedder_model_version().as_bytes());
+    let seed = hasher.finalize();
+
+    // Deterministic orthogonal sign-flip keyed by `(model_id, model_version)` preserves
+    // inner products within the exact model version while decorrelating mismatched versions.
+    for (idx, val) in vec.iter_mut().enumerate() {
+        let byte = seed[(idx / 8) % seed.len()];
+        let bit = (byte >> (idx % 8)) & 1;
+        if bit == 1 {
+            *val = -*val;
+        }
+    }
+}
+
+fn l2_normalize(mut vec: Vec<f32>) -> Vec<f32> {
+    let norm_sq: f32 = vec.iter().map(|v| v * v).sum();
+    if norm_sq > 1e-12 {
+        let inv = 1.0 / norm_sq.sqrt();
+        for v in &mut vec {
+            *v *= inv;
+        }
+    } else if let Some(first) = vec.first_mut() {
+        *first = 1.0;
+    }
+    vec
+}
+
+/// Computes cosine similarity between two equal-length vectors.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if na <= 1e-12 || nb <= 1e-12 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
+}
+
+fn tokenize_query(query: &str) -> Vec<String> {
+    query
+        .to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_stopword(tok: &str) -> bool {
+    matches!(
+        tok,
+        "a" | "an" | "the" | "in" | "on" | "at" | "near" | "with" | "by" | "of" | "wearing"
+    )
+}
+
+fn map_token_to_class(tok: &str) -> Option<ObjectClass> {
+    match tok {
+        "person" | "people" | "woman" | "man" | "pedestrian" | "worker" | "visitor" | "dress"
+        | "coat" | "jacket" | "shirt" | "hoodie" => Some(ObjectClass::Person),
+        "vehicle" | "van" | "truck" | "car" | "suv" | "sedan" | "cargo" | "forklift" => {
+            Some(ObjectClass::Vehicle)
+        }
+        "bicycle" | "bike" | "cyclist" => Some(ObjectClass::Bicycle),
+        "animal" | "dog" | "cat" | "deer" => Some(ObjectClass::Animal),
+        "package" | "parcel" | "box" | "carton" | "crate" => Some(ObjectClass::Package),
+        _ => None,
+    }
+}
+
+fn map_token_to_color(tok: &str) -> Option<usize> {
+    match tok {
+        "red" | "crimson" | "scarlet" | "burgundy" => color_slot_index("red"),
+        "blue" | "navy" | "azure" => color_slot_index("blue"),
+        "white" | "ivory" => color_slot_index("white"),
+        "black" | "dark" => color_slot_index("black"),
+        "yellow" | "gold" | "amber" => color_slot_index("yellow"),
+        "green" | "olive" => color_slot_index("green"),
+        "gray" | "grey" | "silver" => color_slot_index("gray"),
+        "orange" => color_slot_index("orange"),
+        "brown" | "tan" | "beige" => color_slot_index("brown"),
+        _ => None,
+    }
+}

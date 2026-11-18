@@ -7099,6 +7099,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-media-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "axum",
+ "bytes",
+ "chrono",
+ "clap 4.6.6",
+ "futures",
+ "hex",
+ "libc",
+ "longshore_s3",
+ "parking_lot",
+ "prometheus",
+ "rustls",
+ "serde",
+ "serde_json",
+ "serviceradar-cert-policy",
+ "sha2 0.11.0",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "serviceradar-metric-proto"
 version = "0.1.0"
 dependencies = [

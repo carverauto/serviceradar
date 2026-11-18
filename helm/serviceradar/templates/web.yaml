@@ -23,9 +23,13 @@
 {{- $controlPlaneRuntimeSecretKey := default "token" $controlPlaneRuntime.tokenSecretKey -}}
 {{- $controlPlaneMedia := default (dict) $controlPlaneRuntime.media -}}
 {{- $controlPlaneMediaEnabled := default false $controlPlaneMedia.enabled -}}
-{{- $controlPlaneListenerEnabled := or $controlPlaneRuntimeEnabled $controlPlaneMediaEnabled -}}
+{{- $controlPlaneMediaWorker := default (dict) $controlPlaneRuntime.mediaWorker -}}
+{{- $controlPlaneMediaWorkerEnabled := default false $controlPlaneMediaWorker.enabled -}}
+{{- $controlPlaneListenerEnabled := or $controlPlaneRuntimeEnabled $controlPlaneMediaEnabled $controlPlaneMediaWorkerEnabled -}}
 {{- $controlPlaneMediaSecretName := default "serviceradar-control-plane-media-access" $controlPlaneMedia.existingSecretName -}}
 {{- $controlPlaneMediaSecretKey := default "token" $controlPlaneMedia.tokenSecretKey -}}
+{{- $controlPlaneMediaWorkerSecretName := coalesce $controlPlaneMediaWorker.existingSecret $controlPlaneMediaWorker.existingSecretName "" -}}
+{{- $controlPlaneMediaWorkerSecretKey := coalesce $controlPlaneMediaWorker.secretKey $controlPlaneMediaWorker.tokenSecretKey "media-worker-token" -}}
 {{- $archiveStorage := default (dict) $webNg.archiveStorage -}}
 {{- $archiveReader := default (dict) .Values.archiveReader -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) "VMS_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "VMS_ARCHIVE_READER_CONFIG") -}}
@@ -54,6 +58,11 @@
 {{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.media" $key) -}}
 {{- end -}}
 {{- end -}}
+{{- range $key := list "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN" "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION" -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
+{{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.mediaWorker" $key) -}}
+{{- end -}}
+{{- end -}}
 {{- if $controlPlaneMediaEnabled -}}
 {{- if not (kindIs "string" $controlPlaneMedia.deploymentRef) -}}
 {{- fail "webNg.controlPlaneRuntime.media.deploymentRef must be a canonical lowercase UUID" -}}
@@ -69,6 +78,31 @@
 {{- end -}}
 {{- if and (eq (len $controlPlaneMedia.generation) 19) (gt $controlPlaneMedia.generation "9223372036854775807") -}}
 {{- fail "webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string" -}}
+{{- end -}}
+{{- end -}}
+{{- if $controlPlaneMediaWorkerEnabled -}}
+{{- if not $controlPlaneMediaWorkerSecretName -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.existingSecret is required" -}}
+{{- end -}}
+{{- if and $controlPlaneRuntimeEnabled (eq $controlPlaneMediaWorkerSecretName $controlPlaneRuntimeSecretName) (eq $controlPlaneMediaWorkerSecretKey $controlPlaneRuntimeSecretKey) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker secret reference must be distinct from webNg.controlPlaneRuntime" -}}
+{{- end -}}
+{{- if and $controlPlaneMediaEnabled (eq $controlPlaneMediaWorkerSecretName $controlPlaneMediaSecretName) (eq $controlPlaneMediaWorkerSecretKey $controlPlaneMediaSecretKey) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker secret reference must be distinct from webNg.controlPlaneRuntime.media" -}}
+{{- end -}}
+{{- if not (kindIs "string" $controlPlaneMediaWorker.deploymentRef) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.deploymentRef must be a canonical lowercase UUID" -}}
+{{- else if not (regexMatch `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` $controlPlaneMediaWorker.deploymentRef) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.deploymentRef must be a canonical lowercase UUID" -}}
+{{- else if and $controlPlaneMediaEnabled (ne $controlPlaneMedia.deploymentRef $controlPlaneMediaWorker.deploymentRef) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.deploymentRef must match webNg.controlPlaneRuntime.media.deploymentRef" -}}
+{{- end -}}
+{{- if not (kindIs "string" $controlPlaneMediaWorker.generation) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.generation must be a canonical positive bigint string" -}}
+{{- else if not (regexMatch `^[1-9][0-9]{0,18}$` $controlPlaneMediaWorker.generation) -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.generation must be a canonical positive bigint string" -}}
+{{- else if and (eq (len $controlPlaneMediaWorker.generation) 19) (gt $controlPlaneMediaWorker.generation "9223372036854775807") -}}
+{{- fail "webNg.controlPlaneRuntime.mediaWorker.generation must be a canonical positive bigint string" -}}
 {{- end -}}
 {{- end -}}
 {{- $runtimeGraphAutoRefresh := true -}}
@@ -247,6 +281,10 @@ spec:
         serviceradar.io/media-deployment-ref: {{ $controlPlaneMedia.deploymentRef | quote }}
         serviceradar.io/media-generation: {{ $controlPlaneMedia.generation | quote }}
         {{- end }}
+        {{- if $controlPlaneMediaWorkerEnabled }}
+        serviceradar.io/media-worker-deployment-ref: {{ $controlPlaneMediaWorker.deploymentRef | quote }}
+        serviceradar.io/media-worker-generation: {{ $controlPlaneMediaWorker.generation | quote }}
+        {{- end }}
         {{- if and .Values.analytics .Values.analytics.starrocks .Values.analytics.starrocks.enabled }}
         # The analytics settings reach the pod as environment read once at boot,
         # so a change to them -- cutting a dataset over, or back -- has to roll
@@ -416,16 +454,27 @@ spec:
               name: {{ $controlPlaneRuntimeSecretName | quote }}
               key: {{ $controlPlaneRuntimeSecretKey | quote }}
         {{- end }}
+        {{- if or $controlPlaneMediaEnabled $controlPlaneMediaWorkerEnabled }}
+        - name: SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF
+          value: {{ ternary $controlPlaneMedia.deploymentRef $controlPlaneMediaWorker.deploymentRef $controlPlaneMediaEnabled | quote }}
+        {{- end }}
         {{- if $controlPlaneMediaEnabled }}
         - name: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ $controlPlaneMediaSecretName | quote }}
               key: {{ $controlPlaneMediaSecretKey | quote }}
-        - name: SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF
-          value: {{ $controlPlaneMedia.deploymentRef | quote }}
         - name: SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION
           value: {{ $controlPlaneMedia.generation | quote }}
+        {{- end }}
+        {{- if $controlPlaneMediaWorkerEnabled }}
+        - name: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $controlPlaneMediaWorkerSecretName | quote }}
+              key: {{ $controlPlaneMediaWorkerSecretKey | quote }}
+        - name: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION
+          value: {{ $controlPlaneMediaWorker.generation | quote }}
         {{- end }}
         {{- if $agentReleasePublicKey }}
         - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY

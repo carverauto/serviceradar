@@ -1,0 +1,52 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "serviceradar_media_worker",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "serviceradar_media_worker",
+    crate_root = "src/lib.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/cert-policy:cert_policy",
+    ],
+)
+
+rust_binary(
+    name = "serviceradar-media-worker",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = [":serviceradar_media_worker"] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/cert-policy:cert_policy",
+    ],
+)
+
+alias(
+    name = "media-worker",
+    actual = ":serviceradar-media-worker",
+)
+
+rust_test(
+    name = "media_worker_test",
+    crate = ":serviceradar_media_worker",
+    exec_properties = {"test.Pool": "longshore-qualification"},
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/cert-policy:cert_policy",
+    ],
+)
