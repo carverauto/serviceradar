@@ -54,6 +54,7 @@ NVR_EXTRA_CONFIG = [
 
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_nvr",
     extra_config = NVR_EXTRA_CONFIG,

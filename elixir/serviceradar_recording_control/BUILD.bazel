@@ -27,6 +27,7 @@ CONTROL_DEPS = [
 
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_recording_control",
     mix_env = "prod",

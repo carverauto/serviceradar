@@ -121,6 +121,7 @@ GATEWAY_DEV_DEPS = [
 # need those support modules on the code path.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":compile_srcs"],
     app_name = "serviceradar_agent_gateway",
     mix_env = "test",
@@ -132,6 +133,7 @@ mix_app(
 # of serviceradar_core, so no test-only application reaches the image.
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = [":compile_srcs"],
     app_name = "serviceradar_agent_gateway",
     mix_env = "prod",

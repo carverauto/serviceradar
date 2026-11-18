@@ -1402,6 +1402,7 @@ CORE_DEV_DEPS = [
 # path. Compiling under :prod would silently omit them.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = CORE_SRCS,
     app_name = "serviceradar_core",
     extra_config = CORE_EXTRA_CONFIG,
@@ -1417,6 +1418,7 @@ mix_app(
 # into production, so //build:elixir_release.bzl consumes this one.
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = CORE_SRCS,
     app_name = "serviceradar_core",
     extra_config = CORE_EXTRA_CONFIG,

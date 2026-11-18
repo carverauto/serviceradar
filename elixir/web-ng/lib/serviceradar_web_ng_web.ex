@@ -30,7 +30,6 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG.Dashboards,
       ServiceRadarWebNG.Edge,
       ServiceRadarWebNG.Homepage,
-      ServiceRadarWebNG.Jobs,
       ServiceRadarWebNG.Mcp,
       ServiceRadarWebNG.Plugins,
       ServiceRadarWebNG.RBAC,

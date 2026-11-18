@@ -231,7 +231,7 @@ defmodule ServiceRadarNVR.Publication do
 
     with :ok <- Storage.verify(storage),
          {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
-         {:ok, %File.Stat{type: :regular, links: 1, size: size, mode: mode}} when size in 1..limit <-
+         {:ok, %File.Stat{type: :regular, links: 1, size: size, mode: mode}} when size in 1..limit//1 <-
            File.lstat(path(storage, block_id, kind)),
          true <- Bitwise.band(mode, 0o077) == 0,
          {:ok, bytes} <- with_file(path(storage, block_id, kind), [:read], &:file.read(&1, limit + 1)),

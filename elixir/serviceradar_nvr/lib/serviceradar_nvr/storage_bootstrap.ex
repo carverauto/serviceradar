@@ -181,7 +181,7 @@ defmodule ServiceRadarNVR.StorageBootstrap do
 
   defp with_existing(path, modes, limit, fun) do
     case private_stat(path, :regular) do
-      {:ok, %{size: size} = stat} when size in 1..limit ->
+      {:ok, %{size: size} = stat} when size in 1..limit//1 ->
         with_file(path, modes, &fun.(&1, stat))
 
       {:error, _} = error ->

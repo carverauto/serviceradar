@@ -125,6 +125,7 @@ filegroup(
 # other Hex deps are the same separate targets the :prod build uses.
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = [":compile_srcs"],
     app_name = "serviceradar_core_elx",
     # Bazel builds the cdylibs; Mix must not shell out to cargo. The libraries reach the
@@ -148,6 +149,7 @@ mix_app(
 # suite in any CI, so its tests could rot unnoticed.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":compile_srcs"],
     app_name = "serviceradar_core_elx",
     extra_config = [

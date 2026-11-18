@@ -36,6 +36,7 @@ filegroup(
 # Bazel-built ErlangAppInfo rather than fetched. See //build:mix_app.bzl.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_srql",
     # Bazel builds the cdylib; Mix must not shell out to cargo. The library itself arrives
