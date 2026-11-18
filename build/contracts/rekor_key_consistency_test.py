@@ -20,9 +20,10 @@ SIGSTORE = REPO / "docs/sigstore"
 IMAGE_SIGSTORE = "usr/share/serviceradar/sigstore"
 ALLOWLIST = SIGSTORE / "pre-cutover-first-party-digests.json"
 # The pre-cutover allowlist is frozen (design.md, Decision 9): generated once from every
-# Wasm plugin and native add-on index published before the cutover release and never
+# Wasm plugin and native add-on index published before the cutover release (v1.5.8 or later;
+# it covers every index through v1.5.7, which was cut without the receipt signer) and never
 # regenerated or extended. Changing this hash is changing what imports without a receipt.
-FROZEN_ALLOWLIST_SHA256 = "55c904103d4b22a3bb08f0e7405e808f88b40e763710d61c48decb4b7ad644df"
+FROZEN_ALLOWLIST_SHA256 = "ce0e1d109bbce0f4dbf48a07a7476a25844825e1f5cdf1fe492e4c7291150445"
 # GHSA-whqx-f9j3-ch6m (3.0.4), GHSA-wfqv-66vq-46rm (3.0.5), GHSA-w6c6-c85g-mmv6 (3.0.6),
 # GHSA-fx35-mq7g-6g98 (3.1.3).
 MINIMUM_COSIGN = (3, 1, 3)
