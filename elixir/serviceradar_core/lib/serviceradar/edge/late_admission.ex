@@ -318,12 +318,15 @@ defmodule ServiceRadar.Edge.LateAdmission do
   defp check(_failed, reason), do: {:error, {:late_admission_grant, reason}}
 
   defp binds_delivery?(claims, late, %{record: record} = delivery) do
-    <<millis::48, _::80>> = record.event_id
-    epoch = (record.producer_context && record.producer_context.authority_epoch) || 0
-
-    claims.event_id == record.event_id and claims.record_sha256 == delivery.record_sha256 and
-      claims.spool_id == delivery.slot.spool_id and claims.sequence == delivery.slot.sequence and
-      late.produced_at_unix_nano == millis * @ns_per_ms and late.authority_epoch == epoch
+    with <<millis::48, _::80>> <- record.event_id,
+         epoch when is_integer(epoch) and epoch >= 0 <-
+           (record.producer_context && record.producer_context.authority_epoch) || 0 do
+      claims.event_id == record.event_id and claims.record_sha256 == delivery.record_sha256 and
+        claims.spool_id == delivery.slot.spool_id and claims.sequence == delivery.slot.sequence and
+        late.produced_at_unix_nano == millis * @ns_per_ms and late.authority_epoch == epoch
+    else
+      _malformed -> false
+    end
   end
 
   defp delivered_publication(:EDGE_LATE_PUBLICATION_PRIMARY), do: :primary

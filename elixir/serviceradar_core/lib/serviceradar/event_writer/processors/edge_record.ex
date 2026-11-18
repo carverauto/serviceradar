@@ -349,17 +349,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   defp late_route(%{publication: route}, route), do: :ok
   defp late_route(_late, _route), do: {:error, :late_admission_publication_route}
 
-  defp late_authority(repo, record, %{publication: :primary} = late) do
-    context = record.producer_context
-
-    if LateAdmission.revoked_interval?(
+  defp late_authority(
          repo,
-         context.producer_assignment_id,
-         context.authority_epoch || 0
-       ),
-       do: {:error, :certificate_revoked_interval},
-       else: {:ok, late}
+         %{producer_context: %{producer_assignment_id: <<_::128>> = assignment_id} = context},
+         %{publication: :primary} = late
+       ) do
+    if LateAdmission.revoked_interval?(repo, assignment_id, context.authority_epoch || 0),
+      do: {:error, :certificate_revoked_interval},
+      else: {:ok, late}
   end
+
+  defp late_authority(_repo, _record, %{publication: :primary}),
+    do: {:error, {:late_admission_grant, :binding}}
 
   defp late_authority(_repo, _record, late), do: {:ok, late}
 
