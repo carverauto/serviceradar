@@ -196,27 +196,33 @@ it like any other metric stream:
 in:rperf | sort timestamp desc | limit 50
 
 -- Throughput for a single target over the last day
-in:rperf metric_name:"bits_per_second" target_device_ip:"10.0.0.20"
+in:rperf metric_name:"rperf.bits_per_second" target_device_ip:"10.0.0.20"
   | sort timestamp desc
 
 -- UDP packet loss
-in:rperf metric_name:"loss_percent" | sort timestamp desc
+in:rperf metric_name:"rperf.loss_percent" | sort timestamp desc
 ```
 
 See the [SRQL Language Reference](./srql-language-reference.md) for the full
 `timeseries_metrics` field list (`metric_name`, `metric_type`, `value`,
 `target_device_ip`, `agent_id`, `timestamp`, and so on).
 
+## Network Performance dashboard
+
+The built-in Network Performance dashboard at `/dashboards/network-performance`
+shows rperf throughput, loss, jitter and availability per agent and target for
+the last 24 hours.
+
 ## Alerting on degradation
 
 Because results land in `timeseries_metrics`, you can build alerts the same way
 you would for any metric:
 
-- **Throughput drop** — alert when `bits_per_second` for a target falls below an
+- **Throughput drop** — alert when `rperf.bits_per_second` for a target falls below an
   expected baseline.
-- **Packet loss** — alert when `loss_percent` rises above a threshold (for UDP
+- **Packet loss** — alert when `rperf.loss_percent` rises above a threshold (for UDP
   targets).
-- **Jitter** — alert when `jitter_ms` exceeds your tolerance for latency-
+- **Jitter** — alert when `rperf.jitter_ms` exceeds your tolerance for latency-
   sensitive workloads.
 - **Missing results** — alert when no rperf metrics arrive for a target within
   a multiple of its `poll_interval`, which usually means the checker cannot
