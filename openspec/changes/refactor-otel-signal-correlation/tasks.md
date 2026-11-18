@@ -54,9 +54,11 @@
 
 ## 4. Trace context propagation
 
-- [x] 4.1 Elixir: attach active span context to exported logs; verify
+- [ ] 4.1 Elixir: attach active span context to exported logs; verify
       gRPC/HTTP client propagation (web-ng → core-elx → datasvc); inject/extract
       context on internal NATS hops
+      (reopened: demo wire data showed no Elixir gRPC stub injected context;
+      `connect-platform-trace-context` D3 owns Elixir gRPC client propagation)
 - [x] 4.2 Go: wire `InitializeTracing` into core/agent services that should
       emit spans (currently zero callers); propagate context on gRPC
 - [ ] 4.3 Rust services: propagate inbound context where spans are created

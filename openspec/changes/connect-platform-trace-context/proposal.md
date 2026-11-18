@@ -90,7 +90,7 @@ spans, and re-enabling Ecto/Oban tracing by default.
 ## Impact
 
 - Affected specs: `observability-signals` (ADDED requirements). The change
-  completes and supersedes tasks 4.3 and 4.5 of
+  supersedes task 4.3 (closed as out of scope) and completes task 4.5 of
   `refactor-otel-signal-correlation`.
 - Affected code:
   - `elixir/serviceradar_agent_gateway`: endpoint interceptor, edge-record
