@@ -444,10 +444,64 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
         self.assertEqual(len(self.world.discord), 1)
+        self.assertIn("log index 99", self.world.issues[0]["body"])
+
+    def canary_line(self, log_index, integrated):
+        log_id = hashlib.sha256(monitor.pem_der(self.world.log_pub.read_text())).hexdigest()
+        return {"event": "logged", "log_id": log_id, "log_index": log_index,
+                "integrated_time": int(integrated.timestamp()), "subject": f"registry.example/x{log_index}"}
+
+    def test_a_closed_canary_issue_does_not_hide_an_unseen_entry(self):
+        self.world.add_run("publish-oci.yml", 15, NOW - timedelta(hours=8), NOW - timedelta(hours=3),
+                           [self.canary_line(99, NOW - timedelta(hours=5))])
+        self.assertEqual(self.run_monitor(), 0)
         self.world.issues[0]["state"] = "closed"
+        # The ledger has aged out; the finding is kept in the checkpoint.
+        self.world.runs["publish-oci.yml"].clear()
+        self.world.ledgers.clear()
         self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
-        self.assertEqual(self.titles(), [], "an already checked run was checked again")
-        self.assertEqual(len(self.world.discord), 1)
+        self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
+        self.assertIn("log index 99", self.world.issues[1]["body"])
+        self.assertIn("log index 99", self.world.discord[-1])
+        self.assertEqual(len(self.world.discord), 2)
+
+    def test_a_later_unseen_entry_is_named_on_the_open_canary_issue(self):
+        self.world.add_run("publish-oci.yml", 16, NOW - timedelta(hours=8), NOW - timedelta(hours=3),
+                           [self.canary_line(99, NOW - timedelta(hours=5))])
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.add_run("native-addons.yml", 17, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [self.canary_line(100, NOW - timedelta(hours=3))])
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.assertEqual(len(self.world.issues), 1)
+        self.assertIn("log index 100", self.world.issues[0]["comments"][-1])
+        self.assertNotIn("log index 99", self.world.issues[0]["comments"][-1])
+        self.assertIn("log index 99", self.world.discord[-1])
+        self.assertIn("log index 100", self.world.discord[-1])
+
+    def test_an_unseen_entry_is_reported_until_it_appears_in_the_log(self):
+        self.world.add_run("publish-oci.yml", 18, NOW - timedelta(hours=8), NOW - timedelta(hours=3),
+                           [self.canary_line(2, NOW - timedelta(hours=5))])
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.discord_status = 500
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.world.discord_status = 204
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=2)), 0)
+        self.assertEqual(len(self.world.discord), 2, "an unseen entry was not reported again")
+        self.world.add_entry(b"late", key_pub=self.world.other_pub)
+        entry = self.world.add_entry(b"index two", when=NOW - timedelta(hours=5))
+        self.world.ledgers[18].append({"event": "sign", "payload_sha256": entry["payload_sha256"]})
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=3)), 0)
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=4)), 0)
+        self.assertEqual(len(self.world.discord), 2, "an entry now in the log was still reported")
+
+    def test_a_rerun_that_ends_later_is_checked_again(self):
+        self.world.add_run("publish-oci.yml", 19, NOW - timedelta(hours=8), NOW - timedelta(hours=3), [])
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.runs["publish-oci.yml"].clear()
+        self.world.add_run("publish-oci.yml", 19, NOW - timedelta(hours=8), NOW - timedelta(hours=1),
+                           [self.canary_line(99, NOW - timedelta(hours=2))])
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=2)), 0)
+        self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
 
     def test_entries_that_do_not_fit_one_discord_message_are_posted_on_later_runs(self):
         entries = [self.world.add_entry(f"signed outside any run {number}".encode()) for number in range(30)]

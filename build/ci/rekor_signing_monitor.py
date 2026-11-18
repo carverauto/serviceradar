@@ -16,7 +16,9 @@ a ledger explained stays explained after that run and its ledger artifact age ou
 
 An issue whose entry later becomes explained is closed. The blindness canary alerts when a
 ledgered entry from a run that ended more than two scan intervals ago is not among the entries
-the monitor saw; each run is checked once, and the checkpoint records which were. Any failure (log unreachable, signature or root mismatch, a rewritten tree, a
+the monitor saw. A run is recorded as checked once every entry it ledgered was seen; each unseen
+entry is kept in the checkpoint and reported (named on the open canary issue, or a new one, and
+on Discord) every run until it is seen or its log index is acknowledged. Any failure (log unreachable, signature or root mismatch, a rewritten tree, a
 changed log key, missing state) exits non-zero after opening an issue, so it cannot pass quietly.
 
 openspec/changes/restore-signature-tlog-receipts, design.md Decisions 5 and 7.
@@ -282,8 +284,11 @@ class GitHub:
         return self.http.request(f"{self.api}/repos/{self.repository}/issues", "POST",
                                  {"title": title, "body": body, "labels": ISSUE_LABELS})
 
+    def comment(self, number, body):
+        self.http.request(f"{self.api}/repos/{self.repository}/issues/{number}/comments", "POST", {"body": body})
+
     def close_issue(self, number, comment):
-        self.http.request(f"{self.api}/repos/{self.repository}/issues/{number}/comments", "POST", {"body": comment})
+        self.comment(number, comment)
         self.http.request(f"{self.api}/repos/{self.repository}/issues/{number}", "PATCH", {"state": "closed"})
 
 
@@ -342,8 +347,8 @@ def blind_spots(matches, runs, ledgers, log_id, first_time):
             if line.get("integrated_time", 0) < first_time:
                 continue
             if line["log_index"] not in seen:
-                missing.append({"run": run["url"] or run["id"], "log_index": line["log_index"],
-                                "subject": line.get("subject")})
+                missing.append({"run_id": run["id"], "run": run["url"] or run["id"],
+                                "log_index": line["log_index"], "subject": line.get("subject")})
     return missing
 
 
@@ -397,15 +402,15 @@ def run(args, environ, now):
         raise MonitorFailure("the previous checkpoint is missing; re-run with bootstrap only after review")
 
     matches = release_key_entries(entries, release_der)
-    acknowledged = {item["uuid"]: f"{item['reason']} ({item['run']})"
-                    for item in json.loads(Path(args.acknowledged).read_text()).get("entries", [])}
+    acknowledged_items = json.loads(Path(args.acknowledged).read_text()).get("entries", [])
+    acknowledged = {item["uuid"]: f"{item['reason']} ({item['run']})" for item in acknowledged_items}
     first_time = state["first_integrated_time"]
     decided = state.setdefault("decisions", {})
     undecided = [integrated(match) for match in matches
                  if decided.get(match["uuid"], {}).get("status") != "explained" and match["uuid"] not in acknowledged]
     canary_since = max(datetime.fromtimestamp(first_time, timezone.utc), now - LEDGER_RETENTION)
     runs = signing_runs(github, min([canary_since] + [when - RUN_MARGIN for when in undecided]))
-    # Each ended run is checked by the canary once (again if a re-run ends later).
+    # An ended run is checked until all it ledgered was seen (again if a re-run ends later).
     checked = {run_id: ended for run_id, ended in state.get("canary_checked", {}).items()
                if ended >= (now - LEDGER_RETENTION).timestamp()}
     canary_runs = [run for run in runs
@@ -417,6 +422,11 @@ def run(args, environ, now):
                and (run in canary_runs or any(active_at(run, when) for when in undecided))}
     explained, pending, unexplained = decide(matches, runs, ledgers, acknowledged, decided)
     blind = blind_spots(matches, canary_runs, ledgers, log_id, first_time)
+    findings = state.get("canary_findings", {})
+    for item in blind:
+        findings.setdefault(f"{item['run_id']}:{item['log_index']}", item)
+    resolved = {match["log_index"] for match in matches} | {item["log_index"] for item in acknowledged_items}
+    findings = {key: item for key, item in findings.items() if item["log_index"] not in resolved}
 
     open_issues = github.open_issues()
     by_uuid = {}
@@ -442,16 +452,26 @@ def run(args, environ, now):
         decided[uuid] = {"status": "explained" if source == "ledger" else "acknowledged", "reason": reason}
         if uuid in by_uuid:
             github.close_issue(by_uuid[uuid]["number"], f"Explained by {reason}.")
-    if blind:
-        details = "\n".join(f"- log index {item['log_index']} ({item['subject']}) from {item['run']}" for item in blind)
+    canary_lines = {key: f"ledgered log index {item['log_index']} ({item['subject']}) from {item['run']} not seen"
+                    for key, item in sorted(findings.items())}
+    if findings:
         title = "Rekor signing monitor is blind to ledgered entries"
-        if not any(issue["title"] == title for issue in open_issues):
-            github.open_issue(title, "Ledgered signatures the monitor never saw in the log. The monitor or "
-                                     f"the receipt is broken:\n\n{details}")
-        alerts.append((f"blindness canary: {len(blind)} ledgered entr{'y' if len(blind) == 1 else 'ies'} not seen",
-                       None))
+        canary_issue = next((issue for issue in open_issues if issue["title"] == title), None)
+        unnamed = [key for key in canary_lines
+                   if canary_issue is None or findings[key].get("issue") != canary_issue["number"]]
+        details = "\n".join(f"- {canary_lines[key]}" for key in unnamed)
+        if canary_issue is None:
+            canary_issue = github.open_issue(title, "Ledgered signatures the monitor never saw in the log. The "
+                                                    f"monitor or the receipt is broken:\n\n{details}")
+        elif unnamed:
+            github.comment(canary_issue["number"], f"More ledgered signatures the monitor never saw:\n\n{details}")
+        for key in unnamed:
+            findings[key]["issue"] = canary_issue["number"]
+        alerts.append((f"blindness canary: {len(findings)} ledgered entr{'y' if len(findings) == 1 else 'ies'} "
+                       "not seen", None))
     alerts += [(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})", match["uuid"])
                for match in unalerted]
+    alerts += [(line, None) for line in canary_lines.values()]
     content, sent = "Rekor signing monitor:", set()
     for line, uuid in alerts:
         if len(content) + len(line) + 3 <= MESSAGE_LIMIT:
@@ -461,14 +481,17 @@ def run(args, environ, now):
     for match in unexplained:
         decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"],
                                   "alerted": (delivered and match["uuid"] in sent) or match not in unalerted}
-    checked.update({str(run["id"]): int(run["ended"].timestamp()) for run in canary_runs})
+    missing_runs = {item["run_id"] for item in blind}
+    checked.update({str(run["id"]): int(run["ended"].timestamp()) for run in canary_runs
+                    if run["id"] not in missing_runs})
     state["canary_checked"] = checked
+    state["canary_findings"] = findings
 
     state.update({"tree_size": size, "root_hash": root, "checked_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                   "pending": [match["uuid"] for match in pending]})
     Path(args.state_out).write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
     print(f"log size {size}; {len(matches)} release-key entries; {len(pending)} pending; "
-          f"{len(unexplained)} unexplained; {len(blind)} blind")
+          f"{len(unexplained)} unexplained; {len(findings)} blind")
     return 0
 
 
