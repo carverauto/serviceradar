@@ -226,6 +226,30 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
 
     other_epoch = put_in(delivery.record.producer_context.authority_epoch, 4)
 
+    epoch_zero_grant =
+      LateAdmission.grant(
+        %{item | authority_epoch: 0},
+        {:grant, :audit, :ledger_pruned},
+        key,
+        @now
+      )
+
+    {:ok, epoch_zero_proof} =
+      PublicationIdentity.delivery_proof_digest(
+        epoch_zero_grant,
+        PublicationIdentity.mode_late_admission()
+      )
+
+    epoch_zero = put_in(delivery.record.producer_context.authority_epoch, 0)
+    missing_epoch = put_in(delivery.record.producer_context.authority_epoch, nil)
+
+    assert {:ok, _} =
+             LateAdmission.verify_delivered(
+               epoch_zero_grant,
+               %{epoch_zero | proof: epoch_zero_proof},
+               key
+             )
+
     for {candidate, delivery, verifier, reason} <- [
           {grant, %{delivery | proof: :crypto.hash(:sha256, "another grant")}, key, :proof},
           {grant, delivery, other_key, :issuer},
@@ -237,7 +261,7 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
           {grant, put_in(delivery.record.event_id, binary_part(item.event_id, 0, 15)), key,
            :binding},
           {grant, put_in(delivery.record.producer_context.authority_epoch, -1), key, :binding},
-          {grant, put_in(delivery.record.producer_context.authority_epoch, nil), key, :binding}
+          {epoch_zero_grant, %{missing_epoch | proof: epoch_zero_proof}, key, :binding}
         ] do
       assert LateAdmission.verify_delivered(candidate, delivery, verifier) ==
                {:error, {:late_admission_grant, reason}}
