@@ -51,7 +51,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       {:id, "proxmox_console_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
       {:id, "remote_access_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
       {:id, "remote_access_requests_credential_rule_id_fkey", "credential_rule_in_use"},
-      {:id, "remote_access_desktop_targets_credential_rule_id_fkey", "credential_rule_in_use"}
+      {:id, "remote_access_desktop_targets_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "declarative_check_credential_bindings_credential_rule_id_fkey",
+       "credential_rule_in_use"}
     ]
 
     references do

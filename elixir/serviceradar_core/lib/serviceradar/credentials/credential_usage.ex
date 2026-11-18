@@ -20,6 +20,8 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.NetworkCredentialSecretBinding
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheck
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckCredentialBinding
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -175,7 +177,8 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
       {:recording_archive_settings, &load_recording_archive_settings/1},
       {:plugin_repositories, &load_plugin_repositories/1},
       {:ansible_controllers, &load_ansible_controllers/1},
-      {:ansible_playbook_repositories, &load_ansible_playbook_repositories/1}
+      {:ansible_playbook_repositories, &load_ansible_playbook_repositories/1},
+      {:declarative_check_credential_bindings, &load_declarative_check_credential_bindings/1}
     ]
 
     run_loaders(loaders, ids)
@@ -405,6 +408,52 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
       [:id, :credential_secret_id, :name]
     )
     |> map_direct(:ansible_playbook_repository, :credential_secret_id, :name)
+  end
+
+  defp load_declarative_check_credential_bindings(ids) do
+    query = Ash.Query.filter(DeclarativeCheckCredentialBinding, credential_secret_id in ^ids)
+
+    with {:ok, rows} <-
+           read_selected(
+             DeclarativeCheckCredentialBinding,
+             query,
+             [:id, :check_id, :slot, :credential_secret_id]
+           ) do
+      map_declarative_check_bindings(rows)
+    end
+  end
+
+  defp map_declarative_check_bindings([]), do: {:ok, []}
+
+  defp map_declarative_check_bindings(rows) do
+    check_ids = rows |> Enum.map(& &1.check_id) |> Enum.uniq()
+    check_query = Ash.Query.filter(DeclarativeCheck, id in ^check_ids)
+
+    with {:ok, checks} <- read_selected(DeclarativeCheck, check_query, [:id, :name, :slug]) do
+      checks_by_id =
+        Map.new(checks, fn c ->
+          label = present_label(c.name) || present_label(c.slug) || to_string(c.id)
+          {to_string(c.id), label}
+        end)
+
+      if map_size(checks_by_id) == length(check_ids) do
+        {:ok,
+         Enum.map(rows, fn row ->
+           check_id = to_string(row.check_id)
+           base_label = Map.fetch!(checks_by_id, check_id)
+
+           direct_entry(
+             row.credential_secret_id,
+             :declarative_check,
+             check_id,
+             "#{base_label} (#{row.slot})",
+             row.slot
+           )
+         end)}
+      else
+        :error
+      end
+    end
   end
 
   defp read_selected(resource, query_or_resource, fields, opts \\ []) do

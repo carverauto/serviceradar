@@ -79,6 +79,7 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
                {:ansible_controller, ids.ansible_controller, :sync},
                {:ansible_playbook_repository, ids.ansible_playbook_repository, nil},
                {:credential_rule, ids.credential_rule, nil},
+               {:declarative_check, ids.declarative_check, "api_auth"},
                {:device_snmp_credential, ids.device_snmp_credential, nil},
                {:integration_source, ids.integration_source, nil},
                {:mapper_job, ids.mapper_job, nil},
@@ -300,7 +301,8 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
       recording_archive_settings: "deployment",
       plugin_repository: uuid(),
       ansible_controller: uuid(),
-      ansible_playbook_repository: uuid()
+      ansible_playbook_repository: uuid(),
+      declarative_check: uuid()
     }
 
     sql!(
@@ -366,6 +368,24 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
       [
         dump(ids.ansible_playbook_repository),
         "https://github.com/example/playbooks-#{System.unique_integer([:positive])}.git",
+        dump(secret_id)
+      ]
+    )
+
+    sql!(
+      "INSERT INTO platform.declarative_checks (id, schema_version, slug, name, state, template_fingerprint) VALUES ($1, 1, $2, 'Usage Declarative Check', 'draft', $3)",
+      [
+        dump(ids.declarative_check),
+        "usage-decl-check-#{System.unique_integer([:positive])}",
+        String.duplicate("a", 64)
+      ]
+    )
+
+    sql!(
+      "INSERT INTO platform.declarative_check_credential_bindings (id, check_id, slot, credential_secret_id) VALUES ($1, $2, 'api_auth', $3)",
+      [
+        dump(uuid()),
+        dump(ids.declarative_check),
         dump(secret_id)
       ]
     )

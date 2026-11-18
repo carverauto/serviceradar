@@ -6,6 +6,8 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   """
 
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckEdgeObservation
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckInstance
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceAgentAvailability
@@ -250,6 +252,17 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  @doc """
+  Repoint declarative check instances and edge observations to the canonical
+  device during DIRE merges. Duplicates on `(check_id, target_key)` are dropped
+  in favor of the surviving canonical device's current state.
+  """
+  def reassign_declarative_check_results(from_id, to_id, actor) do
+    with :ok <- DeclarativeCheckInstance.reassign_device(from_id, to_id, actor: actor) do
+      DeclarativeCheckEdgeObservation.reassign_device(from_id, to_id, actor: actor)
     end
   end
 

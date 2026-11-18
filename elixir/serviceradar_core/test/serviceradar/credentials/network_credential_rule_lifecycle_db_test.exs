@@ -4,6 +4,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleLifecycleDbTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.DeclarativeChecks
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckCredentialBinding
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -52,6 +54,65 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleLifecycleDbTest do
     assert :ok = rule |> disable() |> NetworkCredentialRule.destroy_rule(actor: @actor)
     assert {:error, missing_error} = issue(rule)
     assert Exception.message(missing_error) =~ "credential_rule_unavailable"
+  end
+
+  test "disabled rules bound to a declarative check credential slot prevent deletion until unbound" do
+    rule = rule_fixture()
+
+    {:ok, check} =
+      DeclarativeChecks.create_check(
+        %{
+          "schema_version" => 1,
+          "slug" => "rule-lifecycle-check-#{System.unique_integer([:positive])}",
+          "name" => "Rule Lifecycle Check",
+          "state" => "draft",
+          "credential_slots" => [%{"slot" => "api_auth", "kind" => "api_token"}],
+          "nodes" => [
+            %{
+              "id" => "probe_1",
+              "kind" => "http_request",
+              "config" => %{
+                "url" => "https://example.com/healthz",
+                "credential_slot" => "api_auth"
+              }
+            },
+            %{
+              "id" => "assert_1",
+              "kind" => "threshold_assert",
+              "config" => %{
+                "field" => "status_code",
+                "crit" => %{"op" => "!=", "value" => 200}
+              }
+            },
+            %{
+              "id" => "out_1",
+              "kind" => "alert_output",
+              "config" => %{}
+            }
+          ],
+          "edges" => [
+            %{"id" => "e1", "source" => "probe_1", "target" => "assert_1"},
+            %{"id" => "e2", "source" => "assert_1", "target" => "out_1"}
+          ]
+        },
+        actor: @actor,
+        skip_srql_nif?: true
+      )
+
+    assert {:ok, [binding]} =
+             DeclarativeChecks.upsert_credential_bindings(
+               check,
+               [%{"slot" => "api_auth", "credential_rule_id" => rule.id}],
+               actor: @actor
+             )
+
+    disabled = disable(rule)
+    assert {:error, delete_error} = NetworkCredentialRule.destroy_rule(disabled, actor: @actor)
+    assert Exception.message(delete_error) =~ "credential_rule_in_use"
+
+    assert :ok = Ash.destroy(binding, actor: @actor)
+    assert %DeclarativeCheckCredentialBinding{} = binding
+    assert :ok = NetworkCredentialRule.destroy_rule(disabled, actor: @actor)
   end
 
   @tag sandbox: :unboxed

@@ -1538,6 +1538,41 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         }
       ]
+    },
+    %{
+      section: "declarative_checks",
+      label: "Declarative checks",
+      permissions: [
+        %{
+          key: "declarative_checks.view",
+          section: "declarative_checks",
+          resource: "declarative_checks",
+          action: "view",
+          label: "View declarative checks",
+          description:
+            "View declarative service and posture checks, target verdicts, and secret-free canonical exports",
+          default_roles: @all_roles
+        },
+        %{
+          key: "declarative_checks.manage",
+          section: "declarative_checks",
+          resource: "declarative_checks",
+          action: "manage",
+          label: "Manage declarative checks",
+          description:
+            "Create, update, import, delete, and bind credentials to declarative service and posture checks",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "declarative_checks.evaluate",
+          section: "declarative_checks",
+          resource: "declarative_checks",
+          action: "evaluate",
+          label: "Evaluate declarative checks",
+          description: "Execute bounded ephemeral test runs on declarative check graphs",
+          default_roles: @operator_roles
+        }
+      ]
     }
   ]
 

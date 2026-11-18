@@ -10,6 +10,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Camera.RelaySessionReaperWorker
   alias ServiceRadar.CompositeChecks.TickWorker
   alias ServiceRadar.Credentials.BrokerRetentionWorker
+  alias ServiceRadar.DeclarativeChecks.TickWorker, as: DeclarativeCheckTickWorker
   alias ServiceRadar.Edge.EdgeLedgerRetentionWorker
   alias ServiceRadar.Edge.ManagedCertificateReconcileWorker
   alias ServiceRadar.Edge.RemoteAccessRecordingReaperWorker
@@ -96,6 +97,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"* * * * *", PinSilenceWorker, queue: :maintenance},
       {"* * * * *", ManagedCertificateReconcileWorker, queue: :maintenance},
       {"* * * * *", TickWorker, queue: :monitoring},
+      {"* * * * *", DeclarativeCheckTickWorker, queue: :monitoring},
       {"*/5 * * * *", LeasePassWorker, queue: :maintenance}
     ] ++
       object_store_retention_entries(fetch) ++

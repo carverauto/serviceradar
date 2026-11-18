@@ -539,6 +539,12 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            :ok <- Availability.move_evidence(from_device_id, to_device_id),
            :ok <-
              Reassignments.reassign_composite_results(from_device_id, to_device_id, actor),
+           :ok <-
+             Reassignments.reassign_declarative_check_results(
+               from_device_id,
+               to_device_id,
+               actor
+             ),
            :ok <- Reassignments.reassign_alias_states(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_interfaces(from_device_id, to_device_id, actor),
            :ok <-

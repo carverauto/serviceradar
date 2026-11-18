@@ -199,7 +199,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       {:id, "camera_archive_settings_reader_secret_fkey", @credential_in_use_message},
       {:id, "camera_archive_settings_retention_secret_fkey", @credential_in_use_message},
       {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
-      {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message}
+      {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message},
+      {:id, "declarative_check_credential_bindings_credential_secret_id_fkey",
+       @credential_in_use_message}
     ]
   end
 
