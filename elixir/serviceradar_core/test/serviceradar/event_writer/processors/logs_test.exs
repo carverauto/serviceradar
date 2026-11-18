@@ -39,7 +39,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       result = Logs.parse_message(message)
 
-      assert result.timestamp == ~U[2024-01-15 10:30:00Z]
+      assert result.timestamp == ~U[2024-01-15 10:30:00.000000Z]
       assert result.trace_id == "0123456789abcdef0123456789abcdef"
       assert result.span_id == "0123456789abcdef"
       assert result.severity_text == "INFO"
@@ -303,8 +303,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
             metadata: %{subject: "logs.syslog", received_at: received_at}
           })
 
-        assert row.timestamp == received_at
-        assert row.observed_timestamp == received_at
+        assert DateTime.compare(row.timestamp, received_at) == :eq
+        assert DateTime.compare(row.observed_timestamp, received_at) == :eq
         assert row.attributes["_syslog_original_timestamp"] == timestamp
         assert row.attributes["_syslog_timestamp_fallback"] == true
       end
@@ -335,7 +335,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
             metadata: %{subject: "logs.syslog", received_at: received_at}
           })
 
-        assert row.timestamp == received_at
+        assert DateTime.compare(row.timestamp, received_at) == :eq
         assert row.attributes["_syslog_original_timestamp"] == timestamp
         assert row.attributes["_syslog_timestamp_fallback"] == true
       end
@@ -351,7 +351,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
             metadata: %{subject: "logs.syslog", received_at: received_at}
           })
 
-        assert DateTime.to_iso8601(row.timestamp) == timestamp
+        assert {:ok, written, 0} = DateTime.from_iso8601(timestamp)
+        assert DateTime.compare(row.timestamp, written) == :eq
         refute Map.has_key?(row.attributes, "_syslog_original_timestamp")
       end
     end
@@ -370,7 +371,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
             metadata: %{subject: "logs.syslog", received_at: received_at}
           })
 
-        assert DateTime.to_iso8601(row.timestamp) == timestamp
+        assert {:ok, written, 0} = DateTime.from_iso8601(timestamp)
+        assert DateTime.compare(row.timestamp, written) == :eq
         refute Map.has_key?(row.attributes, "_syslog_original_timestamp")
       end
     end
@@ -798,7 +800,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
         })
 
       # Like a JSON row, a record with no observed time takes the receive time.
-      assert row.observed_timestamp == received_at
+      assert DateTime.compare(row.observed_timestamp, received_at) == :eq
       # Flags describe a trace; without one they say nothing.
       assert row.trace_flags == nil
       assert row.event_name == nil

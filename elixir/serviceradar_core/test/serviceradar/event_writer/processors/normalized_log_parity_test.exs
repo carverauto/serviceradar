@@ -7,6 +7,10 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
   same syslog line when it normalizes the record itself (`otlp`). The
   collector's tests keep both current with its encoders
   (rust/flowgger/src/flowgger/normalized/tests.rs).
+
+  The hand-picked cases are in a shared file. The generated ones come from the
+  collector's own test binary, which this suite runs: the property covers two
+  languages, so the collector generates and encodes, and EventWriter compares.
   """
 
   use ExUnit.Case, async: false
@@ -18,6 +22,8 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
            "../../../../../../rust/flowgger/tests/resources/normalized_log_parity.json",
            __DIR__
          )
+  @generator_dir Path.expand("../../../../../../rust/flowgger", __DIR__)
+  @generator_test "flowgger::normalized::tests::props::write_parity_corpus"
   @rules {__MODULE__, :rules}
 
   defmodule RuleLoader do
@@ -47,6 +53,32 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
       assert {name, comparable(collector_normalized_row(shared))} ==
                {name, comparable(json_row(shared))}
     end
+  end
+
+  # Records, receive times and rule outputs the collector's generators draw, a
+  # fresh set on every run: 300, or as many as PARITY_CORPUS_CASES asks for. A
+  # failure prints one case of each kind; add it to the shared file to keep it.
+  # The Bazel target bounds the time.
+  @tag timeout: :infinity
+  test "both paths store the same row for generated records and rule outputs" do
+    wanted = String.to_integer(System.get_env("PARITY_CORPUS_CASES", "300"))
+    cases = generated_cases(wanted)
+    assert length(cases) >= wanted
+
+    disagreements =
+      for shared <- cases,
+          collector = shared |> collector_normalized_rows() |> Enum.map(&comparable/1),
+          json = shared |> json_rows() |> Enum.map(&comparable/1),
+          collector != json do
+        {differing_columns(collector, json), shared, collector, json}
+      end
+
+    assert disagreements == [],
+           "the two paths store different rows for #{length(disagreements)} of " <>
+             "#{length(cases)} generated cases. One of each kind:\n\n" <>
+             (disagreements
+              |> Enum.uniq_by(&elem(&1, 0))
+              |> Enum.map_join("\n\n", &describe/1))
   end
 
   # The rows agreeing proves nothing if both paths ignore the record, so one
@@ -80,6 +112,62 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
     refute Enum.any?(Map.keys(row.attributes), &String.starts_with?(&1, "serviceradar.column."))
   end
 
+  defp differing_columns([collector], [json]) do
+    for column <- Map.keys(collector), collector[column] != json[column], do: column
+  end
+
+  defp differing_columns(collector, json), do: {:rows, length(collector), length(json)}
+
+  defp describe({columns, shared, collector, json}) do
+    stored =
+      case columns do
+        {:rows, _, _} ->
+          ["collector: #{inspect(collector)}", "json: #{inspect(json)}"]
+
+        columns ->
+          for column <- columns do
+            "#{column}: collector #{inspect(hd(collector)[column])}, " <>
+              "json #{inspect(hd(json)[column])}"
+          end
+      end
+
+    Enum.join(stored ++ [Jason.encode!(Map.delete(shared, "otlp"))], "\n")
+  end
+
+  defp generated_cases(wanted) do
+    assert [generator] =
+             Path.wildcard(Path.join(@generator_dir, "**/flowgger_properties_test")),
+           "the collector's property test binary is a declared input of this target"
+
+    corpus = Path.join(System.tmp_dir!(), "parity-corpus-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm(corpus) end)
+
+    {output, status} =
+      System.cmd(generator, ["--ignored", "--exact", @generator_test],
+        stderr_to_stdout: true,
+        env: [
+          {"PARITY_CORPUS_OUT", corpus},
+          # No example database, which a test sandbox cannot write; a random seed.
+          {"HEGEL_DEFAULT_PROFILE", "ci"},
+          {"HEGEL_DERANDOMIZE", "false"},
+          {"HEGEL_TEST_CASES", Integer.to_string(wanted)}
+        ]
+      )
+
+    assert status == 0, output
+
+    corpus |> File.stream!() |> Enum.map(&Jason.decode!/1)
+  end
+
+  defp json_rows(shared), do: shared |> json_row() |> List.wrap()
+
+  defp collector_normalized_rows(shared) do
+    Logs.parse_message(%{
+      data: Base.decode64!(shared["otlp"]),
+      metadata: collector_metadata(shared)
+    })
+  end
+
   defp json_row(shared) do
     Process.put(@rules, Enum.map(shared["rules"], &{&1["key"], Jason.encode!(&1["jdm"])}))
     Normalizer.invalidate_subject("logs.syslog")
@@ -93,20 +181,19 @@ defmodule ServiceRadar.EventWriter.Processors.NormalizedLogParityTest do
   # EventWriter reads the batch a day after the collector received the line:
   # every time in the row has to be the collector's.
   defp collector_normalized_row(shared) do
-    assert [row] =
-             Logs.parse_message(%{
-               data: Base.decode64!(shared["otlp"]),
-               metadata: %{
-                 subject: "logs.normalized.syslog",
-                 received_at: DateTime.shift(received_at(shared), day: 1),
-                 headers: [
-                   {"Sr-Log-Schema", "otlp-normalized-v1"},
-                   {"Sr-Ruleset-Id", "sha256:synthetic"}
-                 ]
-               }
-             })
-
+    assert [row] = collector_normalized_rows(shared)
     row
+  end
+
+  defp collector_metadata(shared) do
+    %{
+      subject: "logs.normalized.syslog",
+      received_at: DateTime.shift(received_at(shared), day: 1),
+      headers: [
+        {"Sr-Log-Schema", "otlp-normalized-v1"},
+        {"Sr-Ruleset-Id", "sha256:synthetic"}
+      ]
+    }
   end
 
   defp received_at(shared), do: DateTime.from_unix!(shared["received_unix_nano"], :nanosecond)

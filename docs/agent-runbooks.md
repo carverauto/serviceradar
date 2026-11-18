@@ -739,6 +739,12 @@ nightly at 02:00 UTC.
 `RustPropertyExploration` runs the Hegel properties with 2,000,000 random cases each, nightly
 at 06:40 UTC. A failing property prints a `#[hegel::reproduce_failure("...")]` line in the
 test log; paste it above the failing test to replay it.
+It then runs `//elixir/serviceradar_core:normalized_log_parity_serviceradar` with 30,000
+generated cases (a pull request runs 300): the log collector's generators draw records and
+rule outputs, and EventWriter must store the same row whether it or the collector ran the
+rules. A failure prints one case of each kind of disagreement. To keep one, add it to
+`rust/flowgger/tests/resources/normalized_log_parity.json`; the collector's test prints the
+`gelf` and `otlp` values for a new case.
 
 Nothing waits on a scheduled job, so the `Scheduled Job Watch` GitHub workflow
 (`.github/workflows/scheduled-job-watch.yml`, daily at 12:00 UTC, after the last nightly)

@@ -339,3 +339,137 @@ fn the_stored_time_is_the_senders_unless_its_clock_is_wrong(tc: TestCase) {
     }
     assert_eq!(record.observed_time_unix_nano, received);
 }
+
+/// `value` with every string and key reduced to text a Zen expression can
+/// quote: no quote, backslash or control character.
+fn quotable(value: &Value) -> Value {
+    let text = |text: &str| -> String {
+        text.chars()
+            .filter(|c| !matches!(c, '\'' | '\\') && !c.is_control())
+            .collect()
+    };
+    match value {
+        Value::String(value) => Value::String(text(value)),
+        Value::Array(items) => Value::Array(items.iter().map(quotable).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(name, value)| (text(name), quotable(value)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// `value` as a Zen expression literal.
+fn zen_literal(value: &Value) -> String {
+    match value {
+        Value::String(value) => format!("'{value}'"),
+        Value::Array(items) => {
+            let items: Vec<String> = items.iter().map(zen_literal).collect();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Object(fields) => {
+            let fields: Vec<String> = fields
+                .iter()
+                .map(|(name, value)| format!("'{name}': {}", zen_literal(value)))
+                .collect();
+            format!("{{{}}}", fields.join(", "))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// A rule whose output is `fields`: one expression per field.
+fn rule_returning(key: &str, fields: &serde_json::Map<String, Value>) -> Value {
+    let expressions: Vec<Value> = fields
+        .iter()
+        // A dot in an expression key addresses a nested field.
+        .filter(|(name, _)| !name.is_empty() && !name.contains('.'))
+        .enumerate()
+        .map(|(index, (name, value))| {
+            json!({"id": format!("e{index}"), "key": name, "value": zen_literal(value)})
+        })
+        .collect();
+    json!({
+        "key": key,
+        "jdm": {
+            "nodes": [
+                {"id": "in", "name": "Request", "type": "inputNode"},
+                {"id": "step", "name": "Set", "type": "expressionNode",
+                 "content": {"expressions": expressions}},
+                {"id": "out", "name": "Response", "type": "outputNode"}
+            ],
+            "edges": [
+                {"id": "a", "sourceId": "in", "targetId": "step", "type": "edge"},
+                {"id": "b", "sourceId": "step", "targetId": "out", "type": "edge"}
+            ]
+        }
+    })
+}
+
+/// Writes generated cases, in the shape of `normalized_log_parity.json`, one
+/// per line to the file named by `PARITY_CORPUS_OUT`. EventWriter's suite runs
+/// this and requires both of its paths to store the same row for every case
+/// (normalized_log_parity_generated_test.exs): the property spans two
+/// languages, so the generator is here and the check is there.
+#[hegel::test]
+#[ignore = "a generator, run by //elixir/serviceradar_core:normalized_log_parity_generated_test"]
+fn write_parity_corpus(tc: TestCase) {
+    use std::io::Write;
+
+    let config = Config::from_string(
+        "[input]\nrfc3164_timezone = \"UTC\"\n[output]\npartition = \"default\"\n",
+    )
+    .unwrap();
+    // Receive times from 2001 to 2096, so that sender times fall on both sides.
+    let received = tc.draw(
+        gs::integers::<u64>()
+            .min_value(1_000_000_000_000_000_000)
+            .max_value(4_000_000_000_000_000_000),
+    );
+    let mut record = any_record(&tc);
+    // Half of the senders have a clock within forty days of the collector's:
+    // that is where the wrong-clock rule decides.
+    if tc.draw(gs::booleans()) {
+        let skew = tc.draw(gs::floats::<f64>().min_value(-3.5e6).max_value(3.5e6));
+        record.ts = received as f64 / 1e9 + skew;
+    }
+    let rules: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|index| {
+            let Value::Object(fields) = quotable(&Value::Object(any_object(&tc, 2))) else {
+                unreachable!()
+            };
+            rule_returning(&format!("generated-{index}"), &fields)
+        })
+        .collect();
+    let compiled: Vec<(String, String)> = rules
+        .iter()
+        .map(|rule| {
+            (
+                rule["key"].as_str().unwrap().to_owned(),
+                rule["jdm"].to_string(),
+            )
+        })
+        .collect();
+
+    RECEIVED.set(received);
+    let frame = encoder(&config, active(&compiled))
+        .encode(copy(&record))
+        .unwrap();
+    let (_, request) = frame::decode(&frame).unwrap();
+    let case = json!({
+        "gelf": gelf_mode(&config, record),
+        "otlp": base64::engine::general_purpose::STANDARD.encode(request),
+        "received_unix_nano": received,
+        "rules": rules,
+    });
+
+    let path = std::env::var("PARITY_CORPUS_OUT").expect("PARITY_CORPUS_OUT names the output");
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .unwrap();
+    writeln!(out, "{case}").unwrap();
+}

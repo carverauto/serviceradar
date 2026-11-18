@@ -886,6 +886,8 @@ write_source_files(
     tags = ["manual"],
 )
 
+NORMALIZED_LOG_PARITY_TEST_SRC = "test/serviceradar/event_writer/processors/normalized_log_parity_test.exs"
+
 # Every ExUnit file in the project. test/db/** is excluded because those are the database
 # lifecycle targets (migrate_generation), not suite tests -- they are declared individually.
 ALL_TEST_SRCS = glob(
@@ -907,6 +909,8 @@ ALL_TEST_SRCS = glob(
         "test/serviceradar/event_writer/flow_startup_warnings_nats_test.exs",
         # Real JetStream publish of flow observations. Its target stages nats-server.
         "test/serviceradar/flow_attribution/observations_nats_test.exs",
+        # Runs the log collector's generator, which its own target below stages.
+        NORMALIZED_LOG_PARITY_TEST_SRC,
     ],
 )
 
@@ -924,6 +928,11 @@ RECORDING_WORKER_TEST_SRC = "test/integration/camera_recording_worker_integratio
 # large-ingestion gate use the same application/configuration fixtures, but release-gate test
 # sources remain source-separated and arrive only through the dedicated target's srcs.
 # Shared runtime inputs for unit tests and guarded integration lanes.
+NORMALIZED_LOG_PARITY_DATA = [
+    "//rust/flowgger:flowgger_properties_test",
+    "//rust/flowgger:normalized_log_parity",
+]
+
 _TEST_RUNTIME_DATA = glob(
     [
         # The custom Credo checks, which test/credo/ loads and runs.
@@ -953,10 +962,6 @@ _TEST_RUNTIME_DATA = glob(
     # labels) the parity harness's seeded rules mirror.
     "//integration_tests/srql_parity:app_classifier_cases.json",
     "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
-    # Read at runtime by
-    # test/serviceradar/event_writer/processors/normalized_log_parity_test.exs: the
-    # syslog cases shared with the log collector's encoders.
-    "//rust/flowgger:normalized_log_parity",
     # Read at runtime by
     # test/serviceradar/inventory/endpoint_inventory_package_set_hash_vectors_test.exs:
     # the package_set_hash vectors shared with the Go producer.
@@ -1399,6 +1404,19 @@ ex_unit_tests(
     srcs = ALL_TEST_SRCS,
     config_loader = "//build:elixir_test_config_loader.exs",
     data = _TEST_RUNTIME_DATA,
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+# A syslog record is stored the same whichever side ran its Zen rules: the hand-picked cases
+# shared with the log collector, and cases its property generators draw on each run. The
+# collector's property test binary is the generator, so this file has its own targets rather
+# than making every unit test group depend on the collector.
+ex_unit_tests(
+    name = "normalized_log_parity",
+    srcs = [NORMALIZED_LOG_PARITY_TEST_SRC],
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = _TEST_RUNTIME_DATA + NORMALIZED_LOG_PARITY_DATA,
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )
