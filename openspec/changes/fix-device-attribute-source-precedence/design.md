@@ -28,12 +28,15 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
    than the stored strength. A weaker write fills the attribute only when no
    value is stored. Nothing else decides: there is no test comparing the stored
    name with the stored address. A populated value without a recorded
-   strength (rows written before this change) is kept against every write
-   weaker than the strongest tier (address fallback, passive census sighting,
-   agent-software vendor, IEEE OUI); the next strongest-tier write (SNMP
-   `sysName`, hardware-enterprise `sysObjectID`, or integration-reported)
+   strength (rows written before this change) is kept against a weakest-tier
+   write (address fallback name, generic agent-software vendor); the next
+   write of a middle or strongest tier (passive census sighting, IEEE OUI,
+   SNMP `sysName`, hardware-enterprise `sysObjectID`, or integration-reported)
    replaces it and records its strength. A missing strength is never treated
-   as a recorded weak strength.
+   as a recorded weak strength. So the first census pass after rollout may
+   change an unrecorded spelling once (for example a legacy `Net-SNMP` or
+   hardware vendor spelling becomes the OUI spelling), and the first mapper
+   pass may change it once more to a stronger value.
 5. An address fallback name is derived from the address the device keeps after
    the address rank guard, never from an update address the guard rejected, so
    a link-local sighting cannot rename a device that keeps a better address.

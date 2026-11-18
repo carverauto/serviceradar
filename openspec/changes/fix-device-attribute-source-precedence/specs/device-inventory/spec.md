@@ -6,8 +6,8 @@ source and evidence strength of the value. A write SHALL replace a stored value
 only when its strength is equal to or greater than the recorded strength, and a
 weaker write SHALL only fill an attribute that has no stored value. A populated
 value without a recorded strength (written before this rule) SHALL be kept
-against every write weaker than the strongest tier; the next write of the
-strongest tier SHALL replace it and record its strength.
+against a write of the weakest tier; the next write of any higher tier SHALL
+replace it and record its strength.
 
 Name strength, weakest first: a name derived from an address because the update
 carries no hostname; a hostname from a passive census sighting; an SNMP
@@ -50,6 +50,7 @@ ingestion batch.
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets are selected and named from device attributes
+- **AND** the name and vendor of those devices already have recorded strengths
 - **WHEN** a mapper pass and a passive census pass alternate with no change on the network
 - **THEN** the compiled agent config version SHALL NOT change
 
