@@ -19,6 +19,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
   alias ServiceRadar.Edge.SemanticDigest
   alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1
   alias Serviceradar.Edge.V1.EdgeDeliveryRenewalV1
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
   alias Serviceradar.Edge.V1.EdgeProducerContext
@@ -153,7 +154,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
     payload = Keyword.get(opts, :payload, "synthetic generic telemetry batch")
 
     record = %EdgeRecordV1{
-      event_id: uuidv7(div(not_before, 1_000_000) + 1),
+      event_id: Keyword.get_lazy(opts, :event_id, fn -> uuidv7(div(not_before, 1_000_000) + 1) end),
       payload_family: Keyword.get(opts, :payload_family, :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1),
       compression: :EDGE_RECORD_COMPRESSION_NONE,
       encoded_size: byte_size(payload),
@@ -229,6 +230,44 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
 
     sign(envelope({:delivery, claims}, not_before, expires, @issuer_key_id), private_key)
   end
+
+  # Core's late-admission grant for `record` at `spool_id`/`sequence`: its decision (`:primary`
+  # or `:audit` with a reason) names the record's production time and fence epoch unless
+  # overridden. Current around now unless overridden.
+  def late_admission_capability(record, private_key, opts) do
+    now = System.os_time(:nanosecond)
+    not_before = Keyword.get(opts, :not_before, now - @hour_nanos)
+    expires = Keyword.get(opts, :expires, now + @hour_nanos)
+    <<millis::48, _::80>> = record.event_id
+
+    {publication, reason} =
+      case Keyword.get(opts, :decision, {:primary, :admitted}) do
+        {:primary, :admitted} -> {:EDGE_LATE_PUBLICATION_PRIMARY, :EDGE_LATE_DECISION_REASON_ADMITTED}
+        {:audit, reason} -> {:EDGE_LATE_PUBLICATION_AUDIT, late_reason(reason)}
+      end
+
+    claims = %EdgeDeliveryClaimsV1{
+      event_id: record.event_id,
+      record_sha256: :crypto.hash(:sha256, EdgeRecordV1.encode(record)),
+      spool_id: Keyword.fetch!(opts, :spool_id),
+      sequence: Keyword.get(opts, :sequence, 1),
+      transition:
+        {:late_admission,
+         %EdgeDeliveryLateAdmissionV1{
+           produced_at_unix_nano: Keyword.get(opts, :produced_at, millis * 1_000_000),
+           authority_epoch: Keyword.get(opts, :authority_epoch, record.producer_context.authority_epoch || 0),
+           publication: publication,
+           reason: reason
+         }}
+    }
+
+    sign(envelope({:delivery, claims}, not_before, expires, @issuer_key_id), private_key)
+  end
+
+  defp late_reason(:fenced_at_production), do: :EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION
+  defp late_reason(:history_unknown), do: :EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN
+  defp late_reason(:contract_retired), do: :EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED
+  defp late_reason(:ledger_pruned), do: :EDGE_LATE_DECISION_REASON_LEDGER_PRUNED
 
   def sign(capability, private_key) do
     signature = :crypto.sign(:eddsa, :none, CapabilitySigning.signing_bytes(capability), [private_key, :ed25519])

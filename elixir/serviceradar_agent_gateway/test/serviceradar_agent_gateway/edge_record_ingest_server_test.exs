@@ -255,19 +255,103 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                     }}
   end
 
-  # add-edge-production-time-admission phase 1: a LATE session carries records only core's
-  # authority history can judge, so until that path exists the gateway refuses the session
-  # instead of judging late records by the live rule -- and never acknowledges anything on it.
-  test "refuses a LATE lane_open until late admission is implemented" do
+  # add-edge-production-time-admission: a LATE session carries records only core's authority history
+  # can judge. It opens, a frame without core's late grant waits, and a granted one is published
+  # under the grant's decision, stamped LATE_ADMISSION.
+  test "opens a LATE session, withholds a frame without a late grant and publishes one under it" do
+    days_old = days_old_record()
+    # RFC 9562 UUIDv7: big-endian Unix milliseconds 1_784_000_000_123 lead the event id, so the
+    # grant's produced_at is that instant in nanoseconds (Go edgerecord.UUIDv7Nanos).
+    event_id = <<0x019F_5EAF_B07B::48, 7::4, 0xABC::12, 2::2, 0x1234_5678_9ABC::62>>
+    not_before = 1_784_000_000_123 * 1_000_000 - 1_000_000_000
+    granted = record(event_id: event_id, not_before: not_before, expires: not_before + 24 * Factory.hour_nanos())
+
+    grant =
+      Factory.late_admission_capability(granted, signing_keys().private,
+        spool_id: @spool_id,
+        sequence: 2,
+        produced_at: 1_784_000_000_123_000_000
+      )
+
+    install_trust(fences: [], scopes: [])
     late = %{lane_open() | late_admission: true}
 
-    error =
-      assert_raise GRPC.RPCError, fn ->
-        EdgeRecordIngestServer.stream([client({:lane_open, late})], stream())
-      end
+    messages = [
+      client({:lane_open, late}),
+      client({:delivery_frame, frame(1, days_old)}),
+      client({:delivery_frame, frame(2, granted, delivery_capability: grant)})
+    ]
 
-    assert error.status == GRPC.Status.unimplemented()
-    refute_received {:edge_record_stream_reply, _}
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+    assert_receive {:edge_record_published, %{slot: %{sequence: 2}} = published}
+    assert published.publication == :primary
+    assert published.delivery_mode == PublicationIdentity.mode_late_admission()
+    assert byte_size(published.delivery_proof) == 32
+
+    # 1 waits for its grant, so it caps the watermark: no ack resolves either sequence yet.
+    refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
+  # Owner decision 2026-11-17 (design Decision 7): an AUDIT record is never projected, so on a late
+  # session it is routed from the lane whatever its reason, never refused for a retired epoch.
+  test "a LATE session publishes an AUDIT record of a retired registry epoch from the lane, not rejecting it" do
+    newer = Factory.registry_epoch(epoch: 2_000_000)
+    install_trust(fences: [], scopes: [], contract_registry: Factory.registry_member([newer]))
+    retired = days_old_record()
+
+    grant =
+      Factory.late_admission_capability(retired, signing_keys().private,
+        spool_id: @spool_id,
+        decision: {:audit, :fenced_at_production}
+      )
+
+    late = %{lane_open() | late_admission: true}
+
+    messages = [
+      client({:lane_open, late}),
+      client({:delivery_frame, frame(1, retired, delivery_capability: grant)})
+    ]
+
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+    assert_receive {:edge_record_published, %{slot: %{sequence: 1}} = published}
+    assert published.publication == :audit
+    assert published.delivery_mode == PublicationIdentity.mode_late_admission()
+    assert published.route_profile == late.route_profile
+    assert published.traffic_class == late.traffic_class
+    assert published.partition_rule == :network_scope_v1
+
+    assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind, &1.rejection_code}) ==
+             [{1, retired.event_id, @audit_only, ""}]
+  end
+
+  test "a LIVE session at late-admission version 1 relocates a stale-fence record; version 0 rejects it" do
+    assignment = Factory.uuidv7()
+    install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
+
+    for {version, code} <- [{1, "LATE_ADMISSION_REQUIRED"}, {0, "REJECTED_PERMANENT"}] do
+      stale = record(producer_assignment_id: assignment)
+      valid = record()
+      open = %{lane_open() | late_admission_protocol_version: version}
+
+      messages = [
+        client({:lane_open, open}),
+        client({:delivery_frame, frame(1, stale)}),
+        client({:delivery_frame, frame(2, valid)})
+      ]
+
+      assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+      assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind, &1.rejection_code}) ==
+               [{1, stale.event_id, @permanent, code}, {2, valid.event_id, @accepted, ""}]
+
+      refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
+    end
   end
 
   test "refuses a lane_open when the client identity is not an agent" do
@@ -1114,6 +1198,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   # A signed, locally authorizable record for "agent-1" on the default network scope, naming the
   # contract of the factory's signed registry epoch unless `opts` say otherwise.
   defp record(opts \\ []), do: Factory.record(signing_keys().private, opts)
+
+  defp days_old_record do
+    day = 24 * Factory.hour_nanos()
+    not_before = System.os_time(:nanosecond) - 3 * day
+    record(not_before: not_before, expires: not_before + day)
+  end
 
   defp expired_record do
     hour = Factory.hour_nanos()

@@ -96,6 +96,7 @@ type lateFixture struct {
 	policy   AuthorizationPolicy
 	frameFor func(*edgev1.EdgeSignedCapabilityV1) *edgev1.EdgeDeliveryFrameV1
 	grant    func(*edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1
+	grantAt  func(*edgev1.EdgeDeliveryClaimsV1, int64) *edgev1.EdgeSignedCapabilityV1
 	late     func(edgev1.EdgeLatePublication, edgev1.EdgeLateDecisionReason) *edgev1.EdgeDeliveryClaimsV1
 }
 
@@ -117,21 +118,23 @@ func newLateFixture(t *testing.T) lateFixture {
 		t.Fatal(err)
 	}
 	now := policy.NowUnixNano
+	grantAt := func(claims *edgev1.EdgeDeliveryClaimsV1, at int64) *edgev1.EdgeSignedCapabilityV1 {
+		claims.EventId, claims.RecordSha256, claims.SpoolId, claims.Sequence = r.GetEventId(), sum[:], spool, 1
+		dc := &edgev1.EdgeSignedCapabilityV1{
+			CapabilityVersion: 1, IssuerId: dIssuer, IssuerKeyId: dKey, Algorithm: "ed25519",
+			NotBeforeUnixNano: at - 60_000_000_000, ExpiresAtUnixNano: at + 900_000_000_000,
+			Claims: &edgev1.EdgeSignedCapabilityV1_Delivery{Delivery: claims},
+		}
+		SignCapability(dc, dpriv)
+		return dc
+	}
 	return lateFixture{
 		record: r, policy: policy,
 		frameFor: func(dc *edgev1.EdgeSignedCapabilityV1) *edgev1.EdgeDeliveryFrameV1 {
 			return &edgev1.EdgeDeliveryFrameV1{SpoolId: spool, Sequence: 1, RecordSha256: sum[:], RecordBytes: rb, DeliveryCapability: dc}
 		},
-		grant: func(claims *edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1 {
-			claims.EventId, claims.RecordSha256, claims.SpoolId, claims.Sequence = r.GetEventId(), sum[:], spool, 1
-			dc := &edgev1.EdgeSignedCapabilityV1{
-				CapabilityVersion: 1, IssuerId: dIssuer, IssuerKeyId: dKey, Algorithm: "ed25519",
-				NotBeforeUnixNano: now - 60_000_000_000, ExpiresAtUnixNano: now + 900_000_000_000,
-				Claims: &edgev1.EdgeSignedCapabilityV1_Delivery{Delivery: claims},
-			}
-			SignCapability(dc, dpriv)
-			return dc
-		},
+		grant:   func(claims *edgev1.EdgeDeliveryClaimsV1) *edgev1.EdgeSignedCapabilityV1 { return grantAt(claims, now) },
+		grantAt: grantAt,
 		late: func(publication edgev1.EdgeLatePublication, reason edgev1.EdgeLateDecisionReason) *edgev1.EdgeDeliveryClaimsV1 {
 			return &edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{
 				ProducedAtUnixNano: producedAt, AuthorityEpoch: r.GetProducerContext().GetAuthorityEpoch(),
@@ -242,5 +245,103 @@ func TestLateAdmissionDecisionIsSigned(t *testing.T) {
 	late.Reason = edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_ADMITTED
 	if d, err := ValidateLateFrameSigned(f.frameFor(audit), principal, f.policy); !errors.Is(err, ErrCapabilitySignatureInvalid) {
 		t.Fatalf("AUDIT decision rewritten to PRIMARY = (%+v, %v), want ErrCapabilitySignatureInvalid", d, err)
+	}
+}
+
+// On a LIVE session at late-admission version 1 or later, a record that cannot be
+// delivered live -- a foreign origin, a stale fence with no grant, a missing fence
+// with no grant or a renewal -- resolves as LATE_ADMISSION_REQUIRED so the agent
+// relocates it to late storage; at version 0 every outcome is ValidateFrameSigned's
+// (design Decision 7, the live half of task 1.3).
+func TestValidateLiveFrameSignedResolvesWhatCannotBeLiveAsLateAdmissionRequired(t *testing.T) {
+	f := newLateFixture(t)
+	principal := f.record.GetProducerContext().GetOriginPrincipalId()
+	epoch := f.record.GetProducerContext().GetAuthorityEpoch()
+	renewal := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Renewal{Renewal: &edgev1.EdgeDeliveryRenewalV1{
+		RenewedNotBeforeUnixNano: f.policy.NowUnixNano - 60_000_000_000, RenewedExpiresUnixNano: f.policy.NowUnixNano + 60_000_000_000,
+	}}})
+	stale := f.policy
+	stale.ActiveFence = ResolvedFence(epoch + 1)
+	missing := f.policy
+	missing.ActiveFence = ActiveFence{}
+
+	cases := []struct {
+		name      string
+		frame     *edgev1.EdgeDeliveryFrameV1
+		principal []byte
+		policy    AuthorizationPolicy
+		today     error
+	}{
+		{"stale fence, no grant", f.frameFor(nil), principal, stale, ErrFenceStale},
+		{"missing fence, no grant", f.frameFor(nil), principal, missing, ErrFenceNotReady},
+		{"missing fence, renewal", f.frameFor(renewal), principal, missing, ErrFenceNotReady},
+	}
+	for _, c := range cases {
+		if _, err := ValidateLiveFrameSigned(c.frame, c.principal, c.policy, LateAdmissionProtocolVersion); !errors.Is(err, ErrLateAdmissionRequired) {
+			t.Fatalf("%s at version 1 = %v, want ErrLateAdmissionRequired", c.name, err)
+		}
+		if _, err := ValidateLiveFrameSigned(c.frame, c.principal, c.policy, 0); !errors.Is(err, c.today) {
+			t.Fatalf("%s at version 0 = %v, want today's %v", c.name, err, c.today)
+		}
+	}
+	current := f.policy
+	current.ActiveFence = ResolvedFence(epoch)
+	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), []byte("successor-principal"), current, LateAdmissionProtocolVersion); !errors.Is(err, ErrLateAdmissionRequired) {
+		t.Fatalf("foreign origin at version 1 = %v, want ErrLateAdmissionRequired", err)
+	}
+	// The grant-backed audit path and a fence not learned yet are unchanged.
+	if d, err := ValidateLiveFrameSigned(f.frameFor(renewal), principal, stale, LateAdmissionProtocolVersion); err != nil || d.Publication != FramePublicationAudit {
+		t.Fatalf("stale fence with a renewal = (%+v, %v), want the late-fenced audit drain", d, err)
+	}
+	rollover := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+		RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+	}}})
+	d, err := ValidateLiveFrameSigned(f.frameFor(rollover), principal, missing, LateAdmissionProtocolVersion)
+	if err != nil || d.Publication != FramePublicationAudit || d.DeliveryMode != FrameDeliveryModeLateFenced || d.GrantTransition != FrameGrantRollover {
+		t.Fatalf("missing fence with a rollover = (%+v, %v), want the Audit/LateFenced rollover drain", d, err)
+	}
+	forged := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+		RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+	}}})
+	forged.Signature[0] ^= 0xff
+	if _, err := ValidateLiveFrameSigned(f.frameFor(forged), principal, missing, LateAdmissionProtocolVersion); !errors.Is(err, ErrCapabilitySignatureInvalid) {
+		t.Fatalf("missing fence with a forged rollover = %v, want ErrCapabilitySignatureInvalid", err)
+	}
+	lateGrant := f.grant(f.late(edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_PRIMARY, edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_ADMITTED))
+	future := f.policy
+	future.ActiveFence = ResolvedFence(epoch - 1)
+	pc := f.record.GetProductionCapability()
+	compromised := current
+	compromised.Trust = statusTrust{status: KeyHistoricallyRevoked, public: f.policy.Trust.(mapTrust)[trustKey(pc.GetIssuerId(), pc.GetIssuerKeyId())]}
+	for _, c := range []struct {
+		name   string
+		policy AuthorizationPolicy
+	}{{"fence unavailable", missing}, {"fence in the future", future}, {"compromise-revoked production key", compromised}} {
+		for _, version := range []uint32{LateAdmissionProtocolVersion, 0} {
+			if d, err := ValidateLiveFrameSigned(f.frameFor(lateGrant), principal, c.policy, version); !errors.Is(err, ErrLateAdmissionGrantMismatch) {
+				t.Fatalf("late grant, %s, at version %d = (%+v, %v), want ErrLateAdmissionGrantMismatch", c.name, version, d, err)
+			}
+		}
+	}
+	early := missing
+	early.NowUnixNano = f.record.GetProductionCapability().GetNotBeforeUnixNano() - clampTolerance(early.ClockToleranceNano) - 60_000_000_000
+	earlyGrants := map[string]*edgev1.EdgeSignedCapabilityV1{
+		"no grant": nil,
+		"renewal": f.grantAt(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Renewal{Renewal: &edgev1.EdgeDeliveryRenewalV1{
+			RenewedNotBeforeUnixNano: early.NowUnixNano - 60_000_000_000, RenewedExpiresUnixNano: early.NowUnixNano + 60_000_000_000,
+		}}}, early.NowUnixNano),
+		"rollover": f.grantAt(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Rollover{Rollover: &edgev1.EdgeDeliveryRolloverV1{
+			RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), PriorSequence: 7,
+		}}}, early.NowUnixNano),
+	}
+	for name, dc := range earlyGrants {
+		if d, err := ValidateLiveFrameSigned(f.frameFor(dc), principal, early, LateAdmissionProtocolVersion); !errors.Is(err, ErrAuthorityNotYetValid) {
+			t.Fatalf("missing fence, window not yet open, %s = (%+v, %v), want ErrAuthorityNotYetValid", name, d, err)
+		}
+	}
+	ahead := f.policy
+	ahead.ActiveFence = ResolvedFence(epoch - 1)
+	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), principal, ahead, LateAdmissionProtocolVersion); !errors.Is(err, ErrFenceNotReady) {
+		t.Fatalf("a fence not learned yet = %v, want ErrFenceNotReady", err)
 	}
 }
