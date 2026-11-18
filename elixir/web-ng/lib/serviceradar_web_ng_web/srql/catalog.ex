@@ -1863,6 +1863,38 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       },
       downsample: false
     },
+    # L7 Web Property inventory (platform.web_properties).
+    %{
+      id: "websites",
+      label: "Websites",
+      route: "/websites",
+      default_time: "",
+      default_sort_field: "name",
+      default_sort_dir: "asc",
+      default_filter_field: "name",
+      filter_fields: [
+        "id",
+        "name",
+        "canonical_origin",
+        "environment",
+        "edge_provider",
+        "rum_enabled",
+        "anonymize_client_ip",
+        "tls_issuer",
+        "allowed_origins",
+        "observed_vips",
+        "tag"
+      ],
+      boolean_fields: ["rum_enabled", "anonymize_client_ip"],
+      array_fields: ["allowed_origins", "observed_vips"],
+      timestamp_fields: ["tls_not_after", "last_posture_checked_at", "created_at", "updated_at"],
+      known_values: %{
+        "environment" => ["production", "staging", "development", "internal"],
+        "edge_provider" => ["akamai", "cloudflare", "fastly", "cloudfront", "envoy_gateway", "direct"],
+        "rum_enabled" => ["true", "false"]
+      },
+      downsample: false
+    },
     %{
       id: "service_availability",
       label: "Service Availability",
@@ -2571,7 +2603,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     "cve_matches" => "endpoint_vulnerability_assessments",
     "advisory_matches" => "endpoint_vulnerability_assessments",
     "declarative_results" => "declarative_check_results",
-    "declarative_verdicts" => "declarative_check_results"
+    "declarative_verdicts" => "declarative_check_results",
+    "website" => "websites",
+    "web_properties" => "websites",
+    "web_property" => "websites"
   }
 
   @completion_field_groups [

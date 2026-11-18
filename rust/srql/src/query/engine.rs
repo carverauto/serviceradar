@@ -9,7 +9,7 @@ use super::{
     otel_metrics, otel_services, public_endpoints, security_events, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, vulnerability_advisories, wifi_map,
+    translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -93,6 +93,7 @@ impl QueryEngine {
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
                 Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
+                Entity::Websites => websites::execute(&mut conn, &plan).await?,
                 Entity::SecurityEvents => security_events::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
                 Entity::DeviceRevivalAudit => {

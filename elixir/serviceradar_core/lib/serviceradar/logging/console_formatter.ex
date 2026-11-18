@@ -72,7 +72,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     credential_secret_id cutoff cve_id database_bytes dataset deleted delivery_count delivery_id
     demoted_manifest_rows desktop_session_id dest device_count device_id device_ids device_uid
     diagnostics dir discarded_count discarded_jobs discovered_stream dlq_sequence drop_point
-    dropped_chunks dropped_total durable endpoint_role ensure_reason episode_uid error
+    dropped_chunks dropped_total durable endpoint_key endpoint_role ensure_reason episode_uid error
     error_count errors event_id event_type exception execution_id expected_agent_id
     expected_command_type expected_gateway_node expired_inflight expired_sequences failed
     failed_occurrences failed_since failure_arity failure_code failure_kind failure_module

@@ -291,6 +291,11 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
     end
 
+    for alias <- ~w(websites website web_properties web_property) do
+      assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
+      assert {:ok, _ast} = Native.parse_ast("in:#{alias} limit:1")
+    end
+
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")

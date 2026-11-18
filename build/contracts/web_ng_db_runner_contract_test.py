@@ -246,6 +246,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/trace_live/show_test.exs",
     "test/phoenix/live/user_live/api_credentials_test.exs",
     "test/phoenix/live/user_live/settings_test.exs",
+    "test/phoenix/live/web_property_live_test.exs",
     "test/phoenix/mcp_oauth_test.exs",
     "test/phoenix/mcp_test.exs",
     "test/phoenix/plugs/gateway_auth_policy_test.exs",

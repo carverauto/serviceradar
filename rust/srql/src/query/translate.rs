@@ -9,7 +9,7 @@ use super::{
     security_events, services, source_fact_disagreements, starrocks, sweep_coverage,
     sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
     timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
-    wifi_map,
+    websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -66,6 +66,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::PublicEndpoints => public_endpoints::to_sql_and_params(&plan)?,
             Entity::CameraSources => camera_sources::to_sql_and_params(&plan)?,
+            Entity::Websites => websites::to_sql_and_params(&plan)?,
             Entity::SecurityEvents => security_events::to_sql_and_params(&plan)?,
             Entity::MergeAudit => identity::merge_audit::to_sql_and_params(&plan)?,
             Entity::DeviceRevivalAudit => identity::device_revival_audit::to_sql_and_params(&plan)?,

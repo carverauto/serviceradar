@@ -26,6 +26,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
+  alias ServiceRadar.Inventory.WebPropertyDiscoveryWorker
   alias ServiceRadar.Jobs.AlertsRetentionWorker
   alias ServiceRadar.Jobs.PruneStaleAgentsWorker
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
@@ -96,7 +97,8 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"* * * * *", ManagedCertificateReconcileWorker, queue: :maintenance},
       {"* * * * *", TickWorker, queue: :monitoring},
       {"* * * * *", DeclarativeCheckTickWorker, queue: :monitoring},
-      {"*/5 * * * *", LeasePassWorker, queue: :maintenance}
+      {"*/5 * * * *", LeasePassWorker, queue: :maintenance},
+      {"*/5 * * * *", WebPropertyDiscoveryWorker, queue: :maintenance}
     ] ++
       object_store_retention_entries(fetch) ++
       capacity_forecasting_entries(fetch) ++

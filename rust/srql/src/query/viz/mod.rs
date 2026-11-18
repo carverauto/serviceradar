@@ -178,6 +178,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::Flows | Entity::AttributedFlows => network::flows(),
         Entity::PublicEndpoints => network::public_endpoints(),
         Entity::CameraSources => network::camera_sources(),
+        Entity::Websites => network::websites(),
         Entity::ThreatIntelMatches => network::threat_intel_matches(),
         Entity::SourceFactDisagreements => inventory::source_fact_disagreements(),
         Entity::SweepGroups => inventory::sweep_groups(),
