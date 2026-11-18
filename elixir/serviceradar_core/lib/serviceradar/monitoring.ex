@@ -42,6 +42,10 @@ defmodule ServiceRadar.Monitoring do
     resource ServiceRadar.Monitoring.ServiceCheck
     resource ServiceRadar.Monitoring.Alert
     resource ServiceRadar.Monitoring.OcsfEvent
+    resource ServiceRadar.Monitoring.NetperfProfile
+    resource ServiceRadar.Monitoring.NetperfResponder
+    resource ServiceRadar.Monitoring.NetperfPolicy
+    resource ServiceRadar.Monitoring.NetperfPolicyResponder
   end
 
   authorization do

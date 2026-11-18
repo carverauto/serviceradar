@@ -42,8 +42,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         )
   """
 
+  alias Netperf.V1.NetperfConfig
+  alias Netperf.V1.NetperfResponderConfig
+  alias Netperf.V1.NetperfTargetAssignment
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
+  alias ServiceRadar.AgentConfig.Compilers.NetperfCompiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigInstance
@@ -53,6 +57,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
+  alias ServiceRadar.Edge.NetperfPermitSigning
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.PipelineSettings
   alias ServiceRadar.Edge.RecordTrust
@@ -329,7 +334,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id)),
       edge_output_grants: Map.get(config, :edge_output_grants, []),
       edge_spool_max_bytes: Map.get(config, :edge_spool_max_bytes, 0),
-      edge_record_trust_document: Map.get(config, :edge_record_trust_document, <<>>)
+      edge_record_trust_document: Map.get(config, :edge_record_trust_document, <<>>),
+      netperf_config: build_netperf_proto_config(Map.get(config, :netperf_config))
     }
   end
 
@@ -363,6 +369,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     visibility_config = load_visibility_config!(partition_id, agent_id)
     bumblebee_config = load_bumblebee_config!(partition_id, agent_id)
     endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
+    netperf_config = load_netperf_config!(partition_id, agent_id)
     plugin_assignments = load_plugin_assignments(agent_id, partition_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
     addon_assignments = load_addon_assignments(agent_id)
@@ -382,6 +389,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       visibility_config,
       bumblebee_config,
       endpoint_inventory_config,
+      netperf_config,
       plugin_config,
       addon_assignments
     )
@@ -3022,6 +3030,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          visibility_config,
          bumblebee_config,
          endpoint_inventory_config,
+         netperf_config,
          plugin_config,
          addon_assignments
        ) do
@@ -3049,6 +3058,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         visibility: visibility_config,
         bumblebee: bumblebee_config,
         endpoint_inventory: endpoint_inventory_config,
+        netperf: netperf_config,
         plugins: plugin_assignments,
         plugin_engine_limits: plugin_engine_limits,
         addons: addon_assignments
@@ -3069,6 +3079,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       visibility_config: build_visibility_proto_config(visibility_config),
       bumblebee_config: build_bumblebee_proto_config(bumblebee_config),
       endpoint_inventory_config: build_endpoint_inventory_proto_config(endpoint_inventory_config),
+      netperf_config: build_netperf_proto_config(netperf_config),
       addons: addon_assignments
     }
   end
@@ -3193,6 +3204,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sysmon_config = Map.get(components, :sysmon, %{})
     snmp_config = Map.get(components, :snmp, %{})
     visibility_config = Map.get(components, :visibility, %{})
+    netperf_config = Map.get(components, :netperf, %{})
     plugin_assignments = Map.get(components, :plugins, [])
     plugin_engine_limits = Map.get(components, :plugin_engine_limits, %{})
     addon_assignments = Map.get(components, :addons, [])
@@ -3220,6 +3232,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       visibility: stable_config_fragment(visibility_config),
       bumblebee: stable_config_fragment(bumblebee_config),
       endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
+      netperf: stable_config_fragment(netperf_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
       addons: sorted_addons
@@ -4009,6 +4022,25 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  defp load_netperf_config!(partition, agent_id) do
+    actor = SystemActor.system(:netperf_config_loader)
+
+    case ConfigServer.get_config(:netperf, partition, agent_id,
+           actor: actor,
+           agent_id: agent_id
+         ) do
+      {:ok, entry} ->
+        entry.config
+
+      {:error, :no_config_found} ->
+        Logger.debug("No netperf config found for agent #{agent_id}, using disabled config")
+        NetperfCompiler.disabled_config()
+
+      {:error, reason} ->
+        raise "failed to load netperf config for agent #{agent_id}: #{inspect(reason)}"
+    end
+  end
+
   # Load Bumblebee configuration from the AgentConfig system. A disabled
   # profile or no active catalog is what the data says and stays a disabled
   # config; a failed config or catalog read raises so generation fails instead
@@ -4489,6 +4521,64 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp build_visibility_dpi_config(_), do: nil
+
+  defp build_netperf_proto_config(nil), do: nil
+  defp build_netperf_proto_config(%NetperfConfig{} = config), do: config
+
+  defp build_netperf_proto_config(config) when is_map(config) do
+    %NetperfConfig{
+      responder: build_netperf_responder_proto(Map.get(config, "responder")),
+      targets:
+        config
+        |> Map.get("targets", [])
+        |> List.wrap()
+        |> Enum.map(&build_netperf_target_proto/1),
+      config_epoch: Map.get(config, "config_epoch", 0) || 0
+    }
+  end
+
+  defp build_netperf_responder_proto(nil), do: nil
+  defp build_netperf_responder_proto(%NetperfResponderConfig{} = responder), do: responder
+
+  defp build_netperf_responder_proto(responder) when is_map(responder) do
+    %NetperfResponderConfig{
+      enabled: Map.get(responder, "enabled", false) == true,
+      listen_port: Map.get(responder, "listen_port", 5199) || 5199,
+      udp_enabled: Map.get(responder, "udp_enabled", false) == true,
+      max_concurrent_sessions: Map.get(responder, "max_concurrent_sessions", 0) || 0,
+      max_total_bandwidth_bps: Map.get(responder, "max_total_bandwidth_bps", 0) || 0,
+      advertise_address: Map.get(responder, "advertise_address", "") || "",
+      min_authority_epoch: Map.get(responder, "min_authority_epoch", 0) || 0
+    }
+  end
+
+  defp build_netperf_responder_proto(_), do: nil
+
+  defp build_netperf_target_proto(%NetperfTargetAssignment{} = target), do: target
+
+  defp build_netperf_target_proto(target) when is_map(target) do
+    %NetperfTargetAssignment{
+      policy_id: Map.get(target, "policy_id", "") || "",
+      policy_name: Map.get(target, "policy_name", "") || "",
+      profile_id: Map.get(target, "profile_id", "") || "",
+      profile_name: Map.get(target, "profile_name", "") || "",
+      responder_agent_id: Map.get(target, "responder_agent_id", "") || "",
+      responder_label: Map.get(target, "responder_label", "") || "",
+      target_address: Map.get(target, "target_address", "") || "",
+      target_port: Map.get(target, "target_port", 5199) || 5199,
+      protocol: NetperfPermitSigning.proto_protocol_enum(Map.get(target, "protocol")),
+      direction: NetperfPermitSigning.proto_direction_enum(Map.get(target, "direction")),
+      bandwidth_bps: Map.get(target, "bandwidth_bps", 0) || 0,
+      duration_sec: Map.get(target, "duration_sec", 0) || 0,
+      omit_sec: Map.get(target, "omit_sec", 0) || 0,
+      parallel: Map.get(target, "parallel", 1) || 1,
+      packet_length: Map.get(target, "packet_length", 1200) || 1200,
+      interval_seconds: Map.get(target, "interval_seconds", 900) || 900,
+      permit: NetperfPermitSigning.to_proto(Map.get(target, "permit"))
+    }
+  end
+
+  defp build_netperf_target_proto(_), do: %NetperfTargetAssignment{}
 
   defp resolve_agent_device_uid(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do

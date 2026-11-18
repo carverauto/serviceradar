@@ -22,7 +22,6 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     "web-ng",
     "nats-server",
     "nats-client",
-    "rperf-client",
     "datasvc",
     "zen"
   ]

@@ -33,7 +33,14 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   @type partition :: String.t()
   @type agent_id :: String.t() | nil
   @type config_type ::
-          :sweep | :sysmon | :snmp | :mapper | :visibility | :bumblebee | :endpoint_inventory
+          :sweep
+          | :sysmon
+          | :snmp
+          | :mapper
+          | :visibility
+          | :bumblebee
+          | :endpoint_inventory
+          | :netperf
   @type compiled_config :: map()
   @type compile_opts :: [actor: map(), timeout: pos_integer()]
 
@@ -75,7 +82,8 @@ defmodule ServiceRadar.AgentConfig.Compiler do
     sysmon: ServiceRadar.AgentConfig.Compilers.SysmonCompiler,
     snmp: ServiceRadar.AgentConfig.Compilers.SNMPCompiler,
     mapper: ServiceRadar.AgentConfig.Compilers.MapperCompiler,
-    visibility: ServiceRadar.AgentConfig.Compilers.VisibilityCompiler
+    visibility: ServiceRadar.AgentConfig.Compilers.VisibilityCompiler,
+    netperf: ServiceRadar.AgentConfig.Compilers.NetperfCompiler
   }
 
   @doc """

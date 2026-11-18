@@ -23,6 +23,7 @@ package proto
 
 import (
 	v1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	v11 "github.com/carverauto/serviceradar/proto/netperf/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -3970,8 +3971,11 @@ type AgentConfigResponse struct {
 	// partition. Empty means unavailable; new record attribution must retry. The
 	// config version covers the entire document, including key status and fences.
 	EdgeRecordTrustDocument []byte `protobuf:"bytes,17,opt,name=edge_record_trust_document,json=edgeRecordTrustDocument,proto3" json:"edge_record_trust_document,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Embedded pure-Go network performance testing configuration (responder and/or
+	// spoke targets with Ed25519-signed NetperfPermitV1 tokens).
+	NetperfConfig *v11.NetperfConfig `protobuf:"bytes,18,opt,name=netperf_config,json=netperfConfig,proto3" json:"netperf_config,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentConfigResponse) Reset() {
@@ -4119,6 +4123,13 @@ func (x *AgentConfigResponse) GetEdgeSpoolMaxBytes() uint64 {
 func (x *AgentConfigResponse) GetEdgeRecordTrustDocument() []byte {
 	if x != nil {
 		return x.EdgeRecordTrustDocument
+	}
+	return nil
+}
+
+func (x *AgentConfigResponse) GetNetperfConfig() *v11.NetperfConfig {
+	if x != nil {
+		return x.NetperfConfig
 	}
 	return nil
 }
@@ -10316,7 +10327,7 @@ var File_monitoring_proto protoreflect.FileDescriptor
 const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"\x10monitoring.proto\x12\n" +
-	"monitoring\x1a automation_launch_envelope.proto\x1a\x14edge/v1/record.proto\"0\n" +
+	"monitoring\x1a automation_launch_envelope.proto\x1a\x14edge/v1/record.proto\x1a\x18netperf/v1/netperf.proto\"0\n" +
 	"\x13DeviceStatusRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xbd\x01\n" +
 	"\rStatusRequest\x12!\n" +
@@ -10653,7 +10664,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0enot_after_unix\x18\x06 \x01(\x03R\fnotAfterUnix\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xef\a\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xb1\b\n" +
 	"\x13AgentConfigResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -10674,7 +10685,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\x12I\n" +
 	"\x12edge_output_grants\x18\x0f \x03(\v2\x1b.monitoring.EdgeOutputGrantR\x10edgeOutputGrants\x12/\n" +
 	"\x14edge_spool_max_bytes\x18\x10 \x01(\x04R\x11edgeSpoolMaxBytes\x12;\n" +
-	"\x1aedge_record_trust_document\x18\x11 \x01(\fR\x17edgeRecordTrustDocument\"\x92\x01\n" +
+	"\x1aedge_record_trust_document\x18\x11 \x01(\fR\x17edgeRecordTrustDocument\x12@\n" +
+	"\x0enetperf_config\x18\x12 \x01(\v2\x19.netperf.v1.NetperfConfigR\rnetperfConfig\"\x92\x01\n" +
 	"\x0fEdgeOutputGrant\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\tR\n" +
 	"contractId\x12)\n" +
@@ -11540,8 +11552,9 @@ var file_monitoring_proto_goTypes = []any{
 	(*v1.EdgeSignedCapabilityV1)(nil),                    // 122: serviceradar.edge.v1.EdgeSignedCapabilityV1
 	(*v1.EdgeSourceAuthorizationV1)(nil),                 // 123: serviceradar.edge.v1.EdgeSourceAuthorizationV1
 	(*v1.RecoveryResolvedV1)(nil),                        // 124: serviceradar.edge.v1.RecoveryResolvedV1
-	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 125: monitoring.AutomationLaunchEnvelopeResolveRequest
-	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 126: monitoring.AutomationLaunchEnvelopeResolveResponse
+	(*v11.NetperfConfig)(nil),                            // 125: netperf.v1.NetperfConfig
+	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 126: monitoring.AutomationLaunchEnvelopeResolveRequest
+	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 127: monitoring.AutomationLaunchEnvelopeResolveResponse
 }
 var file_monitoring_proto_depIdxs = []int32{
 	19,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -11586,122 +11599,123 @@ var file_monitoring_proto_depIdxs = []int32{
 	46,  // 39: monitoring.AgentConfigResponse.addons:type_name -> monitoring.AddonAssignmentConfig
 	70,  // 40: monitoring.AgentConfigResponse.endpoint_inventory_config:type_name -> monitoring.EndpointInventoryConfig
 	45,  // 41: monitoring.AgentConfigResponse.edge_output_grants:type_name -> monitoring.EdgeOutputGrant
-	47,  // 42: monitoring.AddonAssignmentConfig.resources:type_name -> monitoring.AddonResources
-	107, // 43: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
-	56,  // 44: monitoring.ControlStreamHello.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
-	54,  // 45: monitoring.ControlStreamHello.config_section_statuses:type_name -> monitoring.ConfigSectionStatus
-	30,  // 46: monitoring.ControlStreamHello.host_interfaces:type_name -> monitoring.HostInterface
-	31,  // 47: monitoring.ControlStreamHello.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
-	119, // 48: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
-	28,  // 49: monitoring.ControlStreamHello.edge_record_spool:type_name -> monitoring.EdgeRecordSpoolStatus
-	108, // 50: monitoring.ControlStreamHello.installed_sweep_lease_digests:type_name -> monitoring.ControlStreamHello.InstalledSweepLeaseDigestsEntry
-	54,  // 51: monitoring.ConfigAck.section_statuses:type_name -> monitoring.ConfigSectionStatus
-	56,  // 52: monitoring.ConfigAck.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
-	49,  // 53: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
-	51,  // 54: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
-	52,  // 55: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
-	53,  // 56: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
-	55,  // 57: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
-	57,  // 58: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
-	61,  // 59: monitoring.ControlStreamRequest.sweep_lease_ack:type_name -> monitoring.SweepLeaseAck
-	62,  // 60: monitoring.ControlStreamRequest.sweep_lease_slot_refusal:type_name -> monitoring.SweepLeaseSlotRefusal
-	50,  // 61: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
-	44,  // 62: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
-	57,  // 63: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
-	48,  // 64: monitoring.ControlStreamResponse.config_chunk:type_name -> monitoring.AgentConfigChunk
-	60,  // 65: monitoring.ControlStreamResponse.sweep_lease_chunk:type_name -> monitoring.SweepLeaseChunk
-	3,   // 66: monitoring.SweepLeaseSlotRefusal.reason:type_name -> monitoring.SweepLeaseSlotRefusalReason
-	109, // 67: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	67,  // 68: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
-	66,  // 69: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
-	69,  // 70: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
-	72,  // 71: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
-	76,  // 72: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
-	77,  // 73: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
-	74,  // 74: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	75,  // 75: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
-	110, // 76: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	73,  // 77: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	111, // 78: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	112, // 79: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	80,  // 80: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
-	113, // 81: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
-	78,  // 82: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
-	114, // 83: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
-	73,  // 84: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	115, // 85: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	116, // 86: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
-	77,  // 87: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
-	75,  // 88: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
-	73,  // 89: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	74,  // 90: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	117, // 91: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	118, // 92: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	92,  // 93: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	86,  // 94: monitoring.SNMPConfig.oid_sets:type_name -> monitoring.SNMPOIDSet
-	94,  // 95: monitoring.SNMPOIDSet.oids:type_name -> monitoring.SNMPOIDConfig
-	88,  // 96: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
-	89,  // 97: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
-	91,  // 98: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
-	90,  // 99: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
-	91,  // 100: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
-	4,   // 101: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	93,  // 102: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	94,  // 103: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	5,   // 104: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	6,   // 105: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	7,   // 106: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	8,   // 107: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	96,  // 108: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
-	95,  // 109: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
-	97,  // 110: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
-	98,  // 111: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	103, // 112: monitoring.EdgeDeliveryGrantRequest.records:type_name -> monitoring.EdgeDeliveryGrantRecord
-	105, // 113: monitoring.EdgeDeliveryGrantResponse.results:type_name -> monitoring.EdgeDeliveryGrantResult
-	122, // 114: monitoring.EdgeDeliveryGrantResult.delivery_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
-	11,  // 115: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	12,  // 116: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	12,  // 117: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	27,  // 118: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	43,  // 119: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	43,  // 120: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
-	21,  // 121: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	24,  // 122: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	58,  // 123: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	63,  // 124: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	125, // 125: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
-	41,  // 126: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
-	100, // 127: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
-	102, // 128: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
-	102, // 129: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
-	33,  // 130: monitoring.AgentGatewayService.RegisterEdgeRecovery:input_type -> monitoring.EdgeRecoveryRegistration
-	36,  // 131: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:input_type -> monitoring.EdgeRecoveryAuthorizationRequest
-	38,  // 132: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:input_type -> monitoring.EdgeRecoveryCopyGrantRequest
-	35,  // 133: monitoring.AgentGatewayService.GetEdgeRecovery:input_type -> monitoring.EdgeRecoveryQuery
-	13,  // 134: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	15,  // 135: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	18,  // 136: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	32,  // 137: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	44,  // 138: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	48,  // 139: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	22,  // 140: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	22,  // 141: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	59,  // 142: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	64,  // 143: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	126, // 144: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
-	42,  // 145: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
-	101, // 146: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
-	104, // 147: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
-	104, // 148: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
-	40,  // 149: monitoring.AgentGatewayService.RegisterEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
-	37,  // 150: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:output_type -> monitoring.EdgeRecoveryAuthorizationResponse
-	104, // 151: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:output_type -> monitoring.EdgeDeliveryGrantResponse
-	40,  // 152: monitoring.AgentGatewayService.GetEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
-	134, // [134:153] is the sub-list for method output_type
-	115, // [115:134] is the sub-list for method input_type
-	115, // [115:115] is the sub-list for extension type_name
-	115, // [115:115] is the sub-list for extension extendee
-	0,   // [0:115] is the sub-list for field type_name
+	125, // 42: monitoring.AgentConfigResponse.netperf_config:type_name -> netperf.v1.NetperfConfig
+	47,  // 43: monitoring.AddonAssignmentConfig.resources:type_name -> monitoring.AddonResources
+	107, // 44: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	56,  // 45: monitoring.ControlStreamHello.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
+	54,  // 46: monitoring.ControlStreamHello.config_section_statuses:type_name -> monitoring.ConfigSectionStatus
+	30,  // 47: monitoring.ControlStreamHello.host_interfaces:type_name -> monitoring.HostInterface
+	31,  // 48: monitoring.ControlStreamHello.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
+	119, // 49: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	28,  // 50: monitoring.ControlStreamHello.edge_record_spool:type_name -> monitoring.EdgeRecordSpoolStatus
+	108, // 51: monitoring.ControlStreamHello.installed_sweep_lease_digests:type_name -> monitoring.ControlStreamHello.InstalledSweepLeaseDigestsEntry
+	54,  // 52: monitoring.ConfigAck.section_statuses:type_name -> monitoring.ConfigSectionStatus
+	56,  // 53: monitoring.ConfigAck.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
+	49,  // 54: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
+	51,  // 55: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
+	52,  // 56: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
+	53,  // 57: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
+	55,  // 58: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
+	57,  // 59: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
+	61,  // 60: monitoring.ControlStreamRequest.sweep_lease_ack:type_name -> monitoring.SweepLeaseAck
+	62,  // 61: monitoring.ControlStreamRequest.sweep_lease_slot_refusal:type_name -> monitoring.SweepLeaseSlotRefusal
+	50,  // 62: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
+	44,  // 63: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
+	57,  // 64: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
+	48,  // 65: monitoring.ControlStreamResponse.config_chunk:type_name -> monitoring.AgentConfigChunk
+	60,  // 66: monitoring.ControlStreamResponse.sweep_lease_chunk:type_name -> monitoring.SweepLeaseChunk
+	3,   // 67: monitoring.SweepLeaseSlotRefusal.reason:type_name -> monitoring.SweepLeaseSlotRefusalReason
+	109, // 68: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	67,  // 69: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	66,  // 70: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	69,  // 71: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
+	72,  // 72: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
+	76,  // 73: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
+	77,  // 74: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	74,  // 75: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	75,  // 76: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
+	110, // 77: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	73,  // 78: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	111, // 79: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	112, // 80: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	80,  // 81: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
+	113, // 82: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	78,  // 83: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
+	114, // 84: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	73,  // 85: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	115, // 86: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	116, // 87: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	77,  // 88: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	75,  // 89: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
+	73,  // 90: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	74,  // 91: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	117, // 92: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	118, // 93: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	92,  // 94: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	86,  // 95: monitoring.SNMPConfig.oid_sets:type_name -> monitoring.SNMPOIDSet
+	94,  // 96: monitoring.SNMPOIDSet.oids:type_name -> monitoring.SNMPOIDConfig
+	88,  // 97: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
+	89,  // 98: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
+	91,  // 99: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
+	90,  // 100: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
+	91,  // 101: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
+	4,   // 102: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	93,  // 103: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	94,  // 104: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	5,   // 105: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	6,   // 106: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	7,   // 107: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	8,   // 108: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	96,  // 109: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
+	95,  // 110: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
+	97,  // 111: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
+	98,  // 112: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
+	103, // 113: monitoring.EdgeDeliveryGrantRequest.records:type_name -> monitoring.EdgeDeliveryGrantRecord
+	105, // 114: monitoring.EdgeDeliveryGrantResponse.results:type_name -> monitoring.EdgeDeliveryGrantResult
+	122, // 115: monitoring.EdgeDeliveryGrantResult.delivery_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	11,  // 116: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	12,  // 117: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	12,  // 118: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	27,  // 119: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	43,  // 120: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	43,  // 121: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
+	21,  // 122: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	24,  // 123: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	58,  // 124: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	63,  // 125: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
+	126, // 126: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
+	41,  // 127: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
+	100, // 128: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
+	102, // 129: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
+	102, // 130: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
+	33,  // 131: monitoring.AgentGatewayService.RegisterEdgeRecovery:input_type -> monitoring.EdgeRecoveryRegistration
+	36,  // 132: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:input_type -> monitoring.EdgeRecoveryAuthorizationRequest
+	38,  // 133: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:input_type -> monitoring.EdgeRecoveryCopyGrantRequest
+	35,  // 134: monitoring.AgentGatewayService.GetEdgeRecovery:input_type -> monitoring.EdgeRecoveryQuery
+	13,  // 135: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	15,  // 136: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	18,  // 137: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	32,  // 138: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	44,  // 139: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	48,  // 140: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	22,  // 141: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	22,  // 142: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	59,  // 143: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	64,  // 144: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	127, // 145: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	42,  // 146: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
+	101, // 147: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
+	104, // 148: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
+	104, // 149: monitoring.AgentGatewayService.IssueEdgeLateAdmissionGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
+	40,  // 150: monitoring.AgentGatewayService.RegisterEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
+	37,  // 151: monitoring.AgentGatewayService.AuthorizeEdgeRecovery:output_type -> monitoring.EdgeRecoveryAuthorizationResponse
+	104, // 152: monitoring.AgentGatewayService.RenewEdgeRecoveryCopies:output_type -> monitoring.EdgeDeliveryGrantResponse
+	40,  // 153: monitoring.AgentGatewayService.GetEdgeRecovery:output_type -> monitoring.EdgeRecoveryStatus
+	135, // [135:154] is the sub-list for method output_type
+	116, // [116:135] is the sub-list for method input_type
+	116, // [116:116] is the sub-list for extension type_name
+	116, // [116:116] is the sub-list for extension extendee
+	0,   // [0:116] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }

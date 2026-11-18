@@ -882,6 +882,7 @@ defmodule Monitoring.AgentConfigResponse do
 
   field :edge_spool_max_bytes, 16, type: :uint64, json_name: "edgeSpoolMaxBytes"
   field :edge_record_trust_document, 17, type: :bytes, json_name: "edgeRecordTrustDocument"
+  field :netperf_config, 18, type: Netperf.V1.NetperfConfig, json_name: "netperfConfig"
 end
 
 defmodule Monitoring.EdgeOutputGrant do

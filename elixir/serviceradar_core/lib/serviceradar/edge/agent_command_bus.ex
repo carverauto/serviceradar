@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Edge.NetperfPermitSigning
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Infrastructure.Agent, as: AgentRecord
   alias ServiceRadar.ProcessRegistry
@@ -29,6 +30,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @active_command_statuses [:queued, :sent, :acknowledged, :running]
   @max_concurrent_on_demand_mtr 2
   @max_concurrent_bulk_mtr_jobs 1
+  @max_concurrent_netperf_runs 1
+  @netperf_command_type "netperf.run"
+  @netperf_capability "netperf"
+  @netperf_run_permission "settings.networks.manage"
   @max_concurrent_endpoint_inventory_queries 8
   @max_concurrent_endpoint_inventory_force_fresh 1
   @max_endpoint_inventory_cohort_size 128
@@ -1036,6 +1041,74 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   @doc """
+  Dispatches an on-demand `netperf.run` command to `agent_id` (the Sender) with
+  a short-lived Ed25519-signed `NetperfPermitV1` encoded as `"permit_b64"`.
+  """
+  @spec dispatch_netperf_run(String.t(), map(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def dispatch_netperf_run(agent_id, params, opts \\ []) when is_map(params) do
+    actor = Keyword.get(opts, :actor)
+
+    with :ok <- authorize_netperf_run(actor),
+         {:ok, normalized} <- validate_netperf_run_params(agent_id, params),
+         partition_id when is_binary(partition_id) <-
+           resolve_initial_dispatch_partition(
+             normalized.sender_agent_id,
+             nil,
+             opts,
+             Keyword.get(opts, :required_partition) || normalized.partition_id
+           ),
+         ttl_seconds = netperf_run_ttl_seconds(normalized, opts),
+         permit_id = Ecto.UUID.generate(),
+         {:ok, permit} <-
+           NetperfPermitSigning.sign_on_demand(
+             %{
+               permit_id: permit_id,
+               command_id: permit_id,
+               partition_id: partition_id,
+               sender_agent_id: normalized.sender_agent_id,
+               responder_agent_id: normalized.responder_agent_id,
+               protocol: normalized.protocol,
+               direction: normalized.direction,
+               bandwidth_bps: normalized.bandwidth_bps,
+               duration_sec: normalized.duration_sec,
+               parallel: normalized.parallel,
+               authority_epoch: normalized.authority_epoch,
+               ttl_seconds: ttl_seconds + 30
+             },
+             Keyword.take(opts, [:issuer_key, :now])
+           ) do
+      permit_b64 = permit |> Netperf.V1.NetperfPermitV1.encode() |> Base.encode64()
+
+      audit_payload = %{
+        "permit_id" => permit.permit_id,
+        "responder_agent_id" => normalized.responder_agent_id,
+        "target_address" => normalized.target_address,
+        "target_port" => normalized.target_port,
+        "protocol" => normalized.protocol,
+        "direction" => normalized.direction,
+        "bandwidth_bps" => normalized.bandwidth_bps,
+        "duration_sec" => normalized.duration_sec,
+        "omit_sec" => normalized.omit_sec,
+        "parallel" => normalized.parallel,
+        "packet_length" => normalized.packet_length,
+        "execution_source" => "on_demand"
+      }
+
+      transmit_payload = Map.put(audit_payload, "permit_b64", permit_b64)
+
+      dispatch_opts =
+        opts
+        |> Keyword.put(:required_capability, @netperf_capability)
+        |> Keyword.put(:required_partition, Keyword.get(opts, :required_partition, partition_id))
+        |> Keyword.put(:ttl_seconds, ttl_seconds)
+        |> Keyword.put(:transmit_payload, transmit_payload)
+
+      dispatch(normalized.sender_agent_id, @netperf_command_type, audit_payload, dispatch_opts)
+    end
+  end
+
+  @doc """
   Opens a camera relay on `agent_id`. The command names the plugin assignment
   that discovered the camera instead of a stream address
   (`ServiceRadar.Camera.RelaySourceResolver`), so it is sent only to an agent
@@ -1334,6 +1407,31 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       {:error, reason} ->
         Logger.warning("Failed to evaluate endpoint inventory force-fresh dispatch capacity",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp ensure_dispatch_capacity(agent_id, @netperf_command_type, _source, _ash_opts) do
+    now = DateTime.utc_now()
+
+    case count_active_commands(
+           agent_id,
+           @netperf_command_type,
+           @max_concurrent_netperf_runs,
+           now
+         ) do
+      {:ok, count} when count >= @max_concurrent_netperf_runs ->
+        {:error, {:agent_busy, :netperf_run_running}}
+
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to evaluate netperf.run dispatch capacity",
           agent_id: agent_id,
           reason: inspect(reason)
         )
@@ -1849,6 +1947,149 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, :endpoint_inventory_force_fresh_unauthorized}
     end
   end
+
+  defp authorize_netperf_run(actor) do
+    if SystemActor.system_actor?(actor) or RBAC.has_permission?(actor, @netperf_run_permission) do
+      :ok
+    else
+      {:error, :netperf_run_unauthorized}
+    end
+  end
+
+  defp validate_netperf_run_params(agent_id, params) do
+    sender_agent_id = normalize_optional_string(agent_id)
+
+    responder_agent_id =
+      normalize_optional_string(netperf_param(params, :responder_agent_id))
+
+    target_address =
+      normalize_optional_string(
+        netperf_param(params, :target_address) ||
+          netperf_param(params, :advertise_address) ||
+          netperf_param(params, :target)
+      )
+
+    with {:ok, sender} <- require_nonempty_value(sender_agent_id, :invalid_sender_agent_id),
+         {:ok, responder} <-
+           require_nonempty_value(responder_agent_id, :responder_agent_id_required),
+         :ok <- if(sender == responder, do: {:error, :netperf_self_target_forbidden}, else: :ok),
+         {:ok, address} <- require_nonempty_value(target_address, :target_address_required),
+         {:ok, protocol} <- normalize_netperf_protocol(netperf_param(params, :protocol)),
+         {:ok, direction} <- normalize_netperf_direction(netperf_param(params, :direction)) do
+      duration_sec = clamp_netperf_int(netperf_param(params, :duration_sec), 5, 1, 30)
+
+      omit_sec =
+        clamp_netperf_int(
+          netperf_param(params, :omit_sec),
+          min(1, max(duration_sec - 1, 0)),
+          0,
+          min(5, max(duration_sec - 1, 0))
+        )
+
+      {:ok,
+       %{
+         sender_agent_id: sender,
+         responder_agent_id: responder,
+         target_address: address,
+         target_port:
+           clamp_netperf_int(
+             netperf_param(params, :target_port) || netperf_param(params, :listen_port),
+             5199,
+             1,
+             65_535
+           ),
+         protocol: protocol,
+         direction: direction,
+         bandwidth_bps:
+           clamp_netperf_int(
+             netperf_param(params, :bandwidth_bps),
+             50_000_000,
+             100_000,
+             10_000_000_000
+           ),
+         duration_sec: duration_sec,
+         omit_sec: omit_sec,
+         parallel: clamp_netperf_int(netperf_param(params, :parallel), 1, 1, 8),
+         packet_length:
+           clamp_netperf_int(netperf_param(params, :packet_length), 1200, 64, 65_507),
+         authority_epoch:
+           clamp_netperf_int(
+             netperf_param(params, :authority_epoch),
+             1,
+             1,
+             0xFFFF_FFFF_FFFF_FFFF
+           ),
+         partition_id: normalize_optional_string(netperf_param(params, :partition_id))
+       }}
+    end
+  end
+
+  defp netperf_run_ttl_seconds(normalized, opts) do
+    multiplier = if normalized.direction == "bidirectional", do: 2, else: 1
+    minimum = normalized.duration_sec * multiplier + 30
+    requested = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
+
+    if is_integer(requested) and requested > minimum, do: requested, else: minimum
+  end
+
+  defp netperf_param(params, key) when is_atom(key) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> value
+      :error -> Map.get(params, Atom.to_string(key))
+    end
+  end
+
+  defp require_nonempty_value(value, _reason) when is_binary(value) and value != "",
+    do: {:ok, value}
+
+  defp require_nonempty_value(_value, reason), do: {:error, reason}
+
+  defp normalize_netperf_protocol(nil), do: {:ok, "tcp"}
+  defp normalize_netperf_protocol(:tcp), do: {:ok, "tcp"}
+  defp normalize_netperf_protocol(:udp), do: {:ok, "udp"}
+
+  defp normalize_netperf_protocol(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "" -> {:ok, "tcp"}
+      "tcp" -> {:ok, "tcp"}
+      "udp" -> {:ok, "udp"}
+      _ -> {:error, :invalid_netperf_protocol}
+    end
+  end
+
+  defp normalize_netperf_protocol(_), do: {:error, :invalid_netperf_protocol}
+
+  defp normalize_netperf_direction(nil), do: {:ok, "upload"}
+  defp normalize_netperf_direction(:upload), do: {:ok, "upload"}
+  defp normalize_netperf_direction(:download), do: {:ok, "download"}
+  defp normalize_netperf_direction(:bidirectional), do: {:ok, "bidirectional"}
+
+  defp normalize_netperf_direction(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "" -> {:ok, "upload"}
+      "upload" -> {:ok, "upload"}
+      "download" -> {:ok, "download"}
+      "bidirectional" -> {:ok, "bidirectional"}
+      _ -> {:error, :invalid_netperf_direction}
+    end
+  end
+
+  defp normalize_netperf_direction(_), do: {:error, :invalid_netperf_direction}
+
+  defp clamp_netperf_int(nil, default, _min, _max), do: default
+
+  defp clamp_netperf_int(value, _default, min_val, max_val) when is_integer(value) do
+    value |> max(min_val) |> min(max_val)
+  end
+
+  defp clamp_netperf_int(value, default, min_val, max_val) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed |> max(min_val) |> min(max_val)
+      _ -> default
+    end
+  end
+
+  defp clamp_netperf_int(_value, default, _min, _max), do: default
 
   defp enforce_endpoint_inventory_force_fresh_rate_limit(agent_id, actor, opts) do
     limit = Keyword.get(opts, :force_fresh_rate_limit, @endpoint_inventory_force_fresh_rate_limit)
@@ -2675,6 +2916,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp capability_for_config_type(:snmp), do: "snmp"
   defp capability_for_config_type(:bumblebee), do: "bumblebee"
   defp capability_for_config_type(:endpoint_inventory), do: "endpoint-inventory"
+  defp capability_for_config_type(:netperf), do: @netperf_capability
   defp capability_for_config_type(_), do: nil
 
   defp bulk_mtr_ttl_seconds(target_count) when is_integer(target_count) and target_count > 0 do

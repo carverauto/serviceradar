@@ -567,6 +567,10 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/netperf/v1/netperf.proto
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
@@ -648,6 +652,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/desktop_media.proto \
 		proto/remote_capture.proto \
 		proto/identitymap/v1/identity_map.proto \
+		proto/netperf/v1/netperf.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
 		proto/agent/addon/v1/addon.proto \
 		proto/agent/discovery/v1/discovery.proto \
