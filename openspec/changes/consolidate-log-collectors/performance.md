@@ -389,6 +389,32 @@ same hardware, parsing/rules, payload distribution, durability, indexing and
 query load. This investigation establishes candidates, not a Datadog comparison
 or a worldwide performance ranking.
 
+## Per-stage cost of the normalized path
+
+`//rust/flowgger:flowgger_normalized_bench` (Criterion) measures the collector's
+encode and batch stages on one core, with one synthetic RFC 5424 record. First
+run, 2026-11-17, optimized build on a shared remote executor, so read the
+ratios and not the absolute figures:
+
+| Stage | Median per record |
+| --- | --- |
+| JSON mode encode (today's default) | 6.9 µs |
+| Normalized encode, no rules | 7.4 µs |
+| Normalized encode, the five bundled syslog rules | 79.7 µs |
+| Batch assembly (12.3 µs for 256 records) | 0.05 µs |
+
+Rule evaluation is the cost: about 72 µs for five rules, ten times the rest of
+the encode. Mapping to OTLP and assembling batches are small beside it, and the
+per-record ruleset lock is inside the 7.4 µs. One input thread that normalizes
+therefore handles roughly 12,000 records a second, where JSON mode's encode
+alone allows over 100,000. The same rule work happens in EventWriter when the
+collector publishes JSON, so this is where the work runs, not new work; whether
+Rust or EventWriter does it cheaper is what task 4.1 has to measure.
+
+What this does not say: nothing about sockets, decoding, publishing or storage,
+and nothing end to end. A faster path has to make rule evaluation cheaper or
+run it on more cores; the batch and frame code is not where time goes.
+
 ## Primary references
 
 - [async-nats 0.50 publish API](https://docs.rs/async-nats/0.50.0/async_nats/jetstream/context/struct.Context.html)

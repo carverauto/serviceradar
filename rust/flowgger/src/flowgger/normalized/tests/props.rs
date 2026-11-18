@@ -63,7 +63,7 @@ fn any_record(tc: &TestCase) -> Record {
     }
 }
 
-fn copy(record: &Record) -> Record {
+pub(super) fn copy(record: &Record) -> Record {
     let value = |value: &SDValue| match value {
         SDValue::String(value) => SDValue::String(value.clone()),
         SDValue::Bool(value) => SDValue::Bool(*value),
