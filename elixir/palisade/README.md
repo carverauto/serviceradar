@@ -72,12 +72,15 @@ ServiceRadar CI watches for `palisade-v*` tags and runs
 publish step needs `HEX_API_KEY` set as a CI secret with publish
 scope on hex.pm.
 
-## Why not Bazel?
+## Bazel and Mix
 
-Palisade is a small single-language Elixir library. Consumers
-call `mix compile` on it directly when they pull it in as a
-hex dep — Bazel never enters the picture. CI runs `mix format /
-compile / test / credo` and is done.
+Inside this repository Bazel builds palisade with warnings as
+errors (`//elixir/palisade:erlang_app`), runs its tests
+(`//elixir/palisade:unit_tests`) and runs its format/Credo check
+(`//elixir/palisade:quality_check`) on every pull request. The
+tag-triggered Hex publish workflow still uses plain Mix, because
+external consumers build palisade with Mix when they pull it in
+as a Hex dependency.
 
 ## Development
 
