@@ -85,6 +85,7 @@ class World:
         self.discord = []
         self.discord_status = 204
         self.state_zips = {}
+        self.truncated_ledgers = set()
         self.blob_requests_with_auth = 0
 
     def add_entry(self, payload, key_pub=None, when=NOW - timedelta(hours=3)):
@@ -122,6 +123,8 @@ class World:
                                    "logIndex": index, "logID": "x"}}
 
     def ledger_zip(self, run_id):
+        if run_id in self.truncated_ledgers:
+            return b"PK\x03\x04 truncated download"
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             archive.writestr("signing-ledger.jsonl", "".join(json.dumps(line) + "\n" for line in self.ledgers[run_id]))
@@ -351,6 +354,23 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.titles("open"), [])
         self.assertIn("manual demo signing", self.world.issues[0]["comments"][0])
 
+    def test_a_ledger_match_outlives_an_acknowledgement_and_its_ledger(self):
+        entry = self.world.add_entry(b"signed during a release")
+        self.world.add_run("release.yml", 21, NOW - timedelta(hours=4), None)
+        self.acknowledged.write_text(json.dumps({"entries": [
+            {"uuid": entry["uuid"], "log_index": entry["log_index"], "run": "21", "reason": "release in progress"}]}))
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.runs["release.yml"].clear()
+        self.world.add_run("release.yml", 21, NOW - timedelta(hours=4), NOW - timedelta(hours=1),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.world.runs["release.yml"].clear()
+        self.world.ledgers.clear()
+        self.acknowledged.write_text(json.dumps({"entries": []}))
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(days=91)), 0)
+        self.assertEqual(self.world.issues, [])
+        self.assertEqual(self.world.discord, [])
+
     def test_retracting_an_acknowledgement_restores_detection(self):
         entry = self.world.add_entry(b"acknowledged then retracted")
         self.acknowledged.write_text(json.dumps({"entries": [
@@ -386,6 +406,29 @@ class MonitorTest(unittest.TestCase):
         self.world.log_key = self.world.other_key
         self.assertEqual(self.run_monitor(), 1)
         self.assertIn("does not verify", self.world.discord[-1])
+
+    def test_a_truncated_ledger_download_fails_and_alerts(self):
+        entry = self.world.add_entry(b"release payload")
+        self.world.add_run("release.yml", 22, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        self.world.truncated_ledgers.add(22)
+        before = self.state.read_text()
+        self.assertEqual(self.run_monitor(), 1)
+        self.assertEqual(self.titles(), ["Rekor signing monitor run failed"])
+        self.assertIn("BadZipFile", self.world.discord[-1])
+        self.assertEqual(self.state.read_text(), before)
+
+    def test_an_unreadable_checkpoint_artifact_fails_and_alerts(self):
+        self.world.runs[monitor.MONITOR_WORKFLOW] = [{"id": 45, "head_branch": "staging", "event": "schedule"}]
+        self.world.state_zips = {45: b"not a zip archive"}
+        out = self.root / "fetched.json"
+        status = monitor.main(["--github-api", self.base, "--fetch-state", "--state-out", str(out)],
+                              {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_TOKEN": "synthetic-token",
+                               "CI_FAILURE_DISCORD_WEBHOOK_URL": self.base + "/discord"})
+        self.assertEqual(status, 1)
+        self.assertFalse(out.exists())
+        self.assertEqual(self.titles(), ["Rekor signing monitor run failed"])
+        self.assertIn("BadZipFile", self.world.discord[-1])
 
     def test_missing_checkpoint_fails_without_bootstrap(self):
         self.state.unlink()

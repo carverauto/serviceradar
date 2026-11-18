@@ -321,16 +321,14 @@ def decide(matches, runs, ledgers, acknowledged, decided):
         if decided.get(match["uuid"], {}).get("status") == "explained":
             continue
         active = [run for run in runs if active_at(run, integrated(match))]
-        if match["uuid"] in acknowledged:
-            explained[match["uuid"]] = ("acknowledged", f"acknowledged: {acknowledged[match['uuid']]}")
-            continue
-        if any(run["ended"] is None for run in active):
-            pending.append(match)
-            continue
-        explaining = [run for run in active
-                      if match["payload_sha256"] in {line.get("payload_sha256") for line in ledgers.get(run["id"], [])}]
+        explaining = [run for run in active if run["ended"] is not None
+                      and match["payload_sha256"] in {line.get("payload_sha256") for line in ledgers.get(run["id"], [])}]
         if explaining:
             explained[match["uuid"]] = ("ledger", f"signing run {explaining[0]['url'] or explaining[0]['id']}")
+        elif match["uuid"] in acknowledged:
+            explained[match["uuid"]] = ("acknowledged", f"acknowledged: {acknowledged[match['uuid']]}")
+        elif any(run["ended"] is None for run in active):
+            pending.append(match)
         else:
             unexplained.append(match)
     return explained, pending, unexplained
@@ -525,20 +523,20 @@ def main(argv, environ, now=None):
     now = now or datetime.now(timezone.utc)
     http = Http(environ.get("GITHUB_TOKEN"), args.github_api)
 
-    if args.fetch_state:
-        state = GitHub(http, args.github_api, environ["GITHUB_REPOSITORY"]).latest_state()
-        if state is not None:
-            Path(args.state_out).write_bytes(state)
-        print("previous checkpoint found" if state is not None else "no previous checkpoint")
-        return 0
     if args.self_test:
         github = GitHub(http, args.github_api, environ["GITHUB_REPOSITORY"])
         issue = github.open_issue("Rekor signing monitor self-test", "Test alert from a manual dispatch. Close it.")
         delivered = post_discord(http, environ, f"Rekor signing monitor: self-test alert ({issue.get('html_url', '')}).")
         return 0 if delivered else 1
     try:
+        if args.fetch_state:
+            state = GitHub(http, args.github_api, environ["GITHUB_REPOSITORY"]).latest_state()
+            if state is not None:
+                Path(args.state_out).write_bytes(state)
+            print("previous checkpoint found" if state is not None else "no previous checkpoint")
+            return 0
         return run(args, environ, now)
-    except (MonitorFailure, urllib.error.URLError, OSError, ValueError, KeyError) as error:
+    except Exception as error:
         message = f"Rekor signing monitor failed: {type(error).__name__}: {error}"
         print(message, file=sys.stderr)
         try:
@@ -546,7 +544,7 @@ def main(argv, environ, now=None):
             title = "Rekor signing monitor run failed"
             if not any(issue["title"] == title for issue in github.open_issues()):
                 github.open_issue(title, f"{message}\n\nRun: {environ.get('RUN_URL', '')}")
-        except (urllib.error.URLError, OSError, ValueError, KeyError) as issue_error:
+        except Exception as issue_error:
             print(f"could not open the failure issue: {type(issue_error).__name__}", file=sys.stderr)
         post_discord(http, environ, message)
         return 1
