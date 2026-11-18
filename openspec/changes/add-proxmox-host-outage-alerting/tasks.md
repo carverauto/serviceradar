@@ -60,43 +60,56 @@ of the plugin work in sections 2-5.
 - [ ] 4a.1 Determine whether the guest list returns the QEMU runtime state
       (`qmpstatus`) or a per-guest status call is needed; if a new API path is
       called, add it to the agent's Proxmox path allowlist.
-- [ ] 4a.2 Report a `running` guest whose runtime state is not `running` as
-      not available, in the inventory result and in the running-guest count.
-- [ ] 4a.3 For each node whose guest list is read fully in a poll, emit
-      `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
-      non-running runtime state, carrying the guest's canonical DeviceID, the
-      node and the runtime state, and emit the node's scope-complete marker
-      listing those keys plus the keys of running guests whose runtime state
-      could not be read. Emit no marker for a node whose guest list was not
-      read fully. Keep no state between polls.
+- [ ] 4a.2 Report a QEMU guest whose status is `running` and whose runtime
+      state is not `running` as not available, in the inventory result and in
+      the running-guest count. Containers, and a guest whose runtime state
+      cannot be read, keep the availability derived from their status.
+- [ ] 4a.3 For each node whose guest list a target read fully in a poll,
+      emit `com.carverauto.proxmox.guest_runtime_paused` in that node's
+      guest-runtime scope for each QEMU guest whose status is `running` and
+      whose runtime state is not `running`, carrying the guest's canonical
+      DeviceID, the node and the runtime state, and emit the node's
+      guest-runtime scope-complete marker listing those keys plus the keys of
+      running QEMU guests whose runtime state could not be read, which get no
+      event. Build the scope id from the target discriminator and node, and
+      the key from the target discriminator, node, guest type and VMID. Emit
+      no marker for a node whose guest list was not read fully. Keep no state
+      between polls.
 - [ ] 4a.4 Unit test the plugin output for a single invented observation: a
-      guest in `io-error` emits the condition, is marked not available and
-      its key is listed; a running guest, a stopped guest and a guest absent
-      from the list emit no condition and their keys are absent; a running guest with an unreadable
-      runtime state emits no condition but its key is listed; a node with an
-      unreadable guest list emits no marker while a fully read sibling node
-      still emits its marker.
+      running QEMU guest in `io-error` emits the condition, is marked not
+      available and its key is listed; a running guest, a stopped guest, a
+      container and a guest absent from the list emit no condition and their
+      keys are absent; a running QEMU guest with an unreadable runtime state
+      keeps its status-derived availability, emits no condition and its key
+      is listed; a node with an unreadable guest list emits no marker while a
+      fully read sibling node still emits its marker; two invented targets
+      with the same node name and VMID produce different scopes and keys.
 
 ## 4b. Proxmox plugin: node storage capacity
 
-- [ ] 4b.1 For each node whose storage is read fully in a poll, emit
-      `com.carverauto.proxmox.node_storage_capacity` for each datastore in
-      the critical band, carrying node, datastore, used and total bytes but
-      no ratio or threshold fields, and emit that node's scope-complete marker
-      listing those keys, empty when none is critical. Emit no marker for a
-      node whose storage was not read fully. Keep no state between polls.
+- [ ] 4b.1 For each node whose storage a target read fully in a poll, emit
+      `com.carverauto.proxmox.node_storage_capacity` in that node's
+      node-storage scope for each datastore in the critical band, carrying
+      node, datastore, used and total bytes but no ratio or threshold fields,
+      and emit the node's node-storage scope-complete marker listing those
+      keys, empty when none is critical. Build the scope id from the target
+      discriminator and node, and the key from the target discriminator, node
+      and datastore name only. Emit no marker for a node whose storage was not
+      read fully. Keep no state between polls.
 - [ ] 4b.2 Unit test the plugin output for a single invented observation: a
       datastore at or above the critical threshold emits the condition and its
-      key is listed; a node with no critical datastore emits a marker with an
-      empty key list; a node with unreadable storage emits no marker while a
-      fully read sibling node still emits its marker.
+      key is listed; the key does not change with used bytes; a node with no
+      critical datastore emits a marker with an empty key list; a node with
+      unreadable storage emits no marker while a fully read sibling node still
+      emits its marker.
 - [ ] 4b.3 Confirm the event remains separate from the periodic
       ok/warning/critical pressure summaries, which keep their behaviour.
 - [ ] 4b.4 Agent-level test with invented records for both condition scopes:
       a condition event opens a key and a later marker of the same scope that
       omits it forwards one clearing event; a marker listing a key the agent
       never saw forwards nothing; a run without that scope's marker, or with
-      only another scope's marker, clears nothing.
+      only another scope's marker (including the other condition's marker for
+      the same node), clears nothing.
 
 ## 5. Manifest wiring
 

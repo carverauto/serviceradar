@@ -55,23 +55,26 @@ Repository context:
   successful poll and emit `com.carverauto.proxmox.node_oom_kill`, carrying
   the node, killed process when parseable, and raw log line as event detail.
 - **Guests paused by the hypervisor:** read the QEMU runtime state
-  (`qmpstatus`) for a guest whose `status` is `running`. A guest that is
+  (`qmpstatus`) for a QEMU guest whose `status` is `running`. A guest that is
   paused, or paused on an I/O error or lack of space, is reported not
   available and emits `com.carverauto.proxmox.guest_runtime_paused` with the
   hypervisor's reason, listing its condition key in its node's guest-runtime
-  condition scope.
+  scope. Containers, and a guest whose runtime state cannot be read, keep the
+  availability derived from their status.
 - **Node storage capacity:** emit
   `com.carverauto.proxmox.node_storage_capacity` for each node datastore in
   the critical band the plugin already computes, listing its condition key in
-  that node's storage condition scope. The existing pressure summary carries
-  no recovery, so an alert opened on it could never clear.
+  that node's node-storage scope. The existing pressure summary carries no
+  recovery, so an alert opened on it could never clear.
 - **Recovery through the condition scope:** the plugin keeps no state between
-  polls. Each node's guest list and each node's storage has its own scope
-  and, when fully read, emits a scope-complete marker listing its active
-  keys, empty when none is active. A guest whose runtime state could not be
-  read stays listed; a guest the list shows stopped or absent is omitted. The
-  agent forwards a condition event on first sight, on a level change and on
-  its refresh, and forwards one clear when a marker omits a key it still
+  polls. Each node of each target has a guest-runtime scope and a separate
+  node-storage scope, and every scope id and condition key starts with the
+  target discriminator the plugin already uses for condition keys. A scope
+  read fully emits a scope-complete marker listing its active keys, empty
+  when none is active. A guest whose runtime state could not be read stays
+  listed; a guest the list shows stopped or absent is omitted. The agent
+  forwards a condition event on first sight, on a level change and on its
+  refresh, and forwards one clear when a marker omits a key it still
   remembers in that same scope. A scope that could not be read fully emits
   no marker, so only its own keys stay untouched; another scope's marker, an
   agent restart or expiry of the remembered key clears nothing.

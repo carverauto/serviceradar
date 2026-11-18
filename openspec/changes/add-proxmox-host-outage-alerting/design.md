@@ -83,26 +83,34 @@ not establish OOM as the cause.
 - **Recover through the existing condition scope, not plugin memory.** The
   WASM plugin is re-instantiated on every check and has no state between
   polls, so it cannot compare with a previous poll or know that it emitted an
-  event before. Each node gets two condition scopes, one for its guest
-  list and one for its storage, which is already fetched per node. A scope
-  read fully emits its active conditions and a scope-complete marker listing
-  their keys, with an empty list when nothing is active, which is what clears
-  its last key. The guest-runtime marker also lists a guest the list shows
-  running whose runtime state could not be read, with no condition event for
-  it. That is safe because the agent never opens a key from a marker: a
-  listed key the agent remembers stays open and an unknown one is ignored, so
-  a failed per-guest read holds only that guest's alert and raises none. A
-  guest's condition key is derived from its node, type and VMID, so the
-  plugin can list it without memory. The marker omits a guest the list
-  shows stopped or no longer contains, so stopping or deleting a paused guest
-  clears its alert. The agent's condition debounce already forwards a
-  condition event on first sight, on a level change and on its
-  unchanged-level refresh, and forwards one clear for a key it still
-  remembers in a scope whose marker no longer lists it. A scope that could
-  not be read fully emits no marker, which the agent treats as a partial view
-  of that scope only. Another scope's marker, an agent restart or the expiry
-  of a remembered key clears nothing, so such an alert stays open until an
-  operator resolves it.
+  event before. Each node of each Proxmox target gets two condition scopes,
+  a guest-runtime scope for its guest list and a node-storage scope for its
+  storage, which is already fetched per node. Separate scopes keep one
+  condition's marker from clearing the other condition's keys. Every scope id
+  and condition key starts with the target discriminator the plugin already
+  uses as its condition-key prefix, because one assignment polls several
+  targets through one agent debouncer and two targets can share a node name
+  and VMID. A guest key is that discriminator, the node, the guest type and
+  the VMID; a datastore key is that discriminator, the node and the datastore
+  name, with byte counts kept as event detail so the key stays stable while
+  the datastore stays critical. A scope read fully emits its active
+  conditions and a scope-complete marker listing their keys, with an empty
+  list when nothing is active, which is what clears its last key. The
+  guest-runtime marker also lists a QEMU guest the list shows running whose
+  runtime state could not be read, with no condition event for it. That is
+  safe because the agent never opens a key from a marker: a listed key the
+  agent remembers stays open and an unknown one is ignored, so a failed
+  per-guest read holds only that guest's alert and raises none. Because the
+  key is derived from the target, node, type and VMID, the plugin can list it
+  without memory. The marker omits a guest the list shows stopped or no
+  longer contains, so stopping or deleting a paused guest clears its alert.
+  The agent's condition debounce already forwards a condition event on first
+  sight, on a level change and on its unchanged-level refresh, and forwards
+  one clear for a key it still remembers in a scope whose marker no longer
+  lists it. A scope that could not be read fully emits no marker, which the
+  agent treats as a partial view of that scope only. Another scope's marker,
+  an agent restart or the expiry of a remembered key clears nothing, so such
+  an alert stays open until an operator resolves it.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 
