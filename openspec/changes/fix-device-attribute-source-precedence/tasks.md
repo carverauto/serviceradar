@@ -160,7 +160,8 @@
       address fallback submit the best chooser-accepted IPv4 among every
       address on the host or guest, prefer it over any IPv6, and never submit
       a link-local (`fe80::/10`, `169.254/16`) as primary
-- [ ] 7.5 Find any other primary-IP chooser and apply the same rule
+- [ ] 7.5 Find any other primary-IP chooser, apply the same rule, and cover
+      each one with the extended parity test
 - [ ] 7.6 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is neither alias, primary nor name
