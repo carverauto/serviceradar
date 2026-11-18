@@ -306,10 +306,9 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
     with {:ok, user} <- load_user(row.user_id, actor),
          scopes = parse_scopes(row.scope),
-         scopes_atoms = Enum.map(scopes, &scope_to_atom/1),
          {:ok, jwt, claims} <-
            Guardian.create_api_token(user,
-             scopes: scopes_atoms,
+             scopes: scopes,
              ttl: {ttl_days, :day}
            ),
          {:ok, _session} <- persist_cli_session(row, user, claims, actor) do
@@ -468,10 +467,6 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   defp parse_scopes(nil), do: []
 
   defp parse_scopes(scope) when is_binary(scope), do: String.split(scope, ~r/[\s,]+/, trim: true)
-
-  defp scope_to_atom(scope) when is_atom(scope), do: scope
-  defp scope_to_atom(scope) when is_binary(scope), do: String.to_atom(scope)
-  defp scope_to_atom(_), do: :read
 
   ## Code generation
 

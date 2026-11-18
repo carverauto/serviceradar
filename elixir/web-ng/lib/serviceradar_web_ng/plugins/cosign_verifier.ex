@@ -151,6 +151,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     |> then(&"#{&1}@#{digest}")
   end
 
+  # The path is a server-generated temp name and the content is the configured
+  # public key.
+  # sobelow_skip ["Traversal.FileModule"]
   defp cosign_key_arg(config) do
     cond do
       key_file = Keyword.get(config, :cosign_public_key_file) ->
@@ -166,6 +169,10 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     end
   end
 
+  # No shell: the binary is operator configuration and the arguments are a list.
+  # The only outside value is the artifact reference, which the importers have
+  # already validated against the first-party registry, so it cannot be a flag.
+  # sobelow_skip ["CI.System"]
   defp run_cosign({:receipt, log_id, _key_file}, binary, key_arg, target, opts) do
     args = [
       "verify",
@@ -186,6 +193,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     error in ErlangError -> {:error, {:cosign_verify_failed, Exception.message(error)}}
   end
 
+  # Same as the clause above: no shell, a list of arguments, a validated reference.
+  # sobelow_skip ["CI.System"]
   defp run_cosign(:key_only, binary, key_arg, target, opts) do
     args = ["verify", "--timeout", @cosign_timeout, "--insecure-ignore-tlog=true", "--key", key_arg, target]
 
@@ -236,8 +245,22 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
 
   defp verified_entry(_signature, _log_id), do: nil
 
+  # The directory holds registry credentials while cosign runs. Its name is
+  # unguessable, it must not already exist, and only this user can enter it.
+  # The path is built here from random bytes.
+  # sobelow_skip ["Traversal.FileModule"]
+  defp create_private_runtime_dir! do
+    suffix = 16 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    path = Path.join(System.tmp_dir!(), "serviceradar-cosign-runtime-#{suffix}")
+    File.mkdir!(path)
+    File.chmod!(path, 0o700)
+    path
+  end
+
+  # Every path is under the runtime directory created above.
+  # sobelow_skip ["Traversal.FileModule"]
   defp cosign_cmd_opts(config, mode) do
-    runtime_path = Path.join(System.tmp_dir!(), "serviceradar-cosign-runtime-#{System.unique_integer([:positive])}")
+    runtime_path = create_private_runtime_dir!()
     home_path = Path.join(runtime_path, "home")
     cache_path = Path.join(runtime_path, "cache")
     config_path = Path.join(runtime_path, "config")
@@ -263,7 +286,11 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
       payload ->
         path = Path.join(runtime_path, "docker")
         File.mkdir_p!(path)
-        File.write!(Path.join(path, "config.json"), payload)
+        config_file = Path.join(path, "config.json")
+        # Registry credentials: created empty and owner-only before the payload is written.
+        File.touch!(config_file)
+        File.chmod!(config_file, 0o600)
+        File.write!(config_file, payload)
 
         opts =
           Keyword.update!(opts, :env, fn existing ->
@@ -281,6 +308,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   defp rekor_key_env({:receipt, _log_id, key_file}), do: [{"SIGSTORE_REKOR_PUBLIC_KEY", key_file}]
   defp rekor_key_env(:key_only), do: []
 
+  # The path is operator configuration, never request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp registry_docker_config_payload(config) do
     cond do
       payload = Keyword.get(config, :registry_docker_config_json) ->

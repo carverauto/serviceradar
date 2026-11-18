@@ -124,6 +124,9 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
     "#{safe_filename(session_id)}-#{safe_filename(artifact_type)}.#{extension}"
   end
 
+  # The SVG is built from numbers, constant colours and XML-escaped text, and is
+  # sent as an attachment.
+  # sobelow_skip ["XSS.SendResp"]
   defp send_field_survey_export(conn, review, "svg") do
     payload = field_survey_svg(review)
 

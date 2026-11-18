@@ -224,6 +224,9 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   attr :content, :string, required: true
 
   @doc "Renders Markdown using the same HTML and URL safety policy as plugin results."
+  # The HTML is MDEx output with raw HTML escaped and unsafe URLs dropped, then
+  # filtered again by the allowlist below.
+  # sobelow_skip ["XSS.Raw"]
   def markdown(assigns) do
     assigns = assign(assigns, :html, markdown_to_html(assigns.content))
 

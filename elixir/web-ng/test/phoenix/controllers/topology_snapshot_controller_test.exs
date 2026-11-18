@@ -25,6 +25,16 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     :ok
   end
 
+  test "a POST without a CSRF token is refused", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    assert_error_sent(403, fn ->
+      conn
+      |> Plug.Conn.put_private(:plug_skip_csrf_protection, false)
+      |> post(~p"/topology/snapshot/latest", %{"kind" => "global"})
+    end)
+  end
+
   test "show requires an explicit bounded detail selection", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
