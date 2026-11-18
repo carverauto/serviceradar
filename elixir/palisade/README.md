@@ -56,7 +56,9 @@ via the standard sibling-path dep:
 {:palisade, path: "../palisade"}
 ```
 
-External consumers pull from hex.pm.
+Bazel builds and tests palisade on every pull request (see
+[Bazel and Mix](#bazel-and-mix)). External consumers pull from
+hex.pm, and Hex publication remains tag-triggered.
 
 ## Versioning + publishing
 
