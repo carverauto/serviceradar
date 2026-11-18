@@ -8,23 +8,48 @@ source that knows less therefore erases what a better source recorded, and the
 better source writes it back on its next pass. The attribute oscillates for as
 long as both sources keep running.
 
-Three oscillations were observed on one live deployment (values below are
+Several oscillations were observed on one live deployment (values below are
 synthetic stand-ins):
 
 | Attribute | Stronger writer | Weaker writer | Flip |
 | --- | --- | --- | --- |
 | `name` | mapper (SNMP `sysName`: `ap-01`) | passive census (IP and MAC, no hostname) | `ap-01` <-> `192.0.2.20` |
+| `name` | automation inventory (node name: `hv-node-01`) | hypervisor enrichment (no hostname) | `hv-node-01` <-> `192.0.2.30` |
 | `vendor_name` | mapper (SNMP `sysObjectID` enterprise: `Ubiquiti`) | passive census (IEEE OUI: `Ubiquiti Inc`) | every census pass |
-| integration id on Proxmox nodes | Proxmox inventory plugin | AWX inventory plugin | every plugin run |
+| `type` | hypervisor enrichment (`Hypervisor` / `Virtual`) | automation inventory (`host`) | every inventory cycle |
+| `integration_type` | hypervisor enrichment (`hypervisor`) | automation inventory (`awx`) | every inventory cycle |
+| metadata `integration_id` on hypervisor nodes | hypervisor inventory | automation inventory | every inventory cycle |
 
-`DeviceRecords` builds `name: update.hostname || update.ip`, so a census update
-with no hostname carries the bare IP as a name, and the upsert stores it over a
-real name. `MacVendor` documents the OUI as a last-resort tier, but the tier is
-only applied inside one update: an OUI guess still overwrites a vendor another
-source reported earlier. The passive-census change already states the intended
-rule (`add-passive-device-census`, "Passive observation is a weak identity
-signal": hostname or vendor MAY be enriched *when absent or lower-confidence*);
-the implementation does not enforce it.
+Two producers send updates with no hostname:
+
+- the netprobe passive census re-emits every binding it has seen in the last
+  15 minutes on a 120 s snapshot, so a weak write for each known device
+  arrives every 2 minutes;
+- hypervisor enrichment (`HypervisorEnrichmentIngestor` updates to existing
+  devices) carries the node's address but no hostname, so hypervisor node
+  names flip between the node name and its address against the automation
+  inventory.
+
+Neither producer builds the row itself: core does. `DeviceRecords` builds
+`name: update.hostname || update.ip` and adds the OUI vendor, so a
+hostname-less update carries the bare IP as a name, and the upsert stores it
+over a real name. `MacVendor` documents the OUI as a last-resort tier, but the
+tier is only applied inside one update: an OUI guess still overwrites a vendor
+another source reported earlier. The passive-census change already states the
+intended rule (`add-passive-device-census`, "Passive observation is a weak
+identity signal": hostname or vendor MAY be enriched *when absent or
+lower-confidence*); the implementation does not enforce it.
+
+Two writers also put values in `vendor_name` that are not vendor evidence at
+all: passive fingerprint classification rules set OS or software product
+names (for example `Linux`, `Microsoft`, `NGINX`, `Apache`, `Caddy`), and an
+automation inventory reports its own platform product name as the vendor of
+every host it manages.
+
+Integration membership is already multi-valued in `device_identifiers`. Only
+the denormalized metadata `integration_id` slot is single-valued: the upsert
+merges `stored || EXCLUDED`, and both the automation inventory and hypervisor
+enrichment re-send it every cycle, so the last writer wins.
 
 ### Why this is a config-churn bug, not only an inventory-quality bug
 
@@ -35,8 +60,11 @@ These attributes are inputs to agent config compilation:
   selects SNMPv3 for the matching devices and falls back to the profile's v2c
   credential otherwise, for SNMP profile targets and for mapper per-device
   credentials alike;
-- policy-generated Proxmox plugin assignments embed each node's integration id
-  in their `inputs`.
+- `PluginInputPayloadBuilder.normalize_device_row` copies metadata
+  `integration_id`, the vendor and `hostname || name` into every
+  device-backed plugin input item, and policy-generated Proxmox plugin
+  assignments embed those items in their `inputs`. The only consumer of
+  `integration_id` is `ProxmoxHostAuthority.target_ids`.
 
 Every flip therefore re-versions the agent config. On the agent, a new SNMP
 section restarted every collector (fixed separately in the agent), a new mapper
@@ -52,68 +80,91 @@ inventory state rather than of nondeterministic compilation.
 ## What Changes
 
 - Each single-valued attribute written by sync ingestion (`name`,
-  `vendor_name`) records its source and evidence strength alongside the value.
-  A write replaces the stored value only when its strength is equal to or
-  greater than the recorded strength; a weaker write fills the attribute only
-  when it has no stored value. A populated value with no recorded strength
-  (written before rollout) may be replaced once by a middle- or strongest-tier
-  write, which records its strength, and never by a weakest-tier write. There
-  is no second test (such as "the stored name equals the stored address"):
-  the recorded strength alone decides.
+  `vendor_name`, `type`, `integration_type`) records its source and evidence
+  strength alongside the value. An equal-or-stronger write replaces the
+  recorded value; a weaker write fills the attribute only when it has no
+  stored value. A populated value with no recorded strength (written before
+  rollout) may be replaced once by a middle- or strongest-tier write, which
+  records its strength, and never by a weakest-tier write. There is no second
+  test (such as "the stored name equals the stored address"): the recorded
+  strength alone decides.
   - `name`, weakest to strongest: address fallback (the update has no
-    hostname, so the name is an address) < passive census sighting < SNMP
-    `sysName` from the mapper or a name reported by an integration. An address
-    fallback is the address the device keeps after the existing address rank
-    guard, never an address the guard rejected.
-  - `vendor_name`, weakest to strongest, by the vendor derived for the update
-    rather than the evidence channel or enterprise alone: a derived vendor
-    that names SNMP agent software such as Net-SNMP (from a `sysObjectID`
-    under an agent-software enterprise such as 8072, `sysDescr` or a
-    classification rule) < IEEE OUI registrant
+    hostname, so the name is an address, as from the passive census or
+    hypervisor enrichment) < passive census sighting with an observed
+    hostname < SNMP `sysName` from the mapper or a name reported by an
+    integration. An address fallback is the address the device keeps after
+    the existing address rank guard, never an address the guard rejected, so
+    an NDP or link-local (`fe80::`) sighting never renames a device.
+  - `vendor_name`, by the vendor derived for the update rather than the
+    evidence channel or enterprise alone, weakest to strongest: a derived
+    vendor that names SNMP agent software such as Net-SNMP (from a
+    `sysObjectID` under an agent-software enterprise such as 8072, `sysDescr`
+    or a classification rule) < IEEE OUI registrant
     (`metadata.mac_vendor_source = "ieee_oui"`) or an explicit metadata vendor
-    from a non-integration update < a derived vendor that names a hardware
-    vendor (from a `sysObjectID` enterprise, `sysDescr` or a classification
-    rule, including under enterprise 8072), or a vendor reported by an
-    integration. The OUI provenance keys follow the value that is kept.
+    from a non-integration update < a hardware vendor (from a `sysObjectID`
+    hardware enterprise, a hardware vendor from `sysDescr` or a classification
+    rule, including under enterprise 8072, or an integration-reported
+    hardware vendor). The OUI provenance keys follow the value that is kept.
+  - Not vendor evidence, and never written to `vendor_name`: an OS or
+    software product name from a passive fingerprint or classification rule
+    (it belongs in the OS / software fields), and an integration's own
+    platform name reported as a device's vendor.
+  - `type` and `integration_type` follow the same rule with the tiers in
+    design.md, so the automation inventory's generic `host` / `awx` no longer
+    replaces the hypervisor inventory's `Hypervisor` / `Virtual` /
+    `hypervisor`.
   - The same rule applies inside one ingestion batch (`merge_records_by_uid`)
     as across batches (the upsert), so batch composition cannot change the
     outcome.
-- Integration-scoped identifiers written by two integrations onto one device
-  are kept per integration instead of in one last-writer-wins slot, so the AWX
-  and Proxmox sources stop overwriting each other. (Design question: per-source
-  map in metadata versus the existing identifier registry; see design.md.)
+- The metadata `integration_id` slot is dropped in favour of the
+  provider-scoped identifiers already in `device_identifiers`, so no
+  integration overwrites another's id.
+- Proxmox plugin inputs read the hypervisor provider ref from
+  `device_identifiers` (a single writer), and `integration_id` is no longer
+  copied into input items for plugins that do not own it.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
 ## Operator impact
 
-Once `vendor_name` stops flipping it settles on the stronger value. For a
-device whose `sysObjectID` is under a hardware vendor's enterprise number, that
-is the SNMP-derived vendor. A credential rule written against the OUI spelling
+Once `vendor_name` stops flipping it settles on the strongest vendor evidence.
+For a device whose SNMP evidence derives a hardware vendor (a hardware
+`sysObjectID` enterprise, or a hardware vendor from `sysDescr` or a
+classification rule even when the `sysObjectID` is under a generic
+agent-software enterprise such as Net-SNMP 8072), that is the SNMP-derived
+vendor. A credential rule written against the OUI spelling
 (`vendor_name:"<OUI org>"`) then stops matching such a device when the SNMP
 spelling differs, and the rule's SNMPv3 credential no longer applies; the
 profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
-was stored. A hardware vendor inferred from `sysDescr` or a classification
-rule also outranks the OUI, even when the `sysObjectID` is under a generic
-agent-software enterprise such as Net-SNMP (8072), so exact-OUI rules stop
-matching those devices too. Only a device whose derived vendor names agent
-software (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
-OUI spelling keep matching it. On rows written before rollout, the first
-census pass replaces a stored agent-software vendor with no recorded strength
-by the OUI vendor, so exact-OUI credential rules match that device again after
-that pass. That first census pass may also change any other vendor stored
-before rollout once, to the OUI vendor, and a name stored before rollout once,
-to a census name that carries an observed hostname, until the mapper records a
+was stored. A device whose only other vendor evidence names agent software
+(for example Net-SNMP), or an OS or software product from a fingerprint,
+keeps its OUI vendor, so rules keyed on the OUI spelling keep matching it.
+Fingerprint OS and software names no longer appear in `vendor_name`; rules
+keyed on them (for example `vendor_name:"Linux"`) must move to the OS /
+software fields.
+
+On rows written before rollout, the first census pass replaces a stored
+agent-software, OS or software vendor with no recorded strength by the OUI
+vendor, so exact-OUI credential rules match that device again after that
+pass. That first census pass may also change any other vendor stored before
+rollout once, to the OUI vendor, and a name stored before rollout once, to a
+census name that carries an observed hostname, until the mapper records a
 stronger value. A hostname-less census name is the address fallback, the
-weakest tier, and never replaces any populated name, recorded or not.
+weakest tier, and never replaces a populated name without recorded strength
+or any stronger name.
+
 Release notes must call this out, and such rules should select devices by a
-stable key (uid list, tag, or a prefix match) instead of an exact
-vendor string.
+stable key (uid list, tag, or a prefix match) instead of an exact vendor
+string.
 
 ## Impact
 
 - Affected specs: `device-inventory`
 - Affected code: `ServiceRadar.Inventory.Sync.DeviceRecords`,
   `ServiceRadar.Inventory.Sync.DeviceWrites.device_upsert_update_query/0`,
-  the integration-id writers for AWX and Proxmox inventory.
+  `ServiceRadar.Inventory.HypervisorEnrichmentIngestor`, the vendor inference
+  in sync enrichment and the fingerprint classification rules, the
+  automation-inventory and hypervisor integration writers,
+  `ServiceRadar.Plugins.PluginInputPayloadBuilder`,
+  `ServiceRadar.Plugins.ProxmoxHostAuthority`.
