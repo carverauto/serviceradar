@@ -435,6 +435,12 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 	mux.HandleFunc("/fail", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
 	})
+	mux.HandleFunc("/step", func(w http.ResponseWriter, r *http.Request) {
+		stepIdx := r.URL.Query().Get("n")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"step":%s}`, stepIdx)))
+	})
 
 	tlsSrv := httptest.NewTLSServer(mux)
 	defer tlsSrv.Close()
@@ -708,5 +714,69 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 		}
 		require.NotNil(t, availVal)
 		require.Equal(t, 0.0, *availVal)
+	})
+
+	t.Run("64-step journey stays within 64 MiB limit and 512 KiB protobuf payload cap", func(t *testing.T) {
+		steps := make([]map[string]any, 0, 64)
+		for i := 1; i <= 64; i++ {
+			steps = append(steps, map[string]any{
+				"name":          fmt.Sprintf("step-%02d", i),
+				"method":        "GET",
+				"url":           fmt.Sprintf("%s/step?n=%d", tlsSrv.URL, i),
+				"expect_status": []int{200},
+				"expect_json_fields": []map[string]any{
+					{"pointer": "/ok", "expected": "true", "value_type": "boolean"},
+					{"pointer": "/step", "expected": strconv.Itoa(i), "value_type": "number"},
+				},
+			})
+		}
+		cfg64, err := json.Marshal(map[string]any{
+			"journey_name":    "pipeline-64-step",
+			"web_property_id": webPropertyID,
+			"device_id":       "sr:device-pipeline-64",
+			"target_ip":       host,
+			"emit_telemetry":  true,
+			"steps":           steps,
+		})
+		require.NoError(t, err)
+
+		runJourney("64-step-journey", cfg64)
+
+		records := ingestSrv.drainRecords()
+		require.Len(t, records, 2)
+
+		var pluginBatch *edgev1.WasmPluginResultBatchV1
+		var teleBatch *addonpb.TelemetryBatch
+		for _, rec := range records {
+			body := decodeJourneyRecordBody(t, rec)
+			require.Less(t, len(body), edgeMetricsMaxPayloadBytes, "record %s exceeded 512 KiB protobuf cap", rec.GetOutputContract().GetContractId())
+			switch rec.GetOutputContract().GetContractId() {
+			case edgerecord.PluginResultsContractID:
+				require.NoError(t, edgerecord.ValidatePluginResultRecord(rec))
+				pluginBatch = &edgev1.WasmPluginResultBatchV1{}
+				require.NoError(t, gproto.Unmarshal(body, pluginBatch))
+			case edgerecord.TelemetryBatchContractID:
+				require.NoError(t, edgerecord.ValidateTelemetryBatchRecord(rec))
+				teleBatch = &addonpb.TelemetryBatch{}
+				require.NoError(t, gproto.Unmarshal(body, teleBatch))
+			default:
+				t.Fatalf("unexpected contract id %q", rec.GetOutputContract().GetContractId())
+			}
+		}
+
+		require.NotNil(t, pluginBatch)
+		require.Len(t, pluginBatch.GetResults(), 1)
+		require.Equal(t, edgev1.PluginResultStatus_PLUGIN_RESULT_STATUS_OK, pluginBatch.GetResults()[0].GetStatus())
+
+		require.NotNil(t, teleBatch)
+		var metricBatch metricpb.MetricBatch
+		require.NoError(t, gproto.Unmarshal(teleBatch.GetRecords()[0].GetPayload(), &metricBatch))
+		var stepsCompleted float64
+		for _, m := range metricBatch.GetMetrics() {
+			if m.GetName() == "synthetic.journey.steps_completed" {
+				stepsCompleted = m.GetPoints()[0].GetValue()
+			}
+		}
+		require.Equal(t, 64.0, stepsCompleted)
 	})
 }

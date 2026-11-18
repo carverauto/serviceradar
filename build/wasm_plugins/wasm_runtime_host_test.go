@@ -107,10 +107,12 @@ type wasmHost struct {
 	conns      map[uint32]net.Conn
 	nextHandle uint32
 
-	results   []map[string]any
-	telemetry [][]byte
-	httpCalls int
-	tcpCalls  int
+	results          []map[string]any
+	telemetry        [][]byte
+	httpCalls        int
+	tcpCalls         int
+	memoryLimitPages uint32
+	lastMemoryBytes  uint32
 }
 
 func loadBuiltWasm(t *testing.T, name string) []byte {
@@ -133,7 +135,11 @@ func (h *wasmHost) run(t *testing.T, wasm []byte, export string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	runtime := wazero.NewRuntime(ctx)
+	runtimeCfg := wazero.NewRuntimeConfig()
+	if h.memoryLimitPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(h.memoryLimitPages)
+	}
+	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
 	defer func() {
 		for _, conn := range h.conns {
 			_ = conn.Close()
@@ -170,6 +176,9 @@ func (h *wasmHost) run(t *testing.T, wasm []byte, export string) {
 	if _, err := module.ExportedFunction(export).Call(ctx); err != nil {
 		t.Fatal(fmt.Errorf("%s: %w", export, err))
 	}
+	if mem := module.Memory(); mem != nil {
+		h.lastMemoryBytes = mem.Size()
+	}
 	if len(h.results) == 0 {
 		t.Fatal("plugin did not submit a result")
 	}
@@ -188,8 +197,12 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 	}
 	switch name {
 	case "get_config":
-		if uint64(len(h.config)) > stack[1] || !module.Memory().Write(uint32(stack[0]), h.config) {
-			t.Fatal("config exceeds guest buffer")
+		if uint64(len(h.config)) > stack[1] {
+			stack[0] = api.EncodeI32(-3)
+			return
+		}
+		if !module.Memory().Write(uint32(stack[0]), h.config) {
+			t.Fatal("config write failed")
 		}
 		stack[0] = uint64(len(h.config))
 	case "submit_result":

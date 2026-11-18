@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -359,4 +360,133 @@ func TestHTTPSyntheticJourneyInheritanceAndPrefixScrubbingInWasm(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestHTTPSyntheticJourneyMaxStepsWithinMemoryLimitInWasm(t *testing.T) {
+	wasm := loadBuiltWasm(t, "http_synthetic_journey.wasm")
+
+	const (
+		maxSteps  = 64
+		pageLimit = 1024 // 64 MiB, matching plugin.yaml requested_memory_mb: 64
+		webPropID = "00000000-0000-4000-8000-000000000764"
+	)
+
+	steps := make([]map[string]any, 0, maxSteps)
+	for i := 0; i < maxSteps; i++ {
+		step := map[string]any{
+			"name":          fmt.Sprintf("step-%02d", i+1),
+			"method":        "GET",
+			"url":           fmt.Sprintf("https://app.example.test/steps/%d", i+1),
+			"expect_status": []int{200},
+			"expect_json_fields": []map[string]any{
+				{"pointer": "/step", "expected": fmt.Sprintf("%d", i+1), "value_type": "number"},
+			},
+			"extract_json_fields": []map[string]any{
+				{"pointer": "/token", "var": "step_tok"},
+			},
+		}
+		if i == 0 {
+			step["extract_cookies"] = []map[string]any{{"cookie": "sid", "var": "sid_var"}}
+		} else {
+			step["headers"] = map[string]string{"X-Step-Token": "{{step_tok}}"}
+		}
+		steps = append(steps, step)
+	}
+
+	cfgBytes, err := json.Marshal(map[string]any{
+		"journey_name":    "max-steps-64-mib",
+		"web_property_id": webPropID,
+		"emit_telemetry":  true,
+		"steps":           steps,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daysRemain := 45
+	callIndex := 0
+	host := &wasmHost{
+		config:           cfgBytes,
+		memoryLimitPages: pageLimit,
+		httpEnvelope: func(t *testing.T, req wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+			callIndex++
+			var setCookies []string
+			if callIndex == 1 {
+				setCookies = []string{"sid=max-step-sid-secret; Path=/; Secure"}
+			} else if req.Headers["X-Step-Token"] != fmt.Sprintf("tok-step-%d", callIndex-1) {
+				t.Fatalf("step %d X-Step-Token = %q, want tok-step-%d", callIndex, req.Headers["X-Step-Token"], callIndex-1)
+			}
+			return wasmHTTPEnvelopeResponse{
+				Status:     200,
+				SetCookies: setCookies,
+				Body:       []byte(fmt.Sprintf(`{"step":%d,"token":"tok-step-%d","padding":"%s"}`, callIndex, callIndex, strings.Repeat("a", 512))),
+				Trace: &wasmHTTPTrace{
+					DNSDurationNS:          100_000,
+					ConnectDurationNS:      200_000,
+					TLSHandshakeDurationNS: 300_000,
+					TTFBDurationNS:         400_000,
+					TransferDurationNS:     100_000,
+					TotalDurationNS:        1_100_000,
+					ConnectionReused:       callIndex > 1,
+					FinalURL:               req.URL,
+					Protocol:               "HTTP/2.0",
+					RemoteAddr:             "198.51.100.20:443",
+				},
+				TLS: &wasmHTTPTLSInfo{
+					Version:           "TLS1.3",
+					LeafDaysRemaining: &daysRemain,
+				},
+			}
+		},
+	}
+
+	host.run(t, wasm, "run_check")
+
+	t.Logf("64-step compiled wasm memory size: %d bytes (%.2f MiB), limit %d MiB",
+		host.lastMemoryBytes, float64(host.lastMemoryBytes)/(1024*1024), pageLimit*64/1024)
+
+	if host.httpCalls != maxSteps {
+		t.Fatalf("httpCalls = %d, want %d", host.httpCalls, maxSteps)
+	}
+	res := host.results[len(host.results)-1]
+	if res["status"] != "OK" {
+		t.Fatalf("result status = %v, summary = %v", res["status"], res["summary"])
+	}
+	if len(host.telemetry) != 1 {
+		t.Fatalf("telemetry emissions = %d, want 1", len(host.telemetry))
+	}
+
+	var teleBatch struct {
+		Records []struct {
+			Payload string `json:"payload"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(host.telemetry[0], &teleBatch); err != nil {
+		t.Fatalf("unmarshal telemetry batch: %v", err)
+	}
+	if len(teleBatch.Records) != 1 {
+		t.Fatalf("telemetry records = %d, want 1", len(teleBatch.Records))
+	}
+	rawProto, err := base64.StdEncoding.DecodeString(teleBatch.Records[0].Payload)
+	if err != nil {
+		t.Fatalf("decode telemetry payload: %v", err)
+	}
+	var batch metricpb.MetricBatch
+	if err := proto.Unmarshal(rawProto, &batch); err != nil {
+		t.Fatalf("unmarshal MetricBatch: %v", err)
+	}
+
+	var stepsCompleted float64
+	var journeyAvail float64
+	for _, m := range batch.GetMetrics() {
+		switch m.GetName() {
+		case "synthetic.journey.steps_completed":
+			stepsCompleted = m.GetPoints()[0].GetValue()
+		case "synthetic.journey.available":
+			journeyAvail = m.GetPoints()[0].GetValue()
+		}
+	}
+	if stepsCompleted != float64(maxSteps) || journeyAvail != 1.0 {
+		t.Fatalf("unexpected journey metrics: steps_completed=%v available=%v", stepsCompleted, journeyAvail)
+	}
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -188,6 +190,45 @@ var HTTP = &HTTPClient{MaxResponseBytes: MaxHTTPResponseBytes}
 // HTTPClient wraps host HTTP request calls.
 type HTTPClient struct {
 	MaxResponseBytes uint32
+
+	bufMu      sync.Mutex
+	scratchBuf []byte
+}
+
+func (c *HTTPClient) acquireResponseBuffer(size uint32) []byte {
+	c.bufMu.Lock()
+	buf := c.scratchBuf
+	if len(buf) == int(size) {
+		c.scratchBuf = nil
+		c.bufMu.Unlock()
+		return buf
+	}
+	if cap(buf) >= int(size) {
+		c.scratchBuf = nil
+		c.bufMu.Unlock()
+		return buf[:size]
+	}
+	c.bufMu.Unlock()
+
+	return make([]byte, size)
+}
+
+func (c *HTTPClient) releaseResponseBuffer(buf []byte, written int32) {
+	if len(buf) == 0 {
+		return
+	}
+	if written > 0 {
+		if int(written) < len(buf) {
+			clear(buf[:written])
+		} else {
+			clear(buf)
+		}
+	}
+	c.bufMu.Lock()
+	if c.scratchBuf == nil || cap(c.scratchBuf) < cap(buf) {
+		c.scratchBuf = buf
+	}
+	c.bufMu.Unlock()
 }
 
 // Do performs an HTTP request via the host proxy.
@@ -197,6 +238,9 @@ func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
 
 // DoContext performs an HTTP request via the host proxy with a context.
 func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPResponse, error) {
+	if c == nil {
+		return nil, errors.New("http client is nil")
+	}
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -234,9 +278,14 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		respBufSize = MaxHTTPResponseBytes
 	}
 
-	respBuf := make([]byte, respBufSize)
+	respBuf := c.acquireResponseBuffer(respBufSize)
+	var res int32
+	defer func() {
+		c.releaseResponseBuffer(respBuf, res)
+	}()
+
 	start := time.Now()
-	res := callHostHTTPRequest(encoded, respBuf)
+	res = callHostHTTPRequest(encoded, respBuf)
 
 	if err := hostErr(res, "http_request"); err != nil {
 		return nil, err
@@ -280,9 +329,13 @@ func decodeStatusBodyHTTPResponse(payload []byte, duration time.Duration) (*HTTP
 		return nil, true, err
 	}
 
+	rawBody := payload[lineEnd+1:]
+	body := make([]byte, len(rawBody))
+	copy(body, rawBody)
+
 	return &HTTPResponse{
 		Status:   status,
-		Body:     payload[lineEnd+1:],
+		Body:     body,
 		Duration: duration,
 	}, true, nil
 }
