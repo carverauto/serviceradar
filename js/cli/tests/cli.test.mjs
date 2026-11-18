@@ -451,7 +451,7 @@ for (const template of ["react-blank", "react-map", "react-table", "blueprint"])
       assert.equal(pkg.dependencies["@blueprintjs/core"], "^6.16.0")
       assert.equal(pkg.dependencies["@blueprintjs/icons"], "^6.16.0")
       assert.equal(pkg.dependencies["@blueprintjs/select"], "^6.4.2")
-      assert.equal(pkg.dependencies["@carverauto/serviceradar-dashboard-sdk"], "^0.4.1")
+      assert.equal(pkg.dependencies["@carverauto/serviceradar-dashboard-sdk"], "^0.5.0")
       assert.equal(pkg.dependencies.react, "19.2.9")
       assert.equal(pkg.dependencies["react-dom"], "19.2.9")
       assert.doesNotMatch(config, /__PACKAGE_|__DASHBOARD_TITLE__/)
@@ -463,7 +463,7 @@ for (const template of ["react-blank", "react-map", "react-table", "blueprint"])
       await mkdir(sdkStubDir, {recursive: true})
       await writeFile(
         join(sdkStubDir, "package.json"),
-        JSON.stringify({name: "@carverauto/serviceradar-dashboard-sdk", version: "0.4.1", type: "module", exports: {"./config": "./config.js"}}),
+        JSON.stringify({name: "@carverauto/serviceradar-dashboard-sdk", version: "0.5.0", type: "module", exports: {"./config": "./config.js"}}),
       )
       await writeFile(join(sdkStubDir, "config.js"), "export function defineDashboardConfig(c) { return c }\n")
       const {stdout: validateOut} = await execFileAsync(
