@@ -13,8 +13,11 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.LateAdmission
+  alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1
+  alias Serviceradar.Edge.V1.EdgeProducerContext
+  alias Serviceradar.Edge.V1.EdgeRecordV1
 
   @agent "agent-late-synthetic"
   @scope <<0x5C0E::16, 0::112>>
@@ -179,5 +182,61 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
     # Short-lived: it authorizes a drain happening now, like a renewal grant.
     assert capability.not_before_unix_nano == DateTime.to_unix(@now, :nanosecond)
     assert capability.expires_at_unix_nano > capability.not_before_unix_nano
+  end
+
+  # EventWriter acts on a late record only under the decision core signed for exactly that record
+  # (Decision 7), so the gateway cannot restate it.
+  test "a delivered grant verifies only when core signed it for exactly this record and proof" do
+    key = IssuerKey.from_seed(:binary.copy(<<0x37>>, 32))
+    produced_at = at(3)
+    item = item(produced_at)
+    grant = LateAdmission.grant(item, {:grant, :audit, :ledger_pruned}, key, @now)
+
+    {:ok, proof} =
+      PublicationIdentity.delivery_proof_digest(grant, PublicationIdentity.mode_late_admission())
+
+    delivery = %{
+      record: %EdgeRecordV1{
+        event_id: item.event_id,
+        producer_context: %EdgeProducerContext{authority_epoch: 3}
+      },
+      record_sha256: item.record_sha256,
+      slot: %{spool_id: @spool, sequence: 5},
+      proof: proof
+    }
+
+    assert LateAdmission.verify_delivered(grant, delivery, key) ==
+             {:ok,
+              %{
+                produced_at:
+                  DateTime.from_unix!(
+                    DateTime.to_unix(produced_at, :millisecond) * 1_000,
+                    :microsecond
+                  ),
+                publication: :audit,
+                reason: :ledger_pruned,
+                issuer_key_id: key.key_id
+              }}
+
+    other_key = IssuerKey.from_seed(:binary.copy(<<0x38>>, 32))
+    forged = %{grant | signature: :binary.copy(<<0>>, 64)}
+
+    {:ok, forged_proof} =
+      PublicationIdentity.delivery_proof_digest(forged, PublicationIdentity.mode_late_admission())
+
+    other_epoch = put_in(delivery.record.producer_context.authority_epoch, 4)
+
+    for {candidate, delivery, verifier, reason} <- [
+          {grant, %{delivery | proof: :crypto.hash(:sha256, "another grant")}, key, :proof},
+          {grant, delivery, other_key, :issuer},
+          {forged, %{delivery | proof: forged_proof}, key, :signature},
+          {grant, %{delivery | record_sha256: :crypto.hash(:sha256, "other bytes")}, key,
+           :binding},
+          {grant, %{delivery | slot: %{spool_id: @spool, sequence: 6}}, key, :binding},
+          {grant, other_epoch, key, :binding}
+        ] do
+      assert LateAdmission.verify_delivered(candidate, delivery, verifier) ==
+               {:error, {:late_admission_grant, reason}}
+    end
   end
 end

@@ -288,7 +288,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert_receive {:edge_record_published, %{slot: %{sequence: 2}} = published}
     assert published.publication == :primary
     assert published.delivery_mode == PublicationIdentity.mode_late_admission()
-    assert byte_size(published.delivery_proof) == 32
+    assert {:ok, published.delivery_proof} == PublicationIdentity.delivery_proof_digest(grant, published.delivery_mode)
+    # The grant itself travels on, so EventWriter verifies core's decision rather than the gateway's.
+    assert published.late_admission_grant == grant
 
     # 1 waits for its grant, so it caps the watermark: no ack resolves either sequence yet.
     refute_received {:edge_record_published, %{slot: %{sequence: 1}}}

@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.LateAdmission
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.PipelineStats
@@ -298,11 +299,141 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       fresh = build_frame()
 
-      assert {:error, :audit_not_late_fenced} =
+      assert {:error, :audit_delivery_mode} =
                EdgeRecord.ingest(fresh.record_bytes, fresh.headers, Repo, publication: :audit)
 
       assert ledger_count(fresh.record) == 0
       refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(fresh.batch.execution_id))
+    end
+
+    # openspec add-edge-production-time-admission, Decision 7: a late record is stored under the
+    # decision core signed, and its ledger row says so.
+    test "a late-admission record is stored under its grant's decision, with the late audit trail" do
+      {:ok, key} = IssuerKey.configured()
+
+      audit =
+        build_frame(
+          delivery_mode: PublicationIdentity.mode_late_admission(),
+          late_grant: {:audit, :fenced_at_production},
+          gateway_header: "gateway-late-a"
+        )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(audit.record_bytes, audit.headers, Repo, publication: :audit)
+
+      refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(audit.batch.execution_id))
+
+      assert ledger_admission(audit.record) ==
+               [
+                 "late",
+                 produced_at(audit.record),
+                 "audit",
+                 "fenced_at_production",
+                 key.key_id,
+                 "gateway-late-a"
+               ]
+
+      primary =
+        build_frame(
+          delivery_mode: PublicationIdentity.mode_late_admission(),
+          late_grant: {:primary, :admitted},
+          gateway_header: "gateway-late-b"
+        )
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(primary.record_bytes, primary.headers, Repo)
+      assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(primary.batch.execution_id))
+
+      assert ledger_admission(primary.record) ==
+               [
+                 "late",
+                 produced_at(primary.record),
+                 "primary",
+                 "admitted",
+                 key.key_id,
+                 "gateway-late-b"
+               ]
+
+      live = build_frame(gateway_header: "gateway-live")
+      assert {:ok, :inserted} = EdgeRecord.ingest(live.record_bytes, live.headers, Repo)
+      assert ledger_admission(live.record) == ["live", nil, nil, nil, nil, nil]
+    end
+
+    test "a late-admission record is refused unless core's grant authorizes it on its route" do
+      late = PublicationIdentity.mode_late_admission()
+
+      for {frame_opts, route, reason} <- [
+            {[delivery_mode: late], :primary, :late_admission_grant_missing},
+            {[delivery_mode: late, late_grant: {:audit, :history_unknown}], :primary,
+             :late_admission_publication_route},
+            {[delivery_mode: late, late_grant: {:primary, :admitted}], :audit,
+             :late_admission_publication_route}
+          ] do
+        frame = build_frame(frame_opts)
+
+        assert {:error, ^reason} =
+                 EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, publication: route)
+
+        assert ledger_count(frame.record) == 0
+        refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id))
+      end
+
+      # A grant travels only with the LATE_ADMISSION delivery it authorizes.
+      granted = build_frame(delivery_mode: late, late_grant: {:primary, :admitted})
+      fresh = build_frame()
+
+      headers =
+        Map.put(
+          fresh.headers,
+          "Sr-Edge-Late-Admission-Grant",
+          granted.headers["Sr-Edge-Late-Admission-Grant"]
+        )
+
+      assert {:error, :late_admission_grant_unexpected} =
+               EdgeRecord.ingest(fresh.record_bytes, headers, Repo)
+
+      assert ledger_count(fresh.record) == 0
+
+      # A header that is not a grant is refused, not retried.
+      garbled = %{granted.headers | "Sr-Edge-Late-Admission-Grant" => "bm90LWEtZ3JhbnQ"}
+
+      assert {:error, :late_admission_grant} =
+               EdgeRecord.ingest(granted.record_bytes, garbled, Repo)
+
+      assert ledger_count(granted.record) == 0
+    end
+
+    # Decision 6: a revocation recorded after the grant was issued beats it, as a revoked grant
+    # beats a live record.
+    test "a late PRIMARY record whose interval a certificate revocation has since ended is refused" do
+      frame =
+        build_frame(
+          delivery_mode: PublicationIdentity.mode_late_admission(),
+          late_grant: {:primary, :admitted}
+        )
+
+      context = frame.record.producer_context
+
+      Repo.query!(
+        """
+        INSERT INTO platform.edge_authority_history
+          (assignment_id, assignment_kind, agent_id, network_scope_id, run_shard,
+           authority_epoch, active_from, active_until, ended_reason)
+        VALUES ($1::uuid, 'sweep', $2, $3::uuid, 0, $4, now() - interval '2 days',
+                now() - interval '1 day', 'certificate_revoked')
+        """,
+        [
+          context.producer_assignment_id,
+          context.origin_principal_id,
+          frame.record.network_scope_id,
+          context.authority_epoch
+        ]
+      )
+
+      assert {:error, :certificate_revoked_interval} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert ledger_count(frame.record) == 0
+      refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id))
     end
 
     test "a ZSTD-compressed frame passes gateway admission and projects its decoded batch" do
@@ -4357,11 +4488,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     {:ok, delivery_id} = PublicationIdentity.delivery_id(slot)
 
     delivery_mode = Keyword.get(opts, :delivery_mode, PublicationIdentity.mode_fresh())
+    late_grant = late_admission_grant(record, slot, record_sha256, Keyword.get(opts, :late_grant))
 
     delivery_proof =
-      if delivery_mode == PublicationIdentity.mode_fresh(),
-        do: nil,
-        else: :crypto.hash(:sha256, "delivery-proof")
+      cond do
+        delivery_mode == PublicationIdentity.mode_fresh() ->
+          nil
+
+        late_grant != nil ->
+          {:ok, proof} = PublicationIdentity.delivery_proof_digest(late_grant, delivery_mode)
+          proof
+
+        true ->
+          :crypto.hash(:sha256, "delivery-proof")
+      end
 
     {:ok, provenance} =
       PublicationIdentity.transport_provenance(%{
@@ -4384,7 +4524,45 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         _ -> headers
       end
 
-    %{record_bytes: record_bytes, headers: headers, record: record, batch: batch, slot: slot}
+    headers =
+      if late_grant,
+        do:
+          Map.put(
+            headers,
+            "Sr-Edge-Late-Admission-Grant",
+            PublicationIdentity.encode_late_admission_grant(late_grant)
+          ),
+        else: headers
+
+    %{
+      record_bytes: record_bytes,
+      headers: headers,
+      record: record,
+      batch: batch,
+      slot: slot,
+      late_grant: late_grant
+    }
+  end
+
+  # Core's late-admission grant for this exact record and slot, deciding `{publication, reason}`,
+  # signed with the issuer key EventWriter verifies against.
+  defp late_admission_grant(_record, _slot, _record_sha256, nil), do: nil
+
+  defp late_admission_grant(record, slot, record_sha256, {publication, reason}) do
+    {:ok, key} = IssuerKey.configured()
+
+    LateAdmission.grant(
+      %{
+        event_id: record.event_id,
+        record_sha256: record_sha256,
+        spool_id: slot.spool_id,
+        sequence: slot.sequence,
+        authority_epoch: record.producer_context.authority_epoch
+      },
+      {:grant, publication, reason},
+      key,
+      DateTime.utc_now()
+    )
   end
 
   defp partition!(bytes, actor) do
@@ -4447,6 +4625,25 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     %{semantic_envelope_sha256: semantic_envelope_sha256, record_sha256: record_sha256}
   end
+
+  defp ledger_admission(record) do
+    %{rows: [row]} =
+      Repo.query!(
+        """
+        SELECT admission, late_produced_at, late_publication, late_reason,
+               late_grant_issuer_key_id, late_gateway_id
+          FROM platform.event_ledger
+         WHERE network_scope_id = $1::uuid AND event_id = $2::uuid
+        """,
+        [record.network_scope_id, record.event_id]
+      )
+
+    row
+  end
+
+  # The UUIDv7 time of the record's event id, as the ledger stores `late_produced_at`.
+  defp produced_at(%{event_id: <<millis::48, _::80>>}),
+    do: DateTime.from_unix!(millis * 1_000, :microsecond)
 
   # The record's contract row of this node's `PipelineStats`.
   defp contract_counts(record) do
