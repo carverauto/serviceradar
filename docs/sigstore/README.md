@@ -50,8 +50,7 @@ keys, so no installation depends on the log being up.
   signature, is accepted for a reused one only when the receipt was integrated
   before the cutover pinned in `cutover.json` (the v1.5.8 tag time), and is not
   accepted at import or shipped in the web-ng image. The transparency-log
-  monitor will watch only the self-hosted log (pending: lands with the monitor
-  PR).
+  monitor watches only the self-hosted log.
 
 - `pre-cutover-first-party-digests.json`: the frozen list of first-party Wasm
   plugin and native add-on digests published through v1.5.7, before the cutover
@@ -73,9 +72,8 @@ was fetched on 2026-11-18 at 17:04 UTC with
 head from `GET /api/v1/log` (tree `7401445772329872027`, size 46) verified under it
 with `openssl dgst -sha256 -verify` and named it by key hint (`a8839837`).
 
-Updating the keys: when the self-hosted log's key changes (the monitor will alert
-when `/api/v1/log/publicKey` no longer returns `rekor.pub`; pending: lands with the
-monitor PR), fetch the new key the same
+Updating the keys: when the self-hosted log's key changes (the monitor alerts
+when `/api/v1/log/publicKey` no longer returns `rekor.pub`), fetch the new key the same
 way, add it as `rekor-keys/<logID>.pub` in a reviewed PR, keep every key an
 accepted receipt names, and point `rekor.pub` at the new key. Never drop a key
 from `rekor-keys/` that a published receipt names: verification of that receipt
