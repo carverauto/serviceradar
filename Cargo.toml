@@ -49,6 +49,7 @@ members = [
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
+    "rust/media-worker",
     "rust/protoc-plugins",
 ]
 

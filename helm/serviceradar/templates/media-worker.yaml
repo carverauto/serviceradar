@@ -1,0 +1,378 @@
+{{- $mw := default (dict) .Values.mediaWorker -}}
+{{- if $mw.enabled }}
+{{- $web := default (dict) .Values.webNg -}}
+{{- $controlPlaneRuntime := default (dict) $web.controlPlaneRuntime -}}
+{{- $controlPlanePort := int (default 4001 $controlPlaneRuntime.port) -}}
+{{- $port := int (default 8096 $mw.port) -}}
+{{- $executionProvider := default "cuda" $mw.executionProvider -}}
+{{- if not (has $executionProvider (list "cuda" "tensorrt" "cpu_explicit")) -}}
+{{- fail (printf "mediaWorker.executionProvider must be cuda, tensorrt, or cpu_explicit, got %q" (toString $executionProvider)) -}}
+{{- end -}}
+{{- $auth := default (dict) $mw.auth -}}
+{{- $authSecret := "" -}}
+{{- if kindIs "string" $auth.existingSecret -}}
+{{- $authSecret = trim $auth.existingSecret -}}
+{{- end -}}
+{{- if eq $authSecret "" -}}
+{{- fail "mediaWorker.auth.existingSecret is required when mediaWorker.enabled is true" -}}
+{{- end -}}
+{{- $tokenKey := default "media-worker-token" $auth.tokenKey -}}
+{{- if not (kindIs "string" $auth.deploymentRef) -}}
+{{- fail "mediaWorker.auth.deploymentRef must be a canonical lowercase UUID" -}}
+{{- else if not (regexMatch `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` $auth.deploymentRef) -}}
+{{- fail "mediaWorker.auth.deploymentRef must be a canonical lowercase UUID" -}}
+{{- end -}}
+{{- $genRaw := default "" $auth.generation -}}
+{{- $genStr := ternary "" (toString $genRaw) (kindIs "invalid" $auth.generation) -}}
+{{- if or (not (or (kindIs "string" $auth.generation) (kindIs "int" $auth.generation) (kindIs "int64" $auth.generation) (kindIs "float64" $auth.generation))) (not (regexMatch `^[1-9][0-9]{0,18}$` $genStr)) (and (eq (len $genStr) 19) (gt $genStr "9223372036854775807")) -}}
+{{- fail "mediaWorker.auth.generation must be a positive integer" -}}
+{{- end -}}
+{{- $concurrency := default (dict) $mw.concurrency -}}
+{{- $indexJobs := int (default 2 $concurrency.indexJobs) -}}
+{{- $textEmbeds := int (default 4 $concurrency.textEmbeds) -}}
+{{- if or (lt $indexJobs 1) (lt $textEmbeds 1) -}}
+{{- fail "mediaWorker.concurrency.indexJobs and mediaWorker.concurrency.textEmbeds must be >= 1" -}}
+{{- end -}}
+{{- $models := default (dict) $mw.models -}}
+{{- $embeddingDim := int (default 768 $models.embeddingDim) -}}
+{{- if not (has $embeddingDim (list 512 768 1024)) -}}
+{{- fail "mediaWorker.models.embeddingDim must be 512, 768, or 1024" -}}
+{{- end -}}
+{{- $modelsMountPath := default "/var/lib/serviceradar-media-worker/models" $models.mountPath -}}
+{{- $mwImage := default (dict) $mw.image -}}
+{{- $defaultImageRef := include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker" "name" "serviceradar-media-worker") -}}
+{{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker")) $mwImage.repository -}}
+{{- $imageSuffix := ternary (printf ":%s" $mwImage.tag) (include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker")) (ne (default "" $mwImage.tag) "") -}}
+{{- $imageRef := ternary (printf "%s%s" $imageRepo $imageSuffix) $defaultImageRef (or (ne (default "" $mwImage.repository) "") (ne (default "" $mwImage.tag) "")) -}}
+{{- /* web-ng omits the private control-runtime listener (4001) from its ClusterIP Service;
+     the headless Service resolves directly to web-ng Pod IPs while keeping a 4-dot FQDN. */ -}}
+{{- $controlPlaneUrl := default (printf "http://serviceradar-web-ng-headless.%s.svc.cluster.local:%v" .Release.Namespace $controlPlanePort) $mw.controlPlaneUrl -}}
+{{- $natsUrl := default (printf "nats://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $mw.natsUrl -}}
+{{- $otelEndpoint := default (printf "http://serviceradar-log-collector.%s.svc.cluster.local:4317" .Release.Namespace) $mw.otelEndpoint -}}
+{{- $np := default (dict) $mw.networkPolicy -}}
+{{- $npEnabled := include "serviceradar.boolDefaultTrue" (list $np "enabled") | eq "true" -}}
+{{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- $s3Cidrs := list "0.0.0.0/0" -}}
+{{- if hasKey $np "s3EgressCidrs" -}}
+{{- $s3Cidrs = default (list) $np.s3EgressCidrs -}}
+{{- end -}}
+{{- $s3Except := list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" -}}
+{{- if hasKey $np "s3ExceptCidrs" -}}
+{{- $s3Except = default (list) $np.s3ExceptCidrs -}}
+{{- end -}}
+{{- $baseResources := deepCopy (default (dict) $mw.resources) -}}
+{{- $requests := deepCopy (default (dict) $baseResources.requests) -}}
+{{- $limits := deepCopy (default (dict) $baseResources.limits) -}}
+{{- if ne $executionProvider "cpu_explicit" -}}
+{{- $gpuResourceName := default "nvidia.com/gpu" $mw.gpuResourceName -}}
+{{- $gpuCount := int (default 1 $mw.gpuCount) -}}
+{{- if lt $gpuCount 1 -}}
+{{- fail "mediaWorker.gpuCount must be >= 1 when mediaWorker.executionProvider is not cpu_explicit" -}}
+{{- end -}}
+{{- $_ := set $requests $gpuResourceName $gpuCount -}}
+{{- $_ := set $limits $gpuResourceName $gpuCount -}}
+{{- end -}}
+{{- $_ := set $baseResources "requests" $requests -}}
+{{- $_ := set $baseResources "limits" $limits -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-media-worker
+  labels:
+    app.kubernetes.io/name: serviceradar-media-worker
+    app.kubernetes.io/component: media-worker
+    app.kubernetes.io/part-of: serviceradar-media
+spec:
+  type: ClusterIP
+  selector:
+    app: serviceradar-media-worker
+  ports:
+    - name: http-metrics
+      port: {{ $port }}
+      targetPort: http-metrics
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-media-worker
+  labels:
+    app: serviceradar-media-worker
+    app.kubernetes.io/name: serviceradar-media-worker
+    app.kubernetes.io/component: media-worker
+    app.kubernetes.io/part-of: serviceradar-media
+spec:
+  replicas: {{ int (default 1 $mw.replicas) }}
+  selector:
+    matchLabels:
+      app: serviceradar-media-worker
+  template:
+    metadata:
+      labels:
+        app: serviceradar-media-worker
+        app.kubernetes.io/name: serviceradar-media-worker
+        app.kubernetes.io/component: media-worker
+        app.kubernetes.io/part-of: serviceradar-media
+      annotations:
+        serviceradar.io/media-worker-deployment-ref: {{ $auth.deploymentRef | quote }}
+        serviceradar.io/media-worker-generation: {{ $genStr | quote }}
+        {{- if (default (dict) .Values.global).forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-media-worker") | nindent 6 }}
+      {{- if $mw.runtimeClassName }}
+      runtimeClassName: {{ $mw.runtimeClassName | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $mw.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: media-worker
+          image: {{ $imageRef }}
+          imagePullPolicy: {{ default (include "serviceradar.imagePullPolicy" .) $mwImage.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http-metrics
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            - name: SERVICERADAR_MEDIA_WORKER_PORT
+              value: {{ $port | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_LISTEN_ADDR
+              value: {{ printf "0.0.0.0:%v" $port | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER
+              value: {{ $executionProvider | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_INDEX_CONCURRENCY
+              value: {{ $indexJobs | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_TEXT_EMBED_CONCURRENCY
+              value: {{ $textEmbeds | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_CONTROL_PLANE_URL
+              value: {{ $controlPlaneUrl | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $authSecret | quote }}
+                  key: {{ $tokenKey | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_DEPLOYMENT_REF
+              value: {{ $auth.deploymentRef | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_GENERATION
+              value: {{ $genStr | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_NATS_URL
+              value: {{ $natsUrl | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_OTEL_ENDPOINT
+              value: {{ $otelEndpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $otelEndpoint | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_NVR_READ_PORT
+              value: {{ $nvrReadPort | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_ID
+              value: {{ default "rtdetr-v2-s" $models.detectorModelId | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_VERSION
+              value: {{ default "1" (toString $models.detectorModelVersion) | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_EMBEDDER_MODEL_ID
+              value: {{ default "siglip-base-patch16-384" $models.embedderModelId | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_EMBEDDER_MODEL_VERSION
+              value: {{ default "1" (toString $models.embedderModelVersion) | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_EMBEDDING_DIM
+              value: {{ $embeddingDim | quote }}
+            {{- if $models.detectorPath }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_PATH
+              value: {{ $models.detectorPath | quote }}
+            {{- end }}
+            {{- if $models.detectorSha256 }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_SHA256
+              value: {{ $models.detectorSha256 | quote }}
+            {{- end }}
+            {{- if $models.embedderPath }}
+            - name: SERVICERADAR_MEDIA_WORKER_EMBEDDER_PATH
+              value: {{ $models.embedderPath | quote }}
+            {{- end }}
+            {{- if $models.embedderSha256 }}
+            - name: SERVICERADAR_MEDIA_WORKER_EMBEDDER_SHA256
+              value: {{ $models.embedderSha256 | quote }}
+            {{- end }}
+            {{- if $models.textPath }}
+            - name: SERVICERADAR_MEDIA_WORKER_TEXT_PATH
+              value: {{ $models.textPath | quote }}
+            {{- end }}
+            {{- if $models.textSha256 }}
+            - name: SERVICERADAR_MEDIA_WORKER_TEXT_SHA256
+              value: {{ $models.textSha256 | quote }}
+            {{- end }}
+            {{- if $mw.ortDylibPath }}
+            - name: ORT_DYLIB_PATH
+              value: {{ $mw.ortDylibPath | quote }}
+            {{- end }}
+            - name: TMPDIR
+              value: /tmp
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $baseResources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if $models.existingClaim }}
+            - name: models
+              mountPath: {{ $modelsMountPath | quote }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        {{- if $models.existingClaim }}
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ $models.existingClaim | quote }}
+            readOnly: true
+        {{- end }}
+{{- if $npEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-media-worker
+  labels:
+    app.kubernetes.io/name: serviceradar-media-worker
+    app.kubernetes.io/component: media-worker
+    app.kubernetes.io/part-of: serviceradar-media
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-media-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ $port }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-nats
+      ports:
+        - protocol: TCP
+          port: 4222
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-web-ng
+      ports:
+        - protocol: TCP
+          port: {{ $controlPlanePort }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-otel
+        - podSelector:
+            matchLabels:
+              app: serviceradar-log-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+    {{- if $np.allowNvrRead }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-nvr
+      ports:
+        - protocol: TCP
+          port: {{ $nvrReadPort }}
+    {{- end }}
+    {{- if gt (len $s3Cidrs) 0 }}
+    - to:
+        {{- range $cidr := $s3Cidrs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+            {{- if gt (len $s3Except) 0 }}
+            except:
+              {{- range $exc := $s3Except }}
+              - {{ $exc | quote }}
+              {{- end }}
+            {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- if (default (dict) .Values.networkPolicy).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-media-worker-control-ingress
+  labels:
+    app.kubernetes.io/name: serviceradar-media-worker
+    app.kubernetes.io/component: media-worker
+    app.kubernetes.io/part-of: serviceradar-media
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-web-ng
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      ports:
+        - protocol: TCP
+          port: {{ $controlPlanePort }}
+{{- end }}
+{{- end }}
+{{- end }}

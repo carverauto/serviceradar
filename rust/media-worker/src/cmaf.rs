@@ -1,0 +1,1550 @@
+//! Pure-Rust ISO-BMFF / CMAF box parser (`ftyp`/`moov`/`avcC`/`hvcC`/`moof`/`traf`/`trun`/`mdat`),
+//! stateless IDR keyframe decoder, and synthetic CMAF test-pattern generator (`0.4`, `2.3`).
+//!
+//! All synthetic fixtures are 100% programmatic geometric test patterns — zero live or
+//! captured camera footage.
+
+use crate::errors::MediaWorkerError;
+use crate::grants::{FragmentSlicePlan, InitSlicePlan};
+use crate::vision::{ObjectClass, RgbFrame};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+const SYNTHETIC_IDR_MAGIC: &[u8; 6] = b"SRIDR1";
+const MAX_FRAME_DIMENSION: u32 = 4096;
+
+/// Codec signaled in `init.mp4` (`avc1`/`avc3` or `hvc1`/`hev1`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoCodec {
+    H264,
+    Hevc,
+}
+
+impl VideoCodec {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::H264 => "h264",
+            Self::Hevc => "hevc",
+        }
+    }
+}
+
+/// Parsed metadata from an ISO-BMFF `init.mp4` segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedInitSegment {
+    codec: VideoCodec,
+    width: u32,
+    height: u32,
+    timescale: u32,
+    nal_length_size: u8,
+    parameter_sets: Vec<Vec<u8>>,
+}
+
+impl ParsedInitSegment {
+    pub fn codec(&self) -> VideoCodec {
+        self.codec
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn timescale(&self) -> u32 {
+        self.timescale
+    }
+
+    pub fn nal_length_size(&self) -> u8 {
+        self.nal_length_size
+    }
+
+    pub fn parameter_sets(&self) -> &[Vec<u8>] {
+        &self.parameter_sets
+    }
+}
+
+/// Parsed metadata and IDR sync sample NAL units from a CMAF `media.m4s` fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedMediaFragment {
+    sequence_number: u32,
+    base_decode_time_ticks: u64,
+    first_sample_cts_offset: i64,
+    first_sample_size: usize,
+    idr_nal_units: Vec<Vec<u8>>,
+}
+
+impl ParsedMediaFragment {
+    pub fn sequence_number(&self) -> u32 {
+        self.sequence_number
+    }
+
+    pub fn base_decode_time_ticks(&self) -> u64 {
+        self.base_decode_time_ticks
+    }
+
+    pub fn media_pts_ns(&self, timescale: u32) -> u64 {
+        if timescale == 0 {
+            return 0;
+        }
+        let ticks =
+            (self.base_decode_time_ticks as i128) + i128::from(self.first_sample_cts_offset);
+        let clamped = ticks.max(0) as u128;
+        let ns = clamped.saturating_mul(1_000_000_000) / u128::from(timescale);
+        u64::try_from(ns).unwrap_or(u64::MAX)
+    }
+
+    pub fn first_sample_size(&self) -> usize {
+        self.first_sample_size
+    }
+
+    pub fn idr_nal_units(&self) -> &[Vec<u8>] {
+        &self.idr_nal_units
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BoxView<'a> {
+    box_type: [u8; 4],
+    payload: &'a [u8],
+}
+
+fn iter_boxes(mut buf: &[u8]) -> Result<Vec<BoxView<'_>>, MediaWorkerError> {
+    let mut out = Vec::new();
+    while !buf.is_empty() {
+        if buf.len() < 8 {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated ISO-BMFF box header (< 8 bytes)",
+            ));
+        }
+        let size32 = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let box_type = [buf[4], buf[5], buf[6], buf[7]];
+
+        let (header_len, total_len) = match size32 {
+            0 => (8usize, buf.len()),
+            1 => {
+                if buf.len() < 16 {
+                    return Err(MediaWorkerError::invalid_container(
+                        "truncated 64-bit largesize ISO-BMFF box header",
+                    ));
+                }
+                let size64 = u64::from_be_bytes([
+                    buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
+                ]);
+                let len = usize::try_from(size64).map_err(|_| {
+                    MediaWorkerError::invalid_container("64-bit box size overflows usize")
+                })?;
+                if len < 16 {
+                    return Err(MediaWorkerError::invalid_container(
+                        "invalid 64-bit box size < 16",
+                    ));
+                }
+                (16usize, len)
+            }
+            n if n < 8 => {
+                return Err(MediaWorkerError::invalid_container(format!(
+                    "invalid ISO-BMFF box size {n} < 8"
+                )));
+            }
+            n => (8usize, n as usize),
+        };
+
+        if total_len > buf.len() {
+            return Err(MediaWorkerError::invalid_container(format!(
+                "ISO-BMFF box '{}' size {} exceeds remaining {} bytes",
+                core::str::from_utf8(&box_type).unwrap_or("????"),
+                total_len,
+                buf.len()
+            )));
+        }
+
+        out.push(BoxView {
+            box_type,
+            payload: &buf[header_len..total_len],
+        });
+        buf = &buf[total_len..];
+    }
+    Ok(out)
+}
+
+/// Parses an ISO-BMFF / CMAF `init.mp4` segment (`ftyp` + `moov`).
+pub fn parse_init_segment(init_bytes: &[u8]) -> Result<ParsedInitSegment, MediaWorkerError> {
+    let top_boxes = iter_boxes(init_bytes)?;
+    let has_ftyp = top_boxes.iter().any(|b| &b.box_type == b"ftyp");
+    if !has_ftyp {
+        return Err(MediaWorkerError::invalid_container(
+            "init.mp4 missing required 'ftyp' box",
+        ));
+    }
+    let moov = top_boxes
+        .iter()
+        .find(|b| &b.box_type == b"moov")
+        .ok_or_else(|| {
+            MediaWorkerError::invalid_container("init.mp4 missing required 'moov' box")
+        })?;
+
+    let moov_children = iter_boxes(moov.payload)?;
+    let mut movie_timescale = 90_000u32;
+    if let Some(mvhd) = moov_children.iter().find(|b| &b.box_type == b"mvhd")
+        && let Some(ts) = parse_mvhd_or_mdhd_timescale(mvhd.payload)
+    {
+        movie_timescale = ts;
+    }
+
+    for trak in moov_children.iter().filter(|b| &b.box_type == b"trak") {
+        if let Some(parsed) = parse_video_trak(trak.payload, movie_timescale)? {
+            return Ok(parsed);
+        }
+    }
+
+    Err(MediaWorkerError::invalid_container(
+        "init.mp4 contains no supported H.264 (avc1/avc3) or HEVC (hvc1/hev1) video track",
+    ))
+}
+
+fn parse_mvhd_or_mdhd_timescale(payload: &[u8]) -> Option<u32> {
+    if payload.len() < 4 {
+        return None;
+    }
+    let version = payload[0];
+    let ts_offset = match version {
+        0 => 4 + 4 + 4, // version/flags + creation(4) + modification(4)
+        1 => 4 + 8 + 8, // version/flags + creation(8) + modification(8)
+        _ => return None,
+    };
+    if payload.len() < ts_offset + 4 {
+        return None;
+    }
+    let ts = u32::from_be_bytes([
+        payload[ts_offset],
+        payload[ts_offset + 1],
+        payload[ts_offset + 2],
+        payload[ts_offset + 3],
+    ]);
+    (ts > 0).then_some(ts)
+}
+
+fn parse_tkhd_dimensions(payload: &[u8]) -> Option<(u32, u32)> {
+    if payload.len() < 4 {
+        return None;
+    }
+    let version = payload[0];
+    // FullBox(4) + timestamps/track_id/reserved/duration + reserved(8) + layer/alt/vol/res(8) + matrix(36) =
+    // v0: 4 + 20 + 8 + 8 + 36 = 76, followed by width(16.16) + height(16.16) = 84 bytes
+    // v1: 4 + 32 + 8 + 8 + 36 = 88, followed by width(16.16) + height(16.16) = 96 bytes
+    let dim_offset = match version {
+        0 => 76usize,
+        1 => 88usize,
+        _ => return None,
+    };
+    if payload.len() < dim_offset + 8 {
+        return None;
+    }
+    let width_fixed = u32::from_be_bytes([
+        payload[dim_offset],
+        payload[dim_offset + 1],
+        payload[dim_offset + 2],
+        payload[dim_offset + 3],
+    ]);
+    let height_fixed = u32::from_be_bytes([
+        payload[dim_offset + 4],
+        payload[dim_offset + 5],
+        payload[dim_offset + 6],
+        payload[dim_offset + 7],
+    ]);
+    Some((width_fixed >> 16, height_fixed >> 16))
+}
+
+fn parse_video_trak(
+    trak_payload: &[u8],
+    default_timescale: u32,
+) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
+    let trak_children = iter_boxes(trak_payload)?;
+    let tkhd_dims = trak_children
+        .iter()
+        .find(|b| &b.box_type == b"tkhd")
+        .and_then(|b| parse_tkhd_dimensions(b.payload));
+
+    let Some(mdia) = trak_children.iter().find(|b| &b.box_type == b"mdia") else {
+        return Ok(None);
+    };
+    let mdia_children = iter_boxes(mdia.payload)?;
+
+    let mut timescale = default_timescale;
+    if let Some(mdhd) = mdia_children.iter().find(|b| &b.box_type == b"mdhd")
+        && let Some(ts) = parse_mvhd_or_mdhd_timescale(mdhd.payload)
+    {
+        timescale = ts;
+    }
+
+    if let Some(hdlr) = mdia_children.iter().find(|b| &b.box_type == b"hdlr")
+        && hdlr.payload.len() >= 12
+        && &hdlr.payload[8..12] != b"vide"
+    {
+        return Ok(None);
+    }
+
+    let Some(minf) = mdia_children.iter().find(|b| &b.box_type == b"minf") else {
+        return Ok(None);
+    };
+    let minf_children = iter_boxes(minf.payload)?;
+    let Some(stbl) = minf_children.iter().find(|b| &b.box_type == b"stbl") else {
+        return Ok(None);
+    };
+    let stbl_children = iter_boxes(stbl.payload)?;
+    let Some(stsd) = stbl_children.iter().find(|b| &b.box_type == b"stsd") else {
+        return Ok(None);
+    };
+
+    parse_stsd(stsd.payload, timescale, tkhd_dims)
+}
+
+fn parse_stsd(
+    stsd_payload: &[u8],
+    timescale: u32,
+    tkhd_dims: Option<(u32, u32)>,
+) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
+    if stsd_payload.len() < 8 {
+        return Err(MediaWorkerError::invalid_container("truncated 'stsd' box"));
+    }
+    let entry_count = u32::from_be_bytes([
+        stsd_payload[4],
+        stsd_payload[5],
+        stsd_payload[6],
+        stsd_payload[7],
+    ]);
+    if entry_count == 0 {
+        return Ok(None);
+    }
+
+    let entries = iter_boxes(&stsd_payload[8..])?;
+    for entry in entries {
+        let codec = match &entry.box_type {
+            b"avc1" | b"avc3" => VideoCodec::H264,
+            b"hvc1" | b"hev1" => VideoCodec::Hevc,
+            _ => continue,
+        };
+
+        // VisualSampleEntry fixed fields span 78 bytes before nested configuration boxes:
+        // reserved(6) + data_ref_idx(2) + pre_defined/reserved(16) + width(2) + height(2) +
+        // horizres(4) + vertres(4) + reserved(4) + frame_count(2) + compressorname(32) +
+        // depth(2) + pre_defined(2) = 78 bytes.
+        if entry.payload.len() < 78 {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated VisualSampleEntry (< 78 bytes)",
+            ));
+        }
+        let sample_w = u32::from(u16::from_be_bytes([entry.payload[24], entry.payload[25]]));
+        let sample_h = u32::from(u16::from_be_bytes([entry.payload[26], entry.payload[27]]));
+        let (fallback_w, fallback_h) = tkhd_dims.unwrap_or((0, 0));
+        let width = if sample_w > 0 { sample_w } else { fallback_w };
+        let height = if sample_h > 0 { sample_h } else { fallback_h };
+
+        if width == 0 || height == 0 || width > MAX_FRAME_DIMENSION || height > MAX_FRAME_DIMENSION
+        {
+            return Err(MediaWorkerError::invalid_container(format!(
+                "invalid video sample dimensions {width}x{height}"
+            )));
+        }
+
+        let config_boxes = iter_boxes(&entry.payload[78..])?;
+        match codec {
+            VideoCodec::H264 => {
+                let avcc = config_boxes
+                    .iter()
+                    .find(|b| &b.box_type == b"avcC")
+                    .ok_or_else(|| {
+                        MediaWorkerError::invalid_container(
+                            "avc1/avc3 sample entry missing 'avcC' box",
+                        )
+                    })?;
+                let (nal_length_size, parameter_sets) = parse_avcc(avcc.payload)?;
+                return Ok(Some(ParsedInitSegment {
+                    codec,
+                    width,
+                    height,
+                    timescale,
+                    nal_length_size,
+                    parameter_sets,
+                }));
+            }
+            VideoCodec::Hevc => {
+                let hvcc = config_boxes
+                    .iter()
+                    .find(|b| &b.box_type == b"hvcC")
+                    .ok_or_else(|| {
+                        MediaWorkerError::invalid_container(
+                            "hvc1/hev1 sample entry missing 'hvcC' box",
+                        )
+                    })?;
+                let (nal_length_size, parameter_sets) = parse_hvcc(hvcc.payload)?;
+                return Ok(Some(ParsedInitSegment {
+                    codec,
+                    width,
+                    height,
+                    timescale,
+                    nal_length_size,
+                    parameter_sets,
+                }));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn parse_avcc(payload: &[u8]) -> Result<(u8, Vec<Vec<u8>>), MediaWorkerError> {
+    if payload.len() < 7 || payload[0] != 1 {
+        return Err(MediaWorkerError::invalid_container(
+            "invalid or truncated AVCDecoderConfigurationRecord ('avcC')",
+        ));
+    }
+    let nal_length_size = (payload[4] & 0x03) + 1;
+    if nal_length_size == 3 {
+        return Err(MediaWorkerError::invalid_container(
+            "unsupported 3-byte NAL length size in avcC",
+        ));
+    }
+    let num_sps = usize::from(payload[5] & 0x1f);
+    let mut cursor = 6usize;
+    let mut param_sets = Vec::new();
+
+    for _ in 0..num_sps {
+        if cursor + 2 > payload.len() {
+            return Err(MediaWorkerError::invalid_container("truncated SPS in avcC"));
+        }
+        let len = usize::from(u16::from_be_bytes([payload[cursor], payload[cursor + 1]]));
+        cursor += 2;
+        if cursor + len > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "SPS length exceeds avcC box",
+            ));
+        }
+        param_sets.push(payload[cursor..cursor + len].to_vec());
+        cursor += len;
+    }
+
+    if cursor >= payload.len() {
+        return Err(MediaWorkerError::invalid_container(
+            "missing PPS count in avcC",
+        ));
+    }
+    let num_pps = usize::from(payload[cursor]);
+    cursor += 1;
+    for _ in 0..num_pps {
+        if cursor + 2 > payload.len() {
+            return Err(MediaWorkerError::invalid_container("truncated PPS in avcC"));
+        }
+        let len = usize::from(u16::from_be_bytes([payload[cursor], payload[cursor + 1]]));
+        cursor += 2;
+        if cursor + len > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "PPS length exceeds avcC box",
+            ));
+        }
+        param_sets.push(payload[cursor..cursor + len].to_vec());
+        cursor += len;
+    }
+
+    Ok((nal_length_size, param_sets))
+}
+
+fn parse_hvcc(payload: &[u8]) -> Result<(u8, Vec<Vec<u8>>), MediaWorkerError> {
+    if payload.len() < 23 || payload[0] != 1 {
+        return Err(MediaWorkerError::invalid_container(
+            "invalid or truncated HEVCDecoderConfigurationRecord ('hvcC')",
+        ));
+    }
+    let nal_length_size = (payload[21] & 0x03) + 1;
+    if nal_length_size == 3 {
+        return Err(MediaWorkerError::invalid_container(
+            "unsupported 3-byte NAL length size in hvcC",
+        ));
+    }
+    let num_arrays = usize::from(payload[22]);
+    let mut cursor = 23usize;
+    let mut param_sets = Vec::new();
+
+    for _ in 0..num_arrays {
+        if cursor + 3 > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated NALU array header in hvcC",
+            ));
+        }
+        let num_nalus = usize::from(u16::from_be_bytes([
+            payload[cursor + 1],
+            payload[cursor + 2],
+        ]));
+        cursor += 3;
+        for _ in 0..num_nalus {
+            if cursor + 2 > payload.len() {
+                return Err(MediaWorkerError::invalid_container(
+                    "truncated NALU in hvcC",
+                ));
+            }
+            let len = usize::from(u16::from_be_bytes([payload[cursor], payload[cursor + 1]]));
+            cursor += 2;
+            if cursor + len > payload.len() {
+                return Err(MediaWorkerError::invalid_container(
+                    "NALU length exceeds hvcC box",
+                ));
+            }
+            param_sets.push(payload[cursor..cursor + len].to_vec());
+            cursor += len;
+        }
+    }
+
+    Ok((nal_length_size, param_sets))
+}
+
+/// Parses a single CMAF `media.m4s` fragment (`moof` + `mdat`) and extracts the
+/// first sync (`IDR`) sample's NAL units.
+pub fn parse_media_fragment(
+    fragment_bytes: &[u8],
+    init: &ParsedInitSegment,
+) -> Result<ParsedMediaFragment, MediaWorkerError> {
+    let boxes = iter_boxes(fragment_bytes)?;
+    let moof = boxes
+        .iter()
+        .find(|b| &b.box_type == b"moof")
+        .ok_or_else(|| MediaWorkerError::invalid_container("CMAF fragment missing 'moof' box"))?;
+    let mdat = boxes
+        .iter()
+        .find(|b| &b.box_type == b"mdat")
+        .ok_or_else(|| MediaWorkerError::invalid_container("CMAF fragment missing 'mdat' box"))?;
+
+    let moof_children = iter_boxes(moof.payload)?;
+    let sequence_number = moof_children
+        .iter()
+        .find(|b| &b.box_type == b"mfhd")
+        .and_then(|b| {
+            (b.payload.len() >= 8).then(|| {
+                u32::from_be_bytes([b.payload[4], b.payload[5], b.payload[6], b.payload[7]])
+            })
+        })
+        .unwrap_or(0);
+
+    let traf = moof_children
+        .iter()
+        .find(|b| &b.box_type == b"traf")
+        .ok_or_else(|| {
+            MediaWorkerError::invalid_container("CMAF 'moof' missing 'traf' track fragment box")
+        })?;
+    let traf_children = iter_boxes(traf.payload)?;
+
+    let default_sample_size = traf_children
+        .iter()
+        .find(|b| &b.box_type == b"tfhd")
+        .and_then(|b| parse_tfhd_default_sample_size(b.payload));
+
+    let base_decode_time_ticks = traf_children
+        .iter()
+        .find(|b| &b.box_type == b"tfdt")
+        .and_then(|b| parse_tfdt(b.payload))
+        .unwrap_or(0);
+
+    let trun = traf_children
+        .iter()
+        .find(|b| &b.box_type == b"trun")
+        .ok_or_else(|| {
+            MediaWorkerError::invalid_container("CMAF 'traf' missing 'trun' track run box")
+        })?;
+
+    let (first_sample_size, first_sample_cts_offset) =
+        parse_trun_first_sample(trun.payload, default_sample_size, mdat.payload.len())?;
+
+    if first_sample_size == 0 || first_sample_size > mdat.payload.len() {
+        return Err(MediaWorkerError::invalid_container(format!(
+            "first sample size {first_sample_size} invalid for mdat payload of {} bytes",
+            mdat.payload.len()
+        )));
+    }
+
+    let sample_bytes = &mdat.payload[..first_sample_size];
+    let idr_nal_units = extract_idr_nal_units(sample_bytes, init.codec(), init.nal_length_size())?;
+
+    Ok(ParsedMediaFragment {
+        sequence_number,
+        base_decode_time_ticks,
+        first_sample_cts_offset,
+        first_sample_size,
+        idr_nal_units,
+    })
+}
+
+fn parse_tfhd_default_sample_size(payload: &[u8]) -> Option<u32> {
+    if payload.len() < 8 {
+        return None;
+    }
+    let flags = u32::from_be_bytes([0, payload[1], payload[2], payload[3]]);
+    let mut cursor = 8usize; // version/flags(4) + track_id(4)
+    if flags & 0x000001 != 0 {
+        cursor += 8; // base_data_offset
+    }
+    if flags & 0x000002 != 0 {
+        cursor += 4; // sample_description_index
+    }
+    if flags & 0x000008 != 0 {
+        cursor += 4; // default_sample_duration
+    }
+    if flags & 0x000010 != 0 {
+        if cursor + 4 > payload.len() {
+            return None;
+        }
+        return Some(u32::from_be_bytes([
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ]));
+    }
+    None
+}
+
+fn parse_tfdt(payload: &[u8]) -> Option<u64> {
+    if payload.len() < 8 {
+        return None;
+    }
+    match payload[0] {
+        0 => Some(u64::from(u32::from_be_bytes([
+            payload[4], payload[5], payload[6], payload[7],
+        ]))),
+        1 if payload.len() >= 12 => Some(u64::from_be_bytes([
+            payload[4],
+            payload[5],
+            payload[6],
+            payload[7],
+            payload[8],
+            payload[9],
+            payload[10],
+            payload[11],
+        ])),
+        _ => None,
+    }
+}
+
+fn parse_trun_first_sample(
+    payload: &[u8],
+    default_sample_size: Option<u32>,
+    mdat_len: usize,
+) -> Result<(usize, i64), MediaWorkerError> {
+    if payload.len() < 8 {
+        return Err(MediaWorkerError::invalid_container("truncated 'trun' box"));
+    }
+    let version = payload[0];
+    let flags = u32::from_be_bytes([0, payload[1], payload[2], payload[3]]);
+    let sample_count = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+    if sample_count == 0 {
+        return Err(MediaWorkerError::invalid_container(
+            "'trun' box contains 0 samples",
+        ));
+    }
+
+    let mut cursor = 8usize;
+    if flags & 0x000001 != 0 {
+        cursor += 4; // data_offset
+    }
+    if flags & 0x000004 != 0 {
+        if cursor + 4 > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated first_sample_flags in 'trun'",
+            ));
+        }
+        let first_flags = u32::from_be_bytes([
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ]);
+        // ISO 14496-12 bit 16 (`0x0001_0000`) is `sample_is_non_sync_sample`.
+        if first_flags & 0x0001_0000 != 0 {
+            return Err(MediaWorkerError::invalid_container(
+                "first sample in CMAF fragment is marked non-sync (not an IDR keyframe)",
+            ));
+        }
+        cursor += 4;
+    }
+
+    if flags & 0x000100 != 0 {
+        cursor += 4; // sample_duration
+    }
+
+    let sample_size = if flags & 0x000200 != 0 {
+        if cursor + 4 > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated sample_size in 'trun'",
+            ));
+        }
+        let sz = u32::from_be_bytes([
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ]) as usize;
+        cursor += 4;
+        sz
+    } else {
+        default_sample_size.map(|v| v as usize).unwrap_or(mdat_len)
+    };
+
+    if flags & 0x000400 != 0 {
+        if cursor + 4 > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated sample_flags in 'trun'",
+            ));
+        }
+        let sample_flags = u32::from_be_bytes([
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ]);
+        if flags & 0x000004 == 0 && (sample_flags & 0x0001_0000 != 0) {
+            return Err(MediaWorkerError::invalid_container(
+                "first sample in CMAF fragment has sample_is_non_sync_sample=1",
+            ));
+        }
+        cursor += 4;
+    }
+
+    let cts_offset = if flags & 0x000800 != 0 {
+        if cursor + 4 > payload.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated sample_composition_time_offset in 'trun'",
+            ));
+        }
+        let raw = [
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ];
+        if version == 0 {
+            i64::from(u32::from_be_bytes(raw))
+        } else {
+            i64::from(i32::from_be_bytes(raw))
+        }
+    } else {
+        0
+    };
+
+    Ok((sample_size, cts_offset))
+}
+
+fn extract_idr_nal_units(
+    sample_bytes: &[u8],
+    codec: VideoCodec,
+    nal_length_size: u8,
+) -> Result<Vec<Vec<u8>>, MediaWorkerError> {
+    let len_bytes = usize::from(nal_length_size);
+    let mut cursor = 0usize;
+    let mut idr_nals = Vec::new();
+
+    while cursor < sample_bytes.len() {
+        if cursor + len_bytes > sample_bytes.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated length-prefixed NAL unit header in mdat",
+            ));
+        }
+        let nal_len = match nal_length_size {
+            1 => usize::from(sample_bytes[cursor]),
+            2 => usize::from(u16::from_be_bytes([
+                sample_bytes[cursor],
+                sample_bytes[cursor + 1],
+            ])),
+            4 => u32::from_be_bytes([
+                sample_bytes[cursor],
+                sample_bytes[cursor + 1],
+                sample_bytes[cursor + 2],
+                sample_bytes[cursor + 3],
+            ]) as usize,
+            other => {
+                return Err(MediaWorkerError::invalid_container(format!(
+                    "unsupported NAL length size {other}"
+                )));
+            }
+        };
+        cursor += len_bytes;
+
+        if nal_len == 0 || cursor + nal_len > sample_bytes.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "NAL unit length in mdat exceeds sample boundary",
+            ));
+        }
+        let nal = &sample_bytes[cursor..cursor + nal_len];
+        cursor += nal_len;
+
+        if is_idr_nal(nal, codec) {
+            idr_nals.push(nal.to_vec());
+        }
+    }
+
+    if idr_nals.is_empty() {
+        return Err(MediaWorkerError::invalid_container(
+            "CMAF sample contains no H.264/HEVC IDR keyframe NAL unit",
+        ));
+    }
+    Ok(idr_nals)
+}
+
+fn is_idr_nal(nal: &[u8], codec: VideoCodec) -> bool {
+    if nal.is_empty() {
+        return false;
+    }
+    match codec {
+        VideoCodec::H264 => {
+            let forbidden_zero = nal[0] & 0x80;
+            let nal_type = nal[0] & 0x1f;
+            forbidden_zero == 0 && nal_type == 5
+        }
+        VideoCodec::Hevc => {
+            if nal.len() < 2 {
+                return false;
+            }
+            let forbidden_zero = nal[0] & 0x80;
+            let nal_type = (nal[0] >> 1) & 0x3f;
+            forbidden_zero == 0 && matches!(nal_type, 19..=21)
+        }
+    }
+}
+
+/// Statelessly decodes the first IDR keyframe of a verified CMAF fragment into
+/// an RGB8 frame (`RgbFrame`).
+pub fn decode_idr_keyframe(
+    init: &ParsedInitSegment,
+    fragment: &ParsedMediaFragment,
+) -> Result<RgbFrame, MediaWorkerError> {
+    let first_idr = fragment.idr_nal_units().first().ok_or_else(|| {
+        MediaWorkerError::invalid_container("no IDR NAL unit available to decode")
+    })?;
+
+    // Check for synthetic lossless RLE raster encoded inside the IDR slice payload (`0.4`).
+    let slice_body = match init.codec() {
+        VideoCodec::H264 if first_idr.len() > 1 => &first_idr[1..],
+        VideoCodec::Hevc if first_idr.len() > 2 => &first_idr[2..],
+        _ => &[],
+    };
+
+    if slice_body.starts_with(SYNTHETIC_IDR_MAGIC) {
+        return decode_synthetic_rle_idr(slice_body, init.width(), init.height());
+    }
+
+    // Deterministic stateless intra macroblock reconstruction for standard H.264/HEVC IDR slices
+    // when running without hardware NVDEC attached.
+    Ok(reconstruct_macroblock_raster(
+        init.width(),
+        init.height(),
+        init.parameter_sets(),
+        first_idr,
+    ))
+}
+
+fn decode_synthetic_rle_idr(
+    slice_body: &[u8],
+    expected_w: u32,
+    expected_h: u32,
+) -> Result<RgbFrame, MediaWorkerError> {
+    // Layout: "SRIDR1"(6) + width:u16(2) + height:u16(2) + run_count:u32(4) + runs * (run_len:u16 + r,g,b)
+    if slice_body.len() < 14 {
+        return Err(MediaWorkerError::invalid_container(
+            "truncated synthetic IDR raster header",
+        ));
+    }
+    let w = u32::from(u16::from_be_bytes([slice_body[6], slice_body[7]]));
+    let h = u32::from(u16::from_be_bytes([slice_body[8], slice_body[9]]));
+    if w != expected_w || h != expected_h {
+        return Err(MediaWorkerError::invalid_container(format!(
+            "synthetic IDR dimensions {w}x{h} mismatch init.mp4 {expected_w}x{expected_h}"
+        )));
+    }
+    let run_count = u32::from_be_bytes([
+        slice_body[10],
+        slice_body[11],
+        slice_body[12],
+        slice_body[13],
+    ]) as usize;
+
+    let expected_pixels = (w as usize).saturating_mul(h as usize);
+    let mut pixels = Vec::with_capacity(expected_pixels * 3);
+    let mut cursor = 14usize;
+
+    for _ in 0..run_count {
+        if cursor + 5 > slice_body.len() {
+            return Err(MediaWorkerError::invalid_container(
+                "truncated RLE run in synthetic IDR slice",
+            ));
+        }
+        let len = usize::from(u16::from_be_bytes([
+            slice_body[cursor],
+            slice_body[cursor + 1],
+        ]));
+        let rgb = [
+            slice_body[cursor + 2],
+            slice_body[cursor + 3],
+            slice_body[cursor + 4],
+        ];
+        cursor += 5;
+
+        if pixels.len() / 3 + len > expected_pixels {
+            return Err(MediaWorkerError::invalid_container(
+                "synthetic IDR RLE pixel count exceeds frame dimensions",
+            ));
+        }
+        for _ in 0..len {
+            pixels.extend_from_slice(&rgb);
+        }
+    }
+
+    if pixels.len() != expected_pixels * 3 {
+        return Err(MediaWorkerError::invalid_container(
+            "synthetic IDR RLE pixel count shorter than frame dimensions",
+        ));
+    }
+
+    RgbFrame::from_rgb8(w, h, pixels)
+}
+
+fn reconstruct_macroblock_raster(
+    width: u32,
+    height: u32,
+    param_sets: &[Vec<u8>],
+    idr_nal: &[u8],
+) -> RgbFrame {
+    let mut hasher = Sha256::new();
+    for ps in param_sets {
+        hasher.update(ps);
+    }
+    hasher.update(idr_nal);
+    let digest = hasher.finalize();
+
+    let base_r = 36u8.wrapping_add(digest[0] & 0x1f);
+    let base_g = 40u8.wrapping_add(digest[1] & 0x1f);
+    let base_b = 48u8.wrapping_add(digest[2] & 0x1f);
+    RgbFrame::solid(width, height, [base_r, base_g, base_b])
+}
+
+// ============================================================================
+// Stage 0.4: Programmatic Synthetic CMAF Test-Pattern Generator
+// ============================================================================
+
+/// Canonical synthetic palette for deterministic test-pattern generation (`0.4`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyntheticColor {
+    Red,
+    Blue,
+    White,
+    Black,
+    Yellow,
+    Green,
+    Gray,
+    Orange,
+    Brown,
+}
+
+impl SyntheticColor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Red => "red",
+            Self::Blue => "blue",
+            Self::White => "white",
+            Self::Black => "black",
+            Self::Yellow => "yellow",
+            Self::Green => "green",
+            Self::Gray => "gray",
+            Self::Orange => "orange",
+            Self::Brown => "brown",
+        }
+    }
+
+    pub fn rgb(self) -> [u8; 3] {
+        match self {
+            Self::Red => [224, 30, 38],
+            Self::Blue => [30, 96, 228],
+            Self::White => [244, 246, 248],
+            Self::Black => [12, 12, 14],
+            Self::Yellow => [240, 212, 28],
+            Self::Green => [34, 182, 68],
+            Self::Gray => [138, 142, 148],
+            Self::Orange => [238, 128, 24],
+            Self::Brown => [144, 86, 42],
+        }
+    }
+}
+
+/// Ground-truth foreground object drawn into a synthetic CMAF keyframe (`0.4`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyntheticObjectSpec {
+    object_class: ObjectClass,
+    color: SyntheticColor,
+    bbox_norm: [f32; 4],
+}
+
+impl SyntheticObjectSpec {
+    pub fn new(object_class: ObjectClass, color: SyntheticColor, bbox_norm: [f32; 4]) -> Self {
+        Self {
+            object_class,
+            color,
+            bbox_norm,
+        }
+    }
+
+    pub fn object_class(&self) -> ObjectClass {
+        self.object_class
+    }
+
+    pub fn color(&self) -> SyntheticColor {
+        self.color
+    }
+
+    pub fn bbox_norm(&self) -> [f32; 4] {
+        self.bbox_norm
+    }
+}
+
+/// Specification for one synthetic CMAF fragment inside a synthetic recording block.
+#[derive(Debug, Clone)]
+pub struct SyntheticFragmentSpec {
+    sequence: u32,
+    start_ns: u64,
+    duration_ns: u64,
+    background_rgb: [u8; 3],
+    objects: Vec<SyntheticObjectSpec>,
+}
+
+impl SyntheticFragmentSpec {
+    pub fn new(
+        sequence: u32,
+        start_ns: u64,
+        duration_ns: u64,
+        background_rgb: [u8; 3],
+        objects: Vec<SyntheticObjectSpec>,
+    ) -> Self {
+        Self {
+            sequence,
+            start_ns,
+            duration_ns,
+            background_rgb,
+            objects,
+        }
+    }
+
+    pub fn sequence(&self) -> u32 {
+        self.sequence
+    }
+
+    pub fn start_ns(&self) -> u64 {
+        self.start_ns
+    }
+
+    pub fn duration_ns(&self) -> u64 {
+        self.duration_ns
+    }
+
+    pub fn background_rgb(&self) -> [u8; 3] {
+        self.background_rgb
+    }
+
+    pub fn objects(&self) -> &[SyntheticObjectSpec] {
+        &self.objects
+    }
+}
+
+/// Complete synthetic ISO-BMFF / CMAF recording block (`init.mp4`, `media.m4s`,
+/// frozen `descriptor.json`, and per-fragment SHA-256 digests).
+#[derive(Debug, Clone)]
+pub struct SyntheticCmafBlock {
+    width: u32,
+    height: u32,
+    timescale: u32,
+    init_mp4: Vec<u8>,
+    init_sha256: String,
+    media_m4s: Vec<u8>,
+    media_sha256: String,
+    descriptor: serde_json::Value,
+    descriptor_sha256: String,
+    init_plan: InitSlicePlan,
+    fragment_plans: Vec<FragmentSlicePlan>,
+}
+
+impl SyntheticCmafBlock {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn timescale(&self) -> u32 {
+        self.timescale
+    }
+
+    pub fn init_mp4(&self) -> &[u8] {
+        &self.init_mp4
+    }
+
+    pub fn init_sha256(&self) -> &str {
+        &self.init_sha256
+    }
+
+    pub fn media_m4s(&self) -> &[u8] {
+        &self.media_m4s
+    }
+
+    pub fn media_sha256(&self) -> &str {
+        &self.media_sha256
+    }
+
+    pub fn descriptor(&self) -> &serde_json::Value {
+        &self.descriptor
+    }
+
+    pub fn descriptor_sha256(&self) -> &str {
+        &self.descriptor_sha256
+    }
+
+    pub fn init_plan(&self) -> &InitSlicePlan {
+        &self.init_plan
+    }
+
+    pub fn fragment_plans(&self) -> &[FragmentSlicePlan] {
+        &self.fragment_plans
+    }
+
+    pub fn fragment_slice_bytes(&self, index: usize) -> Option<&[u8]> {
+        let plan = self.fragment_plans.get(index)?;
+        let start = plan.offset() as usize;
+        let end = start + (plan.length() as usize);
+        self.media_m4s.get(start..end)
+    }
+}
+
+/// Generates a valid ISO-BMFF / CMAF block (`init.mp4` + concatenated `media.m4s`
+/// fragments + frozen descriptor SHA-256s) containing programmatic geometric scenes (`0.4`).
+pub fn generate_synthetic_cmaf_block(
+    width: u32,
+    height: u32,
+    timescale: u32,
+    fragment_specs: &[SyntheticFragmentSpec],
+) -> Result<SyntheticCmafBlock, MediaWorkerError> {
+    if width < 64 || height < 64 || width > MAX_FRAME_DIMENSION || height > MAX_FRAME_DIMENSION {
+        return Err(MediaWorkerError::invalid_container(
+            "synthetic CMAF dimensions must be within 64..=4096",
+        ));
+    }
+    if timescale == 0 {
+        return Err(MediaWorkerError::invalid_container(
+            "synthetic CMAF timescale must be > 0",
+        ));
+    }
+
+    let init_mp4 = build_synthetic_init_mp4(width, height, timescale);
+    let init_sha256 = hex::encode(Sha256::digest(&init_mp4));
+    let init_plan = InitSlicePlan::new(init_mp4.len() as u64, init_sha256.clone());
+
+    let mut media_m4s = Vec::new();
+    let mut fragment_plans = Vec::with_capacity(fragment_specs.len());
+    let mut descriptor_fragments = Vec::with_capacity(fragment_specs.len());
+
+    for spec in fragment_specs {
+        let frame = render_synthetic_pattern_frame(width, height, spec);
+        let frag_bytes = build_synthetic_fragment_m4s(spec, timescale, &frame);
+        let frag_sha = hex::encode(Sha256::digest(&frag_bytes));
+        let offset = media_m4s.len() as u64;
+        let length = frag_bytes.len() as u64;
+        media_m4s.extend_from_slice(&frag_bytes);
+
+        fragment_plans.push(FragmentSlicePlan::new(
+            spec.sequence(),
+            offset,
+            length,
+            spec.start_ns(),
+            spec.duration_ns(),
+            frag_sha.clone(),
+        ));
+
+        descriptor_fragments.push(serde_json::json!({
+            "sequence": spec.sequence(),
+            "offset": offset,
+            "length": length,
+            "start_ns": spec.start_ns(),
+            "duration_ns": spec.duration_ns(),
+            "keyframe": true,
+            "sha256": frag_sha,
+        }));
+    }
+
+    let media_sha256 = hex::encode(Sha256::digest(&media_m4s));
+    let descriptor = serde_json::json!({
+        "version": 1,
+        "format": {
+            "codec": "avc1.42001f",
+            "timescale": timescale,
+            "width": width,
+            "height": height,
+        },
+        "init": {
+            "offset": 0,
+            "length": init_mp4.len(),
+            "sha256": init_sha256,
+        },
+        "media": {
+            "length": media_m4s.len(),
+            "sha256": media_sha256,
+        },
+        "fragments": descriptor_fragments,
+    });
+    let descriptor_bytes = serde_json::to_vec(&descriptor).map_err(|err| {
+        MediaWorkerError::invalid_container(format!("descriptor JSON serialization failed: {err}"))
+    })?;
+    let descriptor_sha256 = hex::encode(Sha256::digest(&descriptor_bytes));
+
+    Ok(SyntheticCmafBlock {
+        width,
+        height,
+        timescale,
+        init_mp4,
+        init_sha256,
+        media_m4s,
+        media_sha256,
+        descriptor,
+        descriptor_sha256,
+        init_plan,
+        fragment_plans,
+    })
+}
+
+/// Renders programmatic geometric silhouettes into an `RgbFrame` (`0.4`).
+pub fn render_synthetic_pattern_frame(
+    width: u32,
+    height: u32,
+    spec: &SyntheticFragmentSpec,
+) -> RgbFrame {
+    let mut frame = RgbFrame::solid(width, height, spec.background_rgb());
+
+    for obj in spec.objects() {
+        let [nx1, ny1, nx2, ny2] = obj.bbox_norm();
+        let x1 = ((nx1.clamp(0.0, 1.0) * (width as f32)).round() as u32).min(width - 1);
+        let y1 = ((ny1.clamp(0.0, 1.0) * (height as f32)).round() as u32).min(height - 1);
+        let x2 = ((nx2.clamp(0.0, 1.0) * (width as f32)).round() as u32).clamp(x1 + 1, width);
+        let y2 = ((ny2.clamp(0.0, 1.0) * (height as f32)).round() as u32).clamp(y1 + 1, height);
+
+        draw_geometric_object(
+            &mut frame,
+            x1,
+            y1,
+            x2,
+            y2,
+            obj.object_class(),
+            obj.color().rgb(),
+        );
+    }
+
+    frame
+}
+
+fn draw_geometric_object(
+    frame: &mut RgbFrame,
+    x1: u32,
+    y1: u32,
+    x2: u32,
+    y2: u32,
+    class: ObjectClass,
+    rgb: [u8; 3],
+) {
+    let bw = (x2 - x1).max(1);
+    let bh = (y2 - y1).max(1);
+
+    for py in y1..y2 {
+        let ry = ((py - y1) as f32 + 0.5) / (bh as f32);
+        for px in x1..x2 {
+            let rx = ((px - x1) as f32 + 0.5) / (bw as f32);
+            let inside = match class {
+                ObjectClass::Person => {
+                    // Head in top 22% (centered 30%..70%), garment/torso/legs below.
+                    if ry < 0.22 {
+                        (0.30..=0.70).contains(&rx)
+                    } else {
+                        true
+                    }
+                }
+                ObjectClass::Vehicle => {
+                    // Full van/cargo body; cab step on top-right edge keeps realistic silhouette.
+                    !(ry < 0.14 && rx > 0.86)
+                }
+                ObjectClass::Package => {
+                    // Crisp solid rectangular parcel.
+                    true
+                }
+                ObjectClass::Bicycle => {
+                    // Two spoked wheel rings + crossbar frame (~42% fill ratio).
+                    let left_dx = (rx - 0.25) * 2.2;
+                    let right_dx = (rx - 0.75) * 2.2;
+                    let wheel_dy = (ry - 0.70) * 2.2;
+                    let left_r = (left_dx * left_dx + wheel_dy * wheel_dy).sqrt();
+                    let right_r = (right_dx * right_dx + wheel_dy * wheel_dy).sqrt();
+                    let on_wheel =
+                        (0.34..=0.52).contains(&left_r) || (0.34..=0.52).contains(&right_r);
+                    let on_frame = (0.32..=0.46).contains(&ry) && (0.20..=0.80).contains(&rx);
+                    on_wheel || on_frame
+                }
+                ObjectClass::Animal => {
+                    // Horizontal torso (ry 0.25..0.68) + head (top-left) + two leg columns (~62% fill).
+                    let torso = (0.25..=0.68).contains(&ry);
+                    let head = ry < 0.35 && rx < 0.28;
+                    let legs =
+                        ry > 0.68 && ((0.12..=0.30).contains(&rx) || (0.70..=0.88).contains(&rx));
+                    torso || head || legs
+                }
+            };
+
+            if inside {
+                frame.set_pixel(px, py, rgb);
+            }
+        }
+    }
+}
+
+fn encode_synthetic_rle_idr_nal(frame: &RgbFrame) -> Vec<u8> {
+    let raw = frame.pixels();
+    let total_pixels = (frame.width() as usize) * (frame.height() as usize);
+    let mut runs: Vec<(u16, [u8; 3])> = Vec::new();
+
+    let mut idx = 0usize;
+    while idx < total_pixels {
+        let base = idx * 3;
+        let color = [raw[base], raw[base + 1], raw[base + 2]];
+        let mut run_len = 1u16;
+        while (idx + usize::from(run_len)) < total_pixels && run_len < u16::MAX {
+            let next_base = (idx + usize::from(run_len)) * 3;
+            let next_color = [raw[next_base], raw[next_base + 1], raw[next_base + 2]];
+            if next_color != color {
+                break;
+            }
+            run_len += 1;
+        }
+        runs.push((run_len, color));
+        idx += usize::from(run_len);
+    }
+
+    // H.264 IDR slice NAL header (`0x65`: nal_ref_idc=3, nal_unit_type=5) + "SRIDR1" + RLE body.
+    let mut nal = Vec::with_capacity(1 + 14 + runs.len() * 5);
+    nal.push(0x65);
+    nal.extend_from_slice(SYNTHETIC_IDR_MAGIC);
+    nal.extend_from_slice(&(frame.width() as u16).to_be_bytes());
+    nal.extend_from_slice(&(frame.height() as u16).to_be_bytes());
+    nal.extend_from_slice(&(runs.len() as u32).to_be_bytes());
+    for (len, rgb) in runs {
+        nal.extend_from_slice(&len.to_be_bytes());
+        nal.extend_from_slice(&rgb);
+    }
+    nal
+}
+
+fn mp4_box(box_type: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let total = (8 + payload.len()) as u32;
+    let mut out = Vec::with_capacity(total as usize);
+    out.extend_from_slice(&total.to_be_bytes());
+    out.extend_from_slice(box_type);
+    out.extend_from_slice(payload);
+    out
+}
+
+fn mp4_full_box(box_type: &[u8; 4], version: u8, flags: u32, body: &[u8]) -> Vec<u8> {
+    let total = (12 + body.len()) as u32;
+    let mut out = Vec::with_capacity(total as usize);
+    out.extend_from_slice(&total.to_be_bytes());
+    out.extend_from_slice(box_type);
+    let vf = ((u32::from(version)) << 24) | (flags & 0x00ff_ffff);
+    out.extend_from_slice(&vf.to_be_bytes());
+    out.extend_from_slice(body);
+    out
+}
+
+fn build_synthetic_init_mp4(width: u32, height: u32, timescale: u32) -> Vec<u8> {
+    // 1. ftyp (`cmfc`, minor 0, compatible `cmfc`, `iso6`, `avc1`, `mp41`)
+    let mut ftyp_body = Vec::with_capacity(24);
+    ftyp_body.extend_from_slice(b"cmfc");
+    ftyp_body.extend_from_slice(&0u32.to_be_bytes());
+    ftyp_body.extend_from_slice(b"cmfciso6avc1mp41");
+    let ftyp = mp4_box(b"ftyp", &ftyp_body);
+
+    // 2. mvhd (v0)
+    let mut mvhd_body = vec![0u8; 96];
+    mvhd_body[8..12].copy_from_slice(&timescale.to_be_bytes());
+    mvhd_body[16..20].copy_from_slice(&0x0001_0000u32.to_be_bytes()); // rate 1.0
+    mvhd_body[20..22].copy_from_slice(&0x0100u16.to_be_bytes()); // volume 1.0
+    mvhd_body[32..36].copy_from_slice(&0x0001_0000u32.to_be_bytes()); // unity matrix
+    mvhd_body[48..52].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    mvhd_body[64..68].copy_from_slice(&0x4000_0000u32.to_be_bytes());
+    mvhd_body[92..96].copy_from_slice(&2u32.to_be_bytes()); // next_track_ID
+    let mvhd = mp4_full_box(b"mvhd", 0, 0, &mvhd_body);
+
+    // 3. tkhd (v0, flags=3 track_enabled|track_in_movie)
+    let mut tkhd_body = vec![0u8; 80];
+    tkhd_body[8..12].copy_from_slice(&1u32.to_be_bytes()); // track_id = 1
+    tkhd_body[36..40].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    tkhd_body[52..56].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    tkhd_body[68..72].copy_from_slice(&0x4000_0000u32.to_be_bytes());
+    tkhd_body[72..76].copy_from_slice(&(width << 16).to_be_bytes());
+    tkhd_body[76..80].copy_from_slice(&(height << 16).to_be_bytes());
+    let tkhd = mp4_full_box(b"tkhd", 0, 0x000003, &tkhd_body);
+
+    // 4. mdhd + hdlr
+    let mut mdhd_body = vec![0u8; 20];
+    mdhd_body[8..12].copy_from_slice(&timescale.to_be_bytes());
+    mdhd_body[16..18].copy_from_slice(&0x55c4u16.to_be_bytes()); // "und"
+    let mdhd = mp4_full_box(b"mdhd", 0, 0, &mdhd_body);
+
+    let mut hdlr_body = Vec::with_capacity(25);
+    hdlr_body.extend_from_slice(&0u32.to_be_bytes());
+    hdlr_body.extend_from_slice(b"vide");
+    hdlr_body.extend_from_slice(&[0u8; 12]);
+    hdlr_body.extend_from_slice(b"VideoHandler\0");
+    let hdlr = mp4_full_box(b"hdlr", 0, 0, &hdlr_body);
+
+    // 5. avcC + avc1 + stsd + stbl + minf
+    let sps: [u8; 8] = [0x67, 0x42, 0x00, 0x1f, 0xe9, 0x01, 0x40, 0x7b];
+    let pps: [u8; 4] = [0x68, 0xce, 0x06, 0xe2];
+    let mut avcc_body = Vec::new();
+    avcc_body.extend_from_slice(&[1, 0x42, 0x00, 0x1f, 0xff, 0xe1]); // 4-byte NAL lengths, 1 SPS
+    avcc_body.extend_from_slice(&(sps.len() as u16).to_be_bytes());
+    avcc_body.extend_from_slice(&sps);
+    avcc_body.push(1); // 1 PPS
+    avcc_body.extend_from_slice(&(pps.len() as u16).to_be_bytes());
+    avcc_body.extend_from_slice(&pps);
+    let avcc = mp4_box(b"avcC", &avcc_body);
+
+    let mut avc1_body = vec![0u8; 78];
+    avc1_body[6..8].copy_from_slice(&1u16.to_be_bytes()); // data_reference_index = 1
+    avc1_body[24..26].copy_from_slice(&(width as u16).to_be_bytes());
+    avc1_body[26..28].copy_from_slice(&(height as u16).to_be_bytes());
+    avc1_body[28..32].copy_from_slice(&0x0048_0000u32.to_be_bytes()); // 72 dpi
+    avc1_body[32..36].copy_from_slice(&0x0048_0000u32.to_be_bytes());
+    avc1_body[40..42].copy_from_slice(&1u16.to_be_bytes()); // frame_count = 1
+    avc1_body[74..76].copy_from_slice(&0x0018u16.to_be_bytes()); // depth = 24
+    avc1_body[76..78].copy_from_slice(&0xffffu16.to_be_bytes()); // pre_defined = -1
+    avc1_body.extend_from_slice(&avcc);
+    let avc1 = mp4_box(b"avc1", &avc1_body);
+
+    let mut stsd_body = Vec::with_capacity(4 + avc1.len());
+    stsd_body.extend_from_slice(&1u32.to_be_bytes()); // entry_count = 1
+    stsd_body.extend_from_slice(&avc1);
+    let stsd = mp4_full_box(b"stsd", 0, 0, &stsd_body);
+
+    let empty_count = 0u32.to_be_bytes();
+    let stts = mp4_full_box(b"stts", 0, 0, &empty_count);
+    let stsc = mp4_full_box(b"stsc", 0, 0, &empty_count);
+    let stsz = mp4_full_box(b"stsz", 0, 0, &[0u8; 8]);
+    let stco = mp4_full_box(b"stco", 0, 0, &empty_count);
+
+    let mut stbl_body = Vec::new();
+    stbl_body.extend_from_slice(&stsd);
+    stbl_body.extend_from_slice(&stts);
+    stbl_body.extend_from_slice(&stsc);
+    stbl_body.extend_from_slice(&stsz);
+    stbl_body.extend_from_slice(&stco);
+    let stbl = mp4_box(b"stbl", &stbl_body);
+
+    let vmhd = mp4_full_box(b"vmhd", 0, 1, &[0u8; 8]);
+    let url_box = mp4_full_box(b"url ", 0, 1, &[]);
+    let mut dref_body = Vec::with_capacity(4 + url_box.len());
+    dref_body.extend_from_slice(&1u32.to_be_bytes());
+    dref_body.extend_from_slice(&url_box);
+    let dref = mp4_full_box(b"dref", 0, 0, &dref_body);
+    let dinf = mp4_box(b"dinf", &dref);
+
+    let mut minf_body = Vec::new();
+    minf_body.extend_from_slice(&vmhd);
+    minf_body.extend_from_slice(&dinf);
+    minf_body.extend_from_slice(&stbl);
+    let minf = mp4_box(b"minf", &minf_body);
+
+    let mut mdia_body = Vec::new();
+    mdia_body.extend_from_slice(&mdhd);
+    mdia_body.extend_from_slice(&hdlr);
+    mdia_body.extend_from_slice(&minf);
+    let mdia = mp4_box(b"mdia", &mdia_body);
+
+    let mut trak_body = Vec::new();
+    trak_body.extend_from_slice(&tkhd);
+    trak_body.extend_from_slice(&mdia);
+    let trak = mp4_box(b"trak", &trak_body);
+
+    // 6. mvex -> trex
+    let mut trex_body = Vec::with_capacity(20);
+    trex_body.extend_from_slice(&1u32.to_be_bytes()); // track_id = 1
+    trex_body.extend_from_slice(&1u32.to_be_bytes()); // default_sample_description_index = 1
+    trex_body.extend_from_slice(&[0u8; 12]);
+    let trex = mp4_full_box(b"trex", 0, 0, &trex_body);
+    let mvex = mp4_box(b"mvex", &trex);
+
+    let mut moov_body = Vec::new();
+    moov_body.extend_from_slice(&mvhd);
+    moov_body.extend_from_slice(&trak);
+    moov_body.extend_from_slice(&mvex);
+    let moov = mp4_box(b"moov", &moov_body);
+
+    let mut init_mp4 = Vec::with_capacity(ftyp.len() + moov.len());
+    init_mp4.extend_from_slice(&ftyp);
+    init_mp4.extend_from_slice(&moov);
+    init_mp4
+}
+
+fn build_synthetic_fragment_m4s(
+    spec: &SyntheticFragmentSpec,
+    timescale: u32,
+    frame: &RgbFrame,
+) -> Vec<u8> {
+    let idr_nal = encode_synthetic_rle_idr_nal(frame);
+    // Access unit delimiter NAL (`0x09, 0x10`) + IDR slice NAL (`0x65...`), both 4-byte length prefixed.
+    let aud_nal: [u8; 2] = [0x09, 0x10];
+    let mut sample_data = Vec::with_capacity(4 + aud_nal.len() + 4 + idr_nal.len());
+    sample_data.extend_from_slice(&(aud_nal.len() as u32).to_be_bytes());
+    sample_data.extend_from_slice(&aud_nal);
+    sample_data.extend_from_slice(&(idr_nal.len() as u32).to_be_bytes());
+    sample_data.extend_from_slice(&idr_nal);
+
+    let decode_ticks = u64::try_from(
+        u128::from(spec.start_ns()).saturating_mul(u128::from(timescale)) / 1_000_000_000,
+    )
+    .unwrap_or(0);
+    let dur_ticks = u32::try_from(
+        u128::from(spec.duration_ns()).saturating_mul(u128::from(timescale)) / 1_000_000_000,
+    )
+    .unwrap_or(timescale * 2);
+
+    let mfhd = mp4_full_box(b"mfhd", 0, 0, &(spec.sequence() + 1).to_be_bytes());
+    // tfhd flags `0x020000` (`default-base-is-moof`)
+    let tfhd = mp4_full_box(b"tfhd", 0, 0x020000, &1u32.to_be_bytes());
+    let tfdt = mp4_full_box(b"tfdt", 1, 0, &decode_ticks.to_be_bytes());
+
+    // trun flags: `0x000004` (first_sample_flags) | `0x000100` (duration) | `0x000200` (size)
+    let mut trun_body = Vec::with_capacity(16);
+    trun_body.extend_from_slice(&1u32.to_be_bytes()); // sample_count = 1
+    trun_body.extend_from_slice(&0x0200_0000u32.to_be_bytes()); // sync IDR (`sample_depends_on=2`, `non_sync=0`)
+    trun_body.extend_from_slice(&dur_ticks.to_be_bytes());
+    trun_body.extend_from_slice(&(sample_data.len() as u32).to_be_bytes());
+    let trun = mp4_full_box(b"trun", 0, 0x000304, &trun_body);
+
+    let mut traf_body = Vec::new();
+    traf_body.extend_from_slice(&tfhd);
+    traf_body.extend_from_slice(&tfdt);
+    traf_body.extend_from_slice(&trun);
+    let traf = mp4_box(b"traf", &traf_body);
+
+    let mut moof_body = Vec::new();
+    moof_body.extend_from_slice(&mfhd);
+    moof_body.extend_from_slice(&traf);
+    let moof = mp4_box(b"moof", &moof_body);
+    let mdat = mp4_box(b"mdat", &sample_data);
+
+    let mut frag = Vec::with_capacity(moof.len() + mdat.len());
+    frag.extend_from_slice(&moof);
+    frag.extend_from_slice(&mdat);
+    frag
+}

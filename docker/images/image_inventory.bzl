@@ -2,6 +2,7 @@
 
 PUBLISHABLE_IMAGES = [
     {"image": "nvr_image_amd64", "chart_service": "nvr", "push_image": "nvr_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-nvr"},
+    {"image": "media_worker_image_amd64", "chart_service": "mediaWorker", "push_image": "media_worker_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-media-worker"},
     {"image": "core_elx_image_amd64", "chart_service": "core", "repository": "registry.carverauto.dev/serviceradar/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "chart_service": "agent", "push_image": "agent_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent"},
     {"image": "trivy_sidecar_image_amd64", "chart_service": "trivySidecar", "push_image": "trivy_sidecar_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar"},

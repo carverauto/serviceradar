@@ -1,0 +1,1369 @@
+//! JetStream visual-index pull loop (`WPI` + publish-before-ACK) and reserved
+//! interactive NATS text-embedding responder (`2.5`, `5.2`).
+
+use crate::cmaf::{decode_idr_keyframe, parse_init_segment, parse_media_fragment};
+use crate::config::{ModelPinConfig, WorkerConfig};
+use crate::credentials::WorkerAuthCredentials;
+use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
+use crate::grants::{GrantClient, GrantResolution, HttpControlPlaneGrantClient, ReadGrantRequest};
+use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
+use crate::range_reader::{
+    FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
+};
+use crate::vision::{RgbFrame, VisionPipeline, embed_query_text};
+use async_nats::jetstream::AckKind;
+use async_nats::jetstream::consumer::{AckPolicy, pull};
+use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
+use async_nats::{Client, ConnectOptions, HeaderMap, jetstream};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::path::Path;
+use std::sync::{Arc, Once};
+use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
+use tokio::time::timeout;
+use tracing::{debug, info, warn};
+
+/// Live visual-indexing job subject published by `ServiceRadar.Camera.VisualIndexDispatcher`.
+pub const VISUAL_INDEX_LIVE_SUBJECT: &str = "media.jobs.visual_index.v1";
+/// Historical/model-upgrade backfill subject published by `ServiceRadar.Camera.VisualIndexDispatcher`.
+pub const VISUAL_INDEX_BACKFILL_SUBJECT: &str = "media.jobs.visual_index.backfill.v1";
+/// Idempotent visual-index result subject consumed by `ServiceRadar.Camera.VisualIndexResultProjector`.
+pub const VISUAL_INDEX_RESULTS_SUBJECT: &str = "media.results.visual_index.v1";
+/// Interactive query text-embedding NATS RPC schema & subject prefix (`ServiceRadar.Camera.SemanticSearch`).
+pub const VISUAL_TEXT_EMBED_RPC_PREFIX: &str = "media.rpc.visual_text_embed.v1";
+/// Queue group shared by compatible `serviceradar-media-worker` replicas on text-embed RPCs.
+pub const VISUAL_TEXT_EMBED_QUEUE_GROUP: &str = "serviceradar_media_worker_text_embed_v1";
+
+fn default_schema_v1() -> u32 {
+    1
+}
+
+fn default_budget_ms() -> u64 {
+    30_000
+}
+
+fn default_text_deadline_ms() -> u64 {
+    250
+}
+
+/// Metadata-only job envelope consumed from `media.jobs.visual_index.v1` and `.backfill.v1`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualIndexJobEnvelope {
+    #[serde(default = "default_schema_v1")]
+    schema_version: u32,
+    job_id: String,
+    #[serde(default)]
+    job_kind: Option<String>,
+    catalog_entry_id: String,
+    camera_source_id: String,
+    stream_profile_id: String,
+    descriptor_sha256: String,
+    #[serde(default)]
+    detector_model_id: Option<String>,
+    #[serde(default)]
+    detector_model_version: Option<String>,
+    #[serde(default)]
+    embedder_model_id: Option<String>,
+    #[serde(default)]
+    embedder_model_version: Option<String>,
+    #[serde(default)]
+    model_id: Option<String>,
+    #[serde(default)]
+    model_version: Option<String>,
+    embedding_dim: usize,
+    #[serde(default)]
+    sampled_fragment_sequences: Vec<u32>,
+    #[serde(default = "default_budget_ms")]
+    budget_ms: u64,
+    #[serde(default)]
+    deadline_unix_ms: Option<i64>,
+}
+
+impl VisualIndexJobEnvelope {
+    pub fn new(
+        job_id: impl Into<String>,
+        catalog_entry_id: impl Into<String>,
+        camera_source_id: impl Into<String>,
+        stream_profile_id: impl Into<String>,
+        descriptor_sha256: impl Into<String>,
+        models: &ModelPinConfig,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            job_id: job_id.into(),
+            job_kind: Some("live".to_string()),
+            catalog_entry_id: catalog_entry_id.into(),
+            camera_source_id: camera_source_id.into(),
+            stream_profile_id: stream_profile_id.into(),
+            descriptor_sha256: descriptor_sha256.into(),
+            detector_model_id: Some(models.detector_model_id().to_string()),
+            detector_model_version: Some(models.detector_model_version().to_string()),
+            embedder_model_id: Some(models.embedder_model_id().to_string()),
+            embedder_model_version: Some(models.embedder_model_version().to_string()),
+            model_id: Some(models.embedder_model_id().to_string()),
+            model_version: Some(models.embedder_model_version().to_string()),
+            embedding_dim: models.embedding_dim(),
+            sampled_fragment_sequences: Vec::new(),
+            budget_ms: 30_000,
+            deadline_unix_ms: None,
+        }
+    }
+
+    pub fn with_budget_ms(mut self, budget_ms: u64) -> Self {
+        self.budget_ms = budget_ms;
+        self
+    }
+
+    pub fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
+    pub fn catalog_entry_id(&self) -> &str {
+        &self.catalog_entry_id
+    }
+
+    pub fn camera_source_id(&self) -> &str {
+        &self.camera_source_id
+    }
+
+    pub fn stream_profile_id(&self) -> &str {
+        &self.stream_profile_id
+    }
+
+    pub fn descriptor_sha256(&self) -> &str {
+        &self.descriptor_sha256
+    }
+
+    pub fn resolved_embedder_model_id(&self) -> Option<&str> {
+        self.embedder_model_id
+            .as_deref()
+            .or(self.model_id.as_deref())
+    }
+
+    pub fn resolved_embedder_model_version(&self) -> Option<&str> {
+        self.embedder_model_version
+            .as_deref()
+            .or(self.model_version.as_deref())
+    }
+
+    pub fn resolved_detector_model_id<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.detector_model_id.as_deref().unwrap_or(fallback)
+    }
+
+    pub fn resolved_detector_model_version<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.detector_model_version.as_deref().unwrap_or(fallback)
+    }
+
+    pub fn embedding_dim(&self) -> usize {
+        self.embedding_dim
+    }
+
+    pub fn budget_ms(&self) -> u64 {
+        self.budget_ms.clamp(500, 300_000)
+    }
+}
+
+/// Detection entry inside `VisualIndexResultEnvelope.frames[*].detections`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectionPayload {
+    object_class: String,
+    confidence: f32,
+    bbox: [f32; 4],
+    dominant_colors: Vec<String>,
+}
+
+impl DetectionPayload {
+    pub fn object_class(&self) -> &str {
+        &self.object_class
+    }
+
+    pub fn confidence(&self) -> f32 {
+        self.confidence
+    }
+
+    pub fn bbox(&self) -> [f32; 4] {
+        self.bbox
+    }
+
+    pub fn dominant_colors(&self) -> &[String] {
+        &self.dominant_colors
+    }
+}
+
+/// Embedding entry inside `VisualIndexResultEnvelope.frames[*].embeddings`.
+///
+/// Matches `VisualIndexResultProjector.parse_single_embedding/2`:
+/// `:scene` embeddings carry `object_class: null`, `confidence: null`, `bbox: null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingPayload {
+    region_kind: String,
+    region_index: u32,
+    object_class: Option<String>,
+    confidence: Option<f32>,
+    bbox: Option<[f32; 4]>,
+    dominant_colors: Vec<String>,
+    embedding: Vec<f32>,
+}
+
+impl EmbeddingPayload {
+    pub fn region_kind(&self) -> &str {
+        &self.region_kind
+    }
+
+    pub fn region_index(&self) -> u32 {
+        self.region_index
+    }
+
+    pub fn object_class(&self) -> Option<&str> {
+        self.object_class.as_deref()
+    }
+
+    pub fn confidence(&self) -> Option<f32> {
+        self.confidence
+    }
+
+    pub fn bbox(&self) -> Option<[f32; 4]> {
+        self.bbox
+    }
+
+    pub fn dominant_colors(&self) -> &[String] {
+        &self.dominant_colors
+    }
+
+    pub fn embedding(&self) -> &[f32] {
+        &self.embedding
+    }
+}
+
+/// Per-keyframe entry inside `VisualIndexResultEnvelope.frames`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrameResultPayload {
+    fragment_sequence: u32,
+    media_pts_ns: u64,
+    scene_suppressed: bool,
+    detections: Vec<DetectionPayload>,
+    embeddings: Vec<EmbeddingPayload>,
+}
+
+impl FrameResultPayload {
+    pub fn fragment_sequence(&self) -> u32 {
+        self.fragment_sequence
+    }
+
+    pub fn media_pts_ns(&self) -> u64 {
+        self.media_pts_ns
+    }
+
+    pub fn scene_suppressed(&self) -> bool {
+        self.scene_suppressed
+    }
+
+    pub fn detections(&self) -> &[DetectionPayload] {
+        &self.detections
+    }
+
+    pub fn embeddings(&self) -> &[EmbeddingPayload] {
+        &self.embeddings
+    }
+}
+
+/// Result envelope published to `media.results.visual_index.v1` (`VisualIndexResultProjector`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VisualIndexResultEnvelope {
+    schema: String,
+    schema_version: u32,
+    job_id: String,
+    catalog_entry_id: String,
+    descriptor_sha256: String,
+    detector_model_id: String,
+    detector_model_version: String,
+    embedder_model_id: String,
+    embedder_model_version: String,
+    model_id: String,
+    model_version: String,
+    embedding_dim: usize,
+    frames: Vec<FrameResultPayload>,
+}
+
+impl VisualIndexResultEnvelope {
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
+    pub fn catalog_entry_id(&self) -> &str {
+        &self.catalog_entry_id
+    }
+
+    pub fn descriptor_sha256(&self) -> &str {
+        &self.descriptor_sha256
+    }
+
+    pub fn detector_model_id(&self) -> &str {
+        &self.detector_model_id
+    }
+
+    pub fn embedder_model_id(&self) -> &str {
+        &self.embedder_model_id
+    }
+
+    pub fn embedder_model_version(&self) -> &str {
+        &self.embedder_model_version
+    }
+
+    pub fn embedding_dim(&self) -> usize {
+        self.embedding_dim
+    }
+
+    pub fn frames(&self) -> &[FrameResultPayload] {
+        &self.frames
+    }
+}
+
+/// Outcome of processing one JetStream visual-index job.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobOutcome {
+    /// Embeddings published and confirmed on `media.results.visual_index.v1` before ACK.
+    Completed(Box<VisualIndexResultEnvelope>),
+    /// Control-plane read grant returned `410 Gone` (`recording_gone`); job ACKed cleanly without retry.
+    Gone,
+}
+
+/// Delivery handle for a pulled JetStream job message (`WPI`, `ACK`, `NAK`).
+pub trait JobDelivery: Send + Sync {
+    fn payload(&self) -> &[u8];
+
+    fn send_in_progress(&self) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+
+    fn ack_completed(&self) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+
+    fn nak_failed(&self) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+}
+
+/// Publisher confirming durable JetStream persistence of `media.results.visual_index.v1`
+/// BEFORE the source job message is acknowledged.
+pub trait ResultPublisher: Send + Sync {
+    fn publish_visual_result(
+        &self,
+        msg_id: &str,
+        envelope: &VisualIndexResultEnvelope,
+    ) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+
+    fn publish_telemetry_snapshot(
+        &self,
+        payload_json: &[u8],
+    ) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+}
+
+/// Interactive NATS request-reply payload sent by `ServiceRadar.Camera.SemanticSearch`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextEmbedRpcRequest {
+    #[serde(default)]
+    schema: Option<String>,
+    query: String,
+    model_id: String,
+    model_version: String,
+    expected_dim: usize,
+    #[serde(default = "default_text_deadline_ms")]
+    deadline_ms: u64,
+}
+
+impl TextEmbedRpcRequest {
+    pub fn new(
+        query: impl Into<String>,
+        model_id: impl Into<String>,
+        model_version: impl Into<String>,
+        expected_dim: usize,
+        deadline_ms: u64,
+    ) -> Self {
+        Self {
+            schema: Some(VISUAL_TEXT_EMBED_RPC_PREFIX.to_string()),
+            query: query.into(),
+            model_id: model_id.into(),
+            model_version: model_version.into(),
+            expected_dim,
+            deadline_ms,
+        }
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    pub fn model_version(&self) -> &str {
+        &self.model_version
+    }
+
+    pub fn expected_dim(&self) -> usize {
+        self.expected_dim
+    }
+
+    pub fn deadline_ms(&self) -> u64 {
+        self.deadline_ms.clamp(10, 250)
+    }
+}
+
+/// Interactive NATS request-reply response consumed by `ServiceRadar.Camera.SemanticSearch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextEmbedRpcResponse {
+    schema: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embedding_dim: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embedding: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl TextEmbedRpcResponse {
+    pub fn ok(models: &ModelPinConfig, embedding: Vec<f32>) -> Self {
+        Self {
+            schema: VISUAL_TEXT_EMBED_RPC_PREFIX.to_string(),
+            status: "ok".to_string(),
+            model_id: Some(models.embedder_model_id().to_string()),
+            model_version: Some(models.embedder_model_version().to_string()),
+            embedding_dim: Some(models.embedding_dim()),
+            embedding: Some(embedding),
+            error: None,
+        }
+    }
+
+    pub fn error(reason: impl Into<String>) -> Self {
+        Self {
+            schema: VISUAL_TEXT_EMBED_RPC_PREFIX.to_string(),
+            status: "error".to_string(),
+            model_id: None,
+            model_version: None,
+            embedding_dim: None,
+            embedding: None,
+            error: Some(reason.into()),
+        }
+    }
+
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub fn embedding(&self) -> Option<&[f32]> {
+        self.embedding.as_deref()
+    }
+
+    pub fn error_reason(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
+
+/// Builds the canonical NATS RPC subject `media.rpc.visual_text_embed.v1.<model_id>.<model_version>`.
+pub fn text_embed_rpc_subject(models: &ModelPinConfig) -> String {
+    format!(
+        "{}.{}.{}",
+        VISUAL_TEXT_EMBED_RPC_PREFIX,
+        models.embedder_model_id(),
+        models.embedder_model_version()
+    )
+}
+
+/// Reserved interactive text-embedding lane (`2.5`), isolated on its own semaphore
+/// from bulk `media.jobs.visual_index.v1` processing.
+#[derive(Debug, Clone)]
+pub struct TextEmbedService {
+    models: ModelPinConfig,
+    semaphore: Arc<Semaphore>,
+    metrics: Arc<WorkerMetrics>,
+}
+
+impl TextEmbedService {
+    pub fn new(models: ModelPinConfig, concurrency: usize, metrics: Arc<WorkerMetrics>) -> Self {
+        Self {
+            models,
+            semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
+            metrics,
+        }
+    }
+
+    pub fn subject(&self) -> String {
+        text_embed_rpc_subject(&self.models)
+    }
+
+    /// Evaluates a JSON `TextEmbedRpcRequest` within `<= 250 ms` on reserved capacity.
+    pub async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
+        let req: TextEmbedRpcRequest = match serde_json::from_slice(raw_payload) {
+            Ok(parsed) => parsed,
+            Err(_) => return TextEmbedRpcResponse::error("invalid_json_request"),
+        };
+
+        if let Some(schema) = req.schema.as_deref()
+            && schema != VISUAL_TEXT_EMBED_RPC_PREFIX
+        {
+            return TextEmbedRpcResponse::error("unsupported_schema");
+        }
+
+        if req.model_id() != self.models.embedder_model_id()
+            || req.model_version() != self.models.embedder_model_version()
+            || req.expected_dim() != self.models.embedding_dim()
+        {
+            return TextEmbedRpcResponse::error("model_version_or_dim_mismatch");
+        }
+
+        let deadline = Duration::from_millis(req.deadline_ms());
+        let started = Instant::now();
+        let sem = Arc::clone(&self.semaphore);
+
+        let Ok(Ok(permit)) = timeout(deadline, sem.acquire_owned()).await else {
+            return TextEmbedRpcResponse::error("text_embed_capacity_timeout");
+        };
+        let _inflight = self.metrics.guard_inflight_text_embed();
+        let remaining = deadline.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            drop(permit);
+            return TextEmbedRpcResponse::error("text_embed_deadline_exceeded");
+        }
+
+        let query = req.query().to_string();
+        let models = self.models.clone();
+        let compute_res = timeout(
+            remaining,
+            tokio::task::spawn_blocking(move || embed_query_text(&query, &models)),
+        )
+        .await;
+        drop(permit);
+
+        match compute_res {
+            Ok(Ok(Ok(vec))) => {
+                self.metrics
+                    .observe_text_embed_latency(started.elapsed().as_secs_f64());
+                TextEmbedRpcResponse::ok(&self.models, vec)
+            }
+            Ok(Ok(Err(err))) => TextEmbedRpcResponse::error(err.error_class()),
+            _ => TextEmbedRpcResponse::error("text_embed_execution_failed"),
+        }
+    }
+}
+
+/// Core visual-indexing worker engine (`2.4`, `2.5`) coordinating:
+/// - `index_concurrency` semaphore admission (completely separate from `TextEmbedService`);
+/// - periodic `AckKind::Progress` (`WPI`) heartbeats while decoding/inferring;
+/// - execution-time read grant acquisition (`410 Gone` clean ACK skip);
+/// - SHA-256 verification + CMAF keyframe decode + Stage 1/Stage 2 pipeline;
+/// - confirmed JetStream publication to `media.results.visual_index.v1` **before** `ACK`.
+pub struct VisualIndexProcessor<G, S, P> {
+    models: ModelPinConfig,
+    pipeline: VisionPipeline,
+    index_semaphore: Arc<Semaphore>,
+    wpi_interval: Duration,
+    otel_endpoint: String,
+    grant_client: Arc<G>,
+    fragment_store: Arc<S>,
+    publisher: Arc<P>,
+    metrics: Arc<WorkerMetrics>,
+}
+
+impl<G, S, P> Clone for VisualIndexProcessor<G, S, P> {
+    fn clone(&self) -> Self {
+        Self {
+            models: self.models.clone(),
+            pipeline: self.pipeline.clone(),
+            index_semaphore: Arc::clone(&self.index_semaphore),
+            wpi_interval: self.wpi_interval,
+            otel_endpoint: self.otel_endpoint.clone(),
+            grant_client: Arc::clone(&self.grant_client),
+            fragment_store: Arc::clone(&self.fragment_store),
+            publisher: Arc::clone(&self.publisher),
+            metrics: Arc::clone(&self.metrics),
+        }
+    }
+}
+
+impl<G, S, P> VisualIndexProcessor<G, S, P>
+where
+    G: GrantClient + 'static,
+    S: FragmentStore + 'static,
+    P: ResultPublisher + 'static,
+{
+    pub fn new(
+        config: &WorkerConfig,
+        grant_client: G,
+        fragment_store: S,
+        publisher: P,
+        metrics: Arc<WorkerMetrics>,
+    ) -> Self {
+        Self {
+            models: config.models().clone(),
+            pipeline: VisionPipeline::new(
+                config.models().clone(),
+                config.skip_unchanged_empty_scenes(),
+            ),
+            index_semaphore: Arc::new(Semaphore::new(config.index_concurrency().max(1))),
+            wpi_interval: Duration::from_secs(15),
+            otel_endpoint: config.otel_endpoint().to_string(),
+            grant_client: Arc::new(grant_client),
+            fragment_store: Arc::new(fragment_store),
+            publisher: Arc::new(publisher),
+            metrics,
+        }
+    }
+
+    pub fn with_wpi_interval(mut self, interval: Duration) -> Self {
+        self.wpi_interval = interval.max(Duration::from_millis(5));
+        self
+    }
+
+    pub fn index_semaphore(&self) -> &Arc<Semaphore> {
+        &self.index_semaphore
+    }
+
+    pub fn metrics(&self) -> &Arc<WorkerMetrics> {
+        &self.metrics
+    }
+
+    /// Processes a single pulled JetStream job delivery end-to-end, enforcing
+    /// periodic `WPI` heartbeats and strict publish-before-ACK ordering.
+    pub async fn process_delivery<D: JobDelivery + 'static>(
+        &self,
+        delivery: Arc<D>,
+    ) -> Result<JobOutcome, MediaWorkerError> {
+        let _permit = Arc::clone(&self.index_semaphore)
+            .acquire_owned()
+            .await
+            .map_err(|_| MediaWorkerError::nats_error("index_concurrency semaphore closed"))?;
+        let _inflight = self.metrics.guard_inflight_index_job();
+
+        let job: VisualIndexJobEnvelope = match serde_json::from_slice(delivery.payload()) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                self.metrics.inc_jobs_failed();
+                let _ = delivery.nak_failed().await;
+                return Err(MediaWorkerError::invalid_job_envelope(format!(
+                    "malformed visual index job JSON: {err}"
+                )));
+            }
+        };
+
+        let wpi_guard = spawn_wpi_heartbeat(
+            Arc::clone(&delivery),
+            self.wpi_interval,
+            Duration::from_millis(job.budget_ms()),
+        );
+
+        let execution_res = self.execute_job(&job).await;
+        wpi_guard.stop().await;
+
+        match execution_res {
+            Ok(JobExecution::Gone) => {
+                self.metrics.inc_jobs_gone();
+                delivery.ack_completed().await?;
+                self.emit_telemetry_best_effort().await;
+                Ok(JobOutcome::Gone)
+            }
+            Ok(JobExecution::ReadyResult(envelope)) => {
+                // CRITICAL INVARIANT (`2.5`): Confirm durable JetStream publish of
+                // `media.results.visual_index.v1` BEFORE calling `ack_completed`!
+                let msg_id = format!("visual-result:{}", job.job_id());
+                if let Err(pub_err) = self
+                    .publisher
+                    .publish_visual_result(&msg_id, &envelope)
+                    .await
+                {
+                    self.metrics.inc_jobs_failed();
+                    let _ = delivery.nak_failed().await;
+                    return Err(pub_err);
+                }
+
+                delivery.ack_completed().await?;
+                self.metrics.inc_jobs_completed();
+                self.emit_telemetry_best_effort().await;
+                Ok(JobOutcome::Completed(envelope))
+            }
+            Err(err) => {
+                self.metrics.inc_jobs_failed();
+                if is_terminal_non_retryable(&err) {
+                    // Schema or digest mismatch cannot self-heal on immediate tight-loop NAK;
+                    // NAK lets JetStream increment delivery count toward MaxDeliver reconciliation.
+                    let _ = delivery.nak_failed().await;
+                } else {
+                    let _ = delivery.nak_failed().await;
+                }
+                self.emit_telemetry_best_effort().await;
+                Err(err)
+            }
+        }
+    }
+
+    async fn execute_job(
+        &self,
+        job: &VisualIndexJobEnvelope,
+    ) -> Result<JobExecution, MediaWorkerError> {
+        self.validate_job_compatibility(job)?;
+
+        let grant_req = ReadGrantRequest::new(
+            job.job_id(),
+            job.catalog_entry_id(),
+            job.descriptor_sha256(),
+        );
+        let plan = match self.grant_client.acquire_read_grant(&grant_req).await? {
+            GrantResolution::Gone => return Ok(JobExecution::Gone),
+            GrantResolution::Admitted(plan) => plan,
+        };
+
+        let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
+        let init_seg = parse_init_segment(verified_block.init_bytes())?;
+
+        let mut frame_payloads = Vec::with_capacity(verified_block.fragments().len());
+        let mut previous_frame: Option<RgbFrame> = None;
+
+        for frag in verified_block.fragments() {
+            let parsed_frag = parse_media_fragment(frag.bytes(), &init_seg)?;
+            let decoded_frame = decode_idr_keyframe(&init_seg, &parsed_frag)?;
+            self.metrics.inc_keyframes_decoded(1);
+
+            let t_s1 = Instant::now();
+            let detections = self.pipeline.detect_subjects(&decoded_frame);
+            self.metrics
+                .observe_stage1_latency(t_s1.elapsed().as_secs_f64());
+
+            let scene_suppressed = self.pipeline.skip_unchanged_empty_scenes()
+                && detections.is_empty()
+                && previous_frame
+                    .as_ref()
+                    .is_some_and(|prev| decoded_frame.downsampled_l1_delta(prev) < 0.02);
+
+            let t_s2 = Instant::now();
+            let generated_embs =
+                self.pipeline
+                    .encode_stage2_batch(&decoded_frame, &detections, scene_suppressed);
+            self.metrics
+                .observe_stage2_latency(t_s2.elapsed().as_secs_f64());
+
+            // Prefer authoritative descriptor `start_ns` when > 0, else container `tfdt` PTS.
+            let media_pts_ns = if frag.start_ns() > 0 {
+                frag.start_ns()
+            } else {
+                parsed_frag.media_pts_ns(init_seg.timescale())
+            };
+
+            let det_payloads = detections
+                .iter()
+                .map(|d| DetectionPayload {
+                    object_class: d.object_class().as_str().to_string(),
+                    confidence: d.confidence(),
+                    bbox: d.bbox_norm(),
+                    dominant_colors: d.dominant_colors().to_vec(),
+                })
+                .collect();
+
+            let emb_payloads = generated_embs
+                .into_iter()
+                .map(|e| EmbeddingPayload {
+                    region_kind: e.region_kind().to_string(),
+                    region_index: e.region_index(),
+                    object_class: e.object_class().map(str::to_string),
+                    confidence: e.confidence(),
+                    bbox: e.bbox_norm(),
+                    dominant_colors: e.dominant_colors().to_vec(),
+                    embedding: e.embedding().to_vec(),
+                })
+                .collect();
+
+            frame_payloads.push(FrameResultPayload {
+                fragment_sequence: frag.sequence(),
+                media_pts_ns,
+                scene_suppressed,
+                detections: det_payloads,
+                embeddings: emb_payloads,
+            });
+
+            previous_frame = Some(decoded_frame);
+        }
+
+        let det_id = job
+            .resolved_detector_model_id(self.models.detector_model_id())
+            .to_string();
+        let det_ver = job
+            .resolved_detector_model_version(self.models.detector_model_version())
+            .to_string();
+        let emb_id = self.models.embedder_model_id().to_string();
+        let emb_ver = self.models.embedder_model_version().to_string();
+
+        Ok(JobExecution::ReadyResult(Box::new(
+            VisualIndexResultEnvelope {
+                schema: VISUAL_INDEX_RESULTS_SUBJECT.to_string(),
+                schema_version: 1,
+                job_id: job.job_id().to_string(),
+                catalog_entry_id: job.catalog_entry_id().to_string(),
+                descriptor_sha256: job.descriptor_sha256().to_string(),
+                detector_model_id: det_id,
+                detector_model_version: det_ver,
+                embedder_model_id: emb_id.clone(),
+                embedder_model_version: emb_ver.clone(),
+                model_id: emb_id,
+                model_version: emb_ver,
+                embedding_dim: self.models.embedding_dim(),
+                frames: frame_payloads,
+            },
+        )))
+    }
+
+    fn validate_job_compatibility(
+        &self,
+        job: &VisualIndexJobEnvelope,
+    ) -> Result<(), MediaWorkerError> {
+        if job.schema_version != 1 {
+            return Err(MediaWorkerError::invalid_job_envelope(format!(
+                "unsupported job schema_version {}",
+                job.schema_version
+            )));
+        }
+        if job.embedding_dim() != self.models.embedding_dim() {
+            return Err(MediaWorkerError::invalid_job_envelope(format!(
+                "job embedding_dim {} mismatches worker embedding_dim {}",
+                job.embedding_dim(),
+                self.models.embedding_dim()
+            )));
+        }
+        if let Some(req_model) = job.resolved_embedder_model_id()
+            && req_model != self.models.embedder_model_id()
+        {
+            return Err(MediaWorkerError::invalid_job_envelope(format!(
+                "job embedder_model_id '{req_model}' mismatches worker '{}'",
+                self.models.embedder_model_id()
+            )));
+        }
+        if let Some(req_ver) = job.resolved_embedder_model_version()
+            && req_ver != self.models.embedder_model_version()
+        {
+            return Err(MediaWorkerError::invalid_job_envelope(format!(
+                "job embedder_model_version '{req_ver}' mismatches worker '{}'",
+                self.models.embedder_model_version()
+            )));
+        }
+        Ok(())
+    }
+
+    async fn emit_telemetry_best_effort(&self) {
+        let snap = self.metrics.snapshot(
+            &self.otel_endpoint,
+            self.models.embedder_model_id(),
+            self.models.embedder_model_version(),
+        );
+        if let Ok(encoded) = serde_json::to_vec(&snap) {
+            let _ = self.publisher.publish_telemetry_snapshot(&encoded).await;
+        }
+    }
+}
+
+enum JobExecution {
+    Gone,
+    ReadyResult(Box<VisualIndexResultEnvelope>),
+}
+
+fn is_terminal_non_retryable(err: &MediaWorkerError) -> bool {
+    matches!(
+        err.kind(),
+        MediaWorkerErrorKind::InvalidJobEnvelope(_)
+            | MediaWorkerErrorKind::Integrity(IntegrityError { .. })
+    )
+}
+
+struct WpiHeartbeatHandle {
+    stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    join: tokio::task::JoinHandle<()>,
+}
+
+impl WpiHeartbeatHandle {
+    async fn stop(mut self) {
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        let _ = self.join.await;
+    }
+}
+
+fn spawn_wpi_heartbeat<D: JobDelivery + 'static>(
+    delivery: Arc<D>,
+    interval: Duration,
+    max_budget: Duration,
+) -> WpiHeartbeatHandle {
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel();
+    let deadline = Instant::now() + max_budget;
+    let join = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        // Skip the immediate tick at t=0; first WPI fires after `interval`.
+        ticker.tick().await;
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => break,
+                _ = ticker.tick() => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    if let Err(err) = delivery.send_in_progress().await {
+                        debug!("WPI progress heartbeat failed: {err}");
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    WpiHeartbeatHandle {
+        stop_tx: Some(stop_tx),
+        join,
+    }
+}
+
+// ============================================================================
+// Live NATS + JetStream Runtime Wiring
+// ============================================================================
+
+/// JetStream message wrapper implementing `JobDelivery`.
+pub struct JetStreamJobDelivery {
+    msg: jetstream::Message,
+}
+
+impl JetStreamJobDelivery {
+    pub fn new(msg: jetstream::Message) -> Self {
+        Self { msg }
+    }
+}
+
+impl JobDelivery for JetStreamJobDelivery {
+    fn payload(&self) -> &[u8] {
+        self.msg.payload.as_ref()
+    }
+
+    async fn send_in_progress(&self) -> Result<(), MediaWorkerError> {
+        self.msg
+            .ack_with(AckKind::Progress)
+            .await
+            .map_err(|err| MediaWorkerError::nats_error(format!("JetStream WPI failed: {err}")))
+    }
+
+    async fn ack_completed(&self) -> Result<(), MediaWorkerError> {
+        self.msg
+            .ack()
+            .await
+            .map_err(|err| MediaWorkerError::nats_error(format!("JetStream ACK failed: {err}")))
+    }
+
+    async fn nak_failed(&self) -> Result<(), MediaWorkerError> {
+        self.msg
+            .ack_with(AckKind::Nak(None))
+            .await
+            .map_err(|err| MediaWorkerError::nats_error(format!("JetStream NAK failed: {err}")))
+    }
+}
+
+/// Live NATS JetStream publisher confirming `PublishAckFuture` before returning.
+#[derive(Clone)]
+pub struct JetStreamResultPublisher {
+    js: jetstream::Context,
+    cert_policy: Option<Arc<serviceradar_cert_policy::nats::Guard>>,
+    publish_timeout: Duration,
+}
+
+impl JetStreamResultPublisher {
+    pub fn new(
+        js: jetstream::Context,
+        cert_policy: Option<Arc<serviceradar_cert_policy::nats::Guard>>,
+        publish_timeout: Duration,
+    ) -> Self {
+        Self {
+            js,
+            cert_policy,
+            publish_timeout,
+        }
+    }
+}
+
+impl ResultPublisher for JetStreamResultPublisher {
+    async fn publish_visual_result(
+        &self,
+        msg_id: &str,
+        envelope: &VisualIndexResultEnvelope,
+    ) -> Result<(), MediaWorkerError> {
+        if let Some(guard) = &self.cert_policy {
+            guard
+                .ensure_authorized()
+                .map_err(|err| MediaWorkerError::nats_error(err.to_string()))?;
+        }
+
+        let payload = serde_json::to_vec(envelope).map_err(|err| {
+            MediaWorkerError::nats_error(format!("failed serializing visual result JSON: {err}"))
+        })?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Nats-Msg-Id", msg_id);
+
+        timeout(self.publish_timeout, async {
+            let ack_fut = self
+                .js
+                .publish_with_headers(VISUAL_INDEX_RESULTS_SUBJECT, headers, payload.into())
+                .await
+                .map_err(|err| {
+                    MediaWorkerError::nats_error(format!(
+                        "JetStream publish to {VISUAL_INDEX_RESULTS_SUBJECT} failed: {err}"
+                    ))
+                })?;
+            ack_fut.await.map_err(|err| {
+                MediaWorkerError::nats_error(format!(
+                    "JetStream pub-ack for {VISUAL_INDEX_RESULTS_SUBJECT} failed: {err}"
+                ))
+            })?;
+            Ok::<(), MediaWorkerError>(())
+        })
+        .await
+        .map_err(|_| {
+            MediaWorkerError::deadline_exceeded(format!(
+                "JetStream publish timeout on {VISUAL_INDEX_RESULTS_SUBJECT}"
+            ))
+        })??;
+
+        Ok(())
+    }
+
+    async fn publish_telemetry_snapshot(
+        &self,
+        payload_json: &[u8],
+    ) -> Result<(), MediaWorkerError> {
+        let payload = bytes::Bytes::copy_from_slice(payload_json);
+        if let Ok(ack_fut) = self
+            .js
+            .publish(MEDIA_WORKER_TELEMETRY_SUBJECT, payload)
+            .await
+        {
+            let _ = timeout(Duration::from_secs(2), ack_fut).await;
+        }
+        Ok(())
+    }
+}
+
+/// Spawns the reserved NATS request-reply subscriber on
+/// `media.rpc.visual_text_embed.v1.<model_id>.<model_version>`.
+pub async fn spawn_nats_text_embed_responder(
+    client: Client,
+    service: TextEmbedService,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<tokio::task::JoinHandle<()>, MediaWorkerError> {
+    let subject = service.subject();
+    let mut subscription = client
+        .queue_subscribe(subject.clone(), VISUAL_TEXT_EMBED_QUEUE_GROUP.to_string())
+        .await
+        .map_err(|err| {
+            MediaWorkerError::nats_error(format!(
+                "failed subscribing to text-embed RPC subject '{subject}': {err}"
+            ))
+        })?;
+
+    info!(subject = %subject, "started reserved interactive text-embedder NATS responder");
+
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
+                maybe_msg = subscription.next() => {
+                    let Some(msg) = maybe_msg else { break; };
+                    let Some(reply_subject) = msg.reply else { continue; };
+                    let svc = service.clone();
+                    let nats = client.clone();
+                    tokio::spawn(async move {
+                        let resp = svc.handle_rpc_payload(&msg.payload).await;
+                        if let Ok(bytes) = serde_json::to_vec(&resp) {
+                            let _ = nats.publish(reply_subject, bytes.into()).await;
+                        }
+                    });
+                }
+            }
+        }
+    });
+
+    Ok(handle)
+}
+
+/// Connects to NATS (with optional mTLS + `serviceradar-cert-policy`) and runs
+/// both the reserved interactive text-embedder responder and the JetStream
+/// visual-index pull loop until `shutdown` signals termination.
+pub async fn run_nats_worker_loops(
+    config: WorkerConfig,
+    metrics: Arc<WorkerMetrics>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    let auth = config.worker_auth().cloned().unwrap_or_else(|| {
+        WorkerAuthCredentials::new(
+            "unconfigured-media-worker-token",
+            "00000000-0000-4000-8000-000000000000",
+            "1",
+        )
+    });
+
+    let (client, js, cert_policy) = connect_nats_and_jetstream(&config).await?;
+    ensure_media_streams(&js, &config).await?;
+
+    let text_service = TextEmbedService::new(
+        config.models().clone(),
+        config.text_embed_concurrency(),
+        Arc::clone(&metrics),
+    );
+    let _text_handle =
+        spawn_nats_text_embed_responder(client.clone(), text_service, shutdown.clone()).await?;
+
+    let grant_client =
+        HttpControlPlaneGrantClient::new(config.control_plane_url(), auth, Duration::from_secs(10));
+    let store = HybridGrantStore::new(
+        LongshoreArchiveReader::new(
+            config.index_concurrency().clamp(1, 4),
+            Duration::from_secs(15),
+        ),
+        NvrAnalysisReader::new(
+            config.nvr_scheme(),
+            config.nvr_read_port(),
+            Duration::from_secs(10),
+        ),
+    );
+    let publisher = JetStreamResultPublisher::new(js.clone(), cert_policy, Duration::from_secs(10));
+    let processor = VisualIndexProcessor::new(&config, grant_client, store, publisher, metrics);
+
+    let live_consumer = ensure_pull_consumer(
+        &js,
+        config.jobs_stream_name(),
+        &format!("{}_live", config.consumer_name()),
+        VISUAL_INDEX_LIVE_SUBJECT,
+        config.index_concurrency(),
+    )
+    .await?;
+    let backfill_consumer = ensure_pull_consumer(
+        &js,
+        config.jobs_stream_name(),
+        &format!("{}_backfill", config.consumer_name()),
+        VISUAL_INDEX_BACKFILL_SUBJECT,
+        config.index_concurrency(),
+    )
+    .await?;
+
+    info!(
+        live_subject = VISUAL_INDEX_LIVE_SUBJECT,
+        backfill_subject = VISUAL_INDEX_BACKFILL_SUBJECT,
+        index_concurrency = config.index_concurrency(),
+        "started JetStream visual-index pull loop"
+    );
+
+    while !*shutdown.borrow_and_update() {
+        // Poll live newly-sealed blocks first before historical backfill (`design.md` Risks/Trade-offs).
+        let pulled_live = pull_and_spawn_batch(&live_consumer, &processor, 1).await;
+        if pulled_live == 0 {
+            let pulled_backfill = pull_and_spawn_batch(&backfill_consumer, &processor, 1).await;
+            if pulled_backfill == 0 {
+                tokio::select! {
+                    _ = shutdown.changed() => break,
+                    _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn pull_and_spawn_batch<G, S, P>(
+    consumer: &jetstream::consumer::Consumer<pull::Config>,
+    processor: &VisualIndexProcessor<G, S, P>,
+    max_messages: usize,
+) -> usize
+where
+    G: GrantClient + 'static,
+    S: FragmentStore + 'static,
+    P: ResultPublisher + 'static,
+{
+    if processor.index_semaphore().available_permits() == 0 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        return 0;
+    }
+
+    let Ok(mut batch) = consumer
+        .fetch()
+        .max_messages(max_messages)
+        .expires(Duration::from_millis(200))
+        .messages()
+        .await
+    else {
+        return 0;
+    };
+
+    let mut count = 0usize;
+    while let Some(Ok(msg)) = batch.next().await {
+        count += 1;
+        let proc_clone = processor.clone();
+        let delivery = Arc::new(JetStreamJobDelivery::new(msg));
+        tokio::spawn(async move {
+            if let Err(err) = proc_clone.process_delivery(delivery).await {
+                warn!(error = %err, "visual index job failed");
+            }
+        });
+    }
+    count
+}
+
+async fn connect_nats_and_jetstream(
+    config: &WorkerConfig,
+) -> Result<
+    (
+        Client,
+        jetstream::Context,
+        Option<Arc<serviceradar_cert_policy::nats::Guard>>,
+    ),
+    MediaWorkerError,
+> {
+    ensure_rustls_provider();
+    let mut options = ConnectOptions::new();
+
+    if let Some(creds_file) = config.nats_creds_file() {
+        options = options.credentials_file(creds_file).await.map_err(|err| {
+            MediaWorkerError::nats_error(format!(
+                "failed loading NATS creds file {}: {err}",
+                creds_file.display()
+            ))
+        })?;
+    }
+
+    let has_tls = config.nats_tls_ca_file().is_some()
+        || (config.nats_tls_cert_file().is_some() && config.nats_tls_key_file().is_some());
+    if has_tls {
+        options = options.require_tls(true);
+    }
+    if let Some(ca) = config.nats_tls_ca_file() {
+        options = options.add_root_certificates(ca.to_path_buf());
+    }
+    if let (Some(cert), Some(key)) = (config.nats_tls_cert_file(), config.nats_tls_key_file()) {
+        options = options.add_client_certificate(cert.to_path_buf(), key.to_path_buf());
+    }
+
+    let (client, guard) = serviceradar_cert_policy::nats::connect(
+        options,
+        config.nats_url(),
+        config.nats_cert_policy_file().map(Path::new),
+        None,
+        config.nats_tls_ca_file().map(Path::new),
+        config.nats_tls_cert_file().map(Path::new),
+        config.nats_tls_key_file().map(Path::new),
+    )
+    .await
+    .map_err(|err| MediaWorkerError::nats_error(format!("NATS connect failed: {err}")))?;
+
+    let js = match config.nats_domain() {
+        Some(domain) => jetstream::with_domain(client.clone(), domain),
+        None => jetstream::new(client.clone()),
+    };
+
+    Ok((client, js, guard.map(Arc::new)))
+}
+
+async fn ensure_media_streams(
+    js: &jetstream::Context,
+    config: &WorkerConfig,
+) -> Result<(), MediaWorkerError> {
+    let jobs_cfg = jetstream::stream::Config {
+        name: config.jobs_stream_name().to_string(),
+        subjects: vec![
+            VISUAL_INDEX_LIVE_SUBJECT.to_string(),
+            VISUAL_INDEX_BACKFILL_SUBJECT.to_string(),
+        ],
+        retention: RetentionPolicy::Limits,
+        storage: StorageType::File,
+        max_age: Duration::from_secs(72 * 3600),
+        max_bytes: 512 * 1024 * 1024,
+        ..Default::default()
+    };
+    if let Err(err) = js.get_or_create_stream(jobs_cfg).await {
+        warn!(error = %err, "get_or_create_stream for jobs stream returned warning; continuing if pre-provisioned");
+    }
+
+    let results_cfg = jetstream::stream::Config {
+        name: config.results_stream_name().to_string(),
+        subjects: vec![VISUAL_INDEX_RESULTS_SUBJECT.to_string()],
+        retention: RetentionPolicy::Limits,
+        storage: StorageType::File,
+        max_age: Duration::from_secs(72 * 3600),
+        max_bytes: 2 * 1024 * 1024 * 1024,
+        ..Default::default()
+    };
+    if let Err(err) = js.get_or_create_stream(results_cfg).await {
+        warn!(error = %err, "get_or_create_stream for results stream returned warning; continuing if pre-provisioned");
+    }
+
+    Ok(())
+}
+
+async fn ensure_pull_consumer(
+    js: &jetstream::Context,
+    stream_name: &str,
+    durable_name: &str,
+    filter_subject: &str,
+    concurrency: usize,
+) -> Result<jetstream::consumer::Consumer<pull::Config>, MediaWorkerError> {
+    let stream = js.get_stream(stream_name).await.map_err(|err| {
+        MediaWorkerError::nats_error(format!(
+            "JetStream stream '{stream_name}' unavailable: {err}"
+        ))
+    })?;
+
+    let cfg = pull::Config {
+        durable_name: Some(durable_name.to_string()),
+        filter_subject: filter_subject.to_string(),
+        ack_policy: AckPolicy::Explicit,
+        ack_wait: Duration::from_secs(60),
+        max_deliver: 5,
+        max_ack_pending: (concurrency.max(1) * 4) as i64,
+        ..Default::default()
+    };
+
+    stream
+        .get_or_create_consumer(durable_name, cfg)
+        .await
+        .map_err(|err| {
+            MediaWorkerError::nats_error(format!(
+                "failed creating JetStream pull consumer '{durable_name}' on '{stream_name}': {err}"
+            ))
+        })
+}
+
+fn ensure_rustls_provider() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+#[cfg(test)]
+impl JobOutcome {
+    pub fn completed_envelope(&self) -> Option<&VisualIndexResultEnvelope> {
+        match self {
+            Self::Completed(env) => Some(env),
+            Self::Gone => None,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn log_worker_error(err: &MediaWorkerError) {
+    tracing::error!(error = %err, "media worker error");
+}

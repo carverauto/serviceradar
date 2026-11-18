@@ -68,6 +68,10 @@ ALL_GATED_OVERRIDES = {
     "webNg.controlPlaneRuntime.media.enabled": True,
     "webNg.controlPlaneRuntime.media.deploymentRef": "11111111-2222-4333-8444-555555555555",
     "webNg.controlPlaneRuntime.media.generation": "3",
+    "webNg.controlPlaneRuntime.mediaWorker.enabled": True,
+    "webNg.controlPlaneRuntime.mediaWorker.existingSecret": "synthetic-media-worker-auth",
+    "webNg.controlPlaneRuntime.mediaWorker.deploymentRef": "11111111-2222-4333-8444-555555555555",
+    "webNg.controlPlaneRuntime.mediaWorker.generation": "3",
     "mediaStorage.enabled": True,
     "mediaStorage.revision": "8",
     "mediaStorage.configSecretName": "synthetic-media-storage-cfg",
@@ -75,6 +79,10 @@ ALL_GATED_OVERRIDES = {
     "mediaStorage.authSecretName": "synthetic-media-storage-auth",
     "mediaStorage.tlsSecretName": "synthetic-media-storage-tls",
     "mediaStorage.providerEgress.cidrs": ["192.0.2.17/32"],
+    "mediaWorker.enabled": True,
+    "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
+    "mediaWorker.auth.deploymentRef": "11111111-2222-4333-8444-555555555555",
+    "mediaWorker.auth.generation": "3",
     "bmpCollector.enabled": True,
     "faker.enabled": True,
     "flowCollector.enabled": True,
@@ -243,6 +251,7 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/k8s-inventory.yaml",
             "templates/log-collector.yaml",
             "templates/media-storage.yaml",
+            "templates/media-worker.yaml",
             "templates/nats-creds-generator.yaml",
             "templates/nats.yaml",
             "templates/nvr.yaml",
@@ -277,8 +286,8 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(workload_templates),
-            35,
-            f"Expected at least 35 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
+            36,
+            f"Expected at least 36 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
         )
         self.assertEqual(
             missing,
@@ -427,6 +436,21 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         tools_dep = next(d for d in self.gated_docs["templates/tools.yaml"] if d["kind"] == "Deployment")
         self.assertEqual(_env_map(tools_dep)["NATS_URL"], f"tls://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222")
+
+        mw_dep = next(d for d in self.gated_docs["templates/media-worker.yaml"] if d["kind"] == "Deployment")
+        mw_env = _env_map(mw_dep)
+        self.assertEqual(
+            mw_env["SERVICERADAR_MEDIA_WORKER_CONTROL_PLANE_URL"],
+            f"http://serviceradar-web-ng-headless.{NAMESPACE}.svc.cluster.local:4001",
+        )
+        self.assertEqual(
+            mw_env["SERVICERADAR_MEDIA_WORKER_NATS_URL"],
+            f"nats://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222",
+        )
+        self.assertEqual(
+            mw_env["SERVICERADAR_MEDIA_WORKER_OTEL_ENDPOINT"],
+            f"http://serviceradar-log-collector.{NAMESPACE}.svc.cluster.local:4317",
+        )
 
         # Collector ConfigMaps & StarRocks catalog Job
         fc_cm = next(d for d in self.gated_docs["templates/flow-collector.yaml"] if d["kind"] == "ConfigMap")
