@@ -11,12 +11,12 @@
 - [x] 1.2 Re-read the chosen version's `sign_blob.go`, `verify.go` (`VerifyBundle`,
   `verifySignature`) and `cmd/cosign/cli/verify/common.go`, and confirm design.md, Decisions 1
   and 4 still hold. Record the result in the PR.
-- [ ] 1.3 Add the accepted key set `docs/sigstore/rekor-keys/<logID>.pub` and the signing-log key
+- [x] 1.3 Add the accepted key set `docs/sigstore/rekor-keys/<logID>.pub` and the signing-log key
   `docs/sigstore/rekor.pub` from the self-hosted log's `GET /api/v1/log/publicKey`, accepted only
   after the log's signed tree head verifies under it; record the URL, time, tree ID and size.
   Keep the public-good key only in `docs/sigstore/pre-cutover-rekor-keys/`. Ship the accepted set
   (not the pre-cutover one) in the web-ng image.
-- [ ] 1.4 Add `build/contracts` tests: every image Rekor key byte-identical to the committed key
+- [x] 1.4 Add `build/contracts` tests: every image Rekor key byte-identical to the committed key
   set; `docs/sigstore/rekor.pub` byte-identical to one member of the set; signer and image cosign
   versions equal.
 
@@ -71,7 +71,7 @@
 
 ## 4. Import verifier (web-ng)
 
-- [ ] 4.1 `CosignVerifier` with exactly two command shapes (design.md, Decision 4): (a)
+- [x] 4.1 `CosignVerifier` with exactly two command shapes (design.md, Decision 4): (a)
   receipt-required mode for every non-allowlisted digest, with the pinned key selected from the
   shipped key set by the receipt's `logID` and passed as `SIGSTORE_REKOR_PUBLIC_KEY`,
   `--offline=true`, `--new-bundle-format=false`, no `--trusted-root`, no `--insecure-ignore-tlog`,
@@ -79,23 +79,23 @@
   and records `verified`; (b) key-only mode only for allowlisted digests without a receipt, with #6778's
   flags (`--insecure-ignore-tlog=true`, no Rekor key). No TUF, isolated home and cache directories,
   bounded timeout.
-- [ ] 4.2 With the cutover release (v1.5.8 or later, the first release built from a commit
+- [x] 4.2 With the cutover release (v1.5.8 or later, the first release built from a commit
   containing the signer change; v1.5.7 was cut without it), generate and commit the frozen
   allowlist from every `serviceradar-wasm-plugin-index.json` and
   `serviceradar-native-addon-index.json` published up to and including v1.5.7. Ship that list
   unchanged with the verifier release, never regenerate it once receipt-bearing releases exist, and
   add the freeze contract test. Once it is frozen, no release is cut from a commit without the
   signer.
-- [ ] 4.3 Store `transparency_receipt` (`verified` with log index and integrated time, or
+- [x] 4.3 Store `transparency_receipt` (`verified` with log index and integrated time, or
   `absent_allowlisted`) in the import verification metadata on both write paths: web-ng
   `first_party_importer.ex` for Wasm plugins, and for native add-ons web-ng
   `native_addon_importer.ex` (the cosign call) passing the receipt fields into core
   `native_addon_importer.ex` `source_metadata/2`.
-- [ ] 4.4 Load the `test-audit` skill, then extend `cosign_verifier_test.exs`: receipt-required
+- [x] 4.4 Load the `test-audit` skill, then extend `cosign_verifier_test.exs`: receipt-required
   rejects a missing receipt without a network call, allowlisted digests pass key-only, and an
   unknown log ID is rejected. Include one test that runs the real pinned cosign binary against
   synthetic fixtures with networking blocked.
-- [ ] 4.5 Add a test that proves no request reaches a Rekor URL during import verification: a
+- [x] 4.5 Add a test that proves no request reaches a Rekor URL during import verification: a
   stand-in Rekor that records every request stays untouched while a receipt verifies.
 
 ## 5. Monitor
@@ -168,7 +168,7 @@
 
 - [ ] 6.1 Update `docs/sigstore/README.md` and `docs/RELEASE_PUBLISHING.md` (receipt in `.sig`,
   pinned log, ledger, monitor, key update process, acknowledged pre-ledger entries).
-- [ ] 6.2 Update `docs/docs/wasm-plugins.md` and `docs/docs/native-addons.md` for offline receipt
+- [x] 6.2 Update `docs/docs/wasm-plugins.md` and `docs/docs/native-addons.md` for offline receipt
   verification and the `absent_allowlisted` status.
 - [x] 6.3 Replace the manual demo signing path in `docs/agent-runbooks.md` with the
   `publish-oci.yml` dispatch, or document that each manual signature must be acknowledged.
