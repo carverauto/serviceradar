@@ -172,6 +172,15 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
   end
 
   @doc """
+  Alias for `save_policy/2` creating or updating a `CameraRecordingPolicy` for
+  `(camera_source_id, stream_profile_id)` under `settings.recording.manage`.
+  """
+  @spec upsert_policy(map(), keyword()) :: {:ok, CameraRecordingPolicy.t()} | {:error, term()}
+  def upsert_policy(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
+    save_policy(attrs, opts)
+  end
+
+  @doc """
   Computes estimated bitrate, bytes/day, archive bytes/day (`1.02` CMAF overhead),
   block duration (`<= 270 s` and `<= 12 MiB`), and blocks/day for a `StreamProfile`
   or metadata map (`design.md` `A1`, `C1a`, `S`).
@@ -1055,6 +1064,25 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
             else: existing && fetch_field(existing, :nvr_member)
       end
 
+    raw_visual_mode =
+      fetch_field(candidate_change, :visual_index_mode) ||
+        (existing && fetch_field(existing, :visual_index_mode)) ||
+        :off
+
+    visual_interval_ms =
+      positive_int_or(
+        fetch_field(candidate_change, :visual_index_min_interval_ms) ||
+          (existing && fetch_field(existing, :visual_index_min_interval_ms)),
+        2000
+      )
+
+    visual_max_frames =
+      positive_int_or(
+        fetch_field(candidate_change, :visual_index_max_frames_per_block) ||
+          (existing && fetch_field(existing, :visual_index_max_frames_per_block)),
+        64
+      )
+
     %{
       id: (existing && fetch_field(existing, :id)) || id || "candidate",
       camera_source_id: cam_id || (existing && fetch_field(existing, :camera_source_id)),
@@ -1064,6 +1092,9 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
       storage: normalize_storage_atom(raw_storage),
       archive_retention_override_mode: override_mode,
       archive_retention_days_override: override_days,
+      visual_index_mode: normalize_visual_index_mode(raw_visual_mode),
+      visual_index_min_interval_ms: visual_interval_ms,
+      visual_index_max_frames_per_block: visual_max_frames,
       nominal_bitrate_bps: fetch_field(candidate_change, :nominal_bitrate_bps),
       stream_profile:
         fetch_field(candidate_change, :stream_profile) ||
@@ -1457,6 +1488,9 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
   defp normalize_override_mode(val) when val in [:limited, "limited"], do: :limited
   defp normalize_override_mode(val) when val in [:unlimited, "unlimited"], do: :unlimited
   defp normalize_override_mode(_), do: :inherit
+
+  defp normalize_visual_index_mode(val) when val in [:keyframes, "keyframes"], do: :keyframes
+  defp normalize_visual_index_mode(_), do: :off
 
   defp positive_int_or(val, _fallback) when is_integer(val) and val > 0, do: val
 

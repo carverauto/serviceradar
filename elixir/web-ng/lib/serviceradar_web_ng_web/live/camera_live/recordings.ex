@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
+  alias ServiceRadarWebNGWeb.CameraSemanticSearch
 
   require Ash.Query
 
@@ -67,6 +68,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_playlist_path: nil,
         timeline_play_from_us: nil,
         timeline_play_to_us: nil,
+        timeline_playlist_origin_us: nil,
+        timeline_seek_us: nil,
+        timeline_seek_offset_seconds: 0.0,
+        timeline_highlight_frame_id: nil,
+        timeline_search_query: "",
+        timeline_search_object_class: "",
+        timeline_search_results: [],
+        timeline_search_executed?: false,
+        timeline_search_error: nil,
+        timeline_embedder_unavailable?: false,
+        timeline_overlay_detections: [],
         timeline_jump_at: "",
         timeline_has_adjacent_window: false,
         timeline_holds: [],
@@ -86,16 +98,41 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     profile_id = parse_profile_param(params["profile"])
     custom_from_us = parse_optional_int(params["from"])
     custom_to_us = parse_optional_int(params["to"])
+    seek_us = parse_non_neg_int(params["seek"])
+    highlight_frame_id = parse_optional_uuid(params["highlight_frame"])
+    search_query = parse_search_query_param(params["q"])
+    search_object_class = parse_object_class_param(params["object_class"])
+
+    inferred_mode =
+      cond do
+        requested_mode in [:timeline, :published] ->
+          requested_mode
+
+        not is_nil(seek_us) or not is_nil(highlight_frame_id) or search_query != "" ->
+          :timeline
+
+        true ->
+          nil
+      end
 
     socket =
       assign(socket,
-        requested_mode: requested_mode,
-        mode: requested_mode || socket.assigns.mode,
+        requested_mode: inferred_mode,
+        mode: inferred_mode || socket.assigns.mode,
         timeline_span: span,
         timeline_source: source_mode,
         timeline_profile_id: profile_id,
         timeline_custom_from_us: custom_from_us,
-        timeline_anchor_to_us: custom_to_us
+        timeline_anchor_to_us: custom_to_us,
+        timeline_seek_us: seek_us,
+        timeline_highlight_frame_id: highlight_frame_id,
+        timeline_search_query:
+          if(Map.has_key?(params, "q"), do: search_query, else: socket.assigns.timeline_search_query),
+        timeline_search_object_class:
+          if(Map.has_key?(params, "object_class"),
+            do: search_object_class,
+            else: socket.assigns.timeline_search_object_class
+          )
       )
 
     if connected?(socket) do
@@ -128,6 +165,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
+        timeline_playlist_origin_us={@timeline_playlist_origin_us}
+        timeline_seek_offset_seconds={@timeline_seek_offset_seconds}
+        timeline_highlight_frame_id={@timeline_highlight_frame_id}
+        timeline_search_query={@timeline_search_query}
+        timeline_search_object_class={@timeline_search_object_class}
+        timeline_search_results={@timeline_search_results}
+        timeline_search_executed?={@timeline_search_executed?}
+        timeline_search_error={@timeline_search_error}
+        timeline_embedder_unavailable?={@timeline_embedder_unavailable?}
+        timeline_overlay_detections={@timeline_overlay_detections}
         timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
@@ -361,6 +408,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           socket.assigns.timeline_source
         )
 
+      playlist_origin_us =
+        compute_playlist_origin_us(cov, play_from_us, play_to_us, socket.assigns.timeline_source)
+
+      overlay_detections =
+        resolve_overlay_detections(
+          source.id,
+          play_from_us,
+          play_to_us,
+          nil,
+          socket.assigns.timeline_search_results
+        )
+
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
 
       {:noreply,
@@ -369,6 +428,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
          source: source,
          timeline_play_from_us: play_from_us,
          timeline_play_to_us: play_to_us,
+         timeline_playlist_origin_us: playlist_origin_us,
+         timeline_seek_us: nil,
+         timeline_seek_offset_seconds: 0.0,
+         timeline_highlight_frame_id: nil,
+         timeline_overlay_detections: overlay_detections,
          timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
          timeline_playlist_path: playlist_path,
          timeline_has_adjacent_window: has_adjacent?,
@@ -378,6 +442,103 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     else
       {:error, reason} -> {:noreply, unavailable(socket, reason)}
       _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("timeline_semantic_search", params, socket) do
+    search_params = Map.get(params, "search", params)
+    raw_query = String.trim(to_string(search_params["q"] || ""))
+    object_class = parse_object_class_param(search_params["object_class"])
+
+    socket =
+      assign(socket,
+        timeline_search_query: raw_query,
+        timeline_search_object_class: object_class
+      )
+
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        {cov_from_us, cov_to_us} = current_or_resolved_coverage_bounds(socket)
+
+        socket =
+          socket
+          |> assign(current_scope: scope, source: source)
+          |> run_timeline_semantic_search(scope, source.id, cov_from_us, cov_to_us)
+
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
+  end
+
+  def handle_event("clear_timeline_semantic_search", _params, socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        overlay_detections =
+          resolve_overlay_detections(
+            source.id,
+            socket.assigns.timeline_play_from_us,
+            socket.assigns.timeline_play_to_us,
+            socket.assigns.timeline_highlight_frame_id,
+            []
+          )
+
+        {:noreply,
+         assign(socket,
+           current_scope: scope,
+           source: source,
+           timeline_search_query: "",
+           timeline_search_object_class: "",
+           timeline_search_results: [],
+           timeline_search_executed?: false,
+           timeline_search_error: nil,
+           timeline_embedder_unavailable?: false,
+           timeline_overlay_detections: overlay_detections
+         )}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
+  end
+
+  def handle_event("select_timeline_semantic_hit", params, socket) do
+    with {:ok, scope, source} <- authorize_timeline_view(socket),
+         {:ok, seek_us} <- parse_required_int(params["seek_us"]) do
+      clip_start_us = parse_non_neg_int(params["start_us"]) || seek_us
+      clip_end_us = parse_non_neg_int(params["end_us"]) || max(clip_start_us + 2_000_000, seek_us)
+      highlight_frame_id = parse_optional_uuid(params["frame_id"])
+      cov = socket.assigns.timeline_coverage
+
+      socket =
+        assign(socket,
+          current_scope: scope,
+          source: source,
+          timeline_seek_us: seek_us,
+          timeline_highlight_frame_id: highlight_frame_id,
+          error: nil
+        )
+
+      socket =
+        if is_map(cov) and seek_us >= cov.from_us and seek_us <= cov.to_us do
+          focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us)
+        else
+          socket
+          |> assign(
+            timeline_custom_from_us: max(clip_start_us - 30_000_000, 0),
+            timeline_anchor_to_us: clip_end_us + 30_000_000
+          )
+          |> load_timeline_for_authorized(scope, source)
+        end
+
+      {:noreply, socket}
+    else
+      {:error, reason}
+      when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
+        {:noreply, unavailable(socket, reason)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -564,12 +725,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     with {:ok, coverage} <-
            RecordingTimeline.coverage(source.id, coverage_params, scope: scope),
          {:ok, all_holds} <- load_enriched_camera_holds(source.id, coverage, scope) do
+      socket =
+        maybe_run_initial_query_search(socket, scope, source.id, cov_from_us, cov_to_us)
+
       {play_from_us, play_to_us} =
         initial_playback_window(
           coverage,
           cov_from_us,
           cov_to_us,
-          socket.assigns.timeline_source
+          socket.assigns.timeline_source,
+          socket.assigns.timeline_seek_us
         )
 
       playlist_path =
@@ -580,6 +745,30 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           play_to_us,
           socket.assigns.timeline_profile_id,
           socket.assigns.timeline_source
+        )
+
+      playlist_origin_us =
+        compute_playlist_origin_us(
+          coverage,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_source
+        )
+
+      seek_offset_seconds =
+        compute_seek_offset_seconds(
+          socket.assigns.timeline_seek_us,
+          playlist_origin_us,
+          play_to_us
+        )
+
+      overlay_detections =
+        resolve_overlay_detections(
+          source.id,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_highlight_frame_id,
+          socket.assigns.timeline_search_results
         )
 
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
@@ -593,6 +782,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_coverage: coverage,
         timeline_play_from_us: play_from_us,
         timeline_play_to_us: play_to_us,
+        timeline_playlist_origin_us: playlist_origin_us,
+        timeline_seek_offset_seconds: seek_offset_seconds,
+        timeline_overlay_detections: overlay_detections,
         timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
         timeline_playlist_path: playlist_path,
         timeline_has_adjacent_window: has_adjacent?,
@@ -655,9 +847,25 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         socket.assigns.timeline_source
       )
 
+    playlist_origin_us =
+      compute_playlist_origin_us(cov, next_from, next_to, socket.assigns.timeline_source)
+
+    overlay_detections =
+      resolve_overlay_detections(
+        source_id,
+        next_from,
+        next_to,
+        socket.assigns.timeline_highlight_frame_id,
+        socket.assigns.timeline_search_results
+      )
+
     assign(socket,
       timeline_play_from_us: next_from,
       timeline_play_to_us: next_to,
+      timeline_playlist_origin_us: playlist_origin_us,
+      timeline_seek_us: nil,
+      timeline_seek_offset_seconds: 0.0,
+      timeline_overlay_detections: overlay_detections,
       timeline_jump_at:
         format_us_for_datetime_local(
           next_from,
@@ -683,31 +891,56 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp resolve_coverage_bounds(socket) do
     span_us = Map.fetch!(@span_durations_us, socket.assigns.timeline_span)
     now_us = System.system_time(:microsecond)
-    to_us = socket.assigns.timeline_anchor_to_us || now_us
+    raw_to = socket.assigns.timeline_anchor_to_us
+    raw_from = socket.assigns.timeline_custom_from_us
 
-    from_us =
-      case socket.assigns.timeline_custom_from_us do
-        custom when is_integer(custom) and custom >= 0 and custom < to_us -> custom
-        _ -> max(to_us - span_us, 0)
-      end
+    cond do
+      is_integer(raw_from) and raw_from >= 0 and is_integer(raw_to) and raw_to > raw_from ->
+        {raw_from, raw_to}
 
-    {from_us, to_us}
+      is_integer(raw_from) and raw_from >= 0 and is_integer(raw_to) and raw_to > 0 and
+          raw_to <= raw_from ->
+        {max(raw_from - 4_000_000, 0), raw_from + 4_000_000}
+
+      true ->
+        to_us = raw_to || now_us
+
+        from_us =
+          case raw_from do
+            custom when is_integer(custom) and custom >= 0 and custom < to_us -> custom
+            _ -> max(to_us - span_us, 0)
+          end
+
+        {from_us, to_us}
+    end
   end
 
-  defp initial_playback_window(coverage, cov_from_us, cov_to_us, source_str) do
-    if cov_to_us - cov_from_us <= @max_playlist_window_us do
-      {cov_from_us, cov_to_us}
-    else
-      playable_blocks = Enum.filter(coverage.blocks, &block_playable_for_source?(&1, source_str))
+  defp initial_playback_window(coverage, cov_from_us, cov_to_us, source_str, seek_us) do
+    cond do
+      cov_to_us - cov_from_us <= @max_playlist_window_us ->
+        {cov_from_us, cov_to_us}
 
-      case playable_blocks do
-        [first | _] ->
-          start_us = max(first.timeline_start_us, cov_from_us)
-          {start_us, min(start_us + @max_playlist_window_us, cov_to_us)}
+      is_integer(seek_us) and seek_us >= cov_from_us and seek_us <= cov_to_us ->
+        start_us =
+          seek_us
+          |> Kernel.-(60_000_000)
+          |> min(cov_to_us - @max_playlist_window_us)
+          |> max(cov_from_us)
 
-        [] ->
-          {max(cov_to_us - @max_playlist_window_us, cov_from_us), cov_to_us}
-      end
+        {start_us, min(start_us + @max_playlist_window_us, cov_to_us)}
+
+      true ->
+        playable_blocks =
+          Enum.filter(coverage.blocks, &block_playable_for_source?(&1, source_str))
+
+        case playable_blocks do
+          [first | _] ->
+            start_us = max(first.timeline_start_us, cov_from_us)
+            {start_us, min(start_us + @max_playlist_window_us, cov_to_us)}
+
+          [] ->
+            {max(cov_to_us - @max_playlist_window_us, cov_from_us), cov_to_us}
+        end
     end
   end
 
@@ -1044,11 +1277,365 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       selected: nil,
       timeline_coverage: nil,
       timeline_playlist_path: nil,
+      timeline_playlist_origin_us: nil,
+      timeline_seek_offset_seconds: 0.0,
+      timeline_overlay_detections: [],
       timeline_holds: [],
       loading: false,
       error: message(reason)
     )
   end
+
+  defp maybe_run_initial_query_search(socket, scope, source_id, cov_from_us, cov_to_us) do
+    query = String.trim(socket.assigns.timeline_search_query || "")
+
+    if query != "" and not socket.assigns.timeline_search_executed? do
+      run_timeline_semantic_search(socket, scope, source_id, cov_from_us, cov_to_us)
+    else
+      socket
+    end
+  end
+
+  defp run_timeline_semantic_search(socket, scope, source_id, from_us, to_us) do
+    query = String.trim(socket.assigns.timeline_search_query || "")
+    object_class = socket.assigns.timeline_search_object_class || ""
+
+    if query == "" do
+      overlay_detections =
+        resolve_overlay_detections(
+          source_id,
+          socket.assigns.timeline_play_from_us,
+          socket.assigns.timeline_play_to_us,
+          socket.assigns.timeline_highlight_frame_id,
+          []
+        )
+
+      assign(socket,
+        timeline_search_results: [],
+        timeline_search_executed?: false,
+        timeline_search_error: "Enter a search query between 1 and 256 characters.",
+        timeline_embedder_unavailable?: false,
+        timeline_overlay_detections: overlay_detections
+      )
+    else
+      search_input = %{
+        "q" => query,
+        "camera_source_id" => source_id,
+        "from" => from_us,
+        "to" => to_us,
+        "object_class" => object_class,
+        "limit" => 20
+      }
+
+      opts =
+        socket
+        |> search_opts()
+        |> Keyword.put_new(:authorize_fn, fn _ -> {:ok, scope} end)
+
+      case CameraSemanticSearch.execute(scope, search_input, opts) do
+        {:ok, %{results: results}} ->
+          overlay_detections =
+            resolve_overlay_detections(
+              source_id,
+              socket.assigns.timeline_play_from_us,
+              socket.assigns.timeline_play_to_us,
+              socket.assigns.timeline_highlight_frame_id,
+              results
+            )
+
+          assign(socket,
+            timeline_search_results: results,
+            timeline_search_executed?: true,
+            timeline_search_error: nil,
+            timeline_embedder_unavailable?: false,
+            timeline_overlay_detections: overlay_detections
+          )
+
+        {:error, :search_embedder_unavailable} ->
+          assign(socket,
+            timeline_search_results: [],
+            timeline_search_executed?: true,
+            timeline_search_error: nil,
+            timeline_embedder_unavailable?: true
+          )
+
+        {:error, :invalid_query} ->
+          assign(socket,
+            timeline_search_results: [],
+            timeline_search_executed?: false,
+            timeline_search_error: "Enter a search query between 1 and 256 characters.",
+            timeline_embedder_unavailable?: false
+          )
+
+        {:error, reason} when reason in [:unauthorized, :forbidden] ->
+          unavailable(socket, :permission_revoked)
+
+        {:error, _reason} ->
+          assign(socket,
+            timeline_search_results: [],
+            timeline_search_executed?: true,
+            timeline_search_error: "Semantic clip search is temporarily unavailable.",
+            timeline_embedder_unavailable?: false
+          )
+      end
+    end
+  end
+
+  defp focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us) do
+    tz = user_timezone(scope)
+
+    {play_from_us, play_to_us} =
+      if cov.to_us - cov.from_us <= @max_playlist_window_us do
+        {cov.from_us, cov.to_us}
+      else
+        start_us =
+          clip_start_us
+          |> min(seek_us)
+          |> Kernel.-(30_000_000)
+          |> min(cov.to_us - @max_playlist_window_us)
+          |> max(cov.from_us)
+
+        end_us = min(max(start_us + @max_playlist_window_us, clip_end_us), cov.to_us)
+        {start_us, end_us}
+      end
+
+    playlist_path =
+      build_playlist_path_if_playable(
+        source.id,
+        cov,
+        play_from_us,
+        play_to_us,
+        socket.assigns.timeline_profile_id,
+        socket.assigns.timeline_source
+      )
+
+    playlist_origin_us =
+      compute_playlist_origin_us(cov, play_from_us, play_to_us, socket.assigns.timeline_source)
+
+    seek_offset_seconds =
+      compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
+
+    overlay_detections =
+      resolve_overlay_detections(
+        source.id,
+        play_from_us,
+        play_to_us,
+        socket.assigns.timeline_highlight_frame_id,
+        socket.assigns.timeline_search_results
+      )
+
+    assign(socket,
+      timeline_play_from_us: play_from_us,
+      timeline_play_to_us: play_to_us,
+      timeline_playlist_origin_us: playlist_origin_us,
+      timeline_seek_offset_seconds: seek_offset_seconds,
+      timeline_overlay_detections: overlay_detections,
+      timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
+      timeline_playlist_path: playlist_path,
+      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov.to_us),
+      hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold)
+    )
+  end
+
+  defp current_or_resolved_coverage_bounds(socket) do
+    case socket.assigns.timeline_coverage do
+      %{from_us: from_us, to_us: to_us} when is_integer(from_us) and is_integer(to_us) ->
+        {from_us, to_us}
+
+      _ ->
+        resolve_coverage_bounds(socket)
+    end
+  end
+
+  defp compute_playlist_origin_us(coverage, play_from_us, play_to_us, source_str)
+       when is_integer(play_from_us) and is_integer(play_to_us) do
+    playable_overlapping =
+      if is_map(coverage) and is_list(coverage.blocks) do
+        coverage.blocks
+        |> Enum.filter(fn block ->
+          block.timeline_end_us > play_from_us and
+            block.timeline_start_us < play_to_us and
+            block_playable_for_source?(block, source_str)
+        end)
+        |> Enum.sort_by(& &1.timeline_start_us)
+      else
+        []
+      end
+
+    case playable_overlapping do
+      [first | _] -> max(first.timeline_start_us, play_from_us)
+      [] -> play_from_us
+    end
+  end
+
+  defp compute_playlist_origin_us(_coverage, play_from_us, _play_to_us, _source_str), do: play_from_us
+
+  defp compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
+       when is_integer(seek_us) and is_integer(playlist_origin_us) and is_integer(play_to_us) do
+    if seek_us > playlist_origin_us and seek_us <= play_to_us + 2_000_000 do
+      Float.round(max((seek_us - playlist_origin_us) / 1_000_000.0, 0.0), 3)
+    else
+      0.0
+    end
+  end
+
+  defp compute_seek_offset_seconds(_seek_us, _playlist_origin_us, _play_to_us), do: 0.0
+
+  defp resolve_overlay_detections(source_id, play_from_us, play_to_us, highlight_frame_id, search_results) do
+    from_results = detections_from_search_results(search_results, play_from_us, play_to_us)
+
+    has_highlighted_in_results? =
+      is_binary(highlight_frame_id) and
+        Enum.any?(from_results, &(to_string(&1[:visual_frame_id] || "") == highlight_frame_id))
+
+    from_db =
+      if is_binary(highlight_frame_id) and not has_highlighted_in_results? do
+        load_highlighted_frame_detections(source_id, highlight_frame_id)
+      else
+        []
+      end
+
+    deduplicate_overlay_detections(from_db ++ from_results)
+  end
+
+  defp detections_from_search_results(results, play_from_us, play_to_us) when is_list(results) do
+    results
+    |> Enum.filter(fn hit ->
+      if is_integer(play_from_us) and is_integer(play_to_us) do
+        (hit.clip_end_us || hit.best_timeline_ts_us || 0) >= play_from_us and
+          (hit.clip_start_us || hit.best_timeline_ts_us || 0) <= play_to_us
+      else
+        true
+      end
+    end)
+    |> Enum.flat_map(&detections_from_single_hit/1)
+  end
+
+  defp detections_from_search_results(_results, _play_from_us, _play_to_us), do: []
+
+  defp detections_from_single_hit(hit) when is_map(hit) do
+    frame_dets = List.wrap(hit[:frame_detections])
+
+    cond do
+      frame_dets != [] ->
+        frame_dets
+        |> Enum.map(fn det ->
+          bbox =
+            normalize_detection_bbox(det[:bbox] || det["bbox"] || det[:bbox_norm] || det["bbox_norm"] || det)
+
+          if is_list(bbox) do
+            %{
+              visual_frame_id: det[:visual_frame_id] || det["visual_frame_id"] || hit[:visual_frame_id],
+              timeline_ts_us: det[:timeline_ts_us] || det["timeline_ts_us"] || hit[:best_timeline_ts_us],
+              start_us: hit[:clip_start_us],
+              end_us: hit[:clip_end_us],
+              bbox: bbox,
+              object_class: to_string(det[:object_class] || det["object_class"] || hit[:object_class] || "subject"),
+              score:
+                det[:score] || det["score"] || det[:detector_confidence] ||
+                  det["detector_confidence"] || hit[:score] || 0.0,
+              dominant_colors: List.wrap(det[:dominant_colors] || det["dominant_colors"] || hit[:dominant_colors]),
+              time_basis: to_string(det[:time_basis] || det["time_basis"] || hit[:time_basis] || "received")
+            }
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      is_list(hit[:bbox]) ->
+        [
+          %{
+            visual_frame_id: hit[:visual_frame_id],
+            timeline_ts_us: hit[:best_timeline_ts_us],
+            start_us: hit[:clip_start_us],
+            end_us: hit[:clip_end_us],
+            bbox: hit[:bbox],
+            object_class: to_string(hit[:object_class] || hit[:region_kind] || "subject"),
+            score: hit[:score] || 0.0,
+            dominant_colors: List.wrap(hit[:dominant_colors]),
+            time_basis: to_string(hit[:time_basis] || "received")
+          }
+        ]
+
+      true ->
+        []
+    end
+  end
+
+  defp load_highlighted_frame_detections(source_id, highlight_frame_id)
+       when is_binary(source_id) and is_binary(highlight_frame_id) do
+    case ServiceRadar.Camera.SemanticSearch.get_frame_overlay(
+           source_id,
+           highlight_frame_id,
+           actor: SystemActor.system(:camera_semantic_search)
+         ) do
+      {:ok, detections} when is_list(detections) -> detections
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp load_highlighted_frame_detections(_source_id, _highlight_frame_id), do: []
+
+  defp deduplicate_overlay_detections(detections) do
+    Enum.uniq_by(detections, fn det ->
+      {det[:visual_frame_id], det[:timeline_ts_us], det[:bbox], det[:object_class]}
+    end)
+  end
+
+  defp normalize_detection_bbox([x1, y1, x2, y2])
+       when is_number(x1) and is_number(y1) and is_number(x2) and is_number(y2) do
+    [x1 * 1.0, y1 * 1.0, x2 * 1.0, y2 * 1.0]
+  end
+
+  defp normalize_detection_bbox(%{} = map) do
+    x1 = map[:x1] || map["x1"] || map[:bbox_x1] || map["bbox_x1"]
+    y1 = map[:y1] || map["y1"] || map[:bbox_y1] || map["bbox_y1"]
+    x2 = map[:x2] || map["x2"] || map[:bbox_x2] || map["bbox_x2"]
+    y2 = map[:y2] || map["y2"] || map[:bbox_y2] || map["bbox_y2"]
+
+    if is_number(x1) and is_number(y1) and is_number(x2) and is_number(y2) do
+      [x1 * 1.0, y1 * 1.0, x2 * 1.0, y2 * 1.0]
+    end
+  end
+
+  defp normalize_detection_bbox(_), do: nil
+
+  defp search_opts(socket) do
+    Map.get_lazy(socket.assigns, :camera_semantic_search_opts, fn ->
+      Application.get_env(:serviceradar_web_ng, :camera_semantic_search_opts, [])
+    end)
+  end
+
+  defp parse_non_neg_int(val) do
+    case parse_optional_int(val) do
+      n when is_integer(n) and n >= 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_uuid(val) when is_binary(val) do
+    case Ecto.UUID.cast(String.trim(val)) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp parse_optional_uuid(_), do: nil
+
+  defp parse_search_query_param(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if String.length(trimmed) <= 256, do: trimmed, else: String.slice(trimmed, 0, 256)
+  end
+
+  defp parse_search_query_param(_), do: ""
+
+  defp parse_object_class_param(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed in CameraSemanticSearch.allowed_object_classes(), do: trimmed, else: ""
+  end
+
+  defp parse_object_class_param(_), do: ""
 
   defp hold_error_message(:invalid_hold_kind), do: "Select a valid hold kind."
 

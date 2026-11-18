@@ -46,6 +46,9 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     "storage",
     "archive_retention_override_mode",
     "archive_retention_days_override",
+    "visual_index_mode",
+    "visual_index_min_interval_ms",
+    "visual_index_max_frames_per_block",
     "nominal_bitrate_kbps"
   ]
 
@@ -156,6 +159,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       retention_max_days: nil,
       retention_default_days: nil,
       max_recording_cameras: nil,
+      visual_indexing_enabled: nil,
+      max_visual_index_cameras: nil,
       pending: nil,
       pending_projection: nil
     }
@@ -250,6 +255,24 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         fetch_first(raw, [:recordings_max_recording_cameras, :max_recording_cameras])
       ])
 
+    visual_indexing_enabled =
+      first_nullable_bool([
+        fetch_first_non_nil(limits, [:visual_indexing_enabled, :visual_index_enabled]),
+        fetch_first_non_nil(rec, [:visual_indexing_enabled, :visual_index_enabled]),
+        fetch_first_non_nil(raw, [
+          :recordings_visual_indexing_enabled,
+          :visual_indexing_enabled,
+          :visual_index_enabled
+        ])
+      ])
+
+    max_visual_index_cameras =
+      first_non_neg_int([
+        fetch_first_non_nil(limits, [:max_visual_index_cameras]),
+        fetch_first_non_nil(rec, [:max_visual_index_cameras]),
+        fetch_first_non_nil(raw, [:recordings_max_visual_index_cameras, :max_visual_index_cameras])
+      ])
+
     pending =
       normalize_pending_block(fetch_first(rec, [:pending]) || fetch_first(raw, [:recordings_pending, :pending]))
 
@@ -274,6 +297,8 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         retention_max_days: retention_max_days,
         retention_default_days: retention_default_days,
         max_recording_cameras: max_recording_cameras,
+        visual_indexing_enabled: visual_indexing_enabled,
+        max_visual_index_cameras: max_visual_index_cameras,
         pending: pending,
         pending_projection: if(is_map(pending_projection), do: pending_projection)
     }
@@ -888,6 +913,9 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       "storage" => default_storage,
       "archive_retention_override_mode" => "inherit",
       "archive_retention_days_override" => "",
+      "visual_index_mode" => "off",
+      "visual_index_min_interval_ms" => "2000",
+      "visual_index_max_frames_per_block" => "64",
       "nominal_bitrate_kbps" => ""
     }
   end
@@ -912,7 +940,11 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
         "storage" => to_string(fetch_map_or_struct(policy, :storage) || base["storage"]),
         "archive_retention_override_mode" => override_mode,
         "archive_retention_days_override" =>
-          if(override_mode == "limited", do: to_string_or_empty(override_days), else: "")
+          if(override_mode == "limited", do: to_string_or_empty(override_days), else: ""),
+        "visual_index_mode" => to_string(fetch_map_or_struct(policy, :visual_index_mode) || :off),
+        "visual_index_min_interval_ms" => to_string(fetch_map_or_struct(policy, :visual_index_min_interval_ms) || 2000),
+        "visual_index_max_frames_per_block" =>
+          to_string(fetch_map_or_struct(policy, :visual_index_max_frames_per_block) || 64)
     }
   end
 
@@ -2138,39 +2170,88 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
             errors
         end
 
-      if is_integer(max_cams) and mode == :continuous and policies != [] do
-        candidate_id = to_string_or_empty(Map.get(attrs, :id))
-        candidate_cam = to_string_or_empty(Map.get(attrs, :camera_source_id))
-        candidate_prof = to_string_or_empty(Map.get(attrs, :stream_profile_id))
+      errors =
+        if is_integer(max_cams) and mode == :continuous and policies != [] do
+          candidate_id = to_string_or_empty(Map.get(attrs, :id))
+          candidate_cam = to_string_or_empty(Map.get(attrs, :camera_source_id))
+          candidate_prof = to_string_or_empty(Map.get(attrs, :stream_profile_id))
 
-        other_continuous =
-          Enum.count(policies, fn pol ->
-            pol_id = to_string_or_empty(fetch_map_or_struct(pol, :id))
-            pol_cam = to_string_or_empty(fetch_map_or_struct(pol, :camera_source_id))
-            pol_prof = to_string_or_empty(fetch_map_or_struct(pol, :stream_profile_id))
+          other_continuous =
+            Enum.count(policies, fn pol ->
+              pol_id = to_string_or_empty(fetch_map_or_struct(pol, :id))
+              pol_cam = to_string_or_empty(fetch_map_or_struct(pol, :camera_source_id))
+              pol_prof = to_string_or_empty(fetch_map_or_struct(pol, :stream_profile_id))
 
-            same? =
-              (candidate_id != "" and pol_id == candidate_id) or
-                (candidate_cam != "" and candidate_prof != "" and pol_cam == candidate_cam and
-                   pol_prof == candidate_prof)
+              same? =
+                (candidate_id != "" and pol_id == candidate_id) or
+                  (candidate_cam != "" and candidate_prof != "" and pol_cam == candidate_cam and
+                     pol_prof == candidate_prof)
 
-            not same? and fetch_map_or_struct(pol, :mode) in [:continuous, "continuous"]
-          end)
+              not same? and fetch_map_or_struct(pol, :mode) in [:continuous, "continuous"]
+            end)
 
-        if other_continuous + 1 > max_cams and (phase == :preview or policies != []) do
-          msg = "Continuous recording cameras are limited by your plan (maximum #{max_cams})."
+          if other_continuous + 1 > max_cams and (phase == :preview or policies != []) do
+            msg = "Continuous recording cameras are limited by your plan (maximum #{max_cams})."
 
-          errors
-          |> Map.put(:mode, msg)
-          |> Map.put(:base, msg)
+            errors
+            |> Map.put(:mode, msg)
+            |> Map.put(:base, msg)
+          else
+            errors
+          end
         else
           errors
         end
-      else
-        errors
-      end
+
+      validate_visual_index_plan_bounds(errors, attrs, policies, entitlement, phase)
     else
       %{}
+    end
+  end
+
+  defp validate_visual_index_plan_bounds(errors, attrs, policies, entitlement, phase) do
+    if Map.get(attrs, :visual_index_mode) == :keyframes do
+      vi_enabled = Map.get(entitlement, :visual_indexing_enabled)
+      max_vi_cams = Map.get(entitlement, :max_visual_index_cameras)
+
+      cond do
+        vi_enabled == false ->
+          msg = "Visual indexing is not enabled on your plan."
+          errors |> Map.put(:visual_index_mode, msg) |> Map.put(:base, msg)
+
+        is_integer(max_vi_cams) ->
+          candidate_id = to_string_or_empty(Map.get(attrs, :id))
+          candidate_cam = to_string_or_empty(Map.get(attrs, :camera_source_id))
+          candidate_prof = to_string_or_empty(Map.get(attrs, :stream_profile_id))
+
+          other_vi =
+            Enum.count(policies, fn pol ->
+              pol_id = to_string_or_empty(fetch_map_or_struct(pol, :id))
+              pol_cam = to_string_or_empty(fetch_map_or_struct(pol, :camera_source_id))
+              pol_prof = to_string_or_empty(fetch_map_or_struct(pol, :stream_profile_id))
+
+              same? =
+                (candidate_id != "" and pol_id == candidate_id) or
+                  (candidate_cam != "" and candidate_prof != "" and pol_cam == candidate_cam and
+                     pol_prof == candidate_prof)
+
+              not same? and
+                fetch_map_or_struct(pol, :visual_index_mode) in [:keyframes, "keyframes"]
+            end)
+
+          if other_vi + 1 > max_vi_cams and
+               (max_vi_cams == 0 or phase == :preview or policies != []) do
+            msg = "Visual indexing cameras are limited by your plan (maximum #{max_vi_cams})."
+            errors |> Map.put(:visual_index_mode, msg) |> Map.put(:base, msg)
+          else
+            errors
+          end
+
+        true ->
+          errors
+      end
+    else
+      errors
     end
   end
 
@@ -3363,6 +3444,15 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     nominal_bps =
       if is_integer(nominal_kbps) and nominal_kbps > 0, do: nominal_kbps * 1_000
 
+    visual_index_mode =
+      safe_mode(form["visual_index_mode"], [:off, :keyframes], :off)
+
+    visual_min_interval_ms =
+      safe_optional_int(form["visual_index_min_interval_ms"]) || 2000
+
+    visual_max_frames =
+      safe_optional_int(form["visual_index_max_frames_per_block"]) || 64
+
     base = %{
       camera_source_id: blank_to_nil(form["camera_source_id"]),
       stream_profile_id: blank_to_nil(form["stream_profile_id"]),
@@ -3370,7 +3460,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       nvr_member: blank_to_nil(form["nvr_member"]),
       storage: storage,
       archive_retention_override_mode: override_mode,
-      archive_retention_days_override: override_days
+      archive_retention_days_override: override_days,
+      visual_index_mode: visual_index_mode,
+      visual_index_min_interval_ms: visual_min_interval_ms,
+      visual_index_max_frames_per_block: visual_max_frames
     }
 
     base =
@@ -3425,6 +3518,36 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
     errors = validate_policy_member(errors, mode, member, phase)
     errors = validate_policy_override_days(errors, override_mode, override_days)
 
+    {visual_index_mode, errors} =
+      parse_mode(
+        blank_to_nil(form["visual_index_mode"]) || "off",
+        [:off, :keyframes],
+        :visual_index_mode,
+        errors
+      )
+
+    {visual_min_interval_ms, errors} =
+      parse_bounded_default_int(
+        form["visual_index_min_interval_ms"],
+        2_000,
+        500,
+        60_000,
+        :visual_index_min_interval_ms,
+        "Minimum keyframe interval must be between 500 and 60,000 ms.",
+        errors
+      )
+
+    {visual_max_frames, errors} =
+      parse_bounded_default_int(
+        form["visual_index_max_frames_per_block"],
+        64,
+        1,
+        512,
+        :visual_index_max_frames_per_block,
+        "Max indexed frames per block must be between 1 and 512.",
+        errors
+      )
+
     attrs = %{
       camera_source_id: cam_id,
       stream_profile_id: prof_id,
@@ -3432,7 +3555,10 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       nvr_member: member,
       storage: storage,
       archive_retention_override_mode: override_mode,
-      archive_retention_days_override: override_days
+      archive_retention_days_override: override_days,
+      visual_index_mode: visual_index_mode,
+      visual_index_min_interval_ms: visual_min_interval_ms,
+      visual_index_max_frames_per_block: visual_max_frames
     }
 
     attrs =
@@ -3701,6 +3827,17 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
 
   defp fetch_first(_, _), do: nil
 
+  defp fetch_first_non_nil(map, keys) when is_map(map) and is_list(keys) do
+    Enum.reduce_while(keys, nil, fn k, _acc ->
+      case fetch_map_or_struct(map, k) do
+        nil -> {:cont, nil}
+        val -> {:halt, val}
+      end
+    end)
+  end
+
+  defp fetch_first_non_nil(_, _), do: nil
+
   defp truthy_bool(nil, default), do: default
   defp truthy_bool(val, _default) when is_boolean(val), do: val
   defp truthy_bool(val, _default), do: truthy?(val)
@@ -3710,6 +3847,37 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
       n when is_integer(n) and n > 0 -> n
       _ -> nil
     end)
+  end
+
+  defp first_non_neg_int(candidates) when is_list(candidates) do
+    Enum.find_value(candidates, fn
+      n when is_integer(n) and n >= 0 -> n
+      _ -> nil
+    end)
+  end
+
+  defp first_nullable_bool(candidates) when is_list(candidates) do
+    Enum.reduce_while(candidates, nil, fn
+      val, _acc when is_boolean(val) -> {:halt, val}
+      val, _acc when val in ["true", "false"] -> {:halt, val == "true"}
+      _, acc -> {:cont, acc}
+    end)
+  end
+
+  defp parse_bounded_default_int(raw, default, min_val, max_val, field, msg, errors) do
+    trimmed = raw |> to_string_or_empty() |> String.trim()
+
+    if trimmed == "" do
+      {default, errors}
+    else
+      case Integer.parse(trimmed) do
+        {n, ""} when n >= min_val and n <= max_val ->
+          {n, errors}
+
+        _ ->
+          {default, Map.put(errors, field, msg)}
+      end
+    end
   end
 
   defp normalize_overage_mode(m) when m in [:off, "off"], do: :off

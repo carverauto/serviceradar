@@ -20,6 +20,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
+  attr :timeline_playlist_origin_us, :integer, default: nil
+  attr :timeline_seek_offset_seconds, :float, default: 0.0
+  attr :timeline_highlight_frame_id, :string, default: nil
+  attr :timeline_search_query, :string, default: ""
+  attr :timeline_search_object_class, :string, default: ""
+  attr :timeline_search_results, :list, default: []
+  attr :timeline_search_executed?, :boolean, default: false
+  attr :timeline_search_error, :string, default: nil
+  attr :timeline_embedder_unavailable?, :boolean, default: false
+  attr :timeline_overlay_detections, :list, default: []
   attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
@@ -123,6 +133,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
+        timeline_playlist_origin_us={@timeline_playlist_origin_us}
+        timeline_seek_offset_seconds={@timeline_seek_offset_seconds}
+        timeline_highlight_frame_id={@timeline_highlight_frame_id}
+        timeline_search_query={@timeline_search_query}
+        timeline_search_object_class={@timeline_search_object_class}
+        timeline_search_results={@timeline_search_results}
+        timeline_search_executed?={@timeline_search_executed?}
+        timeline_search_error={@timeline_search_error}
+        timeline_embedder_unavailable?={@timeline_embedder_unavailable?}
+        timeline_overlay_detections={@timeline_overlay_detections}
         timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
@@ -293,9 +313,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
+  attr :timeline_playlist_origin_us, :integer, default: nil
+  attr :timeline_seek_offset_seconds, :float, default: 0.0
+  attr :timeline_highlight_frame_id, :string, default: nil
+  attr :timeline_search_query, :string, default: ""
+  attr :timeline_search_object_class, :string, default: ""
+  attr :timeline_search_results, :list, default: []
+  attr :timeline_search_executed?, :boolean, default: false
+  attr :timeline_search_error, :string, default: nil
+  attr :timeline_embedder_unavailable?, :boolean, default: false
+  attr :timeline_overlay_detections, :list, default: []
   attr :timeline_jump_at, :string, default: ""
-  attr :timeline_has_adjacent_window, :boolean, required: true
-  attr :timeline_holds, :list, required: true
+  attr :timeline_has_adjacent_window, :boolean, default: false
+  attr :timeline_holds, :list, default: []
   attr :hold_form, :any, default: nil
 
   defp timeline_view(assigns) do
@@ -306,6 +336,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     reanchors = extract_reanchors(coverage, blocks)
     time_basis = coverage_field(coverage, :time_basis) || "received"
     time_uncertainty = coverage_field(coverage, :time_uncertainty) || "unmeasured"
+    cov_from_us = coverage_field(coverage, :from_us)
+    cov_to_us = coverage_field(coverage, :to_us)
+    hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
 
     assigns =
       assigns
@@ -314,6 +347,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:blocks, blocks)
       |> assign(:gaps, gaps)
       |> assign(:reanchors, reanchors)
+      |> assign(:hit_markers, hit_markers)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
@@ -508,6 +542,160 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         </div>
       </section>
 
+      <%!-- Inline Timeline Semantic Search --%>
+      <section
+        id="camera-timeline-search-section"
+        aria-label="Timeline semantic clip search"
+        class="space-y-3 rounded-xl border border-sr-line bg-sr-surface p-4"
+      >
+        <form
+          id="camera-timeline-search-form"
+          phx-submit="timeline_semantic_search"
+          class="flex flex-wrap items-center gap-2"
+        >
+          <label for="camera-timeline-search-input" class="sr-only">
+            Semantic search in camera timeline
+          </label>
+          <input
+            id="camera-timeline-search-input"
+            type="text"
+            name="search[q]"
+            value={@timeline_search_query}
+            maxlength="256"
+            placeholder="Search clips in timeline (e.g. person in red dress, white van near gate)"
+            class="input input-sm input-bordered min-w-60 flex-1 bg-sr-control text-sr-ink"
+          />
+
+          <label for="camera-timeline-search-object-class" class="sr-only">Object class</label>
+          <select
+            id="camera-timeline-search-object-class"
+            name="search[object_class]"
+            class="select select-sm select-bordered bg-sr-control text-sr-ink"
+          >
+            <option value="" selected={@timeline_search_object_class == ""}>All subjects</option>
+            <option
+              :for={
+                {val, label} <- [
+                  {"person", "Person"},
+                  {"vehicle", "Vehicle"},
+                  {"bicycle", "Bicycle"},
+                  {"animal", "Animal"},
+                  {"package", "Package"}
+                ]
+              }
+              value={val}
+              selected={@timeline_search_object_class == val}
+            >
+              {label}
+            </option>
+          </select>
+
+          <button id="camera-timeline-search-submit" type="submit" class="btn btn-primary btn-sm">
+            <.icon name="hero-magnifying-glass" class="size-4" /> Search timeline
+          </button>
+          <button
+            :if={@timeline_search_executed? or @timeline_search_query != ""}
+            id="camera-timeline-search-clear"
+            type="button"
+            phx-click="clear_timeline_semantic_search"
+            class="btn btn-ghost btn-sm"
+          >
+            Clear
+          </button>
+        </form>
+
+        <div
+          :if={@timeline_embedder_unavailable?}
+          id="camera-timeline-search-unavailable"
+          role="alert"
+          class="alert alert-warning sm:alert-horizontal text-xs"
+        >
+          <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
+          <div>
+            <p class="font-semibold">Visual search workers unavailable</p>
+            <p>
+              No compatible media worker responded within the interactive deadline. Timeline video playback remains unaffected.
+            </p>
+          </div>
+        </div>
+
+        <div
+          :if={@timeline_search_error}
+          id="camera-timeline-search-error"
+          role="alert"
+          class="alert alert-error sm:alert-horizontal text-xs"
+        >
+          <span>{@timeline_search_error}</span>
+        </div>
+
+        <p
+          :if={
+            @timeline_search_executed? and @timeline_search_results == [] and
+              not @timeline_embedder_unavailable? and is_nil(@timeline_search_error)
+          }
+          id="camera-timeline-search-empty"
+          class="text-xs text-sr-muted"
+        >
+          No matching recorded clips found in the current coverage span.
+        </p>
+
+        <ul
+          :if={@timeline_search_results != []}
+          id="camera-timeline-search-results"
+          class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <li
+            :for={{hit, idx} <- Enum.with_index(@timeline_search_results)}
+            id={"camera-timeline-hit-#{idx}"}
+          >
+            <button
+              id={"select-timeline-semantic-hit-#{idx}"}
+              type="button"
+              data-role="timeline-semantic-hit"
+              phx-click="select_timeline_semantic_hit"
+              phx-value-seek_us={hit.best_timeline_ts_us}
+              phx-value-start_us={hit.clip_start_us}
+              phx-value-end_us={hit.clip_end_us}
+              phx-value-frame_id={hit.visual_frame_id || ""}
+              class={[
+                "w-full rounded-lg border p-2.5 text-left text-xs transition-colors hover:bg-sr-canvas",
+                if(
+                  not is_nil(@timeline_highlight_frame_id) and
+                    @timeline_highlight_frame_id == hit.visual_frame_id,
+                  do: "border-sr-brand bg-sr-brand/5",
+                  else: "border-sr-line"
+                )
+              ]}
+            >
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <div class="flex flex-wrap items-center gap-1">
+                  <span class="badge badge-primary badge-xs font-mono">
+                    {format_hit_score(hit.score)}
+                  </span>
+                  <span :if={hit.object_class} class="badge badge-outline badge-xs">
+                    {hit.object_class}
+                  </span>
+                  <span
+                    :for={color <- Enum.take(hit.dominant_colors || [], 2)}
+                    class="badge badge-ghost badge-xs"
+                  >
+                    {color}
+                  </span>
+                </div>
+                <span class="font-mono text-[11px] text-sr-muted">{hit.time_basis}</span>
+              </div>
+              <div class="mt-1.5 text-sr-ink">
+                <.user_time
+                  id={"timeline-hit-time-#{idx}"}
+                  value={us_to_datetime(hit.best_timeline_ts_us)}
+                  timezone={@timezone}
+                />
+              </div>
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <%!-- Coverage Bar & Legend --%>
       <section
         id="camera-timeline-coverage-section"
@@ -536,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
         <div
           id="camera-timeline-coverage-bar"
-          class="flex h-8 w-full overflow-hidden rounded-lg border border-sr-line bg-sr-canvas p-0.5"
+          class="relative flex h-8 w-full overflow-hidden rounded-lg border border-sr-line bg-sr-canvas p-0.5"
         >
           <%= if @buckets == [] do %>
             <div
@@ -564,6 +752,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               <span class="sr-only">{bucket_title(bucket)}</span>
             </button>
           <% end %>
+
+          <button
+            :for={marker <- @hit_markers}
+            id={"camera-timeline-hit-marker-#{marker.idx}"}
+            type="button"
+            data-role="semantic-hit-marker"
+            phx-click="select_timeline_semantic_hit"
+            phx-value-seek_us={marker.seek_us}
+            phx-value-start_us={marker.start_us}
+            phx-value-end_us={marker.end_us}
+            phx-value-frame_id={marker.frame_id}
+            title={marker.title}
+            style={"left: #{marker.left_pct}%"}
+            class="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-amber-400 ring-1 ring-black/60 hover:scale-x-150"
+          >
+            <span class="sr-only">{marker.title}</span>
+          </button>
         </div>
 
         <div
@@ -751,16 +956,27 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               phx-update="ignore"
               data-playlist-path={@timeline_playlist_path || ""}
               data-has-adjacent-window={to_string(@timeline_has_adjacent_window)}
+              data-window-start-us={@timeline_playlist_origin_us || @timeline_play_from_us}
               data-window-end-us={@timeline_play_to_us}
+              data-seek-offset-seconds={format_seek_offset_attr(@timeline_seek_offset_seconds)}
+              data-highlight-frame-id={@timeline_highlight_frame_id || ""}
+              data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
               class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
             >
-              <video
-                data-role="timeline-video"
-                controls
-                playsinline
-                class="aspect-video w-full rounded-lg bg-black"
-                aria-label="Camera timeline playback"
-              ></video>
+              <div class="relative overflow-hidden rounded-lg bg-black">
+                <video
+                  data-role="timeline-video"
+                  controls
+                  playsinline
+                  class="aspect-video w-full bg-black"
+                  aria-label="Camera timeline playback"
+                ></video>
+                <svg
+                  data-role="semantic-bbox-overlay"
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
+                ></svg>
+              </div>
               <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
                 <div class="flex flex-wrap items-center gap-2">
                   <p data-role="timeline-status" role="status" class="text-sm text-sr-muted">
@@ -775,9 +991,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     Serving: —
                   </span>
                 </div>
-                <button type="button" data-role="timeline-retry" class="sr-ops-button" hidden>
-                  Retry playback
-                </button>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button
+                    id="camera-timeline-toggle-bbox-overlay"
+                    type="button"
+                    data-role="toggle-bbox-overlay"
+                    aria-pressed="true"
+                    class="btn btn-outline btn-xs"
+                  >
+                    Detection overlay
+                  </button>
+                  <button type="button" data-role="timeline-retry" class="sr-ops-button" hidden>
+                    Retry playback
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1191,4 +1418,46 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   end
 
   defp coverage_field(_, _), do: nil
+
+  defp build_hit_markers(results, from_us, to_us)
+       when is_list(results) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    span_us = to_us - from_us
+
+    results
+    |> Enum.with_index()
+    |> Enum.filter(fn {hit, _idx} ->
+      ts = coverage_field(hit, :best_timeline_ts_us)
+      is_integer(ts) and ts >= from_us and ts <= to_us
+    end)
+    |> Enum.map(fn {hit, idx} ->
+      seek_us = coverage_field(hit, :best_timeline_ts_us)
+      start_us = coverage_field(hit, :clip_start_us) || seek_us
+      end_us = coverage_field(hit, :clip_end_us) || seek_us
+      frame_id = to_string(coverage_field(hit, :visual_frame_id) || "")
+      score = coverage_field(hit, :score)
+      class_label = coverage_field(hit, :object_class) || coverage_field(hit, :region_kind) || "match"
+      left_pct = Float.round(min(max((seek_us - from_us) / span_us * 100.0, 0.5), 99.5), 2)
+
+      %{
+        idx: idx,
+        seek_us: seek_us,
+        start_us: start_us,
+        end_us: end_us,
+        frame_id: frame_id,
+        left_pct: left_pct,
+        title: "Semantic match: #{class_label} (#{format_hit_score(score)})"
+      }
+    end)
+  end
+
+  defp build_hit_markers(_results, _from_us, _to_us), do: []
+
+  defp format_hit_score(score) when is_number(score), do: "#{round(score * 100)}%"
+  defp format_hit_score(_), do: "0%"
+
+  defp format_seek_offset_attr(offset) when is_number(offset) and offset > 0 do
+    :erlang.float_to_binary(offset * 1.0, [:compact, decimals: 3])
+  end
+
+  defp format_seek_offset_attr(_), do: "0.0"
 end

@@ -1,0 +1,304 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"uuid_generate_v7()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_policies_camera_source_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_sources"
+      },
+      "scale": null,
+      "size": null,
+      "source": "camera_source_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_policies_stream_profile_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_stream_profiles"
+      },
+      "scale": null,
+      "size": null,
+      "source": "stream_profile_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"off\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "nvr_member",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"local_only\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "storage",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"inherit\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_retention_override_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_retention_days_override",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"off\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "visual_index_mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "2000",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "visual_index_min_interval_ms",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "64",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "visual_index_max_frames_per_block",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "policy_revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "nvr_member"
+      ],
+      "base_filter": null,
+      "check": "mode IN ('off', 'continuous') AND\nstorage IN ('local_and_archive', 'local_only') AND\npolicy_revision >= 1 AND\n((mode = 'off' AND (nvr_member IS NULL OR nvr_member ~ '^[a-z0-9][a-z0-9-]{0,62}$')) OR\n (mode = 'continuous' AND nvr_member IS NOT NULL AND nvr_member ~ '^[a-z0-9][a-z0-9-]{0,62}$'))\n",
+      "name": "camera_recording_policies_mode_member"
+    },
+    {
+      "attribute": [
+        "archive_retention_days_override"
+      ],
+      "base_filter": null,
+      "check": "(archive_retention_override_mode = 'limited' AND archive_retention_days_override IS NOT NULL AND archive_retention_days_override BETWEEN 1 AND 3650) OR\n(archive_retention_override_mode IN ('inherit', 'unlimited') AND archive_retention_days_override IS NULL)\n",
+      "name": "camera_recording_policies_archive_override"
+    },
+    {
+      "attribute": [
+        "visual_index_mode"
+      ],
+      "base_filter": null,
+      "check": "visual_index_mode IN ('off', 'keyframes') AND\nvisual_index_min_interval_ms BETWEEN 500 AND 60000 AND\nvisual_index_max_frames_per_block BETWEEN 1 AND 512\n",
+      "name": "camera_recording_policies_visual_index"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "mode",
+        "nvr_member"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "mode"
+        },
+        {
+          "type": "atom",
+          "value": "nvr_member"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_policies_active_member_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "mode = 'continuous'"
+    }
+  ],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "5FA305017C00730D53F092A48074D05AD5D2B6B62366D3CCE9B28C225ED93D90",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "camera_recording_policies_camera_profile_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "stream_profile_id"
+        }
+      ],
+      "name": "camera_profile",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_recording_policies",
+  "temporal": null
+}

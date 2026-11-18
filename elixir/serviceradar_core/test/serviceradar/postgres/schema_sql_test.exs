@@ -207,14 +207,19 @@ defmodule ServiceRadar.Postgres.SchemaSqlTest do
         location platform.geography(Point,4326) GENERATED ALWAYS AS (
           platform.st_setsrid(platform.st_makepoint(longitude, latitude), 4326)::platform.geography
         ) STORED,
-        rf_vector platform.vector(64)
+        rf_vector platform.vector(64),
+        embedding platform.vector NOT NULL,
+        CONSTRAINT embedding_dim_chk CHECK (platform.vector_dims(embedding) = 768)
       );
 
       CREATE INDEX survey_samples_rf_vector_idx
       ON platform.survey_samples USING hnsw (rf_vector platform.vector_cosine_ops);
+
+      CREATE INDEX camera_visual_embeddings_hnsw_768_idx
+      ON platform.survey_samples USING hnsw ((embedding::platform.vector(768)) platform.vector_cosine_ops);
       """)
 
-      assert [table, index] =
+      assert [table, index, expr_index] =
                SchemaSql.load_statements(path, normalize_timescaledb_schema?: true)
 
       assert table =~ "\"position\" geometry(PointZ)"
@@ -222,12 +227,16 @@ defmodule ServiceRadar.Postgres.SchemaSqlTest do
       assert table =~ "location geography(Point,4326)"
       assert table =~ "4326)::geography"
       assert table =~ "rf_vector vector(64)"
+      assert table =~ "embedding vector NOT NULL"
+      assert table =~ "CHECK (vector_dims(embedding) = 768)"
       assert index =~ "USING hnsw (rf_vector vector_cosine_ops)"
+      assert expr_index =~ "USING hnsw ((embedding::vector(768)) vector_cosine_ops)"
       refute table =~ "platform.geometry"
       refute table =~ "platform.geography"
       refute table =~ "platform.st_"
       refute table =~ "platform.vector"
       refute index =~ "platform.vector_cosine_ops"
+      refute expr_index =~ "platform.vector"
     after
       File.rm(path)
     end

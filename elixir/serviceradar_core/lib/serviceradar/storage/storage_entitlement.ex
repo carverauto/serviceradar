@@ -47,6 +47,8 @@ defmodule ServiceRadar.Storage.StorageEntitlement do
     :recordings_retention_max_days,
     :recordings_retention_default_days,
     :recordings_max_cameras,
+    :recordings_visual_indexing_enabled,
+    :recordings_max_visual_index_cameras,
     :recordings_pending,
     :warehouse_present,
     :warehouse_enabled,
@@ -123,7 +125,8 @@ defmodule ServiceRadar.Storage.StorageEntitlement do
         recordings_capacity_policy IN ('reap_oldest', 'stop_archiving') AND
         (recordings_retention_max_days IS NULL OR recordings_retention_max_days >= 1) AND
         (recordings_retention_default_days IS NULL OR recordings_retention_default_days >= 1) AND
-        (recordings_max_cameras IS NULL OR recordings_max_cameras >= 0)
+        (recordings_max_cameras IS NULL OR recordings_max_cameras >= 0) AND
+        (recordings_max_visual_index_cameras IS NULL OR recordings_max_visual_index_cameras >= 0)
         """
     end
   end
@@ -288,6 +291,19 @@ defmodule ServiceRadar.Storage.StorageEntitlement do
     end
 
     attribute :recordings_max_cameras, :integer do
+      allow_nil? true
+      default nil
+      public? true
+      constraints min: 0
+    end
+
+    attribute :recordings_visual_indexing_enabled, :boolean do
+      allow_nil? true
+      default nil
+      public? true
+    end
+
+    attribute :recordings_max_visual_index_cameras, :integer do
       allow_nil? true
       default nil
       public? true

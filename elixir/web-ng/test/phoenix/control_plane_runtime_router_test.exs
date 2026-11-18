@@ -13,11 +13,28 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   @runtime_token "test-control-plane-runtime-token-with-more-than-32-bytes"
   @media_token "synthetic-media-installation-token-with-more-than-32-bytes"
   @entitlement_token "synthetic-entitlement-purpose-token-with-more-than-32-bytes"
+  @media_worker_token "synthetic-media-worker-purpose-token-with-more-than-32-bytes"
   @deployment_ref "ce032564-a123-4bc5-89ab-000000000001"
   @authorization_header "x-serviceradar-control-plane-authorization"
   @deployment_header "x-serviceradar-deployment-ref"
   @generation_header "x-serviceradar-media-generation"
   @entitlement_generation_header "x-serviceradar-entitlement-generation"
+  @media_worker_generation_header "x-serviceradar-media-worker-generation"
+
+  defmodule FakeMediaWorkerGrantsIssuer do
+    @moduledoc false
+    def issue_read_grant(installation, document, opts) do
+      if pid = Application.get_env(:serviceradar_web_ng, :control_plane_password_reset_test_pid) do
+        send(pid, {:media_worker_read_grant_requested, installation, document, opts})
+      end
+
+      Application.get_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:error, :recording_gone}
+      )
+    end
+  end
 
   setup do
     previous_runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
@@ -25,17 +42,30 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     previous_response = Application.get_env(:serviceradar_web_ng, :control_plane_password_reset_test_response)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :control_plane_password_reset_test_pid)
 
+    previous_grants_issuer =
+      Application.get_env(:serviceradar_web_ng, :control_plane_media_worker_grants_issuer)
+
+    previous_grants_response =
+      Application.get_env(:serviceradar_web_ng, :control_plane_media_worker_grants_test_response)
+
     Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
       token: @runtime_token,
       port: 4001,
       media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"],
-      entitlements: [token: @entitlement_token, deployment_ref: @deployment_ref, generation: "1"]
+      entitlements: [token: @entitlement_token, deployment_ref: @deployment_ref, generation: "1"],
+      media_worker: [token: @media_worker_token, deployment_ref: @deployment_ref, generation: "1"]
     )
 
     Application.put_env(
       :serviceradar_web_ng,
       :control_plane_password_reset_delivery,
       ControlPlanePasswordResetDeliveryFake
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :control_plane_media_worker_grants_issuer,
+      FakeMediaWorkerGrantsIssuer
     )
 
     Application.put_env(:serviceradar_web_ng, :control_plane_password_reset_test_pid, self())
@@ -45,6 +75,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       restore_env(:control_plane_password_reset_delivery, previous_delivery)
       restore_env(:control_plane_password_reset_test_response, previous_response)
       restore_env(:control_plane_password_reset_test_pid, previous_test_pid)
+      restore_env(:control_plane_media_worker_grants_issuer, previous_grants_issuer)
+      restore_env(:control_plane_media_worker_grants_test_response, previous_grants_response)
     end)
 
     :ok
@@ -827,6 +859,220 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     assert live_m.object_hard_limit_bytes == 107_374_182_400
     assert live_m.object_cutoff_days == 32.5
     assert live_m.object_held_bytes == 2_147_483_648
+  end
+
+  describe "POST /v1/media/workers/read-grants (Stage 1.6)" do
+    test "enforces 4-way token domain separation across account, media, entitlements, and media_worker" do
+      for reused <- [@runtime_token, @media_token, @entitlement_token] do
+        Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
+          token: @runtime_token,
+          port: 4001,
+          media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"],
+          entitlements: [token: @entitlement_token, deployment_ref: @deployment_ref, generation: "1"],
+          media_worker: [token: reused, deployment_ref: @deployment_ref, generation: "1"]
+        )
+
+        refute ControlPlaneRuntimeAccess.media_worker_enabled?()
+
+        conn =
+          :post
+          |> conn("/v1/media/workers/read-grants", Jason.encode!(%{job_id: Ecto.UUID.generate()}))
+          |> put_req_header("content-type", "application/json")
+          |> put_req_header(@authorization_header, "Bearer " <> reused)
+          |> put_req_header(@deployment_header, @deployment_ref)
+          |> put_req_header(@media_worker_generation_header, "1")
+          |> ControlPlaneRuntimeRouter.call([])
+
+        assert conn.status == 401
+        assert json_response(conn) == %{"status" => "unauthorized"}
+        refute_received {:media_worker_read_grant_requested, _, _, _}
+      end
+    end
+
+    test "rejects cross-domain tokens, human Authorization headers, and missing media-worker generation headers" do
+      payload = Jason.encode!(%{"job_id" => Ecto.UUID.generate()})
+
+      for wrong_token <- [@runtime_token, @media_token, @entitlement_token, "wrong-worker-token-with-more-than-32-bytes"] do
+        conn =
+          :post
+          |> conn("/v1/media/workers/read-grants", payload)
+          |> put_req_header("content-type", "application/json")
+          |> put_req_header(@authorization_header, "Bearer " <> wrong_token)
+          |> put_req_header(@deployment_header, @deployment_ref)
+          |> put_req_header(@media_worker_generation_header, "1")
+          |> ControlPlaneRuntimeRouter.call([])
+
+        assert conn.status == 401
+        assert json_response(conn) == %{"status" => "unauthorized"}
+        refute conn.resp_body =~ wrong_token
+        refute_received {:media_worker_read_grant_requested, _, _, _}
+      end
+
+      human_conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", payload)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("authorization", "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@media_worker_generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert human_conn.status == 401
+      refute_received {:media_worker_read_grant_requested, _, _, _}
+
+      missing_gen_conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", payload)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert missing_gen_conn.status == 401
+      refute_received {:media_worker_read_grant_requested, _, _, _}
+    end
+
+    test "media_worker token cannot access account, media, or entitlement endpoints" do
+      reset_conn =
+        :post
+        |> conn("/v1/password-reset", Jason.encode!(%{"email" => "owner@example.com"}))
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert reset_conn.status == 401
+
+      media_conn =
+        :put
+        |> conn("/v1/media/configuration", "{}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert media_conn.status == 401
+
+      ent_conn =
+        :put
+        |> conn("/v1/storage/entitlement", "{}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@entitlement_generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert ent_conn.status == 401
+    end
+
+    test "returns 200 read plan with Cache-Control: no-store and redacts RedactedCredential secrets" do
+      job_id = "00000000-0000-4000-8000-000000000901"
+      entry_id = "00000000-0000-4000-8000-000000000902"
+      desc_sha = String.duplicate("ab", 32)
+      secret_marker = "synthetic-do-not-echo-s3-secret-material"
+
+      redacted = %ServiceRadar.Camera.VisualWorkerReadGrants.RedactedCredential{
+        reference: "secret:00000000-0000-4000-8000-000000000903",
+        generation: 1,
+        role: :reader,
+        secret_id: "00000000-0000-4000-8000-000000000903",
+        access_key_id: "SYNTHETIC_ACCESS_KEY",
+        secret_access_key: secret_marker
+      }
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:ok,
+         %{
+           schema_version: 1,
+           backing: :archive,
+           source: "archive",
+           job_id: job_id,
+           catalog_entry_id: entry_id,
+           ttl_seconds: 300,
+           grant: %{"role" => "reader", "allowed_methods" => ["GET", "HEAD"]},
+           credential: redacted
+         }}
+      )
+
+      conn =
+        media_worker_grant_request(
+          Jason.encode!(%{
+            "schema_version" => 1,
+            "job_id" => job_id,
+            "catalog_entry_id" => entry_id,
+            "descriptor_sha256" => desc_sha
+          })
+        )
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+      refute conn.resp_body =~ secret_marker
+      refute conn.resp_body =~ "SYNTHETIC_ACCESS_KEY"
+      refute conn.resp_body =~ @media_worker_token
+
+      body = json_response(conn)
+      assert body["source"] == "archive"
+      assert body["grant"]["role"] == "reader"
+      assert body["grant"]["allowed_methods"] == ["GET", "HEAD"]
+      assert body["credential"]["role"] == "reader"
+      refute Map.has_key?(body["credential"], "secret_access_key")
+
+      assert_received {:media_worker_read_grant_requested, installation, decoded_doc, _opts}
+      assert installation == %{purpose: :media_worker, deployment_ref: @deployment_ref, generation: 1}
+      assert decoded_doc["job_id"] == job_id
+    end
+
+    test "maps deleted/quarantined entries to 410 Gone, conflicts to 409, bad requests to 400, and bounds body <= 8192 bytes" do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:error, :recording_gone}
+      )
+
+      gone_conn = media_worker_grant_request(Jason.encode!(%{"job_id" => Ecto.UUID.generate()}))
+      assert gone_conn.status == 410
+      assert json_response(gone_conn) == %{"status" => "recording_gone"}
+      assert get_resp_header(gone_conn, "cache-control") == ["no-store"]
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:error, :descriptor_sha256_mismatch}
+      )
+
+      conflict_conn = media_worker_grant_request(Jason.encode!(%{"job_id" => Ecto.UUID.generate()}))
+      assert conflict_conn.status == 409
+      assert json_response(conflict_conn) == %{"status" => "descriptor_sha256_mismatch"}
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:error, :invalid_read_grant_request}
+      )
+
+      bad_conn = media_worker_grant_request(Jason.encode!(%{"job_id" => "bad"}))
+      assert bad_conn.status == 400
+      assert json_response(bad_conn) == %{"status" => "invalid_read_grant_request"}
+
+      oversized = Jason.encode!(%{"pad" => String.duplicate("a", 9_000)})
+      large_conn = media_worker_grant_request(oversized)
+      assert large_conn.status == 413
+      assert json_response(large_conn) == %{"status" => "request_too_large"}
+    end
+  end
+
+  defp media_worker_grant_request(body, path \\ "/v1/media/workers/read-grants", content_type \\ "application/json") do
+    :post
+    |> conn(path, body)
+    |> put_req_header("content-type", content_type)
+    |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+    |> put_req_header(@deployment_header, @deployment_ref)
+    |> put_req_header(@media_worker_generation_header, "1")
+    |> ControlPlaneRuntimeRouter.call([])
   end
 
   defp entitlement_put_request(body, path \\ "/v1/storage/entitlement", content_type \\ "application/json") do

@@ -7,9 +7,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth do
   header remains reserved for Kubernetes API authentication when the control
   plane reaches this listener through the pod proxy.
 
-  Media routes require a separate installed credential and an exact deployment
-  reference/generation. The installation describes this process, not a tenant
-  routing key or permission to perform provider operations.
+  Media, storage entitlement, and media-worker routes each require a domain-separated
+  installed credential and an exact deployment reference and purpose generation.
   """
 
   @behaviour Plug
@@ -22,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth do
   @deployment_header "x-serviceradar-deployment-ref"
   @media_generation_header "x-serviceradar-media-generation"
   @entitlement_generation_header "x-serviceradar-entitlement-generation"
+  @media_worker_generation_header "x-serviceradar-media-worker-generation"
 
   @impl Plug
   def init(opts), do: opts
@@ -46,6 +46,17 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth do
          {:ok, installation} <-
            ControlPlaneRuntimeAccess.authenticate(:entitlements, token, {reference, generation}) do
       {:ok, :control_plane_entitlement_installation, installation}
+    else
+      _invalid_installation -> :error
+    end
+  end
+
+  defp authenticate(conn, ["v1", "media", "workers" | _rest], token) do
+    with [reference] <- get_req_header(conn, @deployment_header),
+         [generation] <- get_req_header(conn, @media_worker_generation_header),
+         {:ok, installation} <-
+           ControlPlaneRuntimeAccess.authenticate(:media_worker, token, {reference, generation}) do
+      {:ok, :control_plane_media_worker_installation, installation}
     else
       _invalid_installation -> :error
     end
