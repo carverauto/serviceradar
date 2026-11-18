@@ -39,7 +39,7 @@
       NDP / `fe80::` sighting, does not rename the device
 - [x] 2.4 Test: a hypervisor-enrichment update without a hostname keeps the
       node name reported by the automation inventory
-- [ ] 2.5 Test: on a hypervisor node, alternating automation-inventory, mapper
+- [x] 2.5 Test: on a hypervisor node, alternating automation-inventory, mapper
       `sysName` and hypervisor-inventory writes leave `name` and `hostname` at
       the hypervisor inventory value in either batch order, and Proxmox plugin
       assignment inputs do not change
@@ -105,12 +105,12 @@
       and the `SourceIdentityDrift` repair reread; stop the `ResultProcessor`
       writer that copies a snapshot `integration_id` into update metadata, or
       move it to the provider-scoped identifier
-- [ ] 5.2 `PluginInputPayloadBuilder.normalize_device_row`: copy an
+- [x] 5.2 `PluginInputPayloadBuilder.normalize_device_row`: copy an
       integration identifier only into input items for the plugin whose
       provider owns it
 - [ ] 5.3 Proxmox inputs and `ProxmoxHostAuthority.target_ids` read the
       hypervisor provider ref from `device_identifiers`
-- [ ] 5.4 Test: alternating automation-inventory and hypervisor writes leave
+- [x] 5.4 Test: alternating automation-inventory and hypervisor writes leave
       Proxmox plugin assignment inputs unchanged
 
 ## 6. Attribute ownership

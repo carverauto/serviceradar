@@ -37,7 +37,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilderTest do
 
     assert first["vendor"] == "AXIS"
     assert first["labels"] == %{"brand" => "axis"}
-    assert first["integration_id"] == "proxmox:v2:farm01:vm:155"
+    refute Map.has_key?(first, "integration_id")
     assert first["provider_ref"] == "proxmox:guest:pve01:qemu:155"
     assert first["target_kind"] == "qemu_guest"
     assert first["vmid"] == "155"

@@ -1800,6 +1800,44 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       assert %{type: "Router", type_id: 12, device_role: "switch_l2"} = stored(routed)
     end
 
+    test "alternating inventory writes leave a node's plugin input item unchanged", %{
+      actor: actor
+    } do
+      device = new_device!(actor)
+
+      hypervisor =
+        source_update(device, "hypervisor_enrichment",
+          hostname: "pve-node-a",
+          metadata:
+            Map.put(
+              hypervisor_metadata(),
+              "integration_id",
+              "proxmox:v3:source-a:node:pve-node-a"
+            )
+        )
+
+      awx =
+        source_update(device, "awx",
+          hostname: "hv-node-01",
+          metadata: Map.put(awx_metadata(), "integration_id", "awx:host:hv-node-01")
+        )
+
+      ingest!(actor, [hypervisor])
+      ingest!(actor, [awx])
+      [after_awx] = PluginInputPayloadBuilder.normalize_rows("devices", [device_row(device)])
+      ingest!(actor, [hypervisor])
+
+      [after_hypervisor] =
+        PluginInputPayloadBuilder.normalize_rows("devices", [device_row(device)])
+
+      assert after_awx == after_hypervisor
+
+      assert %{"provider_ref" => "proxmox:node:pve-node-a", "target_kind" => "pve_host"} =
+               after_hypervisor
+
+      refute Map.has_key?(after_hypervisor, "integration_id")
+    end
+
     test "an owned metadata key is replaced only by its owner", %{actor: actor} do
       owned = new_device!(actor)
       absent = new_device!(actor)
@@ -2025,10 +2063,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   defp device_row(device) do
-    %{rows: [[uid, metadata]]} =
-      Repo.query!("SELECT uid, metadata FROM platform.ocsf_devices WHERE uid = $1", [device.uid])
+    %{columns: columns, rows: [row]} =
+      Repo.query!(
+        """
+        SELECT uid, ip, hostname, name, vendor_name, model, tags, metadata
+        FROM platform.ocsf_devices WHERE uid = $1
+        """,
+        [device.uid]
+      )
 
-    %{"uid" => uid, "metadata" => metadata}
+    columns |> Enum.zip(row) |> Map.new()
   end
 
   # Registers OUI prefixes in the active dataset snapshot (inside the test's
