@@ -54,7 +54,7 @@ SHALL be retained, accounted and reported as `late_pending_gateway_support`.
 - **THEN** they SHALL be in two late generations, each frozen to one scope, delivered on separate late sessions
 
 #### Scenario: A retired contract's late record is delivered as audit, not rejected
-- **GIVEN** a late record whose registry epoch is retired, and core's AUDIT grant with reason `contract_retired`
+- **GIVEN** a late record whose registry epoch is retired or installation-static, and core's AUDIT grant with any reason (for example `fenced_at_production`)
 - **WHEN** the late session delivers it
 - **THEN** the gateway SHALL NOT reject it for its registry epoch
 - **AND** SHALL publish it to the audit route, routed from the late session's route profile, traffic class and network scope

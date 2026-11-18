@@ -540,18 +540,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  # On a late session the lane, not the registry, routes a security-quarantine frame and an AUDIT
-  # frame core retired the contract for: the retired contract has no installed entry, a quarantined
-  # record is never projected, and a foreign-origin record would fail the registry's session
-  # principal check before it could reach quarantine (design Decision 7). Every other publication
-  # is admitted through the registry exactly as a live one is.
-  defp admission(%{late_admission: true} = state, _record, _session, %{publication: :security_quarantine}),
-    do: {:ok, lane_route(state)}
-
-  defp admission(%{late_admission: true} = state, _record, _session, %{
-         publication: :audit,
-         late_reason: :contract_retired
-       }), do: {:ok, lane_route(state)}
+  # On a late session the lane, not the registry, routes every security-quarantine and AUDIT frame:
+  # neither is ever projected, so neither needs an installed registry entry, and a record whose
+  # registry epoch is retired can carry any AUDIT reason because core reports only its first
+  # failing check. A foreign-origin record would also fail the registry's session principal check
+  # before it could reach quarantine (design Decision 7). Only PRIMARY, which core grants only for
+  # an admitted registry epoch, is admitted through the registry exactly as a live one is.
+  defp admission(%{late_admission: true} = state, _record, _session, %{publication: publication})
+       when publication in [:security_quarantine, :audit],
+       do: {:ok, lane_route(state)}
 
   defp admission(_state, record, session, decision), do: EdgeContractRegistry.admit(record, session, decision.registry)
 

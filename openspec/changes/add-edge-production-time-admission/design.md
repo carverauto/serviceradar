@@ -454,17 +454,19 @@ still withheld. `LATE_ADMISSION_REQUIRED` neither withholds the
 frame nor sends it to the `fence_stale` quarantine.
 
 **Registry epochs and routing on a late session.** Whether a late record's
-registry epoch is still admitted is core's check 9, answered by an AUDIT grant
-with reason `contract_retired`. So on a late session the gateway does not
-reject a frame for a retired or installation-static registry epoch. A frame
-whose grant is AUDIT `contract_retired`, and every security-quarantine frame on
-a late session, is routed from the lane: the session's route profile and
-traffic class, partitioned by network scope (`network_scope_v1`). The retired
-contract has no entry in the installed registry, and a quarantined record is
-never projected, so neither needs one; a foreign-origin record would also fail
-the registry's session-principal check before it could reach quarantine. Every
-other late publication (PRIMARY, and AUDIT for any other reason) is admitted
-through the registry exactly as live records are (owner decision 2026-11-17).
+registry epoch is still admitted is core's check 9, and core issues PRIMARY
+only for an admitted epoch. So on a late session the gateway does not reject a
+frame for a retired or installation-static registry epoch. Every AUDIT frame,
+whatever its reason, and every security-quarantine frame on a late session is
+routed from the lane: the session's route profile and traffic class,
+partitioned by network scope (`network_scope_v1`). Core reports only the first
+failing check, and history, age and ledger precede the contract check, so a
+retired-epoch record can carry any AUDIT reason, not only `contract_retired`.
+Neither an audit nor a quarantined record is ever projected, so neither needs
+an installed registry entry; a foreign-origin record would also fail the
+registry's session-principal check before it could reach quarantine. Only a
+PRIMARY late publication is admitted through the registry, exactly as live
+records are (owner decision 2026-11-17).
 
 **Recovery coverage on a late session.** Before publishing, the gateway checks
 that no recovery operation has fenced or already applied the session's spool.

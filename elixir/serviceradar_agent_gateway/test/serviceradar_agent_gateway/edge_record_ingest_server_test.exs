@@ -295,6 +295,40 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
   end
 
+  # Owner decision 2026-11-17 (design Decision 7): an AUDIT record is never projected, so on a late
+  # session it is routed from the lane whatever its reason, never refused for a retired epoch.
+  test "a LATE session publishes an AUDIT record of a retired registry epoch from the lane, not rejecting it" do
+    newer = Factory.registry_epoch(epoch: 2_000_000)
+    install_trust(fences: [], scopes: [], contract_registry: Factory.registry_member([newer]))
+    retired = days_old_record()
+
+    grant =
+      Factory.late_admission_capability(retired, signing_keys().private,
+        spool_id: @spool_id,
+        decision: {:audit, :fenced_at_production}
+      )
+
+    late = %{lane_open() | late_admission: true}
+
+    messages = [
+      client({:lane_open, late}),
+      client({:delivery_frame, frame(1, retired, delivery_capability: grant)})
+    ]
+
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+    assert_receive {:edge_record_published, %{slot: %{sequence: 1}} = published}
+    assert published.publication == :audit
+    assert published.delivery_mode == PublicationIdentity.mode_late_admission()
+    assert published.route_profile == late.route_profile
+    assert published.traffic_class == late.traffic_class
+    assert published.partition_rule == :network_scope_v1
+
+    assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind, &1.rejection_code}) ==
+             [{1, retired.event_id, @audit_only, ""}]
+  end
+
   test "a LIVE session at late-admission version 1 relocates a stale-fence record; version 0 rejects it" do
     assignment = Factory.uuidv7()
     install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])

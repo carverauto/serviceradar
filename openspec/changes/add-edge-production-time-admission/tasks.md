@@ -164,8 +164,8 @@ Status: implemented in PR #6692 except where a task says otherwise.
         `LATE_ADMISSION_REQUIRED`, and the advertisement code held at 0. Also
         per the owner's 2026-11-17 decisions (design Decisions 2 and 7): an
         unbound scope on a live version-1 session relocates; a late session
-        does not reject on registry epoch and routes quarantine and AUDIT
-        `contract_retired` from the lane; late sessions are per generation, so
+        does not reject on registry epoch and routes quarantine and every
+        AUDIT from the lane; late sessions are per generation, so
         each carries one scope; and a late session's recovery-coverage lookup
         is authorized by the record's signed scope.
 
