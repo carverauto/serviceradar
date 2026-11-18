@@ -71,7 +71,8 @@ of the plugin work in sections 2-5.
       DeviceID, the node and the runtime state, and emit the node's
       guest-runtime scope-complete marker listing those keys plus the keys of
       running QEMU guests whose runtime state could not be read, which get no
-      event. Build the scope id from the target discriminator and node, and
+      event. Build the scope id from the target discriminator, the scope name
+      `guest-runtime` and the node, and
       the key from the target discriminator, node, guest type and VMID. Emit
       no marker for a node whose guest list was not read fully. Keep no state
       between polls.
@@ -93,7 +94,7 @@ of the plugin work in sections 2-5.
       node, datastore, used and total bytes but no ratio or threshold fields,
       and emit the node's node-storage scope-complete marker listing those
       keys, empty when none is critical. Build the scope id from the target
-      discriminator and node, and the key from the target discriminator, node
+      discriminator, the scope name `node-storage` and the node, and the key from the target discriminator, node
       and datastore name only. Emit no marker for a node whose storage was not
       read fully. Keep no state between polls.
 - [ ] 4b.2 Unit test the plugin output for a single invented observation: a
@@ -117,9 +118,11 @@ of the plugin work in sections 2-5.
       `go/cmd/wasm-plugins/proxmox/plugin.yaml` for
       `guest-availability-changed`, `guest-runtime-paused`,
       `node-storage-capacity` and `node-oom-kill`, matching the schema
-      defined by `add-plugin-alert-rules`; do not set `enabled` or `priority`.
-      The paused-guest and storage rules declare as their recovery the
-      clearing event the agent synthesizes from the condition scope.
+      defined by `add-plugin-alert-rules`. Each entry declares signal
+      `event`, threshold 1 and group_by `condition_key`; do not set `enabled`
+      or `priority`. The paused-guest and storage rules keep their recovery
+      as level `ok` on the same subject, the clearing event the agent
+      synthesizes from the condition scope.
 - [ ] 5.2 Ship a new plugin package version and verify approval materializes
       all four rules disabled and namespaced `plugin:proxmox:<name>`.
 

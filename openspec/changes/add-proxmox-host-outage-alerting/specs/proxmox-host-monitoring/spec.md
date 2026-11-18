@@ -27,7 +27,7 @@ not `running` as not available. Containers have no runtime state and keep the
 availability derived from their status. The plugin keeps no state between
 polls. Every node of every Proxmox target has its own guest-runtime condition
 scope, whose id is built from the target discriminator the plugin already uses
-as its condition-key prefix and the node name. A guest's condition key is
+as its condition-key prefix, the scope name `guest-runtime` and the node name. A guest's condition key is
 built from that target discriminator, the node, the guest type and the VMID,
 so two targets with the same node name and VMID never share a scope or a key.
 A node's guest list counts as fully read only for the target that read it.
@@ -118,7 +118,7 @@ resource-pressure summaries, for each node datastore in the critical capacity
 band. The plugin keeps no state between polls. Storage is read per node, and
 every node of every Proxmox target has its own node-storage condition scope,
 whose id is built from the target discriminator the plugin already uses as its
-condition-key prefix and the node name. A datastore's condition key is built
+condition-key prefix, the scope name `node-storage` and the node name. A datastore's condition key is built
 from that target discriminator, the node and the datastore name only; used
 and total bytes and ratios are event detail and never part of a key. A node's
 storage counts as fully read only for the target that read it. For every node
@@ -222,9 +222,13 @@ The Proxmox plugin manifest SHALL declare alert rules for
 `guest-availability-changed`, `guest-runtime-paused`, `node-storage-capacity`
 and `node-oom-kill` using the plugin-manifest alert-rule mechanism, so an
 operator can enable them without hand-authoring rule definitions, and without
-any rule being armed automatically. The `guest-runtime-paused` and
-`node-storage-capacity` rules SHALL declare as their recovery the clearing
-event the agent synthesizes under the Scoped Condition Recovery requirement.
+any rule being armed automatically. Each of the four entries SHALL declare
+signal `event`, threshold 1 and group_by `condition_key`, and SHALL NOT set
+`enabled` or `priority`. The `guest-runtime-paused` and
+`node-storage-capacity` rules SHALL declare as their recovery level `ok` on the
+same subject, which is the clearing event the agent synthesizes under the
+Scoped Condition Recovery requirement and which carries the same
+`condition_key`.
 
 #### Scenario: Plugin package is approved
 - **WHEN** an operator approves a Proxmox plugin package whose manifest
@@ -240,6 +244,13 @@ event the agent synthesizes under the Scoped Condition Recovery requirement.
 - **WHEN** the node's next node-storage scope-complete marker no longer lists
   that datastore's condition key and the agent forwards the clearing event
 - **THEN** the alert SHALL resolve and no new alert SHALL open
+
+#### Scenario: One event opens an alert per condition key
+- **GIVEN** the `plugin:proxmox:guest-runtime-paused` rule is enabled
+- **WHEN** a single `guest_runtime_paused` event is forwarded for a guest
+- **THEN** an alert SHALL open for that guest's condition key
+- **AND** a clearing event for a different guest's or datastore's condition
+  key SHALL NOT resolve it
 
 #### Scenario: Operator enables a materialized rule
 - **WHEN** an operator enables the `plugin:proxmox:guest-availability-changed`

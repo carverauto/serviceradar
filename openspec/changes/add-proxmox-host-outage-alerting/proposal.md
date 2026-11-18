@@ -68,8 +68,9 @@ Repository context:
   recovery, so an alert opened on it could never clear.
 - **Recovery through the condition scope:** the plugin keeps no state between
   polls. Each node of each target has a guest-runtime scope and a separate
-  node-storage scope, and every scope id and condition key starts with the
-  target discriminator the plugin already uses for condition keys. A scope
+  node-storage scope. Each scope id is the target discriminator the plugin
+  already uses for condition keys, the scope name and the node, and every
+  condition key also starts with that discriminator. A scope
   read fully emits a scope-complete marker listing its active keys, empty
   when none is active. A guest whose runtime state could not be read stays
   listed; a guest the list shows stopped or absent is omitted. The agent

@@ -86,8 +86,10 @@ not establish OOM as the cause.
   event before. Each node of each Proxmox target gets two condition scopes,
   a guest-runtime scope for its guest list and a node-storage scope for its
   storage, which is already fetched per node. Separate scopes keep one
-  condition's marker from clearing the other condition's keys. Every scope id
-  and condition key starts with the target discriminator the plugin already
+  condition's marker from clearing the other condition's keys, so each scope
+  id is the target discriminator, the scope name (`guest-runtime` or
+  `node-storage`) and the node. Every scope id and condition key starts with
+  the target discriminator the plugin already
   uses as its condition-key prefix, because one assignment polls several
   targets through one agent debouncer and two targets can share a node name
   and VMID. A guest key is that discriminator, the node, the guest type and
