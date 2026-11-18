@@ -15,35 +15,34 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
    1. address fallback: the update has no hostname, so the name is an address;
    2. passive census sighting (a hostname seen passively);
    3. SNMP `sysName` from the mapper, or a name reported by an integration.
-3. Strength order for `vendor_name`, weakest first:
-   1. a generic SNMP agent-software vendor: a `sysObjectID` under an
-      enterprise number that names agent software rather than hardware
-      (Net-SNMP, enterprise 8072, and similar agent-software enterprises), or
-      a vendor inferred from device-reported evidence that names such agent
-      software;
+3. Strength order for `vendor_name`, weakest first. The tier follows the
+   vendor derived for the update, never the evidence channel or the
+   `sysObjectID` enterprise alone:
+   1. a derived vendor that names SNMP agent software (Net-SNMP and similar),
+      whether from a `sysObjectID` under an agent-software enterprise (such as
+      8072), `sysDescr` inference or a classification rule;
    2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`),
       or an explicit metadata vendor on an update that is not from an
       integration (equal to the OUI);
-   3. a vendor derived from a `sysObjectID` under a hardware vendor's
-      enterprise number, a vendor inferred from other device-reported
-      evidence (`sysDescr` inference or a classification rule), or a vendor
-      reported by an integration.
+   3. a derived vendor that names a hardware vendor, whether from a
+      `sysObjectID` enterprise, `sysDescr` inference or a classification rule,
+      or a vendor reported by an integration.
    The agent-software enterprises are a fixed, named list kept next to the
    enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
-   The tier follows the vendor derived for the update, not the enterprise
-   alone: a hardware vendor inferred from `sysDescr` or a classification rule
-   is tier 3 even when the `sysObjectID` is under enterprise 8072.
+   A `sysObjectID` under enterprise 8072 with a hardware vendor from
+   `sysDescr` or a classification rule is tier 3; a `sysDescr` or
+   classification result that names agent software is tier 1.
 4. A write replaces the stored value when its strength is equal to or greater
    than the stored strength. A weaker write fills the attribute only when no
    value is stored. Nothing else decides: there is no test comparing the stored
    name with the stored address. A populated value without a recorded
    strength (rows written before this change) is kept against a weakest-tier
-   write (address fallback name, generic agent-software vendor); the next
-   write of a middle or strongest tier (passive census sighting, IEEE OUI,
-   non-integration metadata vendor, SNMP `sysName`, hardware-enterprise
-   `sysObjectID`, `sysDescr` inference, classification-rule inference, or
-   integration-reported)
-   replaces it and records its strength. A missing strength is never treated
+   write (address fallback name, or a derived vendor that names agent
+   software from any channel); the next write of a middle or strongest tier
+   (passive census sighting, IEEE OUI, non-integration metadata vendor, SNMP
+   `sysName`, a derived hardware vendor from `sysObjectID`, `sysDescr` or a
+   classification rule, or integration-reported) replaces it and records its
+   strength. A missing strength is never treated
    as a recorded weak strength. So the first census pass after rollout may
    change an unrecorded spelling once (for example a legacy `Net-SNMP` or
    hardware vendor spelling becomes the OUI spelling), and the first mapper

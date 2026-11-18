@@ -21,11 +21,13 @@
 
 ## 3. Vendor precedence
 
-- [ ] 3.1 Writers tag vendors: agent-software `sysObjectID` enterprise or
-      agent-software device evidence < IEEE OUI / non-integration metadata
-      vendor < hardware-enterprise `sysObjectID` / other `sysDescr` or
-      classification-rule inference / integration-reported; provenance keys
-      follow the kept value
+- [ ] 3.1 Writers tag vendors by the vendor derived for the update: derived
+      vendor naming agent software (any channel) < IEEE OUI / non-integration
+      metadata vendor < derived hardware vendor (`sysObjectID` enterprise,
+      `sysDescr` or classification rule, including under enterprise 8072) /
+      integration-reported; a `sysDescr` or classification result naming
+      agent software never replaces a populated value; provenance keys follow
+      the kept value
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table
 - [ ] 3.3 Test: a hardware-enterprise vendor with recorded strength survives

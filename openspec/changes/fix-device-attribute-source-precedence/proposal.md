@@ -58,22 +58,23 @@ inventory state rather than of nondeterministic compilation.
   when it has no stored value. A populated value with no recorded strength
   (written before rollout) may be replaced once by a middle- or strongest-tier
   write, which records its strength, and never by a weakest-tier write. There
-  is no second test (such as "the stored
-  name equals the stored address"): the recorded strength alone decides.
+  is no second test (such as "the stored name equals the stored address"):
+  the recorded strength alone decides.
   - `name`, weakest to strongest: address fallback (the update has no
     hostname, so the name is an address) < passive census sighting < SNMP
     `sysName` from the mapper or a name reported by an integration. An address
     fallback is the address the device keeps after the existing address rank
     guard, never an address the guard rejected.
-  - `vendor_name`, weakest to strongest: a generic SNMP agent-software vendor
-    (a `sysObjectID` under an agent-software enterprise such as Net-SNMP,
-    enterprise 8072, or device evidence naming agent software) < IEEE OUI
-    registrant (`metadata.mac_vendor_source = "ieee_oui"`) or an explicit
-    metadata vendor from a non-integration update < a vendor derived from a
-    `sysObjectID` under a hardware vendor's enterprise number, inferred from
-    other device evidence (`sysDescr` or a classification rule), or reported
-    by an integration. The OUI
-    provenance keys follow the value that is kept.
+  - `vendor_name`, weakest to strongest, by the vendor derived for the update
+    rather than the evidence channel or enterprise alone: a derived vendor
+    that names SNMP agent software such as Net-SNMP (from a `sysObjectID`
+    under an agent-software enterprise such as 8072, `sysDescr` or a
+    classification rule) < IEEE OUI registrant
+    (`metadata.mac_vendor_source = "ieee_oui"`) or an explicit metadata vendor
+    from a non-integration update < a derived vendor that names a hardware
+    vendor (from a `sysObjectID` enterprise, `sysDescr` or a classification
+    rule, including under enterprise 8072), or a vendor reported by an
+    integration. The OUI provenance keys follow the value that is kept.
   - The same rule applies inside one ingestion batch (`merge_records_by_uid`)
     as across batches (the upsert), so batch composition cannot change the
     outcome.
