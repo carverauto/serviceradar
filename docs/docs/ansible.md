@@ -137,9 +137,9 @@ Set `ANSIBLE_CATALOG_BASE_DIR` to a non-empty path writable by core. It populate
 the `:serviceradar_core` application setting `:ansible_catalog_base_dir`; a
 configured cache bypasses system temporary-directory lookup during sync. Without
 that setting, the worker uses `System.tmp_dir!()/serviceradar_ansible_catalog`
-and still requires a writable system temporary directory. Runtime configuration
-also resolves that fallback when the environment variable is absent, so set the
-variable before startup in environments without writable temporary storage.
+and still requires a writable system temporary directory when a sync runs.
+Runtime configuration does not resolve that fallback, so the release boots
+without writable temporary storage when the variable is absent.
 
 In Helm, these live under `core.ansible.*`:
 
