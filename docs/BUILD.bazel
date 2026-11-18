@@ -7,7 +7,24 @@ exports_files([
     "BUILD.bazel",
     "cosign.pub",
     "lint_placeholder.sh",
+    "sigstore/rekor.pub",
 ])
+
+# Every accepted Rekor v1 public key, named <logID>.pub. Shipped in the web-ng image and
+# kept byte-identical to it by //build/contracts:rekor_key_consistency_test.
+filegroup(
+    name = "sigstore/rekor-keys",
+    srcs = glob(["sigstore/rekor-keys/*.pub"]),
+    visibility = ["//visibility:public"],
+)
+
+# The public-good Rekor key, accepted only by release verification of reused pre-cutover
+# receipts. Never shipped in the web-ng image.
+filegroup(
+    name = "sigstore/pre-cutover-rekor-keys",
+    srcs = glob(["sigstore/pre-cutover-rekor-keys/*.pub"]),
+    visibility = ["//visibility:public"],
+)
 
 sh_test(
     name = "lint",

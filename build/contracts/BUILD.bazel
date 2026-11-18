@@ -19,6 +19,7 @@ py_test(
         "//scripts:ci/harbor-publish.py",
         "//scripts:ci/publish-helm-bundle.py",
         "//scripts:cosign_common.sh",
+        "//scripts:cosign_receipt.py",
         "//scripts:sign-oci-publish.sh",
         "//scripts:sign-native-addon-publish.sh",
         "//scripts:sign-wasm-plugin-publish.sh",
@@ -296,11 +297,43 @@ py_test(
     srcs = ["legacy_signature_reconciliation_test.py"],
     data = [
         "//scripts:cosign_common.sh",
+        "//scripts:cosign_receipt.py",
+        "//docs:sigstore/rekor.pub",
         "//scripts:oci_registry.sh",
         "//scripts:reconcile-legacy-signature.py",
         "//scripts:sign-native-addon-publish.sh",
         "//scripts:sign-oci-publish.sh",
         "//scripts:sign-wasm-plugin-publish.sh",
         "//scripts:wasm-plugin-publish-context.sh",
+    ],
+)
+
+# Release verification of transparency-log receipts against the pinned cosign, with
+# synthetic keys, a stand-in log key and a localhost registry
+# (openspec/changes/restore-signature-tlog-receipts, tasks 3.1 and 3.2).
+py_test(
+    name = "release_signature_receipt_test",
+    size = "small",
+    srcs = ["release_signature_receipt_test.py"],
+    data = [
+        "//scripts:cosign_common.sh",
+        "//scripts:cosign_receipt.py",
+        "@cosign_linux_amd64//file",
+        "@cosign_linux_arm64//file",
+    ],
+)
+
+py_test(
+    name = "rekor_key_consistency_test",
+    size = "small",
+    srcs = ["rekor_key_consistency_test.py"],
+    data = [
+        "//docs:sigstore/rekor.pub",
+        "//docs:sigstore/pre-cutover-rekor-keys",
+        "//docs:sigstore/rekor-keys",
+        "//scripts:install-cosign.sh",
+        "//scripts:install-download-integrity.sh",
+        "@cosign_linux_amd64//file",
+        "@cosign_linux_arm64//file",
     ],
 )

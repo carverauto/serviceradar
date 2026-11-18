@@ -808,10 +808,30 @@ printf 'sha256:%064d\n' 1 > "${sign_test_dir}/bazel-bin/docker/images/first_img.
 printf 'sha256:%064d\n' 2 > "${sign_test_dir}/bazel-bin/docker/images/second_img.json.sha256"
 printf 'sha256:%064d\n' 3 > "${sign_test_dir}/bazel-bin/docker/images/third_img.json.sha256"
 printf 'test-public-key\n' > "${sign_test_dir}/cosign.pub"
+# Synthetic stand-in for docs/sigstore/rekor.pub: only its log ID (SHA-256 of the DER) is used.
+mkdir -p "${sign_test_dir}/docs/sigstore"
+{
+  echo '-----BEGIN PUBLIC KEY-----'
+  printf 'synthetic pinned transparency log key for the signer contract\n' | base64 | tr -d '\n'
+  echo
+  echo '-----END PUBLIC KEY-----'
+} > "${sign_test_dir}/docs/sigstore/rekor.pub"
+pinned_log_id="$(python3 "${repo_root}/scripts/cosign_receipt.py" log-id "${sign_test_dir}/docs/sigstore/rekor.pub")"
 
 cat > "${sign_test_dir}/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+# Keep every `.sig` manifest the signer writes, by tag.
+if [[ "$*" == *"/manifests/sha256-"* && "$*" == *"--data-binary @"* ]]; then
+  for arg in "$@"; do
+    case "${arg}" in
+      @*) manifest_body="${arg#@}" ;;
+      https://*) manifest_tag="${arg##*/}" ;;
+    esac
+  done
+  cp "${manifest_body}" "${FAKE_COSIGN_STATE_DIR:?}/manifest-${manifest_tag}"
+  exit 0
+fi
 if [[ "$*" == *"/service/token?"* ]]; then
   printf '{"token":"fake-token"}\n'
   exit 0
@@ -876,11 +896,27 @@ case "${cmd}" in
         exit 1
         ;;
     esac
+    # The legacy bundle cosign writes on its legacy upload path; the receipt is
+    # `rekorBundle`. A ledger line for this payload must already exist.
+    payload_sha256="$(shasum -a 256 "${payload}" | awk '{print $1}')"
+    if ! grep -q "\"event\":\"sign\".*\"payload_sha256\":\"${payload_sha256}\"" "${SERVICERADAR_SIGNING_LEDGER:?}"; then
+      touch "${state_dir}/uploaded-before-ledger-${image}"
+    fi
+    set_value='U1lOVEhFVElDLVNFVA=='
+    log_id="${FAKE_LOG_ID:?}"
+    case "${FAKE_COSIGN_MODE:-}" in
+      no_set) set_value='' ;;
+      other_log) log_id="$(printf '%064d' 7)" ;;
+    esac
     while (($# > 0)); do
       case "$1" in
-        --bundle) printf '{"base64Signature":"ZmFrZS1zaWc="}\n' > "$2"; shift 2 ;;
+        --bundle)
+          printf '{"base64Signature":"ZmFrZS1zaWc=","rekorBundle":{"SignedEntryTimestamp":"%s","Payload":{"body":"eyJzeW50aGV0aWMiOnRydWV9","integratedTime":1767225600,"logIndex":%s,"logID":"%s"}}}\n' \
+            "${set_value}" "${count}" "${log_id}" > "$2"
+          shift 2
+          ;;
         --output-signature) printf 'ZmFrZS1zaWc=\n' > "$2"; shift 2 ;;
-        *) shift ;;
+        *) printf '%s\n' "$1" >> "${state_dir}/sign-blob-args-${image}"; shift ;;
       esac
     done
     ;;
@@ -901,6 +937,7 @@ printf '# synthetic capacity endpoint\n' >"${sign_test_dir}/lifecycle/tool/k8s/h
 # Exact legacy reuse/verification is owned by legacy_signature_reconciliation_test;
 # these cases replace only that boundary to drive new-signature creation.
 cp "${repo_root}/scripts/cosign_common.sh" "${sign_test_dir}/cosign_common.sh"
+cp "${repo_root}/scripts/cosign_receipt.py" "${sign_test_dir}/cosign_receipt.py"
 printf '\ncosign_reconcile_legacy_signature() { printf "%%s\\n" "${FAKE_LEGACY_STATE:-absent}"; }\n' >>"${sign_test_dir}/cosign_common.sh"
 
 run_fake_sign_oci() {
@@ -914,6 +951,8 @@ run_fake_sign_oci() {
     SERVICERADAR_COSIGN_COMMON="${sign_test_dir}/cosign_common.sh" \
     FAKE_COSIGN_LOG="${log_file}" \
     FAKE_COSIGN_STATE_DIR="${state_dir}" \
+    FAKE_LOG_ID="${pinned_log_id}" \
+    SERVICERADAR_SIGNING_LEDGER="${state_dir}/signing-ledger.jsonl" \
     SERVICERADAR_REPO_ROOT="${sign_test_dir}" \
     BAZEL_BIN="${sign_test_dir}/bazel-bin" \
     OCI_REGISTRY="registry.example" \
@@ -939,6 +978,63 @@ for image in first second third; do
   fi
 done
 
+# 1a. Each new `.sig` layer carries the legacy bundle's `rekorBundle` verbatim as its
+#     receipt, signed through cosign's legacy upload path to the pinned Rekor v1 log.
+for image in first second third; do
+  digest_tag="sha256-$(printf '%064d' "$(case "${image}" in first) echo 1 ;; second) echo 2 ;; third) echo 3 ;; esac)").sig"
+  manifest="${sign_test_dir}/state-1/manifest-${digest_tag}"
+  if [[ ! -s "${manifest}" ]]; then
+    echo "sign-oci-publish wrote no classic signature for ${image}" >&2
+    exit 1
+  fi
+  if ! python3 - "${manifest}" "${pinned_log_id}" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+layers = manifest["layers"]
+assert len(layers) == 1, layers
+annotations = layers[0]["annotations"]
+assert layers[0]["mediaType"] == "application/vnd.dev.cosign.simplesigning.v1+json"
+assert set(annotations) == {"dev.cosignproject.cosign/signature", "dev.sigstore.cosign/bundle"}, annotations
+receipt = json.loads(annotations["dev.sigstore.cosign/bundle"])
+assert receipt == {"SignedEntryTimestamp": "U1lOVEhFVElDLVNFVA==", "Payload": {
+    "body": "eyJzeW50aGV0aWMiOnRydWV9", "integratedTime": 1767225600, "logIndex": 1, "logID": sys.argv[2]}}, receipt
+PY
+  then
+    echo "sign-oci-publish did not attach the legacy receipt to ${image}'s signature" >&2
+    exit 1
+  fi
+  for flag in --use-signing-config=false --new-bundle-format=false --rekor-url https://rekor.serviceradar.cloud --tlog-upload=true; do
+    if ! grep -qx -- "${flag}" "${sign_test_dir}/state-1/sign-blob-args-${image}"; then
+      echo "sign-oci-publish did not sign ${image} through the pinned legacy upload path (${flag} missing)" >&2
+      exit 1
+    fi
+  done
+  if [[ -e "${sign_test_dir}/state-1/uploaded-before-ledger-${image}" ]]; then
+    echo "sign-oci-publish uploaded ${image}'s signature before recording it in the signing ledger" >&2
+    exit 1
+  fi
+done
+if [[ "$(grep -c '"event":"logged"' "${sign_test_dir}/state-1/signing-ledger.jsonl")" -ne 3 ]]; then
+  echo "sign-oci-publish did not record each returned log entry in the signing ledger" >&2
+  exit 1
+fi
+
+# 1b. An upload whose response has no SignedEntryTimestamp, or names a log other than the
+#     pinned one, fails and writes no `.sig` tag.
+for mode in no_set other_log; do
+  if run_fake_sign_oci "${mode}" "${sign_test_dir}/${mode}.log" "${sign_test_dir}/state-${mode}" \
+    >"${sign_test_dir}/${mode}.out" 2>&1; then
+    echo "sign-oci-publish published a signature without a receipt from the pinned log (${mode})" >&2
+    exit 1
+  fi
+  if compgen -G "${sign_test_dir}/state-${mode}/manifest-*" >/dev/null; then
+    echo "sign-oci-publish wrote a .sig tag for a signature without its receipt (${mode})" >&2
+    exit 1
+  fi
+done
+
 # 2. A digest that already holds a verified signature is never signed again.
 if ! FAKE_LEGACY_STATE=reused run_fake_sign_oci "" "${sign_test_dir}/reused.log" "${sign_test_dir}/state-2" \
   >"${sign_test_dir}/reused.out" 2>&1; then
@@ -947,6 +1043,11 @@ if ! FAKE_LEGACY_STATE=reused run_fake_sign_oci "" "${sign_test_dir}/reused.log"
 fi
 if grep -q '^sign-blob' "${sign_test_dir}/reused.log"; then
   echo "sign-oci-publish re-signed a digest that already holds a verified signature" >&2
+  exit 1
+fi
+if [[ "$(grep -c '"event":"reused"' "${sign_test_dir}/state-2/signing-ledger.jsonl")" -ne 3 ]] \
+  || grep -q '"event":"sign"' "${sign_test_dir}/state-2/signing-ledger.jsonl"; then
+  echo "sign-oci-publish did not record every reused signature, and only those, in the signing ledger" >&2
   exit 1
 fi
 

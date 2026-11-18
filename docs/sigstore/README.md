@@ -18,11 +18,81 @@ Populate these files from the active Fulcio/Rekor deployment:
 - `trusted-root.json`: preferred Cosign trusted-root document for keyless verification
 - `fulcio-root.pem`: optional out-of-band Fulcio root certificate
 - `ctfe.pub`: optional out-of-band CT log public key
-- `rekor.pub`: optional out-of-band Rekor public key
 
 The release and verification scripts prefer `trusted-root.json` when present.
 The PEM/public-key files are fallback material for environments that are not yet
 using a full trusted-root document.
+
+## Pinned Rekor keys (transparency-log receipts)
+
+Release signatures for images, native add-ons and Wasm plugins are logged in
+ServiceRadar's self-hosted Rekor v1 log, `https://rekor.serviceradar.cloud`
+(`carverauto/gitops` `k8s/sigstore`), and each classic `.sig` carries that log's
+receipt (see "Transparency-log receipts and the signing ledger" in
+[RELEASE_PUBLISHING.md](../RELEASE_PUBLISHING.md)). Verification never contacts
+that log or any other Rekor: receipts are checked offline against these committed
+keys, so no installation depends on the log being up.
+
+- `rekor-keys/<logID>.pub`: every accepted Rekor v1 public key, one PEM file per
+  log, named by the log ID (hex SHA-256 of the key's DER encoding). Release
+  verification selects the file by the receipt's `logID` and passes it to cosign
+  as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
+  happens. A receipt whose log ID has no file here fails. The web-ng importer
+  will select keys the same way and the web-ng image will ship this directory
+  (pending: lands with the import-verifier PR).
+- `rekor.pub`: the key of the log the signer writes to now, byte-identical to
+  its file in `rekor-keys/`. The signer refuses an upload response whose log ID
+  is not this key's.
+- `pre-cutover-rekor-keys/<logID>.pub`: the public-good Rekor key
+  (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
+  carry public-good receipts, and release verification checks such a receipt
+  on a **reused** signature against this key. It is never accepted for a new
+  signature, and it will not be accepted at import or shipped in the web-ng
+  image (pending: lands with the import-verifier PR). The transparency-log
+  monitor will watch only the self-hosted log (pending: lands with the monitor
+  PR).
+
+`//build/contracts:rekor_key_consistency_test` checks that every file is named by
+its log ID, that the pre-cutover keys are not accepted keys, and that `rekor.pub`
+is a member of the accepted set.
+
+The self-hosted key `a8839837a73a6b28ca5102be67a874e8f0aa324a694320fa08fd55f9167b12c9`
+was fetched on 2026-11-18 at 17:04 UTC with
+`curl https://rekor.serviceradar.cloud/api/v1/log/publicKey` (the same bytes with
+`?treeID=7401445772329872027`). It was accepted only after the log's signed tree
+head from `GET /api/v1/log` (tree `7401445772329872027`, size 46) verified under it
+with `openssl dgst -sha256 -verify` and named it by key hint (`a8839837`).
+
+Updating the keys: when the self-hosted log's key changes (the monitor will alert
+when `/api/v1/log/publicKey` no longer returns `rekor.pub`; pending: lands with the
+monitor PR), fetch the new key the same
+way, add it as `rekor-keys/<logID>.pub` in a reviewed PR, keep every key an
+accepted receipt names, and point `rekor.pub` at the new key. Never drop a key
+from `rekor-keys/` that a published receipt names: verification of that receipt
+would then fail.
+
+### Operating the self-hosted log
+
+- **Release key precondition (operator check, agents do not run it).**
+  `bao read transit/keys/cosign-release` must show `exportable=false` and
+  `allow_plaintext_backup=false`. Either one set lets the key bytes leave
+  OpenBao, after which no log, monitor or audit record sees a signature. Check
+  it after every change to the key.
+- **Availability.** Release signing fails closed when the self-hosted Rekor or
+  its OpenBao Transit token is unavailable. The Rekor OpenBao token has a
+  32-day maximum TTL; remint it, or move Rekor to Kubernetes auth, before it
+  expires.
+- **Trillian database.** Losing the log's Trillian MySQL database does not break
+  verification of receipts already issued, which is offline. It ends the audit
+  trail, and a new tree is a new log ID and a reviewed key change. Back the
+  database up and test restores.
+- **Shared OpenBao.** The Rekor signing key (`transit/keys/rekor`) and
+  `cosign-release` live in the same OpenBao, so someone who can use both could
+  forge a receipt for an entry that was never logged. The OpenBao audit log is
+  the second line: an audit device, enabled by the operator, records every
+  `transit/sign/cosign-release` request, and a watch reports requests no signing
+  ledger accounts for. OpenBao refuses requests when no enabled audit device
+  can write, so the audit sink needs capacity monitoring.
 
 ## Issuer design note
 

@@ -186,6 +186,15 @@ jobs:
       - name: Install ORAS
         run: ./scripts/install-oras.sh
 
+      - name: Start the signing ledger
+        # Every release-key signature this job makes or reuses is recorded here before it
+        # is uploaded to the transparency log (scripts/cosign_receipt.py).
+        run: |
+          set -euo pipefail
+          ledger="${RUNNER_TEMP}/signing-ledger.jsonl"
+          : > "${ledger}"
+          echo "SERVICERADAR_SIGNING_LEDGER=${ledger}" >> "${GITHUB_ENV}"
+
       - name: Prepare scoped Harbor publishing and verified promotion
         env:
           HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
@@ -227,6 +236,15 @@ jobs:
             printf -- '- `%s`\n' "${protected_reference}"
             printf -- '- digest `%s`\n' "${DIGEST}"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Retain signing ledger
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signing-ledger-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SERVICERADAR_SIGNING_LEDGER }}
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Retain Harbor promotion receipts
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
