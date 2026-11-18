@@ -20,7 +20,8 @@ address rank, #3905) and manual `type` ownership.
    2. passive census sighting with an observed hostname;
    3. a name reported by an automation inventory (such as AWX);
    4. SNMP `sysName` from the mapper;
-   5. a name reported by the hypervisor platform inventory.
+   5. a name reported by a platform inventory (decision 13), such as the
+      hypervisor or camera inventory.
    The `hostname` column is gated by the same tiers and is accepted or
    rejected together with `name` as one value, because plugin inputs prefer
    `hostname` over `name`. Both `HypervisorEnrichmentIngestor` paths, the
@@ -93,8 +94,12 @@ address rank, #3905) and manual `type` ownership.
    address-fallback name follows the address the device keeps.
 8. The upsert compares strength with the stored row inside the `ON CONFLICT`
    update, the same place the `ip` rank guard lives, so concurrent writers
-   cannot race a read-then-write in Elixir. `name` and `hostname` are decided
-   there as one value, as are `type` and `type_id`.
+   cannot race a read-then-write in Elixir. The decision accepts or rejects
+   the write as a whole for each multi-field value (`name` / `hostname`,
+   `vendor_name` / `model`, `type` / `type_id` / `device_role`); a field of
+   that value the write does not carry stays stored and is never cleared by
+   the write, so a role-only mapper write keeps `type` / `type_id` and an
+   OUI write without a model keeps the stored `model`.
 9. In-batch merging (`merge_records_by_uid`) applies the same order and the
    same equal-or-stronger rule to the updates it combines, so two updates for
    one device in one batch resolve the same way as in two batches.
@@ -129,14 +134,28 @@ address rank, #3905) and manual `type` ownership.
     | `ip` | SNMP compiler, plugin inputs | existing address rank guard |
     | `hypervisor_provider_ref`, `proxmox_node`, `proxmox_cluster`, `hypervisor_guest_type`, `hypervisor_vmid`, `proxmox_base_url` | plugin inputs, `ProxmoxHostAuthority` | owner: hypervisor platform inventory |
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
-    | `management_device_id` | SNMP compiler (polling host) | ranked: camera inventory > mapper |
+    | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
     | tags / labels | target queries | merged maps (union), not single-valued |
+
+13. Any integration inventory that reports a device's identity is platform
+    inventory for those fields, by default, so a new integration needs no new
+    tier decision: its `name` / `hostname` take name tier 5, `vendor_name` /
+    `model` the hardware-vendor tier, `type` / `type_id` / `device_role` the
+    platform-inventory type tier, and `management_device_id` the platform
+    tier above the mapper. The automation inventory (AWX) is the ranked
+    exception: its name sits below SNMP `sysName`, its `host` type is the
+    generic type, and its own platform product name is not vendor evidence.
+    Every writer goes through the same strength decision (decision 8), with
+    no direct Ash update that skips it. Known writers to route:
+    `HypervisorEnrichmentIngestor`, `ProxmoxEnrichmentIngestor`,
+    `Camera.InventoryIngestor` (`camera_device_update_attrs`, for example
+    UniFi Protect), the WiFi-map controller and batch ingestion
+    (`WifiMap.BatchIngestor`), `EndpointInventoryIngestor`, and
+    `AgentGatewaySync` where it reports identity.
 
 ## Open questions
 
-- A name reported by an integration other than the automation inventory and
-  the hypervisor inventory is not ranked by this change; it is not part of the
-  observed loop. Rank it before it shares a device with another name source.
+- None that block implementation.
 
 ## Rejected alternatives
 

@@ -15,7 +15,8 @@
 - [ ] 2.1 Writers tag names: address fallback (passive census or hypervisor
       enrichment without a hostname) < passive census sighting with an
       observed hostname < automation inventory (AWX) name < SNMP `sysName` <
-      hypervisor platform inventory name; `hostname` is gated by the same
+      platform inventory name (hypervisor, camera or other decision 13
+      inventory); `hostname` is gated by the same
       tiers and accepted or rejected together with `name`;
       `HypervisorEnrichmentIngestor`'s repeating existing-device host and
       guest update and `placeholder_device_update` (create path) carry the
@@ -106,11 +107,28 @@
 - [ ] 6.2 Owned metadata keys (design.md decision 12) are replaced only by
       their owner; other ingestors (for example the automation inventory's
       `proxmox_node`) only fill an absent key
-- [ ] 6.3 Rank `management_device_id`: camera inventory > mapper
-- [ ] 6.4 Test: for every attribute in the decision 12 table, drive the
-      upsert with a non-owner or weaker write after an owner or stronger
-      write and assert the stored value is unchanged, and with a fill into
-      an absent value and assert it is stored
+- [ ] 6.3 Rank `management_device_id`: platform inventory (camera) > mapper;
+      a platform clear to none is the stronger value, and the mapper's
+      empty-fill does not put a parent back on a device whose platform
+      inventory cleared it
+- [ ] 6.4 Test: for every attribute in the decision 12 table, drive the real
+      writers (the sync upsert, the mapper results ingestor, the camera
+      inventory ingestor and the other decision 13 writers) with a non-owner
+      or weaker write after an owner or stronger write and assert the stored
+      value is unchanged, and with a fill into an absent value and assert it
+      is stored; include a camera clear to none followed by a mapper pass
+- [ ] 6.5 Route every decision 13 platform-inventory writer
+      (`HypervisorEnrichmentIngestor`, `ProxmoxEnrichmentIngestor`,
+      `Camera.InventoryIngestor` `camera_device_update_attrs`, WiFi-map
+      controller / batch ingestion, `EndpointInventoryIngestor`,
+      `AgentGatewaySync` identity writes) through the shared strength
+      decision; remove direct updates that skip it
+- [ ] 6.6 Apply a multi-field value as a whole: fields a write does not carry
+      stay stored (a role-only write keeps `type` / `type_id`; a vendor
+      without a model keeps `model`)
+- [ ] 6.7 Test: an SNMP-polled camera keeps the camera inventory name,
+      vendor, model and type across mapper and census passes, and the agent
+      config version does not change
 
 ## 7. Rollout
 

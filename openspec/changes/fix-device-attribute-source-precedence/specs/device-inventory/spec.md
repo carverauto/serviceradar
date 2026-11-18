@@ -7,14 +7,30 @@ equal-or-stronger write SHALL replace the recorded value, and a weaker write
 SHALL only fill an attribute that has no stored value. A populated value
 without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
-and record its strength.
+and record its strength. For a value made of several fields (name and
+hostname; vendor and model; type, type_id and device_role) the strength
+decision SHALL accept or reject the write as a whole, and a field of that value
+that the write does not carry SHALL stay stored and SHALL NOT be cleared by the
+write.
+
+Any integration inventory that reports a device's identity SHALL be platform
+inventory for the fields it reports, unless this requirement ranks it
+otherwise: its name and hostname take the strongest name tier, its vendor and
+model the hardware-vendor tier, its type, type_id and device_role the
+platform-inventory type tier, and its management_device_id the platform tier
+above the mapper. The automation inventory (such as AWX) is ranked below that,
+as stated in each ladder. Every writer of these fields, including hypervisor
+enrichment, Proxmox enrichment, camera inventory, WiFi-map ingestion, endpoint
+inventory and agent gateway sync, SHALL write them through the same strength
+decision, with no update path that bypasses it.
 
 Name strength, weakest first, with no two sources sharing a tier: a name
 derived from an address because the update carries no hostname (as sent by the
 passive census, which re-emits every binding seen in the last 15 minutes every
 120 seconds, and by hypervisor enrichment of existing devices); a hostname from
 a passive census sighting; a name reported by an automation inventory (such as
-AWX); an SNMP sysName; a name reported by the hypervisor platform inventory. A
+AWX); an SNMP sysName; a name reported by a platform inventory (such as the
+hypervisor or camera inventory). A
 name derived from an address SHALL use the address the device keeps after the
 address rank guard. The hostname SHALL be gated by the same tiers and SHALL be
 accepted or rejected together with the name as one value. Every
@@ -46,7 +62,8 @@ Type strength, weakest first: a generic type set without device evidence (such
 as host from an automation inventory); a type inferred from a passive
 fingerprint or classification rule; a type derived from SNMP (such as Router
 from ip_forwarding); a type reported by the inventory that owns the device's
-platform role (such as Hypervisor from the hypervisor inventory). Type,
+platform role (such as Hypervisor from the hypervisor inventory, or a camera
+type from the camera inventory). Type,
 type_id and the metadata device_role SHALL be accepted or rejected together as
 one value on this ladder: a platform-inventory role (hypervisor, virtual-guest)
 outranks an SNMP / mapper role (router, ap_bridge, switch_l2, host), which
@@ -185,9 +202,12 @@ is absent. The owned keys are hypervisor_provider_ref, proxmox_node,
 proxmox_cluster, hypervisor_guest_type, hypervisor_vmid and proxmox_base_url
 (owned by the hypervisor platform inventory) and proxmox_candidate,
 proxmox_tls_sans_recorded and proxmox_tls_san_ips (owned by the mapper Proxmox
-candidate probe). The management_device_id SHALL be ranked with the camera
-platform inventory above the mapper, and a mapper write SHALL NOT replace a
-camera-inventory value.
+candidate probe). The management_device_id SHALL be ranked with platform
+inventory (such as the camera inventory) above the mapper. A platform
+inventory's value, including a clear to none, SHALL be the stronger value: a
+mapper write SHALL NOT replace it, and the mapper's fill of an empty
+management_device_id SHALL NOT put a parent back on a device whose platform
+inventory cleared it.
 
 #### Scenario: A non-owner does not overwrite an owned metadata key
 - **GIVEN** a hypervisor node whose proxmox_node pve-a was written by the hypervisor inventory
@@ -203,6 +223,25 @@ camera-inventory value.
 - **GIVEN** a camera whose management_device_id was written by the camera inventory
 - **WHEN** a mapper update carrying a different management_device_id is ingested
 - **THEN** the management_device_id SHALL be unchanged
+
+#### Scenario: The mapper does not refill a management device the camera inventory cleared
+- **GIVEN** a camera whose management_device_id the camera inventory cleared to none
+- **WHEN** a mapper pass that would fill an empty management_device_id runs
+- **THEN** the management_device_id SHALL remain none
+- **AND** the SNMP polling host compiled for the camera SHALL NOT change
+
+#### Scenario: An SNMP-polled camera keeps its camera inventory identity
+- **GIVEN** a camera whose name, vendor, model and type were recorded from the camera inventory
+- **AND** the camera is also polled by SNMP and seen by the passive census
+- **WHEN** mapper passes and passive census passes alternate with camera inventory passes
+- **THEN** the camera name, vendor, model and type SHALL stay at the camera inventory values
+- **AND** the compiled agent config version SHALL NOT change
+
+#### Scenario: A role-only write keeps the stored type
+- **GIVEN** a device whose type, type_id and device_role were recorded at the SNMP tier
+- **WHEN** an equal-strength mapper write carrying only device_role is accepted
+- **THEN** the device_role SHALL be updated
+- **AND** the stored type and type_id SHALL remain
 
 ### Requirement: Integration identifiers are kept per integration
 A device observed by more than one integration SHALL keep each integration's

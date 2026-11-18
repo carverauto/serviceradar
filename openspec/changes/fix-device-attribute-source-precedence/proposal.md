@@ -95,9 +95,10 @@ inventory state rather than of nondeterministic compilation.
     fallback (the update has no hostname, so the name is an address, as from
     the passive census or a hypervisor-enrichment update whose record has no
     name) < passive census sighting with an observed hostname < automation
-    inventory (AWX) name < SNMP `sysName` < hypervisor platform inventory
-    name, which the repeating hypervisor-enrichment update for an existing
-    host or guest carries from the inventory record. `hostname` is gated by
+    inventory (AWX) name < SNMP `sysName` < platform inventory name (such
+    as the hypervisor or camera inventory; the repeating
+    hypervisor-enrichment update for an existing host or guest carries it
+    from the inventory record). `hostname` is gated by
     the same tiers and decided together with `name` as one value, so plugin
     inputs, which prefer `hostname`, stop flipping. An address fallback is the address the device keeps after
     the existing address rank guard, never an address the guard rejected, so
@@ -141,8 +142,17 @@ inventory state rather than of nondeterministic compilation.
 - Every single-valued attribute read by plugin inputs or config
   compilation has one owning writer or a rank (design.md decision 12): the
   Proxmox metadata keys have one owner and other ingestors only fill them
-  when absent, and the camera inventory's `management_device_id` outranks
-  the mapper's.
+  when absent, and a platform inventory's `management_device_id` (such as
+  the camera inventory's) outranks the mapper's, including a clear to none
+  that the mapper's empty-fill must not undo.
+- Any integration inventory that reports a device's identity is platform
+  inventory for those fields by default (top name tier, hardware-vendor
+  tier, platform type tier), with the automation inventory as the ranked
+  exception. Every such writer (hypervisor and Proxmox enrichment, camera
+  inventory, WiFi-map ingestion, endpoint inventory, agent gateway sync) goes
+  through the same strength decision, with no bypassing update. A write
+  decides a multi-field value as a whole, and a field it does not carry
+  stays stored.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
