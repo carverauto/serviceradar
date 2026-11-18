@@ -182,3 +182,65 @@ func TestProxmoxInventorySkipsHostInternalGuestInterfacesWhenFallingBack(t *test
 		t.Fatalf("vm-100 discovered IP = %q, want 192.0.2.20 (not container bridge)", vm100IP)
 	}
 }
+
+// runProxmoxGuestAddresses runs the TinyGo-built plugin with vm-100's guest
+// agent reporting the given interfaces and returns vm-100's discovered IP.
+func runProxmoxGuestAddresses(t *testing.T, interfacesJSON string) string {
+	t.Helper()
+	responses := make(map[string]string, len(proxmoxRuntimeResponses))
+	for k, v := range proxmoxRuntimeResponses {
+		responses[k] = v
+	}
+	responses["/api2/json/nodes/pve-a/qemu/100/agent/network-get-interfaces"] = `{"data":{"result":[` + interfacesJSON + `]}}`
+
+	host := &wasmHost{config: []byte(proxmoxRuntimeConfig), http: func(t *testing.T, request wasmHTTPRequest) (int, []byte) {
+		path := strings.TrimPrefix(request.URL, "https://192.0.2.11:8006")
+		body, ok := responses[path]
+		if !ok || request.Method != http.MethodGet {
+			t.Fatalf("unexpected HTTP request: %+v", request)
+		}
+		return http.StatusOK, []byte(body)
+	}}
+	host.run(t, loadBuiltWasm(t, "proxmox_inventory.wasm"), "run_check")
+
+	for _, result := range host.results {
+		discoveries, _ := result["device_discovery"].([]any)
+		for _, discovery := range discoveries {
+			devices, _ := discovery.(map[string]any)["devices"].([]any)
+			for _, raw := range devices {
+				device, _ := raw.(map[string]any)
+				if device["hostname"] == "vm-100" {
+					ip, _ := device["ip"].(string)
+					return ip
+				}
+			}
+		}
+	}
+	t.Fatalf("no vm-100 device discovered")
+	return ""
+}
+
+// The spec's primary rule (device-inventory, "Primary address and aliases"): a
+// usable IPv4 is the primary whenever one exists, whatever order the guest agent
+// reports addresses in; IPv6 is the primary only on an IPv6-only guest. A
+// first-address chooser would return the link-local or global IPv6 here.
+func TestProxmoxInventoryPrefersUsableIPv4OnDualStackGuest(t *testing.T) {
+	ip := runProxmoxGuestAddresses(t,
+		`{"name":"eth0","hardware-address":"02:00:00:00:01:00","ip-addresses":[`+
+			`{"ip-address":"fe80::20","ip-address-type":"ipv6","prefix":64},`+
+			`{"ip-address":"2001:db8::20","ip-address-type":"ipv6","prefix":64},`+
+			`{"ip-address":"192.0.2.20","ip-address-type":"ipv4","prefix":24}]}`)
+	if ip != "192.0.2.20" {
+		t.Fatalf("dual-stack vm-100 discovered IP = %q, want 192.0.2.20", ip)
+	}
+}
+
+func TestProxmoxInventoryUsesGlobalIPv6OnIPv6OnlyGuest(t *testing.T) {
+	ip := runProxmoxGuestAddresses(t,
+		`{"name":"eth0","hardware-address":"02:00:00:00:01:00","ip-addresses":[`+
+			`{"ip-address":"fe80::20","ip-address-type":"ipv6","prefix":64},`+
+			`{"ip-address":"2001:db8::20","ip-address-type":"ipv6","prefix":64}]}`)
+	if ip != "2001:db8::20" {
+		t.Fatalf("IPv6-only vm-100 discovered IP = %q, want 2001:db8::20", ip)
+	}
+}
