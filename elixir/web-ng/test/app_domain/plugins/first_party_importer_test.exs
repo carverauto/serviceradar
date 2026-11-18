@@ -196,7 +196,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     def verify(%{ref: ref, digest: digest, signature_manifest: signature_manifest}) do
       Process.put(:cosign_verified_artifact, {ref, digest, signature_manifest})
-      {:ok, %{"status" => "verified", "log_id" => "synthetic-log", "log_index" => 42, "integrated_time" => 1_767_225_600}}
+      {:ok,
+       %{
+         "status" => "verified",
+         "log_id" => "synthetic-log",
+         "log_index" => 42,
+         "integrated_time" => 1_767_225_600
+       }}
     end
   end
 
