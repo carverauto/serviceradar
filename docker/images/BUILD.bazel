@@ -126,7 +126,7 @@ pkg_tar(
 
 pkg_tar(
     name = "web_ng_sigstore_layer",
-    srcs = ["//docs:sigstore_rekor_keys"],
+    srcs = ["//docs:sigstore/rekor-keys"],
     mode = "0644",
     package_dir = "/usr/share/serviceradar/sigstore/rekor-keys",
     deps = [":web_ng_sigstore_allowlist_layer"],
